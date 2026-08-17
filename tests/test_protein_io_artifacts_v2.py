@@ -89,7 +89,6 @@ def _run_import_export(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     compiled = authoring.require_compiled(
@@ -399,7 +398,6 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     compiled = authoring.require_compiled(

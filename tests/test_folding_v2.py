@@ -135,7 +135,6 @@ def _run_fold(
     environment_overrides: dict[str, Any] | None = None,
     result_replay_source: ResultReplaySource | None = None,
     source_sequence: str = "AG",
-    safe_environment_fingerprint: str | None = None,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
@@ -219,7 +218,6 @@ def _run_fold(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     environment_values = {
@@ -241,14 +239,6 @@ def _run_fold(
                 _esmfold2_binding_version(route),
             ): {
                 "values": environment_values,
-                "safe_fingerprint": (
-                    safe_environment_fingerprint
-                    or f"{route}-fixture-v1"
-                ),
-                "invalidation_token": (
-                    safe_environment_fingerprint
-                    or f"{route}-fixture-v1"
-                ),
             }
         }
     )
@@ -462,7 +452,6 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
         )
         committed = authoring.commit(
             project.id,
-            expected_draft_revision=0,
             workflow=WorkflowDocument(
                 schema_version="2.1.0",
                 workflow_id=project.id,
@@ -587,7 +576,6 @@ def _write_local_runtime_fixture(
         "local_runtime_structurally_available",
         lambda: True,
     )
-    fingerprint = adapter.configured_local_runtime_fingerprint()
     return {
         "model_snapshot_path": fold_snapshot,
         "model_snapshot_revision": adapter.LOCAL_ESMFOLD2_REVISION,
@@ -595,7 +583,6 @@ def _write_local_runtime_fixture(
         "language_model_snapshot_revision": adapter.LOCAL_ESMC_REVISION,
         "device": "cpu",
         "runtime_directory": runtime_directory,
-        "resolved_runtime_fingerprint": fingerprint,
         "provider_client": object(),
         "private_model_token": "must-not-publish",
     }
@@ -619,25 +606,6 @@ def test_local_readiness_validates_both_exact_snapshots(
     )
     rejected = adapter.local_readiness(environment)
     assert rejected == ReadinessResult(
-        False,
-        proof_source="direct-observation",
-        reason_code="local_runtime_unavailable",
-    )
-
-
-def test_local_readiness_rejects_fingerprint_from_other_esmc_precision(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.folding.adapter as adapter
-
-    environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
-    fp32_fingerprint = environment["resolved_runtime_fingerprint"]
-
-    monkeypatch.setattr(adapter, "LOCAL_ESMC_PRECISION", "bf16")
-
-    assert adapter.configured_local_runtime_fingerprint() != fp32_fingerprint
-    assert adapter.local_readiness(environment) == ReadinessResult(
         False,
         proof_source="direct-observation",
         reason_code="local_runtime_unavailable",
@@ -696,7 +664,6 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
         language_model_snapshot_path=tmp_path / "esmc",
         runtime_directory=tmp_path / "runtime",
         device="cpu",
-        safe_fingerprint="exact-fixture",
     )
 
     adapter.load_local_engine({}, runtime)
@@ -1408,18 +1375,9 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
 
 
 @pytest.mark.deterministic_acceptance
-def test_readiness_rejects_before_cache_lookup_or_fold_call(
+def test_readiness_rejects_before_fold_call(
     tmp_path: Path,
 ) -> None:
-    class LookupRecorder(ResultReplaySource):
-        def __init__(self) -> None:
-            self.lookups = 0
-
-        def lookup(self, **kwargs: Any) -> None:
-            del kwargs
-            self.lookups += 1
-            return None
-
     class BombClient:
         def __init__(self) -> None:
             self.calls = 0
@@ -1429,17 +1387,14 @@ def test_readiness_rejects_before_cache_lookup_or_fold_call(
             self.calls += 1
             raise AssertionError("provider call must not happen")
 
-    cache = LookupRecorder()
     client = BombClient()
-    with pytest.raises(V2RunError, match="not ready"):
-        _run_fold(
-            tmp_path,
-            route="remote",
-            client=client,
-            environment_overrides={"credential_handle": None},
-            result_replay_source=cache,
-        )
-    assert cache.lookups == 0
+    _, _, projection, _ = _run_fold(
+        tmp_path,
+        route="remote",
+        client=client,
+        environment_overrides={"credential_handle": None},
+    )
+    assert projection["status"] == "failed"
     assert client.calls == 0
 
 
@@ -1630,9 +1585,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
         "device": simplefold_adapter.SIMPLEFOLD_DEVICE,
-        "resolved_runtime_fingerprint": (
-            simplefold_adapter.configured_runtime_fingerprint()
-        ),
         "provider_client": SimpleFoldClient(),
         "private_token": "ctk-secret-must-not-publish",
     }
@@ -1641,9 +1593,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
         "device": simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
-        "resolved_runtime_fingerprint": (
-            confidence_adapter.configured_runtime_fingerprint()
-        ),
         "provider_client": ConfidenceClient(),
         "private_token": "ctk-secret-must-not-publish",
     }
@@ -1689,8 +1638,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "expected_candidate_counts": {
             "structure_candidates": 1,
         },
-        "safe_environment_fingerprint": "folding-ctk-fixture-v1",
-        "invalidation_token": "folding-ctk-fixture-v1",
         "forbidden_public_fragments": (
             "ctk-secret-must-not-publish",
         ),
@@ -1729,20 +1676,12 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             expected_candidate_counts={
                 "structure_candidates": 1,
             },
-            safe_environment_fingerprint=simplefold_environment[
-                "resolved_runtime_fingerprint"
-            ],
-            invalidation_token=simplefold_environment[
-                "resolved_runtime_fingerprint"
-            ],
             **{
                 key: value
                 for key, value in common.items()
                 if key
                 not in {
                     "expected_candidate_counts",
-                    "safe_environment_fingerprint",
-                    "invalidation_token",
                 }
             },
         ),
@@ -1781,12 +1720,6 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             expected_observation_counts={
                 "confidence_observations": 2,
             },
-            safe_environment_fingerprint=confidence_environment[
-                "resolved_runtime_fingerprint"
-            ],
-            invalidation_token=confidence_environment[
-                "resolved_runtime_fingerprint"
-            ],
             forbidden_public_fragments=(
                 "ctk-secret-must-not-publish",
             ),

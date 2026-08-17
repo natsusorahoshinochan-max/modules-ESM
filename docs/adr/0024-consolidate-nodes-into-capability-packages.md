@@ -4,11 +4,12 @@ status: accepted
 
 # Legacy node directories consolidate into capability packages
 
-The v2 migration consolidates the current one-node directories into eleven
+The v2 migration consolidates the current one-node directories into twelve
 repository-owned Module Packages: `prompt_authoring`, `esm3`, `folding`,
 `proteinmpnn`, `structure_annotation`, `structure_comparison`,
 `structure_transform`, `protein_io`, `selection`, `collection_ops`, and
-`solubility`.
+`solubility`, plus `structure_prediction` for provider-independent confidence
+materialization.
 Grouping follows shared scientific capability, dependencies, Adapters, and
 contract-test assets rather than legacy ID prefixes or UI categories.
 

@@ -10,19 +10,18 @@ Attempt or Engine Invocation. After a Cache miss or bypass, each actual run of
 the selected implementation is an Operation Attempt, which may contain zero,
 one, or several Engine Invocations.
 
-Every Operation Attempt and Engine Invocation that starts has exactly one
-terminal fact: `succeeded`, `failed`, `cancelled`, `interrupted`, or
-`outcome_unknown`. Successful engine work followed by decoding, normalization,
-output validation, or artifact post-processing failure remains a successful
-Invocation inside a failed Operation Attempt; its terminal fact is never
-rewritten as engine failure. If a worker is lost after start, the parent
-records `interrupted` or `outcome_unknown` rather than inventing a remote
-outcome, and any retry receives new Operation Attempt and Engine Invocation
-identities.
+During normal execution, every Operation Attempt and Engine Invocation that
+starts has exactly one terminal fact: `succeeded`, `failed`, `cancelled`,
+`interrupted`, or `outcome_unknown`. Successful engine work followed by
+decoding, normalization, output validation, or artifact post-processing
+failure remains a successful Invocation inside a failed Operation Attempt; its
+terminal fact is never rewritten as engine failure. If the process exits, the
+next startup closes only the unfinished Run as `interrupted`; it does not infer
+or reconstruct missing internal attempt or invocation terminals.
 
-Parent-child invocation roles are explicit. Acceptance checks ledger closure
-and causal relationships rather than preserving a historical fixed invocation
-count.
+Parent-child invocation roles are explicit. The general Ledger contract does
+not impose a historical global invocation count. A scenario-specific scientific
+acceptance test may still require exact counts for its named Provider stages.
 
 The Run Evidence Ledger is the single writer and ordered durable source of
 typed run facts. The run manifest, JSONL lifecycle stream, and WebSocket stream

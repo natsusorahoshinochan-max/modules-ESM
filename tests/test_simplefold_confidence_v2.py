@@ -200,13 +200,11 @@ def _confidence_environment(
         "validated_simplefold_esm2_root",
         lambda root=None: root,
     )
-    fingerprint = adapter.configured_runtime_fingerprint()
     return {
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
         "device": contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
-        "resolved_runtime_fingerprint": fingerprint,
         "provider_client": client,
         "private_token": "must-never-publish",
     }
@@ -318,7 +316,6 @@ def _run_confidence(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     if environment_values is None:
@@ -327,12 +324,9 @@ def _run_confidence(
             monkeypatch,
             client=client,
         )
-    fingerprint = environment_values["resolved_runtime_fingerprint"]
     environment = EnvironmentConfiguration({
         ("folding.simplefold_confidence.simplefold_local", "4.0.0"): {
             "values": environment_values,
-            "safe_fingerprint": fingerprint,
-            "invalidation_token": fingerprint,
         }
     })
     service = V2RunService(
@@ -487,7 +481,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
         ("esm2_model_root", "esm2_t36_3B_UR50D.pt"),
     ),
 )
-def test_confidence_readiness_has_exact_asset_closure_and_invalidates_replacement(
+def test_confidence_readiness_admits_only_the_exact_asset_closure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     root_name: str,
@@ -1113,28 +1107,3 @@ def test_resolved_asset_digests_are_bound_to_result_contract_identity(
         _simplefold_confidence_binding().implementation_identity
     )
     assert changed_identity != baseline_identity
-
-
-def test_failed_confidence_readiness_precedes_cache_lookup(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class Replay(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> Any:
-            raise AssertionError("cache lookup must not precede Readiness")
-
-    environment = _confidence_environment(
-        tmp_path,
-        monkeypatch,
-        client=object(),
-    )
-    (environment["model_root"] / "ccd.pkl").unlink()
-    with pytest.raises(V2RunError) as rejected:
-        _run_confidence(
-            tmp_path,
-            monkeypatch,
-            client=object(),
-            result_replay_source=Replay(),
-            environment_values=environment,
-        )
-    assert rejected.value.code == "readiness_rejected"

@@ -761,8 +761,6 @@ def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
             node_parameters=_selection_node(operation).node_parameters,
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token=f"selection-{operation}-v1",
             workflow_nodes=(_source(), _scorer()),
             workflow_edges=(
                 WorkflowEdge(
@@ -839,7 +837,6 @@ def test_public_execution_is_cache_replay_stable(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow.to_public(),
             },
         )
@@ -937,14 +934,12 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         client: TestClient,
         document: WorkflowDocument,
         *,
-        expected_draft_revision: int,
         expected_commit_revision: int,
         request_id: str,
     ):
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": expected_draft_revision,
                 "workflow": document.to_public(),
             },
         )
@@ -953,7 +948,7 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         commit = _assert_workflow_commit_owner(
             app,
             project_id,
-            source_draft_revision=expected_draft_revision + 1,
+            source_draft_revision=expected_commit_revision,
             workflow_commit_revision=expected_commit_revision,
         )
         started = client.post(
@@ -975,10 +970,9 @@ def test_changing_resolved_objective_invalidates_selection_cache(
 
     app = create_app(frozen_catalog_override=catalog)
     with TestClient(app) as client:
-        draft_revision, first = commit_run(
+        _, first = commit_run(
             client,
             workflow,
-            expected_draft_revision=0,
             expected_commit_revision=1,
             request_id="objective-weight-one",
         )
@@ -992,7 +986,6 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         _, second = commit_run(
             client,
             changed,
-            expected_draft_revision=draft_revision,
             expected_commit_revision=2,
             request_id="objective-weight-two",
         )

@@ -325,8 +325,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-function-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -348,8 +346,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-assemble-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -386,8 +382,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-build-layout-v1",
                 expected_scalar_outputs={
                     "layout": wire_value("residue.layout", SOURCE_LAYOUT),
                 },
@@ -414,8 +408,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-edit-layout-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -447,8 +439,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-map-track-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -499,8 +489,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-override-track-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -537,8 +525,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-update-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -569,8 +555,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-random-mask-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -592,8 +576,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-from-structure-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -626,8 +608,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-prompt-override-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -653,8 +633,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-random-insert-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(
@@ -682,8 +660,6 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 },
                 binding_parameters={},
                 environment_values={},
-                safe_environment_fingerprint="provider-free",
-                invalidation_token="prompt-authoring-deterministic-insert-v1",
                 workflow_nodes=(_SOURCE,),
                 workflow_edges=(
                     WorkflowEdge(

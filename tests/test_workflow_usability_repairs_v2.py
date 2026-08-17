@@ -55,7 +55,6 @@ def _run(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version=VERSION,
             workflow_id=project.id,

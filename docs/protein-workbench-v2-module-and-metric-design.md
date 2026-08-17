@@ -3,10 +3,13 @@
 日期：2026-07-27
 最后同步：2026-07-28
 
-状态：整体架构已接受，可作为 v2 规格与实现票据的输入；运行时代码尚未按本合同重构。
+状态：历史蓝图，已实现并由
+[`protein_workbench_architecture.md`](protein_workbench_architecture.md) 与
+[`codebase-redesign.md`](codebase-redesign.md) 取代；非当前规范。
 
 前提：把 `.scratch/protein-workbench-backend-repair/spec.md` 完成后的后端视为 v1
-基线。本文记录 v2 的唯一目标合同，不要求兼容 v1。
+基线。本文只记录当时的目标设计，不要求兼容 v1，也不得据此恢复
+Readiness-before-Cache、reusable proof、Cache conflict authority 或旧实施阶段。
 
 ## 1. 目标、维护者与范围
 
@@ -27,7 +30,7 @@ v2 不实现第三方 `pip install` 插件、插件管理、运行时热加载�
 增加 Python entry point loader，但它只能向同一个 Registry 提交相同的
 `ModulePackage` 注册对象，不能形成第二套扩展合同。
 
-当前前端不构成后端设计约束。后端合同稳定后，现有前端将被废弃并另行重写。
+文中关于前端将被废弃的表述也是历史计划，不描述当前前端状态。
 
 ## 2. 核心领域与扩展模型
 
@@ -282,7 +285,7 @@ invalidation contract 时才可复用；Run 仍记录自己的 attestation。禁
 process-global readiness cache。
 
 相关决定见
-[ADR-0029](./adr/0029-readiness-precedes-cache-lookup.md)。
+[ADR-0029](./adr/0029-readiness-follows-cache-miss-before-provider-entry.md)。
 
 ## 4. 目标 Module Packages
 

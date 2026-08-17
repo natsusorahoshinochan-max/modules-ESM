@@ -1269,22 +1269,6 @@ def _validate_static_semantics(
         plan_nodes=plan_nodes,
     )
 
-    availability = {
-        (
-            snapshot["binding"]["contract_id"],
-            snapshot["binding"]["contract_version"],
-        ): snapshot
-        for snapshot in catalog.availability
-    }
-    for node in workflow.nodes:
-        snapshot = availability.get((node.binding_id, node.binding_version))
-        if snapshot is None or snapshot.get("available") is not True:
-            raise WorkflowCompileError(
-                "binding_unavailable",
-                "Selected Binding is unavailable in this Catalog snapshot",
-                node_id=node.node_id,
-                field_path=("nodes", node.node_id, "binding_id"),
-            )
     return tuple(order)
 
 

@@ -285,13 +285,9 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
-            "safe_fingerprint": "provider-free-1pga-esmfold2",
-            "invalidation_token": "provider-free-1pga-esmfold2",
         },
         ("folding.fold.simplefold_local", "7.0.0"): {
             "values": {"provider_client": simplefold},
-            "safe_fingerprint": "provider-free-1pga-simplefold",
-            "invalidation_token": "provider-free-1pga-simplefold",
         },
     }
     catalog = _provider_free_catalog()
@@ -335,7 +331,6 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -660,13 +655,9 @@ def test_source_bound_1pga_public_classification_contract(
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
-            "safe_fingerprint": "provider-free-1pga-esmfold2",
-            "invalidation_token": "provider-free-1pga-esmfold2",
         },
         ("folding.fold.simplefold_local", "7.0.0"): {
             "values": {"provider_client": simplefold},
-            "safe_fingerprint": "provider-free-1pga-simplefold",
-            "invalidation_token": "provider-free-1pga-simplefold",
         },
     }
     catalog = _provider_free_catalog()
@@ -702,7 +693,7 @@ def test_source_bound_1pga_public_classification_contract(
         }
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"expected_draft_revision": 0, "workflow": workflow},
+            json={"workflow": workflow},
         )
         assert committed.status_code == 200, committed.json()
         started = client.post(

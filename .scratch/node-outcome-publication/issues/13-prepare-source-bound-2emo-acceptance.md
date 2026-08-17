@@ -1,5 +1,7 @@
 # 13 — 准备 source-bound 2EMO 科学验收
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 用 current Catalog 和固化 2EMO input 建立从 exact CSH parent-span normalization 到 ProteinMPNN、ESMFold2、confidence、structure comparison 和 Protein-Sol 的 public Workflow，并用 lawful provider-free values 闭合四个已锁定科学 filters。
 
 **Blocked by:** 12 — 准备 source-bound 1PGA 科学验收

@@ -513,9 +513,6 @@ def create_app(
             snapshot = (
                 request.app.state.workflow_authoring_v2.save_draft(
                     admitted["project_id"],
-                    expected_draft_revision=admitted[
-                        "expected_draft_revision"
-                    ],
                     workflow=workflow,
                 ).to_public()
             )
@@ -584,9 +581,6 @@ def create_app(
             )
             receipt = request.app.state.workflow_authoring_v2.commit(
                 admitted["project_id"],
-                expected_draft_revision=admitted[
-                    "expected_draft_revision"
-                ],
                 workflow=workflow,
             ).to_public()
         except WorkflowDocumentError as error:

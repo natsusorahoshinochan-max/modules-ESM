@@ -1012,13 +1012,13 @@
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.biohub_medium",
       "contract_version": "7.0.0",
-      "contract_digest": "sha256:fd67c0f55575aa85beb8be6232ad734bbb78f9d0f549766b85c7a6eafc503545"
+      "contract_digest": "sha256:d55ec93152ddb4abbeccf12e9fb1df58185eb4079b6fcd0b5ec489f1c78309ff"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
       "contract_version": "7.0.0",
-      "contract_digest": "sha256:cb0781ac3f9e4b42e54c6fa84b96c68169282f91fb2762e14b889e4b4f5748e4"
+      "contract_digest": "sha256:5ee749131d1968ca3980118d1c953befb7b2aa6d4618b8ccde66fddc10d843ca"
     },
     {
       "contract_kind": "binding",
@@ -1066,13 +1066,13 @@
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
       "contract_version": "10.0.0",
-      "contract_digest": "sha256:f7f8158b1c3a253d30c1f6d5577cf1dc2d80bbdfd7ee9a561a3801218ddaf2fd"
+      "contract_digest": "sha256:7a690fe37dba03c8169fbf316692be8216b09753749614130c10e19441609a46"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.random_fixed_positions.local",
       "contract_version": "4.0.0",
-      "contract_digest": "sha256:879ab91d675df252d596a003b717cd0b39492e0c89ba2d0d74fe79275fc915a7"
+      "contract_digest": "sha256:b1ca172a0a595c1575a8493b351270d7a14b833c67a5ff8b20ffd264fe733295"
     },
     {
       "contract_kind": "binding",

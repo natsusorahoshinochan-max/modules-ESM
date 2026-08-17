@@ -23,8 +23,10 @@ that this project does not have.
    contract. Internal code consumes the admitted value without repeating the
    same proof.
 4. Do not implement attacker handling, symlink or traversal defenses, disk
-   tamper detection, permission proofs, secret-pattern fuzzing, or malformed
-   Provider recovery.
+   tamper detection, permission proofs, or secret-pattern fuzzing for Evidence,
+   Provider assets, or ordinary internal data. Credential files retain only the
+   narrow private-regular-file check required for credential hygiene. Do not
+   implement malformed Provider recovery.
 5. Keep direct checks for scientific meaning, explicit public contracts,
    credential hygiene, and errors that occur on the expected path.
 6. Prefer one small owner over managers, registries, state machines, policy
@@ -134,7 +136,8 @@ All exit criteria were met for source revision
 - The provider-free matrix passed: `routine` 1269 passed / 53 deselected;
   `examples-v2` 12 passed; `deterministic-acceptance` 8 passed;
   `scientific-repro` 1 passed; `local-esmfold2-v2-contract` 6 passed;
-  `installed-package` 6 passed; `provider-isolation` 16 passed.
+  `installed-package` 6 passed. The then-current `provider-isolation` tier also
+  passed 16 tests; it was later removed as a defensive, non-scientific gate.
 - Frontend Oxlint, TypeScript, and Vite build passed. Python compilation and
   `git diff --check` passed.
 - Standards and Spec review found no remaining HIGH or MEDIUM issue.
@@ -143,3 +146,8 @@ All exit criteria were met for source revision
   once in serial order and finished `passed` with 15/15 results.
 - No second Provider run, Certification generation, Evidence promotion, or
   secondary digest was performed.
+
+The 15/15 Campaign above remains the accepted scientific result for revision
+`21bd098`. A later trust-model cleanup removed reusable Readiness proofs,
+replacement/invalidation checks, whole-package inventory checks, and the
+standalone `provider-isolation` tier without rerunning Providers.

@@ -1,6 +1,10 @@
 # Protein Workbench backend scientific and execution repair
 
-**Status:** ready-for-agent
+**Status:** historical completion record; superseded; do not implement
+
+Current authority: `CONTEXT.md`, `docs/codebase-redesign.md`,
+`docs/redesign-switch-1.md`, and the accepted ADRs. Defensive path and sealed
+bundle/checksum requirements below are historical.
 
 ## Problem Statement
 

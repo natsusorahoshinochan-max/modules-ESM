@@ -314,7 +314,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         ] = {"project_input_ref": uploaded.json()["project_input_ref"]}
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"expected_draft_revision": 0, "workflow": payload},
+            json={"workflow": payload},
         )
         assert committed.status_code == 200, committed.json()
         started = client.post(

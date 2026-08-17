@@ -19,7 +19,6 @@ from modules.provider_contract import (
 from tests.acceptance.conftest import (
     PROJECT_ROOT,
     SEQUENCE_3GB1_SHA256,
-    require_ready,
 )
 from tests.test_folding_v2 import (
     _decode_output,
@@ -69,12 +68,9 @@ def _fold_outputs(
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
-    readiness: dict[str, bool],
     tmp_path: Path,
 ) -> None:
     """Exercise the exact remote Binding, normalization, and typed outputs."""
-    require_ready("biohub", readiness)
-    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     assert hashlib.sha256(SEQUENCE_3GB1.encode()).hexdigest() == (
         SEQUENCE_3GB1_SHA256
     )
@@ -399,7 +395,6 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         LOCAL_ESMC_REVISION,
         LOCAL_ESMFOLD2_ARTIFACT_SHA256,
         LOCAL_ESMFOLD2_REVISION,
-        configured_local_runtime_fingerprint,
     )
 
     real_local_input_builder = folding_adapter._local_input_builder
@@ -461,7 +456,6 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     )
     runtime_directory = tmp_path / "runtime"
     runtime_directory.mkdir()
-    fingerprint = configured_local_runtime_fingerprint()
     environment = {
         "model_snapshot_path": model_snapshot,
         "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
@@ -469,14 +463,12 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
         "device": "cpu",
         "runtime_directory": runtime_directory,
-        "resolved_runtime_fingerprint": fingerprint,
     }
     service, catalog, projection, events = _run_fold(
         tmp_path,
         route="local",
         client=None,
         environment_overrides=environment,
-        safe_environment_fingerprint=fingerprint,
     )
 
     assert projection["status"] == "succeeded", projection

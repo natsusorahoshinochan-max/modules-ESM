@@ -90,7 +90,6 @@ export default function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [projectId, setProjectId] = useState<string | null>(null);
-  const [draftRevision, setDraftRevision] = useState(0);
   const [workflowSemantics, setWorkflowSemantics] = useState<
     Pick<
       WorkflowDocument,
@@ -163,7 +162,6 @@ export default function App() {
         body: JSON.stringify({ name }),
       });
       setProjectId(project.id);
-      setDraftRevision(0);
       setActiveRunId(null);
       setWorkflowSemantics({
         contract_lock: [],
@@ -233,7 +231,6 @@ export default function App() {
         },
       );
       setProjectId(requested);
-      setDraftRevision(draft.draft_revision);
       setActiveRunId(null);
       setWorkflowSemantics({
         contract_lock: draft.workflow.contract_lock,
@@ -264,14 +261,12 @@ export default function App() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          expected_draft_revision: draftRevision,
           workflow: workflowDocument(projectId),
         }),
       },
     );
-    setDraftRevision(draft.draft_revision);
     return draft;
-  }, [draftRevision, projectId, workflowDocument]);
+  }, [projectId, workflowDocument]);
 
   const handleSave = useCallback(async () => {
     setError(null);
@@ -320,12 +315,10 @@ export default function App() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            expected_draft_revision: draftRevision,
             workflow: workflowDocument(projectId),
           }),
         },
       );
-      setDraftRevision(committed.source_draft_revision);
       const receipt = await requestJson<RunReceipt>(
         `/api/v2/projects/${encodeURIComponent(projectId)}/runs`,
         {
@@ -343,7 +336,7 @@ export default function App() {
       setIsRunning(false);
       setError((failure as Error).message);
     }
-  }, [connectRunEvents, draftRevision, nodes, projectId, workflowDocument]);
+  }, [connectRunEvents, nodes, projectId, workflowDocument]);
 
   const cancelRun = useCallback(async () => {
     if (projectId === null || activeRunId === null) return;

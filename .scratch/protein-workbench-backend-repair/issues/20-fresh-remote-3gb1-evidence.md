@@ -1,5 +1,7 @@
 # 20 — Seal a fresh remote-real 3GB1 acceptance run
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** An acceptance operator executes one fresh canonical 3GB1 backend run against the required real providers and seals enough source-bound evidence to authorize a separate frontend-rewrite specification.
 
 **Blocked by:** 19 — Run required real-provider gates without green skips.

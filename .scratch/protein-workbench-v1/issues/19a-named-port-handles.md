@@ -1,10 +1,12 @@
 # 19a — Named port handles on workflow nodes
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** When a workflow is opened or a node is added, each node displays named connection handles matching its module's input and output ports. Edges from the workflow JSON (or manually drawn) render as visible, connected lines between the correct ports. Replaces the current ReactFlow `type: "default"` node with a custom component that reads the module definition and renders `Handle` elements per port.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Custom ReactFlow node component that renders `Handle` elements per module input/output port, with port names as handle IDs
 - [ ] Handles positioned on left (inputs) and right (outputs) of the node, stacked vertically

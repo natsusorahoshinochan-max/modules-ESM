@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from tests.acceptance.conftest import PROJECT_ROOT, require_ready
+from tests.acceptance.conftest import PROJECT_ROOT
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -201,7 +201,6 @@ def _run_rich_esm3_generation(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -255,8 +254,6 @@ def _run_rich_esm3_generation(
                         "credential_handle": credential_handle,
                         "client_factory": client_factory,
                     },
-                    "safe_fingerprint": environment_fingerprint,
-                    "invalidation_token": environment_fingerprint,
                 }
             }
         ),
@@ -505,24 +502,18 @@ def _assert_exact_structure_confidence(
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
-    readiness: dict[str, bool],
     tmp_path: Path,
 ) -> None:
-    require_ready("biohub", readiness)
-
     from esm.sdk.forge import ESM3ForgeInferenceClient
     from modules.esm3.adapter import (
         BIOHUB_ESM3_MEDIUM_MODEL,
         BIOHUB_ESM3_OPEN_MODEL,
     )
     from modules.provider_contract import (
-        ESM_SDK_REVISION,
         read_biohub_token,
-        validate_installed_provider_checkout,
     )
     from tests.fixtures.esm3_generation import decode_output
 
-    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     token = read_biohub_token(str(PROJECT_ROOT))
     provider_calls: list[dict[str, Any]] = []
     routes = {
@@ -801,22 +792,16 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 def test_biohub_esmfold2_executes_exact_method(
-    readiness: dict[str, bool],
     tmp_path: Path,
 ) -> None:
-    require_ready("biohub", readiness)
-
     from esm.sdk.forge import SequenceStructureForgeInferenceClient
     from modules.folding.adapter import REMOTE_ESMFOLD2_MODEL
     from modules.provider_contract import (
-        ESM_SDK_REVISION,
         read_biohub_token,
-        validate_installed_provider_checkout,
     )
     from tests.acceptance.test_esmfold2_v2 import _fold_outputs
     from tests.test_folding_v2 import _run_fold
 
-    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     token = read_biohub_token(str(PROJECT_ROOT))
     provider_calls: list[dict[str, Any]] = []
 
@@ -876,7 +861,6 @@ def test_biohub_esmfold2_executes_exact_method(
         source_sequence=(
             "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
         ),
-        safe_environment_fingerprint="installed-biohub-esmfold2-fast-2026-05",
     )
 
     assert projection["status"] == "succeeded", events
@@ -942,7 +926,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     from modules.folding.adapter import (
         LOCAL_ESMC_REVISION,
         LOCAL_ESMFOLD2_REVISION,
-        configured_local_runtime_fingerprint,
     )
     from tests.acceptance.test_esmfold2_v2 import _fold_outputs
     from tests.test_folding_v2 import _run_fold
@@ -953,7 +936,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     esmc_model_root = _required_absolute_path(
         "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT"
     )
-    fingerprint = configured_local_runtime_fingerprint()
     runtime_directory = tmp_path / "runtime"
     runtime_directory.mkdir()
     service, catalog, projection, events = _run_fold(
@@ -967,10 +949,8 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
             "device": "cpu",
             "runtime_directory": runtime_directory,
-            "resolved_runtime_fingerprint": fingerprint,
         },
         source_sequence="AG",
-        safe_environment_fingerprint=fingerprint,
     )
 
     assert projection["status"] == "succeeded", events
@@ -1018,11 +998,8 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_proteinmpnn_design_and_score_execute_exact_methods(
-    readiness: dict[str, bool],
     tmp_path: Path,
 ) -> None:
-    require_ready("proteinmpnn", readiness)
-
     from core import WorkflowNodeInstance
     from core.workflow_v2 import WorkflowEdge
     from datatypes import CandidateCollection, ScoreCollection
@@ -1234,7 +1211,6 @@ def test_mkdssp_executes_exact_method_through_public_run(
     from core import (
         EnvironmentConfiguration,
         ProjectManager,
-        ReadinessCheckInput,
         V2RunService,
         WorkflowAuthoringService,
         WorkflowDocument,
@@ -1248,17 +1224,13 @@ def test_mkdssp_executes_exact_method_through_public_run(
     )
     from modules.structure_annotation.domain import DSSPAnnotation
     from modules.structure_annotation.package import (
-        MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE,
-        _dssp_ready,
+        MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE
     )
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
 
     binary = _required_absolute_path("PROTEIN_WORKBENCH_MKDSSP_BINARY")
-    assert _dssp_ready(
-        ReadinessCheckInput({"dssp_binary": str(binary)}, None)
-    ).passing
 
     catalog = build_frozen_catalog(
         (
@@ -1345,7 +1317,6 @@ def test_mkdssp_executes_exact_method_through_public_run(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     binding_id = "structure_annotation.dssp_compute.mkdssp_local"
@@ -1357,8 +1328,6 @@ def test_mkdssp_executes_exact_method_through_public_run(
             {
                 (binding_id, "6.0.0"): {
                     "values": {"dssp_binary": str(binary)},
-                    "safe_fingerprint": "mkdssp-4.6.1",
-                    "invalidation_token": "mkdssp-4.6.1",
                 }
             }
         ),

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-import hashlib
 import importlib.metadata
-import json
 import os
 from pathlib import Path
 from typing import Any, cast
@@ -157,13 +155,6 @@ def proteinmpnn_readiness(
             proof_source="direct-observation",
             reason_code="proteinmpnn_runtime_unavailable",
         )
-    fingerprint = environment.get("resolved_runtime_fingerprint")
-    if fingerprint != configured_runtime_fingerprint():
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
     client = environment.get("provider_client")
     if client is not None:
         return ReadinessResult(
@@ -193,23 +184,6 @@ def proteinmpnn_readiness(
             reason_code="proteinmpnn_runtime_unavailable",
         )
     return ReadinessResult(True, proof_source="direct-observation")
-
-
-def configured_runtime_fingerprint() -> str:
-    """Return the safe exact CPU runtime identity required by this Binding."""
-    payload = json.dumps(
-        {
-            "schema_namespace": "protein-workbench-proteinmpnn-runtime/v2",
-            "model": PROTEINMPNN_MODEL,
-            "checkpoint": PROTEINMPNN_CHECKPOINT,
-            "device": PROTEINMPNN_DEVICE,
-            "torch_version": PROTEINMPNN_TORCH_VERSION,
-            "provider_identity": proteinmpnn_provider_identity(),
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
 def _provider_for_environment(

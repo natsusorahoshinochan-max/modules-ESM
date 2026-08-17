@@ -72,7 +72,6 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
         "installed-simplefold-folding",
         "installed-soluprot",
         "local-esmfold2-v2-contract",
-        "provider-isolation",
         "routine",
         "scientific-repro",
     }
@@ -188,7 +187,6 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
     }
     assert all(
         TIERS[name].zero_skip
-        and TIERS[name].clean_source
         and TIERS[name].retain_evidence_bundle
         for name in ACCEPTANCE_TIER_ORDER
     )
@@ -616,24 +614,10 @@ def test_verifier_retains_a_failed_tier_result_without_reporting_passed(
     assert tier_result["passed"] is False
 
 
-def test_verifier_rejects_unsafe_overrides_and_retired_v1_tiers(
-    tmp_path: Path,
-) -> None:
-    unsafe_path = _run_verifier("routine", str(tmp_path / "outside.py"))
-    unsafe_option = _run_verifier("routine", "--token=must-not-retain")
-    provider_override = _run_verifier(
-        "installed-local-esm3",
-        "tests/tier_probes/test_isolated_roots.py",
-    )
+def test_verifier_rejects_retired_v1_tiers() -> None:
     retired = _run_verifier("live-provider")
 
-    assert unsafe_path.returncode != 0
-    assert unsafe_option.returncode != 0
-    assert provider_override.returncode != 0
     assert retired.returncode != 0
-    assert "repo-relative paths beneath tests/" in unsafe_path.stderr
-    assert "must-not-retain" not in unsafe_option.stderr
-    assert "do not accept test overrides" in provider_override.stderr
     assert "invalid choice" in retired.stderr
 
 

@@ -1,5 +1,7 @@
 # 05 — Run a readiness-gated direct Node
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** A client can start a compiled Workflow containing one deterministic direct Node, observe exact Binding readiness before any work begins, receive a trustworthy successful Run Projection, and retrieve its validated typed output or artifact through the public protocol.
 
 **Blocked by:** 04 — Compile contract-locked v2 Workflows.

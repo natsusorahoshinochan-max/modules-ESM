@@ -1,12 +1,14 @@
 # 05 — ProteinPrompt editor
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** A user opens a dedicated ProteinPrompt editor panel, defines a target residue layout, imports a template structure to map from, and edits individual residues: insert, delete, set specific amino acids, or mask positions for the model to fill. They independently control which residues have structure coordinates visible versus which are masked. They compute DSSP and SASA from the template and optionally override values by hand. They add function annotations as named residue ranges. Finally, an "Assemble ProteinPrompt" node on the canvas collects all tracks into a single `ProteinPrompt` object ready for ESM3.
 
 This is the most interaction-heavy part of the workbench and the critical data object that ESM3 conditions on.
 
 **Blocked by:** 04 — Import/Export modules and 3D structure viewer.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] `ResidueLayout` dataclass: chain ID, length. `Build Residue Layout` module: user specifies chain count and per-chain length → produces `residue.layout`.
 - [ ] `ResidueMap` dataclass: source_layout, target_layout, mapping list (source residue → target residue with operation: match/insert/delete).

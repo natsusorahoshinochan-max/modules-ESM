@@ -22,7 +22,6 @@ from core import (
     ScientificOperation,
     ScientificOperationFactory,
 )
-from modules.provider_contract import validate_installed_provider_checkout
 from modules.provider_contract import (
     SIMPLEFOLD_ARTIFACT_SHA256,
     SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
@@ -70,7 +69,6 @@ from .simplefold_adapter import (
 )
 from .simplefold_confidence_adapter import (
     LocalSimpleFoldConfidenceAdapter,
-    configured_runtime_fingerprint as confidence_runtime_fingerprint,
     simplefold_confidence_readiness,
     simplefold_confidence_runtime_structurally_available,
 )
@@ -122,15 +120,7 @@ def _remote_available() -> AvailabilityResult:
     if not remote_runtime_structurally_available():
         return AvailabilityResult.unavailable(
             code="remote_esmfold2_runtime_unavailable",
-            message="The exact remote ESMFold2 SDK runtime is unavailable.",
-            retryable=False,
-        )
-    try:
-        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except (OSError, RuntimeError, ValueError):
-        return AvailabilityResult.unavailable(
-            code="remote_esmfold2_runtime_unavailable",
-            message="The exact remote ESMFold2 SDK runtime is unavailable.",
+            message="The remote ESMFold2 SDK runtime is unavailable.",
             retryable=False,
         )
     return AvailabilityResult.available()
@@ -282,8 +272,8 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                 "folding.esmfold2_remote/readiness",
                 binding_version,
                 {
-                    "observation": "per-run",
-                    "cache_order": "before-cache-lookup",
+                    "observation": "cache-miss",
+                    "cache_order": "before-provider-entry",
                     "secret_retention": "none",
                 },
             ),
@@ -344,8 +334,8 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                 "folding.esmfold2_local/readiness",
                 binding_version,
                 {
-                    "observation": "per-run",
-                    "cache_order": "before-cache-lookup",
+                    "observation": "cache-miss",
+                    "cache_order": "before-provider-entry",
                     "secret_retention": "none",
                 },
             ),
@@ -373,10 +363,6 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                 },
                 "runtime_directory": {
                     "source": "trusted_environment_configuration",
-                },
-                "runtime_fingerprint": {
-                    "source": "trusted_environment_configuration",
-                    "safe_public_identity": True,
                 },
             },
             check=_local_ready,
@@ -535,8 +521,8 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "folding.simplefold_local/readiness",
                 _SIMPLEFOLD_FOLD_BINDING_VERSION,
                 {
-                    "observation": "per-run",
-                    "cache_order": "before-cache-lookup",
+                    "observation": "cache-miss",
+                    "cache_order": "before-provider-entry",
                     "model_load": "forbidden",
                 },
             ),
@@ -561,10 +547,6 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "device": {
                     "source": "trusted_environment_configuration",
                     "exact_value": SIMPLEFOLD_DEVICE,
-                },
-                "runtime_fingerprint": {
-                    "source": "trusted_environment_configuration",
-                    "safe_public_identity": True,
                 },
             },
             check=_simplefold_ready,
@@ -676,8 +658,8 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
                 "folding.simplefold_confidence/readiness",
                 _CONFIDENCE_NODE_BINDING_VERSION,
                 {
-                    "observation": "per-run",
-                    "cache_order": "before-cache-lookup",
+                    "observation": "cache-miss",
+                    "cache_order": "before-provider-entry",
                     "model_load": "forbidden",
                     "asset_closure": "exact-confidence-only",
                 },
@@ -707,11 +689,6 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
                 "device": {
                     "source": "trusted_environment_configuration",
                     "exact_value": SIMPLEFOLD_CONFIDENCE_DEVICE,
-                },
-                "runtime_fingerprint": {
-                    "source": "trusted_environment_configuration",
-                    "configured_value": confidence_runtime_fingerprint(),
-                    "safe_public_identity": True,
                 },
             },
             check=_simplefold_confidence_ready,

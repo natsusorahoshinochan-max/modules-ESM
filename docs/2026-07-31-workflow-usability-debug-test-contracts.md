@@ -3,15 +3,17 @@
 日期：2026-07-31  
 状态：历史调试基线；测试合同已经执行，本文件中的版本矩阵保留为当时快照
 
+本文件中的命令、版本矩阵、双阶段判定和 confirmation retry 纪律均不适用于
+当前单阶段 Acceptance Campaign。
+
 ## 1. 文档地位
 
 本文固化以下三条理论上可用的 Protein Workbench Workflow，以及使用
 `2EMO.pdb`、`5G53.pdb` 和 `1PGA-75-gen1_0690.pdb` 对当前项目进行真实可用性
 调试时的任务目标、输入合同、测试要求和结果分类。
 
-本文是调试与缺口记录合同，不是修复计划、实现票据或替代 Workflow。后续执行必须以
-本文定义的科学问题和判定 interface 为准；不能因为当前 Catalog、Port、Binding 或
-provider 不支持，就缩小需求、改写科学问题或在 Workbench 外补接结果。
+本文是历史调试与缺口记录，不是当前修复计划、实现票据或执行纪律。其科学
+场景已由当前 Workflow 和 acceptance tests 接管。
 
 理论工作流讨论所依据的代码基线与当前项目测试输入：
 

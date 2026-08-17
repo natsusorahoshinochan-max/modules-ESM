@@ -1,10 +1,12 @@
 # 18a — `structure.pairwise_align` module
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** A new DAG node that accepts two `CandidateCollection`s of `protein.structure` items and performs index-matched SVD alignment on each `(ref[i], mobile[i])` pair. Outputs a `CandidateCollection` of `StructureAlignment` items, reusing the reference candidate IDs so downstream scorers correctly set subjects. Replaces the imperative for-loop in step 2 of `scripts/3gb1_pipeline.py` with a single composable node.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Module directory `modules/structure_pairwise_align/` with `definition.yaml`, `module.py`, `__init__.py`, and `register()` function
 - [ ] Two input ports (`reference_candidates`, `mobile_candidates`), one output port (`alignments`)

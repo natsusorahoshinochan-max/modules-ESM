@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from _thread import RLock
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import json
@@ -202,12 +201,6 @@ class WorkflowAuthoringService:
         self._catalog = catalog
         self._active_commits: dict[str, WorkflowCommit] = {}
         self._committed_plans: dict[tuple[str, str], CompiledWorkflow] = {}
-        self._project_locks_guard = RLock()
-        self._project_locks: dict[str, RLock] = {}
-
-    def _project_lock(self, project_id: str) -> RLock:
-        with self._project_locks_guard:
-            return self._project_locks.setdefault(project_id, RLock())
 
     def _require_project(self, project_id: str) -> ProjectMeta:
         try:
@@ -321,10 +314,9 @@ class WorkflowAuthoringService:
     def load_draft(self, project_id: str) -> WorkflowDraft:
         """Load the latest exact unlocked Draft without compiling it."""
         self._require_project(project_id)
-        with self._project_lock(project_id):
-            return self._load_draft_locked(project_id)
+        return self._load_draft(project_id)
 
-    def _load_draft_locked(self, project_id: str) -> WorkflowDraft:
+    def _load_draft(self, project_id: str) -> WorkflowDraft:
         revision = self._latest_record_revision(project_id, "drafts")
         if revision == 0:
             raise WorkflowAuthoringError(
@@ -433,47 +425,16 @@ class WorkflowAuthoringService:
         self,
         project_id: str,
         *,
-        expected_draft_revision: int,
         workflow: WorkflowDocument,
     ) -> WorkflowDraft:
         """Persist an unlocked Draft without requiring it to compile."""
-        if (
-            type(expected_draft_revision) is not int
-            or expected_draft_revision < 0
-        ):
-            raise WorkflowAuthoringError(
-                "malformed_request",
-                "Expected Workflow Draft revision must be non-negative",
-                details={"field_path": ["expected_draft_revision"]},
-            )
         self._require_project(project_id)
         self._require_writable_project(project_id)
         self._validate_draft_submission(project_id, workflow)
-        with self._project_lock(project_id):
-            current_revision = self._latest_record_revision(
-                project_id,
-                "drafts",
-            )
-            if current_revision != expected_draft_revision:
-                raise WorkflowAuthoringError(
-                    "workflow_draft_revision_conflict",
-                    (
-                        "Workflow Draft revision does not match the "
-                        "persisted revision"
-                    ),
-                    details={
-                        "expected_draft_revision": expected_draft_revision,
-                        "observed_draft_revision": current_revision,
-                    },
-                )
-            revision = current_revision + 1
-            return self._publish_draft_locked(
-                project_id,
-                revision,
-                workflow,
-            )
+        revision = self._latest_record_revision(project_id, "drafts") + 1
+        return self._publish_draft(project_id, revision, workflow)
 
-    def _publish_draft_locked(
+    def _publish_draft(
         self,
         project_id: str,
         draft_revision: int,
@@ -625,54 +586,9 @@ class WorkflowAuthoringService:
                     "received_schema_version": "unknown",
                 },
             ) from error
-        try:
-            source_draft = self._load_draft_revision_record(
-                project_id,
-                commit.source_draft_revision,
-            )
-        except WorkflowAuthoringError as error:
-            raise WorkflowAuthoringError(
-                "workflow_commit_identity_mismatch",
-                "Workflow Commit source Draft is unavailable or invalid",
-                details={
-                    "workflow_commit_id": commit.workflow_commit_id,
-                },
-            ) from error
-        if source_draft.draft_digest != commit.source_draft_digest:
-            raise WorkflowAuthoringError(
-                "workflow_commit_identity_mismatch",
-                "Workflow Commit does not name its exact source Draft",
-                details={
-                    "workflow_commit_id": commit.workflow_commit_id,
-                },
-            )
-        if (
-            commit.catalog_contract_digest == self._catalog.contract_digest
-        ):
-            try:
-                expected_locked_workflow = relock_workflow(
-                    source_draft.workflow,
-                    self._catalog,
-                )
-            except WorkflowCompileError as error:
-                raise WorkflowAuthoringError(
-                    "workflow_commit_identity_mismatch",
-                    "Workflow Commit source Draft cannot reproduce its Lock",
-                    details={
-                        "workflow_commit_id": commit.workflow_commit_id,
-                    },
-                ) from error
-            if expected_locked_workflow != commit.locked_workflow:
-                raise WorkflowAuthoringError(
-                    "workflow_commit_identity_mismatch",
-                    "Workflow Commit Lock does not derive from its source Draft",
-                    details={
-                        "workflow_commit_id": commit.workflow_commit_id,
-                    },
-                )
         return commit
 
-    def _active_commit_locked(self, project_id: str) -> WorkflowCommit:
+    def _active_commit(self, project_id: str) -> WorkflowCommit:
         commit = self._active_commits.get(project_id)
         if commit is None:
             commit = self._load_active_commit_record(project_id)
@@ -682,8 +598,7 @@ class WorkflowAuthoringService:
     def load_active_commit(self, project_id: str) -> WorkflowCommit:
         """Load the active immutable Workflow Commit."""
         self._require_project(project_id)
-        with self._project_lock(project_id):
-            return self._active_commit_locked(project_id)
+        return self._active_commit(project_id)
 
     def _hydrate_compiled_commit(
         self,
@@ -728,81 +643,21 @@ class WorkflowAuthoringService:
         self,
         project_id: str,
         *,
-        expected_draft_revision: int,
         workflow: WorkflowDocument,
     ) -> WorkflowCommit:
         """Save, lock, compile, and publish one runnable Workflow Commit."""
-        if (
-            type(expected_draft_revision) is not int
-            or expected_draft_revision < 0
-        ):
-            raise WorkflowAuthoringError(
-                "malformed_request",
-                "Expected Workflow Draft revision must be non-negative",
-                details={"field_path": ["expected_draft_revision"]},
-            )
         self._require_project(project_id)
         self._require_writable_project(project_id)
         self._validate_draft_submission(project_id, workflow)
-        with self._project_lock(project_id):
-            return self._commit_locked(
-                project_id,
-                expected_draft_revision=expected_draft_revision,
-                workflow=workflow,
-            )
-
-    def _commit_locked(
-        self,
-        project_id: str,
-        *,
-        expected_draft_revision: int,
-        workflow: WorkflowDocument,
-    ) -> WorkflowCommit:
         current_draft_revision = self._latest_record_revision(
             project_id,
             "drafts",
         )
-        if current_draft_revision == expected_draft_revision:
-            draft = self._publish_draft_locked(
-                project_id,
-                current_draft_revision + 1,
-                workflow,
-            )
-        elif current_draft_revision == expected_draft_revision + 1:
-            draft = self.load_draft(project_id)
-            if draft.draft_digest != workflow.digest:
-                raise WorkflowAuthoringError(
-                    "workflow_draft_revision_conflict",
-                    "Workflow Commit retry does not match the saved Draft",
-                    details={
-                        "expected_draft_revision": expected_draft_revision,
-                        "observed_draft_revision": current_draft_revision,
-                    },
-                )
-        else:
-            raise WorkflowAuthoringError(
-                "workflow_draft_revision_conflict",
-                "Workflow Commit requires the exact active Draft revision",
-                details={
-                    "expected_draft_revision": expected_draft_revision,
-                    "observed_draft_revision": current_draft_revision,
-                },
-            )
-        try:
-            active_commit = self._active_commit_locked(project_id)
-        except WorkflowAuthoringError as error:
-            if error.code != "workflow_commit_not_found":
-                raise
-        else:
-            if (
-                active_commit.source_draft_revision
-                == draft.draft_revision
-                and active_commit.source_draft_digest == draft.draft_digest
-                and active_commit.catalog_contract_digest
-                == self._catalog.contract_digest
-            ):
-                self._hydrate_compiled_commit(active_commit)
-                return active_commit
+        draft = self._publish_draft(
+            project_id,
+            current_draft_revision + 1,
+            workflow,
+        )
         workflow_commit_revision = (
             self._latest_record_revision(project_id, "commits") + 1
         )
@@ -823,10 +678,10 @@ class WorkflowAuthoringService:
             source_draft_revision=draft.draft_revision,
             source_draft_digest=draft.draft_digest,
         )
-        self._publish_commit_locked(commit, compiled)
+        self._publish_commit(commit, compiled)
         return commit
 
-    def _publish_commit_locked(
+    def _publish_commit(
         self,
         commit: WorkflowCommit,
         compiled: CompiledWorkflow,
@@ -912,80 +767,38 @@ class WorkflowAuthoringService:
                     "received_schema_version": "unknown",
                 },
             )
-        with self._project_lock(project_id):
-            expected_draft = self._draft_value(
-                project_id,
-                1,
-                unlocked_workflow,
+        expected_draft = self._draft_value(
+            project_id,
+            1,
+            unlocked_workflow,
+        )
+        expected_commit = self._commit_value(
+            project_id=project_id,
+            locked_workflow=locked_workflow,
+            compiled=compiled,
+            workflow_commit_revision=1,
+            source_draft_revision=1,
+            source_draft_digest=expected_draft.draft_digest,
+        )
+        draft_revision = self._latest_record_revision(project_id, "drafts")
+        commit_revision = self._latest_record_revision(project_id, "commits")
+        if draft_revision == 0 and commit_revision == 0:
+            self._publish_draft(project_id, 1, unlocked_workflow)
+            self._publish_commit(expected_commit, compiled)
+            return expected_commit
+        persisted = self._active_commit(project_id)
+        if persisted != expected_commit:
+            raise WorkflowAuthoringError(
+                "workflow_commit_identity_mismatch",
+                "Seed Workflow Commit does not match the shipped Workflow",
+                details={
+                    "workflow_commit_id": persisted.workflow_commit_id,
+                },
             )
-            expected_commit = self._commit_value(
-                project_id=project_id,
-                locked_workflow=locked_workflow,
-                compiled=compiled,
-                workflow_commit_revision=1,
-                source_draft_revision=1,
-                source_draft_digest=expected_draft.draft_digest,
-            )
-            draft_revision = self._latest_record_revision(
-                project_id,
-                "drafts",
-            )
-            commit_revision = self._latest_record_revision(
-                project_id,
-                "commits",
-            )
-            if draft_revision not in {0, 1} or commit_revision not in {0, 1}:
-                raise WorkflowAuthoringError(
-                    "workflow_commit_identity_mismatch",
-                    "Seed Workflow state has an unexpected revision history",
-                    details={
-                        "workflow_commit_id": (
-                            expected_commit.workflow_commit_id
-                        )
-                    },
-                )
-            if draft_revision == 0:
-                if commit_revision != 0:
-                    raise WorkflowAuthoringError(
-                        "workflow_commit_identity_mismatch",
-                        "Seed Workflow Commit has no source Draft",
-                        details={
-                            "workflow_commit_id": (
-                                expected_commit.workflow_commit_id
-                            )
-                        },
-                    )
-                self._publish_draft_locked(
-                    project_id,
-                    1,
-                    unlocked_workflow,
-                )
-            elif self.load_draft(project_id) != expected_draft:
-                raise WorkflowAuthoringError(
-                    "workflow_commit_identity_mismatch",
-                    "Seed Workflow Draft does not match the shipped Workflow",
-                    details={
-                        "workflow_commit_id": (
-                            expected_commit.workflow_commit_id
-                        )
-                    },
-                )
-            if commit_revision == 0:
-                self._publish_commit_locked(expected_commit, compiled)
-                return expected_commit
-            persisted = self._active_commit_locked(project_id)
-            if persisted != expected_commit:
-                raise WorkflowAuthoringError(
-                    "workflow_commit_identity_mismatch",
-                    "Seed Workflow Commit does not match the shipped Workflow",
-                    details={
-                        "workflow_commit_id": persisted.workflow_commit_id,
-                    },
-                )
-            self._committed_plans[
-                (project_id, persisted.workflow_commit_id)
-            ] = compiled
-            return persisted
+        self._committed_plans[
+            (project_id, persisted.workflow_commit_id)
+        ] = compiled
+        return persisted
 
     def require_compiled(
         self,
@@ -995,18 +808,17 @@ class WorkflowAuthoringService:
     ) -> CompiledWorkflow:
         """Resolve or exactly hydrate the active immutable Execution Plan."""
         self._require_project(project_id)
-        with self._project_lock(project_id):
-            commit = self._active_commit_locked(project_id)
-            if commit.workflow_commit_id != workflow_commit_id:
-                raise WorkflowAuthoringError(
-                    "workflow_commit_not_found",
-                    "The requested Workflow Commit is not active",
-                    details={
-                        "resource_kind": "workflow_commit",
-                        "resource_id": workflow_commit_id,
-                    },
-                )
-            return self._hydrate_compiled_commit(commit)
+        commit = self._active_commit(project_id)
+        if commit.workflow_commit_id != workflow_commit_id:
+            raise WorkflowAuthoringError(
+                "workflow_commit_not_found",
+                "The requested Workflow Commit is not active",
+                details={
+                    "resource_kind": "workflow_commit",
+                    "resource_id": workflow_commit_id,
+                },
+            )
+        return self._hydrate_compiled_commit(commit)
 
     def require_compiled_revision(
         self,
@@ -1017,15 +829,14 @@ class WorkflowAuthoringService:
     ) -> CompiledWorkflow:
         """Hydrate the exact immutable Commit named by durable Run scope."""
         self._require_project(project_id)
-        with self._project_lock(project_id):
-            commit = self._load_commit_revision_record(
-                project_id,
-                workflow_commit_revision,
+        commit = self._load_commit_revision_record(
+            project_id,
+            workflow_commit_revision,
+        )
+        if commit.workflow_commit_id != workflow_commit_id:
+            raise WorkflowAuthoringError(
+                "workflow_commit_identity_mismatch",
+                "Workflow Commit revision does not match Run evidence",
+                details={"workflow_commit_id": workflow_commit_id},
             )
-            if commit.workflow_commit_id != workflow_commit_id:
-                raise WorkflowAuthoringError(
-                    "workflow_commit_identity_mismatch",
-                    "Workflow Commit revision does not match Run evidence",
-                    details={"workflow_commit_id": workflow_commit_id},
-                )
-            return self._hydrate_compiled_commit(commit)
+        return self._hydrate_compiled_commit(commit)

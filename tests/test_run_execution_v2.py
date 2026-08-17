@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import threading
 import time
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 from fastapi.testclient import TestClient
 import pytest
@@ -35,7 +35,6 @@ from core import (
     ReadinessDeclaration,
     ResultReplayHit,
     ResultReplaySource,
-    ReusableReadinessProof,
     RunResources,
     ScientificOperationFactory,
     builtin_frozen_catalog,
@@ -365,6 +364,7 @@ def _direct_catalog(
     readiness_prerequisites: dict[str, Any] | None = None,
     readiness_checks: dict[str, Any] | None = None,
     cacheable: bool = False,
+    unavailable_binding_ids: tuple[str, ...] = (),
     invocation_count: int = 1,
     execution_gate: tuple[threading.Event, threading.Event] | None = None,
     execution_action: Any | None = None,
@@ -374,6 +374,7 @@ def _direct_catalog(
     implementation_variant: str = "default",
     implementation_label: str | None = None,
     deterministic: bool = True,
+    execution_route: Literal["adapter", "direct"] = "adapter",
     source_identity: Mapping[str, Any] | None = None,
     node_parameter_declarations: Mapping[str, Any] | None = None,
     node_title: str = "Deterministic direct test Node",
@@ -433,6 +434,11 @@ def _direct_catalog(
             "2.1.0",
             {"observation": "per-run"},
         )
+        binding_adapter_behavior = BehaviorReference(
+            f"{binding_id}/adapter",
+            "2.1.0",
+            {"route": "provider"},
+        )
         binding = _contract(
             "binding",
             binding_id,
@@ -440,8 +446,12 @@ def _direct_catalog(
                 "node_type": node_type.reference(),
                 "method": method.reference(),
                 "binding_parameters": {},
-                "execution_route": "direct",
-                "route_behavior": binding_factory_behavior.descriptor(),
+                "execution_route": execution_route,
+                "route_behavior": (
+                    binding_adapter_behavior.descriptor()
+                    if execution_route == "adapter"
+                    else binding_factory_behavior.descriptor()
+                ),
                 "availability_declaration": {
                     "behavior": {
                         "behavior_id": f"{binding_id}/availability",
@@ -469,6 +479,11 @@ def _direct_catalog(
                         else {}
                     ),
                     "factory": binding_factory_behavior.descriptor(),
+                    **(
+                        {"adapter": binding_adapter_behavior.descriptor()}
+                        if execution_route == "adapter"
+                        else {}
+                    ),
                     **(
                         {
                             "effective_randomness_resolver": (
@@ -602,11 +617,24 @@ def _direct_catalog(
         builtin.port_types,
         contracts=(method, node_type, *bindings),
         availability=tuple(
-            {
-                "binding": binding.reference(),
-                "observed_at": observed_at.isoformat(),
-                "available": True,
-            }
+            (
+                {
+                    "binding": binding.reference(),
+                    "observed_at": observed_at.isoformat(),
+                    "available": False,
+                    "reason": {
+                        "code": "provider_unavailable",
+                        "message": "Provider is unavailable",
+                        "retryable": False,
+                    },
+                }
+                if binding.contract_id in unavailable_binding_ids
+                else {
+                    "binding": binding.reference(),
+                    "observed_at": observed_at.isoformat(),
+                    "available": True,
+                }
+            )
             for binding in bindings
         ),
         availability_observed_at=observed_at,
@@ -627,13 +655,10 @@ def _commit_public_workflow(
     client: TestClient,
     project_id: str,
     workflow: Mapping[str, Any],
-    *,
-    expected_draft_revision: int = 0,
 ) -> dict[str, Any]:
     committed = client.post(
         f"/api/v2/projects/{project_id}/workflow:commit",
         json={
-            "expected_draft_revision": expected_draft_revision,
             "workflow": workflow,
         },
     )
@@ -1792,7 +1817,11 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    catalog = _direct_catalog(calls, cacheable=True)
+    catalog = _direct_catalog(
+        calls,
+        cacheable=True,
+        unavailable_binding_ids=("test.direct.local",),
+    )
 
     class FixtureReplaySource(ResultReplaySource):
         def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
@@ -1860,12 +1889,197 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
         }
     ]
     assert replayed_values == ["CACHED"]
-    assert calls == ["readiness:test.direct.local", "cache-lookup"]
+    assert calls == ["cache-lookup"]
     event_types = [event["event"]["type"] for event in events]
     assert event_types.count("node_attempt_started") == 1
     assert event_types.count("node_attempt_terminal") == 1
     assert "operation_attempt_started" not in event_types
     assert "engine_invocation_started" not in event_types
+
+
+def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            cacheable=True,
+            unavailable_binding_ids=("test.direct.local",),
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "unavailable-cache-miss",
+            },
+        )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started.json()["run_id"],
+        )
+        events = app.state.run_execution_v2.public_events(
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "failed"
+    assert calls == []
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert terminal["failure_origin"] == "binding"
+    assert terminal["error"]["code"] == "binding_unavailable"
+    assert not any(
+        item["event"]["type"] in {
+            "readiness_attested",
+            "operation_attempt_started",
+            "engine_invocation_started",
+        }
+        for item in events
+    )
+
+
+def test_direct_cache_miss_enters_its_operation_without_readiness(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            execution_route="direct",
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "direct-without-readiness",
+            },
+        )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started.json()["run_id"],
+        )
+        events = app.state.run_execution_v2.public_events(
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert calls == [
+        "factory:test.direct.local",
+        "execute:test.direct.local",
+    ]
+    assert not any(
+        item["event"]["type"] == "readiness_attested"
+        for item in events
+    )
+
+
+def test_adapter_preoperation_error_precedes_provider_readiness(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    def fail_randomness(**_kwargs: Any) -> Mapping[str, Any]:
+        calls.append("randomness")
+        raise RuntimeError("fixture randomness resolution failed")
+
+    def fail_readiness(_check_input: ReadinessCheckInput) -> ReadinessResult:
+        calls.append("readiness")
+        return ReadinessResult(False)
+
+    resolver = EffectiveRandomnessResolver(
+        behavior=BehaviorReference(
+            "test.direct/failing-randomness",
+            "2.1.0",
+            {},
+        ),
+        resolve=fail_randomness,
+    )
+    catalog = _direct_catalog(
+        calls,
+        readiness_checks={"test.direct.local": fail_readiness},
+        node_parameter_declarations={
+            "seed": {
+                "parameter_scope": "scientific",
+                "scientific_meaning": "Exact synthetic random seed",
+                "value_contract": {"type": "integer"},
+                "default": 5,
+            }
+        },
+        effective_randomness_parameters=("seed",),
+        effective_randomness_resolver=resolver,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=catalog,
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "preoperation-error",
+            },
+        )
+
+    assert started.status_code == 500
+    validate_error(started.json(), status=500)
+    assert started.json()["error"]["code"] == "internal_error"
+    assert not any(
+        fact["fact_type"]
+        in {
+            "node_attempt_started",
+            "operation_attempt_started",
+            "readiness_attested",
+            "engine_invocation_started",
+        }
+        for fact in _durable_facts(tmp_path / "runs")
+    )
+    assert calls == ["randomness"]
 
 
 def test_result_replay_hit_requires_admitted_output_snapshots() -> None:
@@ -1932,10 +2146,7 @@ def test_cache_invariant_failure_fails_fast_without_executing_provider(
         assert started.status_code == 500
         assert started.json()["error"]["code"] == "internal_error"
 
-    assert calls == [
-        "readiness:test.direct.local",
-        "cache-lookup",
-    ]
+    assert calls == ["cache-lookup"]
 
 
 def test_public_terminal_wait_helper_never_returns_a_running_projection(
@@ -2072,8 +2283,6 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
                     "credential": "credential-value",
                     "runtime_path": str(tmp_path / "private-runtime"),
                 },
-                "safe_fingerprint": "test-direct-config-v1",
-                "invalidation_token": "test-direct-assets-v1",
             }
         },
     )
@@ -2300,7 +2509,7 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
     assert captured.value.code == "contract_digest_mismatch"
 
 
-def test_all_distinct_bindings_are_attested_before_any_factory_and_shared(
+def test_cache_misses_attest_each_binding_once_before_its_first_factory(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -2312,8 +2521,6 @@ def test_all_distinct_bindings_are_attested_before_any_factory_and_shared(
     environment = {
         (binding_id, "2.1.0"): {
             "values": {"credential": "credential-value"},
-            "safe_fingerprint": f"{binding_id}-config-v1",
-            "invalidation_token": f"{binding_id}-assets-v1",
         }
         for binding_id in bindings
     }
@@ -2343,22 +2550,19 @@ def test_all_distinct_bindings_are_attested_before_any_factory_and_shared(
         )
 
     assert response.status_code == 202
-    assert calls[:2] == [
+    assert calls == [
         "readiness:test.direct.local",
+        "factory:test.direct.local",
+        "execute:test.direct.local",
+        "factory:test.direct.local",
+        "execute:test.direct.local",
         "readiness:test.other.local",
-    ]
-    assert calls.count("readiness:test.direct.local") == 1
-    assert calls[2:] == [
-        "factory:test.direct.local",
-        "execute:test.direct.local",
-        "factory:test.direct.local",
-        "execute:test.direct.local",
         "factory:test.other.local",
         "execute:test.other.local",
     ]
 
 
-def test_failed_readiness_rejects_before_factory_and_redacts_environment(
+def test_failed_readiness_closes_only_the_provider_bound_node(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -2382,9 +2586,7 @@ def test_failed_readiness_rejects_before_factory_and_redacts_environment(
                     "api_key": secret,
                     "runtime_path": private_path,
                 },
-                "safe_fingerprint": f"{binding_id}-config-v1",
-                "invalidation_token": f"{binding_id}-assets-v1",
-            }
+                }
             for binding_id in bindings
         },
     )
@@ -2398,480 +2600,59 @@ def test_failed_readiness_rejects_before_factory_and_redacts_environment(
                 "client_request_id": "failed-readiness-request",
             },
         )
+        assert response.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=response.json()["run_id"],
+        )
+        events = app.state.run_execution_v2.public_events(
+            project_id,
+            response.json()["run_id"],
+        )
 
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "readiness_rejected"
+    assert projection["status"] == "failed"
+    assert {
+        item["node_id"]: item["outcome"]
+        for item in projection["node_dispositions"]
+    } == {
+        "direct-0": "succeeded",
+        "direct-1": "failed",
+    }
     assert calls == [
         "readiness:test.direct.local",
+        "factory:test.direct.local",
+        "execute:test.direct.local",
         "readiness:test.other.local",
     ]
+    failed_attempt_id = next(
+        message["event"]["node_attempt_id"]
+        for message in events
+        if message["event"]["type"] == "node_attempt_started"
+        and message["event"]["node_id"] == "direct-1"
+    )
+    assert not any(
+        message["event"]["type"] == "operation_attempt_started"
+        and message["event"]["node_attempt_id"] == failed_attempt_id
+        for message in events
+    )
+    failed_terminal = next(
+        message["event"]
+        for message in events
+        if message["event"]["type"] == "node_attempt_terminal"
+        and message["event"]["node_attempt_id"] == failed_attempt_id
+    )
+    assert failed_terminal["failure_origin"] == "binding"
+    assert failed_terminal["error"]["code"] == "readiness_rejected"
+    assert failed_terminal["error"]["retryable"] is True
     durable_evidence = b"".join(
         path.read_bytes()
         for path in (tmp_path / "runs").rglob("*.json")
     )
     assert secret.encode() not in durable_evidence
     assert private_path.encode() not in durable_evidence
-    assert secret not in response.text
-    assert private_path not in response.text
-
-
-def test_changed_credential_is_reobserved_and_rejects_stale_green(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    credential_state = {"present": True}
-
-    def readiness(check_input: ReadinessCheckInput) -> ReadinessResult:
-        calls.append("readiness")
-        return ReadinessResult(
-            check_input.values["credential_state"]["present"]
-        )
-
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            readiness_checks={"test.direct.local": readiness},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {
-                    "credential": "credential-value",
-                    "credential_state": credential_state,
-                },
-                "safe_fingerprint": "volatile-config-v1",
-                "invalidation_token": "volatile-assets-v1",
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        first = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "volatile-first",
-            },
-        )
-        credential_state["present"] = False
-        second = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "volatile-second",
-            },
-        )
-
-    assert first.status_code == 202
-    assert second.status_code == 503
-    assert second.json()["error"]["code"] == "readiness_rejected"
-    assert calls.count("readiness") == 2
-    assert calls.count("factory:test.direct.local") == 1
-
-
-def test_invalid_public_readiness_metadata_fails_before_factory(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-
-    def readiness(check_input: ReadinessCheckInput) -> ReadinessResult:
-        assert check_input.values["credential"] == "credential-value"
-        return ReadinessResult(True, proof_source="contains whitespace")
-
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            readiness_checks={"test.direct.local": readiness},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        response = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "invalid-readiness-metadata",
-            },
-        )
-
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "readiness_rejected"
-    assert not any(call.startswith("factory:") for call in calls)
-
-
-def test_boolean_readiness_conclusion_is_a_contract_failure(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-
-    def readiness(check_input: ReadinessCheckInput) -> bool:
-        assert check_input.values["credential"] == "credential-value"
-        return True
-
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            readiness_checks={"test.direct.local": readiness},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        response = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "boolean-readiness-conclusion",
-            },
-        )
-
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "readiness_rejected"
-    assert not any(call.startswith("factory:") for call in calls)
-
-
-def test_reusable_readiness_proof_requires_identity_scope_age_fingerprint_and_invalidation(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[bool] = []
-    observed_at = datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc)
-    current_time = {"value": observed_at}
-    configuration = {
-        "fingerprint": "configuration-v1",
-        "invalidation": "assets-v1",
-    }
-    monkeypatch.setattr(
-        run_execution_v2,
-        "_utc_now",
-        lambda: current_time["value"],
-    )
-
-    def readiness(environment) -> ReadinessResult:
-        calls.append(environment.reusable_proof is not None)
-        if environment.reusable_proof is not None:
-            return ReadinessResult(True, proof_source="reused-proof")
-        return ReadinessResult(
-            True,
-            proof_source="fresh-proof",
-            reusable_proof=ReusableReadinessProof(
-                proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.1.0",
-                observed_at=current_time["value"],
-                maximum_age_seconds=60,
-                configuration_fingerprint=configuration["fingerprint"],
-                invalidation_token=configuration["invalidation"],
-            ),
-        )
-
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            [],
-            readiness_prerequisites={
-                "reusable_proof": {
-                    "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.1.0",
-                    "maximum_age_seconds": 60,
-                }
-            },
-            readiness_checks={"test.direct.local": readiness},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-                "safe_fingerprint": lambda: configuration["fingerprint"],
-                "invalidation_token": lambda: configuration["invalidation"],
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-
-        def start(request_id: str):
-            return client.post(
-                f"/api/v2/projects/{project_id}/runs",
-                json={
-                    "workflow_commit_id": compiled["workflow_commit_id"],
-                    "client_request_id": request_id,
-                },
-            )
-
-        assert start("proof-first").status_code == 202
-        current_time["value"] += timedelta(seconds=10)
-        assert start("proof-reused").status_code == 202
-        configuration["fingerprint"] = "configuration-v2"
-        assert start("proof-fingerprint-changed").status_code == 202
-        configuration["invalidation"] = "assets-v2"
-        assert start("proof-invalidated").status_code == 202
-        current_time["value"] += timedelta(seconds=61)
-        assert start("proof-expired").status_code == 202
-
-    assert calls == [False, True, False, False, False]
-
-
-def test_reusable_proof_rejects_implicit_environment_identities(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    now = datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc)
-
-    def readiness(environment) -> ReadinessResult:
-        calls.append("checker")
-        return ReadinessResult(
-            True,
-            reusable_proof=ReusableReadinessProof(
-                proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.1.0",
-                observed_at=now,
-                maximum_age_seconds=60,
-                configuration_fingerprint=(
-                    "binding-test.direct.local-2.1.0"
-                ),
-                invalidation_token="binding-test.direct.local-2.1.0",
-            ),
-        )
-
-    monkeypatch.setattr(run_execution_v2, "_utc_now", lambda: now)
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            readiness_prerequisites={
-                "reusable_proof": {
-                    "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.1.0",
-                    "maximum_age_seconds": 60,
-                }
-            },
-            readiness_checks={"test.direct.local": readiness},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        response = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "implicit-proof-identities",
-            },
-        )
-
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "readiness_rejected"
-    assert calls == []
-
-
-@pytest.mark.parametrize("observed_offset_seconds", [-61, 1])
-def test_new_reusable_proof_rejects_stale_or_future_observation(
-    tmp_path,
-    monkeypatch,
-    observed_offset_seconds: int,
-) -> None:
-    calls: list[str] = []
-    now = datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc)
-
-    def readiness(environment) -> ReadinessResult:
-        calls.append("checker")
-        return ReadinessResult(
-            True,
-            reusable_proof=ReusableReadinessProof(
-                proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.1.0",
-                observed_at=now + timedelta(seconds=observed_offset_seconds),
-                maximum_age_seconds=60,
-                configuration_fingerprint="configuration-v1",
-                invalidation_token="assets-v1",
-            ),
-        )
-
-    monkeypatch.setattr(run_execution_v2, "_utc_now", lambda: now)
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            readiness_prerequisites={
-                "reusable_proof": {
-                    "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.1.0",
-                    "maximum_age_seconds": 60,
-                }
-            },
-            readiness_checks={"test.direct.local": readiness},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-                "safe_fingerprint": "configuration-v1",
-                "invalidation_token": "assets-v1",
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        response = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "invalid-proof-age",
-            },
-        )
-
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "readiness_rejected"
-    assert not any(call.startswith("factory:") for call in calls)
-
-
-def test_reusable_proof_is_cached_only_after_durable_attestation(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[bool] = []
-    now = datetime(2026, 7, 29, 9, 0, tzinfo=timezone.utc)
-
-    def readiness(environment) -> ReadinessResult:
-        calls.append(environment.reusable_proof is not None)
-        if environment.reusable_proof is not None:
-            return ReadinessResult(
-                True,
-                proof_source="refreshed-proof",
-                reusable_proof=ReusableReadinessProof(
-                    proof_identity="immutable-model-proof-v1",
-                    proof_scope="test.direct.local@2.1.0",
-                    observed_at=now,
-                    maximum_age_seconds=60,
-                    configuration_fingerprint="configuration-v1",
-                    invalidation_token="assets-v1",
-                ),
-            )
-        return ReadinessResult(
-            True,
-            proof_source="fresh-proof",
-            reusable_proof=ReusableReadinessProof(
-                proof_identity="immutable-model-proof-v1",
-                proof_scope="test.direct.local@2.1.0",
-                observed_at=now,
-                maximum_age_seconds=60,
-                configuration_fingerprint="configuration-v1",
-                invalidation_token="assets-v1",
-            ),
-        )
-
-    original_append = run_execution_v2._RunEvidenceLedger.append
-    failure = {"pending": True}
-
-    def fail_first_attestation(ledger, fact_type, payload):
-        if fact_type == "readiness_attested" and failure["pending"]:
-            failure["pending"] = False
-            raise run_execution_v2.V2RunError(
-                "evidence_unavailable",
-                "Required Run evidence could not be persisted safely",
-                details={"last_durable_cursor": ledger.cursor},
-            )
-        return original_append(ledger, fact_type, payload)
-
-    monkeypatch.setattr(run_execution_v2, "_utc_now", lambda: now)
-    monkeypatch.setattr(
-        run_execution_v2._RunEvidenceLedger,
-        "append",
-        fail_first_attestation,
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            [],
-            readiness_prerequisites={
-                "reusable_proof": {
-                    "identity": "immutable-model-proof-v1",
-                    "scope": "test.direct.local@2.1.0",
-                    "maximum_age_seconds": 60,
-                }
-            },
-            readiness_checks={"test.direct.local": readiness},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-                "safe_fingerprint": "configuration-v1",
-                "invalidation_token": "assets-v1",
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-
-        def start(request_id: str):
-            return client.post(
-                f"/api/v2/projects/{project_id}/runs",
-                json={
-                    "workflow_commit_id": compiled["workflow_commit_id"],
-                    "client_request_id": request_id,
-                },
-            )
-
-        assert start("proof-ledger-failure").status_code == 503
-        assert start("proof-ledger-retry").status_code == 202
-        assert start("proof-ledger-reuse").status_code == 202
-
-    assert calls == [False, False, True]
-    readiness_facts = [
-        fact
-        for fact in _durable_facts(tmp_path / "runs")
-        if fact["fact_type"] == "readiness_attested"
-    ]
-    assert {
-        fact["payload"]["proof_reference"]["reuse_kind"]
-        for fact in readiness_facts
-    } == {"newly-observed", "reused"}
-    refreshed = [
-        fact["payload"]
-        for fact in readiness_facts
-        if fact["payload"]["proof_reference"]["reuse_kind"] == "reused"
-    ]
-    assert refreshed[0]["refreshed_proof_reference"]["reuse_kind"] == (
-        "newly-observed"
-    )
+    assert secret not in str(projection)
+    assert private_path not in str(projection)
 
 
 def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
@@ -3145,7 +2926,6 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=parse_workflow_document(
             {
                 "schema_version": "2.1.0",
@@ -3362,7 +3142,6 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     service = run_execution_v2.V2RunService(
@@ -3374,15 +3153,52 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
     )
 
     try:
-        receipt = service.start(
-            project.id,
-            workflow_commit_id=committed.workflow_commit_id,
-            client_request_id="candidate-conflict",
-        )
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        if candidate_case == "identical":
+            receipt = service.start(
+                project.id,
+                workflow_commit_id=committed.workflow_commit_id,
+                client_request_id="candidate-conflict",
+            )
+            projection = service.projection(project.id, receipt["run_id"])
+            events = service.public_events(project.id, receipt["run_id"])
+        else:
+            with pytest.raises(
+                PortValueError,
+                match="Candidate identity resolves to conflicting canonical facts",
+            ):
+                service.start(
+                    project.id,
+                    workflow_commit_id=committed.workflow_commit_id,
+                    client_request_id="candidate-conflict",
+                )
     finally:
         service.shutdown()
+
+    assert cache_lookups == [
+        "source-left",
+        "source-right",
+        *(("sink",) if candidate_case == "identical" else ()),
+    ]
+    assert [call for call in calls if call.startswith("factory:")] == (
+        ["factory:sink"] if candidate_case == "identical" else []
+    )
+    assert not any(call.startswith("execute:") for call in calls)
+    assert [call for call in calls if call.startswith("sink-input:")] == (
+        ["sink-input:source-left"]
+        if candidate_case == "identical"
+        else []
+    )
+    if candidate_case != "identical":
+        assert not any(
+            fact["fact_type"] == "node_attempt_started"
+            and fact["payload"]["node_id"] == "sink"
+            for fact in _durable_facts(tmp_path)
+        )
+        assert not any(
+            fact["fact_type"] == "operation_attempt_started"
+            for fact in _durable_facts(tmp_path)
+        )
+        return
 
     sink_started = next(
         item["event"]
@@ -3408,29 +3224,10 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
         for item in events
         if item["event"]["type"] == "run_terminal"
     )
-
-    expected_status = "succeeded" if candidate_case == "identical" else "failed"
-    assert projection["status"] == expected_status
-    assert sink_terminal["status"] == expected_status
-    assert sink_disposition["outcome"] == expected_status
-    assert run_terminal["status"] == expected_status
-    if candidate_case != "identical":
-        assert sink_terminal["failure_origin"] == "operation"
-        assert sink_terminal["error"]["code"] == "node_execution_failed"
-    assert cache_lookups == [
-        "source-left",
-        "source-right",
-        *(("sink",) if candidate_case == "identical" else ()),
-    ]
-    assert [call for call in calls if call.startswith("factory:")] == (
-        ["factory:sink"] if candidate_case == "identical" else []
-    )
-    assert not any(call.startswith("execute:") for call in calls)
-    assert [call for call in calls if call.startswith("sink-input:")] == (
-        ["sink-input:source-left"]
-        if candidate_case == "identical"
-        else []
-    )
+    assert projection["status"] == "succeeded"
+    assert sink_terminal["status"] == "succeeded"
+    assert sink_disposition["outcome"] == "succeeded"
+    assert run_terminal["status"] == "succeeded"
     assert sum(
         item["event"]["type"] == "operation_attempt_started"
         for item in events
@@ -3954,7 +3751,6 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
             validate_schema("#/$defs/RunEventEnvelope", message)
         event_types = [message["event"]["type"] for message in projected_events]
         assert event_types == [
-            "readiness_attested",
             "run_admitted",
             "run_started",
             "node_attempt_started",
@@ -3989,7 +3785,6 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
     )
     assert {
         "availability_bound",
-        "readiness_attested",
         "engine_invocation_started",
     } <= {fact["fact_type"] for fact in facts}
     node_transaction = next(

@@ -1,12 +1,14 @@
 # 02 — Execution engine with first stub module
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** Make the workflow actually run. A user adds the stub "Echo" node to the canvas, types a string into its parameter form, clicks Run, watches the node state transition from idle → queued → running → completed, and sees the output appear on the node's output port.
 
 This delivers the execution engine's core behavior: topological sort of the DAG, serial node execution, state machine transitions, output passing to downstream ports, and real-time progress over WebSocket. The stub module proves the `WorkflowModule` interface works end to end without any provider dependencies.
 
 **Blocked by:** 01 — Project scaffold, type system, and module registry.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Workflow DAG model in `core/graph.py`: Node (with module ID, version, bound parameters), Edge (from node+port → to node+port). Validation that the graph is acyclic.
 - [ ] Topological sort: given a workflow, produce a valid execution order. Error on cycles.

@@ -1,12 +1,14 @@
 # 03 — Project persistence and missing-module handling
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** A user builds a workflow on the canvas, saves it, closes the app, reopens the app, loads the project, and sees every node, edge, parameter value, and canvas position restored exactly as it was. If the workflow references a module that isn't installed, the node still appears on the canvas but is visually marked as unavailable and cannot be executed.
 
 This delivers the three-file project format and the split between computation state and presentation state.
 
 **Blocked by:** 02 — Execution engine with first stub module.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] `Project` dataclass and manager: `create()`, `save()`, `load()`. Project directory layout: `project.json`, `workflow.json`, `ui.json`, `inputs/`, `outputs/`.
 - [ ] `project.json` schema: name, created_at, modified_at, workflow_version, module_dependencies list.

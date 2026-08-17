@@ -72,7 +72,6 @@ def _soluprot_admitted_environment(
         "usearch_executable": Path("/fixture/soluprot/usearch"),
         "tmhmm_root": Path("/fixture/soluprot/tmhmm"),
         "perl_executable": Path("/fixture/soluprot/perl"),
-        "resolved_runtime_fingerprint": f"sha256:{'a' * 64}",
     }
 
 
@@ -86,7 +85,6 @@ def _protein_sol_admitted_environment(
         "source_root": Path("/fixture/protein-sol/source"),
         "bash_executable": Path("/fixture/protein-sol/bash"),
         "perl_executable": Path("/fixture/protein-sol/perl"),
-        "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
     }
 
 
@@ -179,7 +177,6 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             "usearch_executable": usearch_executable,
             "tmhmm_root": tmhmm_root,
             "perl_executable": tmp_path / "perl",
-            "resolved_runtime_fingerprint": f"sha256:{'a' * 64}",
         },
         resources=Resources(),
     )
@@ -580,60 +577,6 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
     assert "/private/" not in str(rejected.value)
 
 
-def test_soluprot_runtime_probe_rejects_transitive_dependency_tree_drift(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import json
-    from types import SimpleNamespace
-
-    import modules.solubility.adapter as adapter
-
-    python_executable = tmp_path / "python"
-    python_executable.write_bytes(b"locked python")
-    python_executable.chmod(0o700)
-    site_packages_root = tmp_path / "site-packages"
-    site_packages_root.mkdir()
-    monkeypatch.setattr(
-        adapter,
-        "_regular_file_sha256",
-        lambda path, *, executable=False: adapter.SOLUPROT_PYTHON_SHA256,
-    )
-    identity = {
-        "python": adapter.SOLUPROT_PYTHON_VERSION,
-        "site": str(site_packages_root),
-        "distributions": {
-            name: {
-                "version": expected["version"],
-                "tree_sha256": (
-                    "0" * 64
-                    if name == "python-dateutil"
-                    else expected["tree_sha256"]
-                ),
-            }
-            for name, expected in (
-                adapter.SOLUPROT_RUNTIME_DISTRIBUTIONS.items()
-            )
-        },
-    }
-    monkeypatch.setattr(
-        adapter.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(
-            stdout=json.dumps(identity),
-        ),
-    )
-
-    with pytest.raises(
-        RuntimeError,
-        match="Python identity changed",
-    ):
-        adapter._validate_python_runtime(
-            python_executable,
-            site_packages_root=site_packages_root,
-        )
-
-
 def test_full_readiness_failure_does_not_block_no_tm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -766,7 +709,6 @@ def _run_soluprot(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -792,8 +734,6 @@ def _run_soluprot(
                     "values": _soluprot_admitted_environment(
                         private_runtime_path="/must/not/publish"
                     ),
-                    "safe_fingerprint": f"soluprot-{mode}-fixture-v1",
-                    "invalidation_token": f"soluprot-{mode}-fixture-v1",
                 }
             }
         ),
@@ -1090,8 +1030,6 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
             environment_values=_soluprot_admitted_environment(
                 private_runtime_path="/secret/runtime"
             ),
-            safe_environment_fingerprint=f"soluprot-{mode}-fixture-v1",
-            invalidation_token=f"soluprot-{mode}-fixture-v1",
             workflow_nodes=(source,),
             workflow_edges=(
                 WorkflowEdge(
@@ -1117,8 +1055,6 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
             environment_values=_protein_sol_admitted_environment(
                 private_runtime_path="/secret/runtime"
             ),
-            safe_environment_fingerprint="protein-sol-fixture-v1",
-            invalidation_token="protein-sol-fixture-v1",
             workflow_nodes=(source,),
             workflow_edges=(
                 WorkflowEdge(

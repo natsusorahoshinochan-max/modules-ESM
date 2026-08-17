@@ -1,10 +1,12 @@
 # 11 — Cache, cancellation, conversion nodes, and polish
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** A user re-runs a workflow and sees cached nodes skip execution with a cache-hit indicator. They force re-run a specific node when they change their mind about a scientific judgment. They cancel a long-running model call mid-execution and see unrelated branches continue. They use conversion nodes (extract sequence from a structure, select specific chains, extract backbone-only coordinates) to connect modules whose port types don't directly match. They group related nodes on the canvas and add annotations to document their workflow.
 
 **Blocked by:** 03 — Project persistence and missing-module handling.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] Content-addressed cache: `cache_key = hash(module_id, module_version, input_hashes, normalized_parameters, seed)`. Before executing a node, the executor computes the cache key and checks `cache/{node_id}_{cache_key}.pkl`. On hit, loads cached outputs and skips execution. On success, writes outputs to cache. Failed nodes are never cached.
 - [ ] Cache management: user can clear cache for a single node (right-click → "Clear Cache"), for an entire project, or force re-run a node (ignores existing cache entry for this execution only).

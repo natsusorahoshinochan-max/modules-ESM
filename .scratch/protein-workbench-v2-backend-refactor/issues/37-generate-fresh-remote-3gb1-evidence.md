@@ -1,5 +1,7 @@
 # 37 — Generate fresh source-bound remote 3GB1 evidence
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** The current clean v2 source and installed backend complete a fresh canonical 3GB1 run against the required real remote providers and produce an auditable evidence bundle that cannot be replaced by readiness checks, mocks, skipped tests, Cache-only replay, or historical v1 output.
 
 **Blocked by:** 36 — Prove installed and local-provider parity.

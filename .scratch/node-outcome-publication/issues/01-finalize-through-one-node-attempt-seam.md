@@ -1,5 +1,7 @@
 # 01 — 收口 Node Attempt finalization seam
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 在不改变当前公开行为的前提下，让 executed success、executed non-success、Cache replay success、cancellation 和 interruption 全部通过唯一的 Node Attempt completion seam，使后续 publication 改造只有一个权威入口。
 
 **Blocked by:** None — can start immediately

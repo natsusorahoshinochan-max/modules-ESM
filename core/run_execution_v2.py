@@ -399,6 +399,20 @@ def _public_failure(error: BaseException) -> dict[str, Any]:
     }
 
 
+def _public_binding_failure(error: V2RunError) -> dict[str, Any]:
+    """Preserve one failed Binding gate without inventing an Operation."""
+    return {
+        "code": error.code,
+        "message": str(error),
+        "retryable": {
+            "binding_unavailable": False,
+            "readiness_rejected": True,
+        }[error.code],
+        "correlation_id": f"incident-{uuid.uuid4().hex}",
+        "details": dict(error.details),
+    }
+
+
 def _public_publication_failure(
     *,
     node_id: str,
@@ -498,25 +512,13 @@ def _public_event_from_fact(
 
 @dataclass(frozen=True, slots=True)
 class BindingEnvironment:
-    """Trusted private values plus safe public comparison identities."""
+    """Trusted private values for one selected Binding."""
 
     values: Mapping[str, Any]
-    safe_fingerprint: str
-    invalidation_token: str
-    reusable_identity_configured: bool
 
     def __post_init__(self) -> None:
-        if (
-            not isinstance(self.safe_fingerprint, str)
-            or not self.safe_fingerprint
-            or not isinstance(self.invalidation_token, str)
-            or not self.invalidation_token
-            or type(self.reusable_identity_configured) is not bool
-        ):
-            raise ValueError(
-                "Environment Configuration requires safe fingerprint and "
-                "invalidation token"
-            )
+        if not isinstance(self.values, Mapping):
+            raise TypeError("Binding Environment values must be a Mapping")
         object.__setattr__(
             self,
             "values",
@@ -551,78 +553,8 @@ class EnvironmentConfiguration:
         binding_version: str,
     ) -> BindingEnvironment:
         entry = self._entries.get((binding_id, binding_version), {})
-
-        def resolve(name: str, default: Any) -> Any:
-            value = entry.get(name, default)
-            return value() if callable(value) else value
-
-        return BindingEnvironment(
-            values=resolve("values", {}),
-            safe_fingerprint=resolve(
-                "safe_fingerprint",
-                f"binding-{binding_id}-{binding_version}",
-            ),
-            invalidation_token=resolve(
-                "invalidation_token",
-                f"binding-{binding_id}-{binding_version}",
-            ),
-            reusable_identity_configured=(
-                "safe_fingerprint" in entry
-                and "invalidation_token" in entry
-            ),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class ReusableReadinessProof:
-    """A reusable immutable proof with every required trust boundary."""
-
-    proof_identity: str
-    proof_scope: str
-    observed_at: datetime
-    maximum_age_seconds: int
-    configuration_fingerprint: str
-    invalidation_token: str
-
-    def __post_init__(self) -> None:
-        if (
-            not isinstance(self.proof_identity, str)
-            or not self.proof_identity
-            or not isinstance(self.proof_scope, str)
-            or not self.proof_scope
-            or not isinstance(self.observed_at, datetime)
-            or self.observed_at.utcoffset() is None
-            or type(self.maximum_age_seconds) is not int
-            or self.maximum_age_seconds < 0
-            or not isinstance(self.configuration_fingerprint, str)
-            or not self.configuration_fingerprint
-            or not isinstance(self.invalidation_token, str)
-            or not self.invalidation_token
-        ):
-            raise ValueError(
-                "Reusable readiness proof requires complete immutable scope"
-            )
-
-    def reusable_for(
-        self,
-        *,
-        now: datetime,
-        proof_identity: str,
-        proof_scope: str,
-        maximum_age_seconds: int,
-        configuration_fingerprint: str,
-        invalidation_token: str,
-    ) -> bool:
-        age = (now - self.observed_at).total_seconds()
-        return (
-            self.proof_identity == proof_identity
-            and self.proof_scope == proof_scope
-            and self.maximum_age_seconds == maximum_age_seconds
-            and 0 <= age <= maximum_age_seconds
-            and self.configuration_fingerprint
-            == configuration_fingerprint
-            and self.invalidation_token == invalidation_token
-        )
+        values = entry.get("values", {})
+        return BindingEnvironment(values() if callable(values) else values)
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,7 +562,6 @@ class ReadinessCheckInput:
     """Closed private checker input for one selected Binding."""
 
     values: Mapping[str, Any]
-    reusable_proof: ReusableReadinessProof | None
 
     def __post_init__(self) -> None:
         if not isinstance(self.values, Mapping):
@@ -644,12 +575,22 @@ class ReadinessCheckInput:
 
 @dataclass(frozen=True, slots=True)
 class ReadinessResult:
-    """One checker conclusion and optional newly observed immutable proof."""
+    """One direct readiness conclusion at the Provider boundary."""
 
     passing: bool
     proof_source: str = "direct-observation"
     reason_code: str = "prerequisite_unavailable"
-    reusable_proof: ReusableReadinessProof | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.passing) is not bool:
+            raise TypeError("Readiness conclusion must be boolean")
+        if any(
+            not isinstance(value, str)
+            or len(value) > 128
+            or _PUBLIC_IDENTIFIER.fullmatch(value) is None
+            for value in (self.proof_source, self.reason_code)
+        ):
+            raise ValueError("Readiness metadata must use public identifiers")
 
 
 class _CancellationControl:
@@ -1073,6 +1014,7 @@ class ExecutedNodeNonSuccess:
     status: Literal["failed"]
     public_error: Mapping[str, Any]
     failure_origin: Literal[
+        "binding",
         "operation",
         "publication",
     ] = "operation"
@@ -1695,7 +1637,7 @@ class _RunEvidenceLedger:
             or self._state.facts[0]["fact_type"] != "run_scope_bound"
         ):
             raise self._causal_error()
-        if fact_type in {"availability_bound", "readiness_attested"}:
+        if fact_type == "availability_bound":
             if self._state.run_admitted:
                 raise self._causal_error()
             return
@@ -1713,6 +1655,10 @@ class _RunEvidenceLedger:
             return
         if fact_type == "run_started":
             if not self._state.run_admitted or self._state.run_started:
+                raise self._causal_error()
+            return
+        if fact_type == "readiness_attested":
+            if not self._state.run_started:
                 raise self._causal_error()
             return
         if fact_type == "cancellation_requested":
@@ -1910,6 +1856,11 @@ class _RunEvidenceLedger:
                 or child_operations[0]["terminal"] != "failed"
             ):
                 raise self._causal_error()
+            if failure_origin == "binding" and (
+                payload["resolution"] != "executed"
+                or child_operations
+            ):
+                raise self._causal_error()
             if failure_origin == "publication" and (
                 (
                     payload["resolution"] == "executed"
@@ -2086,16 +2037,13 @@ class _RunEvidenceLedger:
                     {
                         "binding",
                         "readiness_contract_digest",
-                        "safe_environment_fingerprint",
                         "observed_at",
                         "conclusion",
                         "proof_source",
                         "attestation_digest",
                     }
                 ),
-                frozenset(
-                    {"proof_reference", "refreshed_proof_reference"}
-                ),
+                frozenset(),
             ),
             "run_admitted": (
                 frozenset(
@@ -2308,6 +2256,7 @@ class _RunEvidenceLedger:
         if fact_type == "node_attempt_terminal" and (
             (payload["status"] == "failed")
             != (payload.get("failure_origin") in {
+                "binding",
                 "operation",
                 "publication",
             })
@@ -2315,6 +2264,7 @@ class _RunEvidenceLedger:
             raise self._causal_error()
         if fact_type == "node_attempt_terminal" and payload["status"] == "failed":
             failure_error_schemas = {
+                "binding": "#/$defs/NodeBindingFailureError",
                 "operation": "#/$defs/NodeOperationFailureError",
                 "publication": "#/$defs/NodePublicationFailureError",
             }
@@ -4849,10 +4799,6 @@ class V2RunService:
         self._reserved_projects: set[str] = set()
         self._execution_lock = threading.Lock()
         self._closed = False
-        self._proofs: dict[
-            tuple[str, str, str, str],
-            ReusableReadinessProof,
-        ] = {}
         self._validated_ledgers: dict[
             tuple[str, str],
             _RunEvidenceLedger,
@@ -5130,50 +5076,6 @@ class V2RunService:
             },
         )
 
-    @staticmethod
-    def _proof_contract(
-        declaration: Any,
-        node: ExecutionPlanNode,
-    ) -> tuple[str, str, int] | None:
-        raw = declaration.prerequisites.get("reusable_proof")
-        if raw is None:
-            return None
-        if (
-            not isinstance(raw, Mapping)
-            or set(raw) != {"identity", "scope", "maximum_age_seconds"}
-            or not isinstance(raw["identity"], str)
-            or not isinstance(raw["scope"], str)
-            or type(raw["maximum_age_seconds"]) is not int
-            or raw["maximum_age_seconds"] < 0
-        ):
-            raise V2RunError(
-                "readiness_rejected",
-                "Binding Readiness proof contract is invalid",
-                details={
-                    "binding": node.binding.to_public(),
-                    "reason_code": "invalid_proof_contract",
-                },
-            )
-        return (
-            raw["identity"],
-            raw["scope"],
-            raw["maximum_age_seconds"],
-        )
-
-    @staticmethod
-    def _proof_reference(
-        proof: ReusableReadinessProof,
-        *,
-        reuse_kind: str,
-    ) -> dict[str, Any]:
-        return {
-            "proof_identity": proof.proof_identity,
-            "proof_scope": proof.proof_scope,
-            "observed_at": run_timestamp(proof.observed_at),
-            "maximum_age_seconds": proof.maximum_age_seconds,
-            "reuse_kind": reuse_kind,
-        }
-
     def _attest_readiness(
         self,
         *,
@@ -5187,93 +5089,10 @@ class V2RunService:
             binding_id,
             binding_version,
         )
-        now = _utc_now()
-        reusable: ReusableReadinessProof | None = None
-        proof_contract = self._proof_contract(declaration, node)
-        if (
-            proof_contract is not None
-            and not environment.reusable_identity_configured
-        ):
-            result = ReadinessResult(
-                False,
-                proof_source="missing-environment-identity",
-                reason_code="reusable_identity_not_configured",
-            )
-        else:
-            result = None
-        if proof_contract is not None and result is None:
-            proof_identity, proof_scope, maximum_age = proof_contract
-            candidate = self._proofs.get(
-                (
-                    binding_id,
-                    binding_version,
-                    proof_identity,
-                    proof_scope,
-                )
-            )
-            if candidate is not None and candidate.reusable_for(
-                now=now,
-                proof_identity=proof_identity,
-                proof_scope=proof_scope,
-                maximum_age_seconds=maximum_age,
-                configuration_fingerprint=environment.safe_fingerprint,
-                invalidation_token=environment.invalidation_token,
-            ):
-                reusable = candidate
-        if result is None:
-            try:
-                observed = declaration.check(
-                    ReadinessCheckInput(environment.values, reusable)
-                )
-            except Exception as error:
-                del error
-                observed = ReadinessResult(
-                    False,
-                    proof_source="checker-failure",
-                    reason_code="readiness_check_failed",
-                )
-            if isinstance(observed, ReadinessResult):
-                result = observed
-            else:
-                result = ReadinessResult(
-                    False,
-                    proof_source="invalid-conclusion",
-                    reason_code="invalid_readiness_conclusion",
-                )
-        if (
-            not isinstance(result.proof_source, str)
-            or len(result.proof_source) > 128
-            or _PUBLIC_IDENTIFIER.fullmatch(result.proof_source) is None
-            or not isinstance(result.reason_code, str)
-            or len(result.reason_code) > 128
-            or _PUBLIC_IDENTIFIER.fullmatch(result.reason_code) is None
-        ):
-            result = ReadinessResult(
-                False,
-                proof_source="invalid-conclusion",
-                reason_code="invalid_readiness_conclusion",
-            )
-        proof_to_cache: ReusableReadinessProof | None = None
-        if result.passing and result.reusable_proof is not None:
-            proof = result.reusable_proof
-            if (
-                proof_contract is None
-                or not proof.reusable_for(
-                    now=now,
-                    proof_identity=proof_contract[0],
-                    proof_scope=proof_contract[1],
-                    maximum_age_seconds=proof_contract[2],
-                    configuration_fingerprint=environment.safe_fingerprint,
-                    invalidation_token=environment.invalidation_token,
-                )
-            ):
-                result = ReadinessResult(
-                    False,
-                    proof_source="invalid-proof",
-                    reason_code="invalid_readiness_proof",
-                )
-            else:
-                proof_to_cache = proof
+        observed_at = _utc_now()
+        result = declaration.check(ReadinessCheckInput(environment.values))
+        if not isinstance(result, ReadinessResult):
+            raise TypeError("Readiness checker must return ReadinessResult")
         readiness_digest = canonical_sha256(
             {
                 "schema_namespace": "protein-workbench-readiness/v2",
@@ -5284,26 +5103,10 @@ class V2RunService:
         attestation_payload = {
             "binding": node.binding.to_public(),
             "readiness_contract_digest": readiness_digest,
-            "safe_environment_fingerprint": environment.safe_fingerprint,
-            "observed_at": run_timestamp(now),
+            "observed_at": run_timestamp(observed_at),
             "conclusion": "passing" if result.passing else "failing",
             "proof_source": result.proof_source,
         }
-        if reusable is not None:
-            attestation_payload["proof_reference"] = self._proof_reference(
-                reusable,
-                reuse_kind="reused",
-            )
-        if proof_to_cache is not None:
-            reference_field = (
-                "refreshed_proof_reference"
-                if reusable is not None
-                else "proof_reference"
-            )
-            attestation_payload[reference_field] = self._proof_reference(
-                proof_to_cache,
-                reuse_kind="newly-observed",
-            )
         attestation_digest = canonical_sha256(
             {
                 "schema_namespace": READINESS_ATTESTATION_NAMESPACE,
@@ -5317,15 +5120,6 @@ class V2RunService:
                 "attestation_digest": attestation_digest,
             },
         )
-        if proof_to_cache is not None:
-            self._proofs[
-                (
-                    binding_id,
-                    binding_version,
-                    proof_to_cache.proof_identity,
-                    proof_to_cache.proof_scope,
-                )
-            ] = proof_to_cache
         if not result.passing:
             raise V2RunError(
                 "readiness_rejected",
@@ -5990,8 +5784,13 @@ class V2RunService:
                 ),
                 node,
             )
-        for node in distinct.values():
+        availability_by_binding: dict[
+            tuple[str, str],
+            Mapping[str, Any],
+        ] = {}
+        for binding_key, node in distinct.items():
             availability = self._availability(node)
+            availability_by_binding[binding_key] = availability
             ledger.append(
                 "availability_bound",
                 {
@@ -6000,16 +5799,6 @@ class V2RunService:
                     "available": availability["available"],
                 },
             )
-            if availability["available"] is not True:
-                raise V2RunError(
-                    "binding_unavailable",
-                    "Selected Binding is unavailable",
-                    details={
-                        "binding": node.binding.to_public(),
-                        "reason_code": availability["reason"]["code"],
-                    },
-                )
-            self._attest_readiness(node=node, ledger=ledger)
         admitted = ledger.append(
             "run_admitted",
             {
@@ -6045,6 +5834,10 @@ class V2RunService:
         if _before_execute is not None:
             _before_execute()
         committed_values: dict[tuple[str, str], AdmittedPortValues] = {}
+        readiness_failures: dict[
+            tuple[str, str],
+            V2RunError | None,
+        ] = {}
         for node in plan.nodes:
             if ledger.cancellation_requested:
                 record.cancellation.wait_for_cleanup()
@@ -6120,12 +5913,16 @@ class V2RunService:
                     )
                 except BaseException as error:
                     randomness_resolution_error = error
+            body_error: BaseException | None = (
+                input_admission_error
+                or resource_resolution_error
+                or randomness_resolution_error
+            )
+            if body_error is not None:
+                raise body_error
             result_identity: str | None = None
             cache_eligible = (
-                input_admission_error is None
-                and resource_resolution_error is None
-                and randomness_resolution_error is None
-                and effective_randomness_snapshot is not None
+                effective_randomness_snapshot is not None
                 and binding_contract.descriptor.get("cacheable") is True
                 and binding_contract.descriptor.get("deterministic") is True
                 and _result_identity_is_cache_safe(
@@ -6283,6 +6080,55 @@ class V2RunService:
                     committed_values.update(finalized.admitted_outputs)
                     all_artifacts.extend(finalized.artifacts)
                 continue
+            binding_key = (
+                node.binding.contract_id,
+                node.binding.contract_version,
+            )
+            provider_bound = (
+                binding_contract.descriptor["execution_route"] == "adapter"
+            )
+            if provider_bound and binding_key not in readiness_failures:
+                availability = availability_by_binding[binding_key]
+                readiness_error: V2RunError | None = None
+                if availability["available"] is not True:
+                    readiness_error = V2RunError(
+                        "binding_unavailable",
+                        "Selected Binding is unavailable",
+                        details={
+                            "binding": node.binding.to_public(),
+                            "reason_code": availability["reason"]["code"],
+                        },
+                    )
+                else:
+                    try:
+                        self._attest_readiness(node=node, ledger=ledger)
+                    except V2RunError as error:
+                        readiness_error = error
+                readiness_failures[binding_key] = readiness_error
+            readiness_error = (
+                readiness_failures[binding_key]
+                if provider_bound
+                else None
+            )
+            if readiness_error is not None:
+                ledger.append(
+                    "node_attempt_started",
+                    {
+                        "node_id": node.node_id,
+                        "node_attempt_id": node_attempt_id,
+                    },
+                )
+                finalized = finalizer.finalize(
+                    ExecutedNodeNonSuccess(
+                        node_id=node.node_id,
+                        node_attempt_id=node_attempt_id,
+                        operation_attempt_id=None,
+                        status="failed",
+                        public_error=_public_binding_failure(readiness_error),
+                        failure_origin="binding",
+                    )
+                )
+                continue
             resources = RunResources(
                 project_id=project_id,
                 run_id=run_id,
@@ -6297,56 +6143,50 @@ class V2RunService:
                 _project_inputs=project_inputs,
                 _project_input_identities=resource_identities,
             )
-            body_error: BaseException | None = (
-                input_admission_error
-                or resource_resolution_error
-                or randomness_resolution_error
-            )
             implementation: Any | None = None
             operation_execute: Callable[[OperationCall], Mapping[str, Any]] | None = None
             operation_call: OperationCall | None = None
             operation_started = False
             pre_operation_invariant_error: BaseException | None = None
             try:
-                if body_error is None:
-                    assert effective_randomness_snapshot is not None
-                    operation_call = OperationCall(
-                        inputs=node_inputs,
-                        node_parameters=(
-                            effective_randomness_snapshot.node_parameters
+                assert effective_randomness_snapshot is not None
+                operation_call = OperationCall(
+                    inputs=node_inputs,
+                    node_parameters=(
+                        effective_randomness_snapshot.node_parameters
+                    ),
+                    binding_parameters=(
+                        effective_randomness_snapshot.binding_parameters
+                    ),
+                    input_content_digests=input_content_digests,
+                )
+                environment = self._environment.for_binding(
+                    node.binding.contract_id,
+                    node.binding.contract_version,
+                )
+                implementation = node._runtime.factory.build(
+                    OperationContext(
+                        method=_exact_reference(node.method),
+                        produced_observations=(
+                            node._runtime.produced_observations
                         ),
-                        binding_parameters=(
-                            effective_randomness_snapshot.binding_parameters
+                        selection_objectives=(
+                            node._runtime.selection_objectives
                         ),
-                        input_content_digests=input_content_digests,
+                        observation_selectors=(
+                            node._runtime.observation_selectors
+                        ),
+                        environment=environment.values,
+                        resources=resources,
                     )
-                    environment = self._environment.for_binding(
-                        node.binding.contract_id,
-                        node.binding.contract_version,
+                )
+                execute_candidate = getattr(implementation, "execute", None)
+                if not callable(execute_candidate):
+                    raise TypeError(
+                        "Scientific Operation factory must return an "
+                        "object with callable execute(OperationCall)"
                     )
-                    implementation = node._runtime.factory.build(
-                        OperationContext(
-                            method=_exact_reference(node.method),
-                            produced_observations=(
-                                node._runtime.produced_observations
-                            ),
-                            selection_objectives=(
-                                node._runtime.selection_objectives
-                            ),
-                            observation_selectors=(
-                                node._runtime.observation_selectors
-                            ),
-                            environment=environment.values,
-                            resources=resources,
-                        )
-                    )
-                    execute_candidate = getattr(implementation, "execute", None)
-                    if not callable(execute_candidate):
-                        raise TypeError(
-                            "Scientific Operation factory must return an "
-                            "object with callable execute(OperationCall)"
-                        )
-                    operation_execute = execute_candidate
+                operation_execute = execute_candidate
             except PreScheduleTermination as termination:
                 cancellation_outcome: str | None = None
                 if ledger.cancellation_requested:
@@ -6389,13 +6229,8 @@ class V2RunService:
                 cancellation_outcome = "cancelled"
                 try:
                     resources.cleanup_temporary_work()
-                except BaseException as cleanup_error:
+                except BaseException:
                     cancellation_outcome = "interrupted"
-                    if body_error is not None:
-                        body_error.add_note(
-                            "Run workspace cleanup also failed: "
-                            f"{type(cleanup_error).__name__}"
-                        )
                 if record.cancellation.cleanup_error is not None:
                     cancellation_outcome = "interrupted"
                 finalized = finalizer.finalize(
@@ -6437,8 +6272,6 @@ class V2RunService:
                     },
                 )
                 operation_started = True
-                if body_error is not None:
-                    raise body_error
                 assert implementation is not None
                 assert operation_execute is not None
                 assert operation_call is not None

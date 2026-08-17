@@ -981,8 +981,6 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
             ),
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token=f"selection-{operation}-v2",
             workflow_nodes=(_source(), _scorer()),
             workflow_edges=(
                 *_scorer_edges(),
@@ -1035,13 +1033,10 @@ def _commit_public_workflow(
     client: TestClient,
     project_id: str,
     workflow: WorkflowDocument,
-    *,
-    expected_draft_revision: int = 0,
 ) -> dict[str, Any]:
     committed = client.post(
         f"/api/v2/projects/{project_id}/workflow:commit",
         json={
-            "expected_draft_revision": expected_draft_revision,
             "workflow": workflow.to_public(),
         },
     )
@@ -1180,9 +1175,6 @@ def test_result_identity_ignores_node_renames_while_plan_digest_tracks_topology(
             client,
             project_id,
             renamed,
-            expected_draft_revision=first_committed[
-                "source_draft_revision"
-            ],
         )
         second = _run_public_workflow(
             client,
@@ -1277,9 +1269,6 @@ def test_selection_result_identity_ignores_objective_label_renames(
             client,
             project_id,
             renamed,
-            expected_draft_revision=first_committed[
-                "source_draft_revision"
-            ],
         )
         second = _run_public_workflow(
             client,
@@ -1363,9 +1352,6 @@ def test_consumed_objective_weight_invalidates_only_the_selection_result(
             client,
             project_id,
             reweighted,
-            expected_draft_revision=first_committed[
-                "source_draft_revision"
-            ],
         )
         second = _run_public_workflow(
             client,
@@ -1440,9 +1426,6 @@ def test_upstream_result_identity_ignores_unrelated_downstream_utility(
             client,
             project_id,
             with_selection,
-            expected_draft_revision=first_committed[
-                "source_draft_revision"
-            ],
         )
         second = _run_public_workflow(
             client,

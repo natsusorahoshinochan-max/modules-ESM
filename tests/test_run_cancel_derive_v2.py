@@ -1254,7 +1254,6 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
         revised = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": current_draft["draft_revision"],
                 "workflow": revised_workflow,
             },
         )

@@ -123,7 +123,6 @@ def _run_transform(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     service = V2RunService(
@@ -141,12 +140,6 @@ def _run_transform(
                             f"not-result-affecting-{environment_label}"
                         )
                     },
-                    "safe_fingerprint": (
-                        f"provider-free-{environment_label}"
-                    ),
-                    "invalidation_token": (
-                        f"provider-free-{environment_label}"
-                    ),
                 }
             }
         ),
@@ -273,7 +266,6 @@ def _run_candidate_transform(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version=VERSION,
             workflow_id=project.id,

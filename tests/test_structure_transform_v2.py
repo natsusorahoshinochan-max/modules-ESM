@@ -921,8 +921,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={"chain_ids": ["A"]},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-select-chains-v2",
         workflow_nodes=(_SOURCE,),
         workflow_edges=(_SOURCE_EDGE,),
     )
@@ -945,8 +943,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token=f"structure-transform-{operation}-v2",
             workflow_nodes=(_SOURCE, resolve_axis_node),
             workflow_edges=(
                 WorkflowEdge(
@@ -977,8 +973,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={"chain_ids": ["A"]},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-select-candidate-chains-v2",
         workflow_nodes=(_SOURCE,),
         workflow_edges=(WorkflowEdge(
             "source",
@@ -1007,8 +1001,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-extract-candidate-sequence-v2",
         workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
         workflow_edges=(
             WorkflowEdge(
@@ -1051,8 +1043,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-normalize-csh-v1",
         workflow_nodes=(csh_source,),
         workflow_edges=(WorkflowEdge(
             "source",
@@ -1074,8 +1064,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-normalize-csh-candidates-v1",
         workflow_nodes=(csh_source,),
         workflow_edges=(WorkflowEdge(
             "source",
@@ -1110,8 +1098,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-materialize-normalizations-v1",
         workflow_nodes=(csh_source, normalize_candidates_node),
         workflow_edges=(
             WorkflowEdge(
@@ -1152,8 +1138,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-backbone-to-structure-v1",
         workflow_nodes=(_SOURCE, resolve_axis_node, backbone_node),
         workflow_edges=(
             WorkflowEdge(
@@ -1185,8 +1169,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-residue-axis-v1",
         workflow_nodes=(_SOURCE,),
         workflow_edges=(WorkflowEdge(
             "source",
@@ -1206,8 +1188,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-candidate-residue-axes-v1",
         workflow_nodes=(_SOURCE,),
         workflow_edges=(WorkflowEdge(
             "source",
@@ -1225,8 +1205,6 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="structure-transform-project-single-axis-v1",
         workflow_nodes=(_SOURCE, resolve_candidate_axes_node),
         workflow_edges=(
             WorkflowEdge(

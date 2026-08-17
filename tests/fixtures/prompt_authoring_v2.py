@@ -163,7 +163,6 @@ def prepare_operation(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     service = V2RunService(
@@ -178,8 +177,6 @@ def prepare_operation(
                             f"not-result-affecting-{environment_label}"
                         ),
                     },
-                    "safe_fingerprint": f"environment-{environment_label}",
-                    "invalidation_token": f"environment-{environment_label}",
                 }
             }
         ),

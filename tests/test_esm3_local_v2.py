@@ -40,7 +40,6 @@ def _patch_local_runtime(
             runtime_directory=runtime_directory,
             device="cpu",
             performance_settings={},
-            safe_fingerprint=f"sha256:{'a' * 64}",
         )
 
     monkeypatch.setattr(
@@ -60,7 +59,6 @@ def _local_environment(tmp_path: Path) -> dict[str, Any]:
         "device": "cpu",
         "runtime_directory": tmp_path / "local-runtime",
         "performance_settings": {},
-        "resolved_runtime_fingerprint": f"sha256:{'a' * 64}",
         "artifact_generation": "fixture-a",
         "private_model_token": "local-secret-must-not-publish",
     }
@@ -123,11 +121,10 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         ]) == {
             "model_snapshot",
             "device",
-            "runtime_directory",
-            "performance_settings",
-            "runtime_fingerprint",
-            "provider_sdk",
-        }
+                "runtime_directory",
+                "performance_settings",
+                "provider_sdk",
+            }
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
@@ -176,7 +173,7 @@ def test_local_startup_failure_isolated_from_remote_bindings(
     ] is True
 
 
-def test_local_runtime_rejects_model_replacement_and_stale_configuration(
+def test_local_runtime_admits_exact_model_and_runtime_configuration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -202,9 +199,6 @@ def test_local_runtime_rejects_model_replacement_and_stale_configuration(
             ).hexdigest()
         },
     )
-    fingerprint = local_adapter.configured_runtime_fingerprint(
-        device="cpu",
-    )
     environment = {
         "model_snapshot_path": snapshot,
         "model_snapshot_revision": (
@@ -213,19 +207,12 @@ def test_local_runtime_rejects_model_replacement_and_stale_configuration(
         "device": "cpu",
         "runtime_directory": runtime_directory,
         "performance_settings": {},
-        "resolved_runtime_fingerprint": fingerprint,
     }
 
-    assert local_adapter.resolve_local_runtime(
-        environment
-    ).safe_fingerprint == fingerprint
-
-    stale_fingerprint = {
-        **environment,
-        "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
+    runtime = local_adapter.resolve_local_runtime(environment)
+    assert runtime.artifact_sources == {
+        "data/weights/fixture.pth": artifact,
     }
-    with pytest.raises(RuntimeError, match="fingerprint is stale"):
-        local_adapter.resolve_local_runtime(stale_fingerprint)
 
     artifact.write_bytes(b"replaced fixture")
     with pytest.raises(RuntimeError, match="identity mismatch"):
@@ -277,7 +264,6 @@ def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
         "LOCAL_ESM3_WEIGHT_SHA256",
         {"data/weights/fixture.pth": digest},
     )
-    fingerprint = local_adapter.configured_runtime_fingerprint(device="cpu")
     runtime = local_adapter.resolve_local_runtime(
         {
             "model_snapshot_path": snapshot,
@@ -287,7 +273,6 @@ def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
             "device": "cpu",
             "runtime_directory": runtime_directory,
             "performance_settings": {},
-            "resolved_runtime_fingerprint": fingerprint,
         }
     )
 
@@ -329,7 +314,6 @@ def test_successful_local_load_has_explicit_staging_cleanup(
         runtime_directory=runtime_directory,
         device="cpu",
         performance_settings={},
-        safe_fingerprint=f"sha256:{'a' * 64}",
         artifact_sources={"fixture.pth": artifact},
     )
     monkeypatch.setattr(esm3_model, "ESM3", FakeESM3)
@@ -521,8 +505,6 @@ def test_local_execution_preserves_remote_scientific_contracts(
         sequence=sequence,
         binding_route="local_open",
         environment_overrides=_local_environment(tmp_path),
-        safe_environment_fingerprint=f"sha256:{'a' * 64}",
-        invalidation_token="local-fixture-a",
     )
 
     assert projection["status"] == "succeeded"
@@ -665,8 +647,6 @@ def test_local_seed_is_declared_result_identity_randomness(
         num_samples=1,
         binding_route="local_open",
         environment_overrides=_local_environment(tmp_path),
-        safe_environment_fingerprint=f"sha256:{'a' * 64}",
-        invalidation_token="local-fixture-a",
     )
 
     assert projection["status"] == "succeeded"
@@ -721,8 +701,6 @@ def test_default_local_client_releases_staged_runtime_after_execution(
         num_samples=1,
         binding_route="local_open",
         environment_overrides=_local_environment(tmp_path),
-        safe_environment_fingerprint=f"sha256:{'a' * 64}",
-        invalidation_token="local-fixture-a",
     )
 
     assert projection["status"] == "succeeded"
@@ -756,7 +734,6 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         runtime_directory=runtime_directory,
         device="cpu",
         performance_settings={},
-        safe_fingerprint=f"sha256:{'a' * 64}",
     )
     client = FailingClient()
     monkeypatch.setattr(
@@ -778,7 +755,6 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         environment={
             "model_snapshot_path": runtime.snapshot_path,
             "runtime_directory": runtime.runtime_directory,
-            "resolved_runtime_fingerprint": runtime.safe_fingerprint,
         },
         resources=InvocationResources(),
         model_name=local_adapter.LOCAL_ESM3_MODEL,
@@ -808,50 +784,6 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
     ]
 
 
-def test_local_readiness_rechecks_model_identity_before_any_cache_lookup(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tests.fixtures.esm3_generation import (
-        ProviderClient,
-        ProviderResponse,
-        run_generation,
-    )
-
-    class LookupRecorder(ResultReplaySource):
-        def __init__(self) -> None:
-            self.lookups = 0
-
-        def lookup(self, **kwargs: Any) -> None:
-            del kwargs
-            self.lookups += 1
-            return None
-
-    _patch_local_runtime(monkeypatch, tmp_path)
-    cache = LookupRecorder()
-    environment = _local_environment(tmp_path)
-    environment["artifact_generation"] = "fixture-b"
-
-    with pytest.raises(V2RunError) as rejected:
-        run_generation(
-            tmp_path,
-            operation="generate_sequence",
-            client=ProviderClient([ProviderResponse("ACD")]),
-            num_samples=1,
-            binding_route="local_open",
-            environment_overrides=environment,
-            result_replay_source=cache,
-            safe_environment_fingerprint=f"sha256:{'b' * 64}",
-            invalidation_token="local-fixture-b",
-        )
-
-    assert rejected.value.code == "readiness_rejected"
-    assert rejected.value.details["reason_code"] == "local_runtime_unavailable"
-    assert "fixture model identity changed" not in str(rejected.value.details)
-    assert "local-secret-must-not-publish" not in str(rejected.value.details)
-    assert cache.lookups == 0
-
-
 def test_local_binding_never_falls_back_to_remote_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -865,15 +797,14 @@ def test_local_binding_never_falls_back_to_remote_client(
     )
     remote_client = ProviderClient([])
 
-    with pytest.raises(V2RunError) as rejected:
-        run_generation(
-            tmp_path,
-            operation="generate_sequence",
-            client=remote_client,
-            num_samples=1,
-            binding_route="local_open",
-            environment_overrides=_local_environment(tmp_path),
-        )
+    _service, _catalog, projection, _events = run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=remote_client,
+        num_samples=1,
+        binding_route="local_open",
+        environment_overrides=_local_environment(tmp_path),
+    )
 
-    assert rejected.value.code == "readiness_rejected"
+    assert projection["status"] == "failed"
     assert remote_client.calls == []

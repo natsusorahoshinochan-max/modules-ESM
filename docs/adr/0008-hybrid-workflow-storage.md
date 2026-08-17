@@ -1,4 +1,11 @@
+---
+status: superseded by ADR-0037 and ADR-0039
+---
+
 # Hybrid project storage: metadata inline, data referenced, UI state separate
+
+This is a historical v1 design. It is non-normative and creates no current
+storage or compatibility requirement.
 
 Workflow data is split across three files: workflow.json embeds all metadata
 (nodes, module IDs, versions, parameters, and port connections); ui.json stores

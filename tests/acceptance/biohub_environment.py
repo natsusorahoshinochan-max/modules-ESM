@@ -52,8 +52,6 @@ def biohub_esm3_esmfold2_environment() -> dict[tuple[str, str], Any]:
                 "credential_handle": token,
                 "client_factory": esm3_factory,
             },
-            "safe_fingerprint": "biohub-esm3-medium-2024-08",
-            "invalidation_token": "biohub-esm3-medium-2024-08",
         },
         ("folding.fold.esmfold2_remote", "7.0.0"): {
             "values": {
@@ -61,7 +59,5 @@ def biohub_esm3_esmfold2_environment() -> dict[tuple[str, str], Any]:
                 "credential_handle": token,
                 "client_factory": folding_factory,
             },
-            "safe_fingerprint": "biohub-esmfold2-fast-2026-05",
-            "invalidation_token": "biohub-esmfold2-fast-2026-05",
         },
     }

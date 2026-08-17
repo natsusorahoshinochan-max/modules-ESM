@@ -362,7 +362,7 @@ def _candidate_value(
     )[0]
 
 
-def test_deterministic_result_replays_from_project_cache_after_readiness(
+def test_deterministic_result_replays_without_rechecking_provider_readiness(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -414,7 +414,6 @@ def test_deterministic_result_replays_from_project_cache_after_readiness(
         "readiness:test.direct.local",
         "factory:test.direct.local",
         "execute:test.direct.local",
-        "readiness:test.direct.local",
     ]
     replay_event_types = {
         item["event"]["type"] for item in second_events
@@ -831,7 +830,6 @@ def test_same_result_identity_is_physically_isolated_between_projects(
                     "credential": "credential-value",
                     "runtime_path": str(tmp_path / "private-runtime"),
                 },
-                "safe_fingerprint": "runtime-a",
             }
         },
     )
@@ -908,7 +906,6 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                         "runtime_path": str(tmp_path / "private-a"),
                         "device": "cpu",
                     },
-                    "safe_fingerprint": "environment-a",
                 }
             },
         )
@@ -936,7 +933,6 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                         "runtime_path": str(tmp_path / "private-b"),
                         "device": "accelerator-7",
                     },
-                    "safe_fingerprint": "environment-b",
                 }
             },
         )
@@ -1055,7 +1051,6 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
             second_client,
             project_id,
             current_workflow,
-            expected_draft_revision=1,
         )
         current_run, _events = _start_run(
             second_client,
@@ -1208,7 +1203,6 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
         compiled_beta = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": loaded["draft_revision"],
                 "workflow": changed,
             },
         ).json()

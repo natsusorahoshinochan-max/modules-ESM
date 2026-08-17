@@ -39,12 +39,18 @@ state machine.
 - rerun and prioritization policy;
 - Campaign identity/digest graph and evidence mutation checks;
 - `security-failure` verification tier;
-- symlink, traversal, permission, object-address, and secret-pattern probes;
+- symlink, traversal, permission, object-address, and secret-pattern probes for
+  Evidence, Provider assets, and ordinary internal data; credential-file
+  privacy remains the narrow credential-hygiene exception;
 - automatic object GC;
 - project-wide Result Identity conflict authority;
 - restart reconciliation events and inferred attempt terminals;
 - exact nested Evidence inventories and orphan-payload rejection;
 - implementation-shape and AST tests.
+- reusable Readiness proof, age, fingerprint, and invalidation state;
+- whole-package inventory, clean-checkout, no-follow, and staged-copy rehash
+  gates;
+- the standalone `provider-isolation` verification tier.
 
 ## Required final verification
 
@@ -56,5 +62,6 @@ state machine.
 6. one clean-revision, serial, real-Provider Acceptance Campaign covering all
    15 tiers.
 
-The previous 15/15 Qualification is retained only as historical diagnostic
-evidence. It is not copied into the new single-stage Campaign.
+Revision `21bd098` subsequently completed the required one-stage Campaign with
+15/15 tiers. That scientific result remains accepted; the later provider-free
+trust-model cleanup did not rerun Providers.

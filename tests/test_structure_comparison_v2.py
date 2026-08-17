@@ -1255,8 +1255,6 @@ def _ctk_case(
         node_parameters=node_parameters,
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token=f"{case_id}-v1",
         workflow_nodes=workflow_nodes,
         workflow_edges=edges,
         expected_observation_counts=expected_observations,
@@ -1447,8 +1445,6 @@ def _inserted_loop_ctk_case(
         },
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="evaluate-inserted-loop-v1",
         workflow_nodes=(
             source,
             subject_axis,
@@ -1510,7 +1506,6 @@ def _run_inserted_loop_failure_case(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     service = V2RunService(
@@ -1777,8 +1772,6 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="classify-1pga-three-way-consistency-v1",
         workflow_nodes=nodes,
         workflow_edges=tuple(edges),
     )

@@ -1,5 +1,7 @@
 # 14 — 准备 source-bound 5G53 科学验收
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 用 current Catalog 和固化四链 5G53 input 建立完整的可变长度 paired-generation Workflow，并用 lawful provider-free values 同时证明大型 Typed Output publication 与 resolved-core、counterpart、loop、junction 和 clash Evidence。
 
 **Blocked by:** 13 — 准备 source-bound 2EMO 科学验收

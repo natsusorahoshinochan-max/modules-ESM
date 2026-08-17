@@ -1,10 +1,12 @@
 # 09 — Scoring: alignment, metrics, DSSP, and agreement
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** A user compares two protein structures — the ESM3-generated structure and a SimpleFold-folded structure, or any pair of structures in the workflow. They compute a structure alignment, then derive TM-score and RMSD from that alignment. They also compute DSSP secondary structure from a folded structure and compare it against their target secondary structure specification to get an agreement score. Multiple score outputs can be merged into a single ScoreCollection for downstream selection.
 
 **Blocked by:** 04 — Import/Export modules and 3D structure viewer, and 08 — Folding: ESMFold2 and SimpleFold.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] `Structure Alignment` module: input = `protein.structure` (reference) + `protein.structure` (mobile), output = `structure.alignment`. Uses Bio.SVDSuperimposer. Produces: residue mapping (reference residue → mobile residue), chain mapping, rotation matrix, translation vector, RMSD, coverage (number of aligned residues / total). The alignment is reusable by downstream scorers.
 - [ ] `TM-score` module: input = `structure.alignment`, output = `score.collection`. Uses tmtools.tm_align with the pre-computed alignment. Score entry includes: tm_score value, aligned_residues count, normalization type (reference).

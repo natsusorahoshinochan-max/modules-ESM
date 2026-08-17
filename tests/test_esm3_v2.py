@@ -362,7 +362,6 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     client = ESMCClient()
@@ -376,8 +375,6 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
                 "credential_handle": object(),
                 "provider_client": client,
             },
-            "safe_fingerprint": "biohub-esmc-fixture-v1",
-            "invalidation_token": "biohub-esmc-fixture-v1",
         }
     })
     service = V2RunService(projects, catalog, authoring, environment)
@@ -1055,33 +1052,20 @@ def test_generation_runs_retain_one_explicit_catalog(
     )
 
 
-def test_readiness_rejects_before_cache_lookup_or_provider_call(
+def test_readiness_rejects_before_provider_call(
     tmp_path: Path,
 ) -> None:
-    class LookupRecorder(ResultReplaySource):
-        def __init__(self) -> None:
-            self.lookups = 0
-
-        def lookup(self, **kwargs: Any) -> None:
-            del kwargs
-            self.lookups += 1
-            return None
-
-    cache = LookupRecorder()
     client = ProviderClient([])
 
-    with pytest.raises(V2RunError) as rejected:
-        run_generation(
-            tmp_path,
-            operation="generate_sequence",
-            client=client,
-            num_samples=1,
-            environment_overrides={"endpoint_id": "wrong-provider"},
-            result_replay_source=cache,
-        )
+    _, _, projection, _ = run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=client,
+        num_samples=1,
+        environment_overrides={"endpoint_id": "wrong-provider"},
+    )
 
-    assert rejected.value.code == "readiness_rejected"
-    assert cache.lookups == 0
+    assert projection["status"] == "failed"
     assert client.calls == []
 
 
@@ -1098,13 +1082,12 @@ def test_readiness_has_no_implicit_process_credential_fallback(
             {
                 "endpoint_id": "biohub",
                 "credential_file": credential_file,
-            },
-            None,
+            }
         )
     ).passing
 
 
-def test_provider_installation_is_reobserved_without_process_cache(
+def test_provider_identity_is_checked_once_at_each_readiness_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.esm3.package as package
@@ -1128,12 +1111,10 @@ def test_provider_installation_is_reobserved_without_process_cache(
         "credential_handle": object(),
         "provider_client": ProviderClient([]),
     }
-    check_input = ReadinessCheckInput(environment, None)
+    check_input = ReadinessCheckInput(environment)
     assert package._ready(check_input).passing
     assert package._ready(check_input).passing
     assert validations == [
-        ("esm", package.ESM_SDK_REVISION),
-        ("esm", package.ESM_SDK_REVISION),
         ("esm", package.ESM_SDK_REVISION),
         ("esm", package.ESM_SDK_REVISION),
     ]
@@ -1900,7 +1881,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             runtime_directory=local_runtime_directory,
             device="cpu",
             performance_settings={},
-            safe_fingerprint=f"sha256:{'c' * 64}",
         )
 
     monkeypatch.setattr(
@@ -1923,7 +1903,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             "device": "cpu",
             "runtime_directory": local_runtime_directory,
             "performance_settings": {},
-            "resolved_runtime_fingerprint": f"sha256:{'c' * 64}",
             "provider_client": client,
             "private_token": "ctk-secret-must-not-publish",
         }
@@ -1951,8 +1930,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         "node_type_version": "7.0.0",
         "binding_version": "7.0.0",
         "binding_parameters": {},
-        "safe_environment_fingerprint": "esm3-ctk-fixture-v1",
-        "invalidation_token": "esm3-ctk-fixture-v1",
         "forbidden_public_fragments": (
             "ctk-secret-must-not-publish",
         ),

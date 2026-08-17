@@ -1082,11 +1082,6 @@ def test_compile_validates_dag_binding_ownership_parameters_ports_and_availabili
             base,
         ),
         (
-            "binding_unavailable",
-            _workflow_catalog(source_available=False),
-            base,
-        ),
-        (
             "required_input_missing",
             _workflow_catalog(),
             replace(base, edges=()),
@@ -1110,6 +1105,21 @@ def test_compile_validates_dag_binding_ownership_parameters_ports_and_availabili
                 catalog=catalog,
             )
         assert captured.value.code == expected_code
+
+
+def test_compile_keeps_an_unavailable_binding_for_cache_first_execution() -> None:
+    catalog = _workflow_catalog(source_available=False)
+    workflow = relock_workflow(_unlocked_workflow(), catalog)
+
+    plan = compile_workflow(
+        workflow,
+        workflow_commit_revision=2,
+        catalog=catalog,
+    )
+
+    assert plan.execution_plan.nodes[0].binding.contract_id == (
+        "synthetic.source.direct"
+    )
 
 
 def test_compile_rejects_many_output_connected_to_one_input() -> None:
@@ -1657,7 +1667,6 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
         protected = client.post(
             "/api/v2/projects/canonical-3gb1/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": protected_workflow,
             },
         )
@@ -1673,7 +1682,6 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
         credential = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -1685,7 +1693,6 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
         credential_alias = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": alias_workflow,
             },
         )
@@ -1750,7 +1757,6 @@ def test_public_commit_reports_an_inactive_exact_contract_generation(
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -1800,7 +1806,6 @@ def test_public_commit_rejects_invalid_selector_scientific_inputs(
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -1862,7 +1867,6 @@ def test_public_draft_preserves_an_inactive_generation_until_commit(
         saved = client.put(
             f"/api/v2/projects/{project_id}/workflow/draft",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -1872,7 +1876,6 @@ def test_public_draft_preserves_an_inactive_generation_until_commit(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -1915,7 +1918,6 @@ def test_persisted_commit_cannot_start_after_catalog_generation_change(
         committed_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": unlocked,
             },
         )
@@ -1975,7 +1977,6 @@ def test_public_draft_commit_journey_is_revisioned_and_exact(
         saved_response = client.put(
             f"/api/v2/projects/{project_id}/workflow/draft",
             json={
-                "expected_draft_revision": 0,
                 "workflow": unlocked,
             },
         )
@@ -1985,7 +1986,6 @@ def test_public_draft_commit_journey_is_revisioned_and_exact(
         committed_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": unlocked,
             },
         )
@@ -2018,7 +2018,7 @@ def test_public_draft_commit_journey_is_revisioned_and_exact(
         receipt,
     )
     assert receipt["workflow_commit_revision"] == 1
-    assert receipt["source_draft_revision"] == 1
+    assert receipt["source_draft_revision"] == 2
     assert receipt["source_draft_digest"] == saved["draft_digest"]
     assert receipt["workflow_commit_id"] == receipt[
         "execution_plan_digest"
@@ -2071,7 +2071,6 @@ def test_failed_commit_preserves_active_commit_and_submitted_draft(
         active_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": unlocked,
             },
         )
@@ -2083,7 +2082,6 @@ def test_failed_commit_preserves_active_commit_and_submitted_draft(
         failed_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 1,
                 "workflow": invalid,
             },
         )

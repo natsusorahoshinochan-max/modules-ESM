@@ -1,5 +1,7 @@
 # 07 — Replay events and reconcile backend restart
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** A client can disconnect from a running Workflow, reconnect with an opaque cursor, and recover an ordered public event history even across backend restart, while incomplete work is closed conservatively without invented success.
 
 **Blocked by:** 06 — Close dispositions across branch failures.

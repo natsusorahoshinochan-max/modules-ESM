@@ -1,5 +1,7 @@
 # 20 — Protein Workbench v1 full-system diagnostic
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 ## Status
 
 Diagnosis complete. Seven read-only workstreams have been integrated below. No implementation

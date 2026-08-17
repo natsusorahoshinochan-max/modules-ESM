@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 from typing import Any, cast, Iterable, Protocol, TYPE_CHECKING
 
-from core import ReadinessResult, RunResources, canonical_sha256
+from core import ReadinessResult, RunResources
 from modules.provider_contract import validate_installed_provider_checkout
 from datatypes import ProteinSequence, ProteinStructure
 
@@ -62,22 +62,10 @@ _PDB_RESIDUE_TO_ONE = {
 
 
 def remote_runtime_structurally_available() -> bool:
-    if (
+    return not (
         importlib.util.find_spec("esm") is None
         or importlib.util.find_spec("torch") is None
-    ):
-        return False
-    try:
-        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except (
-        ImportError,
-        importlib.metadata.PackageNotFoundError,
-        OSError,
-        RuntimeError,
-        ValueError,
-    ):
-        return False
-    return True
+    )
 
 
 def transformers_esmfold2_runtime_is_exact() -> bool:
@@ -119,21 +107,15 @@ def transformers_esmfold2_runtime_is_exact() -> bool:
 
 
 def local_runtime_structurally_available() -> bool:
-    if (
-        not remote_runtime_structurally_available()
+    return not (
+        importlib.util.find_spec("esm") is None
+        or importlib.util.find_spec("torch") is None
         or importlib.util.find_spec("transformers") is None
         or importlib.util.find_spec(
             "transformers.models.esmfold2.modeling_esmfold2"
         )
         is None
-        or not transformers_esmfold2_runtime_is_exact()
-    ):
-        return False
-    try:
-        import torch
-    except ImportError:
-        return False
-    return str(torch.__version__) == LOCAL_TORCH_VERSION
+    )
 
 
 def remote_readiness(environment: object) -> bool:
@@ -148,19 +130,28 @@ def remote_readiness(environment: object) -> bool:
             callable(getattr(client, "fold", None))
             or callable(factory)
         )
-        and remote_runtime_structurally_available()
+        and _remote_provider_installation_is_exact()
     )
+
+
+def _remote_provider_installation_is_exact() -> bool:
+    if not remote_runtime_structurally_available():
+        return False
+    try:
+        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return False
+    return True
 
 
 @dataclass(frozen=True, slots=True)
 class LocalESMFold2Runtime:
-    """Readiness-validated local model paths and safe public identity."""
+    """Local model paths admitted by the ESMFold2 Binding."""
 
     model_snapshot_path: Path
     language_model_snapshot_path: Path
     runtime_directory: Path
     device: str
-    safe_fingerprint: str
 
 
 def _local_input_builder(
@@ -169,33 +160,6 @@ def _local_input_builder(
 ) -> object:
     """Build the official input translator against the exact CCD snapshot."""
     return builder_type(ccd_cache=runtime.model_snapshot_path)
-
-
-def configured_local_runtime_fingerprint() -> str:
-    """Return the path-free identity required from trusted configuration."""
-    return canonical_sha256(
-        {
-            "schema_namespace": (
-                "protein-workbench-local-esmfold2-runtime/v3"
-            ),
-            "model": LOCAL_ESMFOLD2_MODEL,
-            "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
-            "model_artifact_sha256": dict(
-                sorted(LOCAL_ESMFOLD2_ARTIFACT_SHA256.items())
-            ),
-            "language_model": LOCAL_ESMC_MODEL,
-            "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
-            "language_model_precision": LOCAL_ESMC_PRECISION,
-            "language_model_artifact_sha256": dict(
-                sorted(LOCAL_ESMC_ARTIFACT_SHA256.items())
-            ),
-            "esm_sdk_source_revision": ESM_SDK_REVISION,
-            "transformers_source_revision": TRANSFORMERS_REVISION,
-            "device": LOCAL_DEVICE,
-            "torch_version": LOCAL_TORCH_VERSION,
-            "runtime_directory_policy": "binding-scoped-private",
-        }
-    )
 
 
 def _configured_directory(
@@ -253,6 +217,13 @@ def resolve_local_runtime(
     """Resolve both immutable snapshots before any local model invocation."""
     if not local_runtime_structurally_available():
         raise RuntimeError("exact local ESMFold2 runtime is unavailable")
+    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
+    if not transformers_esmfold2_runtime_is_exact():
+        raise RuntimeError("exact local ESMFold2 runtime is unavailable")
+    import torch
+
+    if str(torch.__version__) != LOCAL_TORCH_VERSION:
+        raise RuntimeError("local ESMFold2 Torch runtime is not exact")
     if (
         environment.get("model_snapshot_revision")
         != LOCAL_ESMFOLD2_REVISION
@@ -275,15 +246,11 @@ def resolve_local_runtime(
         _artifact_source(model_path, relative_path, digest)
     for relative_path, digest in LOCAL_ESMC_ARTIFACT_SHA256.items():
         _artifact_source(language_path, relative_path, digest)
-    safe_fingerprint = configured_local_runtime_fingerprint()
-    if environment.get("resolved_runtime_fingerprint") != safe_fingerprint:
-        raise RuntimeError("local ESMFold2 runtime fingerprint is stale")
     return LocalESMFold2Runtime(
         model_snapshot_path=model_path,
         language_model_snapshot_path=language_path,
         runtime_directory=runtime_directory,
         device=LOCAL_DEVICE,
-        safe_fingerprint=safe_fingerprint,
     )
 
 
@@ -298,7 +265,6 @@ def _trusted_local_runtime(
         ),
         runtime_directory=Path(environment["runtime_directory"]),
         device=LOCAL_DEVICE,
-        safe_fingerprint=configured_local_runtime_fingerprint(),
     )
 
 

@@ -77,8 +77,6 @@ _CTK_CASES = (
         node_parameters={"project_input_ref": "sequence-input"},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="protein-io-provider-free-v1",
-        invalidation_token="protein-io-import-sequence-v1",
         project_inputs={"sequence-input": b">ctk\nACDEFG\n"},
     ),
     ModulePackageContractCase(
@@ -90,8 +88,6 @@ _CTK_CASES = (
         node_parameters={"project_input_ref": "structure-input"},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="protein-io-provider-free-v1",
-        invalidation_token="protein-io-import-structure-v1",
         project_inputs={
             "structure-input": (
                 b"ATOM      1  CA  GLY A   1       "
@@ -108,8 +104,6 @@ _CTK_CASES = (
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="protein-io-provider-free-v1",
-        invalidation_token="protein-io-export-sequence-v1",
         workflow_nodes=(_SEQUENCE_SOURCE,),
         workflow_edges=(
             WorkflowEdge(
@@ -134,8 +128,6 @@ _CTK_CASES = (
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="protein-io-provider-free-v1",
-        invalidation_token="protein-io-export-structure-v1",
         workflow_nodes=(_STRUCTURE_SOURCE,),
         workflow_edges=(
             WorkflowEdge(
@@ -423,7 +415,6 @@ def test_structure_export_xor_is_rejected_during_commit(
     with pytest.raises(WorkflowAuthoringError) as rejected:
         authoring.commit(
             project.id,
-            expected_draft_revision=0,
             workflow=workflow,
         )
 
@@ -491,7 +482,6 @@ def _run_single_node(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     compiled = authoring.require_compiled(
@@ -777,22 +767,9 @@ def test_import_rejects_private_paths_and_cross_project_references(
         )
     assert rejected.value.code == "compile_rejected"
 
-    _, _, projection, events = _run_single_node(
-        tmp_path / "cross-project",
-        operation="import_sequence",
-        node_parameters={"project_input_ref": "belongs-to-another-project"},
-    )
-    assert projection["status"] == "failed"
-    assert projection["outputs"] == []
-    node_terminal = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_terminal"
-    )
-    assert node_terminal["failure_origin"] == "operation"
-    assert node_terminal["error"]["code"] == "node_execution_failed"
-    assert any(
-        event["event"]["type"] == "operation_attempt_terminal"
-        and event["event"]["status"] == "failed"
-        for event in events
-    )
+    with pytest.raises(FileNotFoundError):
+        _run_single_node(
+            tmp_path / "cross-project",
+            operation="import_sequence",
+            node_parameters={"project_input_ref": "belongs-to-another-project"},
+        )

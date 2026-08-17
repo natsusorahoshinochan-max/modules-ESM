@@ -879,7 +879,7 @@
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
       "contract_version": "7.0.0",
-      "contract_digest": "sha256:cb0781ac3f9e4b42e54c6fa84b96c68169282f91fb2762e14b889e4b4f5748e4"
+      "contract_digest": "sha256:5ee749131d1968ca3980118d1c953befb7b2aa6d4618b8ccde66fddc10d843ca"
     },
     {
       "contract_kind": "binding",
@@ -897,13 +897,13 @@
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.constraints.local",
       "contract_version": "4.0.0",
-      "contract_digest": "sha256:ec46373f022aa3cdea053178ba8fdc5d33a81883c6af2bbf37ff55d4a6bb1aff"
+      "contract_digest": "sha256:ac41c0029ebbfd6ac94c113f80c4e832fa349137548894d71ef700a8624f4927"
     },
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
       "contract_version": "10.0.0",
-      "contract_digest": "sha256:f7f8158b1c3a253d30c1f6d5577cf1dc2d80bbdfd7ee9a561a3801218ddaf2fd"
+      "contract_digest": "sha256:7a690fe37dba03c8169fbf316692be8216b09753749614130c10e19441609a46"
     },
     {
       "contract_kind": "binding",
@@ -915,7 +915,7 @@
       "contract_kind": "binding",
       "contract_id": "solubility.protein_sol.local",
       "contract_version": "4.0.0",
-      "contract_digest": "sha256:d85100acc539af970981f2807e61b9b49be74388fedf8f3480165261a97b3f94"
+      "contract_digest": "sha256:f31545e9318e24d0064d2d41d8248b5ec393700af3c0ca7837ecca983b3f0e4f"
     },
     {
       "contract_kind": "binding",

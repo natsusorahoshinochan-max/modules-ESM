@@ -939,10 +939,8 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
     if tier_name == "fresh-1pga":
         from modules.folding.simplefold_adapter import (
             SIMPLEFOLD_DEVICE,
-            configured_runtime_fingerprint,
         )
 
-        fingerprint = configured_runtime_fingerprint()
         environment[("folding.fold.simplefold_local", "7.0.0")] = {
             "values": {
                 "model_root": Path(
@@ -957,32 +955,20 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
                     ]
                 ).resolve(),
                 "device": SIMPLEFOLD_DEVICE,
-                "resolved_runtime_fingerprint": fingerprint,
             },
-            "safe_fingerprint": fingerprint,
-            "invalidation_token": fingerprint,
         }
     elif tier_name == "fresh-2emo":
         from modules.proteinmpnn.adapter import (
             PROTEINMPNN_DEVICE,
-            configured_runtime_fingerprint as proteinmpnn_fingerprint,
-        )
-        from modules.solubility.adapter import (
-            configured_protein_sol_runtime_fingerprint,
         )
 
-        mpnn_fingerprint = proteinmpnn_fingerprint()
-        protein_sol_fingerprint = configured_protein_sol_runtime_fingerprint()
         environment[("proteinmpnn.design.local", "10.0.0")] = {
             "values": {
                 "device": PROTEINMPNN_DEVICE,
                 "provider_root": Path(
                     os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
                 ).resolve(),
-                "resolved_runtime_fingerprint": mpnn_fingerprint,
             },
-            "safe_fingerprint": mpnn_fingerprint,
-            "invalidation_token": mpnn_fingerprint,
         }
         environment[("solubility.protein_sol.local", "4.0.0")] = {
             "values": {
@@ -991,10 +977,7 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
                 ).resolve(),
                 "bash_executable": Path("/bin/bash"),
                 "perl_executable": Path("/usr/bin/perl"),
-                "resolved_runtime_fingerprint": protein_sol_fingerprint,
             },
-            "safe_fingerprint": protein_sol_fingerprint,
-            "invalidation_token": protein_sol_fingerprint,
         }
     return environment
 
@@ -1127,7 +1110,7 @@ def test_fresh_source_bound_public_run(
         }
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"expected_draft_revision": 0, "workflow": workflow},
+            json={"workflow": workflow},
         )
         committed.raise_for_status()
         started = client.post(

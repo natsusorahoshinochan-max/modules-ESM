@@ -37,49 +37,14 @@ SOLUPROT_DATABASE_SHA256 = (
 SOLUPROT_USEARCH_SHA256 = (
     "de3c4206a92754ba8762237b4c436ed4b72bb7bcfe287891365b47cdda0f5095"
 )
-SOLUPROT_RUNTIME_DISTRIBUTIONS = {
-    "soluprot": {
-        "version": SOLUPROT_PORT_VERSION,
-        "tree_sha256": (
-            "4545de75323fc7bee9e680acc4cf53fbc72526884f343e9d8b516b3182f3eaf9"
-        ),
-    },
-    "numpy": {
-        "version": "2.5.1",
-        "tree_sha256": (
-            "0b0d04a80c0cf06abe5fbab7ddcb6c2e9fe9635a3cdecd4c9b8258ef6d4519c3"
-        ),
-    },
-    "pandas": {
-        "version": "3.0.3",
-        "tree_sha256": (
-            "8a46f6df5d74225edc2d1a22e7464e008c5513e4bb0b53a1df51a350e1af5bbd"
-        ),
-    },
-    "biopython": {
-        "version": "1.87",
-        "tree_sha256": (
-            "e3ebf1d5f5c4f12bb09ead365faa9142308256bf5ed2351a2e1f7b24805704ad"
-        ),
-    },
-    "tqdm": {
-        "version": "4.68.4",
-        "tree_sha256": (
-            "1d73b88d9a23473b8f99e1e0d6e3bd0006e91674098baa94364bb1df7435e51c"
-        ),
-    },
-    "python-dateutil": {
-        "version": "2.9.0.post0",
-        "tree_sha256": (
-            "e59e1256976e4c5aa01c60b90584bab7de15f99a1f6a84e071f58e0a3a1ac458"
-        ),
-    },
-    "six": {
-        "version": "1.17.0",
-        "tree_sha256": (
-            "4306b73cf46c7ca2e8fc881901fb3a2215efbcaa8a520d1964c0650d27a47ec9"
-        ),
-    },
+SOLUPROT_RUNTIME_VERSIONS = {
+    "soluprot": SOLUPROT_PORT_VERSION,
+    "numpy": "2.5.1",
+    "pandas": "3.0.3",
+    "biopython": "1.87",
+    "tqdm": "4.68.4",
+    "python-dateutil": "2.9.0.post0",
+    "six": "1.17.0",
 }
 SOLUPROT_PERL_VERSION = "v5.34.1"
 SOLUPROT_PERL_SHA256 = (
@@ -280,52 +245,17 @@ def _validate_python_runtime(
         SOLUPROT_PYTHON_SHA256
     ):
         raise RuntimeError("configured SoluProt Python identity changed")
-    distribution_names = tuple(SOLUPROT_RUNTIME_DISTRIBUTIONS)
+    distribution_names = tuple(SOLUPROT_RUNTIME_VERSIONS)
     probe = f"""
-import base64
-import hashlib
 import importlib.metadata as metadata
 import json
 import platform
 
-distributions = {{}}
-site = None
-for name in {distribution_names!r}:
-    distribution = metadata.distribution(name)
-    records = []
-    for item in sorted(distribution.files or (), key=str):
-        recorded_hash = item.hash
-        if recorded_hash is None:
-            continue
-        if recorded_hash.mode != "sha256":
-            raise RuntimeError("unsupported installed-record digest")
-        payload = item.locate().read_bytes()
-        observed_hash = base64.urlsafe_b64encode(
-            hashlib.sha256(payload).digest()
-        ).rstrip(b"=").decode()
-        if (
-            observed_hash != recorded_hash.value
-            or (
-                item.size is not None
-                and len(payload) != item.size
-            )
-        ):
-            raise RuntimeError("installed runtime file identity changed")
-        records.append(
-            [str(item), observed_hash, len(payload)]
-        )
-    distributions[name] = {{
-        "version": distribution.version,
-        "tree_sha256": hashlib.sha256(
-            json.dumps(
-                records,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-        ).hexdigest(),
-    }}
-    if name == "soluprot":
-        site = str(distribution.locate_file("").resolve())
+distributions = {{
+    name: metadata.version(name)
+    for name in {distribution_names!r}
+}}
+site = str(metadata.distribution("soluprot").locate_file("").resolve())
 print(json.dumps({{
     "python": platform.python_version(),
     "site": site,
@@ -363,7 +293,7 @@ print(json.dumps({{
         or not isinstance(identity["site"], str)
         or Path(identity["site"]).resolve() != site_packages_root.resolve()
         or not isinstance(identity["distributions"], dict)
-        or identity["distributions"] != SOLUPROT_RUNTIME_DISTRIBUTIONS
+        or identity["distributions"] != SOLUPROT_RUNTIME_VERSIONS
     ):
         raise RuntimeError("configured SoluProt Python identity changed")
     return path
@@ -427,32 +357,6 @@ def _site_asset_paths(
     }
 
 
-def configured_runtime_fingerprint(mode: SoluProtMode) -> str:
-    """Return one path-free identity for all result-affecting assets."""
-    payload: dict[str, Any] = {
-        "schema_namespace": "protein-workbench-soluprot-runtime/v3",
-        "mode": mode,
-        "python_version": SOLUPROT_PYTHON_VERSION,
-        "python_sha256": SOLUPROT_PYTHON_SHA256,
-        "runtime_distributions": SOLUPROT_RUNTIME_DISTRIBUTIONS,
-        "port_artifact_version": SOLUPROT_PORT_VERSION,
-        "wheel_sha256": SOLUPROT_SOURCE_SHA256,
-        "installed_code_sha256": SOLUPROT_CODE_SHA256,
-        "official_release_equivalence": "not_claimed",
-        "model_json_sha256": SOLUPROT_MODEL_SHA256[mode],
-        "model_arrays_sha256": SOLUPROT_MODEL_TREES_SHA256[mode],
-        "reference_database_sha256": SOLUPROT_DATABASE_SHA256,
-        "usearch_sha256": SOLUPROT_USEARCH_SHA256,
-    }
-    if mode == "full":
-        payload["tmhmm_sha256"] = SOLUPROT_TMHMM_SHA256
-        payload["perl_version"] = SOLUPROT_PERL_VERSION
-        payload["perl_sha256"] = SOLUPROT_PERL_SHA256
-    return "sha256:" + hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
 def validate_soluprot_environment(
     environment: Mapping[str, Any],
     *,
@@ -461,11 +365,6 @@ def validate_soluprot_environment(
     """Validate one Binding's exact assets without importing/loading a model."""
     if mode not in {"full", "no_tm"}:
         raise ValueError("unknown SoluProt mode")
-    if (
-        environment.get("resolved_runtime_fingerprint")
-        != configured_runtime_fingerprint(mode)
-    ):
-        raise RuntimeError("configured SoluProt runtime identity changed")
     python_executable = environment.get("python_executable")
     wheel_path = environment.get("wheel_path")
     site_packages_root = environment.get("site_packages_root")
@@ -522,8 +421,7 @@ def validate_soluprot_environment(
         "usearch_executable": usearch,
         "tmhmm_executable": tmhmm_executable,
         "perl_executable": perl_executable,
-        "runtime_distributions": SOLUPROT_RUNTIME_DISTRIBUTIONS,
-        "resolved_runtime_fingerprint": configured_runtime_fingerprint(mode),
+        "runtime_distributions": SOLUPROT_RUNTIME_VERSIONS,
     }
 
 
@@ -721,24 +619,6 @@ def parse_soluprot_output(payload: bytes) -> list[SoluProtPrediction]:
     ]
 
 
-def configured_protein_sol_runtime_fingerprint() -> str:
-    """Return one path-free identity for Protein-Sol source and runtimes."""
-    payload = {
-        "schema_namespace": "protein-workbench-protein-sol-runtime/v3",
-        "release": PROTEIN_SOL_RELEASE,
-        "official_download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
-        "archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
-        "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
-        "bash_version": PROTEIN_SOL_BASH_VERSION,
-        "bash_sha256": PROTEIN_SOL_BASH_SHA256,
-        "perl_version": PROTEIN_SOL_PERL_VERSION,
-        "perl_sha256": PROTEIN_SOL_PERL_SHA256,
-    }
-    return "sha256:" + hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
-
-
 def _validate_executable_runtime(
     path: object,
     *,
@@ -797,11 +677,6 @@ def validate_protein_sol_environment(
     environment: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Attest the exact upstream dependency tree without executing it."""
-    if (
-        environment.get("resolved_runtime_fingerprint")
-        != configured_protein_sol_runtime_fingerprint()
-    ):
-        raise RuntimeError("configured Protein-Sol runtime identity changed")
     source_root = environment.get("source_root")
     if (
         not isinstance(source_root, Path)
@@ -837,9 +712,6 @@ def validate_protein_sol_environment(
         "source_files": sources,
         "bash_executable": bash,
         "perl_executable": perl,
-        "resolved_runtime_fingerprint": (
-            configured_protein_sol_runtime_fingerprint()
-        ),
     }
 
 

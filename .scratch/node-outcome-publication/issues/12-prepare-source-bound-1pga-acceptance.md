@@ -1,5 +1,7 @@
 # 12 — 准备 source-bound 1PGA 科学验收
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 用 current Catalog 和固化 1PGA input 建立一条可由 installed public REST/WebSocket surface 执行的 three-way structural-consistency Workflow，并在调用真实 Provider 前用 lawful provider-free values 证明它能表达全部科学 Evidence。
 
 **Blocked by:** 11 — 完成 current-generation cutover 与 provider-free 验收

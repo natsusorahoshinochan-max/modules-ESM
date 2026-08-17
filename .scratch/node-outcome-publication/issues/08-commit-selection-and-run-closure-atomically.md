@@ -1,5 +1,7 @@
 # 08 — 原子提交 Selection conclusions 与 Run Closure
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 让 Run 只有在所有 Node dispositions 和必要 Selection conclusions 都 durable 后才得到 terminal conclusion，并让 Selection failure 与相应 Run failure 整组出现。
 
 **Blocked by:** 06 — 准确记录 Operation、publication 与 Result Identity 失败

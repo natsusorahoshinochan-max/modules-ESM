@@ -1,5 +1,7 @@
 ## Problem Statement
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 The Protein Workbench frontend opens to a blank canvas. A new user has no way to see what a real multi-step protein design workflow looks like — no pre-built examples, no tutorial, no seed project. The 3GB1 conditional-design pipeline (ESM-3 → ESMFold2 → TM-score → ProteinMPNN → ESMFold2) has been built and verified end-to-end, but it lives only as a Python orchestration script (`scripts/3gb1_pipeline.py`) that cannot be viewed or interacted with through the UI.
 
 Additionally, one step of the pipeline — pairwise TM-score evaluation of folded structures against their corresponding ESM-3 structures — cannot be expressed as a workflow DAG node because it requires a for-each pattern (fold[i] vs esm3[i]) that the workflow engine does not support.

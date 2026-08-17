@@ -72,8 +72,6 @@ class ModulePackageContractCase:
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
     environment_values: Mapping[str, Any]
-    safe_environment_fingerprint: str
-    invalidation_token: str
     workflow_nodes: tuple[WorkflowNodeInstance, ...] = ()
     workflow_edges: tuple[WorkflowEdge, ...] = ()
     observation_selectors: tuple[ObservationSelector, ...] = ()
@@ -360,7 +358,6 @@ def _verify_case(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     service = V2RunService(
@@ -371,8 +368,6 @@ def _verify_case(
             {
                 (case.binding_id, case.binding_version): {
                     "values": dict(case.environment_values),
-                    "safe_fingerprint": case.safe_environment_fingerprint,
-                    "invalidation_token": case.invalidation_token,
                 }
             }
         ),
@@ -530,7 +525,6 @@ def _verify_case(
             )
         event_types = tuple(event["event"]["type"] for event in events)
         required_events = {
-            "readiness_attested",
             "node_attempt_started",
             "operation_attempt_started",
             "engine_invocation_started",
@@ -540,6 +534,13 @@ def _verify_case(
             "node_disposition",
             "run_terminal",
         }
+        binding = catalog.require_contract(
+            "binding",
+            case.binding_id,
+            case.binding_version,
+        )
+        if binding.descriptor["execution_route"] == "adapter":
+            required_events.add("readiness_attested")
         if not required_events <= set(event_types):
             raise ModulePackageConformanceError(
                 f"{case.case_id} replay lacks execution provenance"

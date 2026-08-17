@@ -67,7 +67,6 @@ def _soluprot_admitted_environment(
         "usearch_executable": Path("/fixture/soluprot/usearch"),
         "tmhmm_root": Path("/fixture/soluprot/tmhmm"),
         "perl_executable": Path("/fixture/soluprot/perl"),
-        "resolved_runtime_fingerprint": f"sha256:{'a' * 64}",
     }
 
 
@@ -81,7 +80,6 @@ def _protein_sol_admitted_environment(
         "source_root": Path("/fixture/protein-sol/source"),
         "bash_executable": Path("/fixture/protein-sol/bash"),
         "perl_executable": Path("/fixture/protein-sol/perl"),
-        "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
     }
 
 
@@ -150,7 +148,6 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
             "source_root": source_root,
             "bash_executable": bash_executable,
             "perl_executable": tmp_path / "perl",
-            "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
         },
         resources=Resources(),
     )
@@ -594,7 +591,6 @@ def _run_protein_sol(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -620,8 +616,6 @@ def _run_protein_sol(
                     "values": _protein_sol_admitted_environment(
                         private_runtime_path="/must/not/publish"
                     ),
-                    "safe_fingerprint": "protein-sol-fixture-v1",
-                    "invalidation_token": "protein-sol-fixture-v1",
                 }
             }
         ),
@@ -822,12 +816,11 @@ def test_protein_sol_invalid_sequence_fails_before_engine_invocation() -> None:
         validate_protein_sol_sequences(["ACDEFGHIKLMNPQRSTVWX"])
 
 
-def test_protein_sol_exact_source_tree_controls_readiness(
+def test_protein_sol_readiness_requires_the_exact_scientific_sources(
     tmp_path: Path,
 ) -> None:
     from modules.solubility.adapter import (
         PROTEIN_SOL_SOURCE_SHA256,
-        configured_protein_sol_runtime_fingerprint,
         protein_sol_readiness,
         validate_protein_sol_environment,
     )
@@ -841,9 +834,6 @@ def test_protein_sol_exact_source_tree_controls_readiness(
             "source_root": source_root,
             "bash_executable": Path("/bin/bash"),
             "perl_executable": Path("/usr/bin/perl"),
-            "resolved_runtime_fingerprint": (
-                configured_protein_sol_runtime_fingerprint()
-            ),
         }
     )
 
@@ -861,9 +851,6 @@ def test_protein_sol_exact_source_tree_controls_readiness(
                 "source_root": source_root,
                 "bash_executable": Path("/bin/bash"),
                 "perl_executable": Path("/usr/bin/perl"),
-                "resolved_runtime_fingerprint": (
-                    configured_protein_sol_runtime_fingerprint()
-                ),
             }
         )
 
@@ -973,8 +960,6 @@ def test_protein_sol_passes_shared_contract_test_kit(
                         private_runtime_path="/secret/protein-sol"
                     )
                 ),
-                safe_environment_fingerprint=f"{case_id}-fixture-v1",
-                invalidation_token=f"{case_id}-fixture-v1",
                 workflow_nodes=(source,),
                 workflow_edges=(
                     WorkflowEdge(

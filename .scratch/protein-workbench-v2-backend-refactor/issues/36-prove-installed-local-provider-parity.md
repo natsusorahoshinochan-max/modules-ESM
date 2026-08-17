@@ -1,5 +1,7 @@
 # 36 — Prove installed and local-provider parity
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** A clean installed backend exposes the same v2 contracts as the source checkout and successfully exercises every required repository-owned local or remote-provider extension through the shared package, readiness, evidence, Cache, and public protocol seams.
 
 **Blocked by:** 35 — Remove the legacy v1 runtime.

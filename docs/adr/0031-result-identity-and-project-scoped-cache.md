@@ -1,5 +1,5 @@
 ---
-status: superseded
+status: accepted; refined by ADR-0039
 ---
 
 # Result Identity is a scientific cache key

@@ -1087,6 +1087,38 @@
           "additionalProperties": false,
           "properties": {
             "error": {
+              "$ref": "#/$defs/NodeBindingFailureError"
+            },
+            "failure_origin": {
+              "const": "binding"
+            },
+            "node_attempt_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "resolution": {
+              "const": "executed"
+            },
+            "status": {
+              "const": "failed"
+            },
+            "type": {
+              "const": "node_attempt_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "node_attempt_id",
+            "status",
+            "resolution",
+            "failure_origin",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
               "$ref": "#/$defs/NodeOperationFailureError"
             },
             "failure_origin": {
@@ -1202,6 +1234,70 @@
         "disposition"
       ],
       "type": "object"
+    },
+    "NodeBindingFailureError": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "binding_unavailable"
+            },
+            "correlation_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "details": {
+              "$ref": "#/$defs/BindingErrorDetails"
+            },
+            "message": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            "retryable": {
+              "const": false
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "correlation_id",
+            "details"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "readiness_rejected"
+            },
+            "correlation_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "details": {
+              "$ref": "#/$defs/BindingErrorDetails"
+            },
+            "message": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            "retryable": {
+              "const": true
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "correlation_id",
+            "details"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "NodeOperationFailureError": {
       "additionalProperties": false,
@@ -1659,10 +1755,6 @@
     "SubmitProjectWorkflowRequest": {
       "additionalProperties": false,
       "properties": {
-        "expected_draft_revision": {
-          "minimum": 0,
-          "type": "integer"
-        },
         "project_id": {
           "$ref": "#/$defs/ProjectId"
         },
@@ -1672,7 +1764,6 @@
       },
       "required": [
         "project_id",
-        "expected_draft_revision",
         "workflow"
       ],
       "type": "object"
@@ -3627,24 +3718,6 @@
       ],
       "type": "object"
     },
-    "WorkflowDraftRevisionConflictDetails": {
-      "additionalProperties": false,
-      "properties": {
-        "expected_draft_revision": {
-          "minimum": 0,
-          "type": "integer"
-        },
-        "observed_draft_revision": {
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "expected_draft_revision",
-        "observed_draft_revision"
-      ],
-      "type": "object"
-    },
     "WorkflowDocument": {
       "additionalProperties": false,
       "properties": {
@@ -4033,7 +4106,7 @@
     "transport": "websocket"
   },
   "schema_namespace": "protein-workbench-public/v2",
-  "schema_version": "2.2.0",
+  "schema_version": "2.3.0",
   "structured_errors": {
     "details_max_bytes": 16384,
     "envelope_schema": "#/$defs/StructuredErrorEnvelope",
@@ -4204,14 +4277,8 @@
         "details_schema": "#/$defs/ResourceNotFoundDetails",
         "http_status": 404,
         "retryable": false
-      },
-      "workflow_draft_revision_conflict": {
-        "code": "workflow_draft_revision_conflict",
-        "details_schema": "#/$defs/WorkflowDraftRevisionConflictDetails",
-        "http_status": 409,
-        "retryable": false
       }
     },
-    "vocabulary_version": "2.2.0"
+    "vocabulary_version": "2.3.0"
   }
 }

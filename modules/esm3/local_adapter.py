@@ -14,7 +14,7 @@ from types import FunctionType
 from typing import Any, cast
 import weakref
 
-from core import ReadinessResult, RunResources, canonical_sha256
+from core import ReadinessResult, RunResources
 from modules.provider_contract import (
     LOCAL_ESM3_SNAPSHOT_REVISION,
     LOCAL_ESM3_WEIGHT_SHA256,
@@ -38,29 +38,21 @@ LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
 
 @dataclass(frozen=True, slots=True)
 class LocalESM3Runtime:
-    """Resolved private paths paired with one safe runtime identity."""
+    """Resolved paths admitted by the local ESM3 Binding."""
 
     snapshot_path: Path
     runtime_directory: Path
     device: str
     performance_settings: Mapping[str, Any]
-    safe_fingerprint: str
     artifact_sources: Mapping[str, Path] = field(default_factory=dict)
 
 
 def local_runtime_structurally_available() -> bool:
-    """Check import/source prerequisites without loading model weights."""
-    if (
+    """Check import prerequisites without loading model weights."""
+    return not (
         importlib.util.find_spec("esm") is None
         or importlib.util.find_spec("torch") is None
-    ):
-        return False
-    try:
-        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-        import torch
-    except (ImportError, OSError, RuntimeError, ValueError):
-        return False
-    return str(torch.__version__) == LOCAL_ESM3_TORCH_VERSION
+    )
 
 
 def _regular_file_sha256(path: Path) -> str:
@@ -110,47 +102,25 @@ def _validated_performance_settings(
     return dict(LOCAL_ESM3_PERFORMANCE_SETTINGS)
 
 
-def _validate_device(device: object) -> tuple[str, str]:
+def _validate_device(device: object) -> str:
     if device != LOCAL_ESM3_DEVICE:
         raise RuntimeError("local ESM-3 device does not match the Binding")
     import torch
 
-    torch_version = str(torch.__version__)
-    if torch_version != LOCAL_ESM3_TORCH_VERSION:
+    if str(torch.__version__) != LOCAL_ESM3_TORCH_VERSION:
         raise RuntimeError(
             "local ESM-3 Torch runtime does not match the Binding"
         )
-    return LOCAL_ESM3_DEVICE, torch_version
-
-
-def _runtime_fingerprint(
-    *,
-    device: str,
-    torch_version: str,
-    performance_settings: Mapping[str, Any],
-) -> str:
-    return canonical_sha256(
-        {
-            "schema_namespace": "protein-workbench-local-esm3-runtime/v2",
-            "model": LOCAL_ESM3_MODEL,
-            "snapshot_source": LOCAL_ESM3_SNAPSHOT_SOURCE,
-            "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-            "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "device": device,
-            "torch_version": torch_version,
-            "performance_settings": dict(sorted(performance_settings.items())),
-            "runtime_directory_policy": "binding-scoped-private",
-        }
-    )
+    return LOCAL_ESM3_DEVICE
 
 
 def resolve_local_runtime(
     environment: Mapping[str, Any],
 ) -> LocalESM3Runtime:
-    """Validate exact artifacts and safe configuration before any Cache lookup."""
+    """Validate exact artifacts before entering the local Provider."""
     if not local_runtime_structurally_available():
         raise RuntimeError("exact local ESM-3 runtime is unavailable")
+    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     if (
         environment.get("model_snapshot_revision")
         != LOCAL_ESM3_SNAPSHOT_REVISION
@@ -158,7 +128,7 @@ def resolve_local_runtime(
         raise RuntimeError("local ESM-3 snapshot revision is not exact")
     snapshot_path = _configured_path(environment, "model_snapshot_path")
     runtime_directory = _configured_path(environment, "runtime_directory")
-    device, torch_version = _validate_device(environment.get("device"))
+    device = _validate_device(environment.get("device"))
     performance_settings = _validated_performance_settings(environment)
     artifact_sources: dict[str, Path] = {}
     for relative_path, expected_digest in LOCAL_ESM3_WEIGHT_SHA256.items():
@@ -167,19 +137,11 @@ def resolve_local_runtime(
             relative_path,
             expected_digest,
         )
-    safe_fingerprint = _runtime_fingerprint(
-        device=device,
-        torch_version=torch_version,
-        performance_settings=performance_settings,
-    )
-    if environment.get("resolved_runtime_fingerprint") != safe_fingerprint:
-        raise RuntimeError("local ESM-3 runtime fingerprint is stale")
     return LocalESM3Runtime(
         snapshot_path=snapshot_path,
         runtime_directory=runtime_directory,
         device=device,
         performance_settings=performance_settings,
-        safe_fingerprint=safe_fingerprint,
         artifact_sources=artifact_sources,
     )
 
@@ -194,7 +156,6 @@ def _trusted_local_runtime(
         runtime_directory=Path(environment["runtime_directory"]),
         device=LOCAL_ESM3_DEVICE,
         performance_settings=dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
-        safe_fingerprint=str(environment["resolved_runtime_fingerprint"]),
         artifact_sources={
             relative_path: snapshot_path / relative_path
             for relative_path in LOCAL_ESM3_WEIGHT_SHA256
@@ -336,20 +297,6 @@ def call_local_provider(
             f"local ESM-3 provider operation {operation} failed"
         ) from error
     return require_provider_protein(result, operation)
-
-
-def configured_runtime_fingerprint(
-    *,
-    device: str,
-    performance_settings: Mapping[str, Any] | None = None,
-) -> str:
-    """Build the safe fingerprint trusted configuration must declare."""
-    _, torch_version = _validate_device(device)
-    return _runtime_fingerprint(
-        device=device,
-        torch_version=torch_version,
-        performance_settings=performance_settings or {},
-    )
 
 
 class LocalESM3Adapter(_BaseESM3Adapter):

@@ -1,5 +1,7 @@
 # 09 — Replay project-scoped typed results
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** Repeating the same scientifically identified computation within one Project can safely replay complete typed results and stable Candidates, while changed scientific identity, another Project, or ambiguous provenance can never reuse them.
 
 **Blocked by:** 06 — Close dispositions across branch failures.

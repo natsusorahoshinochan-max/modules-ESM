@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 import json
-from threading import Barrier, Event
 
 import pytest
 from fastapi.testclient import TestClient
@@ -288,7 +286,6 @@ def test_invalid_unlocked_draft_can_be_saved_and_loaded(tmp_path) -> None:
 
     saved = authoring.save_draft(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
 
@@ -311,7 +308,6 @@ def test_commit_locks_compiles_and_activates_one_exact_draft(tmp_path) -> None:
 
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
 
@@ -376,7 +372,6 @@ def test_public_synthetic_scorer_commit_requires_candidate_input(
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow.to_public(),
             },
         )
@@ -407,7 +402,6 @@ def test_commit_relocks_nested_references_without_losing_draft_lineage(
 
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
 
@@ -431,7 +425,7 @@ def test_commit_relocks_nested_references_without_losing_draft_lineage(
     )
 
 
-def test_same_draft_and_catalog_commit_is_idempotent(tmp_path) -> None:
+def test_sequential_commits_publish_sequential_revisions(tmp_path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("idempotent commit")
     authoring = WorkflowAuthoringService(projects, _catalog())
@@ -439,41 +433,17 @@ def test_same_draft_and_catalog_commit_is_idempotent(tmp_path) -> None:
 
     first = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     second = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
 
-    assert second == first
-    assert second.workflow_commit_revision == 1
-
-
-def test_concurrent_identical_commits_publish_once_and_share_identity(
-    tmp_path,
-) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("concurrent commit")
-    authoring = WorkflowAuthoringService(projects, _catalog())
-    workflow = _workflow(project.id)
-    ready = Barrier(2)
-
-    def commit() -> WorkflowCommit:
-        ready.wait()
-        return authoring.commit(
-            project.id,
-            expected_draft_revision=0,
-            workflow=workflow,
-        )
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(lambda _index: commit(), range(2)))
-
-    assert results[0] == results[1]
-    assert results[0].workflow_commit_revision == 1
+    assert first.workflow_commit_revision == 1
+    assert first.source_draft_revision == 1
+    assert second.workflow_commit_revision == 2
+    assert second.source_draft_revision == 2
 
 
 def test_restart_hydrates_the_exact_active_commit_plan(tmp_path) -> None:
@@ -484,7 +454,6 @@ def test_restart_hydrates_the_exact_active_commit_plan(tmp_path) -> None:
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=_workflow(project.id),
     )
 
@@ -528,7 +497,6 @@ def test_draft_rejects_environment_configuration_fields(tmp_path) -> None:
     with pytest.raises(WorkflowAuthoringError) as captured:
         authoring.save_draft(
             project.id,
-            expected_draft_revision=0,
             workflow=parse_workflow_document(payload),
         )
 
@@ -548,7 +516,6 @@ def test_new_invalid_draft_and_failed_commit_keep_active_plan(tmp_path) -> None:
     authoring = WorkflowAuthoringService(projects, _catalog())
     active = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=_workflow(project.id),
     )
 
@@ -560,7 +527,6 @@ def test_new_invalid_draft_and_failed_commit_keep_active_plan(tmp_path) -> None:
     with pytest.raises(WorkflowAuthoringError) as captured:
         authoring.commit(
             project.id,
-            expected_draft_revision=1,
             workflow=invalid_workflow,
         )
 
@@ -588,37 +554,6 @@ def test_authoring_owner_has_no_shallow_transition_interface(tmp_path) -> None:
     assert not hasattr(authoring, "compile")
 
 
-def test_concurrent_different_draft_saves_have_one_stable_conflict(
-    tmp_path,
-) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("concurrent drafts")
-    authoring = WorkflowAuthoringService(projects, _catalog())
-    ready = Barrier(2)
-    workflows = (
-        _workflow(project.id),
-        _workflow(project.id, invalid_edge=True),
-    )
-
-    def save(workflow) -> str:
-        ready.wait()
-        try:
-            authoring.save_draft(
-                project.id,
-                expected_draft_revision=0,
-                workflow=workflow,
-            )
-        except WorkflowAuthoringError as error:
-            return error.code
-        return "saved"
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        outcomes = list(executor.map(save, workflows))
-
-    assert sorted(outcomes) == ["saved", "workflow_draft_revision_conflict"]
-    assert authoring.load_draft(project.id).draft_revision == 1
-
-
 def test_published_commit_and_plan_are_reused_without_catalog_resolution(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -629,7 +564,6 @@ def test_published_commit_and_plan_are_reused_without_catalog_resolution(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=_workflow(project.id),
     )
 
@@ -660,114 +594,6 @@ def test_published_commit_and_plan_are_reused_without_catalog_resolution(
     )
 
 
-def test_draft_read_and_publish_share_the_project_lock(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("serialized draft read")
-    authoring = WorkflowAuthoringService(projects, _catalog())
-    first = authoring.save_draft(
-        project.id,
-        expected_draft_revision=0,
-        workflow=_workflow(project.id),
-    )
-    read_entered = Event()
-    release_read = Event()
-    save_entered = Event()
-    save_finished = Event()
-    real_read_record = authoring._read_record
-
-    def blocked_read_record(project_id, collection, revision):
-        if collection == "drafts" and not read_entered.is_set():
-            read_entered.set()
-            assert release_read.wait(timeout=2)
-        return real_read_record(project_id, collection, revision)
-
-    monkeypatch.setattr(authoring, "_read_record", blocked_read_record)
-
-    def save_replacement() -> WorkflowDraft:
-        save_entered.set()
-        try:
-            return authoring.save_draft(
-                project.id,
-                expected_draft_revision=1,
-                workflow=_workflow(project.id, node_id="replacement"),
-            )
-        finally:
-            save_finished.set()
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        read_future = executor.submit(authoring.load_draft, project.id)
-        assert read_entered.wait(timeout=2)
-        save_future = executor.submit(save_replacement)
-        assert save_entered.wait(timeout=2)
-        publish_overtook_read = save_finished.wait(timeout=0.1)
-        release_read.set()
-
-        assert not publish_overtook_read
-        assert read_future.result(timeout=2) == first
-        replacement = save_future.result(timeout=2)
-
-    assert replacement.draft_revision == 2
-
-
-def test_active_commit_read_and_publish_share_the_project_lock(
-    tmp_path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("serialized commit read")
-    authoring = WorkflowAuthoringService(projects, _catalog())
-    first = authoring.commit(
-        project.id,
-        expected_draft_revision=0,
-        workflow=_workflow(project.id),
-    )
-    read_entered = Event()
-    release_read = Event()
-    commit_entered = Event()
-    commit_finished = Event()
-    real_active_commit_locked = authoring._active_commit_locked
-
-    def blocked_active_commit_locked(project_id):
-        if not read_entered.is_set():
-            read_entered.set()
-            assert release_read.wait(timeout=2)
-        return real_active_commit_locked(project_id)
-
-    monkeypatch.setattr(
-        authoring,
-        "_active_commit_locked",
-        blocked_active_commit_locked,
-    )
-
-    def commit_replacement() -> WorkflowCommit:
-        commit_entered.set()
-        try:
-            return authoring.commit(
-                project.id,
-                expected_draft_revision=1,
-                workflow=_workflow(project.id, node_id="replacement"),
-            )
-        finally:
-            commit_finished.set()
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        read_future = executor.submit(authoring.load_active_commit, project.id)
-        assert read_entered.wait(timeout=2)
-        commit_future = executor.submit(commit_replacement)
-        assert commit_entered.wait(timeout=2)
-        publish_overtook_read = commit_finished.wait(timeout=0.1)
-        release_read.set()
-
-        assert not publish_overtook_read
-        assert read_future.result(timeout=2) == first
-        replacement = commit_future.result(timeout=2)
-
-    assert replacement.workflow_commit_revision == 2
-
-
 def test_deep_commit_submits_draft_and_returns_frozen_typed_values(
     tmp_path,
 ) -> None:
@@ -778,7 +604,6 @@ def test_deep_commit_submits_draft_and_returns_frozen_typed_values(
 
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
 
@@ -805,7 +630,6 @@ def test_commit_publish_failure_keeps_old_active_and_saved_submission(
     authoring = WorkflowAuthoringService(projects, _catalog())
     active = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=_workflow(project.id),
     )
     submitted = _workflow(project.id, node_id="replacement-source")
@@ -829,7 +653,6 @@ def test_commit_publish_failure_keeps_old_active_and_saved_submission(
         with pytest.raises(OSError, match="durable publish failure"):
             authoring.commit(
                 project.id,
-                expected_draft_revision=1,
                 workflow=submitted,
             )
 
@@ -839,14 +662,6 @@ def test_commit_publish_failure_keeps_old_active_and_saved_submission(
         project.id,
         workflow_commit_id=active.workflow_commit_id,
     ).execution_plan.execution_plan_digest == active.execution_plan_digest
-
-    retried = authoring.commit(
-        project.id,
-        expected_draft_revision=1,
-        workflow=submitted,
-    )
-    assert retried.workflow_commit_revision == 2
-    assert retried.source_draft_revision == 2
 
 
 def test_event_stream_rejects_duplicate_query_parameters(
@@ -924,7 +739,6 @@ def test_restart_rejects_commit_from_a_different_catalog_generation(
         _catalog(algorithm_name="generation-a"),
     ).commit(
         project.id,
-        expected_draft_revision=0,
         workflow=_workflow(project.id),
     )
     commit_path = next(

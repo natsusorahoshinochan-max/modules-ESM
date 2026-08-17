@@ -222,8 +222,6 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
         v2_environment_configuration={
             (case.binding_id, case.binding_version): {
                 "values": dict(case.environment_values),
-                "safe_fingerprint": case.safe_environment_fingerprint,
-                "invalidation_token": case.invalidation_token,
             }
             for case in EXECUTION_CASES
         },
@@ -298,7 +296,6 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             "commit_project_workflow",
             {
                 "project_id": project_id,
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
             expected_status=200,
@@ -420,7 +417,7 @@ def test_contract_test_kit_rejects_a_false_readiness_attestation(
 ) -> None:
     with pytest.raises(
         ModulePackageConformanceError,
-        match="failed shared conformance",
+        match="execution did not succeed",
     ):
         verify_module_package_contract(
             FALSE_READINESS_PACKAGE,

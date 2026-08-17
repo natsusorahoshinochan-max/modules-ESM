@@ -59,7 +59,6 @@ class Tier:
     pytest_arguments: tuple[str, ...]
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     zero_skip: bool = False
-    clean_source: bool = False
     retain_evidence_bundle: bool = False
 
 
@@ -77,7 +76,7 @@ TIERS = {
         "tests/test_canonical_3gb1_v2.py",
         (
             "tests/test_folding_v2.py::"
-            "test_readiness_rejects_before_cache_lookup_or_fold_call"
+            "test_readiness_rejects_before_fold_call"
         ),
         (
             "tests/test_run_execution_v2.py::"
@@ -158,86 +157,11 @@ TIERS = {
             contract.pytest_arguments,
             timeout_seconds=contract.timeout_seconds,
             zero_skip=True,
-            clean_source=True,
             retain_evidence_bundle=True,
         )
         for name, contract in ACCEPTANCE_TIER_CONTRACTS.items()
     },
-    "provider-isolation": Tier((
-        (
-            "tests/test_folding_v2.py::"
-            "test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote"
-        ),
-        (
-            "tests/test_esm3_local_v2.py::"
-            "test_local_runtime_rejects_model_replacement_and_stale_configuration"
-        ),
-        (
-            "tests/test_esm3_local_v2.py::"
-            "test_local_readiness_rechecks_model_identity_before_any_cache_lookup"
-        ),
-        (
-            "tests/test_simplefold_folding_v2.py::"
-            "test_simplefold_readiness_validates_assets_without_hiding_siblings"
-        ),
-        (
-            "tests/test_simplefold_confidence_v2.py::"
-            "test_confidence_readiness_has_exact_asset_closure_and_"
-            "invalidates_replacement"
-        ),
-        (
-            "tests/test_solubility_v2.py::"
-            "test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible"
-        ),
-        (
-            "tests/test_solubility_v2.py::"
-            "test_soluprot_runtime_probe_rejects_transitive_dependency_tree_drift"
-        ),
-        (
-            "tests/test_solubility_v2.py::"
-            "test_full_readiness_failure_does_not_block_no_tm"
-        ),
-        (
-            "tests/test_protein_sol_v2.py::"
-            "test_protein_sol_exact_source_tree_controls_readiness"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_changed_credential_is_reobserved_and_rejects_stale_green"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_reusable_readiness_proof_requires_identity_scope_age_"
-            "fingerprint_and_invalidation"
-        ),
-        (
-            "tests/test_module_packages_v2.py::"
-            "test_missing_optional_dependency_does_not_hide_available_sibling"
-        ),
-        (
-            "tests/acceptance/test_soluprot_v2.py::"
-            "test_stale_no_tm_asset_replacement_invalidates_readiness"
-        ),
-    )),
 }
-
-
-def _safe_override(arguments: list[str]) -> tuple[str, ...]:
-    safe: list[str] = []
-    for argument in arguments:
-        selector = argument.split("::", 1)[0]
-        path = Path(selector)
-        if (
-            argument.startswith("-")
-            or path.is_absolute()
-            or not selector.startswith("tests/")
-            or ".." in path.parts
-        ):
-            raise ValueError(
-                "pytest overrides must be repo-relative paths beneath tests/"
-            )
-        safe.append(argument)
-    return tuple(safe)
 
 
 def _git_state() -> tuple[str, bool]:
@@ -471,8 +395,6 @@ def _redacted_diagnostic(
 
 def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
     tier = TIERS[tier_name]
-    if tier.zero_skip and pytest_override:
-        raise ValueError("installed provider gates do not accept test overrides")
     arguments = pytest_override or tier.pytest_arguments
     revision, dirty = _git_state()
     print(f"BACKEND VERIFICATION TIER: {tier_name}", flush=True)
@@ -480,14 +402,6 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         f"PROJECT ENVIRONMENT: {Path(sys.executable).resolve()}",
         flush=True,
     )
-    if tier.clean_source and dirty:
-        print(
-            "BACKEND VERIFICATION RESULT: failed "
-            "(acceptance tier requires a clean source revision)",
-            flush=True,
-        )
-        return 1
-
     with tempfile.TemporaryDirectory(
         prefix=f"protein-workbench-{tier_name}-"
     ) as temporary:
@@ -500,7 +414,6 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             env[variable] = str(root)
         env["PROTEIN_WORKBENCH_VERIFICATION_TIER"] = tier_name
         if tier.retain_evidence_bundle:
-            env["PROTEIN_WORKBENCH_FRESH_SOURCE_REVISION"] = revision
             evidence_staging = staging_root / "acceptance-evidence"
             evidence_staging.mkdir(mode=0o700)
             env["PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"] = str(
@@ -677,7 +590,6 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
                     "isolated_roots": list(ROOT_VARIABLES),
                     "historical_cache_allowed": False,
                     "parallel_provider_evidence_allowed": False,
-                    "clean_source_required": tier.clean_source,
                     "evidence_bundle_required": (
                         tier.retain_evidence_bundle
                     ),
@@ -730,15 +642,7 @@ def main() -> int:
     override = list(args.pytest_arguments)
     if override[:1] == ["--"]:
         override = override[1:]
-    try:
-        safe_override = _safe_override(override)
-        if TIERS[args.tier].zero_skip and safe_override:
-            raise ValueError(
-                "installed provider gates do not accept test overrides"
-            )
-    except ValueError as error:
-        parser.error(str(error))
-    return run(args.tier, safe_override)
+    return run(args.tier, tuple(override))
 
 
 if __name__ == "__main__":

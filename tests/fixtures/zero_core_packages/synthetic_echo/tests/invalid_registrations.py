@@ -105,6 +105,12 @@ FALSE_READINESS_PACKAGE = replace(
     bindings=tuple(
         replace(
             binding,
+            execution_route="adapter",
+            adapter_behavior=BehaviorReference(
+                f"{binding.binding_id}/fixture-adapter",
+                binding.version,
+                {"provider_contract": "contract-test"},
+            ),
             readiness=ReadinessDeclaration(
                 behavior=binding.readiness.behavior,
                 prerequisites=binding.readiness.prerequisites,

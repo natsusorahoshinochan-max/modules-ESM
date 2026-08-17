@@ -1,5 +1,7 @@
 # 04 — 让 Artifacts 共享 immutable object store
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 让 Artifact bytes 与 Typed Output values 共享 durable object ownership，同时保持 Artifact 的 nominal Port semantics、descriptor 和 retrieval contract 独立，并与同一 Node 的 outputs 原子可见。
 
 **Blocked by:** 03 — 通过 immutable value objects 发布大型 Typed Outputs

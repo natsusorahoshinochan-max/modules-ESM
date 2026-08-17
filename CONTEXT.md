@@ -104,8 +104,15 @@ _Avoid_: Readiness Attestation, discovery failure, disabled node
 
 **Readiness Attestation**:
 A run-scoped, point-in-time conclusion about whether one exact Execution
-Binding's declared prerequisites currently allow execution to begin.
+Binding's declared prerequisites allow a Cache miss or bypass to enter its
+Provider seam. Cache replay does not require Readiness.
 _Avoid_: Availability, provider call, guarantee of invocation success
+
+**Binding Failure**:
+The failed Node Execution Attempt produced when Availability or Readiness stops
+a Cache miss or bypass before an Operation Attempt starts. It preserves the
+exact Binding error and never invents an Operation or Engine Invocation.
+_Avoid_: Operation failure, admission failure, provider failure
 
 **Contract Test Kit**:
 The shared conformance suite used by maintainers to verify that a Module Package

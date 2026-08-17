@@ -314,8 +314,6 @@ def controlled_environment(
                 "credential_handle": object(),
                 "provider_client": esm3,
             },
-            "safe_fingerprint": "controlled-esm3-canonical-v2",
-            "invalidation_token": "controlled-esm3-canonical-v2",
         },
         ("folding.fold.esmfold2_remote", REMOTE_BINDING_VERSION): {
             "values": {
@@ -323,12 +321,8 @@ def controlled_environment(
                 "credential_handle": object(),
                 "provider_client": folding,
             },
-            "safe_fingerprint": "controlled-folding-canonical-v2",
-            "invalidation_token": "controlled-folding-canonical-v2",
         },
         ("proteinmpnn.design.local", PROTEINMPNN_BINDING_VERSION): {
             "values": {},
-            "safe_fingerprint": "controlled-proteinmpnn-canonical-v2",
-            "invalidation_token": "controlled-proteinmpnn-canonical-v2",
         },
     }

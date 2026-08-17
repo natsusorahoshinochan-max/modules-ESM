@@ -11,8 +11,11 @@ Date: 2026-08-17
 
 The project is single-user and loopback-only. It has no attacker model,
 multi-tenant boundary, or hosted-service threat model. Do not add authentication,
-sandboxing, symlink or traversal defenses, disk-tamper scanners, permission
-proofs, speculative retries, fallback providers, or malformed-response repair.
+sandboxing, symlink or traversal defenses, disk-tamper scanners, or permission
+proofs for Evidence, Provider assets, or ordinary internal data. Credential
+files retain the narrow private-regular-file boundary needed for credential
+hygiene. Do not add speculative retries, fallback providers, or
+malformed-response repair.
 
 ## Validation model
 

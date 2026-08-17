@@ -2109,13 +2109,9 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
         v2_environment_configuration={
             ("candidate.source.direct", "2.1.0"): {
                 "values": {},
-                "safe_fingerprint": "candidate-source-fixture-v1",
-                "invalidation_token": "candidate-source-assets-v1",
             },
             ("score.intrinsic.direct", "2.1.0"): {
                 "values": {},
-                "safe_fingerprint": "scoring-fixture-v1",
-                "invalidation_token": "scoring-fixture-assets-v1",
             }
         },
     )
@@ -2131,7 +2127,6 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -2205,13 +2200,9 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
         v2_environment_configuration={
             ("candidate.source.direct", "2.1.0"): {
                 "values": {},
-                "safe_fingerprint": "candidate-source-fixture-v1",
-                "invalidation_token": "candidate-source-assets-v1",
             },
             ("score.intrinsic.direct", "2.1.0"): {
                 "values": {},
-                "safe_fingerprint": "scoring-fixture-v1",
-                "invalidation_token": "scoring-fixture-assets-v1",
             }
         },
     )
@@ -2253,13 +2244,9 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
     environment = {
         ("candidate.source.direct", "2.1.0"): {
             "values": {},
-            "safe_fingerprint": "candidate-source-fixture-v1",
-            "invalidation_token": "candidate-source-assets-v1",
         },
         ("score.intrinsic.direct", "2.1.0"): {
             "values": {},
-            "safe_fingerprint": "scoring-fixture-v1",
-            "invalidation_token": "scoring-fixture-assets-v1",
         }
     }
     app = create_app(
@@ -2278,7 +2265,6 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )

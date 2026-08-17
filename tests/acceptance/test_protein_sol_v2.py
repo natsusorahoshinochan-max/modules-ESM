@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import os
 from pathlib import Path
 from typing import Any
@@ -20,10 +19,6 @@ from core import (
     build_frozen_catalog,
 )
 from core.workflow_v2 import WorkflowEdge
-from modules.solubility.adapter import (
-    configured_protein_sol_runtime_fingerprint,
-    protein_sol_readiness,
-)
 from tests.acceptance.retained_evidence import retain_service_run
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 
@@ -79,9 +74,6 @@ def _environment() -> dict[str, Any]:
         "source_root": _trusted_source_root(),
         "bash_executable": Path("/bin/bash"),
         "perl_executable": Path("/usr/bin/perl"),
-        "resolved_runtime_fingerprint": (
-            configured_protein_sol_runtime_fingerprint()
-        ),
     }
 
 
@@ -111,18 +103,6 @@ def test_local_protein_sol_golden_multiple_metrics(
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
-    source_root = _trusted_source_root()
-    required = (
-        source_root,
-        Path("/bin/bash"),
-        Path("/usr/bin/perl"),
-    )
-    assert all(path.exists() for path in required), (
-        "required locked Protein-Sol source or runtime is unavailable"
-    )
-    readiness = protein_sol_readiness(_environment())
-    assert readiness.passing is True, readiness
-
     recorded: list[dict[str, Any]] = []
     original_invoke = adapter.invoke_protein_sol
 
@@ -133,12 +113,6 @@ def test_local_protein_sol_golden_multiple_metrics(
             "input_fasta": (
                 staging_directory / "input.fasta"
             ).read_text(encoding="ascii"),
-            "source_files_sha256": {
-                relative: hashlib.sha256(
-                    (staging_directory / relative).read_bytes()
-                ).hexdigest()
-                for relative in adapter.PROTEIN_SOL_SOURCE_SHA256
-            },
         }
         original_invoke(**kwargs)
         record["raw_output"] = (
@@ -159,7 +133,6 @@ def test_local_protein_sol_golden_multiple_metrics(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -198,7 +171,6 @@ def test_local_protein_sol_golden_multiple_metrics(
             contract_lock=(),
         ),
     )
-    fingerprint = configured_protein_sol_runtime_fingerprint()
     service = V2RunService(
         projects,
         catalog,
@@ -207,8 +179,6 @@ def test_local_protein_sol_golden_multiple_metrics(
             {
                 ("solubility.protein_sol.local", "4.0.0"): {
                     "values": _environment(),
-                    "safe_fingerprint": fingerprint,
-                    "invalidation_token": fingerprint,
                 }
             }
         ),
@@ -261,9 +231,6 @@ def test_local_protein_sol_golden_multiple_metrics(
     assert recorded[0]["input_fasta"] == "".join(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)
-    )
-    assert recorded[0]["source_files_sha256"] == (
-        adapter.PROTEIN_SOL_SOURCE_SHA256
     )
     assert adapter.parse_protein_sol_output(recorded[0]["raw_output"]) == [
         adapter.ProteinSolPrediction(

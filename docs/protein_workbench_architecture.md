@@ -1,10 +1,10 @@
 # 模块化蛋白质设计与评价工作台：当前架构
 
-- **文档版本**：0.5
-- **日期**：2026-08-03
+- **文档版本**：0.6
+- **日期**：2026-08-18
 - **使用场景**：可信、单用户、仅本机使用
 - **规范词汇**：以 [`CONTEXT.md`](../CONTEXT.md) 为准
-- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038
+- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038、ADR-0039、ADR-0040
 
 ## 1. 目标与优先级
 
@@ -17,7 +17,7 @@ Protein Workbench 是用 Node 连线组合蛋白质设计、折叠、评价、�
 3. Candidate identity、lineage、provenance 和 Run Evidence；
 4. exact Contract 和持久化结果的可解释性；
 5. 本机运行的可维护性与效率；
-6. 开发期数据的兼容性。
+6. 简单、稳健且可维护的本机实现。
 
 项目尚未投入使用，不承担历史运行兼容义务。科学含义发生变化时，直接修改当前 producers、consumers、tests、examples 和文档，并使旧开发数据 fail closed；不为旧格式增加 shim、alias、legacy parser、dual path 或 migrator。
 
@@ -177,10 +177,11 @@ Engine Invocation evidence recorder
 
 每个 Node Execution Attempt 的顺序为：
 
-1. 为 exact Binding 获取 run-scoped Readiness Attestation；
-2. 计算 Result Identity；
-3. 查询 Project-scoped Result Cache；
-4. Cache miss 或 bypass 时进入一次 Operation Attempt；
+1. 计算 Result Identity；
+2. 查询 Project-scoped Result Cache；
+3. Cache hit 时直接重放已经接纳的结果；
+4. Cache miss 或 bypass 时，Adapter route 为 exact Binding 做一次 Readiness 检查；direct
+   route 不需要 Provider Readiness；随后进入 Operation Attempt；
 5. 记录零个、一个或多个 Engine Invocations；
 6. 接纳 immutable output values；
 7. 将 Typed Output 与 Artifact bytes 写入 Project-scoped immutable objects，并以一个
@@ -188,7 +189,9 @@ Engine Invocation evidence recorder
 8. 从 Run Evidence Ledger 投影事件和 bounded output descriptors，再在成功后发布可选的
    Cache v4 replay index。
 
-Readiness 必须早于 Cache lookup。Cache replay 是 Node Execution Attempt，但不是 Operation Attempt 或 Engine Invocation。
+Availability 与 Readiness 只服务 Adapter route 的实际 Provider entry，不阻止 Workflow
+commit、direct operation 或 Cache replay。Cache replay 是 Node Execution Attempt，但不是
+Operation Attempt 或 Engine Invocation。
 
 ## 5. Canonical scientific operation
 
@@ -574,7 +577,11 @@ immutable object bytes 必须先 durable；transaction 提交前没有任何 out
 
 Operation Attempt 覆盖 implementation、Engine Invocation、documented Provider translation、
 normalization、Candidate identity normalization、Port admission 与 Artifact contract
-processing。该边界内失败时 Operation 与 Node 同为 `failed`，Node 使用
+processing。Adapter route 的 Cache miss 或 bypass 若 Binding Availability/Readiness 失败，
+只关闭已经开始的
+Node Attempt，使用 `failure_origin=binding` 和原始 `binding_unavailable` 或
+`readiness_rejected`；由于 implementation 尚未运行，它不创建 Operation Attempt。进入
+Operation 边界后失败时 Operation 与 Node 同为 `failed`，Node 使用
 `failure_origin=operation` 与 `node_execution_failed`。Operation 成功后，object 或
 manifest persistence 失败只关闭 Node 为 `failed/publication`，并使用
 `node_publication_failed`；它不得倒写已经成功的 Operation，也不得发布 output 或
@@ -583,21 +590,22 @@ Operation terminal、Node terminal 与 disposition。公开 error details 只包
 bounded domain identifiers、publication stage 或 Result Identity，不包含 object path、
 canonical value 或 raw exception。
 
-`failure_origin=operation` 必须引用同一 Node Attempt 中唯一且已 `failed` 的 executed
-Operation；Cache replay 或没有 Operation Attempt 的本地 pre-operation invariant 不得伪造该
-origin。后者在 contract-owning boundary fail fast，且不写虚构的 Node/Operation terminal。
+`failure_origin=binding` 必须没有 child Operation；`failure_origin=operation` 必须引用同一
+Node Attempt 中唯一且已 `failed` 的 executed Operation。Cache replay 或本地 invariant
+不得伪造任一 origin；本地 invariant 在 contract-owning boundary fail fast，且不写虚构的
+Node/Operation terminal。
 
-每个开始的 Engine Invocation 恰有一个 terminal fact，其 `engine_identity` 必须是 resolved
-exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能提供或覆盖
-该身份。`effective_randomness` 内部是 closed union：实际应用 seed 时为 `exact_seed`，
+正常执行过程中，每个开始的 Engine Invocation 恰有一个 terminal fact；进程退出后只将未完成
+Run 关闭为 `interrupted`，不重建缺失的内部 terminal。Invocation 的 `engine_identity` 必须是
+resolved exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能
+提供或覆盖该身份。`effective_randomness` 内部是 closed union：实际应用 seed 时为 `exact_seed`，
 provider 不受控时为 `provider_uncontrolled`。它可以与 residue-projection fact 同时存在。
 Artifact bytes 与 ordinary Typed Output values 由同一个 Project-scoped
 content-addressed object store 持有，但两者保持独立 nominal Port semantics。
 Artifact descriptor 保留 publication intent、exact media type、原始 filename、
 Candidate association（若声明）和 Run-scoped opaque reference；只有 committed
-Ledger publication 才使 Artifact 进入公开 index。Artifact retrieval 通过 descriptor
-中的 digest 与 size 读取并验证 immutable object，不存在随机 Run-scoped Artifact file
-或 file rollback path。
+Ledger publication 才使 Artifact 进入公开 index。Artifact retrieval 信任 owner 已接纳
+的 descriptor 和 object reference 并直接读取，不在每次读取时重新证明 digest/size。
 
 ## 14. Persistence 与公开协议
 
@@ -610,7 +618,7 @@ Input。后者使用 closed JSON request，保留 `filename` 作为来源标签�
 `filename`、`project_input_ref`、byte size 与 content digest 作为一个 closed immutable
 descriptor 和 payload 原子发布；重启后通过
 `GET /api/v2/projects/{project_id}/inputs/{project_input_ref}` 从该 durable descriptor
-恢复来源标签，并重新验证 payload size 与 digest。
+恢复来源标签并直接读取 owner 已发布的 payload。
 不存在未版本化的 `/api/projects` 或 multipart publication seam。Project ID 与
 `project_input_ref` 使用 storage owner 的 exact identifier domain。
 
@@ -621,8 +629,8 @@ bytes 仅重命名 filename 或 opaque reference 时，Result Identity 保持不
 
 Project metadata、Workflow Draft、Workflow Commit、Result Cache 和 Run Ledger 使用 closed
 current schemas。public/persistence seam 接纳 wire value 后立即转换为 immutable canonical
-value；内部不反复通过 JSON roundtrip。持久化 Commit 只能在所有 digest 与 active Catalog
-exact references 一致时 hydrate Execution Plan，否则 fail closed。
+value；内部不反复通过 JSON roundtrip。authoring owner 信任自己写入的 Commit；需要恢复
+in-memory Plan 时正常解析并编译，解析或编译失败直接 fail fast，不建立损坏恢复协议。
 
 推荐 Project 组织：
 

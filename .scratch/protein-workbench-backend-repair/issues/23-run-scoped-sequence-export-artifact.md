@@ -1,5 +1,7 @@
 # 23 — Materialize sequence exports in each run namespace
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** Every workflow run receives its own sequence-export artifact, even when an identical prior run is eligible for Cache reuse, so clients never receive a stale path owned by another run.
 
 **Blocked by:** 22 — Preserve canonical secondary-structure intent in the final layout.

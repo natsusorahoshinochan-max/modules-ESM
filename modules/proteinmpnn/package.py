@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-import importlib.metadata
 import importlib.util
 import math
 from typing import Any
@@ -222,17 +221,10 @@ def _available() -> AvailabilityResult:
 
 def _model_available() -> AvailabilityResult:
     if importlib.util.find_spec("torch") is not None:
-        try:
-            if (
-                importlib.metadata.version("torch")
-                == PROTEINMPNN_TORCH_VERSION
-            ):
-                return AvailabilityResult.available()
-        except importlib.metadata.PackageNotFoundError:
-            pass
+        return AvailabilityResult.available()
     return AvailabilityResult.unavailable(
         code="proteinmpnn_runtime_unavailable",
-        message="The exact ProteinMPNN Torch runtime is unavailable.",
+        message="The ProteinMPNN Torch runtime is unavailable.",
         retryable=False,
     )
 
@@ -589,8 +581,8 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 f"proteinmpnn.{operation}/readiness",
                 version,
                 {
-                    "observation": "per-run",
-                    "cache_order": "before-cache-lookup",
+                    "observation": "cache-miss",
+                    "cache_order": "before-provider-entry",
                     "model_load": "forbidden",
                     "secret_retention": "none",
                 },
@@ -609,10 +601,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     "device": {
                         "source": "trusted_environment_configuration",
                         "exact_value": PROTEINMPNN_DEVICE,
-                    },
-                    "runtime_fingerprint": {
-                        "source": "trusted_environment_configuration",
-                        "safe_public_identity": True,
                     },
                 }
                 if is_model

@@ -25,8 +25,6 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
-from modules.proteinmpnn.adapter import configured_runtime_fingerprint
-from tests.acceptance.conftest import require_ready
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -48,18 +46,14 @@ def _environment(
     binding_id: str,
     binding_version: str,
 ) -> EnvironmentConfiguration:
-    fingerprint = configured_runtime_fingerprint()
     return EnvironmentConfiguration({
         (binding_id, binding_version): {
             "values": {
                 "device": "cpu",
-                "resolved_runtime_fingerprint": fingerprint,
                 "provider_root": Path(
                     os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
                 ).resolve(),
             },
-            "safe_fingerprint": fingerprint,
-            "invalidation_token": fingerprint,
         }
     })
 
@@ -99,7 +93,6 @@ def _run(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -185,9 +178,7 @@ def _axis_resolver() -> WorkflowNodeInstance:
 @pytest.mark.slow
 def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
     tmp_path: Path,
-    readiness: dict[str, bool],
 ) -> None:
-    require_ready("proteinmpnn", readiness)
     nodes = (
         _source_node(),
         _axis_resolver(),
@@ -306,9 +297,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
 @pytest.mark.slow
 def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     tmp_path: Path,
-    readiness: dict[str, bool],
 ) -> None:
-    require_ready("proteinmpnn", readiness)
     nodes = (
         _source_node(),
         _axis_resolver(),

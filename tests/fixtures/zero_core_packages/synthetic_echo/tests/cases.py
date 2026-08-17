@@ -24,8 +24,6 @@ SOURCE_EXECUTION_CASE = ModulePackageContractCase(
         "credential": "contract-test-secret-must-not-publish",
         "runtime_path": "/private/contract-test-runtime",
     },
-    safe_environment_fingerprint="synthetic-echo-environment-v1",
-    invalidation_token="synthetic-echo-assets-v1",
     expected_scalar_outputs={"text": "SOURCE"},
     expected_candidate_counts={"candidates": 1},
     expected_artifacts={"artifact": b"SOURCE"},
@@ -49,8 +47,6 @@ EXECUTION_CASE = ModulePackageContractCase(
         "credential": "contract-test-secret-must-not-publish",
         "runtime_path": "/private/contract-test-runtime",
     },
-    safe_environment_fingerprint="synthetic-echo-environment-v1",
-    invalidation_token="synthetic-echo-assets-v1",
     workflow_nodes=(
         WorkflowNodeInstance(
             node_id="candidate-source",

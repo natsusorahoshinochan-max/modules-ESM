@@ -409,8 +409,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-candidates-v1",
         workflow_nodes=(source_a, source_b),
         workflow_edges=(
             WorkflowEdge(
@@ -437,8 +435,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-scores-v1",
         workflow_nodes=(source_a, source_b, scorer_a, scorer_b),
         workflow_edges=(
             WorkflowEdge(
@@ -477,8 +473,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={"k": 1},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-take-v1",
         workflow_nodes=(source_a,),
         workflow_edges=(
             WorkflowEdge(
@@ -499,8 +493,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-rebind-v1",
         workflow_nodes=(lineage_source,),
         workflow_edges=(
             WorkflowEdge(
@@ -538,8 +530,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-concat-pairings-v1",
         workflow_nodes=(lineage_source,),
         workflow_edges=(
             WorkflowEdge(
@@ -559,8 +549,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-pair-siblings-v1",
         workflow_nodes=(lineage_source,),
         workflow_edges=(
             WorkflowEdge(
@@ -586,8 +574,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-select-children-v1",
         workflow_nodes=(lineage_source,),
         workflow_edges=(
             WorkflowEdge(
@@ -614,8 +600,6 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        safe_environment_fingerprint="provider-free",
-        invalidation_token="collection-ops-intersect-v1",
         workflow_nodes=(source_a,),
         workflow_edges=(
             WorkflowEdge(
@@ -852,7 +836,6 @@ def _run_public_collection_workflow(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow.to_public(),
             },
         )
@@ -1156,7 +1139,6 @@ def _commit_through_public_rest(
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": public_workflow.to_public(),
             },
         )
@@ -1194,7 +1176,6 @@ def _run_through_public_rest(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": public_workflow.to_public(),
             },
         )

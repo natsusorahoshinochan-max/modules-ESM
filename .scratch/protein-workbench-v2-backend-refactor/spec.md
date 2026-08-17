@@ -1,6 +1,10 @@
 # Protein Workbench v2 backend architecture refactor
 
-**Status:** ready-for-agent
+**Status:** historical completion record; superseded; do not implement
+
+Current authority: `CONTEXT.md`, `docs/codebase-redesign.md`,
+`docs/redesign-switch-1.md`, and the accepted ADRs. Cache conflict, restart
+reconciliation, and filesystem/security requirements below are historical.
 
 ## Problem Statement
 

@@ -31,9 +31,6 @@ from modules.structure_transform.package import (
 )
 from tests.fixtures.scientific_operation import build_operation, operation_call
 
-from .conftest import require_ready
-
-
 pytestmark = pytest.mark.acceptance
 _MKDSSP = "/opt/homebrew/bin/mkdssp"
 
@@ -59,12 +56,10 @@ class _RunResources:
 
 def test_mkdssp_4_6_1_publishes_complete_3gb1_sasa_and_coil(
     tmp_path: Path,
-    readiness: dict[str, bool],
     pdb_3gb1: Any,
 ) -> None:
-    require_ready("mkdssp", readiness)
     conclusion = _dssp_ready(
-        ReadinessCheckInput({"dssp_binary": _MKDSSP}, None)
+        ReadinessCheckInput({"dssp_binary": _MKDSSP})
     )
     assert conclusion.passing
 

@@ -1,9 +1,14 @@
 # Provider acceptance 调用与翻译契约调研
 
-- 状态：初始调研快照，附 2026-08-03 实施后验证结论
+- 状态：已被当前架构与单阶段 Acceptance Campaign 取代的非规范历史调研
 - 日期：2026-08-03
 - 范围：mkdssp、ProteinMPNN design/score/chain-order、local ESMFold2、Biohub ESMC/ESM-3/ESMFold2 Binding、SimpleFold confidence、Protein-Sol、SoluProt
 - 调研边界：初始调研没有调用真实 Provider；实施阶段执行了当前机器上可用的零跳过安装包门禁，并对 Biohub ESMC 返回 tensor 形状做了只输出类型、shape 与 dtype 的真实探针
+
+不得按下文恢复 monkeypatch observer、digest-heavy gate、Provider cross-check
+或旧修复顺序。SoluProt 当前明确是 project-maintained port，不声称与官方
+release 等价。已经吸收进当前 Method、Adapter 与科学测试的结论仍有效；当前
+权威状态以 `protein_workbench_architecture.md` 和 `backend-verification.md` 为准。
 
 ## 2026-08-03 实施后更新
 
@@ -17,7 +22,11 @@
 
 本节及其后的各 Provider 分节保留实施前快照；其中“当前”“现有”均指本轮修复开始前的实现。实施后的状态以紧邻上方的更新段、当前代码和保留的 verification evidence 为准。
 
-当前安装包 acceptance 框架已经具备一个正确的骨架：测试在源码树之外、使用安装产物、启用 `PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL=1`，并要求 `tests > 0`、`failures == 0`、`skipped == 0`；公共运行证据还证明 readiness 先于 Operation Attempt、真实执行而非 cache hit、Method digest 匹配、Engine Invocation 与 Run 正常终止。参见 [installed provider selectors](../tests/test_installed_backend_v2.py) 和 [`_assert_exact_execution`](../tests/acceptance/test_installed_provider_gates_v2.py)。
+当时的安装包 acceptance 框架已经在源码树之外使用安装产物，并通过
+`PROTEIN_WORKBENCH_REQUIRE_PROVIDER_CALL=1` 配合 zero-skip 约束真实调用。当前实现已删除
+该重复 preflight 开关，仅由 zero-skip 和 public Binding Readiness 负责；保留的公共运行证据
+仍证明 Readiness 先于 Operation Attempt、真实执行而非 Cache hit、Method digest 匹配、
+Engine Invocation 与 Run 正常终止。
 
 但是，“确实调用过某个 Provider”不等于“按官方契约正确调用并正确翻译”。现有门禁的共同缺口是：多数测试只检查输出存在、长度或范围，没有在真实调用周围观察 Provider 收到的精确输入和参数，也没有用足以识别翻译漂移的正向 golden 结果闭合输出、残基轴和 provenance。
 

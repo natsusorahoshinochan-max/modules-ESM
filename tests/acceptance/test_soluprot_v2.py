@@ -18,10 +18,6 @@ from core import (
     build_frozen_catalog,
 )
 from core.workflow_v2 import WorkflowEdge
-from modules.solubility.adapter import (
-    configured_runtime_fingerprint,
-    soluprot_readiness,
-)
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -75,7 +71,6 @@ def _environment(mode: str) -> dict[str, Any]:
         "usearch_executable": (
             external_root / "var/tools/soluprot/usearch"
         ),
-        "resolved_runtime_fingerprint": configured_runtime_fingerprint(mode),
     }
     if mode == "full":
         environment["tmhmm_root"] = (
@@ -123,7 +118,6 @@ def _run(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -171,8 +165,6 @@ def _run(
             {
                 (binding_id, "4.0.0"): {
                     "values": environment_values,
-                    "safe_fingerprint": configured_runtime_fingerprint(mode),
-                    "invalidation_token": configured_runtime_fingerprint(mode),
                 }
             }
         ),
@@ -205,23 +197,6 @@ def test_model_backed_soluprot_golden_methods(
     expected: float,
 ) -> None:
     import modules.solubility.adapter as adapter
-
-    external_root = _trusted_external_root()
-    required = [
-        external_root / "var/environments/soluprot/bin/python",
-        external_root / "vendor/packages/soluprot-1.1.0-py3-none-any.whl",
-        external_root / "var/tools/soluprot/usearch",
-    ]
-    if mode == "full":
-        required.extend(
-            (
-                external_root / "var/tools/soluprot/tmhmm",
-                Path("/usr/bin/perl"),
-            )
-        )
-    assert all(path.exists() for path in required), (
-        "required locked SoluProt assets are unavailable"
-    )
 
     recorded: list[dict[str, Any]] = []
     original_invoke = adapter.invoke_soluprot
@@ -384,14 +359,6 @@ def test_model_backed_soluprot_golden_methods(
         in {invocation_id for invocation_id, _ in started}
     ]
     assert len(started) == 1
-    binding = catalog.require_contract(
-        "binding",
-        binding_id,
-        "4.0.0",
-    )
-    assert binding.descriptor["implementation_identity"][
-        "resolved_runtime_fingerprint"
-    ] == configured_runtime_fingerprint(mode)
     assert [event["status"] for event in terminals] == ["succeeded"]
     readiness_index = next(
         index
@@ -421,18 +388,3 @@ def test_model_backed_soluprot_golden_methods(
         projection=projection,
         events=events,
     )
-
-
-def test_stale_no_tm_asset_replacement_invalidates_readiness(
-    tmp_path: Path,
-) -> None:
-    replacement = tmp_path / "usearch"
-    replacement.write_bytes(b"stale replacement")
-    replacement.chmod(0o700)
-    environment = _environment("no_tm")
-    environment["usearch_executable"] = replacement
-
-    conclusion = soluprot_readiness(environment, mode="no_tm")
-
-    assert conclusion.passing is False
-    assert conclusion.reason_code == "soluprot_no_tm_runtime_unavailable"

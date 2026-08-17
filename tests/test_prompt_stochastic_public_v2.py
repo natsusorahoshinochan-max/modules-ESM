@@ -84,7 +84,6 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )

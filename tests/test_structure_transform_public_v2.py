@@ -255,7 +255,6 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             "save_project_workflow_draft",
             {
                 "project_id": project_id,
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
             200,
@@ -270,7 +269,6 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             "commit_project_workflow",
             {
                 "project_id": project_id,
-                "expected_draft_revision": draft["draft_revision"],
                 "workflow": workflow,
             },
             200,

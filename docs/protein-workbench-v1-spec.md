@@ -190,7 +190,8 @@ No existing tests in the repo. Tests follow standard pytest conventions with fix
 
 ## Further Notes
 
-- The architecture document (`protein_workbench_architecture.md`) and 17 ADRs in `docs/adr/` are the authoritative design references. Where this spec is silent, the architecture document governs. Where they conflict, this spec takes precedence as the implementation-target document.
+- Historically, this document was the v1 implementation target. It never takes
+  precedence over the current architecture or accepted ADRs.
 - The Biohub API reference (`docs/biohub-api-reference/`) defines provider contracts for ESM3 and ESMFold2. The `product-contract-supplement.md` defines accepted model identities and capability boundaries. The `observed-runtime-overlay.md` captures dated empirical evidence that constrains what the product can claim. When dated observations contradict static API snapshots, dated observations control.
 - Module versioning: `module_api` field in ModuleDefinition governs core-to-module compatibility. Module-level versions follow semver (major for incompatible port changes, minor for backward-compatible additions, patch for implementation fixes).
 - The `repositories/` directory is a read-only vendor area. Upstream code in `repositories/ProteinMPNN/`, `repositories/esm/`, and `repositories/ml-simplefold/` is never modified.

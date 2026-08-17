@@ -34,7 +34,7 @@ are ordinary local verification output.
 | Tier | Command | Contract |
 | --- | --- | --- |
 | Routine backend regression | `.venv/bin/python scripts/verify_backend.py routine` | Runs deterministic current-generation tests and excludes acceptance, installed-package, Provider, slow-model, and scientific-reproduction markers. |
-| Repository v2 examples | `.venv/bin/python scripts/verify_backend.py examples-v2` | Commits and compiles the maintained current-generation Workflow suite and compares its 11-package capability inventory with the active source Catalog. |
+| Repository v2 examples | `.venv/bin/python scripts/verify_backend.py examples-v2` | Commits and compiles the maintained current-generation Workflow suite and compares its 12-package capability inventory with the active source Catalog. |
 | Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs the locked canonical v2 3GB1 public-protocol journey and its current failure, readiness, cancellation, isolation, and replay variants. |
 | Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
 | Local ESMFold2 source contract | `.venv/bin/python scripts/verify_backend.py local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
@@ -50,20 +50,18 @@ are ordinary local verification output.
 | Installed SimpleFold confidence | `.venv/bin/python scripts/verify_backend.py installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
 | Installed SoluProt | `.venv/bin/python scripts/verify_backend.py installed-soluprot` | Invokes both full and no-TM locked SoluProt methods and checks their exact observations and terminal evidence. |
 | Installed Protein-Sol | `.venv/bin/python scripts/verify_backend.py installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
-| Fresh source-bound 1PGA | `.venv/bin/python scripts/verify_backend.py fresh-1pga` | Runs the clean-source installed 1PGA Workflow and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
-| Fresh source-bound 2EMO | `.venv/bin/python scripts/verify_backend.py fresh-2emo` | Runs the clean-source installed 2EMO Workflow and retains exact CSH normalization, ProteinMPNN, ESMFold2, Protein-Sol, four-filter, and public evidence. |
-| Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-canonical-3gb1` | Runs the clean-source canonical scientific Workflow without historical Cache. Its four Provider stages require exactly 20 ESM-3 paired-generation calls, 10 preliminary folds, 3 ProteinMPNN parent-design calls, and 15 final folds, alongside the Workflow's valid local invocations. It is release evidence rather than a substitute for the smaller exact-Binding gates. |
-| Fresh source-bound 5G53 | `.venv/bin/python scripts/verify_backend.py fresh-5g53` | Runs the clean-source installed 5G53 Workflow and retains all six paired candidates, reconstruction, both PAE-bearing confidence collections, loop evidence, retrieval, and artifacts. |
-| Provider route isolation | `.venv/bin/python scripts/verify_backend.py provider-isolation` | Exercises exact model/data identity, configuration invalidation, stale Readiness, reusable-proof identity, and isolation of actual Provider routes. |
-
-All fifteen Provider and clean-source tiers are zero-skip gates: a missing Provider,
-fixture-only collection, failed source-origin check, missing Engine Invocation,
+| Fresh source-bound 1PGA | `.venv/bin/python scripts/verify_backend.py fresh-1pga` | Runs the installed 1PGA Workflow and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
+| Fresh source-bound 2EMO | `.venv/bin/python scripts/verify_backend.py fresh-2emo` | Runs the installed 2EMO Workflow and retains exact CSH normalization, ProteinMPNN, ESMFold2, Protein-Sol, four-filter, and public evidence. |
+| Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-canonical-3gb1` | Runs the canonical scientific Workflow without historical Cache. Its four Provider stages require exactly 20 ESM-3 paired-generation calls, 10 preliminary folds, 3 ProteinMPNN parent-design calls, and 15 final folds, alongside the Workflow's valid local invocations. It is release evidence rather than a substitute for the smaller exact-Binding gates. |
+| Fresh source-bound 5G53 | `.venv/bin/python scripts/verify_backend.py fresh-5g53` | Runs the installed 5G53 Workflow and retains all six paired candidates, reconstruction, both PAE-bearing confidence collections, loop evidence, retrieval, and artifacts. |
+All fifteen Acceptance Campaign tiers are zero-skip gates: a missing Provider,
+fixture-only collection, missing Engine Invocation,
 or skipped test fails the gate. The copied acceptance harness is outside the
 checkout, and its bootstrap first proves that `core`, `modules`, and
 `protein_workbench_public` resolve from the installed wheel. It may expose
 locked dependency locations to that isolated environment, but it cannot add
-the source checkout to Python's import path. Installed provider gates reject
-pytest target overrides so a smaller test cannot replace the required case.
+the source checkout to Python's import path. The canonical Campaign itself owns
+the fixed tier selectors and binds them to one clean source revision.
 
 All fifteen Acceptance Campaign tiers retain one lightweight public Evidence
 bundle:
@@ -102,7 +100,7 @@ translation contract and cannot replace that invocation.
 
 The verifier exposes no v1 provider-evidence, mocked-workflow,
 aggregate-provider, or generic live-provider tier. It does expose the exact
-four clean-source release tiers. Every Provider gate consumes
+four source-bound scientific Workflow tiers. Every Provider gate consumes
 current Run Evidence Ledger facts; an Adapter-owned JSONL stream,
 readiness-only result, historical manifest, skip, or Cache-only replay cannot
 satisfy it. A fixed expected call count is useful only together with exact
@@ -128,9 +126,9 @@ variables required by the selected gate:
 Missing or relative required path configuration fails a zero-skip gate.
 Acceptance files do not infer Provider runtimes from another workspace.
 
-All declared pytest file targets are required to exist. A focused override after
-`--` accepts only repository-relative selectors beneath `tests/`; this keeps a
-developer from accidentally replacing the intended verification scope.
+All declared canonical pytest file targets are required to exist. A developer
+may use a focused override for local work; only the Campaign's fixed selectors
+constitute canonical acceptance.
 
 ## Architecture invariants
 
@@ -164,7 +162,7 @@ contract-owning interfaces:
 
 A repository-owned extension has one production entry point:
 `modules/<package>/package.py:MODULE_PACKAGE`. The production Catalog discovers
-exactly these 11 packages:
+exactly these 12 packages:
 
 - `collection_ops`
 - `esm3`
@@ -176,6 +174,7 @@ exactly these 11 packages:
 - `solubility`
 - `structure_annotation`
 - `structure_comparison`
+- `structure_prediction`
 - `structure_transform`
 
 Maintainers pass the package's `ModulePackageRegistration` to
@@ -183,8 +182,8 @@ Maintainers pass the package's `ModulePackageRegistration` to
 and `ModulePackagePortCase` values. The Contract Test Kit builds a temporary
 single-generation `FrozenCatalog`, proves one active exact version per logical
 contract, validates package-owned Port Type codecs and golden bytes, commits a
-minimal Workflow, obtains run-scoped Readiness, and executes through the normal
-v2 interface. It replays public events, decodes typed outputs, checks Result
+minimal Workflow, obtains run-scoped Readiness for Adapter routes, and executes
+through the normal v2 interface. It replays public events, decodes typed outputs, checks Result
 Identity, scientific lineage, producer and Provider provenance, and retrieves
 declared Artifacts. Tests exercise the same scientific-operation seam as the
 runtime and do not require an operation implementation to inspect the Catalog.

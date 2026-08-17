@@ -1,6 +1,12 @@
 # Atomic Node Outcome Publication and Typed Value Persistence
 
-**Status:** ready-for-agent
+**Status:** historical completion record; superseded; do not implement
+
+Current authority: `CONTEXT.md`, `docs/codebase-redesign.md`,
+`docs/redesign-switch-1.md`, and
+`docs/2026-08-17-acceptance-evidence-follow-up-audit.md`. The Result Identity
+conflict, restart reconstruction, GC, fault/security matrix, and frozen
+Evidence-generation designs below are historical.
 
 ## Problem Statement
 

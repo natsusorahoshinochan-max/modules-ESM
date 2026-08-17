@@ -91,52 +91,12 @@ def provider_identity() -> dict[str, Any]:
     }
 
 
-def _runtime_fingerprint(
-    exact_provider_identity: Mapping[str, Any],
-) -> str:
-    payload = {
-        "schema_namespace": (
-            "protein-workbench-simplefold-confidence-runtime/v2"
-        ),
-        "provider_identity": exact_provider_identity,
-        "device": simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
-        "featurization": (
-            simplefold_contract.SIMPLEFOLD_CONFIDENCE_FEATURIZATION
-        ),
-        "adapter": simplefold_contract.SIMPLEFOLD_CONFIDENCE_ADAPTER,
-        "native_to_canonical_scale": (
-            "direct_confidence_head_[0,1]_multiply_100"
-        ),
-    }
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
-
-
-def configured_runtime_fingerprint() -> str:
-    """Return the path-free declared identity of the confidence runtime."""
-    return _runtime_fingerprint(provider_identity())
-
-
 def simplefold_confidence_runtime_structurally_available() -> bool:
     """Probe package structure without probing or loading any model asset."""
-    if (
+    return not (
         importlib.util.find_spec("simplefold") is None
         or importlib.util.find_spec("torch") is None
-    ):
-        return False
-    try:
-        validate_installed_provider_checkout(
-            "simplefold",
-            SIMPLEFOLD_REVISION,
-        )
-    except (ImportError, OSError, RuntimeError, ValueError):
-        return False
-    return True
+    )
 
 
 def _sha256_file(path: Path, *, expected_bytes: int | None = None) -> str:
@@ -203,11 +163,6 @@ def validate_simplefold_confidence_environment(
         simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
     ):
         raise RuntimeError("SimpleFold confidence device identity changed")
-    fingerprint = environment.get("resolved_runtime_fingerprint")
-    if fingerprint != configured_runtime_fingerprint():
-        raise RuntimeError(
-            "SimpleFold confidence runtime fingerprint changed"
-        )
     model_root, observed_model_digests = _validated_file_set(
         environment.get("model_root"),
         simplefold_contract.simplefold_confidence_artifact_sha256(),
@@ -237,7 +192,6 @@ def validate_simplefold_confidence_environment(
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": source_root,
-        "resolved_runtime_fingerprint": fingerprint,
         "resolved_provider_identity": resolved_provider_identity,
     }
 

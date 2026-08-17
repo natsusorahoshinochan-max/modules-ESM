@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import importlib.metadata
 import json
 import os
 import stat
 import subprocess
-from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -102,13 +100,6 @@ SIMPLEFOLD_ARTIFACT_SHA256 = {
     ),
 }
 SIMPLEFOLD_EXECUTION_ENABLED = True
-PROVIDER_PACKAGE_TREE_SHA256 = {
-    "esm": "4d50a2977825a046d8e6045189b1d8d75082ba3b9bfd69db8939f2063745b621",
-    "simplefold": (
-        "7eff5379ff65ca1c56bd784c5a2fb1091bafb76dd26b1a4afaf776fc656bcc07"
-    ),
-}
-
 PROTEINMPNN_V_48_020_SHA256 = (
     "c9cb4a671d79604111231f8dbfc7c590e06f1197453b7a6854ac6661a642f5bd"
 )
@@ -163,25 +154,11 @@ def _git(*args: str, cwd: Path) -> str:
     return completed.stdout.strip()
 
 
-def _package_tree_sha256(
-    files: list[tuple[str, Path]],
-) -> str:
-    digest = hashlib.sha256()
-    for relative, path in sorted(files):
-        digest.update(relative.encode() + b"\0")
-        file_digest = hashlib.sha256()
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                file_digest.update(chunk)
-        digest.update(file_digest.digest())
-    return digest.hexdigest()
-
-
 def validate_installed_provider_checkout(
     package_name: str,
     expected_revision: str,
 ) -> Path:
-    """Verify installed VCS provenance or an editable checkout's live Git state."""
+    """Resolve one provider package from its locked source revision."""
     distribution = importlib.metadata.distribution(package_name)
     direct_url_text = distribution.read_text("direct_url.json")
     if not direct_url_text:
@@ -200,68 +177,10 @@ def validate_installed_provider_checkout(
             raise RuntimeError(
                 "Provider package VCS provenance does not match locked revision"
             )
-        recorded_hashes: dict[str, Any] = {}
-        for package_file in distribution.files or ():
-            parts = Path(str(package_file)).parts
-            if (
-                not parts
-                or parts[0] != package_name
-                or "__pycache__" in parts
-                or str(package_file).endswith(".pyc")
-            ):
-                continue
-            if (
-                package_file.hash is None
-                or package_file.hash.mode != "sha256"
-            ):
-                raise RuntimeError(
-                    "Installed provider runtime file lacks a SHA-256 entry"
-                )
-            relative = Path(*parts[1:]).as_posix()
-            recorded_hashes[relative] = package_file.hash
         package_root_path = Path(distribution.locate_file(package_name))
-        if package_root_path.is_symlink() or not package_root_path.is_dir():
-            raise RuntimeError("Installed provider package root is not regular")
-        package_root = package_root_path.resolve()
-        runtime_files: list[tuple[str, Path]] = []
-        for installed_file in package_root.rglob("*"):
-            if installed_file.is_symlink():
-                raise RuntimeError("Installed provider contains a symlink")
-            if (
-                not installed_file.is_file()
-                or "__pycache__" in installed_file.parts
-                or installed_file.suffix == ".pyc"
-            ):
-                continue
-            relative = installed_file.relative_to(package_root).as_posix()
-            package_hash = recorded_hashes.get(relative)
-            if package_hash is None:
-                raise RuntimeError(
-                    "Installed provider runtime file is absent from RECORD"
-                )
-            digest = hashlib.new(package_hash.mode)
-            with installed_file.open("rb") as handle:
-                while chunk := handle.read(1024 * 1024):
-                    digest.update(chunk)
-            encoded = base64.urlsafe_b64encode(digest.digest()).decode().rstrip("=")
-            if encoded != package_hash.value:
-                raise RuntimeError("Installed provider file hash mismatch")
-            runtime_files.append((
-                relative,
-                installed_file,
-            ))
-        if not runtime_files or {
-            relative for relative, _ in runtime_files
-        } != set(recorded_hashes):
-            raise RuntimeError("Installed provider RECORD inventory mismatch")
-        if (
-            _package_tree_sha256(runtime_files)
-            != PROVIDER_PACKAGE_TREE_SHA256[package_name]
-        ):
-            raise RuntimeError(
-                "Installed provider package tree does not match reviewed source"
-            )
-        return package_root
+        if not package_root_path.is_dir():
+            raise RuntimeError("Installed provider package is unavailable")
+        return package_root_path.resolve()
     if direct_url.get("dir_info", {}).get("editable") is not True:
         raise RuntimeError("Provider package is not from a locked VCS install")
     parsed_url = urlparse(str(direct_url.get("url", "")))
@@ -278,31 +197,12 @@ def validate_installed_provider_checkout(
     package_root = next((
         root
         for root in package_roots
-        if not root.is_symlink() and (root / "__init__.py").is_file()
+        if (root / "__init__.py").is_file()
     ), None)
     if package_root is None:
         raise RuntimeError("Editable provider checkout lacks the expected package")
-    runtime_files = [
-        (path.relative_to(package_root).as_posix(), path)
-        for path in package_root.rglob("*")
-        if (
-            path.is_file()
-            and not path.is_symlink()
-            and "__pycache__" not in path.parts
-            and path.suffix != ".pyc"
-        )
-    ]
-    if (
-        _package_tree_sha256(runtime_files)
-        != PROVIDER_PACKAGE_TREE_SHA256[package_name]
-    ):
-        raise RuntimeError(
-            "Editable provider package tree does not match reviewed source"
-        )
     if _git("rev-parse", "HEAD", cwd=checkout) != expected_revision:
         raise RuntimeError("Provider package checkout does not match locked revision")
-    if _git("status", "--porcelain", "--untracked-files=all", cwd=checkout):
-        raise RuntimeError("Provider package checkout is not clean")
     return checkout
 
 
@@ -400,7 +300,7 @@ def read_biohub_token(project_dir: str | None = None) -> str:
 
 
 def local_esm3_snapshot_root() -> Path:
-    """Resolve the exact offline Hugging Face snapshot required by the gate."""
+    """Return the configured path for the locked local ESM3 snapshot."""
     configured_cache = os.environ.get("HF_HUB_CACHE")
     if configured_cache:
         hub_cache = Path(configured_cache).expanduser()
@@ -412,41 +312,9 @@ def local_esm3_snapshot_root() -> Path:
             )
         ).expanduser()
         hub_cache = hf_home / "hub"
-    snapshot = (
+    return (
         hub_cache
         / "models--biohub--esm3-sm-open-v1"
         / "snapshots"
         / LOCAL_ESM3_SNAPSHOT_REVISION
     )
-    if not snapshot.is_dir():
-        raise FileNotFoundError(
-            "Locked local ESM3 snapshot is not installed"
-        )
-    return snapshot
-
-
-@lru_cache(maxsize=1)
-def validate_local_esm3_snapshot() -> Path:
-    """Verify every locked local ESM3 weight before inference."""
-    snapshot = local_esm3_snapshot_root()
-    repository_root = snapshot.parents[1].resolve()
-    for relative_path, expected_sha256 in LOCAL_ESM3_WEIGHT_SHA256.items():
-        weight = snapshot / relative_path
-        resolved = weight.resolve()
-        if (
-            not weight.exists()
-            or not resolved.is_file()
-            or not resolved.is_relative_to(repository_root)
-        ):
-            raise FileNotFoundError(
-                f"Locked local ESM3 weight is unavailable: {relative_path}"
-            )
-        digest = hashlib.sha256()
-        with resolved.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-        if digest.hexdigest() != expected_sha256:
-            raise RuntimeError(
-                f"Locked local ESM3 weight digest mismatch: {relative_path}"
-            )
-    return snapshot

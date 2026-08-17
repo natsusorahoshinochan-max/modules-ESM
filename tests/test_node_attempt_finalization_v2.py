@@ -259,6 +259,54 @@ def test_operation_failure_is_one_exact_node_conclusion_transaction(
     assert disposition["payload"]["outcome"] == "failed"
 
 
+def test_binding_failure_closes_node_without_an_operation_attempt(
+    tmp_path,
+) -> None:
+    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    public_error = {
+        "code": "readiness_rejected",
+        "message": "Selected Binding is not ready for this Run",
+        "retryable": True,
+        "correlation_id": "incident-binding",
+        "details": {
+            "binding": {
+                "contract_kind": "binding",
+                "contract_id": "test.binding.local",
+                "contract_version": "2.1.0",
+                "contract_digest": "sha256:" + "1" * 64,
+            },
+            "reason_code": "model_unavailable",
+        },
+    }
+
+    finalized = _finalizer(ledger).finalize(
+        run_execution_v2.ExecutedNodeNonSuccess(
+            node_id="node-1",
+            node_attempt_id="node-attempt-1",
+            operation_attempt_id=None,
+            status="failed",
+            public_error=public_error,
+            failure_origin="binding",
+        )
+    )
+
+    assert finalized.disposition == "failed"
+    transaction = json.loads(_ledger_transaction_paths(tmp_path)[-1].read_bytes())
+    assert [fact["fact_type"] for fact in transaction["facts"]] == [
+        "node_attempt_terminal",
+        "node_disposition",
+    ]
+    node_terminal, disposition = transaction["facts"]
+    assert node_terminal["payload"] == {
+        "node_attempt_id": "node-attempt-1",
+        "status": "failed",
+        "resolution": "executed",
+        "failure_origin": "binding",
+        "error": public_error,
+    }
+    assert disposition["payload"]["outcome"] == "failed"
+
+
 def test_finalizer_rejects_error_code_from_another_failure_origin(
     tmp_path,
 ) -> None:

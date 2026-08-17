@@ -1288,7 +1288,6 @@ def _run_dssp(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     authoring.require_compiled(
@@ -1308,8 +1307,6 @@ def _run_dssp(
                     "values": {
                         "dssp_binary": configured_binary or str(binary)
                     },
-                    "safe_fingerprint": "mkdssp-fixture-4.6.1",
-                    "invalidation_token": "mkdssp-fixture-4.6.1",
                 }
             }
         ),
@@ -1695,67 +1692,57 @@ def test_dssp_readiness_rejects_version_prefix_collision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    cache = type(
-        "LookupRecorder",
-        (ResultReplaySource,),
-        {
-            "lookups": 0,
-            "lookup": lambda self, **kwargs: setattr(
-                self,
-                "lookups",
-                self.lookups + 1,
-            ),
-        },
-    )()
+    _, _, projection, _, _ = _run_dssp(
+        tmp_path,
+        monkeypatch,
+        pdb_text=(
+            "ATOM      1  CA  GLY A   1       "
+            "1.000   2.000   3.000  1.00 20.00           C  \n"
+            "TER\nEND\n"
+        ),
+        dssp_output="unused\n",
+        binary_version="4.6.10",
+    )
 
-    with pytest.raises(V2RunError) as rejected:
-        _run_dssp(
-            tmp_path,
-            monkeypatch,
-            pdb_text=(
-                "ATOM      1  CA  GLY A   1       "
-                "1.000   2.000   3.000  1.00 20.00           C  \n"
-                "TER\nEND\n"
-            ),
-            dssp_output="unused\n",
-            binary_version="4.6.10",
-            result_replay_source=cache,
-        )
-
-    assert rejected.value.code == "readiness_rejected"
-    assert cache.lookups == 0
+    assert projection["status"] == "failed"
 
 
-def test_unready_dssp_rejects_before_cache_lookup_or_invocation(
+def test_unready_dssp_rejects_before_invocation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class LookupRecorder(ResultReplaySource):
-        def __init__(self) -> None:
-            self.lookups = 0
+    _, _, projection, events, _ = _run_dssp(
+        tmp_path,
+        monkeypatch,
+        pdb_text=(
+            "ATOM      1  CA  GLY A   1       "
+            "1.000   2.000   3.000  1.00 20.00           C  \n"
+            "TER\nEND\n"
+        ),
+        dssp_output="unused\n",
+        configured_binary=str(tmp_path / "missing-mkdssp"),
+    )
 
-        def lookup(self, **kwargs: Any) -> None:
-            del kwargs
-            self.lookups += 1
-            return None
-
-    cache = LookupRecorder()
-    with pytest.raises(V2RunError) as rejected:
-        _run_dssp(
-            tmp_path,
-            monkeypatch,
-            pdb_text=(
-                "ATOM      1  CA  GLY A   1       "
-                "1.000   2.000   3.000  1.00 20.00           C  \n"
-                "TER\nEND\n"
-            ),
-            dssp_output="unused\n",
-            configured_binary=str(tmp_path / "missing-mkdssp"),
-            result_replay_source=cache,
-        )
-
-    assert rejected.value.code == "readiness_rejected"
-    assert cache.lookups == 0
+    assert projection["status"] == "failed"
+    failed_attempt_id = next(
+        message["event"]["node_attempt_id"]
+        for message in events
+        if message["event"]["type"] == "node_attempt_started"
+        and message["event"]["node_id"] == "annotate"
+    )
+    assert not any(
+        message["event"]["type"] == "operation_attempt_started"
+        and message["event"]["node_attempt_id"] == failed_attempt_id
+        for message in events
+    )
+    failed_terminal = next(
+        message["event"]
+        for message in events
+        if message["event"]["type"] == "node_attempt_terminal"
+        and message["event"]["node_attempt_id"] == failed_attempt_id
+    )
+    assert failed_terminal["failure_origin"] == "binding"
+    assert failed_terminal["error"]["code"] == "readiness_rejected"
 
 
 def test_structure_annotation_passes_ctk_for_all_seven_nodes(
@@ -1839,8 +1826,6 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_parameters={},
             binding_parameters={},
             environment_values={"dssp_binary": str(binary)},
-            safe_environment_fingerprint="mkdssp-fixture-4.6.1",
-            invalidation_token="mkdssp-fixture-4.6.1",
             workflow_nodes=(candidate_source, residue_axis_resolver),
             workflow_edges=(
                 WorkflowEdge(
@@ -1875,8 +1860,6 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="provider-free",
             workflow_nodes=(candidate_source, value_source),
             workflow_edges=value_source_edges + (
                 WorkflowEdge(
@@ -1896,8 +1879,6 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="provider-free",
             workflow_nodes=(candidate_source, value_source),
             workflow_edges=value_source_edges + (
                 WorkflowEdge(
@@ -1921,8 +1902,6 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="provider-free",
             workflow_nodes=(
                 candidate_source,
                 value_source,
@@ -1982,8 +1961,6 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="provider-free",
             workflow_nodes=(candidate_source, value_source),
             workflow_edges=value_source_edges + (
                 WorkflowEdge(
@@ -2009,8 +1986,6 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="provider-free",
             workflow_nodes=(candidate_source, value_source),
             workflow_edges=value_source_edges + (
                 WorkflowEdge(
@@ -2041,8 +2016,6 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_parameters={},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="provider-free",
-            invalidation_token="provider-free",
             workflow_nodes=(candidate_source, value_source),
             workflow_edges=value_source_edges + (
                 WorkflowEdge(
@@ -2230,7 +2203,6 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     authoring.require_compiled(

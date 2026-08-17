@@ -1,5 +1,7 @@
 # 26 — Publish truthful workflow-scoped readiness
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** The public backend resolves required provider readiness for each workflow and publishes it fail-closed in the run manifest, without trusting client claims or acceptance-only postprocessing.
 
 **Blocked by:** 25 — Record source-bound scientific-engine calls.

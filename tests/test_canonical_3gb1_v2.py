@@ -56,9 +56,9 @@ WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
 EXPECTED_TOP_THREE = [
-    "candidate-b6569b76846743270bf7cf85c24c69cd8c80ffb2e6cbd5d6bba2430389bafa97",
-    "candidate-3e66be1e43c3a350b13015211149df2edb09edb091c90193ff33987297d7de3b",
-    "candidate-905e3e9d12315a9a1c3bb52b2b9828bdf19b71d07b90a4f01681780b3b50a15c",
+    "candidate-18a93adf167bb2f7164fbcf438d34c401f2f959d5d6319c5785b9ea47d936f90",
+    "candidate-c03299c995000fef025616503df550ff98d746379b18a518049b3f4d516dfec6",
+    "candidate-3a57a5e19df809f2a3c27a4cacd39e2f1f5cf96bea0f9a03da3ad1db2d1a98de",
 ]
 EXPECTED_TOP_PARENT_INDICES = [2, 0, 3]
 pytestmark = pytest.mark.deterministic_acceptance
@@ -238,7 +238,6 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
         rejected = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -463,9 +462,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         esm3,
         folding,
     )
-    assert controlled_configuration[
-        ("proteinmpnn.design.local", "10.0.0")
-    ]["safe_fingerprint"] == "controlled-proteinmpnn-canonical-v2"
     app = create_app(
         frozen_catalog_override=catalog,
         _install_canonical_seed=True,
@@ -975,18 +971,38 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         assert invocation_starts == invocation_terminals
         assert set(attempt_starts.values()) == {1}
         assert set(invocation_starts.values()) == {1}
-        readiness_sequences = [
-            message["sequence"]
+        workflow_nodes = {
+            node["node_id"]: node for node in _workflow_payload()["nodes"]
+        }
+        attempt_sequences = {
+            message["event"]["node_id"]: message["sequence"]
+            for message in first_events
+            if message["event"]["type"] == "node_attempt_started"
+        }
+        readiness_messages = [
+            message
             for message in first_events
             if message["event"]["type"] == "readiness_attested"
         ]
-        attempt_sequences = [
-            message["sequence"]
-            for message in first_events
-            if message["event"]["type"] == "node_attempt_started"
-        ]
-        assert readiness_sequences
-        assert max(readiness_sequences) < min(attempt_sequences)
+        assert readiness_messages
+        for message in readiness_messages:
+            binding = message["event"]["binding"]
+            bound_nodes = [
+                node_id
+                for node_id, node in workflow_nodes.items()
+                if (
+                    node["binding_id"],
+                    node["binding_version"],
+                )
+                == (
+                    binding["contract_id"],
+                    binding["contract_version"],
+                )
+            ]
+            assert bound_nodes
+            assert message["sequence"] < min(
+                attempt_sequences[node_id] for node_id in bound_nodes
+            )
         proteinmpnn_readiness = next(
             message["event"]
             for message in first_events

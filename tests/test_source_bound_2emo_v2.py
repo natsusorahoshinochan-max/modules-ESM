@@ -634,18 +634,14 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         __import__("datatypes").ProteinStructure(INPUT_PATH.read_text(encoding="ascii"))
     )
     folding = _ControlledESMFold2(normalized.pdb_string)
-    from modules.proteinmpnn.adapter import configured_runtime_fingerprint
 
     environment = {
         ("proteinmpnn.design.local", "10.0.0"): {
             "values": {
                 "device": "cpu",
-                "resolved_runtime_fingerprint": configured_runtime_fingerprint(),
                 "provider_root": ROOT / "repositories" / "ProteinMPNN",
                 "private_token": "provider-free",
             },
-            "safe_fingerprint": "provider-free-2emo-proteinmpnn",
-            "invalidation_token": "provider-free-2emo-proteinmpnn",
         },
         ("folding.fold.esmfold2_remote", "7.0.0"): {
             "values": {
@@ -653,18 +649,13 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
                 "credential_handle": object(),
                 "provider_client": folding,
             },
-            "safe_fingerprint": "provider-free-2emo-esmfold2",
-            "invalidation_token": "provider-free-2emo-esmfold2",
         },
         ("solubility.protein_sol.local", "4.0.0"): {
             "values": {
                 "source_root": Path("/provider-free/protein-sol"),
                 "bash_executable": Path("/provider-free/bash"),
                 "perl_executable": Path("/provider-free/perl"),
-                "resolved_runtime_fingerprint": f"sha256:{'b' * 64}",
             },
-            "safe_fingerprint": "provider-free-2emo-protein-sol",
-            "invalidation_token": "provider-free-2emo-protein-sol",
         },
     }
     catalog = _provider_free_catalog()
@@ -693,7 +684,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         }
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
-            json={"expected_draft_revision": 0, "workflow": payload},
+            json={"workflow": payload},
         )
         assert committed.status_code == 200, committed.json()
         started = client.post(

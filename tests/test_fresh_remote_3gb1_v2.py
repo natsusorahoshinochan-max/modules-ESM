@@ -63,9 +63,6 @@ REMOTE_BINDINGS = {
 
 
 def _environment() -> dict[tuple[str, str], Any]:
-    from modules.proteinmpnn.adapter import configured_runtime_fingerprint
-
-    proteinmpnn_fingerprint = configured_runtime_fingerprint()
     environment = biohub_esm3_esmfold2_environment()
     environment[(PROTEINMPNN_BINDING_ID, PROTEINMPNN_BINDING_VERSION)] = {
         "values": {
@@ -73,10 +70,7 @@ def _environment() -> dict[tuple[str, str], Any]:
             "provider_root": Path(
                 os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
             ).resolve(),
-            "resolved_runtime_fingerprint": proteinmpnn_fingerprint,
         },
-        "safe_fingerprint": proteinmpnn_fingerprint,
-        "invalidation_token": proteinmpnn_fingerprint,
     }
     return environment
 

@@ -23,7 +23,6 @@ from core import (
 from core.port_types import canonical_json_bytes
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ScoreCollection
-from tests.acceptance.conftest import require_ready
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -31,16 +30,13 @@ from tests.acceptance.retained_evidence import retain_service_run
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
-    readiness: dict[str, bool],
     pdb_3gb1: object,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Execute the exact confidence-only Binding; its full gate forbids skips."""
-    require_ready("simplefold", readiness)
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.folding.simplefold_confidence_adapter import (
-        configured_runtime_fingerprint,
         provider_identity,
     )
     from modules.folding.simplefold_contract import (
@@ -134,7 +130,6 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     configured_model_root = Path(
@@ -239,7 +234,6 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "stat", guarded_os_stat)
     monkeypatch.setattr(os, "lstat", guarded_os_lstat)
     monkeypatch.setattr(os, "access", guarded_os_access)
-    fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
         ("folding.simplefold_confidence.simplefold_local", "4.0.0"): {
             "values": {
@@ -249,10 +243,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
                 ),
                 "esm2_model_root": esm2_model_root,
                 "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
-                "resolved_runtime_fingerprint": fingerprint,
             },
-            "safe_fingerprint": fingerprint,
-            "invalidation_token": fingerprint,
         }
     })
     service = V2RunService(projects, catalog, authoring, environment)

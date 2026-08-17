@@ -150,13 +150,6 @@ def validated_simplefold_esm2_root(
         raise RuntimeError(
             "SimpleFold ESM2 checkout does not match the locked revision"
         )
-    if _run_simplefold_esm2_git(
-        source_root,
-        "status",
-        "--porcelain",
-        "--untracked-files=all",
-    ):
-        raise RuntimeError("SimpleFold ESM2 checkout is not clean")
     runtime_files = _simplefold_esm2_runtime_files(source_root)
     if (
         _simplefold_esm2_source_tree_sha256(runtime_files)

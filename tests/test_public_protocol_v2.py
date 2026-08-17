@@ -53,7 +53,7 @@ def test_public_protocol_bundle_has_stable_canonical_identity() -> None:
 
     assert bundle["schema_namespace"] == "protein-workbench-public/v2"
     assert PUBLIC_PROTOCOL_NAMESPACE == bundle["schema_namespace"]
-    assert bundle["schema_version"] == "2.2.0"
+    assert bundle["schema_version"] == "2.3.0"
     assert bundle["identity"] == {
         "canonicalization": "RFC 8785",
         "character_encoding": "UTF-8",
@@ -375,7 +375,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
     }
 
     errors = bundle["structured_errors"]
-    assert errors["vocabulary_version"] == "2.2.0"
+    assert errors["vocabulary_version"] == "2.3.0"
     assert errors["envelope_schema"] == "#/$defs/StructuredErrorEnvelope"
     assert errors["details_max_bytes"] == 16384
     assert errors["redaction_contract"] == {
@@ -411,7 +411,6 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "workflow_commit_identity_mismatch",
         "workflow_commit_not_found",
         "workflow_draft_not_found",
-        "workflow_draft_revision_conflict",
     }
     for code, definition in errors["vocabulary"].items():
         assert definition["code"] == code
@@ -478,6 +477,24 @@ def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
 @pytest.mark.parametrize(
     ("failure_origin", "error"),
     (
+        (
+            "binding",
+            {
+                "code": "readiness_rejected",
+                "message": "Selected Binding is not ready for this Run",
+                "retryable": True,
+                "correlation_id": "incident-binding",
+                "details": {
+                    "binding": {
+                        "contract_kind": "binding",
+                        "contract_id": "test.binding.local",
+                        "contract_version": "2.1.0",
+                        "contract_digest": "sha256:" + "1" * 64,
+                    },
+                    "reason_code": "model_unavailable",
+                },
+            },
+        ),
         (
             "operation",
             {
@@ -1624,7 +1641,6 @@ def test_backend_rejects_route_owned_fields_in_every_json_body(
             "/api/v2/projects/project-1/workflow/draft",
             {
                 "project_id": "project-2",
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         ),
@@ -1633,7 +1649,6 @@ def test_backend_rejects_route_owned_fields_in_every_json_body(
             "/api/v2/projects/project-1/workflow:commit",
             {
                 "project_id": "project-2",
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         ),
@@ -1768,7 +1783,6 @@ def test_backend_classifies_nested_workflow_version_before_authoring(
         response = client.post(
             "/api/v2/projects/project-1/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )
@@ -1925,7 +1939,6 @@ def test_public_deep_commit_creates_draft_active_commit_and_runnable_plan(
         committed_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
         )

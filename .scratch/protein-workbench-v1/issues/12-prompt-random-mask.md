@@ -1,5 +1,7 @@
 ## Parent
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 3GB1 条件生成 → ESMFold → TM-score → ProteinMPNN 完整设计管线
 
 ## What to build

@@ -515,7 +515,6 @@ def _run(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -1102,22 +1101,14 @@ def _proteinmpnn_provider_root() -> Path:
 
 def _proteinmpnn_environment(
 ) -> EnvironmentConfiguration:
-    from modules.proteinmpnn.adapter import (
-        configured_runtime_fingerprint,
-    )
-
-    fingerprint = configured_runtime_fingerprint()
     return EnvironmentConfiguration(
         {
             (binding_id, version): {
                 "values": {
                     "device": "cpu",
-                    "resolved_runtime_fingerprint": fingerprint,
                     "provider_root": _proteinmpnn_provider_root(),
                     "private_token": "proteinmpnn-secret-must-not-publish",
                 },
-                "safe_fingerprint": "proteinmpnn-fixture-v1",
-                "invalidation_token": "proteinmpnn-fixture-v1",
             }
             for binding_id, version in (
                 ("proteinmpnn.design.local", "10.0.0"),
@@ -2324,7 +2315,6 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=WorkflowDocument(
             schema_version="2.1.0",
             workflow_id=project.id,
@@ -2409,7 +2399,7 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
         ]
 
     assert len(score_readiness(first_events)) == 1
-    assert len(score_readiness(replay_events)) == 1
+    assert score_readiness(replay_events) == []
     score_method_digest = catalog.require_contract(
         "method",
         "proteinmpnn.score.v_48_020_8907e667",
@@ -3290,10 +3280,7 @@ def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
 def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.proteinmpnn.adapter import (
-        configured_runtime_fingerprint,
-        proteinmpnn_readiness,
-    )
+    from modules.proteinmpnn.adapter import proteinmpnn_readiness
 
     provider_root = (
         Path(__file__).resolve().parent.parent
@@ -3308,7 +3295,6 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     )
     environment = {
         "device": "cpu",
-        "resolved_runtime_fingerprint": configured_runtime_fingerprint(),
         "provider_root": provider_root,
     }
 
@@ -3316,21 +3302,11 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     assert proteinmpnn_readiness(
         {**environment, "device": "cuda"}
     ).passing is False
-    assert proteinmpnn_readiness(
-        {
-            **environment,
-            "resolved_runtime_fingerprint": "sha256:" + "0" * 64,
-        }
-    ).passing is False
-
     provider = _ControlledProteinMPNNProvider()
     provider.provider_contract_identity = "sha256:" + "0" * 64
     assert proteinmpnn_readiness(
         {
             "device": "cpu",
-            "resolved_runtime_fingerprint": (
-                configured_runtime_fingerprint()
-            ),
             "provider_client": provider,
         }
     ).passing is False
@@ -3804,9 +3780,6 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
-    from modules.proteinmpnn.adapter import (
-        configured_runtime_fingerprint,
-    )
     from tests.fixtures.proteinmpnn_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
@@ -3906,8 +3879,6 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             },
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="proteinmpnn-direct-v1",
-            invalidation_token="proteinmpnn-direct-v1",
             workflow_nodes=(layout_node("layout"),),
             workflow_edges=(
                 WorkflowEdge(
@@ -3927,8 +3898,6 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             node_parameters={"effective_seed": 1603, "fraction": 0.4},
             binding_parameters={},
             environment_values={},
-            safe_environment_fingerprint="proteinmpnn-direct-v1",
-            invalidation_token="proteinmpnn-direct-v1",
             workflow_nodes=(layout_node("layout"),),
             workflow_edges=(
                 WorkflowEdge(
@@ -3954,14 +3923,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             binding_parameters={},
             environment_values={
                 "device": "cpu",
-                "resolved_runtime_fingerprint": (
-                    configured_runtime_fingerprint()
-                ),
                 "provider_root": _proteinmpnn_provider_root(),
                 "private_token": "ctk-proteinmpnn-secret",
             },
-            safe_environment_fingerprint="proteinmpnn-fixture-v1",
-            invalidation_token="proteinmpnn-fixture-v1",
             workflow_nodes=(source, design_axis_resolver),
             workflow_edges=(
                 WorkflowEdge(
@@ -4002,14 +3966,9 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             binding_parameters={},
             environment_values={
                 "device": "cpu",
-                "resolved_runtime_fingerprint": (
-                    configured_runtime_fingerprint()
-                ),
                 "provider_root": _proteinmpnn_provider_root(),
                 "private_token": "ctk-proteinmpnn-secret",
             },
-            safe_environment_fingerprint="proteinmpnn-fixture-v1",
-            invalidation_token="proteinmpnn-fixture-v1",
             workflow_nodes=(
                 score_source,
                 sequence_source,

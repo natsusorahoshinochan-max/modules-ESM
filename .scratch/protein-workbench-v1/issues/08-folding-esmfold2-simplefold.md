@@ -1,10 +1,12 @@
 # 08 — Folding: ESMFold2 and SimpleFold
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** A user takes sequence candidates (from ESM3 or ProteinMPNN) and folds them into 3D structures using two independent folding backends — ESMFold2 for accurate single-chain prediction and SimpleFold for fast batch screening with optional re-scoring. Each folded structure carries lineage back to its sequence parent. The user can compare folds from the same sequence across both backends.
 
 **Blocked by:** 06 — ESM3 sequence and structure generation, and 07 — ProteinMPNN design, score, and constraints.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] ESMFold2 adapter: translates `ProteinSequence` → Biohub `/fold` request. Strict single-chain contract: exactly one `/fold` call per request. Optional controls: `include_pae` (bool), `include_embeddings` (bool). Distogram is not requested. `/fold_all_atom` is never used.
 - [ ] ESMFold2 adapter response parsing: extracts structure coordinates, pLDDT, pTM from response. When `include_pae=true`, extracts PAE. When `include_embeddings=true`, extracts `embedding_pair_pooled` (only; `embedding_sequence` is not guaranteed and not exposed). Handles SDK 3.3.0 `to_pdb_string()` rendering defect by using `to_protein_chain()` single-chain view with oxygen completion.

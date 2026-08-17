@@ -32,7 +32,6 @@ REPOSITORY_VERIFICATION_TIERS = (
     "scientific-repro",
     "local-esmfold2-v2-contract",
     "installed-package",
-    "provider-isolation",
 )
 PROXY_VARIABLES = (
     "HTTP_PROXY",

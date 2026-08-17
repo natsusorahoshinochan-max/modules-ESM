@@ -13,16 +13,13 @@ project.
 | ProteinMPNN | `https://github.com/dauparas/ProteinMPNN.git` | `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57` | external checkout selected with `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT` |
 
 The `providers` extra also installs the PyTorch runtime. Model artifacts remain
-external downloads and are not release package data. The identifiers below are the
-frozen install inputs. Ticket 17 records them but does not claim the real-provider
-evidence required by tickets 19 and 20; those gates are valid only when they retain
-matching provider identities rather than silently refreshing them.
+external downloads and are not release package data. The identifiers below are
+the frozen inputs used by the single current Acceptance Campaign.
 
-Before provider import, the gate checks the exact VCS revision and a reviewed
-aggregate SHA-256 over every runtime package file. Editable installs additionally
-require a clean checkout with no untracked files; normal VCS installs require every
-runtime file to carry a SHA-256 `RECORD` entry and to match the same reviewed package
-tree digest.
+Before Provider entry, the owner checks the installed package's PEP 610 or
+editable-checkout Git revision. It does not hash an entire package tree, require
+a clean working tree, or revalidate every `RECORD` entry. Result-affecting models,
+checkpoints, and required assets are admitted separately below.
 
 ## ESM and Biohub models
 
@@ -62,11 +59,11 @@ Workbench therefore enforces the separately reviewed SHA-256 manifest below:
 
 The SimpleFold ESM2 dependency is recorded as
 `facebookresearch/esm@2b369911bb5b4b0dda914521b9475cad1656b2ac`. Configure a
-clean checkout at that exact commit with
+checkout at that exact commit with
 `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`. The adapter verifies its Git root, HEAD,
-clean status, and the reviewed 32-file runtime source-tree aggregate
+and the reviewed result-affecting runtime source-tree aggregate
 `da1fd5e94771906950ccc9b4e789d50b0e8f8c4594608898dbcb14f14e3c50ba`.
-It stages and rehashes that exact source subset before import.
+It then stages that already admitted source subset for namespace isolation.
 
 The ESM2 loader also deserializes two separate Facebook checkpoint objects. Place
 these in `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT`:
@@ -76,26 +73,23 @@ these in `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT`:
 | `esm2_t36_3B_UR50D.pt` | 5678116398 | `7de8b4082ba15891959ab368b77ce3886697af1efb16d3c9e9e7b0c5d3f07500` |
 | `esm2_t36_3B_UR50D-contact-regression.pt` | 6759 | `4da500eab246481dc9c8c95bc7b1d02f2803d761c380b0e95186d4a07d0fc84e` |
 
-Both ESM2 objects are copied through no-follow descriptors into the isolated run
-root and rehashed. The adapter removes the incompatible Biohub `esm` namespace,
+Both ESM2 objects are hashed once at Readiness and copied into the isolated run
+root. The adapter removes the incompatible Biohub `esm` namespace,
 imports Facebook ESM only from the staged source, and calls its local-file loader
 with the staged objects using explicit `weights_only=True` deserialization and an
 `argparse.Namespace` safe-global allowlist for the upstream metadata. It never
 invokes the upstream ESM2 network or `TORCH_HOME` checkpoint loader.
 
-The legacy aggregate SimpleFold acceptance gate covers folding and confidence
-evaluation together, so its model root contains all six runtime filenames as
-regular non-symlink files. The v2 `folding.fold.simplefold_local` Binding has a
-narrower, source-bound closure: `simplefold_100M.ckpt`,
+The folding and confidence gates use separate result-affecting asset closures.
+The `folding.fold.simplefold_local` Binding uses `simplefold_100M.ckpt`,
 `simplefold_1.6B.ckpt`, `plddt.ckpt`, and `ccd.pkl`, plus the two ESM2 objects
 and exact ESM2 source checkout above. It neither uses nor claims
 `simplefold_360M.ckpt` or `boltz1_conf.ckpt`; those remain requirements only
 for provider operations that actually load them.
 
 Neither adapter invokes the SimpleFold downloader. Each hashes its exact
-configured file set, copies it through no-follow file descriptors into the
-isolated run root, rehashes the staged copies, and only then imports or invokes
-the provider.
+configured file set once at the Adapter-owned Readiness boundary, stages it,
+then trusts the staged files during Provider invocation.
 
 The pinned SimpleFold PDB writer pads every record to 80 columns and represents
 its final sentinel as an 80-space record without a trailing newline. The folding
@@ -117,8 +111,8 @@ path is `/opt/homebrew/bin/mkdssp`.
 ## ProteinMPNN checkpoints
 
 The locked ProteinMPNN commit contains the supported vanilla model checkpoints.
-The adapter verifies the locked Git HEAD, rejects modified tracked provider files,
-and enforces the selected checkpoint hash before using it:
+The adapter verifies the locked Git HEAD and enforces the selected checkpoint
+hash once before using it:
 
 | Checkpoint | SHA-256 |
 | --- | --- |

@@ -104,6 +104,10 @@ def _provider_installation_is_exact() -> bool:
     return True
 
 
+def _provider_runtime_structurally_available() -> bool:
+    return importlib.util.find_spec("esm") is not None
+
+
 def _esmc_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     return ReadinessResult(
         esmc_environment_ready(check_input.values)
@@ -231,8 +235,8 @@ def _esmc_binding() -> ExecutionBindingDefinition:
                 "esm3.biohub_esmc/readiness",
                 _ESMC_NODE_BINDING_VERSION,
                 {
-                    "observation": "per-run",
-                    "cache_order": "before-cache-lookup",
+                    "observation": "cache-miss",
+                    "cache_order": "before-provider-entry",
                     "secret_retention": "none",
                 },
             ),
@@ -352,11 +356,11 @@ def _esmc_port_type() -> PortTypeDefinition:
 
 
 def _available() -> AvailabilityResult:
-    if _provider_installation_is_exact():
+    if _provider_runtime_structurally_available():
         return AvailabilityResult.available()
     return AvailabilityResult.unavailable(
         code="esm_sdk_unavailable",
-        message="The exact locked ESM SDK installation is unavailable.",
+        message="The ESM SDK installation is unavailable.",
         retryable=False,
     )
 
@@ -680,7 +684,7 @@ def _binding(
                 "esm3.biohub/readiness",
                 _GENERATION_NODE_BINDING_VERSION,
                 {
-                    "observation": "per-run",
+                    "observation": "cache-miss",
                     "secret_retention": "none",
                 },
             ),
@@ -784,9 +788,9 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
                 "esm3.local_open/readiness",
                 _GENERATION_NODE_BINDING_VERSION,
                 {
-                    "observation": "per-run",
+                    "observation": "cache-miss",
                     "secret_retention": "none",
-                    "cache_order": "before-cache-lookup",
+                    "cache_order": "before-provider-entry",
                 },
             ),
             prerequisites={
@@ -808,10 +812,6 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
                 "performance_settings": {
                     "source": "trusted_environment_configuration",
                     "exact_value": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
-                },
-                "runtime_fingerprint": {
-                    "source": "trusted_environment_configuration",
-                    "safe_public_identity": True,
                 },
                 "provider_sdk": {
                     "name": "esm",

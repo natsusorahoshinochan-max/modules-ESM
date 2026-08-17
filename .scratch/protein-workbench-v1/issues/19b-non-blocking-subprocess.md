@@ -1,10 +1,12 @@
 # 19b — Non-blocking subprocess execution
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** The executor supports async module execution. Modules that call external binaries (starting with `compute.dssp`) use `asyncio.create_subprocess_exec` instead of synchronous `subprocess.run`. The executor `await`s each node's result, allowing the event loop to process WebSocket messages and other tasks during external process waits. Nodes that fail due to subprocess errors report clean failures through the existing WebSocket state-change channel.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] `WorkflowModule` gains an optional `async run_async()` method; executor calls `run_async()` if defined, falls back to `run()` in a thread pool
 - [ ] `compute.dssp` module uses `asyncio.create_subprocess_exec` via `run_async()`

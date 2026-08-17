@@ -1,5 +1,7 @@
 # 03 — 通过 immutable value objects 发布大型 Typed Outputs
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 让合法 Typed Outputs 不再内嵌于 Ledger 或 Run Projection，而是由 committed descriptors 指向 Project-scoped immutable values；用户可以按 Run、Node、Port 和 value index 精确获取单个 canonical value。
 
 **Blocked by:** 02 — 将 Run Evidence Ledger 切换为原子 transactions

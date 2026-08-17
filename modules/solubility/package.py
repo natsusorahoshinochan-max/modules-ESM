@@ -39,14 +39,12 @@ from .adapter import (
     SOLUPROT_PERL_VERSION,
     SOLUPROT_PYTHON_VERSION,
     SOLUPROT_PYTHON_SHA256,
-    SOLUPROT_RUNTIME_DISTRIBUTIONS,
+    SOLUPROT_RUNTIME_VERSIONS,
     SOLUPROT_SOURCE_SHA256,
     SOLUPROT_TMHMM_SHA256,
     SOLUPROT_USEARCH_SHA256,
     SOLUPROT_PORT_VERSION,
     SoluProtMode,
-    configured_protein_sol_runtime_fingerprint,
-    configured_runtime_fingerprint,
     protein_sol_readiness,
     soluprot_readiness,
 )
@@ -226,9 +224,9 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                 f"solubility.soluprot_{mode}/readiness",
                 _NODE_BINDING_VERSION,
                 {
-                    "observation": "per-run",
+                    "observation": "cache-miss",
                     "mode": mode,
-                    "cache_order": "before-cache-lookup",
+                    "cache_order": "before-provider-entry",
                     "model_load": "forbidden",
                 },
             ),
@@ -236,8 +234,8 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                 "python_runtime": {
                     "version": SOLUPROT_PYTHON_VERSION,
                     "sha256": SOLUPROT_PYTHON_SHA256,
-                    "installed_distribution_trees": (
-                        SOLUPROT_RUNTIME_DISTRIBUTIONS
+                    "installed_distribution_versions": (
+                        SOLUPROT_RUNTIME_VERSIONS
                     ),
                     "path_source": "trusted_environment_configuration",
                 },
@@ -297,7 +295,7 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
             ),
             "python_version": SOLUPROT_PYTHON_VERSION,
             "python_sha256": SOLUPROT_PYTHON_SHA256,
-            "runtime_distribution_trees": SOLUPROT_RUNTIME_DISTRIBUTIONS,
+            "runtime_distribution_versions": SOLUPROT_RUNTIME_VERSIONS,
             "perl": (
                 {
                     "version": SOLUPROT_PERL_VERSION,
@@ -306,7 +304,6 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                 if tm_feature
                 else "not-used-or-probed"
             ),
-            "resolved_runtime_fingerprint": configured_runtime_fingerprint(mode),
             "runtime_directory_policy": "private-per-run-invocation",
         },
         produced_observations=(
@@ -477,8 +474,8 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 "solubility.protein_sol/readiness",
                 _NODE_BINDING_VERSION,
                 {
-                    "observation": "per-run",
-                    "cache_order": "before-cache-lookup",
+                    "observation": "cache-miss",
+                    "cache_order": "before-provider-entry",
                     "source_execution": "forbidden",
                 },
             ),
@@ -516,9 +513,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
             "bash_sha256": PROTEIN_SOL_BASH_SHA256,
             "perl_version": PROTEIN_SOL_PERL_VERSION,
             "perl_sha256": PROTEIN_SOL_PERL_SHA256,
-            "resolved_runtime_fingerprint": (
-                configured_protein_sol_runtime_fingerprint()
-            ),
             "runtime_directory_policy": "private-per-run-invocation",
         },
         produced_observations=tuple(

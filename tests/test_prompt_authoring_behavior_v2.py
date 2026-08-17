@@ -563,7 +563,6 @@ def test_prompt_authoring_executes_through_the_public_protocol(
             "commit_project_workflow",
             {
                 "project_id": project_id,
-                "expected_draft_revision": 0,
                 "workflow": workflow,
             },
             200,

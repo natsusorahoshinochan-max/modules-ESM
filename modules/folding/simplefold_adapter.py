@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -100,44 +99,12 @@ def simplefold_folding_provider_identity() -> dict[str, Any]:
     )
 
 
-def configured_runtime_fingerprint() -> str:
-    """Return the path-free exact identity of the selected folding runtime."""
-    payload = {
-        "schema_namespace": "protein-workbench-simplefold-runtime/v2",
-        "provider_source_revision": SIMPLEFOLD_REVISION,
-        "model": SIMPLEFOLD_MODEL,
-        "device": SIMPLEFOLD_DEVICE,
-        "simplefold_artifact_sha256": simplefold_folding_artifact_sha256(),
-        "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
-        "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-        "esm2_artifact_sha256": dict(
-            sorted(SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items())
-        ),
-    }
-    return hashlib.sha256(
-        json.dumps(
-            payload,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
-
-
 def simplefold_runtime_structurally_available() -> bool:
     """Probe import/install structure without importing or loading a model."""
-    if (
+    return not (
         importlib.util.find_spec("simplefold") is None
         or importlib.util.find_spec("torch") is None
-    ):
-        return False
-    try:
-        validate_installed_provider_checkout(
-            "simplefold",
-            SIMPLEFOLD_REVISION,
-        )
-    except (ImportError, OSError, RuntimeError, ValueError):
-        return False
-    return True
+    )
 
 
 def _sha256_file(path: Path, *, expected_bytes: int | None = None) -> str:
@@ -181,9 +148,6 @@ def validate_simplefold_folding_environment(
     """Validate the exact selected folding assets without staging a model."""
     if environment.get("device") != SIMPLEFOLD_DEVICE:
         raise RuntimeError("SimpleFold device identity does not match")
-    fingerprint = environment.get("resolved_runtime_fingerprint")
-    if fingerprint != configured_runtime_fingerprint():
-        raise RuntimeError("SimpleFold runtime fingerprint does not match")
     model_root = _validated_file_set(
         environment.get("model_root"),
         simplefold_folding_artifact_sha256(),
@@ -206,7 +170,6 @@ def validate_simplefold_folding_environment(
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": source_root,
-        "resolved_runtime_fingerprint": fingerprint,
     }
 
 

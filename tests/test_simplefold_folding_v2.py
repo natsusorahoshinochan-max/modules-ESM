@@ -329,7 +329,6 @@ def _simplefold_environment(
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
         "device": adapter.SIMPLEFOLD_DEVICE,
-        "resolved_runtime_fingerprint": adapter.configured_runtime_fingerprint(),
         "provider_client": client,
         "private_token": "must-never-publish",
     }
@@ -430,7 +429,6 @@ def _run_simplefold(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     if environment_values is None:
@@ -445,12 +443,6 @@ def _run_simplefold(
             _SIMPLEFOLD_BINDING_VERSION,
         ): {
             "values": environment_values,
-            "safe_fingerprint": environment_values[
-                "resolved_runtime_fingerprint"
-            ],
-            "invalidation_token": environment_values[
-                "resolved_runtime_fingerprint"
-            ],
         }
     })
     service = V2RunService(

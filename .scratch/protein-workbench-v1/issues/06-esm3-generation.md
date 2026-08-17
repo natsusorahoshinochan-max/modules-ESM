@@ -1,12 +1,14 @@
 # 06 — ESM3 sequence and structure generation
 
+> **Status: superseded historical v1; do not implement.** The v1 runtime was removed. This file is retained only as historical planning evidence and creates no current compatibility requirement.
+
 **What to build:** A user takes an assembled ProteinPrompt, runs ESM3 Generate Sequence to get a batch of candidate sequences, picks the best one, updates the prompt's sequence track while keeping all other tracks intact, then runs ESM3 Generate Structure to obtain 3D coordinates. They see each candidate's confidence scores and can inspect the generated structures in the 3D viewer.
 
 This is the primary design workflow and the most complex provider integration. The ESM3 adapter translates between the workbench's public types and the ESM SDK's `ESMProtein` format.
 
 **Blocked by:** 05 — ProteinPrompt editor.
 
-**Status:** ready-for-agent
+**Status:** superseded
 
 - [ ] ESM3 adapter: translates `ProteinPrompt` → ESM SDK `ESMProtein`. Maps per-residue tracks: sequence → ESMProtein.sequence, structure coordinates → ESMProtein.coordinates (with masked positions as NaN), secondary structure → ESMProtein.secondary_structure, SASA → ESMProtein.sasa. Maps function annotations to ESMProtein.function_annotations.
 - [ ] `ESM3 Generate Sequence` module: input = `protein.prompt`, output = `protein.sequence.candidates` + `score.collection`. Module parameters: model_name (enum: esm3-medium-2024-08, esm3-open-2024-03), num_steps, temperature, top_p, track (fixed to "sequence"). Calls ESM SDK `generate(track="sequence")`. Produces one Candidate per generated sequence, each with parent lineage pointing to the prompt's source candidate.

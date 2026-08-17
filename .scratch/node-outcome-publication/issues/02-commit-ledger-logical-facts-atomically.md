@@ -1,5 +1,7 @@
 # 02 — 将 Run Evidence Ledger 切换为原子 transactions
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** 让一次 Node conclusion 的 logical facts 作为一个 durable state transition 整组提交，使用户、event consumer 和 restart 只能观察到提交前或提交后的完整状态。
 
 **Blocked by:** 01 — 收口 Node Attempt finalization seam

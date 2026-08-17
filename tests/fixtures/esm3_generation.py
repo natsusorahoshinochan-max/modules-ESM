@@ -104,8 +104,6 @@ def run_generation(
     generation_parameters: dict[str, Any] | None = None,
     binding_route: str = "biohub_medium",
     sequence_mask_residue_ids: tuple[str, ...] = (),
-    safe_environment_fingerprint: str | None = None,
-    invalidation_token: str | None = None,
     materialize_confidence: bool = False,
     catalog: FrozenCatalog | None = None,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
@@ -297,7 +295,6 @@ def run_generation(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     environment_values = {
@@ -312,13 +309,6 @@ def run_generation(
         {
             (f"esm3.{operation}.{binding_route}", "7.0.0"): {
                 "values": environment_values,
-                "safe_fingerprint": (
-                    safe_environment_fingerprint
-                    or f"{binding_route}-fixture-v1"
-                ),
-                "invalidation_token": (
-                    invalidation_token or f"{binding_route}-fixture-v1"
-                ),
             }
         }
     )
@@ -447,7 +437,6 @@ def run_generation_from_prompt_fixture(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
     environment = EnvironmentConfiguration(
@@ -458,8 +447,6 @@ def run_generation_from_prompt_fixture(
                     "credential_handle": object(),
                     "provider_client": client,
                 },
-                "safe_fingerprint": f"{binding_route}-fixture-v1",
-                "invalidation_token": f"{binding_route}-fixture-v1",
             }
         }
     )

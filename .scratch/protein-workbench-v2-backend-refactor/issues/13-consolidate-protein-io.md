@@ -1,5 +1,7 @@
 # 13 — Consolidate protein I/O
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** A Workflow can import sequence or structure data from Project-scoped inputs and export sequence or structure results as validated, Run-bound artifacts through one cohesive `protein_io` Module Package, without exposing reusable filesystem paths.
 
 **Blocked by:** 12 — Prove the zero-Core extension journey.

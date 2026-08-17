@@ -1,5 +1,7 @@
 # 24 — Isolate SimpleFold staging per invocation
 
+> Historical completion evidence only. Checksums, symlink/security probes, Readiness-before-Cache, restart reconstruction, and old verification tiers mentioned below are not current requirements.
+
 **What to build:** A single node execution can fold and evaluate multiple collection items through SimpleFold without one invocation colliding with another or corrupting provider evidence.
 
 **Blocked by:** 23 — Materialize sequence exports in each run namespace.

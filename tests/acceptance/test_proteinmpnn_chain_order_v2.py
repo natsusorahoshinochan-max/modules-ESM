@@ -25,9 +25,6 @@ from modules.structure_transform.implementation import (
     resolve_residue_axis,
 )
 
-from .conftest import require_ready
-
-
 pytestmark = [
     pytest.mark.acceptance,
     pytest.mark.local_provider,
@@ -130,10 +127,8 @@ def _split_3gb1_into_same_chain_segments(
 
 def test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_layout(
     tmp_path: Path,
-    readiness: dict[str, bool],
     pdb_3gb1: ProteinStructure,
 ) -> None:
-    require_ready("proteinmpnn", readiness)
     provider_root = Path(
         os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
     ).resolve()
@@ -214,10 +209,8 @@ def test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_layout(
 
 def test_real_proteinmpnn_design_and_score_preserve_same_chain_segments(
     tmp_path: Path,
-    readiness: dict[str, bool],
     pdb_3gb1: ProteinStructure,
 ) -> None:
-    require_ready("proteinmpnn", readiness)
     provider_root = Path(
         os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
     ).resolve()
@@ -285,9 +278,7 @@ def test_real_proteinmpnn_design_and_score_preserve_same_chain_segments(
 
 def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     tmp_path: Path,
-    readiness: dict[str, bool],
 ) -> None:
-    require_ready("proteinmpnn", readiness)
     provider_root = Path(
         os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
     ).resolve()
@@ -379,10 +370,8 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
 
 def test_real_proteinmpnn_scores_signed_insertion_and_gap_axis(
     tmp_path: Path,
-    readiness: dict[str, bool],
     pdb_3gb1: ProteinStructure,
 ) -> None:
-    require_ready("proteinmpnn", readiness)
     provider_root = Path(
         os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
     ).resolve()

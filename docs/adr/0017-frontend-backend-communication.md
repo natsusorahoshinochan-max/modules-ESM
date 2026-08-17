@@ -1,15 +1,17 @@
+---
+status: superseded by the current public v2 protocol
+---
+
 # Frontend-backend communication: FastAPI REST + WebSocket (historical v1)
 
 This document records the v1 transport. Its endpoint names, payloads, Workflow
 JSON, Type/Module Registry responses, Cache layout, event examples, and
 frontend-facing consequences below are historical and non-normative for v2.
 
-The retained behavioral baseline is a backend-owned REST interface plus a
-run-scoped WebSocket interface with ordering, Project/Run isolation,
-cancellation, safe error projection, and artifact integrity. A v2 transport
-ticket must restate its exact routes and payloads using the accepted contracts
-in ADR-0022, ADR-0026, ADR-0028, ADR-0029, ADR-0030, and ADR-0031; nothing below
-authorizes a second Registry, manifest writer, Workflow shape, or Cache model.
+Only the high-level choice of backend-owned REST plus a run-scoped WebSocket is
+retained. Everything below is non-normative historical material and does not
+authorize integrity envelopes, defensive path rules, a second Registry,
+manifest writer, Workflow shape, or Cache model.
 
 ## Historical v1 REST API endpoints
 

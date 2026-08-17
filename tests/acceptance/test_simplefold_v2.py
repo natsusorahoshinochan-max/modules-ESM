@@ -19,7 +19,6 @@ from core import (
 )
 from core.workflow_v2 import WorkflowEdge
 from datatypes import ScoreCollection
-from tests.acceptance.conftest import require_ready
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -32,15 +31,12 @@ SEQUENCE_3GB1 = (
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_simplefold_v2_folds_3gb1_through_exact_binding(
-    readiness: dict[str, bool],
     tmp_path: Path,
 ) -> None:
     """Execute the exact v2 Binding; skips are forbidden by its full gate."""
-    require_ready("simplefold", readiness)
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.folding.simplefold_adapter import (
         SIMPLEFOLD_DEVICE,
-        configured_runtime_fingerprint,
         provider_identity,
     )
     from modules.structure_prediction.package import (
@@ -124,10 +120,8 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     )
     committed = authoring.commit(
         project.id,
-        expected_draft_revision=0,
         workflow=workflow,
     )
-    fingerprint = configured_runtime_fingerprint()
     environment = EnvironmentConfiguration({
         ("folding.fold.simplefold_local", "7.0.0"): {
             "values": {
@@ -143,10 +137,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
                     ]
                 ),
                 "device": SIMPLEFOLD_DEVICE,
-                "resolved_runtime_fingerprint": fingerprint,
             },
-            "safe_fingerprint": fingerprint,
-            "invalidation_token": fingerprint,
         }
     })
     service = V2RunService(projects, catalog, authoring, environment)

@@ -92,8 +92,6 @@ def _verify_provider_checkout(root: Path, expected_commit: str) -> None:
             f"ProteinMPNN checkout commit {commit} does not match "
             f"locked commit {expected_commit}"
         )
-    if _run_provider_git(root, "status", "--porcelain", "--untracked-files=no"):
-        raise RuntimeError("ProteinMPNN checkout has modified tracked files")
 
 
 def _proteinmpnn_dir() -> Path:
