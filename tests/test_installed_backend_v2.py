@@ -5,21 +5,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
-import site
 import socket
 import stat
 import subprocess
-import sys
 import tarfile
 import time
 import urllib.request
 import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
-from xml.etree import ElementTree
 
 import httpx
 import pytest
@@ -35,6 +30,12 @@ from protein_workbench_public import (
     validate_event,
 )
 from tests.public_protocol_acceptance_client import PublicProtocolAcceptanceClient
+from tests.acceptance.installed_harness import (
+    InstalledArtifact,
+    build_artifacts,
+    installed_artifact,
+    run_external_acceptance,
+)
 from tests.acceptance.retained_evidence import (
     require_retained_evidence,
     retain_rest_run,
@@ -126,91 +127,6 @@ REQUIRED_PROVIDER_CASES = {
         ),
     ),
 }
-
-
-@dataclass(frozen=True)
-class InstalledArtifact:
-    wheel: Path
-    sdist: Path
-    python: Path
-    run_root: Path
-
-
-def _build_artifacts(output_dir: Path) -> tuple[Path, Path]:
-    subprocess.run(
-        [
-            sys.executable,
-            str(PROJECT_ROOT / "scripts" / "build_backend.py"),
-            str(output_dir),
-        ],
-        cwd=PROJECT_ROOT,
-        check=True,
-    )
-    wheels = tuple(output_dir.glob("protein_workbench-*.whl"))
-    sdists = tuple(output_dir.glob("protein_workbench-*.tar.gz"))
-    assert len(wheels) == len(sdists) == 1
-    return wheels[0], sdists[0]
-
-
-@pytest.fixture(scope="session")
-def installed_artifact(tmp_path_factory: pytest.TempPathFactory) -> InstalledArtifact:
-    root = tmp_path_factory.mktemp("installed-v2-artifact")
-    frozen_artifact_dir = os.environ.get(
-        "PROTEIN_WORKBENCH_FROZEN_ARTIFACT_DIR"
-    )
-    if frozen_artifact_dir is None:
-        wheel, sdist = _build_artifacts(root / "dist")
-    else:
-        artifact_root = Path(frozen_artifact_dir).resolve()
-        wheels = tuple(artifact_root.glob("*.whl"))
-        sdists = tuple(artifact_root.glob("*.tar.gz"))
-        assert len(wheels) == len(sdists) == 1
-        wheel, sdist = wheels[0], sdists[0]
-    environment = root / "environment"
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "venv",
-            str(environment),
-        ],
-        check=True,
-    )
-    python = environment / "bin" / "python"
-    dependency_site = Path(site.getsitepackages()[0]).resolve()
-    installed_site = environment / "lib" / "python3.12" / "site-packages"
-    dependency_paths = [str(dependency_site)]
-    for path_file in dependency_site.glob("*.pth"):
-        for line in path_file.read_text(encoding="utf-8").splitlines():
-            candidate = line.strip()
-            if (
-                candidate
-                and not candidate.startswith("import ")
-                and Path(candidate).is_absolute()
-                and Path(candidate).exists()
-                and "protein_workbench" not in candidate
-            ):
-                dependency_paths.append(candidate)
-    (installed_site / "protein-workbench-locked-dependencies.pth").write_text(
-        "\n".join(dict.fromkeys(dependency_paths)) + "\n",
-        encoding="utf-8",
-    )
-    subprocess.run(
-        [
-            str(python),
-            "-m",
-            "pip",
-            "install",
-            "--disable-pip-version-check",
-            "--no-deps",
-            str(wheel),
-        ],
-        cwd=root,
-        check=True,
-    )
-    run_root = root / "outside-source"
-    run_root.mkdir()
-    return InstalledArtifact(wheel, sdist, python, run_root)
 
 
 def _installed_probe(
@@ -351,8 +267,8 @@ def _collect_run_events(
 def test_built_artifact_is_reproducible_complete_and_fixture_free(
     tmp_path: Path,
 ) -> None:
-    first_wheel, first_sdist = _build_artifacts(tmp_path / "first")
-    second_wheel, second_sdist = _build_artifacts(tmp_path / "second")
+    first_wheel, first_sdist = build_artifacts(tmp_path / "first")
+    second_wheel, second_sdist = build_artifacts(tmp_path / "second")
     assert hashlib.sha256(first_wheel.read_bytes()).digest() == hashlib.sha256(
         second_wheel.read_bytes()
     ).digest()
@@ -744,95 +660,6 @@ def test_installed_backend_completes_full_public_v2_journey(
         _stop_server(server)
 
 
-def _copy_external_acceptance_tree(destination: Path) -> Path:
-    shutil.copytree(
-        PROJECT_ROOT / "tests",
-        destination / "tests",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
-    )
-    shutil.copytree(PROJECT_ROOT / "pdbs", destination / "pdbs")
-    fixture_root = destination / "modules" / "solubility" / "fixtures"
-    fixture_root.parent.mkdir(parents=True)
-    shutil.copytree(
-        PROJECT_ROOT / "modules" / "solubility" / "fixtures",
-        fixture_root,
-    )
-    return destination / "tests"
-
-
-_EXTERNAL_ACCEPTANCE_BOOTSTRAP = """
-from pathlib import Path
-import os
-import sys
-import core
-import datatypes
-import examples
-import modules
-import pdbs
-import protein_workbench_public
-source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
-for package in (
-    core,
-    datatypes,
-    examples,
-    modules,
-    pdbs,
-    protein_workbench_public,
-):
-    assert not Path(package.__file__).resolve().is_relative_to(source)
-import pytest
-raise SystemExit(pytest.main(sys.argv[1:]))
-"""
-
-
-def _run_external_acceptance(
-    installed: InstalledArtifact,
-    tmp_path: Path,
-    *,
-    selectors: tuple[str, ...],
-    environment: dict[str, str],
-    timeout_seconds: int,
-) -> str:
-    copied_tests = _copy_external_acceptance_tree(
-        tmp_path / "external-suite"
-    )
-    junit = tmp_path / "external.xml"
-    targets = [copied_tests.parent / selector for selector in selectors]
-    completed = subprocess.run(
-        [
-            str(installed.python),
-            "-I",
-            "-c",
-            _EXTERNAL_ACCEPTANCE_BOOTSTRAP,
-            "-o",
-            "addopts=",
-            "-q",
-            "--junitxml",
-            str(junit),
-            *(str(target) for target in targets),
-        ],
-        cwd=copied_tests.parent,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        timeout=timeout_seconds,
-    )
-    assert completed.returncode == 0, completed.stdout
-    root = ElementTree.parse(junit).getroot()
-    suites = [root] if root.tag == "testsuite" else list(root)
-    tests = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
-    failures = sum(
-        int(suite.attrib.get("failures", 0))
-        + int(suite.attrib.get("errors", 0))
-        for suite in suites
-    )
-    skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
-    assert tests > 0 and failures == 0 and skipped == 0, completed.stdout
-    return completed.stdout
-
-
 def _run_installed_provider_case(
     installed: InstalledArtifact,
     tmp_path: Path,
@@ -865,7 +692,7 @@ def _run_installed_provider_case(
         env["PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE"] = (
             "simplefold-v2-confidence"
         )
-    _run_external_acceptance(
+    run_external_acceptance(
         installed,
         tmp_path,
         selectors=REQUIRED_PROVIDER_CASES[case],
@@ -878,8 +705,17 @@ def _run_installed_provider_case(
     _require_configured_installed_evidence()
 
 
+def _require_installed_proteinmpnn_lifecycle(root: Path) -> None:
+    assert json.loads((root / "model-lifecycle.json").read_bytes()) == {
+        "model": "proteinmpnn",
+        "load_count": 1,
+    }
+
+
 def _require_configured_installed_evidence() -> None:
-    configured = os.environ.get("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING")
+    configured = os.environ.get(
+        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"
+    )
     if configured is None:
         return
     tier = os.environ["PROTEIN_WORKBENCH_VERIFICATION_TIER"]
@@ -889,6 +725,33 @@ def _require_configured_installed_evidence() -> None:
         required_runs=contract.required_run_labels,
         lifecycle_required=contract.lifecycle_receipt_required,
     )
+    if tier == "installed-proteinmpnn":
+        _require_installed_proteinmpnn_lifecycle(Path(configured))
+
+
+@pytest.mark.parametrize("load_count", (0, 2))
+def test_installed_proteinmpnn_lifecycle_requires_one_model_load(
+    tmp_path: Path,
+    load_count: int,
+) -> None:
+    (tmp_path / "model-lifecycle.json").write_text(
+        json.dumps({"model": "proteinmpnn", "load_count": load_count}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AssertionError):
+        _require_installed_proteinmpnn_lifecycle(tmp_path)
+
+
+def test_installed_proteinmpnn_lifecycle_accepts_one_model_load(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "model-lifecycle.json").write_text(
+        json.dumps({"model": "proteinmpnn", "load_count": 1}),
+        encoding="utf-8",
+    )
+
+    _require_installed_proteinmpnn_lifecycle(tmp_path)
 
 
 @contextmanager
@@ -1098,8 +961,9 @@ def test_installed_biohub_esmc_gate(
         tmp_path,
     ) as (port, base_url):
         with PublicProtocolAcceptanceClient(base_url) as client:
+            catalog_snapshot = client.request("catalog_snapshot", {})
             binding_id, method_digest = _assert_installed_esmc_catalog(
-                client.request("catalog_snapshot", {})
+                catalog_snapshot
             )
             project_id, run_id = _start_installed_esmc_run(
                 client,
@@ -1178,7 +1042,7 @@ def test_installed_biohub_esmc_gate(
             )
             retain_rest_run(
                 "biohub-esmc",
-                catalog=SOURCE_CATALOG,
+                catalog_snapshot=catalog_snapshot,
                 client=client,
                 projection=projection,
                 events=messages,

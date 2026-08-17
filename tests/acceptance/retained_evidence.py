@@ -48,7 +48,9 @@ def _write(path: Path, payload: bytes) -> None:
 
 
 def _configured_root() -> Path | None:
-    configured = os.environ.get("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING")
+    configured = os.environ.get(
+        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"
+    )
     tier = os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
     if configured is None and tier is None:
         return None
@@ -170,7 +172,7 @@ def retain_service_run(
 def retain_rest_run(
     run_label: str,
     *,
-    catalog: Any,
+    catalog_snapshot: Mapping[str, Any],
     client: Any,
     projection: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]],
@@ -209,7 +211,7 @@ def retain_rest_run(
 
     _retain_run(
         run_label,
-        catalog_bytes=catalog.catalog_descriptor_bytes,
+        catalog_bytes=_canonical_bytes(dict(catalog_snapshot)),
         projection=projection,
         events=events,
         typed_value_reader=read_value,
@@ -261,6 +263,14 @@ def require_retained_evidence(
 
     for run_label in required_runs:
         run_root = root / "runs" / run_label
+        assert {path.name for path in run_root.iterdir()} == {
+            "projection.json",
+            "events.json",
+            "typed-values.json",
+            "artifacts.json",
+            "values",
+            "artifacts",
+        }
         assert (run_root / "values").is_dir()
         assert (run_root / "artifacts").is_dir()
         projection = json.loads((run_root / "projection.json").read_bytes())
@@ -271,6 +281,14 @@ def require_retained_evidence(
             output["value_count"] for output in projection["outputs"]
         )
         assert len(artifacts) == len(projection["artifact_index"])
+        assert {
+            path.relative_to(run_root).as_posix()
+            for path in (run_root / "values").iterdir()
+        } == {retained["payload"] for retained in values}
+        assert {
+            path.relative_to(run_root).as_posix()
+            for path in (run_root / "artifacts").iterdir()
+        } == {retained["payload"] for retained in artifacts}
         for retained in (*values, *artifacts):
             assert (run_root / retained["payload"]).is_file()
 

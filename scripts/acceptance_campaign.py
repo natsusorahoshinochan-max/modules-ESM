@@ -727,6 +727,25 @@ def _assert_candidate(
             raise RuntimeError("frozen acceptance definition changed")
     if manifest["installed_artifacts"] != _artifact_records(root / "artifacts"):
         raise RuntimeError("frozen installed artifacts changed")
+    for phase, results in (
+        ("qualification", manifest["qualification"]["attempts"]),
+        ("certification", manifest["certification"]["results"]),
+    ):
+        expected_root = (root / f"{phase}-results").resolve()
+        for result in results:
+            result_reference = result.get("verification_result")
+            recorded_digest = result.get("evidence_bundle_digest")
+            if result_reference is None and recorded_digest is None:
+                continue
+            if result_reference is None or recorded_digest is None:
+                raise RuntimeError("retained verification result is incomplete")
+            result_dir = (root / result_reference).resolve()
+            if not result_dir.is_relative_to(expected_root):
+                raise RuntimeError("retained verification result changed")
+            if not result_dir.is_dir():
+                raise RuntimeError("retained verification result is missing")
+            if _directory_digest(result_dir) != recorded_digest:
+                raise RuntimeError("retained verification result changed")
     with _configured_environment(profile):
         configuration_identities = _configuration_identities()
         if manifest["provider_configuration_identities"] != (

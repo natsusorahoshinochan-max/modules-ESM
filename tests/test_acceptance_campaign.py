@@ -6,10 +6,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import textwrap
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -103,6 +105,65 @@ def _result(root: Path, phase: str, tier: str, outcome: str) -> SimpleNamespace:
         returncode=0 if outcome == "passed" else 1,
         output=f"RETAINED VERIFICATION RESULT: {result_dir}\n",
     )
+
+
+def _retained_attempt(
+    root: Path,
+    phase: str,
+    tier: str,
+    position: int,
+) -> dict[str, Any]:
+    import scripts.acceptance_campaign as campaign
+
+    result_dir = root / f"{phase}-results" / tier / "passed"
+    result_dir.mkdir(parents=True)
+    (result_dir / "evidence.json").write_text(tier, encoding="utf-8")
+    attempt = {
+        "tier": tier,
+        "outcome": "passed",
+        "authoritative": phase == "certification",
+        "evidence_bundle_digest": campaign._directory_digest(result_dir),
+        "verification_result": result_dir.relative_to(root).as_posix(),
+    }
+    attempt["ordinal" if phase == "certification" else "attempt"] = position
+    return attempt
+
+
+def _allow_frozen_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.acceptance_campaign as campaign
+
+    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
+    monkeypatch.setattr(
+        campaign,
+        "_configuration_identities",
+        lambda: {"frozen": "configuration"},
+    )
+    monkeypatch.setattr(
+        campaign,
+        "_provider_asset_identities",
+        lambda: {"frozen": "assets"},
+    )
+
+
+def _write_identity_complete_campaign(
+    root: Path,
+    profile: ExecutionProfile,
+    *,
+    qualification: list[dict[str, Any]],
+    certification: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    import scripts.acceptance_campaign as campaign
+
+    manifest = _write_campaign(root, qualification=qualification)
+    manifest["execution_profile_identity"] = profile.path_free_identity(
+        {"frozen": "configuration"}
+    )
+    if certification is not None:
+        manifest["certification"] = certification
+    (root / "campaign.json").write_bytes(campaign._canonical_bytes(manifest))
+    return manifest
 
 
 def test_source_bound_acceptance_contracts_are_current_and_source_exact() -> None:
@@ -392,6 +453,71 @@ def test_certification_requires_all_latest_qualification_results_to_pass(
 
     with pytest.raises(RuntimeError, match="qualification is incomplete"):
         certify_through(root, ACCEPTANCE_TIER_ORDER[0], profile)
+
+
+def test_certification_rejects_a_changed_qualification_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.acceptance_campaign as campaign
+
+    root = tmp_path / "campaign"
+    profile = ExecutionProfile.load(_write_profile(tmp_path))
+    qualification = [
+        _retained_attempt(root, "qualification", tier, position)
+        for position, tier in enumerate(ACCEPTANCE_TIER_ORDER)
+    ]
+    _write_identity_complete_campaign(
+        root,
+        profile,
+        qualification=qualification,
+    )
+    changed = root / qualification[0]["verification_result"] / "evidence.json"
+    changed.write_text("changed", encoding="utf-8")
+    _allow_frozen_candidate(monkeypatch)
+    monkeypatch.setattr(
+        campaign,
+        "_run_tier",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("Certification must not start")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="retained verification result changed"):
+        certify_through(root, ACCEPTANCE_TIER_ORDER[0], profile)
+
+
+def test_campaign_status_rejects_a_missing_certification_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "campaign"
+    profile = ExecutionProfile.load(_write_profile(tmp_path))
+    qualification = [
+        _retained_attempt(root, "qualification", tier, position)
+        for position, tier in enumerate(ACCEPTANCE_TIER_ORDER)
+    ]
+    certification_result = _retained_attempt(
+        root,
+        "certification",
+        ACCEPTANCE_TIER_ORDER[0],
+        0,
+    )
+    _write_identity_complete_campaign(
+        root,
+        profile,
+        qualification=qualification,
+        certification={
+            "state": "paused",
+            "results": [certification_result],
+        },
+    )
+    result_dir = root / certification_result["verification_result"]
+    shutil.rmtree(result_dir)
+    _allow_frozen_candidate(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="retained verification result is missing"):
+        campaign_status(root, profile)
 
 
 def test_certification_is_fresh_canonical_serial_and_authoritative(

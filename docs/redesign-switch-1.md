@@ -100,11 +100,14 @@ evidence/
 
 必要的科学断言保留并迁移，不因删除 Evidence validator 而删除科学验收。
 
-## 阶段 6：保持不变的部分
+## 阶段 6：保持现有 owner 和合同
 
-不修改：
+`scripts/verify_backend.py` 继续是单文件 verifier owner，只接受 Evidence
+staging、`tier-result.json`、最终目录复制、统一配置命名及其直接合同测试；
+不向其中加入 Evidence 解释或二次验证。
 
-- `scripts/verify_backend.py`
+保持不变：
+
 - Campaign 状态机和目录 digest
 - Execution Profile 格式
 - ProteinMPNN installed gate-wide cache

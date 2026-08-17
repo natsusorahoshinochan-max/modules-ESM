@@ -144,6 +144,14 @@ TIERS = {
             "tests/test_installed_backend_v2.py::"
             "test_installed_backend_completes_full_public_v2_journey"
         ),
+        (
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_proteinmpnn_lifecycle_requires_one_model_load"
+        ),
+        (
+            "tests/test_installed_backend_v2.py::"
+            "test_installed_proteinmpnn_lifecycle_accepts_one_model_load"
+        ),
     )),
     **{
         name: Tier(
@@ -541,7 +549,7 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             env["PROTEIN_WORKBENCH_FRESH_SOURCE_REVISION"] = revision
             evidence_staging = staging_root / "acceptance-evidence"
             evidence_staging.mkdir(mode=0o700)
-            env["PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING"] = str(
+            env["PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"] = str(
                 evidence_staging
             )
         env.pop("PROTEIN_WORKBENCH_PROVIDER_CALL_EVIDENCE", None)

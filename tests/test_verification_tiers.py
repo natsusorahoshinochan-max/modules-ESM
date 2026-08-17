@@ -540,6 +540,91 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
         ]
 
 
+def test_verifier_assembles_retained_evidence_with_tier_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tier_name = "retained-evidence-probe"
+    monkeypatch.setitem(
+        verify_backend.TIERS,
+        tier_name,
+        verify_backend.Tier(
+            ("tests/tier_probes/retained_evidence_probe.py",),
+            retain_evidence_bundle=True,
+        ),
+    )
+    results_root = tmp_path / "verification-results"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
+        str(results_root),
+    )
+
+    result = verify_backend.run(tier_name, ())
+
+    assert result == 0
+    result_dir = next((results_root / tier_name).iterdir())
+    evidence_root = result_dir / "evidence"
+    assert {path.name for path in evidence_root.iterdir()} == {
+        "catalog-snapshot.json",
+        "public-protocol.json",
+        "runs",
+        "tier-result.json",
+    }
+    assert {
+        path.name for path in (evidence_root / "runs" / "probe-run").iterdir()
+    } == {
+        "projection.json",
+        "events.json",
+        "typed-values.json",
+        "artifacts.json",
+        "values",
+        "artifacts",
+    }
+    tier_result = json.loads(
+        (evidence_root / "tier-result.json").read_bytes()
+    )
+    assert tier_result["tier"] == tier_name
+    assert tier_result["tests"] == 1
+    assert tier_result["failures"] == 0
+    assert tier_result["passed"] is True
+
+
+def test_verifier_retains_a_failed_tier_result_without_reporting_passed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tier_name = "retained-evidence-probe"
+    monkeypatch.setitem(
+        verify_backend.TIERS,
+        tier_name,
+        verify_backend.Tier(
+            ("tests/tier_probes/retained_evidence_probe.py",),
+            retain_evidence_bundle=True,
+        ),
+    )
+    results_root = tmp_path / "verification-results"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
+        str(results_root),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RETAINED_EVIDENCE_PROBE_FAIL",
+        "1",
+    )
+
+    result = verify_backend.run(tier_name, ())
+
+    assert result == 1
+    result_dir = next((results_root / tier_name).iterdir())
+    tier_result = json.loads(
+        (result_dir / "evidence" / "tier-result.json").read_bytes()
+    )
+    assert tier_result["tier"] == tier_name
+    assert tier_result["tests"] == 1
+    assert tier_result["failures"] == 1
+    assert tier_result["passed"] is False
+
+
 def test_verifier_rejects_unsafe_overrides_and_retired_v1_tiers(
     tmp_path: Path,
 ) -> None:

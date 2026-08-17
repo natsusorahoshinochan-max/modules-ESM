@@ -2,7 +2,8 @@
 
 Date: 2026-08-17
 
-Status: open findings after the replacement migration
+Status: implementation complete; real Provider Qualification pending a clean
+candidate and configured Execution Profile
 
 Authority: [redesign-switch-1.md](./redesign-switch-1.md),
 [codebase-redesign.md](./codebase-redesign.md), and the repository
@@ -45,7 +46,33 @@ framework, or compatibility path.
    Evidence remain required. These protect scientific evidence from local
    mistakes; they are not attacker-oriented hardening.
 
-## Open findings
+## Implementation resolution
+
+- `SCI-1`: implemented in the canonical 3GB1 acceptance assertions; the
+  authoritative `fresh-canonical-3gb1` Qualification remains pending.
+- `EVD-1`: implemented with an exact installed ProteinMPNN single-load receipt
+  assertion and fast positive/negative contracts; real Provider Qualification
+  remains pending.
+- `EVD-2`: implemented by retaining the same validated REST Catalog snapshot
+  used by the ESMC gate; real Provider Qualification remains pending.
+- `EVD-3`: closed by exact direct Run-directory and payload inventories.
+- `CAM-1`: closed by rechecking every recorded result directory with the one
+  Campaign directory digest.
+- `VER-1`: closed by provider-free success and failure assembly probes through
+  the complete verifier `run()` Interface.
+- `DES-1`: closed by the shared `tests/acceptance/installed_harness.py` Module
+  and three named source-bound scientific assertion functions.
+- `DOC-1`: closed by the unified
+  `PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING` name and corrected verifier
+  and fifteen-tier documentation.
+
+The provider-free contracts, routine backend verification,
+deterministic acceptance, installed-package verification, frontend lint/build,
+compileall, and diff checks pass. A Certification Generation must not begin
+until all fifteen tiers have run through the configured Execution Profile and
+produced passing Qualification Results from a clean candidate.
+
+## Findings and repairs
 
 ### SCI-1 — canonical 3GB1 scientific and provenance acceptance is incomplete
 
@@ -242,7 +269,8 @@ wiring; it is not an absolute prohibition on edits.
 
 Several names still describe the old installed/fresh split:
 
-- `PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING` now serves all retained tiers;
+- the former fresh-only staging name served all retained tiers and has now been
+  replaced by `PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING`;
 - the fast contract module docstring says "installed" only;
 - `backend-verification.md` says every installed tier retains the schema even
   though all fifteen acceptance tiers use it.

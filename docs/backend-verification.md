@@ -66,7 +66,8 @@ locked dependency locations to that isolated environment, but it cannot add
 the source checkout to Python's import path. Installed provider gates reject
 pytest target overrides so a smaller test cannot replace the required case.
 
-Every installed Provider tier retains one lightweight public Evidence bundle:
+All fifteen Acceptance Campaign tiers retain one lightweight public Evidence
+bundle:
 
 ```text
 evidence/

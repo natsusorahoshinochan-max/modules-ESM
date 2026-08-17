@@ -1,4 +1,4 @@
-"""Fast contracts for retained installed public Run evidence."""
+"""Fast contracts for retained public Run Evidence."""
 
 from __future__ import annotations
 
@@ -187,7 +187,10 @@ def _events() -> tuple[dict[str, Any], ...]:
 
 
 def _write_complete(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING", str(root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING",
+        str(root),
+    )
     monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
     retain_service_run(
         RUN_LABEL,
@@ -284,7 +287,10 @@ def test_service_run_writes_complete_minimal_bundle(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING", str(tmp_path))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING",
+        str(tmp_path),
+    )
     monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
     projection = _projection()
 
@@ -312,7 +318,10 @@ def test_service_run_rejects_an_invalid_public_projection_before_writing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING", str(tmp_path))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING",
+        str(tmp_path),
+    )
     monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
     invalid_projection = {**_projection(), "legacy_status": "finished"}
 
@@ -334,7 +343,10 @@ def test_service_run_rejects_an_invalid_public_event_before_writing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING", str(tmp_path))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING",
+        str(tmp_path),
+    )
     monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
     invalid_event = {**_events()[0], "legacy_status": "finished"}
 
@@ -356,14 +368,19 @@ def test_rest_run_uses_the_same_minimal_bundle_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING", str(tmp_path))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING",
+        str(tmp_path),
+    )
     monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
+    catalog_snapshot = {
+        "catalog_contract_digest": "sha256:" + "7" * 64,
+        "contracts": [],
+    }
 
     retain_rest_run(
         RUN_LABEL,
-        catalog=SimpleNamespace(
-            catalog_descriptor_bytes=b'{"catalog":"fixture"}\n'
-        ),
+        catalog_snapshot=catalog_snapshot,
         client=_RestClient(),
         projection=_projection(),
         events=_events(),
@@ -380,6 +397,9 @@ def test_rest_run_uses_the_same_minimal_bundle_contract(
         "descriptor": _typed_value_metadata()["typed_value"],
         "payload": "values/000000.bin",
     }]
+    assert json.loads(
+        (tmp_path / "catalog-snapshot.json").read_bytes()
+    ) == catalog_snapshot
 
 
 def test_generic_pytest_only_bundle_is_not_installed_evidence(
@@ -481,6 +501,43 @@ def test_legacy_root_level_evidence_is_rejected(
 ) -> None:
     _write_complete(tmp_path, monkeypatch)
     (tmp_path / "workflow.json").write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        require_retained_evidence(
+            tmp_path,
+            required_runs=(RUN_LABEL,),
+        )
+
+
+@pytest.mark.parametrize(
+    "legacy_name",
+    ("manifest.json", "run-index.json", "checksums.sha256"),
+)
+def test_legacy_run_evidence_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_name: str,
+) -> None:
+    _write_complete(tmp_path, monkeypatch)
+    run_root = tmp_path / "runs" / RUN_LABEL
+    (run_root / legacy_name).write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(AssertionError):
+        require_retained_evidence(
+            tmp_path,
+            required_runs=(RUN_LABEL,),
+        )
+
+
+@pytest.mark.parametrize("payload_directory", ("values", "artifacts"))
+def test_unreferenced_run_payload_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    payload_directory: str,
+) -> None:
+    _write_complete(tmp_path, monkeypatch)
+    run_root = tmp_path / "runs" / RUN_LABEL
+    (run_root / payload_directory / "orphan.bin").write_bytes(b"orphan")
 
     with pytest.raises(AssertionError):
         require_retained_evidence(

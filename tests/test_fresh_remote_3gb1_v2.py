@@ -25,10 +25,10 @@ from tests.fixtures.canonical_3gb1_v2 import (
     CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
 )
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
-from tests.test_installed_backend_v2 import (
+from tests.acceptance.installed_harness import (
     InstalledArtifact,
-    _run_external_acceptance,
     installed_artifact,
+    run_external_acceptance,
 )
 
 
@@ -295,11 +295,24 @@ def _assert_science(
     events: tuple[dict[str, Any], ...],
 ) -> None:
     assert projection["status"] == "succeeded", events
+    workflow_node_ids = {node["node_id"] for node in workflow["nodes"]}
     assert len(projection["node_dispositions"]) == len(workflow["nodes"])
+    assert {
+        item["node_id"] for item in projection["node_dispositions"]
+    } == workflow_node_ids
     assert all(
         item["outcome"] == "succeeded"
         for item in projection["node_dispositions"]
     )
+    event_payloads = tuple(message["event"] for message in events)
+    passing_remote_readiness = {
+        event["binding"]["contract_id"]
+        for event in event_payloads
+        if event["type"] == "readiness_attested"
+        and event["conclusion"] == "passing"
+        and event["binding"]["contract_id"] in REMOTE_BINDINGS
+    }
+    assert passing_remote_readiness == set(REMOTE_BINDINGS)
     _assert_exact_engine_invocations(catalog, workflow, projection, events)
 
     paired_sequences = _one(
@@ -308,8 +321,14 @@ def _assert_science(
     paired_structures = _one(
         service, catalog, projection, "generate-paired", "structure_candidates"
     )
+    folded_structures = _one(
+        service, catalog, projection, "fold-sequences", "structure_candidates"
+    )
     counterparts = _one(
         service, catalog, projection, "generate-paired", "counterpart_pairs"
+    )
+    rebound_counterparts = _one(
+        service, catalog, projection, "rebind-counterparts", "pairing"
     )
     prompt = _one(
         service,
@@ -339,8 +358,11 @@ def _assert_science(
 
     assert type(paired_sequences) is CandidateCollection
     assert type(paired_structures) is CandidateCollection
+    assert type(folded_structures) is CandidateCollection
     assert type(counterparts) is PairwiseCandidateMapping
+    assert type(rebound_counterparts) is PairwiseCandidateMapping
     assert len(paired_sequences.items) == len(paired_structures.items) == 10
+    assert len(folded_structures.items) == 10
     assert len(counterparts.entries) == 10
     assert [item.parent_ids for item in paired_structures.items] == [
         (sequence.candidate_id,) for sequence in paired_sequences.items
@@ -356,12 +378,38 @@ def _assert_science(
             strict=True,
         )
     }
-    assert {
-        alignment.reference.candidate_id for alignment in fixed_alignments
-    }.isdisjoint({
-        alignment.reference.candidate_id for alignment in paired_alignments
-    })
     assert len(fixed_alignments) == len(paired_alignments) == 10
+    fixed_references = {
+        alignment.reference.candidate_id for alignment in fixed_alignments
+    }
+    paired_references = {
+        alignment.reference.candidate_id for alignment in paired_alignments
+    }
+    fixed_subjects = {
+        alignment.subject.candidate_id for alignment in fixed_alignments
+    }
+    paired_subjects = {
+        alignment.subject.candidate_id for alignment in paired_alignments
+    }
+    folded_ids = {
+        candidate.candidate_id for candidate in folded_structures.items
+    }
+    assert len(fixed_references) == 1
+    assert paired_references == {
+        candidate.candidate_id for candidate in paired_structures.items
+    }
+    assert fixed_subjects == paired_subjects == folded_ids
+    assert {
+        (
+            alignment.subject.candidate_id,
+            alignment.reference.candidate_id,
+        )
+        for alignment in paired_alignments
+    } == {
+        (entry.subject.candidate_id, entry.reference.candidate_id)
+        for entry in rebound_counterparts.entries
+    }
+    assert fixed_references.isdisjoint(paired_references)
 
     assert selected.items == ranked.items[:3]
     selected_ids = {candidate.candidate_id for candidate in selected.items}
@@ -428,8 +476,19 @@ def _assert_science(
     )
     assert len(projection["artifact_index"]) == 15
     assert [
-        artifact["candidate_id"] for artifact in projection["artifact_index"]
-    ] == [fold.candidate_id for fold in final_folds.items]
+        (artifact["candidate_id"], artifact["filename"])
+        for artifact in projection["artifact_index"]
+    ] == [
+        (fold.candidate_id, f"structure-{index:04d}.pdb")
+        for index, fold in enumerate(final_folds.items)
+    ]
+    assert all(
+        artifact["artifact_kind"] == "candidate"
+        and artifact["node_id"] == "export-final"
+        and artifact["output_port"] == "candidate_artifacts"
+        and artifact["media_type"] == "chemical/x-pdb"
+        for artifact in projection["artifact_index"]
+    )
 
 
 @pytest.mark.acceptance
@@ -494,7 +553,7 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
     tmp_path: Path,
 ) -> None:
     evidence_root = Path(
-        os.environ["PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING"]
+        os.environ["PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"]
     )
     assert evidence_root.is_dir() and not any(evidence_root.iterdir())
     env = os.environ.copy()
@@ -504,7 +563,7 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
         isolated = tmp_path / name.lower()
         isolated.mkdir(mode=0o700)
         env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(isolated)
-    output = _run_external_acceptance(
+    output = run_external_acceptance(
         installed_artifact,
         tmp_path,
         selectors=(
