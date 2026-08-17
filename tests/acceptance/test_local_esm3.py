@@ -25,9 +25,10 @@ def test_local_esm3_all_generation_modes(
         load_local_esm3_client,
         release_local_esm3_client,
     )
-    from tests.test_esm3_v2 import (
-        _decode_output,
-        _run_generation,
+    from tests.fixtures.esm3_generation import (
+        decode_output,
+        generation_catalog,
+        run_generation,
     )
 
     snapshot = validate_local_esm3_snapshot()
@@ -43,6 +44,7 @@ def test_local_esm3_all_generation_modes(
         "resolved_runtime_fingerprint": fingerprint,
     }
     results = {}
+    shared_catalog = generation_catalog(include_protein_io=True)
     shared_client = load_local_esm3_client(
         environment,
         model_name=LOCAL_ESM3_MODEL,
@@ -53,7 +55,7 @@ def test_local_esm3_all_generation_modes(
             ("generate_sequence", None),
             ("generate_structure", "ACD"),
         ):
-            service, catalog, projection, events = _run_generation(
+            service, catalog, projection, events = run_generation(
                 tmp_path / operation,
                 operation=operation,
                 client=shared_client,
@@ -67,6 +69,7 @@ def test_local_esm3_all_generation_modes(
                 },
                 safe_environment_fingerprint=fingerprint,
                 invalidation_token=fingerprint,
+                catalog=shared_catalog,
             )
             assert projection["status"] == "succeeded"
             binding_id = f"esm3.{operation}.local_open"
@@ -163,19 +166,19 @@ def test_local_esm3_all_generation_modes(
         for output in paired_projection["outputs"]
         if output["node_id"] == "generate"
     }
-    sequences = _decode_output(
+    sequences = decode_output(
         paired_service,
         paired_catalog,
         paired_projection,
         paired_outputs["sequence_candidates"],
     )
-    structures = _decode_output(
+    structures = decode_output(
         paired_service,
         paired_catalog,
         paired_projection,
         paired_outputs["structure_candidates"],
     )
-    pairing = _decode_output(
+    pairing = decode_output(
         paired_service,
         paired_catalog,
         paired_projection,

@@ -14,6 +14,7 @@ import pytest
 
 from core import build_discovered_frozen_catalog, parse_workflow_document
 from datatypes import CandidateCollection, PairwiseCandidateMapping
+from protein_workbench_public import validate_event
 from tests.acceptance.retained_evidence import (
     require_retained_evidence,
     retain_service_run,
@@ -137,24 +138,16 @@ def _invocations_by_node(
         for event in payloads
         if event["type"] == "operation_attempt_started"
     }
-    terminal_by_invocation = {
-        event["invocation_id"]: event
-        for event in payloads
-        if event["type"] == "engine_invocation_terminal"
-    }
     grouped: dict[str, list[dict[str, Any]]] = {}
     for event in payloads:
         if event["type"] != "engine_invocation_started":
             continue
         node_id = node_by_operation[event["operation_attempt_id"]]
-        assert terminal_by_invocation[event["invocation_id"]]["status"] == (
-            "succeeded"
-        )
         grouped.setdefault(node_id, []).append(event)
     return {key: tuple(value) for key, value in grouped.items()}
 
 
-def _assert_exact_engine_invocations(
+def _assert_provider_invocations(
     catalog: Any,
     workflow: dict[str, Any],
     projection: dict[str, Any],
@@ -164,6 +157,11 @@ def _assert_exact_engine_invocations(
     dispositions = {
         item["node_id"]: item for item in projection["node_dispositions"]
     }
+    terminal_by_invocation = {
+        message["event"]["invocation_id"]: message["event"]
+        for message in events
+        if message["event"]["type"] == "engine_invocation_terminal"
+    }
     invocations = _invocations_by_node(events)
     expected = {
         "generate-paired": ("esm3.generate_paired.biohub_medium", 20),
@@ -171,9 +169,6 @@ def _assert_exact_engine_invocations(
         "design-children": (PROTEINMPNN_BINDING_ID, 3),
         "fold-final": ("folding.fold.esmfold2_remote", 15),
     }
-    assert sum(count for _, count in expected.values()) == 48
-    assert set(invocations) == set(expected)
-    assert sum(len(items) for items in invocations.values()) == 48
     for node_id, (binding_id, count) in expected.items():
         node = nodes[node_id]
         binding_version = (
@@ -194,6 +189,11 @@ def _assert_exact_engine_invocations(
         assert all(
             invocation["engine_identity"]
             == binding.descriptor["method"]["contract_digest"]
+            for invocation in invocations[node_id]
+        )
+        assert all(
+            terminal_by_invocation[invocation["invocation_id"]]["status"]
+            == "succeeded"
             for invocation in invocations[node_id]
         )
 
@@ -287,6 +287,308 @@ def _assert_exact_engine_invocations(
     )
 
 
+def _provider_invocation_contract_fixture(
+) -> tuple[Any, dict[str, Any], dict[str, Any], tuple[dict[str, Any], ...]]:
+    catalog = build_discovered_frozen_catalog()
+    workflow_nodes: list[dict[str, Any]] = []
+    dispositions: list[dict[str, Any]] = []
+    event_payloads: list[dict[str, Any]] = []
+
+    def add_node(
+        node_id: str,
+        binding_id: str,
+        binding_version: str,
+        calls: tuple[
+            tuple[
+                str,
+                str,
+                str | None,
+                dict[str, Any] | None,
+                str,
+            ],
+            ...,
+        ],
+    ) -> None:
+        workflow_nodes.append({
+            "node_id": node_id,
+            "binding_id": binding_id,
+            "binding_version": binding_version,
+        })
+        dispositions.append({
+            "node_id": node_id,
+            "outcome": "succeeded",
+            "resolution": "executed",
+        })
+        node_attempt_id = f"node-attempt-{node_id}"
+        operation_attempt_id = f"operation-attempt-{node_id}"
+        event_payloads.extend(
+            (
+                {
+                    "type": "node_attempt_started",
+                    "node_attempt_id": node_attempt_id,
+                    "node_id": node_id,
+                },
+                {
+                    "type": "operation_attempt_started",
+                    "operation_attempt_id": operation_attempt_id,
+                    "node_attempt_id": node_attempt_id,
+                },
+            )
+        )
+        engine_identity = catalog.require_contract(
+            "binding", binding_id, binding_version
+        ).descriptor["method"]["contract_digest"]
+        for (
+            invocation_id,
+            engine_role,
+            parent_invocation_id,
+            provenance,
+            terminal_status,
+        ) in calls:
+            started = {
+                "type": "engine_invocation_started",
+                "operation_attempt_id": operation_attempt_id,
+                "invocation_id": invocation_id,
+                "engine_identity": engine_identity,
+                "engine_role": engine_role,
+            }
+            if parent_invocation_id is not None:
+                started["parent_invocation_id"] = parent_invocation_id
+            if provenance is not None:
+                started["invocation_provenance"] = provenance
+            event_payloads.extend(
+                (
+                    started,
+                    {
+                        "type": "engine_invocation_terminal",
+                        "invocation_id": invocation_id,
+                        "status": terminal_status,
+                    },
+                )
+            )
+
+    uncontrolled = {
+        "effective_randomness": {"control": "provider_uncontrolled"}
+    }
+    add_node(
+        "generate-paired",
+        "esm3.generate_paired.biohub_medium",
+        "7.0.0",
+        tuple(
+            call
+            for index in range(10)
+            for call in (
+                (
+                    f"sequence-parent-{index}",
+                    "sequence_parent",
+                    None,
+                    uncontrolled,
+                    "succeeded",
+                ),
+                (
+                    f"structure-child-{index}",
+                    "structure_child",
+                    f"sequence-parent-{index}",
+                    uncontrolled,
+                    "succeeded",
+                ),
+            )
+        ),
+    )
+    for node_id, count in (("fold-sequences", 10), ("fold-final", 15)):
+        add_node(
+            node_id,
+            "folding.fold.esmfold2_remote",
+            "7.0.0",
+            tuple(
+                (
+                    f"{node_id}-{index}",
+                    f"fold_parent_{index}_sample_0",
+                    None,
+                    uncontrolled,
+                    "succeeded",
+                )
+                for index in range(count)
+            ),
+        )
+    add_node(
+        "design-children",
+        PROTEINMPNN_BINDING_ID,
+        PROTEINMPNN_BINDING_VERSION,
+        tuple(
+            (
+                f"design-child-{index}",
+                f"design_parent_{index}",
+                None,
+                {
+                    "effective_randomness": {
+                        "control": "exact_seed",
+                        "effective_seed": 1603 + index,
+                    },
+                    "provider_residue_projection": {
+                        "position_semantics": "one_based_chain_local",
+                        "workbench_chain_order": ["A"],
+                        "provider_structure_chain_order": ["A"],
+                        "provider_chain_order": ["A"],
+                        "entries": [
+                            {
+                                "residue_id": "A:1",
+                                "segment_index": 0,
+                                "provider_chain_id": "A",
+                                "provider_position": 1,
+                            }
+                        ],
+                    },
+                },
+                "succeeded",
+            )
+            for index in range(3)
+        ),
+    )
+    add_node(
+        "align-fixed",
+        "structure_comparison.align_fixed_reference.sequence_primary_affine",
+        "4.0.0",
+        (
+            (
+                "local-alignment-failed-attempt",
+                "evidence_tm_score",
+                None,
+                None,
+                "failed",
+            ),
+            (
+                "local-alignment-retry",
+                "evidence_tm_score",
+                None,
+                None,
+                "succeeded",
+            ),
+        ),
+    )
+    return (
+        catalog,
+        {"nodes": workflow_nodes},
+        {"node_dispositions": dispositions},
+        tuple(
+            {
+                "schema_namespace": "protein-workbench-public/v2",
+                "project_id": "canonical-3gb1-fixture",
+                "run_id": "run-fixture",
+                "sequence": sequence,
+                "cursor": f"cursor-{sequence}",
+                "emitted_at": "2026-08-17T00:00:00+00:00",
+                "event": event,
+            }
+            for sequence, event in enumerate(event_payloads, start=1)
+        ),
+    )
+
+
+def test_provider_invocation_contract_allows_local_workflow_invocations(
+) -> None:
+    fixture = _provider_invocation_contract_fixture()
+    for message in fixture[3]:
+        validate_event(message)
+    _assert_provider_invocations(*fixture)
+
+
+def test_provider_invocation_contract_rejects_a_missing_call() -> None:
+    catalog, workflow, projection, events = (
+        _provider_invocation_contract_fixture()
+    )
+    incomplete = tuple(
+        message
+        for message in events
+        if message["event"].get("invocation_id") != "fold-final-14"
+    )
+    for message in incomplete:
+        validate_event(message)
+
+    with pytest.raises(AssertionError):
+        _assert_provider_invocations(
+            catalog,
+            workflow,
+            projection,
+            incomplete,
+        )
+
+
+def test_provider_invocation_contract_rejects_the_wrong_binding() -> None:
+    catalog, workflow, projection, events = (
+        _provider_invocation_contract_fixture()
+    )
+    wrong_workflow = {
+        "nodes": [
+            {
+                **node,
+                "binding_version": (
+                    "6.0.0"
+                    if node["node_id"] == "generate-paired"
+                    else node["binding_version"]
+                ),
+            }
+            for node in workflow["nodes"]
+        ]
+    }
+
+    with pytest.raises(AssertionError):
+        _assert_provider_invocations(
+            catalog,
+            wrong_workflow,
+            projection,
+            events,
+        )
+
+
+@pytest.mark.parametrize(
+    ("invocation_id", "replacement"),
+    (
+        ("design-child-0", {"engine_identity": "sha256:" + "0" * 64}),
+        ("design-child-0", {"engine_role": "wrong-role"}),
+        ("fold-final-0", {"status": "failed"}),
+    ),
+)
+def test_provider_invocation_contract_rejects_wrong_invocation_evidence(
+    invocation_id: str,
+    replacement: dict[str, Any],
+) -> None:
+    catalog, workflow, projection, events = (
+        _provider_invocation_contract_fixture()
+    )
+    changed = tuple(
+        {
+            **message,
+            "event": {**message["event"], **replacement},
+        }
+        if message["event"].get("invocation_id") == invocation_id
+        and (
+            (
+                "status" in replacement
+                and message["event"]["type"]
+                == "engine_invocation_terminal"
+            )
+            or (
+                "status" not in replacement
+                and message["event"]["type"]
+                == "engine_invocation_started"
+            )
+        )
+        else message
+        for message in events
+    )
+    for message in changed:
+        validate_event(message)
+
+    with pytest.raises(AssertionError):
+        _assert_provider_invocations(
+            catalog,
+            workflow,
+            projection,
+            changed,
+        )
+
+
 def _assert_science(
     service: Any,
     catalog: Any,
@@ -313,7 +615,7 @@ def _assert_science(
         and event["binding"]["contract_id"] in REMOTE_BINDINGS
     }
     assert passing_remote_readiness == set(REMOTE_BINDINGS)
-    _assert_exact_engine_invocations(catalog, workflow, projection, events)
+    _assert_provider_invocations(catalog, workflow, projection, events)
 
     paired_sequences = _one(
         service, catalog, projection, "generate-paired", "sequence_candidates"

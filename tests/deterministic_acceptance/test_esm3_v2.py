@@ -6,42 +6,42 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_esm3_v2 import (
-    _ProviderClient,
-    _ProviderResponse,
-    _decode_output,
-    _run_generation,
-    _three_residue_pdb,
+from tests.fixtures.esm3_generation import (
+    ProviderClient,
+    ProviderResponse,
+    decode_output,
+    run_generation,
+    three_residue_pdb,
 )
 
 
 pytestmark = pytest.mark.deterministic_acceptance
 
 
-def _structure_response() -> _ProviderResponse:
+def _structure_response() -> ProviderResponse:
     import torch
 
-    return _ProviderResponse(
+    return ProviderResponse(
         "ACD",
         coordinates=torch.zeros((3, 37, 3)),
         ptm=torch.tensor(0.75),
         plddt=torch.tensor([0.7, 0.8, 0.9]),
-        pdb_string=_three_residue_pdb(),
+        pdb_string=three_residue_pdb(),
     )
 
 
 def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
     tmp_path: Path,
 ) -> None:
-    first_client = _ProviderClient([_ProviderResponse("ACD")])
-    first_service, first_catalog, first_projection, _ = _run_generation(
+    first_client = ProviderClient([ProviderResponse("ACD")])
+    first_service, first_catalog, first_projection, _ = run_generation(
         tmp_path / "first",
         operation="generate_sequence",
         client=first_client,
         num_samples=1,
     )
-    second_client = _ProviderClient([_ProviderResponse("ACD")])
-    second_service, second_catalog, second_projection, _ = _run_generation(
+    second_client = ProviderClient([ProviderResponse("ACD")])
+    second_service, second_catalog, second_projection, _ = run_generation(
         tmp_path / "second",
         operation="generate_sequence",
         client=second_client,
@@ -59,13 +59,13 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
         if output["node_id"] == "generate"
         and output["output_port"] == "sequence_candidates"
     )
-    first_candidates = _decode_output(
+    first_candidates = decode_output(
         first_service,
         first_catalog,
         first_projection,
         first_output,
     )
-    second_candidates = _decode_output(
+    second_candidates = decode_output(
         second_service,
         second_catalog,
         second_projection,
@@ -79,8 +79,8 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
     ]
     assert first_client.calls and second_client.calls
 
-    structure_client = _ProviderClient([_structure_response()])
-    _, _, structure_projection, _ = _run_generation(
+    structure_client = ProviderClient([_structure_response()])
+    _, _, structure_projection, _ = run_generation(
         tmp_path / "structure",
         operation="generate_structure",
         client=structure_client,
@@ -90,17 +90,17 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
     assert structure_projection["status"] == "succeeded"
     assert [call[1].track for call in structure_client.calls] == ["structure"]
 
-    paired_client = _ProviderClient(
+    paired_client = ProviderClient(
         [
             response
             for _ in range(10)
             for response in (
-                _ProviderResponse("ACD"),
+                ProviderResponse("ACD"),
                 _structure_response(),
             )
         ]
     )
-    paired_service, paired_catalog, paired_projection, _ = _run_generation(
+    paired_service, paired_catalog, paired_projection, _ = run_generation(
         tmp_path / "paired",
         operation="generate_paired",
         client=paired_client,
@@ -111,7 +111,7 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
         for output in paired_projection["outputs"]
         if output["node_id"] == "generate"
     }
-    pairs = _decode_output(
+    pairs = decode_output(
         paired_service,
         paired_catalog,
         paired_projection,

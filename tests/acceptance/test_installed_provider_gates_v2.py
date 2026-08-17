@@ -520,7 +520,7 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
         read_biohub_token,
         validate_installed_provider_checkout,
     )
-    from tests.test_esm3_v2 import _decode_output
+    from tests.fixtures.esm3_generation import decode_output
 
     validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     token = read_biohub_token(str(PROJECT_ROOT))
@@ -656,7 +656,7 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 and output["output_port"] == "protein_prompt"
             )
             if operation == "generate_sequence":
-                sequences = _decode_output(
+                sequences = decode_output(
                     service,
                     catalog,
                     projection,
@@ -672,13 +672,13 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                     "effective_num_steps"
                 ]
             elif operation == "generate_structure":
-                structures = _decode_output(
+                structures = decode_output(
                     service,
                     catalog,
                     projection,
                     outputs["structure_candidates"],
                 )
-                facts = _decode_output(
+                facts = decode_output(
                     service,
                     catalog,
                     projection,
@@ -707,25 +707,25 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                     prompt_content_digest=prompt_output["content_digest"],
                 )
             else:
-                sequences = _decode_output(
+                sequences = decode_output(
                     service,
                     catalog,
                     projection,
                     outputs["sequence_candidates"],
                 )
-                structures = _decode_output(
+                structures = decode_output(
                     service,
                     catalog,
                     projection,
                     outputs["structure_candidates"],
                 )
-                pairing = _decode_output(
+                pairing = decode_output(
                     service,
                     catalog,
                     projection,
                     outputs["counterpart_pairs"],
                 )
-                facts = _decode_output(
+                facts = decode_output(
                     service,
                     catalog,
                     projection,

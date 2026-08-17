@@ -314,6 +314,24 @@ def test_service_run_writes_complete_minimal_bundle(
     assert (run_root / "artifacts" / "000000.bin").read_bytes() == ARTIFACT
 
 
+def test_service_runs_reject_different_tier_catalogs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_complete(tmp_path, monkeypatch)
+
+    with pytest.raises(AssertionError):
+        retain_service_run(
+            "second-run",
+            catalog=SimpleNamespace(
+                catalog_descriptor_bytes=b'{"catalog":"different"}\n'
+            ),
+            service=_Service(),
+            projection=_projection(),
+            events=_events(),
+        )
+
+
 def test_service_run_rejects_an_invalid_public_projection_before_writing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

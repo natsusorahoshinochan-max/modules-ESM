@@ -326,16 +326,19 @@ def test_typed_value_data_loss_is_a_closed_public_integrity_error(
 def _large_esm3_response(sequence: str, pae: object) -> object:
     import torch
 
-    from tests.test_esm3_v2 import _ProviderResponse, _three_residue_pdb
+    from tests.fixtures.esm3_generation import (
+        ProviderResponse,
+        three_residue_pdb,
+    )
 
     length = len(sequence)
-    return _ProviderResponse(
+    return ProviderResponse(
         sequence,
         coordinates=torch.zeros((length, 37, 3), dtype=torch.float32),
         ptm=torch.tensor(0.75, dtype=torch.float32),
         plddt=torch.linspace(0.5, 0.9, length, dtype=torch.float32),
         pae=pae,
-        pdb_string=_three_residue_pdb(sequence),
+        pdb_string=three_residue_pdb(sequence),
     )
 
 
@@ -344,9 +347,9 @@ def test_registered_esm3_large_paired_values_round_trip_exactly(
 ) -> None:
     import torch
 
-    from tests.test_esm3_v2 import (
-        _ProviderClient,
-        _run_generation_from_prompt_fixture,
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        run_generation_from_prompt_fixture,
     )
 
     length = 291
@@ -361,11 +364,11 @@ def test_registered_esm3_large_paired_values_round_trip_exactly(
         _large_esm3_response(sequence, pae)
         for _ in range(4)
     ]
-    service, catalog, projection, events = _run_generation_from_prompt_fixture(
+    service, catalog, projection, events = run_generation_from_prompt_fixture(
         tmp_path,
         operation="generate_paired",
         mode="coordinate_conditioned_291",
-        client=_ProviderClient(responses),
+        client=ProviderClient(responses),
         num_samples=2,
     )
 
@@ -485,15 +488,19 @@ def test_declared_hundred_samples_do_not_expand_ledger_transaction(
 ) -> None:
     import torch
 
-    from tests.test_esm3_v2 import _ProviderClient, _ProviderResponse, _run_generation
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        ProviderResponse,
+        run_generation,
+    )
 
     def responses(count: int) -> list[object]:
         paired: list[object] = []
         for _ in range(count):
             paired.extend(
                 [
-                    _ProviderResponse("ACD"),
-                    _ProviderResponse(
+                    ProviderResponse("ACD"),
+                    ProviderResponse(
                         "ACD",
                         coordinates=torch.zeros((3, 37, 3)),
                         ptm=torch.tensor(0.75),
@@ -512,16 +519,16 @@ def test_declared_hundred_samples_do_not_expand_ledger_transaction(
             )
         return paired
 
-    one_service, _, one, _ = _run_generation(
+    one_service, _, one, _ = run_generation(
         tmp_path / "one",
         operation="generate_paired",
-        client=_ProviderClient(responses(1)),
+        client=ProviderClient(responses(1)),
         num_samples=1,
     )
-    hundred_service, _, hundred, _ = _run_generation(
+    hundred_service, _, hundred, _ = run_generation(
         tmp_path / "hundred",
         operation="generate_paired",
-        client=_ProviderClient(responses(100)),
+        client=ProviderClient(responses(100)),
         num_samples=100,
     )
 

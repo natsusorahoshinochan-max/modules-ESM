@@ -379,14 +379,14 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
         LOCAL_ESM3_MODEL,
         LocalESM3Adapter,
     )
-    from tests.test_esm3_v2 import _ProviderClient, _ProviderResponse
+    from tests.fixtures.esm3_generation import ProviderClient, ProviderResponse
 
-    class SeedRecordingClient(_ProviderClient):
+    class SeedRecordingClient(ProviderClient):
         def __init__(self) -> None:
-            super().__init__([_ProviderResponse("ACD")])
+            super().__init__([ProviderResponse("ACD")])
             self.seeds: list[int] = []
 
-        def generate(self, protein: Any, config: Any) -> _ProviderResponse:
+        def generate(self, protein: Any, config: Any) -> ProviderResponse:
             self.seeds.append(torch.initial_seed())
             return super().generate(protein, config)
 
@@ -468,12 +468,12 @@ def test_local_execution_preserves_remote_scientific_contracts(
     import torch
     import modules.esm3.local_adapter as local_adapter
 
-    from tests.test_esm3_v2 import (
-        _ProviderClient,
-        _ProviderResponse,
-        _decode_output,
-        _run_generation,
-        _three_residue_pdb,
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        ProviderResponse,
+        decode_output,
+        run_generation,
+        three_residue_pdb,
     )
 
     _patch_local_runtime(monkeypatch, tmp_path)
@@ -490,7 +490,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
         "resolve_local_runtime",
         count_readiness,
     )
-    structure_response = lambda: _ProviderResponse(
+    structure_response = lambda: ProviderResponse(
         "ACD",
         coordinates=torch.zeros((3, 37, 3)),
         ptm=torch.tensor([0.75]),
@@ -504,16 +504,16 @@ def test_local_execution_preserves_remote_scientific_contracts(
                 [99.0, 99.0, 99.0, 99.0, 99.0],
             ]]
         ),
-        pdb_string=_three_residue_pdb(),
+        pdb_string=three_residue_pdb(),
     )
     responses = {
-        "sequence": [_ProviderResponse("ACD")],
+        "sequence": [ProviderResponse("ACD")],
         "structure": [structure_response()],
-        "paired": [_ProviderResponse("ACD"), structure_response()],
+        "paired": [ProviderResponse("ACD"), structure_response()],
     }[response_kind]
-    client = _ProviderClient(responses)
+    client = ProviderClient(responses)
 
-    service, catalog, projection, events = _run_generation(
+    service, catalog, projection, events = run_generation(
         tmp_path,
         operation=operation,
         client=client,
@@ -537,7 +537,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
         "generate_structure": "structure_candidates",
         "generate_paired": "sequence_candidates",
     }[operation]
-    primary = _decode_output(
+    primary = decode_output(
         service, catalog, projection, outputs[primary_port]
     )
     assert len(primary.items) == 1
@@ -553,7 +553,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     assert isinstance(primary.items[0].metadata["effective_call_seed"], int)
     assert outputs[primary_port]["result_identity"].startswith("sha256:")
     if operation != "generate_sequence":
-        confidence = _decode_output(
+        confidence = decode_output(
             service, catalog, projection, outputs["confidence_facts"]
         )
         assert confidence.entries[0].ptm == pytest.approx(0.75)
@@ -563,13 +563,13 @@ def test_local_execution_preserves_remote_scientific_contracts(
             (6.0, 7.0, 8.0),
         )
     if operation == "generate_paired":
-        structures = _decode_output(
+        structures = decode_output(
             service,
             catalog,
             projection,
             outputs["structure_candidates"],
         )
-        pairing = _decode_output(
+        pairing = decode_output(
             service, catalog, projection, outputs["counterpart_pairs"]
         )
         assert structures.items[0].parent_ids == (
@@ -635,10 +635,10 @@ def test_local_seed_is_declared_result_identity_randomness(
 ) -> None:
     import core.run_execution_v2 as run_execution_v2
 
-    from tests.test_esm3_v2 import (
-        _ProviderClient,
-        _ProviderResponse,
-        _run_generation,
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        ProviderResponse,
+        run_generation,
     )
 
     _patch_local_runtime(monkeypatch, tmp_path)
@@ -658,10 +658,10 @@ def test_local_seed_is_declared_result_identity_randomness(
         "_result_identity_descriptor",
         capture_result_identity,
     )
-    _, _, projection, events = _run_generation(
+    _, _, projection, events = run_generation(
         tmp_path,
         operation="generate_sequence",
-        client=_ProviderClient([_ProviderResponse("ACD")]),
+        client=ProviderClient([ProviderResponse("ACD")]),
         num_samples=1,
         binding_route="local_open",
         environment_overrides=_local_environment(tmp_path),
@@ -694,14 +694,14 @@ def test_default_local_client_releases_staged_runtime_after_execution(
 ) -> None:
     import modules.esm3.local_adapter as local_adapter
 
-    from tests.test_esm3_v2 import (
-        _ProviderClient,
-        _ProviderResponse,
-        _run_generation,
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        ProviderResponse,
+        run_generation,
     )
 
     _patch_local_runtime(monkeypatch, tmp_path)
-    client = _ProviderClient([_ProviderResponse("ACD")])
+    client = ProviderClient([ProviderResponse("ACD")])
     released: list[Any] = []
     monkeypatch.setattr(
         local_adapter,
@@ -714,7 +714,7 @@ def test_default_local_client_releases_staged_runtime_after_execution(
         lambda owned: released.append(owned),
     )
 
-    _, _, projection, _ = _run_generation(
+    _, _, projection, _ = run_generation(
         tmp_path,
         operation="generate_sequence",
         client=None,
@@ -812,10 +812,10 @@ def test_local_readiness_rechecks_model_identity_before_any_cache_lookup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tests.test_esm3_v2 import (
-        _ProviderClient,
-        _ProviderResponse,
-        _run_generation,
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        ProviderResponse,
+        run_generation,
     )
 
     class LookupRecorder(ResultReplaySource):
@@ -833,10 +833,10 @@ def test_local_readiness_rechecks_model_identity_before_any_cache_lookup(
     environment["artifact_generation"] = "fixture-b"
 
     with pytest.raises(V2RunError) as rejected:
-        _run_generation(
+        run_generation(
             tmp_path,
             operation="generate_sequence",
-            client=_ProviderClient([_ProviderResponse("ACD")]),
+            client=ProviderClient([ProviderResponse("ACD")]),
             num_samples=1,
             binding_route="local_open",
             environment_overrides=environment,
@@ -856,17 +856,17 @@ def test_local_binding_never_falls_back_to_remote_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from tests.test_esm3_v2 import _ProviderClient, _run_generation
+    from tests.fixtures.esm3_generation import ProviderClient, run_generation
 
     _patch_local_runtime(
         monkeypatch,
         tmp_path,
         accepted_generation="never-accepted",
     )
-    remote_client = _ProviderClient([])
+    remote_client = ProviderClient([])
 
     with pytest.raises(V2RunError) as rejected:
-        _run_generation(
+        run_generation(
             tmp_path,
             operation="generate_sequence",
             client=remote_client,
