@@ -2,8 +2,8 @@
 
 Date: 2026-08-17
 
-Status: implementation and provider-free verification complete; final
-real-Provider Acceptance Campaign pending
+Status: complete; provider-free verification and the single real-Provider
+Acceptance Campaign passed
 
 This document supersedes the earlier follow-up checklist. That checklist found
 real scientific gaps, but its exact inventories, directory digests, two-stage
@@ -125,3 +125,21 @@ Workflow, Ledger, logs, and retained Evidence.
 - a clean revision completes one serial 15-tier real Acceptance Campaign;
 - the final review finds no duplicated scientific validator, attacker-oriented
   path, compatibility layer, or brittle implementation-shape test.
+
+## Final outcome
+
+All exit criteria were met for source revision
+`21bd098a969a0ac24d4d3de79e9020459ac13e6e`.
+
+- The provider-free matrix passed: `routine` 1269 passed / 53 deselected;
+  `examples-v2` 12 passed; `deterministic-acceptance` 8 passed;
+  `scientific-repro` 1 passed; `local-esmfold2-v2-contract` 6 passed;
+  `installed-package` 6 passed; `provider-isolation` 16 passed.
+- Frontend Oxlint, TypeScript, and Vite build passed. Python compilation and
+  `git diff --check` passed.
+- Standards and Spec review found no remaining HIGH or MEDIUM issue.
+- The one-stage Campaign at
+  `verification-results/acceptance-campaign-21bd098` ran every canonical tier
+  once in serial order and finished `passed` with 15/15 results.
+- No second Provider run, Certification generation, Evidence promotion, or
+  secondary digest was performed.
