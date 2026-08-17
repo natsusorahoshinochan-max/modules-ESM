@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-import hashlib
 import json
 import os
 from pathlib import Path
 from typing import Any
 
-from protein_workbench_public import bundle_bytes
+from protein_workbench_public import bundle_bytes, validate_event, validate_response
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -23,10 +22,6 @@ def _canonical_bytes(value: object) -> bytes:
         ).encode()
         + b"\n"
     )
-
-
-def _digest(payload: bytes) -> str:
-    return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
 def _write(path: Path, payload: bytes) -> None:
@@ -58,7 +53,7 @@ def _configured_root() -> Path | None:
     if configured is None and tier is None:
         return None
     if configured is None or tier is None:
-        raise AssertionError("installed evidence configuration is incomplete")
+        raise AssertionError("retained evidence configuration is incomplete")
     return Path(configured)
 
 
@@ -135,6 +130,9 @@ def retain_service_run(
     events: Sequence[Mapping[str, Any]],
 ) -> None:
     """Retain one service-backed Run after its acceptance assertions pass."""
+    validate_response("run_projection", 200, projection)
+    for event in events:
+        validate_event(event)
     project_id = projection["project_id"]
     run_id = projection["run_id"]
 
@@ -185,7 +183,7 @@ def retain_rest_run(
         output: Mapping[str, Any],
         value_index: int,
     ) -> tuple[Mapping[str, Any], bytes]:
-        payload = client.typed_value(
+        return client.typed_value(
             {
                 "project_id": project_id,
                 "run_id": run_id,
@@ -194,24 +192,6 @@ def retain_rest_run(
                 "value_index": value_index,
             },
             dict(output),
-        )
-        return (
-            {
-                "typed_value": {
-                    "node_id": output["node_id"],
-                    "output_port": output["output_port"],
-                    "port_type": output["port_type"],
-                    "port_content_digest": output["content_digest"],
-                    "value_manifest_reference": output[
-                        "value_manifest_reference"
-                    ],
-                    "value_index": value_index,
-                    "value_count": output["value_count"],
-                    "value_content_digest": _digest(payload),
-                    "size": len(payload),
-                }
-            },
-            payload,
         )
 
     def read_artifact(
@@ -240,27 +220,39 @@ def retain_rest_run(
 def retain_proteinmpnn_lifecycle(
     *,
     load_count: int,
+    release: str | None = None,
 ) -> None:
     """Retain the directly observed ProteinMPNN lifecycle facts."""
     configured = _configured_root()
     if configured is None:
         return
+    receipt: dict[str, object] = {
+        "model": "proteinmpnn",
+        "load_count": load_count,
+    }
+    if release is not None:
+        receipt["release"] = release
     _write(
         configured / "model-lifecycle.json",
-        _canonical_bytes({
-            "model": "proteinmpnn",
-            "load_count": load_count,
-        }),
+        _canonical_bytes(receipt),
     )
 
 
-def require_installed_evidence(
+def require_retained_evidence(
     root: Path,
     *,
     required_runs: tuple[str, ...],
     lifecycle_required: bool = False,
 ) -> None:
-    """Require the exact lightweight file inventory for one installed tier."""
+    """Require the exact lightweight file inventory for one acceptance tier."""
+    expected_root_entries = {
+        "catalog-snapshot.json",
+        "public-protocol.json",
+        "runs",
+    }
+    if lifecycle_required:
+        expected_root_entries.add("model-lifecycle.json")
+    assert {path.name for path in root.iterdir()} == expected_root_entries
     assert (root / "catalog-snapshot.json").is_file()
     assert (root / "public-protocol.json").is_file()
     assert tuple(path.name for path in sorted((root / "runs").iterdir())) == (
@@ -284,10 +276,3 @@ def require_installed_evidence(
 
     if lifecycle_required:
         assert (root / "model-lifecycle.json").is_file()
-        lifecycle = json.loads(
-            (root / "model-lifecycle.json").read_bytes()
-        )
-        assert lifecycle == {
-            "model": "proteinmpnn",
-            "load_count": 1,
-        }

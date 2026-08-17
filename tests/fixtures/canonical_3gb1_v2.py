@@ -23,6 +23,9 @@ from datatypes import ProteinSequence
 VERSION = "2.1.0"
 REMOTE_BINDING_VERSION = "7.0.0"
 PROTEINMPNN_BINDING_VERSION = "10.0.0"
+CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
+    "sha256:af6fb4017077a24d67882151d39beb7790b118b02c155a986a48907e1a569ab8"
+)
 PROVIDER_BINDINGS = frozenset({
     "esm3.generate_paired.biohub_medium",
     "folding.fold.esmfold2_remote",

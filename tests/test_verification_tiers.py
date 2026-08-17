@@ -83,11 +83,6 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
                 continue
             target = PROJECT_ROOT / argument.split("::", 1)[0]
             assert target.exists(), argument
-    assert (
-        "tests/test_installed_backend_v2.py::"
-        "test_installed_simplefold_confidence_acceptance_import_closure"
-        in TIERS["installed-package"].pytest_arguments
-    )
     assert not (PROJECT_ROOT / "modules" / "provider_evidence.py").exists()
 
 

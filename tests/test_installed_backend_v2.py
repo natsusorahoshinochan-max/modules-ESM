@@ -36,7 +36,7 @@ from protein_workbench_public import (
 )
 from tests.public_protocol_acceptance_client import PublicProtocolAcceptanceClient
 from tests.acceptance.retained_evidence import (
-    require_installed_evidence,
+    require_retained_evidence,
     retain_rest_run,
 )
 from websockets.sync.client import connect
@@ -442,64 +442,6 @@ def test_installed_protocol_catalog_identity_and_separate_availability(
     )
 
 
-def test_installed_simplefold_confidence_acceptance_import_closure(
-    installed_artifact: InstalledArtifact,
-) -> None:
-    acceptance_test = (
-        PROJECT_ROOT
-        / "tests"
-        / "acceptance"
-        / "test_simplefold_confidence_v2.py"
-    )
-    probe = """
-import ast
-import importlib
-from pathlib import Path
-import sys
-
-source_root = Path(sys.argv[1]).resolve()
-test_path = Path(sys.argv[2]).resolve()
-tree = ast.parse(test_path.read_text(encoding="utf-8"))
-target = next(
-    node
-    for node in tree.body
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-    and node.name
-    == "test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold"
-)
-for statement in ast.walk(target):
-    if (
-        isinstance(statement, ast.ImportFrom)
-        and statement.module is not None
-        and statement.module.startswith("modules.folding")
-    ):
-        module = importlib.import_module(statement.module)
-        assert not Path(module.__file__).resolve().is_relative_to(source_root)
-        for imported_name in statement.names:
-            getattr(module, imported_name.name)
-"""
-    completed = subprocess.run(
-        [
-            str(installed_artifact.python),
-            "-I",
-            "-c",
-            probe,
-            str(PROJECT_ROOT),
-            str(acceptance_test),
-        ],
-        cwd=installed_artifact.run_root,
-        env={
-            key: value
-            for key, value in os.environ.items()
-            if key != "PYTHONPATH"
-        },
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert completed.returncode == 0, completed.stderr
-
-
 def test_installed_backend_completes_full_public_v2_journey(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
@@ -818,13 +760,84 @@ def _copy_external_acceptance_tree(destination: Path) -> Path:
     return destination / "tests"
 
 
+_EXTERNAL_ACCEPTANCE_BOOTSTRAP = """
+from pathlib import Path
+import os
+import sys
+import core
+import datatypes
+import examples
+import modules
+import pdbs
+import protein_workbench_public
+source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
+for package in (
+    core,
+    datatypes,
+    examples,
+    modules,
+    pdbs,
+    protein_workbench_public,
+):
+    assert not Path(package.__file__).resolve().is_relative_to(source)
+import pytest
+raise SystemExit(pytest.main(sys.argv[1:]))
+"""
+
+
+def _run_external_acceptance(
+    installed: InstalledArtifact,
+    tmp_path: Path,
+    *,
+    selectors: tuple[str, ...],
+    environment: dict[str, str],
+    timeout_seconds: int,
+) -> str:
+    copied_tests = _copy_external_acceptance_tree(
+        tmp_path / "external-suite"
+    )
+    junit = tmp_path / "external.xml"
+    targets = [copied_tests.parent / selector for selector in selectors]
+    completed = subprocess.run(
+        [
+            str(installed.python),
+            "-I",
+            "-c",
+            _EXTERNAL_ACCEPTANCE_BOOTSTRAP,
+            "-o",
+            "addopts=",
+            "-q",
+            "--junitxml",
+            str(junit),
+            *(str(target) for target in targets),
+        ],
+        cwd=copied_tests.parent,
+        env=environment,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+        timeout=timeout_seconds,
+    )
+    assert completed.returncode == 0, completed.stdout
+    root = ElementTree.parse(junit).getroot()
+    suites = [root] if root.tag == "testsuite" else list(root)
+    tests = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
+    failures = sum(
+        int(suite.attrib.get("failures", 0))
+        + int(suite.attrib.get("errors", 0))
+        for suite in suites
+    )
+    skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
+    assert tests > 0 and failures == 0 and skipped == 0, completed.stdout
+    return completed.stdout
+
+
 def _run_installed_provider_case(
     installed: InstalledArtifact,
     tmp_path: Path,
     case: str,
 ) -> None:
-    copied_tests = _copy_external_acceptance_tree(tmp_path / "external-suite")
-    junit = tmp_path / "provider.xml"
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
@@ -852,68 +865,16 @@ def _run_installed_provider_case(
         env["PROTEIN_WORKBENCH_PROVIDER_IDENTITY_PROFILE"] = (
             "simplefold-v2-confidence"
         )
-    targets = [
-        tmp_path / "external-suite" / selector
-        for selector in REQUIRED_PROVIDER_CASES[case]
-    ]
-    bootstrap = """
-from pathlib import Path
-import os
-import sys
-import core
-import datatypes
-import examples
-import modules
-import pdbs
-import protein_workbench_public
-source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
-for package in (
-    core,
-    datatypes,
-    examples,
-    modules,
-    pdbs,
-    protein_workbench_public,
-):
-    assert not Path(package.__file__).resolve().is_relative_to(source)
-import pytest
-raise SystemExit(pytest.main(sys.argv[1:]))
-"""
-    completed = subprocess.run(
-        [
-            str(installed.python),
-            "-I",
-            "-c",
-            bootstrap,
-            "-o",
-            "addopts=",
-            "-q",
-            "--junitxml",
-            str(junit),
-            *(str(target) for target in targets),
-        ],
-        cwd=copied_tests.parent,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        timeout={
+    _run_external_acceptance(
+        installed,
+        tmp_path,
+        selectors=REQUIRED_PROVIDER_CASES[case],
+        environment=env,
+        timeout_seconds={
             "local_esmfold2": 90 * 60,
             "proteinmpnn": 60 * 60,
         }.get(case, 30 * 60),
     )
-    assert completed.returncode == 0, completed.stdout
-    root = ElementTree.parse(junit).getroot()
-    suites = [root] if root.tag == "testsuite" else list(root)
-    tests = sum(int(suite.attrib.get("tests", 0)) for suite in suites)
-    failures = sum(
-        int(suite.attrib.get("failures", 0))
-        + int(suite.attrib.get("errors", 0))
-        for suite in suites
-    )
-    skipped = sum(int(suite.attrib.get("skipped", 0)) for suite in suites)
-    assert tests > 0 and failures == 0 and skipped == 0, completed.stdout
     _require_configured_installed_evidence()
 
 
@@ -923,7 +884,7 @@ def _require_configured_installed_evidence() -> None:
         return
     tier = os.environ["PROTEIN_WORKBENCH_VERIFICATION_TIER"]
     contract = ACCEPTANCE_TIER_CONTRACTS[tier]
-    require_installed_evidence(
+    require_retained_evidence(
         Path(configured),
         required_runs=contract.required_run_labels,
         lifecycle_required=contract.lifecycle_receipt_required,
@@ -1159,7 +1120,7 @@ def test_installed_biohub_esmc_gate(
                 if output["node_id"] == "represent"
                 and output["output_port"] == "representation"
             )
-            canonical_value = client.typed_value(
+            _, canonical_value = client.typed_value(
                 {
                     "project_id": project_id,
                     "run_id": run_id,

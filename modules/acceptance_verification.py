@@ -44,7 +44,7 @@ def _contract(
     selector: str,
     timeout_seconds: int = 30 * 60,
     *,
-    required_run_labels: tuple[str, ...] = (),
+    required_run_labels: tuple[str, ...],
     lifecycle_receipt_required: bool = False,
 ) -> AcceptanceTierContract:
     return AcceptanceTierContract(
@@ -160,6 +160,7 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_fresh_1pga_installed_public_run_retains_auditable_bundle"
         ),
         120 * 60,
+        required_run_labels=("fresh-1pga",),
     ),
     "fresh-2emo": _contract(
         (
@@ -167,6 +168,7 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_fresh_2emo_installed_public_run_retains_auditable_bundle"
         ),
         180 * 60,
+        required_run_labels=("fresh-2emo",),
         lifecycle_receipt_required=True,
     ),
     "fresh-canonical-3gb1": _contract(
@@ -176,6 +178,7 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "retains_auditable_bundle"
         ),
         90 * 60,
+        required_run_labels=("fresh-canonical-3gb1",),
     ),
     "fresh-5g53": _contract(
         (
@@ -183,6 +186,7 @@ ACCEPTANCE_TIER_CONTRACTS = {
             "test_fresh_5g53_installed_public_run_retains_auditable_bundle"
         ),
         180 * 60,
+        required_run_labels=("fresh-5g53",),
     ),
 }
 

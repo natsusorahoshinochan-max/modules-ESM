@@ -113,7 +113,7 @@ class PublicProtocolAcceptanceClient:
         self,
         request_model: dict[str, Any],
         output: dict[str, Any],
-    ) -> bytes:
+    ) -> tuple[dict[str, Any], bytes]:
         prepared = prepare_rest_request("typed_value_retrieval", request_model)
         response = self._http.request(prepared.method, prepared.route)
         if response.status_code != 200:
@@ -135,7 +135,7 @@ class PublicProtocolAcceptanceClient:
             }
         }
         validate_typed_value_response(metadata, response.headers, response.content)
-        return response.content
+        return metadata, response.content
 
     @staticmethod
     def validate_stream_message(payload: dict[str, Any]) -> None:

@@ -214,6 +214,79 @@ def test_typed_value_binary_metadata_closes_exact_headers_and_bytes() -> None:
         validate_typed_value_response(metadata, headers, body + b"\n")
 
 
+def test_acceptance_client_returns_validated_typed_value_metadata() -> None:
+    body = b'{"value":"exact"}'
+    digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
+    output = {
+        "node_id": "node-1",
+        "output_port": "result",
+        "port_type": {
+            "contract_kind": "port_type",
+            "contract_id": "test.value",
+            "contract_version": "1.0.0",
+            "contract_digest": f"sha256:{'3' * 64}",
+        },
+        "content_digest": f"sha256:{'1' * 64}",
+        "value_manifest_reference": f"sha256:{'2' * 64}",
+        "value_count": 1,
+    }
+    metadata = {
+        "typed_value": {
+            "node_id": "node-1",
+            "output_port": "result",
+            "port_type": output["port_type"],
+            "port_content_digest": output["content_digest"],
+            "value_manifest_reference": output["value_manifest_reference"],
+            "value_index": 0,
+            "value_count": 1,
+            "value_content_digest": digest,
+            "size": len(body),
+        }
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == (
+            "/api/v2/projects/project-1/runs/run-1/outputs/"
+            "node-1/result/values/0"
+        )
+        return httpx.Response(
+            200,
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "Digest": digest,
+                "ETag": f'"{digest}"',
+                "X-Port-Content-Digest": output["content_digest"],
+                "X-Port-Type-Kind": "port_type",
+                "X-Port-Type-Id": "test.value",
+                "X-Port-Type-Version": "1.0.0",
+                "X-Port-Type-Digest": output["port_type"][
+                    "contract_digest"
+                ],
+                "X-Value-Count": "1",
+                "X-Value-Index": "0",
+                "X-Value-Manifest-Reference": output[
+                    "value_manifest_reference"
+                ],
+            },
+        )
+
+    with PublicProtocolAcceptanceClient(
+        "http://backend.invalid",
+        transport=httpx.MockTransport(handler),
+    ) as client:
+        assert client.typed_value(
+            {
+                "project_id": "project-1",
+                "run_id": "run-1",
+                "node_id": "node-1",
+                "output_port": "result",
+                "value_index": 0,
+            },
+            output,
+        ) == (metadata, body)
+
+
 def test_bundle_schema_keyword_vocabulary_is_closed() -> None:
     def collect_keywords(schema: dict[str, Any]) -> set[str]:
         keywords = set(schema)

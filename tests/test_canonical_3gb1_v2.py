@@ -37,10 +37,8 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from protein_workbench_public import artifact_content_disposition
-from scripts.fresh_remote_3gb1 import (
-    CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
-)
 from tests.fixtures.canonical_3gb1_v2 import (
+    CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
     ControlledESM3Client,
     ControlledFoldingClient,
     ControlledProteinMPNNProvider,

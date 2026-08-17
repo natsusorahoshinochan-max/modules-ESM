@@ -57,7 +57,7 @@ use mode `0700` and files use mode `0600`.
 | Provider route isolation | `.venv/bin/python scripts/verify_backend.py provider-isolation` | Exercises exact model/data identity, configuration invalidation, stale Readiness, reusable-proof identity, and isolation of actual Provider routes. |
 | Local integrity and failure closure | `.venv/bin/python scripts/verify_backend.py security-failure` | Exercises accidental path/data-loss prevention, credential redaction, process cleanup, Project/Run isolation, Cache conflict, and durable-evidence failure. This is not an attacker-hardening tier. |
 
-The eleven installed Provider tiers are zero-skip gates: a missing Provider,
+All fifteen Provider and clean-source tiers are zero-skip gates: a missing Provider,
 fixture-only collection, failed source-origin check, missing Engine Invocation,
 or skipped test fails the gate. The copied acceptance harness is outside the
 checkout, and its bootstrap first proves that `core`, `modules`, and
@@ -84,11 +84,13 @@ evidence/
 ```
 
 Projection, event, Typed Value, and Artifact data are copied only after the
-acceptance client has validated the public contract and the test's scientific
-assertions have passed. The writer does not repeat protocol, Catalog, event
-causality, or scientific validation. The Acceptance Campaign's result-directory
-digest is the only bundle integrity digest; there are no per-file manifests or
-secondary checksums.
+test's scientific assertions have passed. The REST acceptance client returns
+its already-validated retrieval metadata with each payload; the Service adapter
+validates the public Run projection and events once immediately before
+retention. The shared writer only writes these values and does not interpret
+the protocol, Catalog, event causality, or science. The Acceptance Campaign's
+result-directory digest is the only bundle integrity digest; there are no
+per-file manifests or secondary checksums.
 
 The installed Biohub gates read one private credential file selected by
 `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, or the repository's private
@@ -101,7 +103,7 @@ translation contract and cannot replace that invocation.
 
 The verifier exposes no v1 provider-evidence, mocked-workflow,
 aggregate-provider, or generic live-provider tier. It does expose the exact
-four exact clean-source release tiers. Every Provider gate consumes
+four clean-source release tiers. Every Provider gate consumes
 current Run Evidence Ledger facts; an Adapter-owned JSONL stream,
 readiness-only result, historical manifest, skip, or Cache-only replay cannot
 satisfy it. A fixed expected call count is useful only together with exact

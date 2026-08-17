@@ -26,7 +26,6 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.implementation import resolve_residue_axis
-from scripts.fresh_source_bound import proteinmpnn_lifecycle_receipt
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
 
 
@@ -185,22 +184,3 @@ def test_adapter_close_releases_operation_scoped_model(tmp_path: Path) -> None:
     adapter.close()
 
     assert reference() is None
-
-
-def test_2emo_rejects_protein_sol_entry_before_proteinmpnn_release() -> None:
-    with pytest.raises(RuntimeError, match="before Protein-Sol"):
-        proteinmpnn_lifecycle_receipt(
-            load_count=1,
-            released_before_protein_sol=False,
-        )
-
-
-def test_2emo_receipt_contains_only_the_required_direct_facts() -> None:
-    assert proteinmpnn_lifecycle_receipt(
-        load_count=1,
-        released_before_protein_sol=True,
-    ) == {
-        "model": "proteinmpnn",
-        "load_count": 1,
-        "release": "before-protein-sol",
-    }

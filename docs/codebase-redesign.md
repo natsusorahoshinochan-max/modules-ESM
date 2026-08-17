@@ -63,6 +63,7 @@ mkdssp
 SimpleFold
 SoluProt
 Protein-Sol
+以及四个 clean-source release tiers：1PGA、2EMO、canonical 3GB1、5G53。
 阶段 4：缩减 resident-model 证明
 删除通用 ResidentModelLifecycleObserver。
 只记录无法由 public events 推导的事实：

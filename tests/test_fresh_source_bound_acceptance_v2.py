@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 import hashlib
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
-import stat
-import subprocess
 from typing import Any
 
 import pytest
@@ -36,65 +36,58 @@ from modules.structure_transform import (
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociations,
 )
-from protein_workbench_public import (
-    bundle_digest,
-    validate_event,
-    validate_response,
+from tests.acceptance.retained_evidence import (
+    retain_proteinmpnn_lifecycle,
+    require_retained_evidence,
+    retain_service_run,
 )
-from tests.test_installed_backend_v2 import InstalledArtifact, installed_artifact
+from tests.acceptance.biohub_environment import (
+    biohub_esm3_esmfold2_environment,
+)
+from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.test_installed_backend_v2 import (
+    InstalledArtifact,
+    _run_external_acceptance,
+    installed_artifact,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONTRACTS = {
     "fresh-1pga": {
-        "input": PROJECT_ROOT / "pdbs" / "1PGA-75-gen1_0690.pdb",
+        "project_name": "fresh source-bound 1PGA",
+        "input": "1PGA-75-gen1_0690.pdb",
         "input_digest": (
             "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
         ),
-        "workflow": PROJECT_ROOT / "examples/v2/source-bound-1pga.workflow.json",
-        "required_environment": (
-            "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT",
-            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT",
-            "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT",
-        ),
+        "workflow": "source-bound-1pga.workflow.json",
     },
     "fresh-2emo": {
-        "input": PROJECT_ROOT / "pdbs" / "2EMO.pdb",
+        "project_name": "fresh source-bound 2EMO",
+        "input": "2EMO.pdb",
         "input_digest": (
             "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
         ),
-        "workflow": PROJECT_ROOT / "examples/v2/source-bound-2emo.workflow.json",
-        "required_environment": (
-            "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
-            "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT",
-        ),
+        "workflow": "source-bound-2emo.workflow.json",
     },
     "fresh-5g53": {
-        "input": PROJECT_ROOT / "pdbs" / "5G53.pdb",
+        "project_name": "fresh source-bound 5G53",
+        "input": "5G53.pdb",
         "input_digest": (
             "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
         ),
-        "workflow": PROJECT_ROOT / "examples/v2/source-bound-5g53.workflow.json",
-        "required_environment": (),
+        "workflow": "source-bound-5g53.workflow.json",
     },
 }
 
 
-def _digest(path: Path) -> str:
-    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _load(root: Path, name: str) -> Any:
-    return json.loads((root / name).read_bytes())
-
-
 def _decode(
-    root: Path,
+    service: Any,
+    catalog: Any,
     projection: dict[str, Any],
     node_id: str,
     output_port: str,
 ) -> tuple[Any, ...]:
-    catalog = build_discovered_frozen_catalog()
     output = next(
         item
         for item in projection["outputs"]
@@ -104,42 +97,46 @@ def _decode(
         output["port_type"]["contract_id"],
         output["port_type"]["contract_version"],
     )
-    inventory = _load(root, "typed-values.json")
-    records = sorted(
-        (
-            item
-            for item in inventory
-            if item["node_id"] == node_id
-            and item["output_port"] == output_port
-        ),
-        key=lambda item: item["value_index"],
-    )
     return tuple(
-        codec.decode((root / item["bundle_path"]).read_bytes())
-        for item in records
+        codec.decode(
+            service.typed_value(
+                projection["project_id"],
+                projection["run_id"],
+                node_id,
+                output_port,
+                value_index,
+            )[1]
+        )
+        for value_index in range(output["value_count"])
     )
 
 
 def _one(
-    root: Path,
+    service: Any,
+    catalog: Any,
     projection: dict[str, Any],
     node_id: str,
     output_port: str,
 ) -> Any:
-    values = _decode(root, projection, node_id, output_port)
+    values = _decode(
+        service,
+        catalog,
+        projection,
+        node_id,
+        output_port,
+    )
     assert len(values) == 1
     return values[0]
 
 
 def _assert_live_node_contracts(
-    root: Path,
+    catalog: Any,
+    workflow: Mapping[str, Any],
+    messages: tuple[dict[str, Any], ...],
     projection: dict[str, Any],
     expected: dict[str, tuple[int, str | None]],
 ) -> dict[str, tuple[dict[str, Any], ...]]:
-    catalog = build_discovered_frozen_catalog()
-    workflow = _load(root, "workflow.json")
     nodes = {node["node_id"]: node for node in workflow["nodes"]}
-    messages = _load(root, "events.json")
     events = tuple(message["event"] for message in messages)
     node_by_attempt = {
         event["node_attempt_id"]: event["node_id"]
@@ -208,79 +205,26 @@ def _assert_live_node_contracts(
     return result
 
 
-def _assert_common_bundle(root: Path, tier_name: str) -> dict[str, Any]:
-    contract = CONTRACTS[tier_name]
-    receipt = _load(root, "source-bound-receipt.json")
-    projection = _load(root, "run-projection.json")
-    events = _load(root, "events.json")
-    values = _load(root, "typed-values.json")
-    artifacts = _load(root, "artifacts.json")
-    catalog = build_discovered_frozen_catalog()
-
-    assert receipt["schema_namespace"] == (
-        "protein-workbench-source-bound-evidence/v1"
-    )
-    assert receipt["tier"] == tier_name
-    assert receipt["input_content_digest"] == (
-        "sha256:" + contract["input_digest"]
-    )
-    assert receipt["protocol_digest"] == bundle_digest()
-    assert receipt["catalog_contract_digest"] == catalog.contract_digest
-    assert receipt["status"] == "succeeded"
-    assert _digest(contract["input"]) == (
-        "sha256:" + contract["input_digest"]
-    )
-    assert receipt["workflow_content_digest"] == _digest(contract["workflow"])
-    if tier_name == "fresh-2emo":
-        assert _load(root, "model-lifecycle.json") == {
-            "model": "proteinmpnn",
-            "load_count": 1,
-            "release": "before-protein-sol",
-        }
-    assert projection["status"] == "succeeded"
-    validate_response("run_projection", 200, projection)
-    assert all(
-        disposition["outcome"] == "succeeded"
-        for disposition in projection["node_dispositions"]
-    )
-    assert all("values" not in output for output in projection["outputs"])
-    assert "values" not in json.dumps(events)
-    assert events[-1]["event"] == {"type": "run_terminal", "status": "succeeded"}
-    for event in events:
-        validate_event(event)
-    assert [event["sequence"] for event in events] == sorted(
-        event["sequence"] for event in events
-    )
-    assert len(values) == sum(
-        output["value_count"] for output in projection["outputs"]
-    )
-    for item in values:
-        payload = (root / item["bundle_path"]).read_bytes()
-        assert len(payload) == item["size"]
-        assert "sha256:" + hashlib.sha256(payload).hexdigest() == (
-            item["value_content_digest"]
-        )
-    assert len(artifacts) == len(projection["artifact_index"])
-    for item in artifacts:
-        payload = (root / item["bundle_path"]).read_bytes()
-        assert item["retrieved_content_digest"] == item["content_digest"]
-        assert _digest(root / item["bundle_path"]) == item["content_digest"]
-    return projection
-
-
-def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> None:
+def _assert_science(
+    service: Any,
+    catalog: Any,
+    workflow: Mapping[str, Any],
+    events: tuple[dict[str, Any], ...],
+    tier_name: str,
+    projection: dict[str, Any],
+) -> None:
     if tier_name == "fresh-1pga":
         live_invocations = _assert_live_node_contracts(
-            root,
+            catalog,
+            workflow,
+            events,
             projection,
             {
                 "fold-esmfold2": (1, "provider_uncontrolled"),
                 "fold-simplefold": (1, "exact_seed"),
             },
         )
-        workflow_nodes = {
-            node["node_id"]: node for node in _load(root, "workflow.json")["nodes"]
-        }
+        workflow_nodes = {node["node_id"]: node for node in workflow["nodes"]}
         assert workflow_nodes["fold-esmfold2"]["node_parameters"] == {
             "effective_seed": 1075001,
             "num_samples": 1,
@@ -293,20 +237,22 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             "num_steps": 50,
         }
         input_candidates = _one(
-            root, projection, "import-input", "structure_candidates"
+            service, catalog, projection, "import-input", "structure_candidates"
         )
         sequence = _one(
-            root, projection, "extract-sequence", "sequence_candidates"
+            service, catalog, projection, "extract-sequence", "sequence_candidates"
         )
         esmfold2 = _one(
-            root, projection, "fold-esmfold2", "structure_candidates"
+            service, catalog, projection, "fold-esmfold2", "structure_candidates"
         )
         simplefold = _one(
-            root, projection, "fold-simplefold", "structure_candidates"
+            service, catalog, projection, "fold-simplefold", "structure_candidates"
         )
-        pairing = _one(root, projection, "pair-methods", "pairing")
+        pairing = _one(
+            service, catalog, projection, "pair-methods", "pairing"
+        )
         consistency = _one(
-            root, projection, "classify-consistency", "consistency"
+            service, catalog, projection, "classify-consistency", "consistency"
         )
         assert all(
             type(value) is CandidateCollection
@@ -386,7 +332,9 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
         )
     elif tier_name == "fresh-2emo":
         live_invocations = _assert_live_node_contracts(
-            root,
+            catalog,
+            workflow,
+            events,
             projection,
             {
                 "design-sequences": (1, "exact_seed"),
@@ -394,9 +342,7 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
                 "score-protein-sol": (1, None),
             },
         )
-        workflow_nodes = {
-            node["node_id"]: node for node in _load(root, "workflow.json")["nodes"]
-        }
+        workflow_nodes = {node["node_id"]: node for node in workflow["nodes"]}
         assert workflow_nodes["design-sequences"]["node_parameters"] == {
             "effective_seed": 2066001,
             "num_sequences": 8,
@@ -408,37 +354,76 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             "num_samples": 1,
         }
         normalizations = _one(
-            root,
+            service,
+            catalog,
             projection,
             "materialize-reference-normalizations",
             "modified_residue_normalizations",
         )
-        axes = _one(root, projection, "resolve-reference", "residue_axes")
+        axes = _one(
+            service, catalog, projection, "resolve-reference", "residue_axes"
+        )
         normalized = _one(
-            root, projection, "normalize-reference", "structure_candidates"
+            service,
+            catalog,
+            projection,
+            "normalize-reference",
+            "structure_candidates",
         )
         designs = _one(
-            root, projection, "design-sequences", "sequence_candidates"
+            service,
+            catalog,
+            projection,
+            "design-sequences",
+            "sequence_candidates",
         )
-        folds = _one(root, projection, "fold-esmfold2", "structure_candidates")
-        alignments = _decode(root, projection, "align-folds", "alignments")
-        tm_scores = _one(root, projection, "score-tm", "scores")
-        rmsd_scores = _one(root, projection, "score-rmsd", "scores")
+        folds = _one(
+            service, catalog, projection, "fold-esmfold2", "structure_candidates"
+        )
+        alignments = _decode(
+            service, catalog, projection, "align-folds", "alignments"
+        )
+        tm_scores = _one(service, catalog, projection, "score-tm", "scores")
+        rmsd_scores = _one(service, catalog, projection, "score-rmsd", "scores")
         confidence = _one(
-            root, projection, "materialize-confidence", "observations"
+            service,
+            catalog,
+            projection,
+            "materialize-confidence",
+            "observations",
         )
-        protein_sol = _one(root, projection, "score-protein-sol", "scores")
-        tm_passing = _one(root, projection, "filter-tm", "candidates")
-        rmsd_passing = _one(root, projection, "filter-rmsd", "candidates")
-        plddt_passing = _one(root, projection, "filter-plddt", "candidates")
+        protein_sol = _one(
+            service, catalog, projection, "score-protein-sol", "scores"
+        )
+        tm_passing = _one(
+            service, catalog, projection, "filter-tm", "candidates"
+        )
+        rmsd_passing = _one(
+            service, catalog, projection, "filter-rmsd", "candidates"
+        )
+        plddt_passing = _one(
+            service, catalog, projection, "filter-plddt", "candidates"
+        )
         solubility_passing = _one(
-            root, projection, "filter-protein-sol", "candidates"
+            service,
+            catalog,
+            projection,
+            "filter-protein-sol",
+            "candidates",
         )
         soluble_folds = _one(
-            root, projection, "select-soluble-folds", "candidates"
+            service,
+            catalog,
+            projection,
+            "select-soluble-folds",
+            "candidates",
         )
         passing = _one(
-            root, projection, "passing-candidates", "candidates"
+            service,
+            catalog,
+            projection,
+            "passing-candidates",
+            "candidates",
         )
         assert type(normalizations) is (
             CandidateModifiedResidueNormalizationAssociations
@@ -617,7 +602,9 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
         assert 0 <= len(passing.items) <= 8
     else:
         live_invocations = _assert_live_node_contracts(
-            root,
+            catalog,
+            workflow,
+            events,
             projection,
             {
                 "generate-shorter-8": (4, "provider_uncontrolled"),
@@ -632,18 +619,26 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
             },
         )
         assert live_invocations
-        workflow_nodes = {
-            node["node_id"]: node for node in _load(root, "workflow.json")["nodes"]
-        }
-        axes = _one(root, projection, "resolve-reference", "residue_axes")
-        sequences = _one(root, projection, "merge-sequences", "candidates")
+        workflow_nodes = {node["node_id"]: node for node in workflow["nodes"]}
+        axes = _one(
+            service, catalog, projection, "resolve-reference", "residue_axes"
+        )
+        sequences = _one(
+            service, catalog, projection, "merge-sequences", "candidates"
+        )
         counterparts = _one(
-            root, projection, "merge-counterparts", "candidates"
+            service, catalog, projection, "merge-counterparts", "candidates"
         )
         reconstructions = _one(
-            root, projection, "merge-reconstructions", "candidates"
+            service,
+            catalog,
+            projection,
+            "merge-reconstructions",
+            "candidates",
         )
-        folds = _one(root, projection, "merge-folds", "candidates")
+        folds = _one(
+            service, catalog, projection, "merge-folds", "candidates"
+        )
         assert type(axes) is CandidateResolvedResidueAxisAssociations
         assert axes.entries[0].residue_axis.layout.length == 283
         residue_ids = axes.entries[0].residue_axis.layout.residue_ids
@@ -672,7 +667,13 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
                 "confidence_facts",
                 "sequence_reconstruction_confidence_facts",
             ):
-                facts = _one(root, projection, f"generate-{branch}", port)
+                facts = _one(
+                    service,
+                    catalog,
+                    projection,
+                    f"generate-{branch}",
+                    port,
+                )
                 assert len(facts.entries) == 2
                 assert all(
                     fact.pae is not None
@@ -681,31 +682,39 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
                     for fact in facts.entries
                 )
             branch_sequences = _one(
-                root,
+                service,
+                catalog,
                 projection,
                 f"generate-{branch}",
                 "sequence_candidates",
             )
             branch_counterparts = _one(
-                root,
+                service,
+                catalog,
                 projection,
                 f"generate-{branch}",
                 "structure_candidates",
             )
             branch_reconstructions = _one(
-                root,
+                service,
+                catalog,
                 projection,
                 f"generate-{branch}",
                 "sequence_reconstruction_candidates",
             )
             branch_pairing = _one(
-                root,
+                service,
+                catalog,
                 projection,
                 f"generate-{branch}",
                 "counterpart_pairs",
             )
             branch_folds = _one(
-                root, projection, f"fold-{branch}", "structure_candidates"
+                service,
+                catalog,
+                projection,
+                f"fold-{branch}",
+                "structure_candidates",
             )
             assert all(
                 type(value) is CandidateCollection
@@ -791,13 +800,15 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
                 for counterpart in branch_counterparts.items
             )
             confidence_facts = _one(
-                root,
+                service,
+                catalog,
                 projection,
                 f"generate-{branch}",
                 "confidence_facts",
             )
             reconstruction_confidence = _one(
-                root,
+                service,
+                catalog,
                 projection,
                 f"generate-{branch}",
                 "sequence_reconstruction_confidence_facts",
@@ -816,7 +827,8 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
                 for candidate in branch_reconstructions.items
             }
             quality = _one(
-                root,
+                service,
+                catalog,
                 projection,
                 f"evaluate-{branch}",
                 "quality_evidence",
@@ -880,7 +892,9 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
                 ))
                 if evidence.accepted:
                     accepted_fold_ids.add(evidence.subject.candidate_id)
-        passing = _one(root, projection, "merge-passing", "candidates")
+        passing = _one(
+            service, catalog, projection, "merge-passing", "candidates"
+        )
         assert type(passing) is CandidateCollection
         assert {item.candidate_id for item in passing.items} == accepted_fold_ids
         assert len(projection["artifact_index"]) == 6
@@ -890,38 +904,259 @@ def _assert_science(root: Path, tier_name: str, projection: dict[str, Any]) -> N
         ] == [fold.candidate_id for fold in folds.items]
 
 
+def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
+    environment = biohub_esm3_esmfold2_environment()
+    if tier_name == "fresh-1pga":
+        from modules.folding.simplefold_adapter import (
+            SIMPLEFOLD_DEVICE,
+            configured_runtime_fingerprint,
+        )
+
+        fingerprint = configured_runtime_fingerprint()
+        environment[("folding.fold.simplefold_local", "7.0.0")] = {
+            "values": {
+                "model_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
+                ).resolve(),
+                "esm2_source_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT"]
+                ).resolve(),
+                "esm2_model_root": Path(
+                    os.environ[
+                        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
+                    ]
+                ).resolve(),
+                "device": SIMPLEFOLD_DEVICE,
+                "resolved_runtime_fingerprint": fingerprint,
+            },
+            "safe_fingerprint": fingerprint,
+            "invalidation_token": fingerprint,
+        }
+    elif tier_name == "fresh-2emo":
+        from modules.proteinmpnn.adapter import (
+            PROTEINMPNN_DEVICE,
+            configured_runtime_fingerprint as proteinmpnn_fingerprint,
+        )
+        from modules.solubility.adapter import (
+            configured_protein_sol_runtime_fingerprint,
+        )
+
+        mpnn_fingerprint = proteinmpnn_fingerprint()
+        protein_sol_fingerprint = configured_protein_sol_runtime_fingerprint()
+        environment[("proteinmpnn.design.local", "10.0.0")] = {
+            "values": {
+                "device": PROTEINMPNN_DEVICE,
+                "provider_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
+                ).resolve(),
+                "resolved_runtime_fingerprint": mpnn_fingerprint,
+            },
+            "safe_fingerprint": mpnn_fingerprint,
+            "invalidation_token": mpnn_fingerprint,
+        }
+        environment[("solubility.protein_sol.local", "4.0.0")] = {
+            "values": {
+                "source_root": Path(
+                    os.environ["PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT"]
+                ).resolve(),
+                "bash_executable": Path("/bin/bash"),
+                "perl_executable": Path("/usr/bin/perl"),
+                "resolved_runtime_fingerprint": protein_sol_fingerprint,
+            },
+            "safe_fingerprint": protein_sol_fingerprint,
+            "invalidation_token": protein_sol_fingerprint,
+        }
+    return environment
+
+
+def _observe_fresh_2emo_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> Callable[[], tuple[int, bool]]:
+    import modules.proteinmpnn.adapter as proteinmpnn_adapter
+    import modules.proteinmpnn.provider_runtime as proteinmpnn_runtime
+    import modules.solubility.adapter as solubility_adapter
+
+    original_load = proteinmpnn_runtime._load_model
+    original_close = proteinmpnn_adapter.LocalProteinMPNNAdapter.close
+    original_predict = solubility_adapter.LocalProteinSolAdapter.predict
+    load_count = 0
+    released = False
+    protein_sol_entered_after_release = False
+
+    def counted_load(*args: Any, **kwargs: Any) -> Any:
+        nonlocal load_count
+        load_count += 1
+        return original_load(*args, **kwargs)
+
+    def observed_close(adapter: Any) -> None:
+        nonlocal released
+        original_close(adapter)
+        released = True
+
+    def observed_predict(adapter: Any, *args: Any, **kwargs: Any) -> Any:
+        nonlocal protein_sol_entered_after_release
+        if not released:
+            raise RuntimeError("ProteinMPNN must release before Protein-Sol")
+        protein_sol_entered_after_release = True
+        return original_predict(adapter, *args, **kwargs)
+
+    monkeypatch.setattr(proteinmpnn_runtime, "_load_model", counted_load)
+    monkeypatch.setattr(
+        proteinmpnn_adapter.LocalProteinMPNNAdapter,
+        "close",
+        observed_close,
+    )
+    monkeypatch.setattr(
+        solubility_adapter.LocalProteinSolAdapter,
+        "predict",
+        observed_predict,
+    )
+    return lambda: (load_count, protein_sol_entered_after_release)
+
+
+def test_fresh_2emo_observer_rejects_protein_sol_before_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.proteinmpnn.adapter as proteinmpnn_adapter
+    import modules.solubility.adapter as solubility_adapter
+
+    monkeypatch.setattr(
+        proteinmpnn_adapter.LocalProteinMPNNAdapter,
+        "close",
+        lambda _adapter: None,
+    )
+    monkeypatch.setattr(
+        solubility_adapter.LocalProteinSolAdapter,
+        "predict",
+        lambda _adapter, *_args, **_kwargs: None,
+    )
+    observed = _observe_fresh_2emo_lifecycle(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="before Protein-Sol"):
+        solubility_adapter.LocalProteinSolAdapter.predict(object())
+
+    proteinmpnn_adapter.LocalProteinMPNNAdapter.close(object())
+    solubility_adapter.LocalProteinSolAdapter.predict(object())
+    assert observed() == (0, True)
+
+
+@pytest.mark.acceptance
+@pytest.mark.live_provider
+def test_fresh_source_bound_public_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.server import create_app
+    from fastapi.testclient import TestClient
+    from protein_workbench_public import encode_project_input_content
+
+    tier_name = os.environ["PROTEIN_WORKBENCH_SOURCE_BOUND_TIER"]
+    contract = CONTRACTS[tier_name]
+    input_bytes = files("pdbs").joinpath(contract["input"]).read_bytes()
+    assert hashlib.sha256(input_bytes).hexdigest() == contract["input_digest"]
+    workflow = json.loads(
+        files("examples").joinpath("v2", contract["workflow"]).read_text(
+            encoding="utf-8"
+        )
+    )
+    catalog = build_discovered_frozen_catalog()
+    lifecycle = (
+        _observe_fresh_2emo_lifecycle(monkeypatch)
+        if tier_name == "fresh-2emo"
+        else None
+    )
+    app = create_app(
+        v2_environment_configuration=_environment(tier_name),
+        _install_canonical_seed=False,
+    )
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v2/projects",
+            json={"name": contract["project_name"]},
+        )
+        created.raise_for_status()
+        project_id = created.json()["id"]
+        uploaded = client.post(
+            f"/api/v2/projects/{project_id}/inputs",
+            json={
+                "filename": contract["input"],
+                "content_base64": encode_project_input_content(input_bytes),
+            },
+        )
+        uploaded.raise_for_status()
+        assert uploaded.json()["content_digest"] == (
+            "sha256:" + contract["input_digest"]
+        )
+        workflow["workflow_id"] = project_id
+        workflow["contract_lock"] = []
+        next(
+            node
+            for node in workflow["nodes"]
+            if node["node_id"] == "import-input"
+        )["node_parameters"] = {
+            "project_input_ref": uploaded.json()["project_input_ref"]
+        }
+        committed = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
+            json={"expected_draft_revision": 0, "workflow": workflow},
+        )
+        committed.raise_for_status()
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": committed.json()["workflow_commit_id"],
+                "client_request_id": tier_name,
+            },
+        )
+        started.raise_for_status()
+        service = app.state.run_execution_v2
+        wait_for_service_run_terminal_events(
+            service,
+            project_id,
+            started.json()["run_id"],
+            timeout_seconds=170 * 60,
+        )
+        projection = service.projection(project_id, started.json()["run_id"])
+        events = service.public_events(project_id, projection["run_id"])
+
+        assert projection["status"] == "succeeded", events
+        assert all(
+            disposition["outcome"] == "succeeded"
+            for disposition in projection["node_dispositions"]
+        )
+        _assert_science(
+            service,
+            catalog,
+            workflow,
+            events,
+            tier_name,
+            projection,
+        )
+        retain_service_run(
+            tier_name,
+            catalog=catalog,
+            service=service,
+            projection=projection,
+            events=events,
+        )
+
+    if lifecycle is not None:
+        load_count, released_before_protein_sol = lifecycle()
+        assert released_before_protein_sol
+        retain_proteinmpnn_lifecycle(
+            load_count=load_count,
+            release="before-protein-sol",
+        )
+
+
 def _run_fresh(
     tier_name: str,
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
 ) -> None:
-    expected_revision = os.environ["PROTEIN_WORKBENCH_FRESH_SOURCE_REVISION"]
-    observed_revision = subprocess.run(
-        ["/usr/bin/git", "rev-parse", "HEAD"],
-        cwd=PROJECT_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    ).stdout.strip()
-    assert observed_revision == expected_revision
-    assert subprocess.run(
-        ["/usr/bin/git", "status", "--porcelain"],
-        cwd=PROJECT_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    ).stdout == ""
     evidence_root = Path(
         os.environ["PROTEIN_WORKBENCH_FRESH_EVIDENCE_STAGING"]
     )
     assert evidence_root.is_dir() and not any(evidence_root.iterdir())
-    for variable in (
-        "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
-        *CONTRACTS[tier_name]["required_environment"],
-    ):
-        configured = Path(os.environ[variable])
-        assert configured.is_absolute() and configured.exists()
-
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
@@ -930,25 +1165,30 @@ def _run_fresh(
         isolated = tmp_path / name.lower()
         isolated.mkdir(mode=0o700)
         env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(isolated)
-    completed = subprocess.run(
-        [
-            str(installed_artifact.python),
-            "-I",
-            str(PROJECT_ROOT / "scripts/fresh_source_bound.py"),
-        ],
-        cwd=installed_artifact.run_root,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        check=False,
-        timeout=175 * 60,
+    output = _run_external_acceptance(
+        installed_artifact,
+        tmp_path,
+        selectors=(
+            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "test_fresh_source_bound_public_run",
+        ),
+        environment=env,
+        timeout_seconds=175 * 60,
     )
-    assert completed.returncode == 0, completed.stdout
-    assert "Bearer " not in completed.stdout
-    projection = _assert_common_bundle(evidence_root, tier_name)
-    _assert_science(evidence_root, tier_name, projection)
-    assert stat.S_IMODE(evidence_root.stat().st_mode) & 0o077 == 0
+    assert "Bearer " not in output
+    require_retained_evidence(
+        evidence_root,
+        required_runs=(tier_name,),
+        lifecycle_required=tier_name == "fresh-2emo",
+    )
+    if tier_name == "fresh-2emo":
+        assert json.loads(
+            (evidence_root / "model-lifecycle.json").read_bytes()
+        ) == {
+            "model": "proteinmpnn",
+            "load_count": 1,
+            "release": "before-protein-sol",
+        }
 
 
 @pytest.mark.acceptance
