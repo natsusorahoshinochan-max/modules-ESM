@@ -1,9 +1,6 @@
 """Run context passed to each module during execution."""
 
-import os
-import secrets
 import shutil
-import stat
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -13,7 +10,6 @@ from typing import Optional
 import uuid
 
 from core.storage import (
-    StoragePathError,
     contained_path,
     validate_identifier,
     validate_relative_path,
@@ -81,7 +77,6 @@ class RunContext:
         return contained_path(
             self.output_dir or "",
             *artifact_parts,
-            field="artifact_name",
         )
 
     def input_path(self, input_reference: str) -> Path:
@@ -89,23 +84,16 @@ class RunContext:
         inputs_dir = contained_path(self.project_dir, "inputs")
         supplied = Path(input_reference)
         if supplied.is_absolute():
-            resolved = supplied.resolve()
-            if not resolved.is_relative_to(inputs_dir):
-                raise StoragePathError("input_path", "Invalid input_path")
-            relative_parts = resolved.relative_to(inputs_dir).parts
-        else:
-            relative_parts = validate_relative_path(
-                input_reference,
-                "input_path",
-            )
-            if relative_parts[:1] == ("inputs",):
-                relative_parts = relative_parts[1:]
-            if not relative_parts:
-                raise StoragePathError("input_path", "Invalid input_path")
+            return supplied
+        relative_parts = validate_relative_path(
+            input_reference,
+            "input_path",
+        )
+        if relative_parts[:1] == ("inputs",):
+            relative_parts = relative_parts[1:]
         return contained_path(
             inputs_dir,
             *relative_parts,
-            field="input_path",
         )
 
     def temporary_file(self, *, mode: str, suffix: str, delete: bool):
@@ -121,169 +109,20 @@ class RunContext:
 
     @contextmanager
     def temporary_directory(self, *, prefix: str) -> Iterator[Path]:
-        """Yield and remove one private invocation directory without links."""
+        """Yield and remove one invocation directory."""
         safe_prefix = validate_identifier(prefix, "temporary_directory_prefix")
-        temp_dir = Path(self.temp_dir or "").absolute()
-        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        directory_flags |= getattr(os, "O_NOFOLLOW", 0)
-        current_fd = os.open(temp_dir.anchor, directory_flags)
-        invocation_name: str | None = None
-        body_error: BaseException | None = None
+        temp_dir = Path(self.temp_dir or "")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        invocation_dir = Path(
+            tempfile.mkdtemp(prefix=f"{safe_prefix}-", dir=temp_dir)
+        )
         try:
-            for component in temp_dir.parts[1:]:
-                try:
-                    next_fd = os.open(
-                        component,
-                        directory_flags,
-                        dir_fd=current_fd,
-                    )
-                except FileNotFoundError:
-                    try:
-                        os.mkdir(component, mode=0o700, dir_fd=current_fd)
-                    except FileExistsError:
-                        pass
-                    try:
-                        next_fd = os.open(
-                            component,
-                            directory_flags,
-                            dir_fd=current_fd,
-                        )
-                    except OSError as exc:
-                        raise StoragePathError(
-                            "temporary_directory",
-                            "Invalid temporary_directory",
-                        ) from exc
-                except OSError as exc:
-                    raise StoragePathError(
-                        "temporary_directory",
-                        "Invalid temporary_directory",
-                    ) from exc
-                os.close(current_fd)
-                current_fd = next_fd
-
-            root_metadata = os.fstat(current_fd)
-            if (
-                not stat.S_ISDIR(root_metadata.st_mode)
-                or root_metadata.st_uid != os.getuid()
-            ):
-                raise StoragePathError(
-                    "temporary_directory",
-                    "Invalid temporary_directory",
-                )
-            os.fchmod(current_fd, 0o700)
-            if not shutil.rmtree.avoids_symlink_attacks:
-                raise RuntimeError(
-                    "Private temporary directory cleanup is unavailable"
-                )
-
-            for _ in range(100):
-                candidate = f"{safe_prefix}-{secrets.token_hex(12)}"
-                try:
-                    os.mkdir(candidate, mode=0o700, dir_fd=current_fd)
-                except FileExistsError:
-                    continue
-                invocation_name = candidate
-                break
-            if invocation_name is None:
-                raise FileExistsError(
-                    "Unable to allocate a unique temporary directory"
-                )
-
-            invocation_fd = os.open(
-                invocation_name,
-                directory_flags,
-                dir_fd=current_fd,
-            )
-            try:
-                metadata = os.fstat(invocation_fd)
-                if (
-                    not stat.S_ISDIR(metadata.st_mode)
-                    or metadata.st_uid != os.getuid()
-                    or stat.S_IMODE(metadata.st_mode) != 0o700
-                ):
-                    raise StoragePathError(
-                        "temporary_directory",
-                        "Invalid temporary_directory",
-                    )
-            finally:
-                os.close(invocation_fd)
-            os.fsync(current_fd)
-            yield temp_dir / invocation_name
-        except BaseException as exc:
-            body_error = exc
-            raise
+            yield invocation_dir
         finally:
-            cleanup_error: BaseException | None = None
-            try:
-                if invocation_name is not None:
-                    try:
-                        shutil.rmtree(invocation_name, dir_fd=current_fd)
-                    except FileNotFoundError:
-                        pass
-                    os.fsync(current_fd)
-            except BaseException as exc:
-                cleanup_error = exc
-            try:
-                os.close(current_fd)
-            except BaseException as exc:
-                if cleanup_error is None:
-                    cleanup_error = exc
-            if cleanup_error is not None:
-                if body_error is not None:
-                    body_error.add_note(
-                        "Temporary directory cleanup also failed: "
-                        f"{type(cleanup_error).__name__}"
-                    )
-                else:
-                    raise cleanup_error
+            shutil.rmtree(invocation_dir)
 
     def cleanup_temporary_work(self) -> None:
         """Remove this Node's temp namespace after its worker is terminated."""
-        temp_dir = Path(self.temp_dir or "").absolute()
-        if temp_dir == Path(temp_dir.anchor):
-            raise StoragePathError(
-                "temporary_directory",
-                "Invalid temporary_directory",
-            )
-        parent = temp_dir.parent
-        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        directory_flags |= getattr(os, "O_NOFOLLOW", 0)
-        current_fd = os.open(parent.anchor, directory_flags)
-        try:
-            for component in parent.parts[1:]:
-                try:
-                    next_fd = os.open(
-                        component,
-                        directory_flags,
-                        dir_fd=current_fd,
-                    )
-                except FileNotFoundError:
-                    return
-                except OSError as exc:
-                    raise StoragePathError(
-                        "temporary_directory",
-                        "Invalid temporary_directory",
-                    ) from exc
-                os.close(current_fd)
-                current_fd = next_fd
-            try:
-                metadata = os.stat(
-                    temp_dir.name,
-                    dir_fd=current_fd,
-                    follow_symlinks=False,
-                )
-            except FileNotFoundError:
-                return
-            if (
-                not stat.S_ISDIR(metadata.st_mode)
-                or metadata.st_uid != os.getuid()
-                or not shutil.rmtree.avoids_symlink_attacks
-            ):
-                raise StoragePathError(
-                    "temporary_directory",
-                    "Invalid temporary_directory",
-                )
-            shutil.rmtree(temp_dir.name, dir_fd=current_fd)
-            os.fsync(current_fd)
-        finally:
-            os.close(current_fd)
+        temp_dir = Path(self.temp_dir or "")
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)

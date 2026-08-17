@@ -257,8 +257,9 @@ may contain zero, one, or several Engine Invocations.
 _Avoid_: Node Execution Attempt, composite provider call
 
 **Engine Invocation**:
-One actual entry into a declared scientific engine seam, with exactly one
-terminal fact for every invocation that starts.
+One actual entry into a declared scientific engine seam. Normal execution
+records exactly one terminal fact for every invocation that starts; an
+interrupted process is not reconstructed on restart.
 _Avoid_: Readiness check, Cache replay, outer operation summary
 
 **Run Evidence Ledger**:
@@ -272,29 +273,25 @@ its terminal outcome to any published Typed Outputs and Artifacts.
 _Avoid_: Operation Attempt terminal, Projection refresh, Cache write
 
 **Run Closure**:
-The durable terminal conclusion of a Run after every Node disposition and every
-required Selection conclusion is closed.
+The normal terminal conclusion of a Run after every Node disposition and every
+required Selection conclusion is closed. Restart instead records one honest
+`interrupted` Run terminal without inventing missing internal outcomes.
 _Avoid_: Worker exit, restart marker, last Node completion
 
 ## Verification and Release
 
 **Acceptance Campaign**:
-The lifecycle that binds one clean source revision, one artifact set, one
-Execution Profile identity, Qualification Results, and one Certification
-Generation.
-_Avoid_: Test run, acceptance generation, release session
+The single serial run that builds one clean candidate and executes all canonical
+real-Provider and source-bound tiers once with one Execution Profile.
+_Avoid_: Qualification, Certification Generation, retryable campaign
 
 **Execution Profile**:
 The private local mapping of Environment Configuration paths and remote
 transport policy used to execute one Acceptance Campaign.
 _Avoid_: Workflow parameters, manifest paths, shell-state reconstruction
 
-**Qualification Result**:
-Non-authoritative, rerunnable evidence that one exact campaign candidate passes
-one acceptance tier; all current tiers must qualify before certification.
-_Avoid_: Acceptance evidence, dry run, certified result
-
-**Certification Generation**:
-The fresh canonical, immutable sequence that turns a fully qualified campaign
-candidate into authoritative acceptance evidence.
-_Avoid_: Qualification, retryable generation, combined historical evidence
+**Acceptance Result**:
+The retained result of one canonical tier in the current Acceptance Campaign.
+It records the public observations needed to inspect the tier after its
+scientific assertions pass.
+_Avoid_: Qualification Result, Certification Result, promoted evidence

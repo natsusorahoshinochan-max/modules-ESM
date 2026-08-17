@@ -19,15 +19,15 @@ Run the final repository matrix from one explicit Acceptance Execution Profile:
 ```
 
 This command launches the documented repository tiers serially with
-`ExecutionProfile.environment()`. It does not mutate Qualification or
-Certification state.
+`ExecutionProfile.environment()`. It does not prepare or run an Acceptance
+Campaign.
 
 Each invocation replaces Project, Cache, output, and Run roots only in the
 child process. It never writes configured production roots. After pytest exits,
 the verifier retains a bounded JUnit file, sanitized command transcript, and
 environment summary under the ignored
 `verification-results/<tier>/<UTC-run-id>/` directory. Retained directories
-use mode `0700` and files use mode `0600`.
+are ordinary local verification output.
 
 ## Available tiers
 
@@ -55,7 +55,6 @@ use mode `0700` and files use mode `0600`.
 | Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-canonical-3gb1` | Runs the clean-source canonical scientific Workflow without historical Cache. Its four Provider stages require exactly 20 ESM-3 paired-generation calls, 10 preliminary folds, 3 ProteinMPNN parent-design calls, and 15 final folds, alongside the Workflow's valid local invocations. It is release evidence rather than a substitute for the smaller exact-Binding gates. |
 | Fresh source-bound 5G53 | `.venv/bin/python scripts/verify_backend.py fresh-5g53` | Runs the clean-source installed 5G53 Workflow and retains all six paired candidates, reconstruction, both PAE-bearing confidence collections, loop evidence, retrieval, and artifacts. |
 | Provider route isolation | `.venv/bin/python scripts/verify_backend.py provider-isolation` | Exercises exact model/data identity, configuration invalidation, stale Readiness, reusable-proof identity, and isolation of actual Provider routes. |
-| Local integrity and failure closure | `.venv/bin/python scripts/verify_backend.py security-failure` | Exercises accidental path/data-loss prevention, credential redaction, process cleanup, Project/Run isolation, Cache conflict, and durable-evidence failure. This is not an attacker-hardening tier. |
 
 All fifteen Provider and clean-source tiers are zero-skip gates: a missing Provider,
 fixture-only collection, failed source-origin check, missing Engine Invocation,
@@ -86,12 +85,11 @@ evidence/
 
 Projection, event, Typed Value, and Artifact data are copied only after the
 test's scientific assertions have passed. The REST acceptance client returns
-its already-validated retrieval metadata with each payload; the Service adapter
-validates the public Run projection and events once immediately before
-retention. The shared writer only writes these values and does not interpret
-the protocol, Catalog, event causality, or science. The Acceptance Campaign's
-result-directory digest is the only bundle integrity digest; there are no
-per-file manifests or secondary checksums.
+its already-validated retrieval metadata with each payload; the Service path
+uses public observations already admitted by the runtime. The shared writer
+only writes these values and does not interpret the protocol, Catalog, event
+causality, or science. There are no Evidence manifests, checksums, or digest
+graphs.
 
 The installed Biohub gates read one private credential file selected by
 `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, or the repository's private
@@ -250,112 +248,42 @@ authoritative file. Artifact retrieval represents that filename as an RFC 5987
 UTF-8 `filename*` Content-Disposition parameter, including non-ASCII names.
 
 Project metadata, persisted Workflows, Result Cache entries, and Run Ledger
-facts use closed current schemas. Unsupported schemas or inactive contract
-generations fail at their public seam with `unsupported_schema_version`,
-`unsupported_version`, or `inactive_generation`. They are not migrated,
-relocked, rewritten, interpreted as current values, or accepted as current
-evidence. Old pickle/path Cache entries are ignored and development state may
-be cleared and regenerated.
+facts use the current schema. Development state has no compatibility promise
+and may be cleared after a schema change. Inactive Catalog generations remain
+distinct because their scientific contracts differ.
 
-Run Ledger facts are bounded, fsynced under private temporary names, and
-atomically published without replacement. Public projection and event replay
-are derived from that Ledger. There is no parallel provider-evidence writer.
+Public projection and event replay are derived from the Run Ledger. There is no
+parallel provider-evidence writer or internal filesystem integrity protocol.
 Run Projection contains only bounded Typed Output descriptors. Exact canonical
 values are retrieved individually through the Run-scoped v2 Typed Value route;
 they are never embedded in the projection or lifecycle WebSocket stream.
 
 ## Acceptance campaign
 
-The release candidate is one clean source commit, not a committed manifest that
-tries to contain its own commit hash. Put every Provider path in a private
-Execution Profile outside the repository and `verification-results/`; do not
-reconstruct it from shell history or manifest hashes. The profile has this
-closed shape and contains paths, not token contents:
+Keep every Provider path in one private Execution Profile outside the repository
+and `verification-results/`. The profile contains paths and transport policy,
+never token contents, and is injected explicitly into each child process.
 
-```json
-{
-  "schema_namespace": "protein-workbench-acceptance-execution-profile/v1",
-  "provider_configuration": {
-    "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE": "/absolute/private/token-file",
-    "HF_HUB_CACHE": "/absolute/hugging-face-cache",
-    "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT": "/absolute/esmfold2-model",
-    "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT": "/absolute/esmc-model",
-    "PROTEIN_WORKBENCH_MKDSSP_BINARY": "/absolute/mkdssp",
-    "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT": "/absolute/proteinmpnn-root",
-    "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT": "/absolute/simplefold-model",
-    "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT": "/absolute/esm2-source",
-    "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT": "/absolute/esm2-model",
-    "PROTEIN_WORKBENCH_SOLUPROT_ROOT": "/absolute/soluprot-root",
-    "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT": "/absolute/protein-sol-root"
-  },
-  "remote_transport": {"proxy_policy": "direct"}
-}
-```
-
-The real profile must contain every configuration name declared by
-`provider_configuration_contracts` and exactly one of `HF_HUB_CACHE` or
-`HF_HOME`. It is never copied into evidence. The campaign stores only its
-path-free effective identity.
-
-Run the full provider-free/backend/frontend matrix once, commit the clean
-candidate, then prepare and qualify the same artifact. Qualification is
-non-authoritative, may use changed/high-risk-first order, and may rerun a failed
-or interrupted tier while the candidate identity is unchanged:
+After the provider-free/backend/frontend matrix passes, commit the clean
+candidate and run one canonical Campaign:
 
 ```bash
 CAMPAIGN=verification-results/acceptance-campaign
 PROFILE=/absolute/private/acceptance-profile.json
 .venv/bin/python scripts/acceptance_campaign.py prepare "$CAMPAIGN" --profile "$PROFILE"
-.venv/bin/python scripts/acceptance_campaign.py qualify-all "$CAMPAIGN" --profile "$PROFILE" \
-  --prioritize installed-proteinmpnn \
-  --prioritize installed-simplefold-folding
-.venv/bin/python scripts/acceptance_campaign.py status "$CAMPAIGN" --profile "$PROFILE"
+.venv/bin/python scripts/acceptance_campaign.py run "$CAMPAIGN" --profile "$PROFILE"
+.venv/bin/python scripts/acceptance_campaign.py status "$CAMPAIGN"
 ```
 
-All 15 tiers need a latest passed Qualification Result. The controller then
-runs Certification from its missing canonical prefix; certification always
-starts fresh and never promotes qualification evidence:
+`prepare` builds one wheel and sdist. `run` executes all 15 tiers exactly once
+in canonical order, with one blocking child at a time and no xdist. The first
+failure terminates the Campaign. There is no Qualification/Certification split,
+risk-order scheduling, retry, result promotion, or digest graph.
 
-```bash
-.venv/bin/python scripts/acceptance_campaign.py certify-through "$CAMPAIGN" installed-protein-sol --profile "$PROFILE"
-.venv/bin/python scripts/acceptance_campaign.py certify-through "$CAMPAIGN" fresh-1pga --profile "$PROFILE"
-.venv/bin/python scripts/acceptance_campaign.py certify-through "$CAMPAIGN" fresh-2emo --profile "$PROFILE"
-.venv/bin/python scripts/acceptance_campaign.py certify-through "$CAMPAIGN" fresh-canonical-3gb1 --profile "$PROFILE"
-.venv/bin/python scripts/acceptance_campaign.py certify-through "$CAMPAIGN" fresh-5g53 --profile "$PROFILE"
-```
-
-`campaign.json` binds the source revision, one reproducibly built wheel and
-sdist, public protocol and Catalog identities, all four input and Workflow
-digests, path-free Provider Environment Configuration and Execution Profile
-identities, exact tier and local-asset runtime identities, exact selectors and
-tier order, every Qualification attempt, and every Certification result.
-`started`, `passed`, `paused`, `failed`, and `interrupted` are written atomically. An
-orphaned `started` attempt is recovered as `interrupted`; qualification can run
-it again, while certification is permanently terminated.
-
-The controller uses one blocking child at a time, never passes xdist, and never
-retries a Certification tier or Workflow. The same frozen installed artifacts
-are supplied to both phases. Any source, artifact, protocol, Catalog, input,
-Workflow, Provider asset/configuration, tier contract, or Execution Profile
-identity change invalidates the campaign instead of combining old evidence.
-Each retained result contains a private bounded console log, a count-only JUnit
-summary, and sanitized full JUnit diagnostics. Credential values and configured
-local paths are redacted. Qualification results are never acceptance evidence.
-
-Between Certification tickets, run only controller authority/status and process
-cleanup checks. Run the complete provider-free/backend/frontend matrix once
-more in the final audit after all 15 Certification tiers pass; do not repeat it
-after every intermediate tier.
-
-Local-model tiers are separate child processes. Within a child, one resident
-instance of each exact local model is reused for all calls made by its operation
-stage; the child must exit before the controller starts the next tier. The local
-ESM-3 gate shares one client across paired, sequence, and structure generation.
-The installed ProteinMPNN gate shares one resident model across every Adapter,
-Operation, and test in that exact gate process. Source-bound Workflows keep
-ProteinMPNN residency operation-scoped, so it is released before a later
-Protein-Sol stage begins.
-
+Each tier makes its exact scientific assertions before retaining already
+validated public observations. Local-model tiers remain separate child
+processes. Within one child, a declared resident model may be reused for that
+tier; child exit releases it before the next tier.
 ## Deterministic public-protocol acceptance
 
 The deterministic tier uses

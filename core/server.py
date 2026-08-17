@@ -30,7 +30,6 @@ from core.module_package import build_discovered_frozen_catalog
 from core.port_types import FrozenCatalog
 from core.project import (
     PROJECT_SCHEMA_VERSION,
-    ProjectInputIntegrityError,
     ProjectManager,
     ProtectedProjectError,
 )
@@ -1166,12 +1165,6 @@ def create_app(
                     "resource_kind": "project_input",
                     "resource_id": admitted["project_input_ref"],
                 },
-            )
-        except ProjectInputIntegrityError as error:
-            return public_error_response(
-                "artifact_integrity_mismatch",
-                "Project Input integrity verification failed",
-                {"artifact_reference": error.project_input_ref},
             )
         payload = {
             "schema_namespace": "protein-workbench-public/v2",

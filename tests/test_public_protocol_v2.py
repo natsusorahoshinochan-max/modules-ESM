@@ -403,7 +403,6 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "project_input_not_found",
         "protocol_mismatch",
         "readiness_rejected",
-        "result_identity_conflict",
         "run_not_found",
         "selection_failed",
         "typed_output_not_found",
@@ -502,16 +501,6 @@ def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
                 },
             },
         ),
-        (
-            "result_identity",
-            {
-                "code": "result_identity_conflict",
-                "message": "Result Identity resolves to conflicting manifests",
-                "retryable": False,
-                "correlation_id": "incident-result-identity",
-                "details": {"result_identity": "sha256:" + "a" * 64},
-            },
-        ),
     ),
 )
 def test_failed_node_attempt_event_closes_error_by_failure_origin(
@@ -535,11 +524,7 @@ def test_failed_node_attempt_event_closes_error_by_failure_origin(
                 {**event, "resolution": "cache_replayed"},
             )
 
-    other_origin = (
-        "result_identity"
-        if failure_origin != "result_identity"
-        else "publication"
-    )
+    other_origin = "publication" if failure_origin == "operation" else "operation"
     with pytest.raises(ProtocolValidationError):
         validate_schema(
             "#/$defs/NodeAttemptTerminalEvent",
@@ -1614,60 +1599,6 @@ def test_project_input_metadata_recovers_filename_after_backend_restart(
     assert missing["error"]["details"] == {
         "resource_kind": "project_input",
         "resource_id": "input-missing",
-    }
-
-
-def test_project_input_metadata_reports_durable_integrity_mismatch(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    roots = {}
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        roots[name] = tmp_path / name.lower()
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(roots[name]),
-        )
-
-    with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
-    ) as http:
-        project = http.post(
-            "/api/v2/projects",
-            json={"name": "input integrity"},
-        ).json()
-        publication = http.post(
-            f"/api/v2/projects/{project['id']}/inputs",
-            json={
-                "filename": "source.pdb",
-                "content_base64": encode_project_input_content(b"ATOM\n"),
-            },
-        ).json()
-        payload_path = (
-            roots["PROJECT"]
-            / project["id"]
-            / "inputs"
-            / publication["project_input_ref"]
-            / "payload"
-        )
-        payload_path.write_bytes(b"HETATM\n")
-
-        response = http.get(
-            f"/api/v2/projects/{project['id']}/inputs/"
-            f"{publication['project_input_ref']}"
-        )
-
-    assert response.status_code == 409
-    validate_response(
-        "project_input_metadata",
-        response.status_code,
-        response.json(),
-    )
-    assert response.json()["error"]["code"] == (
-        "artifact_integrity_mismatch"
-    )
-    assert response.json()["error"]["details"] == {
-        "artifact_reference": publication["project_input_ref"],
     }
 
 

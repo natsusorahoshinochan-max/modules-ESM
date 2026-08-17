@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-import re
 import shutil
 import tempfile
 import uuid
@@ -17,20 +15,17 @@ from typing import Any, Mapping
 from core.storage import (
     StoragePathError,
     contained_path,
-    open_private_regular_file,
-    replace_private_regular_file,
+    replace_file,
     validate_identifier,
     validate_relative_path,
-    write_private_new_file,
+    write_new_file,
 )
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
 MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
-MAX_PROJECT_INPUT_DESCRIPTOR_BYTES = 8 * 1024
 PROJECT_SCHEMA_VERSION = "2.1.0"
 PROJECT_INPUT_SCHEMA_VERSION = "2.1.0"
 _PROJECT_INPUT_ARTIFACT_KIND = "project_input"
-_PROJECT_INPUT_DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class CanonicalSeedError(RuntimeError):
@@ -39,14 +34,6 @@ class CanonicalSeedError(RuntimeError):
 
 class ProtectedProjectError(PermissionError):
     """An ordinary write targeted the protected canonical project."""
-
-
-class ProjectInputIntegrityError(ValueError):
-    """One published Project Input snapshot failed durable verification."""
-
-    def __init__(self, project_input_ref: str) -> None:
-        super().__init__("Project input snapshot failed integrity verification")
-        self.project_input_ref = project_input_ref
 
 
 @dataclass
@@ -164,28 +151,6 @@ class ProjectManager:
             "content_digest": descriptor["content_digest"],
         }
 
-    @staticmethod
-    def _read_private_bytes(
-        root: Path,
-        relative_parts: tuple[str, ...],
-        *,
-        field: str,
-        maximum_size: int,
-    ) -> bytes:
-        file_descriptor = open_private_regular_file(
-            root,
-            relative_parts,
-            field=field,
-        )
-        try:
-            with os.fdopen(file_descriptor, "rb", closefd=False) as source:
-                payload = source.read(maximum_size + 1)
-        finally:
-            os.close(file_descriptor)
-        if len(payload) > maximum_size:
-            raise ValueError(f"{field} exceeds the supported size")
-        return payload
-
     def _publish_input_snapshot(
         self,
         project_dir: Path,
@@ -202,13 +167,11 @@ class ProjectManager:
         inputs_dir = contained_path(
             project_dir,
             "inputs",
-            field="project_input_ref",
         )
         inputs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         destination = contained_path(
             inputs_dir,
             input_reference,
-            field="project_input_ref",
         )
         if destination.exists():
             raise FileExistsError(input_reference)
@@ -220,29 +183,17 @@ class ProjectManager:
             )
         )
         try:
-            write_private_new_file(
+            write_new_file(
                 staging_dir,
                 ("descriptor.json",),
                 self._input_descriptor_bytes(descriptor),
-                field="project_input_descriptor",
             )
-            write_private_new_file(
+            write_new_file(
                 staging_dir,
                 ("payload",),
                 payload,
-                field="project_input_ref",
             )
-            if destination.exists():
-                raise FileExistsError(input_reference)
             staging_dir.rename(destination)
-            directory_descriptor = os.open(
-                inputs_dir,
-                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
-            )
-            try:
-                os.fsync(directory_descriptor)
-            finally:
-                os.close(directory_descriptor)
         finally:
             if staging_dir.exists():
                 shutil.rmtree(staging_dir)
@@ -274,71 +225,17 @@ class ProjectManager:
         project_id: str,
         input_reference: str,
     ) -> tuple[dict[str, Any], bytes]:
-        """Read and verify one exact immutable Project Input snapshot."""
+        """Read one admitted immutable Project Input snapshot."""
         safe_reference = validate_identifier(
             input_reference,
             "project_input_ref",
         )
         project_dir = self.project_dir(project_id)
-        try:
-            descriptor_bytes = self._read_private_bytes(
-                project_dir,
-                ("inputs", safe_reference, "descriptor.json"),
-                field="project_input_descriptor",
-                maximum_size=MAX_PROJECT_INPUT_DESCRIPTOR_BYTES,
-            )
-        except FileNotFoundError:
-            raise
-        except (OSError, StoragePathError, ValueError) as error:
-            raise ProjectInputIntegrityError(safe_reference) from error
-        try:
-            descriptor = json.loads(descriptor_bytes.decode("utf-8"))
-            if (
-                not isinstance(descriptor, dict)
-                or set(descriptor)
-                != {
-                    "schema_version",
-                    "artifact_kind",
-                    "project_input_ref",
-                    "filename",
-                    "size",
-                    "content_digest",
-                }
-                or descriptor["schema_version"]
-                != PROJECT_INPUT_SCHEMA_VERSION
-                or descriptor["artifact_kind"]
-                != _PROJECT_INPUT_ARTIFACT_KIND
-                or descriptor["project_input_ref"] != safe_reference
-                or type(descriptor["size"]) is not int
-                or not 0 <= descriptor["size"] <= MAX_PROJECT_INPUT_BYTES
-                or type(descriptor["content_digest"]) is not str
-                or _PROJECT_INPUT_DIGEST_PATTERN.fullmatch(
-                    descriptor["content_digest"]
-                )
-                is None
-            ):
-                raise ValueError("Project input descriptor is invalid")
-            self._validate_input_filename(descriptor["filename"])
-            if descriptor_bytes != self._input_descriptor_bytes(descriptor):
-                raise ValueError("Project input descriptor is not canonical")
-            payload = self._read_private_bytes(
-                project_dir,
-                ("inputs", safe_reference, "payload"),
-                field="project_input_ref",
-                maximum_size=MAX_PROJECT_INPUT_BYTES,
-            )
-            observed_digest = (
-                "sha256:" + hashlib.sha256(payload).hexdigest()
-            )
-            if (
-                len(payload) != descriptor["size"]
-                or observed_digest != descriptor["content_digest"]
-            ):
-                raise ValueError(
-                    "Project input payload size or digest mismatch"
-                )
-        except (OSError, StoragePathError, ValueError) as error:
-            raise ProjectInputIntegrityError(safe_reference) from error
+        input_dir = project_dir / "inputs" / safe_reference
+        descriptor = json.loads(
+            (input_dir / "descriptor.json").read_text(encoding="utf-8")
+        )
+        payload = (input_dir / "payload").read_bytes()
         return self._public_input_descriptor(descriptor), payload
 
     def cache_dir(self, project_id: str) -> Path:
@@ -366,10 +263,6 @@ class ProjectManager:
     def object_dir(self, project_id: str) -> Path:
         """Resolve one Project's shared immutable object namespace."""
         return contained_path(self._output_base(project_id), "objects")
-
-    def staging_dir(self, project_id: str) -> Path:
-        """Resolve one Project's private immutable-object writer namespace."""
-        return contained_path(self._output_base(project_id), "staging")
 
     def run_dir(self, project_id: str, run_id: str) -> Path:
         """Resolve one run's mutable namespace."""
@@ -451,8 +344,7 @@ class ProjectManager:
         metadata_path = project_dir / "project.json"
         if project_dir.exists():
             if (
-                project_dir.is_symlink()
-                or not project_dir.is_dir()
+                not project_dir.is_dir()
                 or not metadata_path.exists()
             ):
                 return None
@@ -474,7 +366,7 @@ class ProjectManager:
                 allow_nested=False,
             )
             source = Path(source_value)
-            if not source.is_file() or source.is_symlink():
+            if not source.is_file():
                 raise CanonicalSeedError(
                     f"Canonical v2 input source is unavailable: {reference}"
                 )
@@ -502,7 +394,7 @@ class ProjectManager:
         ).resolve()
         try:
             (staging_dir / "inputs").mkdir(mode=0o700)
-            write_private_new_file(
+            write_new_file(
                 staging_dir,
                 ("project.json",),
                 json.dumps(
@@ -512,7 +404,6 @@ class ProjectManager:
                     sort_keys=True,
                     allow_nan=False,
                 ).encode("utf-8"),
-                field="canonical_v2_metadata",
             )
             for reference, (filename, payload) in input_payloads.items():
                 self._publish_input_snapshot(
@@ -539,7 +430,7 @@ class ProjectManager:
         path = self.project_dir(safe_project_id) / "project.json"
         if not path.exists():
             return None
-        if path.is_symlink() or not path.is_file():
+        if not path.is_file():
             raise StoragePathError("project_id", "Invalid Project metadata")
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -578,7 +469,7 @@ class ProjectManager:
             return []
         projects: list[ProjectMeta] = []
         for path in sorted(self.root_dir.iterdir()):
-            if not path.is_dir() or path.is_symlink():
+            if not path.is_dir():
                 continue
             try:
                 meta = self.load_meta(path.name)
@@ -608,11 +499,10 @@ class ProjectManager:
             sort_keys=True,
             allow_nan=False,
         ).encode("utf-8")
-        replace_private_regular_file(
+        replace_file(
             project_dir,
             ("project.json",),
             payload,
-            field="project_metadata",
         )
 
     # ── seed project ──────────────────────────────────────────────────

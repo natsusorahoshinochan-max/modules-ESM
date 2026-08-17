@@ -15,7 +15,6 @@ import os
 from pathlib import Path
 import re
 import signal
-import stat
 import threading
 import time
 from types import MappingProxyType
@@ -42,7 +41,7 @@ from core.port_types import (
     canonical_sha256,
 )
 from core.process_control import signal_process_group
-from core.project import ProjectInputIntegrityError, ProjectManager
+from core.project import ProjectManager
 from core.project_objects import ObjectIntegrityError, ProjectObjectStore
 from core.public_values import sanitize_public_value
 from core.scoring_v2 import (
@@ -53,11 +52,10 @@ from core.scoring_v2 import (
 )
 from core.storage import (
     StoragePathError,
-    open_private_regular_file,
-    replace_private_regular_file,
+    replace_file,
     validate_identifier,
     validate_relative_path,
-    write_private_new_file,
+    write_new_file,
 )
 from core.value_admission import (
     AdmittedPortValues,
@@ -398,19 +396,6 @@ def _public_failure(error: BaseException) -> dict[str, Any]:
         "retryable": False,
         "correlation_id": f"incident-{uuid.uuid4().hex}",
         "details": {"exception_type": error_type},
-    }
-
-
-def _public_result_identity_failure(
-    *,
-    result_identity: str,
-) -> dict[str, Any]:
-    return {
-        "code": "result_identity_conflict",
-        "message": "Result Identity resolves to conflicting manifests",
-        "retryable": False,
-        "correlation_id": f"incident-{uuid.uuid4().hex}",
-        "details": {"result_identity": result_identity},
     }
 
 
@@ -855,7 +840,7 @@ class RunResources:
         return tuple(dict(identity) for identity in self._project_input_identities)
 
     def temporary_directory(self, *, prefix: str):
-        """Delegate to the hardened private workspace primitive."""
+        """Create one temporary workspace for this Node."""
         context = self._projects.run_context(
             self.project_id,
             self.run_id,
@@ -1090,7 +1075,6 @@ class ExecutedNodeNonSuccess:
     failure_origin: Literal[
         "operation",
         "publication",
-        "result_identity",
     ] = "operation"
     resolution: Literal["executed", "cache_replayed"] = "executed"
 
@@ -1398,11 +1382,10 @@ class FilesystemLedgerTransactionStore:
         relative_parts: tuple[str, ...],
         payload: bytes,
     ) -> None:
-        write_private_new_file(
+        write_new_file(
             root,
             relative_parts,
             payload,
-            field="run_ledger",
         )
 
 
@@ -1423,7 +1406,6 @@ class _LedgerReducerState:
     selection_terminal_keys: set[str]
     run_terminal: bool
     cancellation_sequence: int | None
-    restart_reconciled: bool
 
     def clone(self) -> _LedgerReducerState:
         """Stage from immutable retained facts and copied reducer indexes."""
@@ -1445,7 +1427,6 @@ class _LedgerReducerState:
             selection_terminal_keys=set(self.selection_terminal_keys),
             run_terminal=self.run_terminal,
             cancellation_sequence=self.cancellation_sequence,
-            restart_reconciled=self.restart_reconciled,
         )
 
 
@@ -1519,7 +1500,6 @@ class _RunEvidenceLedger:
             selection_terminal_keys=set(),
             run_terminal=False,
             cancellation_sequence=None,
-            restart_reconciled=False,
         )
         self._transaction_count = 0
         self._committed_fact_count = 0
@@ -1742,14 +1722,6 @@ class _RunEvidenceLedger:
             ):
                 raise self._causal_error()
             return
-        if fact_type == "restart_reconciliation_started":
-            if (
-                not self._state.run_started
-                or self._state.run_terminal
-                or self._state.restart_reconciled
-            ):
-                raise self._causal_error()
-            return
         if fact_type == "node_attempt_started":
             node_id = payload["node_id"]
             attempt_id = payload["node_attempt_id"]
@@ -1906,12 +1878,6 @@ class _RunEvidenceLedger:
                             and attempt["node_id"]
                             in self._state.outputs_published
                         )
-                        or (
-                            payload["status"]
-                            in {"interrupted", "outcome_unknown"}
-                            and not self._state.restart_reconciled
-                            and self._state.cancellation_sequence is None
-                        )
                     )
                 )
                 or (
@@ -1927,13 +1893,8 @@ class _RunEvidenceLedger:
                     and not (
                         payload["status"] == "failed"
                         and payload.get("failure_origin")
-                        in {"publication", "result_identity"}
+                        == "publication"
                         and child_operations[-1]["terminal"] == "succeeded"
-                    )
-                    and not (
-                        self._state.restart_reconciled
-                        and payload["status"]
-                        in {"interrupted", "outcome_unknown"}
                     )
                     and not (
                         self._state.cancellation_sequence is not None
@@ -1949,7 +1910,7 @@ class _RunEvidenceLedger:
                 or child_operations[0]["terminal"] != "failed"
             ):
                 raise self._causal_error()
-            if failure_origin in {"publication", "result_identity"} and (
+            if failure_origin == "publication" and (
                 (
                     payload["resolution"] == "executed"
                     and (
@@ -2045,6 +2006,12 @@ class _RunEvidenceLedger:
                 raise self._causal_error()
             return
         if fact_type == "run_terminal":
+            if (
+                payload["status"] == "interrupted"
+                and self._state.run_started
+                and not self._state.run_terminal
+            ):
+                return
             expected_status = _run_terminal_status(
                 self._state.dispositions,
                 tuple(self._state.selection_terminals),
@@ -2139,10 +2106,6 @@ class _RunEvidenceLedger:
             "run_started": (frozenset({"started_at"}), frozenset()),
             "cancellation_requested": (
                 frozenset({"requested_at"}),
-                frozenset(),
-            ),
-            "restart_reconciliation_started": (
-                frozenset({"restarted_at"}),
                 frozenset(),
             ),
             "node_attempt_started": (
@@ -2347,7 +2310,6 @@ class _RunEvidenceLedger:
             != (payload.get("failure_origin") in {
                 "operation",
                 "publication",
-                "result_identity",
             })
         ):
             raise self._causal_error()
@@ -2355,7 +2317,6 @@ class _RunEvidenceLedger:
             failure_error_schemas = {
                 "operation": "#/$defs/NodeOperationFailureError",
                 "publication": "#/$defs/NodePublicationFailureError",
-                "result_identity": "#/$defs/NodeResultIdentityFailureError",
             }
             try:
                 validate_schema(
@@ -2427,8 +2388,6 @@ class _RunEvidenceLedger:
             self._state.run_started = True
         elif fact_type == "cancellation_requested":
             self._state.cancellation_sequence = len(self._state.facts)
-        elif fact_type == "restart_reconciliation_started":
-            self._state.restart_reconciled = True
         elif fact_type == "node_attempt_started":
             record = {
                 "node_id": payload["node_id"],
@@ -2631,17 +2590,15 @@ class _RunEvidenceLedger:
             )
             is not None
         )
-        replace_private_regular_file(
+        replace_file(
             self._root,
             (self._run_id, "manifest.json"),
             manifest,
-            field="run_projection",
         )
-        replace_private_regular_file(
+        replace_file(
             self._root,
             (self._run_id, "lifecycle.jsonl"),
             lifecycle,
-            field="run_lifecycle_projection",
         )
 
     def rebuild_projections(self) -> None:
@@ -3125,178 +3082,12 @@ class _RunEvidenceLedger:
         with self._condition:
             self._condition.notify_all()
 
-    def reconcile_restart(
-        self,
-        finalizer: NodeAttemptFinalizer,
-    ) -> None:
-        """Close only the causal work left open by the durable prefix."""
+    def reconcile_restart(self) -> None:
+        """Mark a previously running process as interrupted."""
         with self._condition:
             if not self._state.run_started or self._state.run_terminal:
                 return
-        if not self._state.restart_reconciled:
-            self.append(
-                "restart_reconciliation_started",
-                {"restarted_at": run_timestamp()},
-            )
-        restart_error = {
-            "code": "node_execution_failed",
-            "message": "Execution outcome is unavailable after backend restart",
-            "retryable": False,
-            "correlation_id": f"restart-{self._run_id}",
-            "details": {"exception_type": "BackendRestart"},
-        }
-        for invocation_id, invocation in tuple(self._state.invocations.items()):
-            if invocation["terminal"] is None:
-                self.append(
-                    "engine_invocation_terminal",
-                    {
-                        "invocation_id": invocation_id,
-                        "status": "outcome_unknown",
-                        "error": restart_error,
-                    },
-                )
-        for attempt_id, attempt in tuple(self._state.node_attempts.items()):
-            if attempt["terminal"] is not None:
-                continue
-            child_operations = [
-                (operation_id, operation)
-                for operation_id, operation in self._state.operations.items()
-                if operation["node_attempt_id"] == attempt_id
-            ]
-            open_operation_id: str | None = None
-            child_statuses: list[str] = []
-            child_errors: dict[str, Mapping[str, Any]] = {}
-            for operation_id, operation in child_operations:
-                terminal = operation["terminal"]
-                if terminal is None:
-                    child_invocations = [
-                        invocation
-                        for invocation in self._state.invocations.values()
-                        if invocation["operation_attempt_id"] == operation_id
-                    ]
-                    invocation_statuses = [
-                        invocation["terminal"]
-                        for invocation in child_invocations
-                    ]
-                    if self._state.cancellation_sequence is not None:
-                        terminal = "cancelled"
-                    elif "failed" in invocation_statuses:
-                        terminal = "failed"
-                    elif "outcome_unknown" in invocation_statuses:
-                        terminal = "outcome_unknown"
-                    elif "cancelled" in invocation_statuses:
-                        terminal = "cancelled"
-                    elif "interrupted" in invocation_statuses:
-                        terminal = "interrupted"
-                    else:
-                        terminal = "interrupted"
-                    causal_error = next(
-                        (
-                            invocation["error"]
-                            for invocation in child_invocations
-                            if invocation["terminal"] == terminal
-                            and invocation["error"] is not None
-                        ),
-                        None,
-                    )
-                    if causal_error is not None:
-                        child_errors[terminal] = causal_error
-                    open_operation_id = operation_id
-                elif operation["error"] is not None:
-                    child_errors[terminal] = operation["error"]
-                child_statuses.append(terminal)
-            node_id = attempt["node_id"]
-            resolution = (
-                "cache_replayed"
-                if node_id in self._state.outputs_published and not child_operations
-                else "executed"
-            )
-            terminal_status: Literal[
-                "failed",
-                "cancelled",
-                "interrupted",
-                "outcome_unknown",
-            ] = (
-                "failed"
-                if "failed" in child_statuses
-                else "outcome_unknown"
-                if "outcome_unknown" in child_statuses
-                else "cancelled"
-                if (
-                    "cancelled" in child_statuses
-                    or (
-                        not child_operations
-                        and self._state.cancellation_sequence is not None
-                    )
-                )
-                else "interrupted"
-            )
-            if terminal_status == "failed":
-                finalizer.finalize(
-                    ExecutedNodeNonSuccess(
-                        node_id=node_id,
-                        node_attempt_id=attempt_id,
-                        operation_attempt_id=open_operation_id,
-                        status="failed",
-                        public_error=child_errors["failed"],
-                    )
-                )
-            else:
-                finalizer.finalize(
-                    CancelledOrInterruptedNode(
-                        node_id=node_id,
-                        status=terminal_status,
-                        public_error=(
-                            child_errors.get(terminal_status)
-                            if terminal_status == "cancelled"
-                            else restart_error
-                        ),
-                        node_attempt_id=attempt_id,
-                        operation_attempt_id=open_operation_id,
-                        resolution=resolution,
-                    )
-                )
-        for node_id in self._plan_node_order:
-            if node_id in self._state.dispositions:
-                continue
-            if node_id in self._state.node_attempt_by_node:
-                raise self._causal_error()
-            if self._state.cancellation_sequence is not None:
-                finalizer.finalize(
-                    CancelledOrInterruptedNode(
-                        node_id=node_id,
-                        status="cancelled",
-                        public_error=None,
-                    )
-                )
-                continue
-            blocked_by = sorted(
-                dependency
-                for dependency in self._required_dependencies[node_id]
-                if self._state.dispositions.get(dependency, {}).get("outcome")
-                != "succeeded"
-            )
-            if blocked_by:
-                finalizer.conclude(
-                    BlockedNode(
-                        node_id=node_id,
-                        blocked_by=tuple(blocked_by),
-                    )
-                )
-            else:
-                finalizer.finalize(
-                    CancelledOrInterruptedNode(
-                        node_id=node_id,
-                        status="interrupted",
-                        public_error=restart_error,
-                    )
-                )
-        if not (
-            self.all_dispositions_succeeded
-            and self._selection_consumer_ids
-        ):
-            self.commit_run_closure()
-
+            self.append("run_terminal", {"status": "interrupted"})
 
 def _load_node_result_manifest(
     object_store: ProjectObjectStore,
@@ -3309,10 +3100,9 @@ def _load_node_result_manifest(
         or reference["size"] > MAX_NODE_RESULT_MANIFEST_BYTES
     ):
         raise RuntimeError("Node Result Manifest reference is invalid")
-    encoded = object_store.read_exact(
+    encoded = object_store.read(
         project_id,
         reference["content_digest"],
-        size=reference["size"],
     )
     manifest = json.loads(encoded)
     if (
@@ -3418,227 +3208,6 @@ def _decode_port_value_manifest(encoded: bytes) -> dict[str, Any]:
     return manifest
 
 
-def _load_node_result_object_roots(
-    object_store: ProjectObjectStore,
-    project_id: str,
-    reference: Mapping[str, Any],
-) -> tuple[dict[str, Any], set[str]]:
-    """Validate current manifest ownership and return its object graph."""
-    node_result = _load_node_result_manifest(
-        object_store,
-        project_id,
-        reference,
-    )
-    roots = {reference["content_digest"]}
-    for output in node_result["outputs"]:
-        value_manifest_reference = output["value_manifest"]
-        if value_manifest_reference["size"] > MAX_PORT_VALUE_MANIFEST_BYTES:
-            raise RuntimeError("Current Port Value Manifest is invalid")
-        encoded = object_store.read_exact(
-            project_id,
-            value_manifest_reference["content_digest"],
-            size=value_manifest_reference["size"],
-        )
-        value_manifest = _decode_port_value_manifest(encoded)
-        if value_manifest["port_type"] != output["port_type"]:
-            raise RuntimeError("Current Port Value Manifest is invalid")
-        roots.add(value_manifest_reference["content_digest"])
-        for value in value_manifest["values"]:
-            roots.add(value["content_digest"])
-    return node_result, roots
-
-
-@dataclass(slots=True)
-class _CommittedResultIdentity:
-    node_result_manifest: dict[str, Any]
-    producers: set[tuple[str, str]]
-
-
-class ProjectResultIdentityAuthority:
-    """Project-scoped Result Identity projection rebuilt from Run Ledgers."""
-
-    def __init__(self, object_store: ProjectObjectStore) -> None:
-        self._object_store = object_store
-        self._guard = threading.Lock()
-        self._project_locks: dict[str, threading.RLock] = {}
-        self._unavailable_projects: set[str] = set()
-        self._committed: dict[
-            tuple[str, str],
-            _CommittedResultIdentity,
-        ] = {}
-
-    def _project_lock(self, project_id: str) -> threading.RLock:
-        with self._guard:
-            return self._project_locks.setdefault(
-                project_id,
-                threading.RLock(),
-            )
-
-    @contextmanager
-    def publication_scope(self, project_id: str) -> Iterator[None]:
-        """Order Project collection with Result Identity publication."""
-        with self._project_lock(project_id):
-            yield
-
-    def mark_unavailable(self, project_id: str) -> None:
-        """Block Project publication when its Ledger authority is incomplete."""
-        with self._project_lock(project_id):
-            self._unavailable_projects.add(project_id)
-
-    def commit_publication(
-        self,
-        *,
-        project_id: str,
-        run_id: str,
-        node_id: str,
-        result_identity: str,
-        node_result_manifest: Mapping[str, Any],
-        commit_success: Callable[[], FinalizedNode],
-        commit_conflict: Callable[[], FinalizedNode],
-        resolve_unacknowledged_success: Callable[[], bool],
-    ) -> FinalizedNode:
-        """Compare, commit one Run transaction, then advance the index."""
-        with self._project_lock(project_id):
-            if project_id in self._unavailable_projects:
-                raise V2RunError(
-                    "evidence_unavailable",
-                    "Project Result Identity authority is unavailable",
-                    details={
-                        "last_durable_cursor": run_cursor(
-                            0,
-                            project_id=project_id,
-                            run_id=run_id,
-                        )
-                    },
-                )
-            key = (project_id, result_identity)
-            existing = self._committed.get(key)
-            proposed = dict(node_result_manifest)
-            if (
-                existing is not None
-                and existing.node_result_manifest != proposed
-            ):
-                return commit_conflict()
-            try:
-                finalized = commit_success()
-            except V2RunError as error:
-                if error.code != "evidence_unavailable":
-                    raise
-                try:
-                    durable_success = resolve_unacknowledged_success()
-                except (
-                    OSError,
-                    RuntimeError,
-                    StoragePathError,
-                    ValueError,
-                ) as resolution_error:
-                    self._unavailable_projects.add(project_id)
-                    raise error from resolution_error
-                if durable_success:
-                    if existing is None:
-                        existing = _CommittedResultIdentity(proposed, set())
-                        self._committed[key] = existing
-                    existing.producers.add((run_id, node_id))
-                raise
-            if existing is None:
-                existing = _CommittedResultIdentity(proposed, set())
-                self._committed[key] = existing
-            existing.producers.add((run_id, node_id))
-            return finalized
-
-    def rebuild_from_ledger(self, ledger: _RunEvidenceLedger) -> None:
-        """Project one causally valid current Ledger into the authority index."""
-        try:
-            claims: list[tuple[str, dict[str, Any], str]] = []
-            for fact in ledger.facts:
-                if fact["fact_type"] != "outputs_published":
-                    continue
-                payload = fact["payload"]
-                manifest_reference = dict(payload["node_result_manifest"])
-                manifest = _load_node_result_manifest(
-                    self._object_store,
-                    ledger._project_id,
-                    manifest_reference,
-                )
-                if manifest["result_identity"] != payload["result_identity"]:
-                    raise RuntimeError(
-                        "Committed Result Identity publication is invalid"
-                    )
-                claims.append(
-                    (
-                        payload["result_identity"],
-                        manifest_reference,
-                        payload["node_id"],
-                    )
-                )
-        except (OSError, RuntimeError, StoragePathError, ValueError):
-            self.mark_unavailable(ledger._project_id)
-            raise
-        with self._project_lock(ledger._project_id):
-            if ledger._project_id in self._unavailable_projects:
-                raise RuntimeError(
-                    "Project Result Identity authority is unavailable"
-                )
-            staged = {
-                key: _CommittedResultIdentity(
-                    dict(value.node_result_manifest),
-                    set(value.producers),
-                )
-                for key, value in self._committed.items()
-                if key[0] == ledger._project_id
-            }
-            for result_identity, reference, node_id in claims:
-                key = (ledger._project_id, result_identity)
-                existing = staged.get(key)
-                if (
-                    existing is not None
-                    and existing.node_result_manifest != reference
-                ):
-                    self._unavailable_projects.add(ledger._project_id)
-                    raise V2RunError(
-                        "result_identity_conflict",
-                        "Committed Result Identity resolves to conflicting manifests",
-                        details={"result_identity": result_identity},
-                    )
-                if existing is None:
-                    existing = _CommittedResultIdentity(reference, set())
-                    staged[key] = existing
-                existing.producers.add((ledger._run_id, node_id))
-            self._committed.update(staged)
-
-    def committed_publication(
-        self,
-        *,
-        project_id: str,
-        result_identity: str,
-        node_result_manifest: Mapping[str, Any],
-        producer_run_id: str,
-        producer_node_id: str,
-    ) -> bool:
-        """Return whether one Cache reference names committed Ledger evidence."""
-        with self._project_lock(project_id):
-            if project_id in self._unavailable_projects:
-                raise V2RunError(
-                    "evidence_unavailable",
-                    "Project Result Identity authority is unavailable",
-                    details={
-                        "last_durable_cursor": run_cursor(
-                            0,
-                            project_id=project_id,
-                            run_id=producer_run_id,
-                        )
-                    },
-                )
-            existing = self._committed.get((project_id, result_identity))
-            return (
-                existing is not None
-                and existing.node_result_manifest
-                == dict(node_result_manifest)
-                and (producer_run_id, producer_node_id)
-                in existing.producers
-            )
-
-
 class NodeAttemptFinalizer:
     """The sole completion seam for one scheduled Node Execution Attempt."""
 
@@ -3648,36 +3217,10 @@ class NodeAttemptFinalizer:
         ledger: _RunEvidenceLedger,
         result_replay_source: ResultReplaySource,
         object_store: ProjectObjectStore,
-        result_identity_authority: ProjectResultIdentityAuthority,
     ) -> None:
         self._ledger = ledger
         self._result_replay_source = result_replay_source
         self._object_store = object_store
-        self._result_identity_authority = result_identity_authority
-
-    def _durable_success_claim(
-        self,
-        *,
-        node_id: str,
-        result_identity: str,
-        node_result_manifest: Mapping[str, Any],
-    ) -> bool:
-        reloaded = _read_run_evidence_ledger(
-            self._ledger._projects,
-            self._ledger._project_id,
-            self._ledger._run_id,
-            self._ledger._transaction_store,
-        )
-        if reloaded is None:
-            return False
-        return any(
-            fact["fact_type"] == "outputs_published"
-            and fact["payload"]["node_id"] == node_id
-            and fact["payload"]["result_identity"] == result_identity
-            and fact["payload"]["node_result_manifest"]
-            == dict(node_result_manifest)
-            for fact in reloaded.facts
-        )
 
     def _persist_artifacts(
         self,
@@ -4167,44 +3710,13 @@ class NodeAttemptFinalizer:
                     context=context,
                     error=preparation_error,
                 )
-            finalized = self._result_identity_authority.commit_publication(
-                project_id=intent.project_id,
-                run_id=intent.run_id,
-                node_id=intent.node.node_id,
+            finalized = self._persist_success(
+                context=context,
+                admitted_outputs=intent.admitted_outputs,
+                typed_descriptors=typed_descriptors,
+                artifacts=artifacts,
                 result_identity=intent.result_identity,
-                node_result_manifest=node_result_manifest_reference,
-                commit_success=lambda: self._persist_success(
-                    context=context,
-                    admitted_outputs=intent.admitted_outputs,
-                    typed_descriptors=typed_descriptors,
-                    artifacts=artifacts,
-                    result_identity=intent.result_identity,
-                    node_result_manifest_reference=(
-                        node_result_manifest_reference
-                    ),
-                ),
-                commit_conflict=lambda: self._finalize_non_success(
-                    ExecutedNodeNonSuccess(
-                        node_id=context.node_id,
-                        node_attempt_id=context.node_attempt_id,
-                        operation_attempt_id=context.operation_attempt_id,
-                        status="failed",
-                        public_error=_public_result_identity_failure(
-                            result_identity=intent.result_identity,
-                        ),
-                        failure_origin="result_identity",
-                    ),
-                    resolution=context.resolution,
-                ),
-                resolve_unacknowledged_success=lambda: (
-                    self._durable_success_claim(
-                        node_id=context.node_id,
-                        result_identity=intent.result_identity,
-                        node_result_manifest=(
-                            node_result_manifest_reference
-                        ),
-                    )
-                ),
+                node_result_manifest_reference=node_result_manifest_reference,
             )
         if finalized.disposition == "succeeded" and intent.cache_eligible:
             try:
@@ -4265,54 +3777,21 @@ class NodeAttemptFinalizer:
                     context=context,
                     error=preparation_error,
                 )
-            return self._result_identity_authority.commit_publication(
-                project_id=intent.project_id,
-                run_id=intent.run_id,
-                node_id=intent.node.node_id,
+            return self._persist_success(
+                context=context,
+                admitted_outputs=intent.admitted_outputs,
+                typed_descriptors=typed_descriptors,
+                artifacts=artifacts,
                 result_identity=intent.result_identity,
-                node_result_manifest=node_result_manifest_reference,
-                commit_success=lambda: self._persist_success(
-                    context=context,
-                    admitted_outputs=intent.admitted_outputs,
-                    typed_descriptors=typed_descriptors,
-                    artifacts=artifacts,
-                    result_identity=intent.result_identity,
-                    node_result_manifest_reference=(
-                        node_result_manifest_reference
-                    ),
-                ),
-                commit_conflict=lambda: self._finalize_non_success(
-                    ExecutedNodeNonSuccess(
-                        node_id=context.node_id,
-                        node_attempt_id=context.node_attempt_id,
-                        operation_attempt_id=None,
-                        status="failed",
-                        public_error=_public_result_identity_failure(
-                            result_identity=intent.result_identity,
-                        ),
-                        failure_origin="result_identity",
-                    ),
-                    resolution=context.resolution,
-                ),
-                resolve_unacknowledged_success=lambda: (
-                    self._durable_success_claim(
-                        node_id=context.node_id,
-                        result_identity=intent.result_identity,
-                        node_result_manifest=(
-                            node_result_manifest_reference
-                        ),
-                    )
-                ),
+                node_result_manifest_reference=node_result_manifest_reference,
             )
 
     def finalize(self, intent: NodeFinalizationIntent) -> FinalizedNode:
         """Commit the disposition implied by one closed finalization intent."""
         if isinstance(intent, ExecutedNodeSuccess):
-            with self._object_store.active_writer(intent.project_id):
-                return self._finalize_executed_success(intent)
+            return self._finalize_executed_success(intent)
         if isinstance(intent, CacheReplayNodeSuccess):
-            with self._object_store.active_writer(intent.project_id):
-                return self._finalize_cache_replay_success(intent)
+            return self._finalize_cache_replay_success(intent)
         if isinstance(intent, ExecutedNodeNonSuccess):
             return self._finalize_non_success(
                 intent,
@@ -4592,7 +4071,6 @@ def _read_run_evidence_ledger(
     ledger_dir = run_dir / "ledger"
     if (
         not ledger_dir.is_dir()
-        or ledger_dir.is_symlink()
     ):
         return None
     transaction_paths = sorted(ledger_dir.glob("*.json"))
@@ -4605,7 +4083,7 @@ def _read_run_evidence_ledger(
             raise RuntimeError(
                 "Run Ledger transaction sequence is not contiguous"
             )
-        encoded = _read_stable_private_file(
+        encoded = _read_bounded_file(
             run_dir.parent,
             (run_id, "ledger", path.name),
             field="run_ledger",
@@ -4747,54 +4225,17 @@ def _resolve_effective_randomness(
     )
 
 
-def _read_stable_private_file(
+def _read_bounded_file(
     root: Path,
     parts: tuple[str, ...],
     *,
     field: str,
     maximum_size: int,
 ) -> bytes:
-    file_descriptor: int | None = None
-    try:
-        file_descriptor = open_private_regular_file(
-            root,
-            parts,
-            field=field,
-        )
-        metadata = os.fstat(file_descriptor)
-        if (
-            stat.S_IMODE(metadata.st_mode) != 0o600
-            or metadata.st_size > maximum_size
-        ):
-            raise StoragePathError(field, f"Invalid {field}")
-        chunks: list[bytes] = []
-        remaining = metadata.st_size
-        while remaining:
-            chunk = os.read(
-                file_descriptor,
-                min(remaining, 1024 * 1024),
-            )
-            if not chunk:
-                raise StoragePathError(field, f"Invalid {field}")
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        final_metadata = os.fstat(file_descriptor)
-        if (
-            final_metadata.st_dev,
-            final_metadata.st_ino,
-            final_metadata.st_size,
-            final_metadata.st_mtime_ns,
-        ) != (
-            metadata.st_dev,
-            metadata.st_ino,
-            metadata.st_size,
-            metadata.st_mtime_ns,
-        ):
-            raise StoragePathError(field, f"Invalid {field}")
-        return b"".join(chunks)
-    finally:
-        if file_descriptor is not None:
-            os.close(file_descriptor)
+    payload = root.joinpath(*parts).read_bytes()
+    if len(payload) > maximum_size:
+        raise StoragePathError(field, f"Invalid {field}")
+    return payload
 
 
 def _result_identity_descriptor(
@@ -5127,10 +4568,9 @@ def _admitted_output_from_manifest(
     reference = output["value_manifest"]
     if reference["size"] > MAX_PORT_VALUE_MANIFEST_BYTES:
         raise RuntimeError("Current Port Value Manifest is invalid")
-    encoded = object_store.read_exact(
+    encoded = object_store.read(
         project_id,
         reference["content_digest"],
-        size=reference["size"],
     )
     manifest = _decode_port_value_manifest(encoded)
     if (
@@ -5142,10 +4582,9 @@ def _admitted_output_from_manifest(
     canonical_values: list[bytes] = []
     for value in manifest["values"]:
         canonical_values.append(
-            object_store.read_exact(
+            object_store.read(
                 project_id,
                 value["content_digest"],
-                size=value["size"],
             )
         )
     port_type = node._runtime.output_ports[output_port].port_type
@@ -5170,11 +4609,9 @@ class _ProjectResultCache(ResultReplaySource):
         self,
         projects: ProjectManager,
         object_store: ProjectObjectStore,
-        result_identity_authority: ProjectResultIdentityAuthority,
     ) -> None:
         self._projects = projects
         self._object_store = object_store
-        self._result_identity_authority = result_identity_authority
 
     @staticmethod
     def _relative_parts(result_identity: str) -> tuple[str, ...]:
@@ -5195,7 +4632,7 @@ class _ProjectResultCache(ResultReplaySource):
         root = self._projects.cache_dir(project_id)
         parts = self._relative_parts(result_identity)
         try:
-            encoded = _read_stable_private_file(
+            encoded = _read_bounded_file(
                 root,
                 parts,
                 field="result_cache_entry",
@@ -5203,117 +4640,7 @@ class _ProjectResultCache(ResultReplaySource):
             )
         except FileNotFoundError:
             return None
-        try:
-            payload = json.loads(encoded)
-            if encoded != canonical_json_bytes(payload):
-                raise PortValueError("Cache entry is not canonical")
-            if (
-                not isinstance(payload, dict)
-                or set(payload)
-                != {
-                    "schema_namespace",
-                    "result_identity",
-                    "result_contract_metadata",
-                    "producer",
-                    "node_result_manifest",
-                    "outputs",
-                }
-                or payload["schema_namespace"] != RESULT_CACHE_ENTRY_NAMESPACE
-                or payload["result_identity"] != result_identity
-                or not isinstance(payload["result_contract_metadata"], dict)
-                or not isinstance(payload["producer"], dict)
-                or set(payload["producer"])
-                != {"producer_run_id", "producer_node_id"}
-                or not _is_immutable_object_descriptor(
-                    payload["node_result_manifest"]
-                )
-                or not isinstance(payload["outputs"], list)
-            ):
-                raise PortValueError("Cache entry contract is invalid")
-            validate_identifier(
-                payload["producer"]["producer_run_id"],
-                "producer_run_id",
-            )
-            validate_identifier(
-                payload["producer"]["producer_node_id"],
-                "producer_node_id",
-            )
-            seen_ports: set[str] = set()
-            for output in payload["outputs"]:
-                if (
-                    not isinstance(output, dict)
-                    or set(output) != {"output_port", "value_manifest"}
-                    or not isinstance(output["output_port"], str)
-                    or output["output_port"] in seen_ports
-                    or not _is_immutable_object_descriptor(
-                        output["value_manifest"]
-                    )
-                ):
-                    raise PortValueError("Cache entry output is invalid")
-                validate_identifier(output["output_port"], "output_port")
-                seen_ports.add(output["output_port"])
-        except (
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-            PortValueError,
-            StoragePathError,
-            ValueError,
-        ) as error:
-            raise RuntimeError(
-                "Current Result Cache entry is invalid"
-            ) from error
-        return payload
-
-    def validated_object_roots(self, project_id: str) -> set[str]:
-        """Validate every current Cache index and return its object roots."""
-        result_root = self._projects.cache_dir(project_id) / "v4" / "results"
-        if not result_root.exists():
-            return set()
-        if result_root.is_symlink() or not result_root.is_dir():
-            raise RuntimeError("Current Result Cache namespace is invalid")
-        roots: set[str] = set()
-        for path in sorted(result_root.iterdir()):
-            if (
-                path.is_symlink()
-                or not path.is_file()
-                or re.fullmatch(r"[0-9a-f]{64}\.json", path.name) is None
-            ):
-                raise RuntimeError("Current Result Cache namespace is invalid")
-            result_identity = f"sha256:{path.stem}"
-            entry = self._load_entry(project_id, result_identity)
-            if entry is None:
-                raise RuntimeError("Current Result Cache entry is unavailable")
-            if not self._result_identity_authority.committed_publication(
-                project_id=project_id,
-                result_identity=result_identity,
-                node_result_manifest=entry["node_result_manifest"],
-                producer_run_id=entry["producer"]["producer_run_id"],
-                producer_node_id=entry["producer"]["producer_node_id"],
-            ):
-                raise RuntimeError(
-                    "Current Result Cache entry lacks committed evidence"
-                )
-            node_result, object_roots = _load_node_result_object_roots(
-                self._object_store,
-                project_id,
-                entry["node_result_manifest"],
-            )
-            if (
-                node_result["result_identity"] != result_identity
-                or node_result["result_contract_metadata"]
-                != entry["result_contract_metadata"]
-                or entry["outputs"]
-                != [
-                    {
-                        "output_port": output["output_port"],
-                        "value_manifest": output["value_manifest"],
-                    }
-                    for output in node_result["outputs"]
-                ]
-            ):
-                raise RuntimeError("Current Result Cache entry is invalid")
-            roots.update(object_roots)
-        return roots
+        return json.loads(encoded)
 
     def _admitted_output_from_manifest(
         self,
@@ -5347,23 +4674,7 @@ class _ProjectResultCache(ResultReplaySource):
         if entry["result_contract_metadata"] != _result_contract_metadata(
             node,
         ):
-            raise V2RunError(
-                "result_identity_conflict",
-                "Result Identity resolves to conflicting contract metadata",
-                details={"result_identity": result_identity},
-            )
-        if not self._result_identity_authority.committed_publication(
-            project_id=project_id,
-            result_identity=result_identity,
-            node_result_manifest=entry["node_result_manifest"],
-            producer_run_id=entry["producer"]["producer_run_id"],
-            producer_node_id=entry["producer"]["producer_node_id"],
-        ):
-            raise V2RunError(
-                "result_identity_conflict",
-                "Cache replay does not match committed Result Identity evidence",
-                details={"result_identity": result_identity},
-            )
+            return None
         node_result = _load_node_result_manifest(
             self._object_store,
             project_id,
@@ -5374,11 +4685,7 @@ class _ProjectResultCache(ResultReplaySource):
             or node_result["result_contract_metadata"]
             != entry["result_contract_metadata"]
         ):
-            raise V2RunError(
-                "result_identity_conflict",
-                "Cache replay conflicts with its committed Result Manifest",
-                details={"result_identity": result_identity},
-            )
+            return None
         expected_cache_outputs = [
             {
                 "output_port": output["output_port"],
@@ -5465,22 +4772,6 @@ class _ProjectResultCache(ResultReplaySource):
             ],
         }
 
-    @staticmethod
-    def _conflicts(
-        existing: Mapping[str, Any],
-        proposed: Mapping[str, Any],
-    ) -> bool:
-        return any(
-            existing[field] != proposed[field]
-            for field in (
-                "schema_namespace",
-                "result_identity",
-                "result_contract_metadata",
-                "node_result_manifest",
-                "outputs",
-            )
-        )
-
     def publish(
         self,
         *,
@@ -5505,10 +4796,6 @@ class _ProjectResultCache(ResultReplaySource):
                 "Current Result Cache entry cannot be indexed"
             ) from error
         if existing is not None:
-            if self._conflicts(existing, entry):
-                raise ResultCachePublicationError(
-                    "Current Result Cache entry conflicts with Ledger authority"
-                )
             return
         root = self._projects.cache_dir(project_id)
         encoded_entry = canonical_json_bytes(entry)
@@ -5517,23 +4804,12 @@ class _ProjectResultCache(ResultReplaySource):
                 "Current Result Cache entry exceeds its contract"
             )
         try:
-            write_private_new_file(
+            write_new_file(
                 root,
                 self._relative_parts(result_identity),
                 encoded_entry,
-                field="result_cache_entry",
             )
         except FileExistsError:
-            try:
-                winner = self._load_entry(project_id, result_identity)
-            except RuntimeError as error:
-                raise ResultCachePublicationError(
-                    "Current Result Cache winner cannot be indexed"
-                ) from error
-            if winner is None or self._conflicts(winner, entry):
-                raise ResultCachePublicationError(
-                    "Current Result Cache entry conflicts with Ledger authority"
-                )
             return
 
 
@@ -5554,13 +4830,9 @@ class V2RunService:
         self._authoring = authoring
         self._environment = environment
         self._object_store = ProjectObjectStore(projects)
-        self._result_identity_authority = ProjectResultIdentityAuthority(
-            self._object_store
-        )
         self._project_result_cache = _ProjectResultCache(
             projects,
             self._object_store,
-            self._result_identity_authority,
         )
         self._result_replay_source = (
             result_replay_source
@@ -5585,122 +4857,7 @@ class V2RunService:
             tuple[str, str],
             _RunEvidenceLedger,
         ] = {}
-        self._gc_failures: dict[str, str] = {}
         self._load_persisted_runs()
-        self._collect_project_objects()
-
-    @property
-    def gc_failures(self) -> Mapping[str, str]:
-        """Expose bounded startup collection failures for operations."""
-        return MappingProxyType(dict(self._gc_failures))
-
-    def _record_gc_failure(
-        self,
-        project_id: str,
-        *,
-        stage: Literal["owner_validation", "collection"],
-        error: BaseException,
-    ) -> None:
-        self._gc_failures[project_id] = stage
-        _LOGGER.error(
-            "Project immutable-object collection failed",
-            extra={"project_id": project_id, "failure_stage": stage},
-            exc_info=(type(error), error, error.__traceback__),
-        )
-
-    def _ledger_object_roots(self, project_id: str) -> set[str]:
-        roots: set[str] = set()
-        for (owner_project_id, _run_id), ledger in (
-            self._validated_ledgers.items()
-        ):
-            if owner_project_id != project_id:
-                continue
-            for fact in ledger.facts:
-                if fact["fact_type"] == "artifact_published":
-                    roots.add(fact["payload"]["artifact"]["content_digest"])
-                    continue
-                if fact["fact_type"] != "outputs_published":
-                    continue
-                publication = fact["payload"]
-                node_result, object_roots = (
-                    _load_node_result_object_roots(
-                        self._object_store,
-                        project_id,
-                        publication["node_result_manifest"],
-                    )
-                )
-                if node_result["result_identity"] != publication[
-                    "result_identity"
-                ]:
-                    raise RuntimeError(
-                        "Committed Node Result publication is invalid"
-                    )
-                result_outputs = {
-                    output["output_port"]: output
-                    for output in node_result["outputs"]
-                }
-                for output in publication["outputs"]:
-                    result_output = result_outputs.get(output["output_port"])
-                    if (
-                        result_output is None
-                        or output["value_manifest_reference"]
-                        != result_output["value_manifest"]["content_digest"]
-                    ):
-                        raise RuntimeError(
-                            "Committed Typed Output publication is invalid"
-                        )
-                roots.update(object_roots)
-                roots.update(
-                    artifact["content_digest"]
-                    for artifact in publication["artifacts"]
-                )
-        return roots
-
-    def _collect_project_objects(self) -> None:
-        project_ids = {project.id for project in self._projects.list_projects()}
-        damaged_projects = {
-            project_id for project_id, _run_id in self._damaged_runs
-        }
-        for project_id in sorted(project_ids):
-            if project_id in damaged_projects:
-                self._record_gc_failure(
-                    project_id,
-                    stage="owner_validation",
-                    error=RuntimeError(
-                        "Current Run Ledger validation did not complete"
-                    ),
-                )
-                continue
-            try:
-                with self._result_identity_authority.publication_scope(
-                    project_id
-                ):
-                    roots = self._ledger_object_roots(project_id)
-                    roots.update(
-                        self._project_result_cache.validated_object_roots(
-                            project_id
-                        )
-                    )
-                    self._object_store.collect_unreferenced(
-                        project_id,
-                        roots,
-                    )
-            except (
-                OSError,
-                RuntimeError,
-                StoragePathError,
-                ValueError,
-            ) as error:
-                stage: Literal["owner_validation", "collection"] = (
-                    "collection"
-                    if isinstance(error, OSError)
-                    else "owner_validation"
-                )
-                self._record_gc_failure(
-                    project_id,
-                    stage=stage,
-                    error=error,
-                )
 
     def _plan_evidence(
         self,
@@ -5724,10 +4881,10 @@ class V2RunService:
 
     def _run_directories(self):
         project_root = self._projects.root_dir
-        if not project_root.is_dir() or project_root.is_symlink():
+        if not project_root.is_dir():
             return
         for project_dir in sorted(project_root.iterdir()):
-            if not project_dir.is_dir() or project_dir.is_symlink():
+            if not project_dir.is_dir():
                 continue
             try:
                 project_id = validate_identifier(
@@ -5743,13 +4900,11 @@ class V2RunService:
             )
             if (
                 not run_parent.is_dir()
-                or run_parent.is_symlink()
             ):
                 continue
             for run_dir in sorted(run_parent.iterdir()):
                 if (
                     not run_dir.is_dir()
-                    or run_dir.is_symlink()
                 ):
                     continue
                 ledger = run_dir / "ledger"
@@ -5757,11 +4912,9 @@ class V2RunService:
                 if (
                     not (
                         ledger.is_dir()
-                        and not ledger.is_symlink()
                     )
                     and not (
                         manifest.is_file()
-                        and not manifest.is_symlink()
                     )
                 ):
                     continue
@@ -5784,7 +4937,7 @@ class V2RunService:
             if ledger_files
             else run_dir / "manifest.json"
         )
-        if not candidate.is_file() or candidate.is_symlink():
+        if not candidate.is_file():
             return None
         try:
             encoded = candidate.read_bytes()
@@ -5832,76 +4985,12 @@ class V2RunService:
                 V2RunError,
                 ValueError,
             ):
-                self._result_identity_authority.mark_unavailable(project_id)
                 self._damaged_runs[(project_id, run_id)] = run_cursor(
                     0,
                     project_id=project_id,
                     run_id=run_id,
                 )
                 self._run_owners.setdefault(run_id, project_id)
-
-    def _restart_selection_terminals(
-        self,
-        ledger: _RunEvidenceLedger,
-        plan: ExecutionPlan,
-    ) -> tuple[Mapping[str, Any], ...]:
-        """Rebuild missing Selection conclusions from committed values."""
-        nodes = {node.node_id: node for node in plan.nodes}
-        publications = {
-            fact["payload"]["node_id"]: fact["payload"]
-            for fact in ledger.facts
-            if fact["fact_type"] == "outputs_published"
-        }
-        committed_values: dict[
-            tuple[str, str],
-            AdmittedPortValues,
-        ] = {}
-        for node_id in ledger.selection_consumer_ids:
-            node = nodes[node_id]
-            publication = publications[node_id]
-            node_result = _load_node_result_manifest(
-                self._object_store,
-                ledger._project_id,
-                publication["node_result_manifest"],
-            )
-            if (
-                node_result["result_identity"]
-                != publication["result_identity"]
-                or node_result["result_contract_metadata"]
-                != _result_contract_metadata(node)
-            ):
-                raise RuntimeError(
-                    "Committed Selection Result Manifest is invalid"
-                )
-            for output in node_result["outputs"]:
-                admitted = _admitted_output_from_manifest(
-                    object_store=self._object_store,
-                    project_id=ledger._project_id,
-                    execution_plan=plan,
-                    node=node,
-                    output=output,
-                )
-                committed_values[(node_id, output["output_port"])] = (
-                    admitted
-                )
-        try:
-            return tuple(
-                {
-                    "status": "succeeded",
-                    "result": _selection_consumer_result(
-                        nodes[node_id],
-                        committed_values,
-                    ),
-                }
-                for node_id in ledger.selection_consumer_ids
-            )
-        except SelectionError as error:
-            return (
-                {
-                    "status": "failed",
-                    "error": _public_selection_failure(error),
-                },
-            )
 
     def _load_persisted_run(
         self,
@@ -5927,51 +5016,13 @@ class V2RunService:
             ledger,
             self._catalog,
         )
-        self._result_identity_authority.rebuild_from_ledger(ledger)
         if persisted_catalog_digest != self._catalog.contract_digest:
             self._inactive_runs[(project_id, run_id)] = (
                 persisted_catalog_digest
             )
             self._run_owners[run_id] = project_id
             return ledger
-        ledger.reconcile_restart(
-            NodeAttemptFinalizer(
-                ledger=ledger,
-                result_replay_source=self._result_replay_source,
-                object_store=self._object_store,
-                result_identity_authority=(
-                    self._result_identity_authority
-                ),
-            )
-        )
-        if not ledger.terminal:
-            selection_terminals: tuple[Mapping[str, Any], ...] = ()
-            if (
-                ledger.all_dispositions_succeeded
-                and ledger.selection_consumer_ids
-            ):
-                scope = ledger.facts[0]["payload"]
-                compiled = self._authoring.require_compiled_revision(
-                    project_id,
-                    workflow_commit_id=scope["workflow_commit_id"],
-                    workflow_commit_revision=scope[
-                        "workflow_commit_revision"
-                    ],
-                )
-                plan = compiled.execution_plan
-                if (
-                    plan.execution_plan_digest
-                    != scope["execution_plan_digest"]
-                    or self._plan_evidence(plan) != ledger.plan_nodes
-                ):
-                    raise RuntimeError(
-                        "Run scope does not match its immutable Execution Plan"
-                    )
-                selection_terminals = self._restart_selection_terminals(
-                    ledger,
-                    plan,
-                )
-            ledger.commit_run_closure(selection_terminals)
+        ledger.reconcile_restart()
         try:
             ledger.rebuild_projections()
         except (OSError, StoragePathError):
@@ -6362,17 +5413,10 @@ class V2RunService:
                 raise PortValueError(
                     f"Project input parameter {parameter_name!r} is invalid"
                 )
-            try:
-                descriptor, payload = self._projects.read_input(
-                    project_id,
-                    reference,
-                )
-            except ProjectInputIntegrityError as error:
-                raise V2RunError(
-                    "artifact_integrity_mismatch",
-                    "Project Input integrity verification failed",
-                    details={"artifact_reference": error.project_input_ref},
-                ) from error
+            descriptor, payload = self._projects.read_input(
+                project_id,
+                reference,
+            )
             resolved[reference] = (descriptor, payload)
             identities.append(
                 {
@@ -6984,7 +6028,6 @@ class V2RunService:
             ledger=ledger,
             result_replay_source=self._result_replay_source,
             object_store=self._object_store,
-            result_identity_authority=self._result_identity_authority,
         )
 
         self._runs[(project_id, run_id)] = record
@@ -7118,7 +6161,7 @@ class V2RunService:
             ) = None
             replay_producer_run_id: str | None = None
             cache_lookup_failure: tuple[
-                Literal["publication", "result_identity"],
+                Literal["publication"],
                 dict[str, Any],
             ] | None = None
             if cache_lookup_eligible and result_identity is not None:
@@ -7131,29 +6174,8 @@ class V2RunService:
                         result_identity=result_identity,
                     )
                     if replayed is not None:
-                        if replayed.result_identity != result_identity:
-                            raise V2RunError(
-                                "result_identity_conflict",
-                                "Cache replay returned a conflicting identity",
-                                details={
-                                    "result_identity": result_identity,
-                                },
-                            )
                         replayed_admitted = replayed.admitted_outputs
                         replay_producer_run_id = replayed.producer_run_id
-                        try:
-                            validate_identifier(
-                                replay_producer_run_id,
-                                "producer_run_id",
-                            )
-                        except StoragePathError as error:
-                            raise V2RunError(
-                                "result_identity_conflict",
-                                "Cache replay producer provenance is invalid",
-                                details={
-                                    "result_identity": result_identity,
-                                },
-                            ) from error
                     else:
                         replayed_admitted = None
                     if replayed_admitted is not None:
@@ -7184,20 +6206,6 @@ class V2RunService:
                         _public_publication_failure(
                             node_id=node.node_id,
                             stage=error.stage,
-                        ),
-                    )
-                except V2RunError as error:
-                    if error.code == "evidence_unavailable":
-                        ledger._retain_evidence_unavailable(error)
-                        raise
-                    if error.code != "result_identity_conflict":
-                        raise RuntimeError(
-                            "Result replay returned a non-current failure code"
-                        ) from error
-                    cache_lookup_failure = (
-                        "result_identity",
-                        _public_result_identity_failure(
-                            result_identity=result_identity,
                         ),
                     )
             if cache_lookup_failure is not None:
@@ -7947,10 +6955,9 @@ class V2RunService:
             )
         manifest_reference = descriptor["value_manifest_reference"]
         try:
-            encoded_manifest = self._object_store.read_bounded(
+            encoded_manifest = self._object_store.read(
                 project_id,
                 manifest_reference,
-                maximum_size=MAX_PORT_VALUE_MANIFEST_BYTES,
             )
             manifest = _decode_port_value_manifest(encoded_manifest)
             if (
@@ -7975,10 +6982,9 @@ class V2RunService:
                 expected_digest=manifest_reference,
             ) from error
         try:
-            payload = self._object_store.read_exact(
+            payload = self._object_store.read(
                 project_id,
                 entry["content_digest"],
-                size=entry["size"],
             )
         except ObjectIntegrityError as error:
             raise self._typed_value_integrity_error(
@@ -8027,10 +7033,9 @@ class V2RunService:
                 },
             )
         try:
-            payload = self._object_store.read_exact(
+            payload = self._object_store.read(
                 project_id,
                 descriptor["content_digest"],
-                size=descriptor["size"],
             )
         except ObjectIntegrityError as error:
             raise V2RunError(

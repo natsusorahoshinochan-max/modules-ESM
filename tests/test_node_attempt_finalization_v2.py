@@ -103,9 +103,6 @@ def _finalizer(
     *,
     result_replay_source: ResultReplaySource | None = None,
     object_store: run_execution_v2.ProjectObjectStore | None = None,
-    result_identity_authority: (
-        run_execution_v2.ProjectResultIdentityAuthority | None
-    ) = None,
 ) -> run_execution_v2.NodeAttemptFinalizer:
     resolved_object_store = (
         object_store
@@ -115,12 +112,6 @@ def _finalizer(
         ledger=ledger,
         result_replay_source=result_replay_source or ResultReplaySource(),
         object_store=resolved_object_store,
-        result_identity_authority=(
-            result_identity_authority
-            or run_execution_v2.ProjectResultIdentityAuthority(
-                resolved_object_store
-            )
-        ),
     )
 
 
@@ -222,51 +213,6 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
     ]
 
 
-def test_restart_audit_cannot_bypass_required_selection_closure(
-    tmp_path,
-) -> None:
-    ledger = _open_attempt_ledger(
-        tmp_path,
-        operation_started=True,
-        selection_required=True,
-    )
-    finalized = _finalizer(ledger).finalize(
-        run_execution_v2.ExecutedNodeSuccess(
-            project_id="project-1",
-            run_id="run-1",
-            execution_plan=SimpleNamespace(),
-            node=_node(),
-            resources=SimpleNamespace(
-                run_id="run-1",
-                _output_root=tmp_path / "outputs",
-                _cancellation_control=None,
-            ),
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-            result_identity="sha256:" + "6" * 64,
-            admitted_output_descriptors=(),
-            admitted_outputs={},
-            cache_eligible=False,
-        )
-    )
-    assert finalized.disposition == "succeeded"
-    ledger.append(
-        "restart_reconciliation_started",
-        {"restarted_at": "2026-08-14T00:01:00Z"},
-    )
-
-    with pytest.raises(
-        run_execution_v2.V2RunError,
-        match="causal validation",
-    ):
-        ledger.commit_run_closure()
-
-    assert not any(
-        fact["fact_type"] in {"selection_terminal", "run_terminal"}
-        for fact in ledger.facts
-    )
-
-
 def test_operation_failure_is_one_exact_node_conclusion_transaction(
     tmp_path,
 ) -> None:
@@ -327,15 +273,11 @@ def test_finalizer_rejects_error_code_from_another_failure_origin(
                 operation_attempt_id="operation-1",
                 status="failed",
                 public_error={
-                    "code": "result_identity_conflict",
-                    "message": (
-                        "Result Identity resolves to conflicting manifests"
-                    ),
+                    "code": "node_execution_failed",
+                    "message": "Node execution failed safely",
                     "retryable": False,
                     "correlation_id": "incident-mismatched-origin",
-                    "details": {
-                        "result_identity": "sha256:" + "a" * 64,
-                    },
+                    "details": {"exception_type": "PortValueError"},
                 },
                 failure_origin="publication",
             )
@@ -373,86 +315,6 @@ def test_operation_failure_requires_one_executed_child_operation(
     assert ledger.facts == before
 
 
-def test_project_publication_lock_serializes_conflicting_result_claims(
-    tmp_path,
-) -> None:
-    ledgers = {
-        run_id: _open_attempt_ledger(
-            tmp_path,
-            operation_started=True,
-            run_id=run_id,
-        )
-        for run_id in ("run-a", "run-b")
-    }
-    object_store = run_execution_v2.ProjectObjectStore(
-        ledgers["run-a"]._projects
-    )
-    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
-    barrier = threading.Barrier(2)
-    outcomes: dict[str, str] = {}
-
-    def publish(run_id: str, marker: str) -> None:
-        barrier.wait()
-        finalized = _finalizer(
-            ledgers[run_id],
-            object_store=object_store,
-            result_identity_authority=authority,
-        ).finalize(
-            run_execution_v2.ExecutedNodeSuccess(
-                project_id="project-1",
-                run_id=run_id,
-                execution_plan=SimpleNamespace(),
-                node=_node(marker),
-                resources=SimpleNamespace(
-                    run_id=run_id,
-                    _output_root=tmp_path / "outputs",
-                    _cancellation_control=None,
-                ),
-                node_attempt_id="node-attempt-1",
-                operation_attempt_id="operation-1",
-                result_identity="sha256:" + "d" * 64,
-                admitted_output_descriptors=(),
-                admitted_outputs={},
-                cache_eligible=False,
-            )
-        )
-        outcomes[run_id] = finalized.disposition
-
-    threads = (
-        threading.Thread(target=publish, args=("run-a", "manifest-a")),
-        threading.Thread(target=publish, args=("run-b", "manifest-b")),
-    )
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-
-    assert sorted(outcomes.values()) == ["failed", "succeeded"]
-    failed_ledger = next(
-        ledger
-        for run_id, ledger in ledgers.items()
-        if outcomes[run_id] == "failed"
-    )
-    operation_terminal = next(
-        fact
-        for fact in failed_ledger.facts
-        if fact["fact_type"] == "operation_attempt_terminal"
-    )
-    node_terminal = next(
-        fact
-        for fact in failed_ledger.facts
-        if fact["fact_type"] == "node_attempt_terminal"
-    )
-    assert operation_terminal["payload"] == {
-        "operation_attempt_id": "operation-1",
-        "status": "succeeded",
-    }
-    assert node_terminal["payload"]["failure_origin"] == "result_identity"
-    assert node_terminal["payload"]["error"]["code"] == (
-        "result_identity_conflict"
-    )
-
-
 def test_same_result_identity_and_manifest_publish_across_runs(
     tmp_path,
 ) -> None:
@@ -467,14 +329,11 @@ def test_same_result_identity_and_manifest_publish_across_runs(
     object_store = run_execution_v2.ProjectObjectStore(
         ledgers["run-a"]._projects
     )
-    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
-
     dispositions = []
     for run_id, ledger in ledgers.items():
         finalized = _finalizer(
             ledger,
             object_store=object_store,
-            result_identity_authority=authority,
         ).finalize(
             run_execution_v2.ExecutedNodeSuccess(
                 project_id="project-1",
@@ -661,13 +520,11 @@ def test_failed_node_transaction_exposes_no_logical_fact_subset(
     )
     before = ledger.facts
     object_store = run_execution_v2.ProjectObjectStore(ledger._projects)
-    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
 
     with pytest.raises(run_execution_v2.V2RunError) as rejected:
         _finalizer(
             ledger,
             object_store=object_store,
-            result_identity_authority=authority,
         ).finalize(
             run_execution_v2.ExecutedNodeSuccess(
                 project_id="project-1",
@@ -768,128 +625,12 @@ def test_artifact_object_remains_unpublished_when_transaction_fails(
     with pytest.raises(run_execution_v2.V2RunError) as unavailable:
         ledger.projection()
     assert unavailable.value.code == "evidence_unavailable"
-    assert object_store.read_exact(
+    assert object_store.read(
         "project-1",
         "sha256:"
         "334e3a1d10a0a00a0a6c77ce4272cff103dd46564b51cf3b36becf01571685ba",
-        size=len(artifact_body),
     ) == artifact_body
     assert not list(tmp_path.rglob("published/*"))
-
-
-def test_unacknowledged_commit_is_hidden_until_restart_reads_durable_file(
-    tmp_path,
-) -> None:
-    class PublishThenLoseAcknowledgement:
-        def __init__(self) -> None:
-            self.filesystem = (
-                run_execution_v2.FilesystemLedgerTransactionStore()
-            )
-
-        def publish(self, *, root, relative_parts, payload) -> None:
-            self.filesystem.publish(
-                root=root,
-                relative_parts=relative_parts,
-                payload=payload,
-            )
-            transaction = json.loads(payload)
-            if any(
-                fact["fact_type"] == "outputs_published"
-                for fact in transaction["facts"]
-            ):
-                raise OSError("fixture acknowledgement failure")
-
-    projects = ProjectManager(tmp_path / "projects")
-    ledger = _open_attempt_ledger(
-        tmp_path,
-        operation_started=True,
-        transaction_store=PublishThenLoseAcknowledgement(),
-    )
-    before = ledger.facts
-    object_store = run_execution_v2.ProjectObjectStore(ledger._projects)
-    authority = run_execution_v2.ProjectResultIdentityAuthority(object_store)
-
-    with pytest.raises(run_execution_v2.V2RunError) as rejected:
-        _finalizer(
-            ledger,
-            object_store=object_store,
-            result_identity_authority=authority,
-        ).finalize(
-            run_execution_v2.ExecutedNodeSuccess(
-                project_id="project-1",
-                run_id="run-1",
-                execution_plan=SimpleNamespace(),
-                node=_node(),
-                resources=SimpleNamespace(
-                    run_id="run-1",
-                    _output_root=tmp_path / "outputs",
-                    _cancellation_control=None,
-                ),
-                node_attempt_id="node-attempt-1",
-                operation_attempt_id="operation-1",
-                result_identity="sha256:" + "6" * 64,
-                admitted_output_descriptors=(),
-                admitted_outputs={},
-                cache_eligible=False,
-            )
-        )
-
-    assert rejected.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-    restarted = run_execution_v2._read_run_evidence_ledger(
-        projects,
-        "project-1",
-        "run-1",
-    )
-    assert restarted is not None
-    assert [fact["fact_type"] for fact in restarted.facts[-4:]] == [
-        "operation_attempt_terminal",
-        "outputs_published",
-        "node_attempt_terminal",
-        "node_disposition",
-    ]
-    assert restarted.projection()["node_dispositions"][0]["outcome"] == (
-        "succeeded"
-    )
-
-    conflicting = _open_attempt_ledger(
-        tmp_path,
-        operation_started=True,
-        run_id="run-2",
-    )
-    conflict = _finalizer(
-        conflicting,
-        object_store=object_store,
-        result_identity_authority=authority,
-    ).finalize(
-        run_execution_v2.ExecutedNodeSuccess(
-            project_id="project-1",
-            run_id="run-2",
-            execution_plan=SimpleNamespace(),
-            node=_node("conflicting-manifest"),
-            resources=SimpleNamespace(
-                run_id="run-2",
-                _output_root=tmp_path / "outputs",
-                _cancellation_control=None,
-            ),
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-            result_identity="sha256:" + "6" * 64,
-            admitted_output_descriptors=(),
-            admitted_outputs={},
-            cache_eligible=False,
-        )
-    )
-    assert conflict.disposition == "failed"
-    assert conflicting.projection()["outputs"] == []
-    conflict_terminal = next(
-        fact
-        for fact in conflicting.facts
-        if fact["fact_type"] == "node_attempt_terminal"
-    )
-    assert conflict_terminal["payload"]["failure_origin"] == (
-        "result_identity"
-    )
 
 
 def test_acknowledged_commit_reloads_after_reducer_advance_failure(
@@ -1179,110 +920,6 @@ def test_reader_rejects_noncontiguous_transaction_names(tmp_path) -> None:
             "project-1",
             "run-1",
         )
-
-
-def test_restart_preserves_durable_cancellation_before_operation_start(
-    tmp_path,
-) -> None:
-    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
-    decision = ledger.request_cancellation(None)
-    assert decision["outcome"] == "cancellation_requested"
-
-    ledger.reconcile_restart(_finalizer(ledger))
-
-    projection = ledger.projection()
-    assert projection["status"] == "cancelled"
-    assert projection["node_dispositions"][0]["outcome"] == "cancelled"
-    node_terminal = next(
-        fact
-        for fact in ledger.facts
-        if fact["fact_type"] == "node_attempt_terminal"
-    )
-    assert node_terminal["payload"]["status"] == "cancelled"
-
-
-def test_restart_cancellation_precedes_blocking_for_unstarted_node(
-    tmp_path,
-) -> None:
-    workflow_commit_id = "workflow-commit-" + "0" * 64
-    upstream = run_execution_v2._PlanNodeEvidence(
-        node_id="upstream",
-        dependencies=(),
-        required_dependencies=(),
-        result_identity_plan_facts_digest="sha256:" + "1" * 64,
-    )
-    downstream = run_execution_v2._PlanNodeEvidence(
-        node_id="downstream",
-        dependencies=("upstream",),
-        required_dependencies=("upstream",),
-        result_identity_plan_facts_digest="sha256:" + "2" * 64,
-    )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        (upstream, downstream),
-    )
-    ledger.append(
-        "run_scope_bound",
-        {
-            "project_id": "project-1",
-            "run_id": "run-1",
-            "workflow_commit_id": workflow_commit_id,
-            "workflow_commit_revision": 1,
-            "workflow_digest": "sha256:" + "3" * 64,
-            "contract_lock_digest": "sha256:" + "4" * 64,
-            "execution_plan_digest": "sha256:" + "5" * 64,
-            "catalog_contract_digest": "sha256:" + "6" * 64,
-            "resolved_contracts": [],
-            "selection_required": False,
-            "selection_terminal_keys": [],
-            "plan_nodes": [upstream.to_dict(), downstream.to_dict()],
-        },
-    )
-    ledger.append(
-        "run_admitted",
-        {
-            "workflow_commit_id": workflow_commit_id,
-            "workflow_commit_revision": 1,
-        },
-    )
-    ledger.append("run_started", {"started_at": "2026-08-14T00:00:00Z"})
-    ledger.append(
-        "node_attempt_started",
-        {"node_id": "upstream", "node_attempt_id": "node-attempt-1"},
-    )
-    ledger.append(
-        "operation_attempt_started",
-        {
-            "operation_attempt_id": "operation-1",
-            "node_attempt_id": "node-attempt-1",
-        },
-    )
-    _finalizer(ledger).finalize(
-        run_execution_v2.ExecutedNodeNonSuccess(
-            node_id="upstream",
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-            status="failed",
-            public_error=run_execution_v2._public_failure(
-                RuntimeError("fixture upstream failure")
-            ),
-        )
-    )
-    decision = ledger.request_cancellation(None)
-    assert decision["outcome"] == "cancellation_requested"
-
-    ledger.reconcile_restart(_finalizer(ledger))
-
-    dispositions = {
-        item["node_id"]: item
-        for item in ledger.projection()["node_dispositions"]
-    }
-    assert dispositions["upstream"]["outcome"] == "failed"
-    assert dispositions["downstream"]["outcome"] == "cancelled"
-    assert dispositions["downstream"]["blocked_by"] == []
-    assert ledger.projection()["status"] == "failed"
 
 
 def test_executed_non_success_is_finalized_without_outputs(tmp_path) -> None:

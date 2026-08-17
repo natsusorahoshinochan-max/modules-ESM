@@ -12,7 +12,6 @@ from typing import Any
 import pytest
 
 from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
-from protein_workbench_public import ProtocolValidationError
 from scripts.acceptance_campaign import acceptance_definition
 from tests.acceptance.retained_evidence import (
     retain_proteinmpnn_lifecycle,
@@ -332,56 +331,6 @@ def test_service_runs_reject_different_tier_catalogs(
         )
 
 
-def test_service_run_rejects_an_invalid_public_projection_before_writing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING",
-        str(tmp_path),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
-    invalid_projection = {**_projection(), "legacy_status": "finished"}
-
-    with pytest.raises(ProtocolValidationError):
-        retain_service_run(
-            RUN_LABEL,
-            catalog=SimpleNamespace(
-                catalog_descriptor_bytes=b'{"catalog":"fixture"}\n'
-            ),
-            service=_Service(),
-            projection=invalid_projection,
-            events=_events(),
-        )
-
-    assert list(tmp_path.iterdir()) == []
-
-
-def test_service_run_rejects_an_invalid_public_event_before_writing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING",
-        str(tmp_path),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
-    invalid_event = {**_events()[0], "legacy_status": "finished"}
-
-    with pytest.raises(ProtocolValidationError):
-        retain_service_run(
-            RUN_LABEL,
-            catalog=SimpleNamespace(
-                catalog_descriptor_bytes=b'{"catalog":"fixture"}\n'
-            ),
-            service=_Service(),
-            projection=_projection(),
-            events=(invalid_event,),
-        )
-
-    assert list(tmp_path.iterdir()) == []
-
-
 def test_rest_run_uses_the_same_minimal_bundle_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -432,23 +381,13 @@ def test_generic_pytest_only_bundle_is_not_installed_evidence(
         )
 
 
-@pytest.mark.parametrize(
-    "missing",
-    ("run", "typed-value", "artifact"),
-)
-def test_missing_public_run_evidence_is_rejected(
+def test_missing_public_run_is_rejected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    missing: str,
 ) -> None:
     _write_complete(tmp_path, monkeypatch)
     run_root = tmp_path / "runs" / RUN_LABEL
-    if missing == "run":
-        shutil.rmtree(run_root)
-    elif missing == "typed-value":
-        (run_root / "values" / "000000.bin").unlink()
-    else:
-        (run_root / "artifacts" / "000000.bin").unlink()
+    shutil.rmtree(run_root)
 
     with pytest.raises(AssertionError):
         require_retained_evidence(
@@ -511,54 +450,3 @@ def test_fresh_2emo_lifecycle_receipt_records_release_order(
         "load_count": 1,
         "release": "before-protein-sol",
     }
-
-
-def test_legacy_root_level_evidence_is_rejected(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _write_complete(tmp_path, monkeypatch)
-    (tmp_path / "workflow.json").write_text("{}\n", encoding="utf-8")
-
-    with pytest.raises(AssertionError):
-        require_retained_evidence(
-            tmp_path,
-            required_runs=(RUN_LABEL,),
-        )
-
-
-@pytest.mark.parametrize(
-    "legacy_name",
-    ("manifest.json", "run-index.json", "checksums.sha256"),
-)
-def test_legacy_run_evidence_is_rejected(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    legacy_name: str,
-) -> None:
-    _write_complete(tmp_path, monkeypatch)
-    run_root = tmp_path / "runs" / RUN_LABEL
-    (run_root / legacy_name).write_text("{}\n", encoding="utf-8")
-
-    with pytest.raises(AssertionError):
-        require_retained_evidence(
-            tmp_path,
-            required_runs=(RUN_LABEL,),
-        )
-
-
-@pytest.mark.parametrize("payload_directory", ("values", "artifacts"))
-def test_unreferenced_run_payload_is_rejected(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    payload_directory: str,
-) -> None:
-    _write_complete(tmp_path, monkeypatch)
-    run_root = tmp_path / "runs" / RUN_LABEL
-    (run_root / payload_directory / "orphan.bin").write_bytes(b"orphan")
-
-    with pytest.raises(AssertionError):
-        require_retained_evidence(
-            tmp_path,
-            required_runs=(RUN_LABEL,),
-        )

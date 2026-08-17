@@ -19,7 +19,6 @@ from core import (
     ModulePackagePortCase,
     OperationCall,
     PortValueError,
-    ProjectInputIntegrityError,
     ProjectManager,
     V2RunError,
     V2RunService,
@@ -576,7 +575,6 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
         for event in events
     )
 
-
 def test_sequence_import_rejects_multi_fasta_instead_of_concatenating_records(
     tmp_path: Path,
 ) -> None:
@@ -798,25 +796,3 @@ def test_import_rejects_private_paths_and_cross_project_references(
         and event["event"]["status"] == "failed"
         for event in events
     )
-
-
-def test_project_input_snapshot_rejects_symlink_aliases(
-    tmp_path: Path,
-) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("input symlink containment")
-    projects.publish_input(
-        project.id,
-        "trusted-input",
-        b">p\nACD\n",
-        filename="trusted-input.fasta",
-    )
-    managed = projects.input_path(project.id, "trusted-input")
-    managed.unlink()
-    outside = tmp_path / "outside.fasta"
-    outside.write_bytes(b">outside\nW\n")
-    managed.symlink_to(outside)
-
-    with pytest.raises(ProjectInputIntegrityError) as rejected:
-        projects.read_input(project.id, "trusted-input")
-    assert rejected.value.project_input_ref == "trusted-input"

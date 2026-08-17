@@ -6,7 +6,6 @@ from _thread import RLock
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import json
-import os
 from pathlib import Path
 import re
 from typing import Any
@@ -19,7 +18,7 @@ from core.project import (
     ProjectMeta,
     ProtectedProjectError,
 )
-from core.storage import open_private_regular_file, write_private_new_file
+from core.storage import write_new_file
 from core.workflow_v2 import (
     CompiledWorkflow,
     WorkflowCompileError,
@@ -251,13 +250,12 @@ class WorkflowAuthoringService:
         collection: str,
     ) -> int:
         directory = self._record_directory(project_id, collection)
-        if not directory.is_dir() or directory.is_symlink():
+        if not directory.is_dir():
             return 0
         revisions = [
             int(path.stem)
             for path in directory.iterdir()
             if path.is_file()
-            and not path.is_symlink()
             and len(path.stem) == _REVISION_FILENAME_WIDTH
             and path.stem.isascii()
             and path.stem.isdecimal()
@@ -273,20 +271,12 @@ class WorkflowAuthoringService:
         revision: int,
     ) -> Mapping[str, Any]:
         project_dir = self._projects.project_dir(project_id)
-        descriptor = open_private_regular_file(
-            project_dir,
-            (
-                "workflow-v2",
-                collection,
-                self._record_name(revision),
-            ),
-            field="workflow_authoring_record",
+        path = project_dir.joinpath(
+            "workflow-v2",
+            collection,
+            self._record_name(revision),
         )
-        try:
-            with os.fdopen(descriptor, "r", encoding="utf-8", closefd=False) as stream:
-                payload = json.load(stream)
-        finally:
-            os.close(descriptor)
+        payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("Workflow authoring record must be an object")
         return payload
@@ -305,7 +295,7 @@ class WorkflowAuthoringService:
             sort_keys=True,
             allow_nan=False,
         ).encode("utf-8")
-        write_private_new_file(
+        write_new_file(
             self._projects.project_dir(project_id),
             (
                 "workflow-v2",
@@ -313,7 +303,6 @@ class WorkflowAuthoringService:
                 self._record_name(revision),
             ),
             descriptor,
-            field="workflow_authoring_record",
         )
 
     @staticmethod

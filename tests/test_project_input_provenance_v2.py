@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 
-from core.project import (
-    CANONICAL_3GB1_PROJECT_ID,
-    ProjectInputIntegrityError,
-    ProjectManager,
-)
+from core.project import CANONICAL_3GB1_PROJECT_ID, ProjectManager
 
 
 _ATOM_DIGEST = (
@@ -67,57 +62,6 @@ def test_project_input_publication_is_immutable_as_one_snapshot(
     assert recovered["filename"] == "first.pdb"
     assert recovered["content_digest"] == _ATOM_DIGEST
     assert payload == b"ATOM\n"
-
-
-def test_project_input_read_rejects_payload_that_disagrees_with_descriptor(
-    tmp_path: Path,
-) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("input integrity")
-    projects.publish_input(
-        project.id,
-        "input-1",
-        b"ATOM\n",
-        filename="source.pdb",
-    )
-    projects.input_path(project.id, "input-1").write_bytes(b"HETATM\n")
-
-    with pytest.raises(ProjectInputIntegrityError) as rejected:
-        ProjectManager(tmp_path / "projects").read_input(
-            project.id,
-            "input-1",
-        )
-    assert rejected.value.project_input_ref == "input-1"
-
-
-def test_project_input_read_rejects_nonclosed_descriptor(tmp_path: Path) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("closed input descriptor")
-    projects.publish_input(
-        project.id,
-        "input-1",
-        b"ATOM\n",
-        filename="source.pdb",
-    )
-    descriptor_path = (
-        projects.input_path(project.id, "input-1").parent
-        / "descriptor.json"
-    )
-    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
-    descriptor["legacy_filename"] = "source.pdb"
-    descriptor_path.write_text(
-        json.dumps(
-            descriptor,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ProjectInputIntegrityError) as rejected:
-        projects.read_input(project.id, "input-1")
-    assert rejected.value.project_input_ref == "input-1"
 
 
 def test_canonical_seed_uses_the_same_durable_input_descriptor(

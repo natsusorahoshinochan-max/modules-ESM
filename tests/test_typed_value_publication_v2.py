@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from core import ProjectManager
-from core.project_objects import ObjectIntegrityError, ProjectObjectStore
+from core.project_objects import ProjectObjectStore
 from core.server import create_app
 from protein_workbench_public import validate_error
 from tests.fixtures.public_v2 import (
@@ -108,10 +108,9 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
             assert response.headers["x-value-index"] == "0"
             assert response.headers["x-value-count"] == "1"
             encoded_manifest = (
-                app.state.run_execution_v2._object_store.read_bounded(
+                app.state.run_execution_v2._object_store.read(
                     project_id,
                     descriptor["value_manifest_reference"],
-                    maximum_size=32 * 1024 * 1024,
                 )
             )
             manifest = json.loads(encoded_manifest)
@@ -173,9 +172,8 @@ def test_typed_value_retrieval_is_strictly_run_node_port_and_index_scoped(
             )
 
 
-def test_project_object_store_deduplicates_and_detects_exact_byte_loss(
+def test_project_object_store_deduplicates_exact_bytes(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     projects = ProjectManager(
         tmp_path / "projects",
@@ -185,50 +183,14 @@ def test_project_object_store_deduplicates_and_detects_exact_byte_loss(
     store = ProjectObjectStore(projects)
     payload = b"exact canonical value"
 
-    from core import storage
-
-    real_fsync = storage.os.fsync
-    directory_syncs: list[int] = []
-
-    def track_fsync(descriptor: int) -> None:
-        if Path(f"/dev/fd/{descriptor}").is_dir():
-            directory_syncs.append(descriptor)
-        real_fsync(descriptor)
-
-    monkeypatch.setattr(storage.os, "fsync", track_fsync)
     first = store.put_exact(project.id, payload)
-    assert len(directory_syncs) >= 5
-    synced: list[tuple[Path, tuple[str, ...]]] = []
-    monkeypatch.setattr(
-        "core.project_objects.fsync_private_parent_directory",
-        lambda root, parts, **_: synced.append((Path(root), parts)),
-    )
     repeated = store.put_exact(project.id, payload)
 
     assert repeated == first
-    assert synced == [
-        (
-            projects.object_dir(project.id),
-            store._relative_parts(first.content_digest),
-        )
-    ]
-    assert store.read_exact(
+    assert store.read(
         project.id,
         first.content_digest,
-        size=first.size,
     ) == payload
-    object_path = projects.object_dir(project.id).joinpath(
-        *store._relative_parts(first.content_digest)
-    )
-    object_path.write_bytes(b"lost canonical value" * 4)
-    with pytest.raises(ObjectIntegrityError):
-        store.read_exact(
-            project.id,
-            first.content_digest,
-            size=first.size,
-        )
-    with pytest.raises(ObjectIntegrityError):
-        store.put_exact(project.id, payload)
 
 
 def test_object_write_failure_closes_node_without_public_output(
@@ -284,43 +246,6 @@ def test_object_write_failure_closes_node_without_public_output(
             "publication_stage": "typed_value_object",
         },
     }
-
-
-def test_typed_value_data_loss_is_a_closed_public_integrity_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
-    app = create_app(frozen_catalog_override=_pipeline_catalog([]))
-    with TestClient(app) as client:
-        project_id, run_id, projection = _start_pipeline(client)
-        output = projection["outputs"][0]
-        route = (
-            f"/api/v2/projects/{project_id}/runs/{run_id}/outputs/"
-            f"{output['node_id']}/{output['output_port']}/values/0"
-        )
-        retrieved = client.get(route)
-        assert retrieved.status_code == 200
-        object_path = (
-            app.state.run_execution_v2._projects.object_dir(project_id).joinpath(
-                *ProjectObjectStore._relative_parts(
-                    retrieved.headers["digest"]
-                )
-            )
-        )
-        object_path.write_bytes(b"lost")
-
-        rejected = client.get(route)
-
-    assert rejected.status_code == 409
-    validate_error(rejected.json(), status=409)
-    assert rejected.json()["error"]["code"] == (
-        "typed_value_integrity_mismatch"
-    )
 
 
 def _large_esm3_response(sequence: str, pae: object) -> object:

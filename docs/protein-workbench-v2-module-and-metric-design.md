@@ -459,10 +459,8 @@ Invocation 保持成功，外层 Operation/Node 失败。worker 丢失后不得�
 
 Operation 成功后才进入 Node Outcome Publication。object/manifest persistence 失败保留
 Operation `succeeded`，并以 `failure_origin=publication`、
-`node_publication_failed` 关闭 Node；Result Identity comparison 冲突保留 Operation
-`succeeded`，并以 `failure_origin=result_identity`、
-`result_identity_conflict` 关闭 Node。Operation 内失败使用
-`failure_origin=operation` 与 `node_execution_failed`。三类失败均以一个完整 Ledger
+`node_publication_failed` 关闭 Node。Operation 内失败使用
+`failure_origin=operation` 与 `node_execution_failed`。两类失败均以一个完整 Ledger
 transaction 写入所需 terminals 与 disposition，且不发布 outputs 或 Artifacts。error
 details 使用 public bundle 声明的 closed bounded schema，不携带 paths、canonical values
 或 raw exceptions。
@@ -502,11 +500,10 @@ Project ID、Run ID、Node Instance ID、凭据、private paths、timestamps、U
 只影响性能的环境选择不进入 Result Identity。若任何结果相关 identity 无法可靠解析，
 该 Binding 禁用 cross-Run caching，而不是产生不完整 key。
 
-全局的是 identity schema；物理 authority、object store 与 Cache 均归一个 Project 所有，
-不进行跨 Project 查找或 replay。committed Run Ledgers 通过 Node Result Manifest 对
-Result Identity 提供权威映射；manifest 固定 compiler-owned contract metadata，并引用普通
-与 artifact-capable Port 的 canonical value manifests。相同 Result Identity 只有在 manifest
-相等时才允许跨 Run 发布，任何冲突都是 `result_identity_conflict`。
+全局的是 identity schema；object store 与 Cache 均归一个 Project 所有，不进行跨 Project
+查找或 replay。Node Result Manifest 固定 compiler-owned contract metadata，并引用普通与
+artifact-capable Port 的 canonical value manifests。内部信任 conforming deterministic
+Binding：相同 Result Identity 可直接 replay 已保留结果，不再维护第二套跨 Run 冲突权威。
 
 Cache v4 只保存已提交 Node Result Manifest 与 immutable objects 的引用，不内嵌或 base64
 复制 typed scientific values。replay 保留 original producer provenance，并记录当前 Run 的

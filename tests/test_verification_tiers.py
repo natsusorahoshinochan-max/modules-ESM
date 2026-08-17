@@ -75,7 +75,6 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
         "provider-isolation",
         "routine",
         "scientific-repro",
-        "security-failure",
     }
     for tier in TIERS.values():
         for argument in tier.pytest_arguments:
@@ -154,11 +153,9 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
     from scripts.acceptance_campaign import (
         ACCEPTANCE_TIER_ORDER,
         INPUT_DIGESTS,
-        INSTALLED_PROVIDER_TIER_ORDER,
-        SOURCE_BOUND_TIER_ORDER,
     )
 
-    assert INSTALLED_PROVIDER_TIER_ORDER == (
+    assert ACCEPTANCE_TIER_ORDER == (
         "installed-biohub-esmc",
         "installed-biohub-esm3",
         "installed-biohub-esmfold2",
@@ -170,16 +167,10 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
         "installed-simplefold-confidence",
         "installed-soluprot",
         "installed-protein-sol",
-    )
-    assert SOURCE_BOUND_TIER_ORDER == (
         "fresh-1pga",
         "fresh-2emo",
         "fresh-canonical-3gb1",
         "fresh-5g53",
-    )
-    assert ACCEPTANCE_TIER_ORDER == (
-        *INSTALLED_PROVIDER_TIER_ORDER,
-        *SOURCE_BOUND_TIER_ORDER,
     )
     assert INPUT_DIGESTS == {
         "fresh-1pga": (

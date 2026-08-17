@@ -30,7 +30,7 @@ from core.module_package import (
     build_frozen_catalog,
     discover_module_packages,
 )
-from core.project import ProjectInputIntegrityError, ProjectManager, ProjectMeta
+from core.project import ProjectManager, ProjectMeta
 from core.port_types import (
     BehaviorReference,
     CatalogBuildError,
@@ -136,7 +136,6 @@ __all__ = [
     "PairwiseContextSelector",
     "ProducedObservationDefinition",
     "ResolvedProducedObservation",
-    "ProjectInputIntegrityError",
     "ProjectManager",
     "ProjectMeta",
     "RunContext",

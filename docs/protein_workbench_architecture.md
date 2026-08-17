@@ -550,19 +550,17 @@ digest 使用同一个 compiler-owned canonical projection。
 
 ### 13.2 Cache
 
-Project-scoped committed Run Ledgers 是 Result Identity 到 Node Result Manifest 的唯一
-authority。每个 Node Result Manifest 固定 compiler-owned contract metadata，并按 Port
-顺序引用 ordinary 与 artifact-capable output 的 Port Value Manifest。authority index 可
-完全从当前 Ledger 重建；同一 identity 只有在 manifest 相等时才允许跨 Run 发布，冲突
-统一为 `result_identity_conflict`。比较 manifest、提交 Node conclusion transaction 与推进
-index 由同一 Project publication lock 串行化。
+Result Identity 是 admitted scientific inputs 与 implementation identity 导出的 Cache key。
+每个 Node Result Manifest 固定 compiler-owned contract metadata，并按 Port 顺序引用
+ordinary 与 artifact-capable output 的 Port Value Manifest。内部信任 conforming
+deterministic Binding；不存在从 Ledger 重建的第二套 authority index 或跨 Run 冲突锁。
 
 Cache v4 是 Project-scoped、可重新生成的 replay index，不是科学证据源。entry 只引用
 committed Node Result Manifest 与 immutable value objects，记录 original producer，不复制
 canonical values 或 base64 payload。replay 另行记录 current Run materialization，不复制旧
 Availability、Readiness、Operation Attempt 或 Engine Invocation。Cache 不存在表示 miss；
-存在但无效的当前 entry 立即失败。Cache publication 发生在 Ledger success 之后，失败不会
-回滚或改写已提交的 Node success。
+Cache miss 执行当前 Binding。Cache publication 发生在 Ledger success 之后，失败不会回滚
+或改写已提交的 Node success。
 
 旧 schema、旧 generation、pickle/path legacy entry 或 digest 不一致项不迁移、不猜测、不作为当前 evidence。用户可以清除单个结果或整个 Project Cache。
 
@@ -579,9 +577,8 @@ normalization、Candidate identity normalization、Port admission 与 Artifact c
 processing。该边界内失败时 Operation 与 Node 同为 `failed`，Node 使用
 `failure_origin=operation` 与 `node_execution_failed`。Operation 成功后，object 或
 manifest persistence 失败只关闭 Node 为 `failed/publication`，并使用
-`node_publication_failed`；Result Identity comparison 冲突只关闭 Node 为
-`failed/result_identity`，并使用 `result_identity_conflict`。后两者不得倒写已经成功的
-Operation，也不得发布 output 或 Artifact。每种失败都以一个完整 transaction 同时提交所需
+`node_publication_failed`；它不得倒写已经成功的 Operation，也不得发布 output 或
+Artifact。每种失败都以一个完整 transaction 同时提交所需
 Operation terminal、Node terminal 与 disposition。公开 error details 只包含各 code 声明的
 bounded domain identifiers、publication stage 或 Result Identity，不包含 object path、
 canonical value 或 raw exception。

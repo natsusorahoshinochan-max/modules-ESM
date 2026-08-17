@@ -1154,41 +1154,6 @@
           "additionalProperties": false,
           "properties": {
             "error": {
-              "$ref": "#/$defs/NodeResultIdentityFailureError"
-            },
-            "failure_origin": {
-              "const": "result_identity"
-            },
-            "node_attempt_id": {
-              "$ref": "#/$defs/Identifier"
-            },
-            "resolution": {
-              "enum": [
-                "executed",
-                "cache_replayed"
-              ]
-            },
-            "status": {
-              "const": "failed"
-            },
-            "type": {
-              "const": "node_attempt_terminal"
-            }
-          },
-          "required": [
-            "type",
-            "node_attempt_id",
-            "status",
-            "resolution",
-            "failure_origin",
-            "error"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "error": {
               "$ref": "#/$defs/StructuredError"
             },
             "node_attempt_id": {
@@ -1315,36 +1280,6 @@
       "required": [
         "node_id",
         "publication_stage"
-      ],
-      "type": "object"
-    },
-    "NodeResultIdentityFailureError": {
-      "additionalProperties": false,
-      "properties": {
-        "code": {
-          "const": "result_identity_conflict"
-        },
-        "correlation_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "details": {
-          "$ref": "#/$defs/ResultIdentityConflictDetails"
-        },
-        "message": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "type": "string"
-        },
-        "retryable": {
-          "const": false
-        }
-      },
-      "required": [
-        "code",
-        "message",
-        "retryable",
-        "correlation_id",
-        "details"
       ],
       "type": "object"
     },
@@ -3057,18 +2992,6 @@
       ],
       "type": "object"
     },
-    "ResultIdentityConflictDetails": {
-      "additionalProperties": false,
-      "properties": {
-        "result_identity": {
-          "$ref": "#/$defs/Digest"
-        }
-      },
-      "required": [
-        "result_identity"
-      ],
-      "type": "object"
-    },
     "ResultProducerProvenance": {
       "additionalProperties": false,
       "properties": {
@@ -4233,12 +4156,6 @@
         "details_schema": "#/$defs/BindingErrorDetails",
         "http_status": 503,
         "retryable": true
-      },
-      "result_identity_conflict": {
-        "code": "result_identity_conflict",
-        "details_schema": "#/$defs/ResultIdentityConflictDetails",
-        "http_status": 409,
-        "retryable": false
       },
       "run_not_found": {
         "code": "run_not_found",

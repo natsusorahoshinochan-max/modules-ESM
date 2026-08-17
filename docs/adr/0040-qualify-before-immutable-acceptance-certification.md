@@ -2,23 +2,22 @@
 status: accepted
 ---
 
-# Qualify before immutable acceptance certification
+# Run one trusted acceptance campaign
 
-One Acceptance Campaign binds a clean source revision, exact built artifacts,
-public and Catalog contracts, Provider assets/configuration, and a private
-Execution Profile identity. Every one of its 15 tiers must first produce a
-current Qualification Result against that same candidate. Qualification is
-explicitly non-authoritative, may run tiers in risk order, and may rerun a
-failed or interrupted tier while the candidate identity remains unchanged.
+An Acceptance Campaign binds one clean source revision, builds one wheel and
+sdist, and executes the 15 canonical tiers once in serial order with one private
+Execution Profile. The first failure terminates the Campaign. A passed Campaign
+means every tier passed in that one run.
 
-Only a fully qualified candidate may start a Certification Generation.
-Certification always executes all tiers again as one fresh canonical serial
-sequence. Its passed results are authoritative; a failed or interrupted tier
-is durable and terminal, and qualification evidence is never promoted,
-combined, or substituted for certification evidence.
+The former Qualification/Certification split is removed. Running the same
+expensive Provider and model surface twice added state, retry policy, digest
+graphs, evidence promotion rules, and additional failure modes without adding
+scientific information. This project trusts its single-user execution process;
+it does not need to prove that an operator, process, or filesystem did not alter
+an already completed result.
 
-This separates defect discovery from evidence issuance. It accepts the cost of
-executing the real acceptance surface twice so late defects do not repeatedly
-invalidate partially completed authoritative generations. The controller owns
-the campaign state, exact execution environment, child lifecycle, and retained
-diagnostics; shell history and operator memory are not part of the contract.
+Each tier remains responsible for exact scientific assertions. The Campaign
+owns only artifact preparation, canonical serial order, Execution Profile
+injection, child execution, retained result locations, and terminal status.
+Retained public observations support inspection but are not wrapped in a second
+integrity protocol.

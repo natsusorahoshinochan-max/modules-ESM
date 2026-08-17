@@ -1671,9 +1671,7 @@ def discover_module_packages(
             (
                 child
                 for child in package_path.iterdir()
-                if child.is_dir()
-                and not child.is_symlink()
-                and (child / "package.py").is_file()
+                if child.is_dir() and (child / "package.py").is_file()
             ),
             key=lambda child: child.name,
         )

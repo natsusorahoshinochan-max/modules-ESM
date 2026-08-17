@@ -219,48 +219,6 @@ TIERS = {
             "test_stale_no_tm_asset_replacement_invalidates_readiness"
         ),
     )),
-    "security-failure": Tier((
-        (
-            "tests/test_protein_io_artifacts_v2.py::"
-            "test_artifact_retrieval_rejects_tampering_symlinks_and_traversal"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_failed_readiness_rejects_before_factory_and_redacts_environment"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_artifact_retrieval_rejects_cross_scope_tamper_and_symlink"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_symlinked_run_workspace_fails_before_readiness_without_outside_write"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_reusable_proof_is_cached_only_after_durable_attestation"
-        ),
-        (
-            "tests/test_run_execution_v2.py::"
-            "test_public_run_exposes_no_node_subset_when_transaction_commit_fails"
-        ),
-        (
-            "tests/test_result_cache_v2.py::"
-            "test_conflicting_output_for_one_result_identity_fails_without_overwrite"
-        ),
-        (
-            "tests/test_run_cancel_derive_v2.py::"
-            "test_cancel_terminates_registered_process_group_children_and_temp_work"
-        ),
-        (
-            "tests/test_run_cancel_derive_v2.py::"
-            "test_cancel_and_derive_reject_cross_project_scope_with_shared_errors"
-        ),
-    )),
 }
 
 
@@ -311,8 +269,6 @@ def _interpreter_digest() -> str:
 
 
 def _bounded_junit_summary(path: Path) -> tuple[int, int, int, bytes]:
-    if path.is_symlink():
-        raise ValueError("JUnit result must not be a symbolic link")
     if not path.is_file():
         raise ValueError("JUnit result is missing")
     if path.stat().st_size > MAX_JUNIT_BYTES:
@@ -357,8 +313,6 @@ def _bounded_junit_diagnostics(
     environment: Mapping[str, str],
 ) -> bytes:
     """Retain exact bounded JUnit diagnostics after local-path redaction."""
-    if path.is_symlink():
-        raise ValueError("JUnit result must not be a symbolic link")
     if not path.is_file():
         raise ValueError("JUnit result is missing")
     if path.stat().st_size > MAX_JUNIT_BYTES:
@@ -674,12 +628,10 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         if (
             tier.retain_evidence_bundle
             and evidence_staging.is_dir()
-            and not evidence_staging.is_symlink()
         ):
             shutil.copytree(
                 evidence_staging,
                 result_dir / "evidence",
-                symlinks=False,
             )
         transcript = (
             "cwd=$PROJECT_ROOT\n"

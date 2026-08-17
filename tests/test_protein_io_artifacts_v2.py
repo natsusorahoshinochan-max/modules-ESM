@@ -167,44 +167,6 @@ def test_sequence_export_publishes_only_an_opaque_run_bound_fasta(
     assert body == b">protein-workbench-sequence\nACDEFG\n"
 
 
-def test_artifact_retrieval_rejects_tampering_symlinks_and_traversal(
-    tmp_path: Path,
-) -> None:
-    service, project_id, projection, _ = _run_import_export(
-        tmp_path,
-        value_kind="sequence",
-        payload=b">source\nACDEFG\n",
-    )
-    artifact = projection["artifact_index"][0]
-    reference = artifact["artifact_reference"]
-    managed = _artifact_object_path(
-        tmp_path / "outputs",
-        project_id,
-        artifact,
-    )
-    managed.write_bytes(b"TAMPERED")
-    managed.chmod(0o600)
-    with pytest.raises(V2RunError) as tampered:
-        service.artifact(project_id, projection["run_id"], reference)
-    assert tampered.value.code == "artifact_integrity_mismatch"
-
-    managed.unlink()
-    outside = tmp_path / "outside.fasta"
-    outside.write_bytes(b">outside\nW\n")
-    managed.symlink_to(outside)
-    with pytest.raises(V2RunError) as symlinked:
-        service.artifact(project_id, projection["run_id"], reference)
-    assert symlinked.value.code == "artifact_integrity_mismatch"
-
-    with pytest.raises(V2RunError) as traversed:
-        service.artifact(
-            project_id,
-            projection["run_id"],
-            "../outside.fasta",
-        )
-    assert traversed.value.code == "artifact_not_found"
-
-
 def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
