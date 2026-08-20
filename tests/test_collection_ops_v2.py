@@ -85,6 +85,7 @@ def test_candidate_intersection_and_child_selection_preserve_exact_candidates() 
             },
             node_parameters={},
             binding_parameters={},
+            effective_randomness={},
         )
     )["candidates"]
     assert tuple(item.candidate_id for item in selected.items) == ("child-a",)
@@ -113,6 +114,7 @@ def test_candidate_intersection_and_child_selection_preserve_exact_candidates() 
             },
             node_parameters={},
             binding_parameters={},
+            effective_randomness={},
         )
     )["candidates"]
     assert intersection.item_type == "protein.sequence"

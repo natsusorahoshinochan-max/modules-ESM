@@ -85,6 +85,7 @@ def _operation_call(
         },
         node_parameters=node_parameters,
         binding_parameters=binding_parameters,
+        effective_randomness={},
     )
 
 

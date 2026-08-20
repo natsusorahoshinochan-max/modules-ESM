@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import json
 import math
-from typing import Any
+from typing import Any, cast
 
 from core import (
     AvailabilityDeclaration,
@@ -656,8 +656,7 @@ def _port_type(
         value: object,
         _candidate_data_port_types: object,
     ) -> tuple[CandidateDataReference, ...]:
-        validator(value)
-        return (value.subject,)
+        return (cast(Any, value).subject,)
 
     return PortTypeDefinition(
         type_id=type_id,

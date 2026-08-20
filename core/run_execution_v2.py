@@ -5919,6 +5919,9 @@ class V2RunService:
                     binding_parameters=(
                         effective_randomness_snapshot.binding_parameters
                     ),
+                    effective_randomness=(
+                        effective_randomness_snapshot.effective_randomness
+                    ),
                 )
                 environment = self._environment.for_binding(
                     node.binding.contract_id,

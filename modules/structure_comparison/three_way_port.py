@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any
+from typing import Any, cast
 
 from core import BehaviorReference, PortTypeDefinition
 from datatypes import CandidateDataReference, ExactContractReference
@@ -393,17 +393,16 @@ def _candidate_data_references(
     value: object,
     _candidate_data_port_types: object,
 ) -> tuple[CandidateDataReference, ...]:
-    validate_three_way_consistency(value)
-    assert type(value) is ThreeWayConsistencyEvidence
+    admitted = cast(ThreeWayConsistencyEvidence, value)
     return (
-        value.input_structure,
-        value.sequence_parent,
-        value.esmfold2_structure,
-        value.simplefold_structure,
-        *(entry.subject for entry in value.confidences),
+        admitted.input_structure,
+        admitted.sequence_parent,
+        admitted.esmfold2_structure,
+        admitted.simplefold_structure,
+        *(entry.subject for entry in admitted.confidences),
         *(
             reference
-            for edge in value.edges
+            for edge in admitted.edges
             for reference in (edge.subject, edge.reference)
         ),
     )

@@ -100,6 +100,7 @@ def operation_call(
     inputs: Mapping[str, Any] | None = None,
     node_parameters: Mapping[str, Any] | None = None,
     binding_parameters: Mapping[str, Any] | None = None,
+    effective_randomness: Mapping[str, Any] | None = None,
 ) -> OperationCall:
     """Construct the exact immutable call admitted by the runtime boundary."""
     supplied_inputs = {} if inputs is None else inputs
@@ -152,6 +153,9 @@ def operation_call(
         node_parameters={} if node_parameters is None else node_parameters,
         binding_parameters=(
             {} if binding_parameters is None else binding_parameters
+        ),
+        effective_randomness=(
+            {} if effective_randomness is None else effective_randomness
         ),
     )
 

@@ -229,6 +229,7 @@ class OperationCall:
     inputs: Mapping[str, AdmittedPort]
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
+    effective_randomness: Mapping[str, Any]
 
     def __post_init__(self) -> None:
         if any(
@@ -250,6 +251,11 @@ class OperationCall:
             self,
             "binding_parameters",
             _freeze_container(self.binding_parameters),
+        )
+        object.__setattr__(
+            self,
+            "effective_randomness",
+            _freeze_container(self.effective_randomness),
         )
 
 

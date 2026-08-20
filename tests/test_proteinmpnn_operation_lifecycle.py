@@ -88,6 +88,7 @@ def _operation_call(operation: str) -> OperationCall:
                 "backbone_noise": 0,
             },
             binding_parameters={},
+            effective_randomness={"effective_seed": 1603},
         )
 
     sequence = Candidate(
@@ -114,6 +115,7 @@ def _operation_call(operation: str) -> OperationCall:
         inputs=admitted_inputs,
         node_parameters={},
         binding_parameters={},
+        effective_randomness={},
     )
 
 

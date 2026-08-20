@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any
+from typing import Any, cast
 
 from core import BehaviorReference, PortTypeDefinition
 from datatypes import CandidateDataReference, ExactContractReference
@@ -528,11 +528,10 @@ def _candidate_data_references(
     value: object,
     _candidate_data_port_types: object,
 ) -> tuple[CandidateDataReference, ...]:
-    validate_inserted_loop_evaluation(value)
-    assert type(value) is InsertedLoopEvaluationCollection
+    admitted = cast(InsertedLoopEvaluationCollection, value)
     return tuple(
         reference
-        for entry in value.entries
+        for entry in admitted.entries
         for reference in (entry.subject, entry.reference, entry.counterpart)
     )
 

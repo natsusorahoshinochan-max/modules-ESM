@@ -396,6 +396,7 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         },
         node_parameters={},
         binding_parameters={},
+        effective_randomness={},
     )
 
     observations = operation.execute(call)["observations"]
@@ -542,6 +543,7 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
         },
         node_parameters={},
         binding_parameters={},
+        effective_randomness={},
     )
 
     with pytest.raises(ValueError, match=message):

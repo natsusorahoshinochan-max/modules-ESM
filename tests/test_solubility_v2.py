@@ -308,6 +308,7 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
         },
         node_parameters={},
         binding_parameters={},
+        effective_randomness={},
     )
     scores = implementation.execute(call)["scores"]
 

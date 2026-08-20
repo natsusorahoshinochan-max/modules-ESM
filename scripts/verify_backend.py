@@ -199,12 +199,28 @@ def _interpreter_digest() -> str | None:
     return digest.hexdigest()
 
 
-def _bounded_junit_summary(path: Path) -> tuple[int, int, int, bytes]:
+@dataclass(frozen=True, slots=True)
+class _AdmittedJUnitResult:
+    tests: int
+    failures: int
+    skipped: int
+    summary: bytes
+    diagnostics: bytes
+
+
+def _admit_junit_result(
+    path: Path,
+    *,
+    staging_root: Path,
+    environment: Mapping[str, str],
+) -> _AdmittedJUnitResult:
+    """Admit bounded JUnit bytes once and project all retained facts."""
     if not path.is_file():
         raise ValueError("JUnit result is missing")
-    if path.stat().st_size > MAX_JUNIT_BYTES:
+    payload = path.read_bytes()
+    if len(payload) > MAX_JUNIT_BYTES:
         raise ValueError("JUnit result exceeds the retained size bound")
-    root = ET.parse(path).getroot()
+    root = ET.fromstring(payload)
     suites = (
         [root]
         if root.tag.rsplit("}", 1)[-1] == "testsuite"
@@ -230,32 +246,25 @@ def _bounded_junit_summary(path: Path) -> tuple[int, int, int, bytes]:
             "skipped": str(skipped),
         },
     )
-    return tests, failures, skipped, ET.tostring(
+    summary = ET.tostring(
         summary,
         encoding="utf-8",
         xml_declaration=True,
     )
-
-
-def _bounded_junit_diagnostics(
-    path: Path,
-    *,
-    staging_root: Path,
-    environment: Mapping[str, str],
-) -> bytes:
-    """Retain exact bounded JUnit diagnostics after local-path redaction."""
-    if not path.is_file():
-        raise ValueError("JUnit result is missing")
-    if path.stat().st_size > MAX_JUNIT_BYTES:
-        raise ValueError("JUnit result exceeds the retained size bound")
     diagnostic = _redacted_diagnostic(
-        path.read_text(encoding="utf-8"),
+        payload.decode("utf-8"),
         staging_root=staging_root,
         environment=environment,
     ).encode()
     if len(diagnostic) > MAX_JUNIT_BYTES:
         raise ValueError("JUnit result exceeds the retained size bound")
-    return diagnostic
+    return _AdmittedJUnitResult(
+        tests=tests,
+        failures=failures,
+        skipped=skipped,
+        summary=summary,
+        diagnostics=diagnostic,
+    )
 
 
 def _process_group_exists(process_group_id: int) -> bool:
@@ -482,25 +491,26 @@ def run(
         output = captured.decode(errors="replace")
         print(output, end="", flush=True)
 
-        junit_summary: bytes | None = None
-        junit_diagnostics: bytes | None = None
+        admitted_junit: _AdmittedJUnitResult | None = None
         junit_valid = False
         try:
-            tests, failures, skipped, junit_summary = (
-                _bounded_junit_summary(junit_path)
+            admitted_junit = _admit_junit_result(
+                junit_path,
+                staging_root=staging_root,
+                environment=env,
             )
+            tests = admitted_junit.tests
+            failures = admitted_junit.failures
+            skipped = admitted_junit.skipped
             junit_valid = True
-        except (OSError, ET.ParseError, ValueError):
+        except (OSError, UnicodeError, ET.ParseError, ValueError):
             tests, failures, skipped = 0, 1, 0
-        if junit_valid:
-            try:
-                junit_diagnostics = _bounded_junit_diagnostics(
-                    junit_path,
-                    staging_root=staging_root,
-                    environment=env,
-                )
-            except (OSError, UnicodeError, ValueError):
-                junit_diagnostics = None
+        junit_summary = (
+            admitted_junit.summary if admitted_junit is not None else None
+        )
+        junit_diagnostics = (
+            admitted_junit.diagnostics if admitted_junit is not None else None
+        )
         resource_warning = RESOURCE_CLEANUP_WARNING in output
         passed = (
             process.returncode == 0

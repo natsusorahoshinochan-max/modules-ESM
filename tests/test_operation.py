@@ -115,6 +115,7 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
         inputs={"facts": admitted},
         node_parameters={},
         binding_parameters={},
+        effective_randomness={"effective_seed": {"value": 17}},
     )
 
     assert isinstance(call.inputs["facts"], AdmittedPort)
@@ -128,6 +129,11 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
     assert admitted.value_content_digests == (admitted.content_digest,)
     assert admitted.candidate_data == (candidate_reference,)
     assert admitted.observation_methods == (method,)
+    assert call.effective_randomness == {
+        "effective_seed": {"value": 17}
+    }
+    with pytest.raises(TypeError):
+        call.effective_randomness["effective_seed"]["value"] = 18
 
 
 def test_candidate_data_projection_declaration_and_runtime_are_atomic() -> None:

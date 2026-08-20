@@ -13,6 +13,7 @@ from datatypes import ProteinSequence, ProteinStructure
 
 from . import simplefold_contract
 from .simplefold_asset_closure import (
+    SimpleFoldAssetClosureAdmissionError,
     StagedSimpleFoldProviderAssetClosure,
     admit_simplefold_provider_asset_closure,
     stage_simplefold_provider_asset_closure,
@@ -99,29 +100,21 @@ def simplefold_runtime_structurally_available() -> bool:
     )
 
 
-def _admit_simplefold_folding_environment(
-    environment: Mapping[str, Any],
-) -> None:
-    """Admit the exact folding closure without staging a model."""
-    if environment.get("device") != simplefold_contract.SIMPLEFOLD_DEVICE:
-        raise RuntimeError("SimpleFold device identity does not match")
-    admit_simplefold_provider_asset_closure(
-        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
-        environment,
-    )
-
-
 def simplefold_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
+    if environment.get("device") != simplefold_contract.SIMPLEFOLD_DEVICE:
+        return ReadinessResult(
+            False,
+            proof_source="direct-observation",
+            reason_code="simplefold_runtime_unavailable",
+        )
     try:
-        _admit_simplefold_folding_environment(environment)
-    except (
-        FileNotFoundError,
-        ImportError,
-        OSError,
-        RuntimeError,
-    ):
+        admit_simplefold_provider_asset_closure(
+            simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+            environment,
+        )
+    except SimpleFoldAssetClosureAdmissionError:
         return ReadinessResult(
             False,
             proof_source="direct-observation",

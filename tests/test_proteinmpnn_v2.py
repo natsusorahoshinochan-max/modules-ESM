@@ -1042,6 +1042,7 @@ def test_structure_axis_join_uses_full_reference_and_not_collection_order(
             },
             node_parameters={},
             binding_parameters={},
+            effective_randomness={},
         )
 
     joined = _structure_candidates_with_axes(call(associations))

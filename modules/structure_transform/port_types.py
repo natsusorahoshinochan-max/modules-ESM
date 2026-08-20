@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from math import isfinite
+from typing import Any, cast
 
 from core import BehaviorReference, PortTypeDefinition, builtin_frozen_catalog
 from core.port_types import canonical_json_bytes
@@ -1074,12 +1075,8 @@ def _association_candidate_data_references(
     value: object,
     _candidate_data_port_types: object,
 ) -> tuple[CandidateDataReference, ...]:
-    if type(value) not in {
-        CandidateModifiedResidueNormalizationAssociations,
-        CandidateResolvedResidueAxisAssociations,
-    }:
-        raise ValueError("candidate association projection has the wrong type")
-    return tuple(entry.subject for entry in value.entries)
+    admitted = cast(Any, value)
+    return tuple(entry.subject for entry in admitted.entries)
 
 
 def _validate_normalization_facts(value: object) -> None:

@@ -951,6 +951,7 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
                     "temperature_annealing": True,
                 },
                 binding_parameters={},
+                effective_randomness={"effective_seed": 1603},
             )
         )
         return tuple(adapter.seeds)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import shutil
 import subprocess
 from collections.abc import Mapping
@@ -18,6 +19,10 @@ from modules.provider_contract import (
     SIMPLEFOLD_REVISION,
     validate_installed_provider_checkout,
 )
+
+
+class SimpleFoldAssetClosureAdmissionError(RuntimeError):
+    """One declared SimpleFold closure cannot be admitted at Readiness."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,7 +172,7 @@ def _git(root: Path, *args: str) -> str:
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
     ) as exc:
-        raise RuntimeError(
+        raise SimpleFoldAssetClosureAdmissionError(
             "SimpleFold source is not a usable locked Git checkout"
         ) from exc
     return completed.stdout.strip()
@@ -176,7 +181,7 @@ def _git(root: Path, *args: str) -> str:
 def _configured_root(environment: Mapping[str, Any], key: str) -> Path:
     root = environment.get(key)
     if not isinstance(root, Path) or not root.is_dir():
-        raise FileNotFoundError(
+        raise SimpleFoldAssetClosureAdmissionError(
             f"SimpleFold closure root is unavailable: {key}"
         )
     return root
@@ -204,10 +209,19 @@ def admit_simplefold_provider_asset_closure(
     """Prove one exact Binding closure at its Readiness seam."""
     for source in closure.sources:
         if source.package_name is not None:
-            validate_installed_provider_checkout(
-                source.package_name,
-                source.revision,
-            )
+            try:
+                validate_installed_provider_checkout(
+                    source.package_name,
+                    source.revision,
+                )
+            except (
+                importlib.metadata.PackageNotFoundError,
+                OSError,
+                RuntimeError,
+            ) as error:
+                raise SimpleFoldAssetClosureAdmissionError(
+                    "SimpleFold installed source revision is unavailable"
+                ) from error
             continue
         source_root = _configured_root(
             environment,
@@ -217,20 +231,37 @@ def admit_simplefold_provider_asset_closure(
             _git(source_root, "rev-parse", "--show-toplevel")
         ).resolve()
         if checkout_root != source_root.resolve():
-            raise RuntimeError(
+            raise SimpleFoldAssetClosureAdmissionError(
                 "SimpleFold source root must be the Git checkout root"
             )
         if _git(source_root, "rev-parse", "HEAD") != source.revision:
-            raise RuntimeError("SimpleFold source revision changed")
-        if (
-            _source_tree_sha256(source_root, source.reviewed_files)
-            != cast(str, source.source_tree_sha256)
-        ):
-            raise RuntimeError("SimpleFold reviewed source tree changed")
+            raise SimpleFoldAssetClosureAdmissionError(
+                "SimpleFold source revision changed"
+            )
+        try:
+            source_tree_sha256 = _source_tree_sha256(
+                source_root,
+                source.reviewed_files,
+            )
+        except OSError as error:
+            raise SimpleFoldAssetClosureAdmissionError(
+                "SimpleFold reviewed source tree is unavailable"
+            ) from error
+        if source_tree_sha256 != cast(str, source.source_tree_sha256):
+            raise SimpleFoldAssetClosureAdmissionError(
+                "SimpleFold reviewed source tree changed"
+            )
     for file in closure.files:
         root = _configured_root(environment, file.environment_key)
-        if _sha256_file(root / file.runtime_filename) != file.sha256:
-            raise RuntimeError(
+        try:
+            observed_sha256 = _sha256_file(root / file.runtime_filename)
+        except OSError as error:
+            raise SimpleFoldAssetClosureAdmissionError(
+                "SimpleFold closure file is unavailable: "
+                f"{file.runtime_filename}"
+            ) from error
+        if observed_sha256 != file.sha256:
+            raise SimpleFoldAssetClosureAdmissionError(
                 "SimpleFold closure file changed: "
                 f"{file.runtime_filename}"
             )

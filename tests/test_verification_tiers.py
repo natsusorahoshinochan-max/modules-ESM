@@ -737,24 +737,21 @@ def test_retained_junit_diagnostics_are_bounded_and_redact_credentials(
         "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE": str(credential_path),
     }
 
-    tests, failures, skipped, summary = (
-        verify_backend._bounded_junit_summary(junit_path)
-    )
-    retained = verify_backend._bounded_junit_diagnostics(
+    admitted = verify_backend._admit_junit_result(
         junit_path,
         staging_root=tmp_path,
         environment=environment,
     )
 
-    assert (tests, failures, skipped) == (1, 1, 0)
-    assert b"native NLL mismatch" in retained
-    assert b"sk-live-secret" not in retained
-    assert b"$REDACTED_CREDENTIAL" in retained
-    assert str(tmp_path).encode() not in retained
-    assert b"native NLL mismatch" not in summary
+    assert (admitted.tests, admitted.failures, admitted.skipped) == (1, 1, 0)
+    assert b"native NLL mismatch" in admitted.diagnostics
+    assert b"sk-live-secret" not in admitted.diagnostics
+    assert b"$REDACTED_CREDENTIAL" in admitted.diagnostics
+    assert str(tmp_path).encode() not in admitted.diagnostics
+    assert b"native NLL mismatch" not in admitted.summary
     monkeypatch.setattr(verify_backend, "MAX_JUNIT_BYTES", 8)
     with pytest.raises(ValueError, match="size bound"):
-        verify_backend._bounded_junit_diagnostics(
+        verify_backend._admit_junit_result(
             junit_path,
             staging_root=tmp_path,
             environment=environment,

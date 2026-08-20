@@ -19,10 +19,6 @@ from .esmfold2_contract import (
 from .simplefold_contract import (
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
     SIMPLEFOLD_MODEL,
-    simplefold_confidence_artifact_sha256,
-    simplefold_confidence_esm2_artifact_sha256,
-    simplefold_folding_artifact_sha256,
-    simplefold_folding_esm2_artifact_sha256,
 )
 from .simplefold_asset_closure import (
     SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
@@ -171,10 +167,12 @@ def _simplefold_method() -> MethodDefinition:
         },
         checkpoint_identity={
             "simplefold_artifact_sha256": (
-                simplefold_folding_artifact_sha256()
+                SIMPLEFOLD_FOLDING_ASSET_CLOSURE.file_sha256("model_root")
             ),
             "esm2_artifact_sha256": (
-                simplefold_folding_esm2_artifact_sha256()
+                SIMPLEFOLD_FOLDING_ASSET_CLOSURE.file_sha256(
+                    "esm2_model_root"
+                )
             ),
         },
         featurization_identity={
@@ -230,10 +228,14 @@ def _simplefold_confidence_method() -> MethodDefinition:
         },
         checkpoint_identity={
             "simplefold_artifact_sha256": (
-                simplefold_confidence_artifact_sha256()
+                SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.file_sha256(
+                    "model_root"
+                )
             ),
             "esm2_artifact_sha256": (
-                simplefold_confidence_esm2_artifact_sha256()
+                SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.file_sha256(
+                    "esm2_model_root"
+                )
             ),
         },
         featurization_identity={

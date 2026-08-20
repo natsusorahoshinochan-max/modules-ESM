@@ -415,6 +415,7 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
             },
             node_parameters={},
             binding_parameters={},
+            effective_randomness={},
         )
     )["sequence_candidates"]
     selected_output = SelectCandidateChainsImplementation(
@@ -430,6 +431,7 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
             },
             node_parameters={"chain_ids": ["A"]},
             binding_parameters={},
+            effective_randomness={},
         )
     )["structure_candidates"]
 
@@ -468,6 +470,7 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
                 },
                 node_parameters={},
                 binding_parameters={},
+                effective_randomness={},
             )
         )
 

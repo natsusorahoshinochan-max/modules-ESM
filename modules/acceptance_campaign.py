@@ -362,15 +362,11 @@ class ExecutionProfile:
         if (
             not isinstance(remote_transport, dict)
             or set(remote_transport) != {"proxy_policy"}
-            or remote_transport["proxy_policy"] not in {"direct", "inherit"}
         ):
-            raise RuntimeError("acceptance remote transport policy is invalid")
+            raise RuntimeError("acceptance remote transport shape is invalid")
         provider_configuration = document["provider_configuration"]
-        if not isinstance(provider_configuration, dict) or not all(
-            isinstance(name, str) and isinstance(value, str) and value
-            for name, value in provider_configuration.items()
-        ):
-            raise RuntimeError("acceptance Provider configuration is invalid")
+        if not isinstance(provider_configuration, dict):
+            raise RuntimeError("acceptance Provider configuration shape is invalid")
         return cls(
             provider_configuration=provider_configuration,
             proxy_policy=remote_transport["proxy_policy"],
@@ -413,7 +409,14 @@ class ExecutionProfile:
 
     def public_definition(self) -> dict[str, Any]:
         """Describe the bound profile without persisting private paths."""
+        private_document = {
+            "schema_namespace": PROFILE_SCHEMA_NAMESPACE,
+            "provider_configuration": dict(self.provider_configuration),
+            "remote_transport": {"proxy_policy": self.proxy_policy},
+        }
         return {
+            "content_digest": "sha256:"
+            + hashlib.sha256(_canonical_bytes(private_document)).hexdigest(),
             "provider_configuration_names": sorted(
                 self.provider_configuration
             ),
@@ -450,6 +453,15 @@ class TierExecutionOutcome:
         )
         if self.conclusion not in {"passed", "failed", "interrupted"}:
             raise ValueError("tier execution conclusion is invalid")
+        if not all(
+            type(value) is str and value
+            for value in (
+                self.tier,
+                self.source_revision,
+                self.retained_location,
+            )
+        ):
+            raise ValueError("tier execution outcome identity is invalid")
         if any(
             type(value) is not int or value < 0
             for value in (self.tests, self.failures, self.skipped)
@@ -461,6 +473,15 @@ class TierExecutionOutcome:
             or not all(self.retained_run_labels)
         ):
             raise ValueError("retained Run labels are invalid")
+        if (
+            type(self.lifecycle_receipt_retained) is not bool
+            or type(self.junit_retained) is not bool
+            or not all(
+                type(value) is str and value
+                for value in self.diagnostic_files
+            )
+        ):
+            raise ValueError("tier execution outcome retained facts are invalid")
 
     def to_document(self) -> dict[str, Any]:
         return {
@@ -501,37 +522,18 @@ class TierExecutionOutcome:
             TIER_EXECUTION_OUTCOME_SCHEMA_NAMESPACE
         ):
             raise RuntimeError("tier execution outcome schema is invalid")
-        strings = (
-            document["tier"],
-            document["source_revision"],
-            document["retained_location"],
-        )
-        if not all(isinstance(value, str) and value for value in strings):
-            raise RuntimeError("tier execution outcome identity is invalid")
-        conclusion = document["conclusion"]
-        counts = (
-            document["tests"],
-            document["failures"],
-            document["skipped"],
-        )
         run_labels = document["retained_run_labels"]
         diagnostic_files = document["diagnostic_files"]
         if (
-            conclusion not in {"passed", "failed", "interrupted"}
-            or any(type(value) is not int or value < 0 for value in counts)
-            or not isinstance(run_labels, list)
-            or not all(isinstance(value, str) for value in run_labels)
+            not isinstance(run_labels, list)
             or not isinstance(diagnostic_files, list)
-            or not all(isinstance(value, str) for value in diagnostic_files)
-            or type(document["lifecycle_receipt_retained"]) is not bool
-            or type(document["junit_retained"]) is not bool
         ):
-            raise RuntimeError("tier execution outcome values are invalid")
+            raise RuntimeError("tier execution outcome container shape is invalid")
         return cls(
             tier=document["tier"],
             source_revision=document["source_revision"],
             retained_location=document["retained_location"],
-            conclusion=conclusion,
+            conclusion=document["conclusion"],
             tests=document["tests"],
             failures=document["failures"],
             skipped=document["skipped"],
@@ -641,7 +643,9 @@ def _validate_source_bound_assets() -> None:
             )
 
 
-def _candidate_definition(artifact_root: Path) -> dict[str, str]:
+def _candidate_definition(
+    artifact_root: Path,
+) -> dict[str, dict[str, str]]:
     wheels = tuple(artifact_root.glob("*.whl"))
     sdists = tuple(artifact_root.glob("*.tar.gz"))
     if len(wheels) != 1 or len(sdists) != 1:
@@ -649,8 +653,11 @@ def _candidate_definition(artifact_root: Path) -> dict[str, str]:
             "acceptance campaign requires exactly one wheel and one sdist"
         )
     return {
-        "wheel": (Path("artifacts") / wheels[0].name).as_posix(),
-        "sdist": (Path("artifacts") / sdists[0].name).as_posix(),
+        kind: {
+            "path": (Path("artifacts") / artifact.name).as_posix(),
+            "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        }
+        for kind, artifact in (("wheel", wheels[0]), ("sdist", sdists[0]))
     }
 
 
@@ -732,7 +739,13 @@ def _load_campaign(root: Path) -> dict[str, Any]:
     if (
         not isinstance(candidate, dict)
         or set(candidate) != {"wheel", "sdist"}
-        or not all(isinstance(path, str) for path in candidate.values())
+        or not all(
+            isinstance(entry, dict)
+            and set(entry) == {"path", "sha256"}
+            and isinstance(entry["path"], str)
+            and isinstance(entry["sha256"], str)
+            for entry in candidate.values()
+        )
     ):
         raise RuntimeError("acceptance campaign candidate is invalid")
     if not isinstance(document["executions"], list):
@@ -938,13 +951,23 @@ def run_campaign(
         raise RuntimeError("acceptance campaign definition changed after prepare")
     if manifest["execution_profile"] != profile.public_definition():
         raise RuntimeError("acceptance execution profile changed after prepare")
+    candidate_paths = {
+        kind: root / entry["path"]
+        for kind, entry in manifest["candidate"].items()
+    }
     if any(
-        Path(path).parts[:1] != ("artifacts",)
-        or len(Path(path).parts) != 2
-        or not (root / path).is_file()
-        for path in manifest["candidate"].values()
+        Path(entry["path"]).parts[:1] != ("artifacts",)
+        or len(Path(entry["path"]).parts) != 2
+        or not candidate_paths[kind].is_file()
+        for kind, entry in manifest["candidate"].items()
     ):
         raise RuntimeError("acceptance campaign candidate is missing")
+    if any(
+        hashlib.sha256(candidate_paths[kind].read_bytes()).hexdigest()
+        != entry["sha256"]
+        for kind, entry in manifest["candidate"].items()
+    ):
+        raise RuntimeError("acceptance campaign candidate changed after prepare")
     revision, dirty = _git_authority()
     if dirty or revision != manifest["source_revision"]:
         raise RuntimeError(

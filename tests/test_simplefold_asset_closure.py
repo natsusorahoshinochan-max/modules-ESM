@@ -185,7 +185,7 @@ def test_readiness_does_not_rewrite_local_declaration_errors(
     import modules.folding.simplefold_contract as contract
 
     def raise_declaration_error(*_args: object) -> None:
-        raise ValueError("fixture declaration error")
+        raise RuntimeError("fixture declaration error")
 
     monkeypatch.setattr(
         folding_adapter,
@@ -198,11 +198,11 @@ def test_readiness_does_not_rewrite_local_declaration_errors(
         raise_declaration_error,
     )
 
-    with pytest.raises(ValueError, match="fixture declaration error"):
+    with pytest.raises(RuntimeError, match="fixture declaration error"):
         folding_adapter.simplefold_readiness({
             "device": contract.SIMPLEFOLD_DEVICE,
         })
-    with pytest.raises(ValueError, match="fixture declaration error"):
+    with pytest.raises(RuntimeError, match="fixture declaration error"):
         confidence_adapter.simplefold_confidence_readiness({
             "device": contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
         })

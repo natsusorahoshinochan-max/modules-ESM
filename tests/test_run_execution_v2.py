@@ -522,6 +522,13 @@ def _direct_catalog(
                         f"parameters:{dict(call.node_parameters)!r}"
                     )
                 assert call.binding_parameters == {}
+                if effective_randomness_parameters:
+                    calls.append(
+                        "randomness:"
+                        f"{dict(call.effective_randomness)!r}"
+                    )
+                else:
+                    assert call.effective_randomness == {}
                 if invocation_count == 0:
                     calls.append(f"execute:{self._binding_id}")
                 else:
@@ -2497,6 +2504,7 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
         "readiness:test.direct.local",
         "factory:test.direct.local",
         "parameters:{'seed': 17}",
+        "randomness:{'seed': 17}",
         "execute:test.direct.local",
     ]
 
@@ -2536,25 +2544,74 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
     assert captured.value.code == "contract_digest_mismatch"
 
 
-def test_cache_misses_attest_each_binding_once_before_its_first_factory(
+def test_simplefold_bindings_receive_independent_run_scoped_readiness(
     tmp_path,
     monkeypatch,
 ) -> None:
+    import modules.folding.simplefold_adapter as folding_adapter
+    import modules.folding.simplefold_confidence_adapter as confidence_adapter
+    from modules.folding.simplefold_asset_closure import (
+        SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+        SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        SimpleFoldProviderAssetClosure,
+    )
+
     calls: list[str] = []
+    admissions: list[SimpleFoldProviderAssetClosure] = []
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    bindings = ("test.direct.local", "test.other.local")
+    bindings = (
+        "folding.fold.simplefold_local",
+        "folding.simplefold_confidence.simplefold_local",
+    )
     environment = {
         (binding_id, "2.1.0"): {
-            "values": {"credential": "credential-value"},
+                "values": {
+                    "credential": "credential-value",
+                    "device": "cpu",
+                },
         }
         for binding_id in bindings
     }
+
+    def record_admission(
+        closure: SimpleFoldProviderAssetClosure,
+        _environment: Mapping[str, Any],
+    ) -> None:
+        admissions.append(closure)
+
+    monkeypatch.setattr(
+        folding_adapter,
+        "admit_simplefold_provider_asset_closure",
+        record_admission,
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "admit_simplefold_provider_asset_closure",
+        record_admission,
+    )
+
+    production_readiness = {
+        bindings[0]: folding_adapter.simplefold_readiness,
+        bindings[1]: confidence_adapter.simplefold_confidence_readiness,
+    }
+
+    def readiness_for(binding_id: str):
+        def readiness(check_input: ReadinessCheckInput) -> ReadinessResult:
+            calls.append(f"readiness:{binding_id}")
+            return production_readiness[binding_id](check_input.values)
+
+        return readiness
+
     app = create_app(
         frozen_catalog_override=_direct_catalog(
             calls,
             binding_ids=bindings,
+            readiness_checks={
+                binding_id: readiness_for(binding_id)
+                for binding_id in bindings
+            },
         ),
         v2_environment_configuration=environment,
     )
@@ -2563,9 +2620,9 @@ def test_cache_misses_attest_each_binding_once_before_its_first_factory(
         project_id, compiled = _commit_independent_nodes(
             client,
             (
-                "test.direct.local",
-                "test.direct.local",
-                "test.other.local",
+                "folding.fold.simplefold_local",
+                "folding.fold.simplefold_local",
+                "folding.simplefold_confidence.simplefold_local",
             ),
         )
         response = client.post(
@@ -2577,15 +2634,19 @@ def test_cache_misses_attest_each_binding_once_before_its_first_factory(
         )
 
     assert response.status_code == 202
+    assert admissions == [
+        SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+    ]
     assert calls == [
-        "readiness:test.direct.local",
-        "factory:test.direct.local",
-        "execute:test.direct.local",
-        "factory:test.direct.local",
-        "execute:test.direct.local",
-        "readiness:test.other.local",
-        "factory:test.other.local",
-        "execute:test.other.local",
+        "readiness:folding.fold.simplefold_local",
+        "factory:folding.fold.simplefold_local",
+        "execute:folding.fold.simplefold_local",
+        "factory:folding.fold.simplefold_local",
+        "execute:folding.fold.simplefold_local",
+        "readiness:folding.simplefold_confidence.simplefold_local",
+        "factory:folding.simplefold_confidence.simplefold_local",
+        "execute:folding.simplefold_confidence.simplefold_local",
     ]
 
 
@@ -2938,6 +2999,7 @@ def test_operation_call_reuses_admitted_scientific_values_without_copy() -> None
         },
         node_parameters={},
         binding_parameters={},
+        effective_randomness={},
     )
 
     assert call.inputs["candidate"].value is candidate

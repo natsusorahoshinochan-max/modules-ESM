@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from core import (
     BehaviorReference,
@@ -213,11 +213,10 @@ def _prediction_axis_candidate_data_references(
     value: object,
     _candidate_data_port_types: object,
 ) -> tuple[CandidateDataReference, ...]:
-    _validate_prediction_residue_axis(value)
-    assert type(value) is PredictionResidueAxis
+    admitted = cast(PredictionResidueAxis, value)
     return (
-        (value.source,)
-        if type(value.source) is CandidateDataReference
+        (admitted.source,)
+        if type(admitted.source) is CandidateDataReference
         else ()
     )
 

@@ -222,6 +222,7 @@ def test_candidate_artifact_filenames_are_deterministic_ordinal_components(
         },
         node_parameters={},
         binding_parameters={},
+        effective_randomness={},
     )
 
     first = operation.execute(call)["candidate_artifacts"]

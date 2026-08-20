@@ -31,7 +31,7 @@ from modules.acceptance_campaign import (
 
 def _write_profile(tmp_path: Path) -> Path:
     configured = tmp_path / "configured"
-    configured.mkdir()
+    configured.mkdir(parents=True)
     names = {
         name
         for tier in CANONICAL_ACCEPTANCE_TIERS
@@ -65,8 +65,18 @@ def _prepared_campaign(
         "schema_namespace": CAMPAIGN_SCHEMA_NAMESPACE,
         "source_revision": "a" * 40,
         "candidate": {
-            "wheel": "artifacts/protein_workbench.whl",
-            "sdist": "artifacts/protein_workbench.tar.gz",
+            "wheel": {
+                "path": "artifacts/protein_workbench.whl",
+                "sha256": (
+                    "ba59926159d2aa256eb8739b8da7e2b574b960e1202c6d624cbe981cef996c91"
+                ),
+            },
+            "sdist": {
+                "path": "artifacts/protein_workbench.tar.gz",
+                "sha256": (
+                    "714772a9f82b2aeb4fa5f7092d00fe4ac4c9cdeb6800840b6ed39ea64c4d785a"
+                ),
+            },
         },
         "definition": acceptance_definition(),
         "execution_profile": profile.public_definition(),
@@ -243,7 +253,11 @@ def test_execution_profile_projects_only_one_tiers_declared_configuration(
     }
     assert "PYTHONPATH" not in environment
     assert "HTTPS_PROXY" not in environment
-    assert profile.public_definition() == {
+    public_definition = profile.public_definition()
+    assert public_definition["content_digest"].startswith("sha256:")
+    assert len(public_definition["content_digest"]) == 71
+    assert public_definition == {
+        "content_digest": public_definition["content_digest"],
         "provider_configuration_names": sorted(
             profile.provider_configuration
         ),
@@ -309,8 +323,18 @@ def test_prepare_binds_candidate_plan_revision_and_redacted_profile(
         "schema_namespace": CAMPAIGN_SCHEMA_NAMESPACE,
         "source_revision": "a" * 40,
         "candidate": {
-            "wheel": "artifacts/protein_workbench.whl",
-            "sdist": "artifacts/protein_workbench.tar.gz",
+            "wheel": {
+                "path": "artifacts/protein_workbench.whl",
+                "sha256": (
+                    "ba59926159d2aa256eb8739b8da7e2b574b960e1202c6d624cbe981cef996c91"
+                ),
+            },
+            "sdist": {
+                "path": "artifacts/protein_workbench.tar.gz",
+                "sha256": (
+                    "714772a9f82b2aeb4fa5f7092d00fe4ac4c9cdeb6800840b6ed39ea64c4d785a"
+                ),
+            },
         },
         "definition": acceptance_definition(),
         "execution_profile": profile.public_definition(),
@@ -410,6 +434,54 @@ def test_campaign_requires_the_candidate_bound_during_prepare(
     assert json.loads((root / "campaign.json").read_text())["state"] == (
         "prepared"
     )
+
+
+def test_campaign_rejects_candidate_content_changed_after_prepare(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.acceptance_campaign as campaign
+
+    profile = ExecutionProfile.load(_write_profile(tmp_path))
+    root = tmp_path / "campaign"
+    _prepared_campaign(root, profile)
+    (root / "artifacts" / "protein_workbench.whl").write_bytes(
+        b"different-wheel"
+    )
+    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
+    monkeypatch.setattr(
+        campaign,
+        "_run_tier",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("changed candidate must not execute")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="candidate changed"):
+        run_campaign(root, profile)
+
+
+def test_campaign_rejects_private_profile_changed_after_prepare(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.acceptance_campaign as campaign
+
+    prepared_profile = ExecutionProfile.load(_write_profile(tmp_path / "first"))
+    replacement_profile = ExecutionProfile.load(_write_profile(tmp_path / "second"))
+    root = tmp_path / "campaign"
+    _prepared_campaign(root, prepared_profile)
+    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
+    monkeypatch.setattr(
+        campaign,
+        "_run_tier",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("changed profile must not execute")
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="execution profile changed"):
+        run_campaign(root, replacement_profile)
 
 
 def test_campaign_stops_at_first_failed_outcome_without_making_it_a_result(
@@ -588,18 +660,19 @@ def test_verifier_admits_junit_once_before_projecting_diagnostics(
         "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
         str(tmp_path / "verification-results"),
     )
-    parse = verify_backend.ET.parse
-    parse_calls = 0
+    read_bytes = Path.read_bytes
+    junit_reads = 0
 
-    def counted_parse(*args: object, **kwargs: object) -> object:
-        nonlocal parse_calls
-        parse_calls += 1
-        return parse(*args, **kwargs)
+    def counted_read_bytes(path: Path) -> bytes:
+        nonlocal junit_reads
+        if path.name == "pytest.xml":
+            junit_reads += 1
+        return read_bytes(path)
 
-    monkeypatch.setattr(verify_backend.ET, "parse", counted_parse)
+    monkeypatch.setattr(Path, "read_bytes", counted_read_bytes)
 
     assert verify_backend.run(tier_name, ()) == 0
-    assert parse_calls == 1
+    assert junit_reads == 1
 
 
 def test_interpreter_digest_failure_remains_diagnostic(

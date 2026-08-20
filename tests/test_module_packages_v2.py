@@ -1280,6 +1280,7 @@ def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
         },
         node_parameters=node_parameters,
         binding_parameters={},
+        effective_randomness={},
     )
 
     inputs["value"].append("B")

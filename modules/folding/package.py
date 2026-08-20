@@ -72,8 +72,6 @@ from .simplefold_contract import (
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
     SIMPLEFOLD_DEVICE,
     SIMPLEFOLD_MODEL,
-    simplefold_confidence_artifact_sha256,
-    simplefold_confidence_esm2_artifact_sha256,
 )
 
 
@@ -671,10 +669,10 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
             "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
             "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
             "simplefold_artifact_sha256": (
-                simplefold_confidence_artifact_sha256()
+                closure.file_sha256("model_root")
             ),
             "esm2_artifact_sha256": (
-                simplefold_confidence_esm2_artifact_sha256()
+                closure.file_sha256("esm2_model_root")
             ),
             "source_revision": closure_identity["source_revision"],
             "native_scale": "[0,1]_multiply_100",
