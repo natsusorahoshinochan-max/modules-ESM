@@ -11,8 +11,10 @@ from typing import Any
 
 import pytest
 
-from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
-from scripts.acceptance_campaign import acceptance_definition
+from modules.acceptance_campaign import (
+    CANONICAL_ACCEPTANCE_TIERS,
+    acceptance_definition,
+)
 from tests.acceptance.retained_evidence import (
     retain_proteinmpnn_lifecycle,
     require_retained_evidence,
@@ -89,18 +91,21 @@ def _typed_value_metadata() -> dict[str, Any]:
 
 def test_tier_contracts_declare_only_run_labels_and_lifecycle_need() -> None:
     assert {
-        name: contract.required_run_labels
-        for name, contract in ACCEPTANCE_TIER_CONTRACTS.items()
+        tier.name: tier.required_run_labels
+        for tier in CANONICAL_ACCEPTANCE_TIERS
     } == {**EXPECTED_INSTALLED_RUNS, **EXPECTED_FRESH_RUNS}
     assert {
-        name
-        for name, contract in ACCEPTANCE_TIER_CONTRACTS.items()
-        if contract.lifecycle_receipt_required
+        tier.name
+        for tier in CANONICAL_ACCEPTANCE_TIERS
+        if tier.lifecycle_receipt_required
     } == {"installed-proteinmpnn", "fresh-2emo"}
 
 
 def test_campaign_freezes_the_minimal_tier_evidence_contract() -> None:
-    contracts = acceptance_definition()["tier_contracts"]
+    contracts = {
+        tier["name"]: tier
+        for tier in acceptance_definition()["tiers"]
+    }
 
     assert contracts["installed-proteinmpnn"]["required_run_labels"] == list(
         EXPECTED_INSTALLED_RUNS["installed-proteinmpnn"]

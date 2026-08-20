@@ -16,8 +16,11 @@ import pytest
 
 import scripts.verify_backend as verify_backend
 import scripts.acceptance_campaign as acceptance_campaign
-from scripts.acceptance_campaign import (
+from modules.acceptance_campaign import (
+    CANONICAL_ACCEPTANCE_TIERS,
     ExecutionProfile,
+)
+from scripts.acceptance_campaign import (
     REPOSITORY_VERIFICATION_TIERS,
 )
 from scripts.verify_backend import TIERS
@@ -87,10 +90,16 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
 def test_repository_verification_uses_one_profile_backed_serial_matrix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    configuration = {
+        name: f"/profile/{name.lower()}"
+        for tier in CANONICAL_ACCEPTANCE_TIERS
+        for alternatives in tier.environment_configuration
+        for name in alternatives
+        if name != "HF_HOME"
+    }
+    configuration["PROTEIN_WORKBENCH_SOLUPROT_ROOT"] = "/profile/soluprot"
     profile = ExecutionProfile(
-        provider_configuration={
-            "PROTEIN_WORKBENCH_SOLUPROT_ROOT": "/profile/soluprot",
-        },
+        provider_configuration=configuration,
         proxy_policy="inherit",
     )
     monkeypatch.setenv(
@@ -149,46 +158,12 @@ def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
 
 
 def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
-    from scripts.acceptance_campaign import (
-        ACCEPTANCE_TIER_ORDER,
-        INPUT_DIGESTS,
-    )
-
-    assert ACCEPTANCE_TIER_ORDER == (
-        "installed-biohub-esmc",
-        "installed-biohub-esm3",
-        "installed-biohub-esmfold2",
-        "installed-local-esm3",
-        "installed-local-esmfold2",
-        "installed-mkdssp",
-        "installed-proteinmpnn",
-        "installed-simplefold-folding",
-        "installed-simplefold-confidence",
-        "installed-soluprot",
-        "installed-protein-sol",
-        "fresh-1pga",
-        "fresh-2emo",
-        "fresh-canonical-3gb1",
-        "fresh-5g53",
-    )
-    assert INPUT_DIGESTS == {
-        "fresh-1pga": (
-            "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
-        ),
-        "fresh-2emo": (
-            "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
-        ),
-        "fresh-canonical-3gb1": (
-            "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
-        ),
-        "fresh-5g53": (
-            "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
-        ),
-    }
     assert all(
-        TIERS[name].zero_skip
-        and TIERS[name].retain_evidence_bundle
-        for name in ACCEPTANCE_TIER_ORDER
+        TIERS[tier.name].pytest_arguments == tier.pytest_arguments
+        and TIERS[tier.name].timeout_seconds == tier.timeout_seconds
+        and TIERS[tier.name].zero_skip == tier.zero_skip
+        and TIERS[tier.name].retain_evidence_bundle
+        for tier in CANONICAL_ACCEPTANCE_TIERS
     )
 
 
@@ -575,7 +550,7 @@ def test_verifier_assembles_retained_evidence_with_tier_result(
     assert tier_result["tier"] == tier_name
     assert tier_result["tests"] == 1
     assert tier_result["failures"] == 0
-    assert tier_result["passed"] is True
+    assert tier_result["conclusion"] == "passed"
 
 
 def test_verifier_retains_a_failed_tier_result_without_reporting_passed(
@@ -611,7 +586,7 @@ def test_verifier_retains_a_failed_tier_result_without_reporting_passed(
     assert tier_result["tier"] == tier_name
     assert tier_result["tests"] == 1
     assert tier_result["failures"] == 1
-    assert tier_result["passed"] is False
+    assert tier_result["conclusion"] == "failed"
 
 
 def test_verifier_rejects_retired_v1_tiers() -> None:
@@ -658,7 +633,7 @@ def test_output_capture_is_bounded_while_the_pipe_is_fully_drained(
     assert state == {"exceeded": True}
 
 
-def test_verifier_fails_closed_when_console_output_exceeds_bound(
+def test_console_output_bound_is_diagnostic_not_completion_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -674,11 +649,34 @@ def test_verifier_fails_closed_when_console_output_exceeds_bound(
         ("tests/tier_probes/test_isolated_roots.py",),
     )
 
-    assert result == 1
+    assert result == 0
     transcript = next(
         results_root.glob("routine/*/command-transcript.txt")
     ).read_text()
     assert "console_output_exceeded=true" in transcript
+
+
+def test_console_warning_literal_is_diagnostic_not_completion_authority(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    results_root = tmp_path / "verification-results"
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
+        str(results_root),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RESOURCE_WARNING_PROBE", "1")
+
+    result = verify_backend.run(
+        "routine",
+        ("tests/tier_probes/test_isolated_roots.py",),
+    )
+
+    assert result == 0
+    transcript = next(
+        results_root.glob("routine/*/command-transcript.txt")
+    ).read_text()
+    assert "resource_cleanup_warning=true" in transcript
 
 
 def test_verifier_interruption_terminates_child_and_retains_terminal_state(

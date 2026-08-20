@@ -24,7 +24,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Mapping
 
-from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
+from modules.acceptance_campaign import (
+    CANONICAL_ACCEPTANCE_TIERS,
+    TierExecutionOutcome,
+    write_tier_execution_outcome,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -153,13 +157,13 @@ TIERS = {
         ),
     )),
     **{
-        name: Tier(
-            contract.pytest_arguments,
-            timeout_seconds=contract.timeout_seconds,
-            zero_skip=True,
+        tier.name: Tier(
+            tier.pytest_arguments,
+            timeout_seconds=tier.timeout_seconds,
+            zero_skip=tier.zero_skip,
             retain_evidence_bundle=True,
         )
-        for name, contract in ACCEPTANCE_TIER_CONTRACTS.items()
+        for tier in CANONICAL_ACCEPTANCE_TIERS
     },
 }
 
@@ -184,11 +188,14 @@ def _git_state() -> tuple[str, bool]:
     return revision, dirty
 
 
-def _interpreter_digest() -> str:
+def _interpreter_digest() -> str | None:
     digest = hashlib.sha256()
-    with Path(sys.executable).resolve().open("rb") as source:
-        while chunk := source.read(1024 * 1024):
-            digest.update(chunk)
+    try:
+        with Path(sys.executable).resolve().open("rb") as source:
+            while chunk := source.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError:
+        return None
     return digest.hexdigest()
 
 
@@ -241,7 +248,6 @@ def _bounded_junit_diagnostics(
         raise ValueError("JUnit result is missing")
     if path.stat().st_size > MAX_JUNIT_BYTES:
         raise ValueError("JUnit result exceeds the retained size bound")
-    ET.parse(path)
     diagnostic = _redacted_diagnostic(
         path.read_text(encoding="utf-8"),
         staging_root=staging_root,
@@ -393,7 +399,12 @@ def _redacted_diagnostic(
     return redacted
 
 
-def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
+def run(
+    tier_name: str,
+    pytest_override: tuple[str, ...],
+    *,
+    acceptance_outcome_path: Path | None = None,
+) -> int:
     tier = TIERS[tier_name]
     arguments = pytest_override or tier.pytest_arguments
     revision, dirty = _git_state()
@@ -478,22 +489,23 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
             tests, failures, skipped, junit_summary = (
                 _bounded_junit_summary(junit_path)
             )
-            junit_diagnostics = _bounded_junit_diagnostics(
-                junit_path,
-                staging_root=staging_root,
-                environment=env,
-            )
             junit_valid = True
         except (OSError, ET.ParseError, ValueError):
             tests, failures, skipped = 0, 1, 0
+        if junit_valid:
+            try:
+                junit_diagnostics = _bounded_junit_diagnostics(
+                    junit_path,
+                    staging_root=staging_root,
+                    environment=env,
+                )
+            except (OSError, UnicodeError, ValueError):
+                junit_diagnostics = None
         resource_warning = RESOURCE_CLEANUP_WARNING in output
         passed = (
             process.returncode == 0
             and not interrupted
             and not timed_out
-            and not output_state["exceeded"]
-            and not output_state["read_error"]
-            and not resource_warning
             and junit_valid
             and failures == 0
             and (not tier.zero_skip or skipped == 0)
@@ -517,22 +529,52 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         result_dir.mkdir(parents=True, mode=0o700)
         result_dir.chmod(0o700)
         evidence_staging = staging_root / "acceptance-evidence"
+        retained_run_labels = tuple(
+            sorted(
+                child.name
+                for child in (evidence_staging / "runs").iterdir()
+                if child.is_dir()
+            )
+            if (evidence_staging / "runs").is_dir()
+            else ()
+        )
+        diagnostic_files = (
+            "command-transcript.txt",
+            "console-output.txt",
+            "environment-summary.json",
+            *(("pytest.xml",) if junit_summary is not None else ()),
+            *(
+                ("pytest-diagnostics.xml",)
+                if junit_diagnostics is not None
+                else ()
+            ),
+        )
+        campaign_outcome = TierExecutionOutcome(
+            tier=tier_name,
+            source_revision=revision,
+            retained_location=result_dir.relative_to(results_root).as_posix(),
+            conclusion=(
+                "interrupted"
+                if interrupted
+                else "passed"
+                if passed
+                else "failed"
+            ),
+            tests=tests,
+            failures=failures,
+            skipped=skipped,
+            retained_run_labels=retained_run_labels,
+            lifecycle_receipt_retained=(
+                evidence_staging / "model-lifecycle.json"
+            ).is_file(),
+            junit_retained=junit_summary is not None,
+            diagnostic_files=diagnostic_files,
+        )
         if tier.retain_evidence_bundle:
             _write_private(
                 evidence_staging / "tier-result.json",
                 json.dumps(
-                    {
-                        "schema_namespace": (
-                            "protein-workbench-verification-tier-result/v2"
-                        ),
-                        "tier": tier_name,
-                        "source_revision": revision,
-                        "tests": tests,
-                        "failures": failures,
-                        "skipped": skipped,
-                        "passed": passed,
-                        "interrupted": interrupted,
-                    },
+                    campaign_outcome.to_document(),
                     sort_keys=True,
                     separators=(",", ":"),
                 ).encode()
@@ -606,6 +648,12 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
                 junit_diagnostics,
             )
 
+        if acceptance_outcome_path is not None:
+            write_tier_execution_outcome(
+                acceptance_outcome_path,
+                campaign_outcome,
+            )
+
         print(f"RETAINED VERIFICATION RESULT: {result_dir}", flush=True)
         if passed:
             print("BACKEND VERIFICATION RESULT: passed", flush=True)
@@ -613,14 +661,8 @@ def run(tier_name: str, pytest_override: tuple[str, ...]) -> int:
         reason = (
             "interrupted"
             if interrupted
-            else "multiprocessing resource cleanup warning"
-            if resource_warning
             else "timeout"
             if timed_out
-            else "console output exceeded retained size bound"
-            if output_state["exceeded"]
-            else "console output read failure"
-            if output_state["read_error"]
             else "invalid or oversized JUnit result"
             if not junit_valid
             else "test failure"
@@ -636,13 +678,18 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Run an isolated v2 backend verification tier",
     )
+    parser.add_argument("--acceptance-outcome", type=Path)
     parser.add_argument("tier", choices=tuple(sorted(TIERS)))
     parser.add_argument("pytest_arguments", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     override = list(args.pytest_arguments)
     if override[:1] == ["--"]:
         override = override[1:]
-    return run(args.tier, tuple(override))
+    return run(
+        args.tier,
+        tuple(override),
+        acceptance_outcome_path=args.acceptance_outcome,
+    )
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ import httpx
 import pytest
 
 from core import build_discovered_frozen_catalog
-from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
+from modules.acceptance_campaign import acceptance_tier
 from protein_workbench_public import (
     bundle_bytes,
     bundle_digest,
@@ -696,7 +696,7 @@ def _require_configured_installed_evidence() -> None:
     if configured is None:
         return
     tier = os.environ["PROTEIN_WORKBENCH_VERIFICATION_TIER"]
-    contract = ACCEPTANCE_TIER_CONTRACTS[tier]
+    contract = acceptance_tier(tier)
     require_retained_evidence(
         Path(configured),
         required_runs=contract.required_run_labels,
