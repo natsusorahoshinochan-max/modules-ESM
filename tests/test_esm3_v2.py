@@ -47,7 +47,8 @@ from tests.fixtures.esm3_generation import (
     generation_catalog,
     run_generation,
     run_generation_from_prompt_fixture,
-    three_residue_pdb,
+    three_residue_provider_pdb,
+    three_residue_translated_pdb,
 )
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
@@ -794,12 +795,13 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
             yield f"invocation-{len(self.invocations)}"
 
     sequence_response = ProviderResponse("ACD")
-    provider_pdb = (
-        three_residue_pdb()
+    canonical_pdb = (
+        three_residue_translated_pdb()
         .replace("ALA", "GLY")
         .replace("CYS", "GLY")
         .replace("ASP", "GLY")
     )
+    provider_pdb = canonical_pdb.removesuffix("END\n")
     structure_response = ProviderResponse(
         "ACD",
         coordinates=torch.zeros((3, 37, 3)),
@@ -861,7 +863,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         ["A:1", "A:2", "A:3"],
     )
     assert result.structure.structure == ProteinStructure(
-        provider_pdb,
+        canonical_pdb,
     )
     assert type(result.structure.confidence) is ESM3Confidence
     confidence = result.structure.confidence
@@ -1090,7 +1092,7 @@ def test_generation_runs_retain_one_explicit_catalog(
             coordinates=torch.zeros((3, 37, 3)),
             ptm=torch.tensor(0.75),
             plddt=torch.tensor([0.7, 0.8, 0.9]),
-            pdb_string=three_residue_pdb(),
+            pdb_string=three_residue_provider_pdb(),
         )
 
     operations = (
@@ -1296,7 +1298,7 @@ def test_coordinate_conditioned_sequence_returns_prompt_reconstruction(
                 coordinates=torch.zeros((3, 37, 3)),
                 ptm=torch.tensor(0.75),
                 plddt=torch.tensor([0.7, 0.8, 0.9]),
-                pdb_string=three_residue_pdb(),
+                pdb_string=three_residue_provider_pdb(),
             )
         ]
     )
@@ -1355,7 +1357,7 @@ def test_coordinate_conditioned_paired_generation_retains_reconstruction(
         coordinates=torch.zeros((3, 37, 3)),
         ptm=torch.tensor(0.75),
         plddt=torch.tensor([0.7, 0.8, 0.9]),
-        pdb_string=three_residue_pdb(),
+        pdb_string=three_residue_provider_pdb(),
     )
     service, catalog, projection, _ = run_generation_from_prompt_fixture(
         tmp_path,
@@ -1604,7 +1606,7 @@ def test_paired_generation_records_track_specific_sdk_effective_steps(
                 coordinates=torch.zeros((3, 37, 3)),
                 ptm=torch.tensor(0.75),
                 plddt=torch.tensor([0.7, 0.8, 0.9]),
-                pdb_string=three_residue_pdb(),
+                pdb_string=three_residue_provider_pdb(),
             ),
         ]
     )
@@ -1653,7 +1655,7 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
                 coordinates=coordinates,
                 ptm=torch.tensor(0.8),
                 plddt=torch.tensor([0.8, 0.9, 1.0]),
-                pdb_string=three_residue_pdb(),
+                pdb_string=three_residue_provider_pdb(),
             )
         ]
     )
@@ -1677,7 +1679,10 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         service, catalog, projection, outputs["structure_candidates"]
     )
     assert len(structures.items) == 1
-    assert structures.items[0].data.pdb_string == three_residue_pdb()
+    assert (
+        structures.items[0].data.pdb_string
+        == three_residue_translated_pdb()
+    )
     assert structures.items[0].metadata["classification"] == "sampled_structure"
     confidence_facts = decode_output(
         service,
@@ -1761,7 +1766,7 @@ def test_structure_generation_publishes_exact_provider_pae_matrix(
                 ptm=torch.tensor(0.75),
                 plddt=torch.tensor([0.7, 0.8, 0.9]),
                 pae=pae,
-                pdb_string=three_residue_pdb(),
+                pdb_string=three_residue_provider_pdb(),
             )
         ]
     )
@@ -1807,7 +1812,7 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
                     coordinates=torch.zeros((3, 37, 3)),
                     ptm=torch.tensor(0.75),
                     plddt=torch.tensor([0.7, 0.8, 0.9]),
-                    pdb_string=three_residue_pdb(),
+                    pdb_string=three_residue_provider_pdb(),
                 ),
             ]
         )
@@ -2004,14 +2009,14 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         coordinates=torch.zeros((3, 37, 3)),
         ptm=torch.tensor(0.75),
         plddt=torch.tensor([0.7, 0.8, 0.9]),
-        pdb_string=three_residue_pdb(),
+        pdb_string=three_residue_provider_pdb(),
     )
     local_structure_response = lambda: ProviderResponse(
         "ACD",
         coordinates=torch.zeros((3, 37, 3)),
         ptm=torch.tensor([0.75]),
         plddt=torch.tensor([0.7, 0.8, 0.9]),
-        pdb_string=three_residue_pdb(),
+        pdb_string=three_residue_provider_pdb(),
     )
     paired_responses = [
         response

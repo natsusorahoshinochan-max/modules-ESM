@@ -359,6 +359,16 @@ def three_residue_pdb(sequence: str = "ACD") -> str:
     return "\n".join([*lines, "TER", "END", ""])
 
 
+def three_residue_provider_pdb(sequence: str = "ACD") -> str:
+    """Match the official ESM SDK serializer's ATOM-only PDB body."""
+    return three_residue_pdb(sequence).removesuffix("TER\nEND\n")
+
+
+def three_residue_translated_pdb(sequence: str = "ACD") -> str:
+    """Translate the official SDK body to the canonical terminal record."""
+    return f"{three_residue_provider_pdb(sequence)}END\n"
+
+
 def run_generation_from_prompt_fixture(
     tmp_path: Path,
     *,

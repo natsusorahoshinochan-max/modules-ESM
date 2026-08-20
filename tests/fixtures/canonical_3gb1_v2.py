@@ -154,7 +154,7 @@ class ControlledESM3Client:
             pdb_string=pdb_for_sequence(
                 protein.sequence,
                 bend=bend,
-            ),
+            ).removesuffix("TER\nEND\n"),
         )
 
 

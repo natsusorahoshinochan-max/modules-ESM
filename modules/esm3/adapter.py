@@ -342,8 +342,8 @@ def response_has_structure(result: Any) -> bool:
 def complete_structure(
     result: Any,
 ) -> ProteinStructure:
-    """Translate SDK PDB serialization to the canonical terminal record."""
-    return ProteinStructure(pdb_string=result.to_pdb_string())
+    """Translate the SDK PDB body to the canonical terminal record."""
+    return ProteinStructure(pdb_string=f"{result.to_pdb_string()}END\n")
 
 
 def biohub_confidence(

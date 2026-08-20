@@ -149,7 +149,10 @@ class _Controlled5G53ESM3:
             ptm=torch.tensor(0.90 - offset * 0.001),
             plddt=torch.tensor([0.90 - offset * 0.001] * length),
             pae=pae,
-            pdb_string=pdb_for_sequence(sequence, bend=offset * 0.01),
+            pdb_string=pdb_for_sequence(
+                sequence,
+                bend=offset * 0.01,
+            ).removesuffix("TER\nEND\n"),
         )
 
     def generate(self, protein: Any, config: Any) -> ControlledESMResponse:

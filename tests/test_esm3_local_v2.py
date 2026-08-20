@@ -470,7 +470,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
         ProviderResponse,
         decode_output,
         run_generation,
-        three_residue_pdb,
+        three_residue_provider_pdb,
     )
 
     _patch_local_runtime(monkeypatch, tmp_path)
@@ -501,7 +501,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
                 [99.0, 99.0, 99.0, 99.0, 99.0],
             ]]
         ),
-        pdb_string=three_residue_pdb(),
+        pdb_string=three_residue_provider_pdb(),
     )
     responses = {
         "sequence": [ProviderResponse("ACD")],
