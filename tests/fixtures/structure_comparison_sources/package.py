@@ -571,6 +571,7 @@ def _fixture_binding(
     binding_id: str,
     node_type_id: str,
     method_id: str,
+    method_version: str = _VERSION,
     factory_name: str,
     build,
     produced_observations: tuple[ProducedObservationDefinition, ...] = (),
@@ -579,7 +580,7 @@ def _fixture_binding(
         binding_id=binding_id,
         version=_VERSION,
         node_type=ContractIdentity("node_type", node_type_id, _VERSION),
-        method=ContractIdentity("method", method_id, "4.0.0"),
+        method=ContractIdentity("method", method_id, method_version),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
@@ -764,6 +765,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.simplefold_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.simplefold_100m_c7a5570",
+            method_version="5.0.0",
             factory_name="contract_test.simplefold_confidence_source/factory",
             build=_build_simplefold_confidence_source,
             produced_observations=(
@@ -795,6 +797,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.simplefold_confidence_fact_source.fixture",
             node_type_id="contract_test.prediction_confidence_fact_source",
             method_id="folding.fold.simplefold_100m_c7a5570",
+            method_version="5.0.0",
             factory_name="contract_test.simplefold_confidence_fact_source/factory",
             build=_build_confidence_fact_source,
         ),

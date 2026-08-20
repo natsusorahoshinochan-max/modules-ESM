@@ -38,9 +38,10 @@ from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
+from tests.fixtures.simplefold import build_fixture_simplefold_closure
 
 
-_SIMPLEFOLD_BINDING_VERSION = "7.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "8.0.0"
 
 
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
@@ -99,7 +100,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         method_reference["contract_id"],
         method_reference["contract_version"],
     )
-    assert method_reference["contract_version"] == "4.0.0"
+    assert method_reference["contract_version"] == "5.0.0"
     assert method.descriptor["model_identity"]["folding_model"] == (
         "simplefold_100M"
     )
@@ -259,7 +260,7 @@ def _simplefold_environment(
     monkeypatch: pytest.MonkeyPatch,
     client: Any,
 ) -> dict[str, Any]:
-    import modules.folding.simplefold_adapter as adapter
+    import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
 
     model_root = tmp_path / "models"
@@ -280,55 +281,29 @@ def _simplefold_environment(
         (model_root / name).write_bytes(payload)
     for name, payload in esm2_payloads.items():
         (esm2_model_root / name).write_bytes(payload)
+    fixture_digests = {
+        name: hashlib.sha256(payload).hexdigest()
+        for name, payload in (*model_payloads.items(), *esm2_payloads.items())
+    }
+    fixture_closure = build_fixture_simplefold_closure(
+        contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        fixture_digests,
+    )
     monkeypatch.setattr(
         contract,
-        "SIMPLEFOLD_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(payload).hexdigest()
-            for name, payload in model_payloads.items()
-        },
+        "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
+        fixture_closure,
     )
     monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ARTIFACT_IDENTITIES",
-        {
-            name: {"bytes": len(payload)}
-            for name, payload in model_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(payload).hexdigest()
-            for name, payload in esm2_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES",
-        {
-            name: {"bytes": len(payload)}
-            for name, payload in esm2_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
+        asset_closure,
         "validate_installed_provider_checkout",
         lambda *_args, **_kwargs: None,
-    )
-    import modules.folding.simplefold_runtime as provider_runtime
-
-    monkeypatch.setattr(
-        provider_runtime,
-        "validated_simplefold_esm2_root",
-        lambda root=None: root,
     )
     return {
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
-        "device": adapter.SIMPLEFOLD_DEVICE,
+        "device": contract.SIMPLEFOLD_DEVICE,
         "provider_client": client,
         "private_token": "must-never-publish",
     }
@@ -464,6 +439,100 @@ def _run_simplefold(
     finally:
         service.shutdown()
     return catalog, service, projection, events
+
+
+def test_staging_failure_is_an_operation_failure_before_provider_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_asset_closure as asset_closure
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fold(self, **_kwargs: Any) -> Any:
+            self.calls += 1
+            raise AssertionError("Provider entry must not start")
+
+    client = Client()
+    environment = _simplefold_environment(
+        tmp_path / "environment",
+        monkeypatch,
+        client,
+    )
+
+    def fail_staging(_source: Path, _destination: Path) -> None:
+        raise OSError("fixture staging failure")
+
+    monkeypatch.setattr(asset_closure, "_copy_file", fail_staging)
+    _, _, projection, events = _run_simplefold(
+        tmp_path / "run",
+        monkeypatch,
+        client=client,
+        num_samples=1,
+        environment_values=environment,
+    )
+
+    event_types = [event["event"]["type"] for event in events]
+    assert projection["status"] == "failed"
+    assert event_types.count("operation_attempt_started") == 2
+    assert event_types.count("operation_attempt_terminal") == 2
+    assert all(
+        event["event"].get("engine_role") != "fold_parent_0"
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+    )
+    assert client.calls == 0
+
+
+def test_closure_admission_failure_is_a_binding_failure_without_operation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Client:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fold(self, **_kwargs: Any) -> Any:
+            self.calls += 1
+            raise AssertionError("Provider entry must not start")
+
+    client = Client()
+    environment = _simplefold_environment(
+        tmp_path / "environment",
+        monkeypatch,
+        client,
+    )
+    (environment["model_root"] / "simplefold_100M.ckpt").write_bytes(
+        b"changed-before-admission"
+    )
+
+    _, _, projection, events = _run_simplefold(
+        tmp_path / "run",
+        monkeypatch,
+        client=client,
+        num_samples=1,
+        environment_values=environment,
+    )
+
+    event_types = [event["event"]["type"] for event in events]
+    assert projection["status"] == "failed"
+    assert event_types.count("operation_attempt_started") == 1
+    assert event_types.count("operation_attempt_terminal") == 1
+    assert all(
+        event["event"].get("engine_role") != "fold_parent_0"
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+    )
+    terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+        and event["event"].get("failure_origin") == "binding"
+    )
+    assert terminal["error"]["code"] == "readiness_rejected"
+    assert client.calls == 0
 
 
 def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
@@ -712,6 +781,7 @@ def test_simplefold_rejects_non_pinned_provider_pdb_tail(
 
 def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.folding.simplefold_adapter import LocalSimpleFoldAdapter
 
@@ -743,7 +813,11 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
             yield
 
     result = LocalSimpleFoldAdapter(
-        environment={"provider_client": Client()},
+        environment=_simplefold_environment(
+            tmp_path / "environment",
+            monkeypatch,
+            Client(),
+        ),
         resources=Resources(),
     ).fold(
         sequence=ProteinSequence("AG", ("Q:-2A", "Q:10")),

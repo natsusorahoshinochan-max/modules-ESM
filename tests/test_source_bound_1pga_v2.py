@@ -120,6 +120,41 @@ def _provider_free_catalog() -> Any:
     return build_frozen_catalog(tuple(registrations))
 
 
+def _provider_free_simplefold_environment(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    client: Any,
+) -> dict[str, Any]:
+    import modules.folding.simplefold_contract as simplefold_contract
+
+    closure = replace(
+        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        sources=(),
+    )
+    monkeypatch.setattr(
+        simplefold_contract,
+        "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
+        closure,
+    )
+    configured_roots = {
+        environment_key: root / environment_key
+        for environment_key in {
+            entry.environment_key for entry in closure.files
+        }
+    }
+    for configured_root in configured_roots.values():
+        configured_root.mkdir(parents=True)
+    for entry in closure.files:
+        (configured_roots[entry.environment_key] / entry.runtime_filename).write_bytes(
+            f"provider-free-{entry.runtime_filename}".encode()
+        )
+    return {
+        **configured_roots,
+        "device": simplefold_contract.SIMPLEFOLD_DEVICE,
+        "provider_client": client,
+    }
+
+
 class _ControlledESMFold2:
     def __init__(self, structure: str, *, plddt: float = 90.0) -> None:
         self.structure = structure
@@ -286,8 +321,12 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "7.0.0"): {
-            "values": {"provider_client": simplefold},
+        ("folding.fold.simplefold_local", "8.0.0"): {
+            "values": _provider_free_simplefold_environment(
+                tmp_path / "simplefold-assets",
+                monkeypatch,
+                simplefold,
+            ),
         },
     }
     catalog = _provider_free_catalog()
@@ -656,8 +695,12 @@ def test_source_bound_1pga_public_classification_contract(
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "7.0.0"): {
-            "values": {"provider_client": simplefold},
+        ("folding.fold.simplefold_local", "8.0.0"): {
+            "values": _provider_free_simplefold_environment(
+                tmp_path / "simplefold-assets",
+                monkeypatch,
+                simplefold,
+            ),
         },
     }
     catalog = _provider_free_catalog()

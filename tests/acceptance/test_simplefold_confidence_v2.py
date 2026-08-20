@@ -82,7 +82,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         node_type_id="folding.simplefold_confidence",
         node_type_version="4.0.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -235,7 +235,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "lstat", guarded_os_lstat)
     monkeypatch.setattr(os, "access", guarded_os_access)
     environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "4.0.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "5.0.0"): {
             "values": {
                 "model_root": model_root,
                 "esm2_source_root": Path(
@@ -349,7 +349,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "4.0.0",
+        "5.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -364,7 +364,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.simplefold_confidence.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "4.0.0"
+        and event["event"]["binding"]["contract_version"] == "5.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

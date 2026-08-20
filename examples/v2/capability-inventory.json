@@ -138,14 +138,14 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.simplefold_local",
-      "contract_version": "7.0.0",
-      "contract_digest": "sha256:8ef88ab7eb2ed7c721d2a16eb5235aa1099d0fdae7d3bc91944406644f12de77"
+      "contract_version": "8.0.0",
+      "contract_digest": "sha256:b9f64d8a35a81832e2a8bd356923e881e2299ace307ee78444394397fa47f49a"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.simplefold_confidence.simplefold_local",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:36968c4b4c2cc2ba7c745d127d9ae9af224b5d43e9d5d0bac6b136495dde0be5"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:fef309ee570de90d9a54cb4ff51bce8ad345156f22be0d89fd2b17e6383a0a37"
     },
     {
       "contract_kind": "binding",
@@ -390,8 +390,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.classify_three_way_consistency.direct",
-      "contract_version": "1.0.0",
-      "contract_digest": "sha256:e1fa89ff3f4543c073426d0a2811dcfdb74b61425d1717840d3cf94fe3a2e01d"
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:57d69e092645a2803d569c59a9aa8d59fc84286147a8da696fd4255262077d05"
     },
     {
       "contract_kind": "binding",
@@ -624,14 +624,14 @@
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.simplefold_100m_c7a5570",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:554eabb76c346ee58682719ef758edc476582172ae84e1d80725bc44d76c97c9"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:010f5170d530d8b72445dc7a522952334853f263c3b6ac9d0f3eb414f6fb2b5e"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.simplefold_confidence.existing_structure_1_6b_c7a5570",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:cd081f395b74fde33521d86f039f7f119bbbcf6fb16b6d200b05dc1f07058b86"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:65aabaa9f32e1946e990f29bf9cf910e42d33ce395b651c69af5353914d0923c"
     },
     {
       "contract_kind": "method",
@@ -876,8 +876,8 @@
     {
       "contract_kind": "method",
       "contract_id": "structure_comparison.three_way_consistency.threshold_graph",
-      "contract_version": "1.0.0",
-      "contract_digest": "sha256:9b90aa7207bf76cac662fb338779172b16bb7243611aae2a122ce94e54e23b74"
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:1c76fb32a4933ec66ac2773e261053aac3497462881915c4c0ac1e8e4f14bf0a"
     },
     {
       "contract_kind": "method",
@@ -1356,8 +1356,8 @@
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.classify_three_way_consistency",
-      "contract_version": "1.0.0",
-      "contract_digest": "sha256:fb6ccc851df53467bb085da5c0d17bcb8b38b6bead98278c5e2abbacbe6ae138"
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:455c94a62b1d435a846cbd8500f78a5054cfd3cd413f8a6809fd49fdaa8647a5"
     },
     {
       "contract_kind": "node_type",

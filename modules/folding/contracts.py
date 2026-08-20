@@ -3,13 +3,6 @@
 from __future__ import annotations
 
 from core import MethodDefinition
-from modules.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_REVISION,
-    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-    SIMPLEFOLD_REVISION,
-)
 
 from .esmfold2_contract import (
     ESM_SDK_REVISION,
@@ -29,12 +22,18 @@ from .simplefold_contract import (
     simplefold_confidence_artifact_sha256,
     simplefold_confidence_esm2_artifact_sha256,
     simplefold_folding_artifact_sha256,
+    simplefold_folding_esm2_artifact_sha256,
+)
+from .simplefold_asset_closure import (
+    SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+    SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
 )
 
 
 FOLD_METHOD_VERSION = "4.0.0"
 LOCAL_ESMFOLD2_METHOD_VERSION = "6.0.0"
-CONFIDENCE_METHOD_VERSION = "3.0.0"
+SIMPLEFOLD_FOLD_METHOD_VERSION = "5.0.0"
+CONFIDENCE_METHOD_VERSION = "4.0.0"
 
 
 def _method(route: str) -> MethodDefinition:
@@ -146,9 +145,10 @@ def _method(route: str) -> MethodDefinition:
 
 
 def _simplefold_method() -> MethodDefinition:
+    closure_identity = SIMPLEFOLD_FOLDING_ASSET_CLOSURE.provider_identity()
     return MethodDefinition(
         method_id="folding.fold.simplefold_100m_c7a5570",
-        version=FOLD_METHOD_VERSION,
+        version=SIMPLEFOLD_FOLD_METHOD_VERSION,
         algorithm_identity={
             "name": "SimpleFold Euler-Maruyama sequence folding",
             "sampler": "Euler-Maruyama",
@@ -173,14 +173,14 @@ def _simplefold_method() -> MethodDefinition:
             "simplefold_artifact_sha256": (
                 simplefold_folding_artifact_sha256()
             ),
-            "esm2_artifact_sha256": dict(
-                sorted(SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items())
+            "esm2_artifact_sha256": (
+                simplefold_folding_esm2_artifact_sha256()
             ),
         },
         featurization_identity={
             "input": "single-chain canonical protein sequence",
             "format": "SimpleFold FASTA A|Protein",
-            "ccd_sha256": SIMPLEFOLD_ARTIFACT_SHA256["ccd.pkl"],
+            "ccd_sha256": closure_identity["artifact_sha256"]["ccd.pkl"],
             "processor_scale": 16.0,
             "processor_reference_scale": 5.0,
             "prediction_residue_axis": {
@@ -190,10 +190,14 @@ def _simplefold_method() -> MethodDefinition:
             },
         },
         source_identity={
-            "provider": "ml-simplefold",
-            "source_revision": SIMPLEFOLD_REVISION,
-            "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
-            "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+            "provider": closure_identity["source"],
+            "source_revision": closure_identity["source_revision"],
+            "esm2_source_revision": closure_identity[
+                "esm2_source_revision"
+            ],
+            "esm2_source_tree_sha256": closure_identity[
+                "esm2_source_tree_sha256"
+            ],
         },
         scale_contract={
             "plddt": "provider_high_level_[0,100]_identity",
@@ -202,6 +206,9 @@ def _simplefold_method() -> MethodDefinition:
 
 
 def _simplefold_confidence_method() -> MethodDefinition:
+    closure_identity = (
+        SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
+    )
     return MethodDefinition(
         method_id=(
             "folding.simplefold_confidence."
@@ -240,16 +247,20 @@ def _simplefold_confidence_method() -> MethodDefinition:
                 "segments_sequence_named_coordinates_and_masks"
             ),
             "raw_pdb_reparse": "forbidden",
-            "ccd_sha256": SIMPLEFOLD_ARTIFACT_SHA256["ccd.pkl"],
+            "ccd_sha256": closure_identity["artifact_sha256"]["ccd.pkl"],
             "processor_scale": 16.0,
             "processor_reference_scale": 5.0,
             "encoder_mode": "representation_only_no_contacts",
         },
         source_identity={
-            "provider": "ml-simplefold",
-            "source_revision": SIMPLEFOLD_REVISION,
-            "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
-            "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
+            "provider": closure_identity["source"],
+            "source_revision": closure_identity["source_revision"],
+            "esm2_source_revision": closure_identity[
+                "esm2_source_revision"
+            ],
+            "esm2_source_tree_sha256": closure_identity[
+                "esm2_source_tree_sha256"
+            ],
         },
         scale_contract={
             "plddt": "direct_confidence_head_[0,1]_multiply_100",

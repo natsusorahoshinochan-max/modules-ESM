@@ -227,7 +227,7 @@ TM_SCORE_FROM_EVIDENCE_METHOD = MethodDefinition(
 
 THREE_WAY_CONSISTENCY_METHOD = MethodDefinition(
     method_id="structure_comparison.three_way_consistency.threshold_graph",
-    version="1.0.0",
+    version="2.0.0",
     algorithm_identity={
         "name": "input-esmfold2-simplefold-threshold-graph",
         "confidence_eligibility": {
@@ -235,7 +235,7 @@ THREE_WAY_CONSISTENCY_METHOD = MethodDefinition(
             "minimum": 70.0,
             "methods": [
                 "folding.fold.esmfold2_fast_biohub_2026_05@4.0.0",
-                "folding.fold.simplefold_100m_c7a5570@4.0.0",
+                "folding.fold.simplefold_100m_c7a5570@5.0.0",
             ],
         },
         "close": {

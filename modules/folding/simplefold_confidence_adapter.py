@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import importlib.util
 import json
@@ -18,20 +17,18 @@ from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict
 
 from core import ReadinessResult, RunResources
-from modules.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ESM2_REVISION,
-    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-    SIMPLEFOLD_REVISION,
-    validate_installed_provider_checkout,
-)
 from datatypes import (
     ResolvedStructureResidueAxis,
     StructureAxisSegment,
 )
-from .adapter import normalize_residue_plddt
+
 from . import simplefold_contract
+from .adapter import normalize_residue_plddt
+from .simplefold_asset_closure import (
+    StagedSimpleFoldProviderAssetClosure,
+    admit_simplefold_provider_asset_closure,
+    stage_simplefold_provider_asset_closure,
+)
 
 
 class _SimpleFoldConfidenceNativeResult(TypedDict):
@@ -64,31 +61,12 @@ class SimpleFoldConfidenceAdapter(Protocol):
     ) -> SimpleFoldConfidenceAdapterResult: ...
 
 
-def validated_simplefold_esm2_root(
-    source_root: Path | None = None,
-) -> Path:
-    """Lazily cross the installed ESM2 source validator boundary."""
-    from .simplefold_runtime import (
-        validated_simplefold_esm2_root as validate,
-    )
-
-    return validate(source_root)
-
-
 def provider_identity() -> dict[str, Any]:
     """Return only scientific assets crossed by this engine boundary."""
-    return {
-        "source": "ml-simplefold",
-        "source_revision": SIMPLEFOLD_REVISION,
-        "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
-        "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-        "esm2_artifact_sha256": (
-            simplefold_contract.simplefold_confidence_esm2_artifact_sha256()
-        ),
-        "artifact_sha256": (
-            simplefold_contract.simplefold_confidence_artifact_sha256()
-        ),
-    }
+    return (
+        simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
+        .provider_identity()
+    )
 
 
 def simplefold_confidence_runtime_structurally_available() -> bool:
@@ -99,118 +77,30 @@ def simplefold_confidence_runtime_structurally_available() -> bool:
     )
 
 
-def _sha256_file(path: Path, *, expected_bytes: int | None = None) -> str:
-    digest = hashlib.sha256()
-    if expected_bytes is not None and path.stat().st_size != expected_bytes:
-        raise RuntimeError(
-            "SimpleFold confidence asset byte count mismatch: "
-            f"{path.name}"
-        )
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _validated_file_digest(
-    path: Path,
-    *,
-    expected_digest: str,
-    identities: Mapping[str, Mapping[str, Any]],
-    changed_message: str,
-) -> str:
-    expected_bytes = identities.get(path.name, {}).get("bytes")
-    observed_digest = _sha256_file(
-        path,
-        expected_bytes=(
-            expected_bytes
-            if isinstance(expected_bytes, int)
-            else None
-        ),
-    )
-    if observed_digest != expected_digest:
-        raise RuntimeError(f"{changed_message}: {path.name}")
-    return observed_digest
-
-
-def _validated_file_set(
-    root: object,
-    expected: Mapping[str, str],
-    identities: Mapping[str, Mapping[str, Any]],
-) -> tuple[Path, dict[str, str]]:
-    if not isinstance(root, Path) or not root.is_dir():
-        raise FileNotFoundError(
-            "SimpleFold confidence asset root is unavailable"
-        )
-    observed: dict[str, str] = {}
-    for name, expected_digest in sorted(expected.items()):
-        observed[name] = _validated_file_digest(
-            root / name,
-            expected_digest=expected_digest,
-            identities=identities,
-            changed_message=(
-                "SimpleFold confidence asset SHA-256 mismatch"
-            ),
-        )
-    return root, observed
-
-
-def validate_simplefold_confidence_environment(
+def _admit_simplefold_confidence_environment(
     environment: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Resolve and validate the exact confidence assets without model load."""
+) -> None:
+    """Admit the exact confidence closure without model load."""
     if environment.get("device") != (
         simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
     ):
         raise RuntimeError("SimpleFold confidence device identity changed")
-    model_root, observed_model_digests = _validated_file_set(
-        environment.get("model_root"),
-        simplefold_contract.simplefold_confidence_artifact_sha256(),
-        SIMPLEFOLD_ARTIFACT_IDENTITIES,
+    admit_simplefold_provider_asset_closure(
+        simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+        environment,
     )
-    esm2_model_root, observed_esm2_digests = _validated_file_set(
-        environment.get("esm2_model_root"),
-        simplefold_contract.simplefold_confidence_esm2_artifact_sha256(),
-        SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
-    )
-    source_root = environment.get("esm2_source_root")
-    if not isinstance(source_root, Path):
-        raise FileNotFoundError(
-            "SimpleFold confidence ESM2 source root is unavailable"
-        )
-    observed_source = validated_simplefold_esm2_root(source_root)
-    if Path(observed_source).resolve() != source_root.resolve():
-        raise RuntimeError("SimpleFold confidence ESM2 source identity changed")
-    resolved_provider_identity = {
-        **provider_identity(),
-        "artifact_sha256": dict(sorted(observed_model_digests.items())),
-        "esm2_artifact_sha256": dict(
-            sorted(observed_esm2_digests.items())
-        ),
-    }
-    return {
-        "model_root": model_root,
-        "esm2_model_root": esm2_model_root,
-        "esm2_source_root": source_root,
-        "resolved_provider_identity": resolved_provider_identity,
-    }
 
 
 def simplefold_confidence_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
     try:
-        validate_installed_provider_checkout(
-            "simplefold",
-            SIMPLEFOLD_REVISION,
-        )
-        validate_simplefold_confidence_environment(environment)
+        _admit_simplefold_confidence_environment(environment)
     except (
         FileNotFoundError,
         ImportError,
         OSError,
         RuntimeError,
-        ValueError,
     ):
         return ReadinessResult(
             False,
@@ -222,28 +112,6 @@ def simplefold_confidence_readiness(
 
 def _copy_file(source: Path, destination: Path) -> None:
     shutil.copyfile(source, destination)
-
-
-def _stage_file_set(
-    source_root: Path,
-    destination_root: Path,
-    expected: Mapping[str, str],
-) -> Path:
-    destination_root.mkdir(mode=0o700)
-    for name in sorted(expected):
-        _copy_file(source_root / name, destination_root / name)
-    return destination_root
-
-
-def _stage_esm2_source(source_root: Path, destination_root: Path) -> Path:
-    from .simplefold_runtime import (
-        _stage_simplefold_esm2_source,
-    )
-
-    return _stage_simplefold_esm2_source(
-        source_root,
-        destination_root,
-    )
 
 
 def _load_representation_only_esm2(
@@ -353,7 +221,7 @@ def _native_existing_structure_confidence(
     *,
     residue_axis: ResolvedStructureResidueAxis,
     staging_directory: Path,
-    validated: Mapping[str, Any],
+    staged_closure: StagedSimpleFoldProviderAssetClosure,
 ) -> _SimpleFoldConfidenceNativeResult:
     """Run only the latent confidence path over supplied coordinates."""
     import numpy as np
@@ -369,22 +237,9 @@ def _native_existing_structure_confidence(
         residue_ids = residue_axis.layout.residue_ids
         assert residue_ids is not None
         input_coordinates = _coordinates_by_residue(residue_axis)
-        artifact_root = staging_directory / "simplefold-confidence-assets"
-        artifact_root.mkdir(mode=0o700)
-        model_dir = _stage_file_set(
-            validated["model_root"],
-            artifact_root / "verified-provider",
-            simplefold_contract.simplefold_confidence_artifact_sha256(),
-        )
-        esm2_model_dir = _stage_file_set(
-            validated["esm2_model_root"],
-            artifact_root / "verified-esm2-model",
-            simplefold_contract.simplefold_confidence_esm2_artifact_sha256(),
-        )
-        esm2_source_root = _stage_esm2_source(
-            validated["esm2_source_root"],
-            artifact_root / "esm2-source-work",
-        )
+        model_dir = staged_closure.group_root("simplefold_models")
+        esm2_model_dir = staged_closure.group_root("esm2_models")
+        esm2_source_root = staged_closure.group_root("esm2_source")
         old_cwd = _setup_simplefold_imports()
         try:
             from simplefold.boltz_data_pipeline import const
@@ -583,7 +438,6 @@ class LocalSimpleFoldConfidenceAdapter:
     ) -> None:
         self._environment = environment
         self._resources = resources
-        self._validated_environment: Mapping[str, Any] | None = None
 
     @staticmethod
     def normalize_native_confidence(
@@ -596,28 +450,12 @@ class LocalSimpleFoldConfidenceAdapter:
             valid_protein_residues=valid_protein_residues,
         )
 
-    def _validated(self) -> Mapping[str, Any]:
-        if self._validated_environment is None:
-            self._validated_environment = {
-                "model_root": cast(Path, self._environment["model_root"]),
-                "esm2_model_root": cast(
-                    Path,
-                    self._environment["esm2_model_root"],
-                ),
-                "esm2_source_root": cast(
-                    Path,
-                    self._environment["esm2_source_root"],
-                ),
-                "resolved_provider_identity": provider_identity(),
-            }
-        return self._validated_environment
-
     def _provider_call(
         self,
         *,
         residue_axis: ResolvedStructureResidueAxis,
         staging_directory: Path,
-        validated: Mapping[str, Any],
+        staged_closure: StagedSimpleFoldProviderAssetClosure,
     ) -> Callable[[], _SimpleFoldConfidenceNativeResult]:
         client = self._environment.get("provider_client")
         if client is not None:
@@ -626,10 +464,8 @@ class LocalSimpleFoldConfidenceAdapter:
                     _SimpleFoldConfidenceNativeResult,
                     client.evaluate(
                         residue_axis=residue_axis,
-                        staging_directory=staging_directory,
-                        resolved_provider_identity=validated[
-                            "resolved_provider_identity"
-                        ],
+                        staging_directory=staged_closure.root,
+                        resolved_provider_identity=provider_identity(),
                     ),
                 )
 
@@ -639,7 +475,7 @@ class LocalSimpleFoldConfidenceAdapter:
             return _native_existing_structure_confidence(
                 residue_axis=residue_axis,
                 staging_directory=staging_directory,
-                validated=validated,
+                staged_closure=staged_closure,
             )
 
         return invoke_local_runtime
@@ -651,14 +487,18 @@ class LocalSimpleFoldConfidenceAdapter:
         engine_role: str,
     ) -> SimpleFoldConfidenceAdapterResult:
         """Invoke once, then decode and normalize outside Invocation."""
-        validated = self._validated()
         with self._resources.temporary_directory(
             prefix="simplefold-confidence-"
         ) as staging_directory:
+            staged_closure = stage_simplefold_provider_asset_closure(
+                simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+                self._environment,
+                staging_directory,
+            )
             provider_call = self._provider_call(
                 residue_axis=residue_axis,
                 staging_directory=staging_directory,
-                validated=validated,
+                staged_closure=staged_closure,
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,

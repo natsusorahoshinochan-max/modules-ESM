@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +39,7 @@ from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
+from tests.fixtures.simplefold import build_fixture_simplefold_closure
 
 
 def _two_residue_pdb() -> str:
@@ -138,6 +140,7 @@ def _confidence_environment(
     asset_prefix: str = "fixture",
 ) -> dict[str, Any]:
     import modules.folding.simplefold_confidence_adapter as adapter
+    import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
 
     model_root = tmp_path / "models"
@@ -158,47 +161,23 @@ def _confidence_environment(
         (model_root / name).write_bytes(payload)
     for name, payload in esm2_payloads.items():
         (esm2_model_root / name).write_bytes(payload)
-    monkeypatch.setattr(
-        contract,
-        "SIMPLEFOLD_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(payload).hexdigest()
-            for name, payload in model_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ARTIFACT_IDENTITIES",
-        {
-            name: {"bytes": len(payload)}
-            for name, payload in model_payloads.items()
-        },
+    fixture_digests = {
+        name: hashlib.sha256(payload).hexdigest()
+        for name, payload in (*model_payloads.items(), *esm2_payloads.items())
+    }
+    fixture_closure = build_fixture_simplefold_closure(
+        contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+        fixture_digests,
     )
     monkeypatch.setattr(
         contract,
-        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(payload).hexdigest()
-            for name, payload in esm2_payloads.items()
-        },
+        "SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE",
+        fixture_closure,
     )
     monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES",
-        {
-            name: {"bytes": len(payload)}
-            for name, payload in esm2_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
+        asset_closure,
         "validate_installed_provider_checkout",
         lambda *_args, **_kwargs: None,
-    )
-    monkeypatch.setattr(
-        adapter,
-        "validated_simplefold_esm2_root",
-        lambda root=None: root,
     )
     return {
         "model_root": model_root,
@@ -259,7 +238,7 @@ def _run_confidence(
         node_type_id="folding.simplefold_confidence",
         node_type_version="4.0.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -325,7 +304,7 @@ def _run_confidence(
             client=client,
         )
     environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "4.0.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "5.0.0"): {
             "values": environment_values,
         }
     })
@@ -367,7 +346,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "4.0.0",
+        "5.0.0",
     )
     node = catalog.require_contract(
         "node_type",
@@ -434,7 +413,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     }
 
     method_reference = binding.descriptor["method"]
-    assert method_reference["contract_version"] == "3.0.0"
+    assert method_reference["contract_version"] == "4.0.0"
     method = catalog.require_contract(
         method_reference["contract_kind"],
         method_reference["contract_id"],
@@ -497,11 +476,7 @@ def test_confidence_readiness_admits_only_the_exact_asset_closure(
     assert adapter.simplefold_confidence_readiness(
         environment
     ) == ReadinessResult(True, proof_source="direct-observation")
-    validated = adapter.validate_simplefold_confidence_environment(
-        environment
-    )
     identity = adapter.provider_identity()
-    assert validated["resolved_provider_identity"] == identity
     assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",
         "plddt.ckpt",
@@ -592,7 +567,7 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "4.0.0",
+        "5.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -698,7 +673,7 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         environment={"native_tensor": object()},
     )
     adapter = Adapter()
@@ -734,7 +709,7 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             inputs={
                 "structure_candidates": CandidateCollection(
                     "structures",
@@ -810,7 +785,7 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="4.0.0",
+        binding_version="5.0.0",
     )
     adapter = Adapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -858,7 +833,7 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             inputs={
                 "structure_candidates": CandidateCollection(
                     "structures",
@@ -922,7 +897,7 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="4.0.0",
+        binding_version="5.0.0",
     )
     adapter = BombAdapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -951,7 +926,7 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
     call = operation_call(
         catalog=catalog,
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         inputs={
             "structure_candidates": CandidateCollection(
                 "structures",
@@ -1003,7 +978,7 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="4.0.0",
+        binding_version="5.0.0",
     )
     adapter = BombAdapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -1046,7 +1021,7 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
                 binding_id=(
                     "folding.simplefold_confidence.simplefold_local"
                 ),
-                binding_version="4.0.0",
+                binding_version="5.0.0",
                 inputs={
                     "structure_candidates": CandidateCollection(
                         "structures",
@@ -1096,11 +1071,18 @@ def test_resolved_asset_digests_are_bound_to_result_contract_identity(
     assert result_identity.startswith("sha256:")
     import modules.folding.simplefold_contract as contract
 
-    replacement = dict(contract.SIMPLEFOLD_ARTIFACT_SHA256)
-    replacement["ccd.pkl"] = "0" * 64
+    replacement = replace(
+        contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+        files=tuple(
+            replace(entry, sha256="0" * 64)
+            if entry.runtime_filename == "ccd.pkl"
+            else entry
+            for entry in contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.files
+        ),
+    )
     monkeypatch.setattr(
         contract,
-        "SIMPLEFOLD_ARTIFACT_SHA256",
+        "SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE",
         replacement,
     )
     changed_identity = dict(

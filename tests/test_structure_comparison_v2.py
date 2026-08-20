@@ -944,7 +944,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         ("structure_comparison.evaluate_inserted_loop", "1.0.0"),
         (
             "structure_comparison.classify_three_way_consistency",
-            "1.0.0",
+            "2.0.0",
         ),
         ("structure_comparison.rmsd_fixed_reference", "5.0.0"),
         ("structure_comparison.rmsd_counterparts", "5.0.0"),
@@ -955,7 +955,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         contract.contract_version
         for contract in contracts
         if contract.contract_kind in {"method", "metric", "utility_transform"}
-    } == {"1.0.0", "3.0.0"}
+    } == {"1.0.0", "2.0.0", "3.0.0"}
     assert {
         (contract.contract_id, contract.contract_version)
         for contract in contracts
@@ -981,7 +981,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         ),
         (
             "structure_comparison.classify_three_way_consistency.direct",
-            "1.0.0",
+            "2.0.0",
         ),
         (
             "structure_comparison.evaluate_inserted_loop.direct",
@@ -1770,9 +1770,9 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
     return ModulePackageContractCase(
         case_id="classify-1pga-three-way-consistency",
         node_type_id="structure_comparison.classify_three_way_consistency",
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id="structure_comparison.classify_three_way_consistency.direct",
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -2249,7 +2249,7 @@ def test_structure_comparison_contract_test_kit(
             reference(
                 "method",
                 "folding.fold.simplefold_100m_c7a5570",
-                "4.0.0",
+                "5.0.0",
             ),
             90.0,
             True,
@@ -2308,7 +2308,7 @@ def test_structure_comparison_contract_test_kit(
         classification_method=reference(
             "method",
             "structure_comparison.three_way_consistency.threshold_graph",
-            "1.0.0",
+            "2.0.0",
         ),
         input_b_factor_semantics="uninterpreted_coordinate_temperature_factor",
         residue_count=75,
@@ -2334,7 +2334,7 @@ def test_structure_comparison_contract_test_kit(
             ),
                 ModulePackagePortCase(
                     "structure_comparison.three_way_consistency",
-                "1.0.0",
+                "2.0.0",
                 consistency,
                 (object(), replace(consistency, classification="all_disagree")),
                 ),

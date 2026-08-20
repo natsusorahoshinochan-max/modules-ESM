@@ -95,11 +95,12 @@ below as the exact local file-content identity:
 The SimpleFold ESM2 dependency is recorded as
 `facebookresearch/esm@2b369911bb5b4b0dda914521b9475cad1656b2ac`. Configure a
 checkout at that exact commit with
-`PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`. The folding package's shared SimpleFold
-Provider Asset Closure module resolves that configured checkout, verifies its
-exact HEAD and the declaration-owned reviewed runtime file set, and checks the
-result-affecting source-tree aggregate
-`da1fd5e94771906950ccc9b4e789d50b0e8f8c4594608898dbcb14f14e3c50ba`.
+`PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`. The folding package's shared
+[`SimpleFold Provider Asset Closure module`](../modules/folding/simplefold_asset_closure.py)
+resolves that configured checkout, verifies its exact HEAD and the
+declaration-owned reviewed runtime file set, and checks the result-affecting
+source-tree aggregate
+`0bdb3dcb95c534b967d84bcca090146bd6528328ab8e010b412da9a3e702ac83`.
 It then stages that same declared and already admitted source subset for
 namespace isolation, without another Git query or source-tree discovery.
 

@@ -157,7 +157,7 @@
       "node_type_id": "folding.fold",
       "node_type_version": "6.0.0",
       "binding_id": "folding.fold.simplefold_local",
-      "binding_version": "7.0.0",
+      "binding_version": "8.0.0",
       "node_parameters": {
         "effective_seed": 3513,
         "num_samples": 1
@@ -169,7 +169,7 @@
       "node_type_id": "folding.simplefold_confidence",
       "node_type_version": "4.0.0",
       "binding_id": "folding.simplefold_confidence.simplefold_local",
-      "binding_version": "4.0.0",
+      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -1613,14 +1613,14 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.simplefold_local",
-      "contract_version": "7.0.0",
-      "contract_digest": "sha256:8ef88ab7eb2ed7c721d2a16eb5235aa1099d0fdae7d3bc91944406644f12de77"
+      "contract_version": "8.0.0",
+      "contract_digest": "sha256:b9f64d8a35a81832e2a8bd356923e881e2299ace307ee78444394397fa47f49a"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.simplefold_confidence.simplefold_local",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:36968c4b4c2cc2ba7c745d127d9ae9af224b5d43e9d5d0bac6b136495dde0be5"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:fef309ee570de90d9a54cb4ff51bce8ad345156f22be0d89fd2b17e6383a0a37"
     },
     {
       "contract_kind": "binding",
@@ -1979,14 +1979,14 @@
     {
       "contract_kind": "method",
       "contract_id": "folding.fold.simplefold_100m_c7a5570",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:554eabb76c346ee58682719ef758edc476582172ae84e1d80725bc44d76c97c9"
+      "contract_version": "5.0.0",
+      "contract_digest": "sha256:010f5170d530d8b72445dc7a522952334853f263c3b6ac9d0f3eb414f6fb2b5e"
     },
     {
       "contract_kind": "method",
       "contract_id": "folding.simplefold_confidence.existing_structure_1_6b_c7a5570",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:cd081f395b74fde33521d86f039f7f119bbbcf6fb16b6d200b05dc1f07058b86"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:65aabaa9f32e1946e990f29bf9cf910e42d33ce395b651c69af5353914d0923c"
     },
     {
       "contract_kind": "method",

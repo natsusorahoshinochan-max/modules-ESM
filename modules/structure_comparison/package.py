@@ -45,7 +45,7 @@ _RMSD_NORMALIZATION = "aligned-CA-mean-square-distance"
 _TM_NORMALIZATION = "reference-axis-residue-count"
 ALIGNMENT_NODE_VERSION = "4.0.0"
 SCORE_NODE_VERSION = "5.0.0"
-THREE_WAY_VERSION = "1.0.0"
+THREE_WAY_VERSION = "2.0.0"
 
 
 def _available() -> AvailabilityResult:

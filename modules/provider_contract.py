@@ -35,12 +35,8 @@ PROTEINMPNN_REVISION = "8907e6671bfbfc92303b5f79c4b5e6ce47cdef57"
 SIMPLEFOLD_REVISION = "c7a5570a6be9f5c695126e27c804e77567209934"
 SIMPLEFOLD_ESM2_REVISION = "2b369911bb5b4b0dda914521b9475cad1656b2ac"
 SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256 = (
-    "da1fd5e94771906950ccc9b4e789d50b0e8f8c4594608898dbcb14f14e3c50ba"
+    "0bdb3dcb95c534b967d84bcca090146bd6528328ab8e010b412da9a3e702ac83"
 )
-SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES = {
-    "esm2_t36_3B_UR50D.pt": {"bytes": 5678116398},
-    "esm2_t36_3B_UR50D-contact-regression.pt": {"bytes": 6759},
-}
 SIMPLEFOLD_ESM2_ARTIFACT_SHA256 = {
     "esm2_t36_3B_UR50D.pt": (
         "7de8b4082ba15891959ab368b77ce3886697af1efb16d3c9e9e7b0c5d3f07500"
@@ -50,41 +46,11 @@ SIMPLEFOLD_ESM2_ARTIFACT_SHA256 = {
     ),
 }
 
-SIMPLEFOLD_ARTIFACT_IDENTITIES = {
-    "simplefold_100M.ckpt": {
-        "object": "simplefold_100M.ckpt",
-        "bytes": 386772550,
-        "etag": "d3f36328118ca08f0aac3a0e910b6829-23",
-    },
-    "simplefold_360M.ckpt": {
-        "object": "simplefold_360M.ckpt",
-        "bytes": 1454881694,
-        "etag": "7c0603668846e72a0bd8a2c8b43b1151-85",
-    },
-    "simplefold_1.6B.ckpt": {
-        "object": "simplefold_1.6B.ckpt",
-        "bytes": 6354525226,
-        "etag": "8547a616a08162144b9591b3e9479b8e-370",
-    },
-    "plddt.ckpt": {
-        "object": "plddt_module_1.6B.ckpt",
-        "bytes": 462812900,
-        "etag": "1ed78d3cf12e8558ec45c596b1197ba9-27",
-    },
-}
-
-SIMPLEFOLD_AUXILIARY_ARTIFACTS = (
-    "ccd.pkl",
-    "boltz1_conf.ckpt",
-)
-# Maintainer-reviewed immutable digests for the exact runtime artifacts.  The
-# adapter verifies and stages every file before importing or invoking SimpleFold.
+# Maintainer-reviewed content identities from which the folding package's two
+# Binding-owned closure declarations select their exact members.
 SIMPLEFOLD_ARTIFACT_SHA256 = {
     "simplefold_100M.ckpt": (
         "4cd0b8a0b317a6ab8634444fffd78ce84cfd49c20fe927b83c76c36fda5f54bd"
-    ),
-    "simplefold_360M.ckpt": (
-        "517338ec36b10ecc774f36b592ffe0fee6a24fa5c7d2fcfa3e3009282d48a49b"
     ),
     "simplefold_1.6B.ckpt": (
         "aaac2d73dcc59c61153c58a1d56e74a8ada9d6057d67000f7836f3c87325312b"
@@ -94,9 +60,6 @@ SIMPLEFOLD_ARTIFACT_SHA256 = {
     ),
     "ccd.pkl": (
         "2d3b2f03a3c5665944adba51e33263511e51b21c9cd05d902f9c4b7c1e58d2f4"
-    ),
-    "boltz1_conf.ckpt": (
-        "219a73ac67535ad0535b9d3fb11fc7dbbcb7a0b71e4b4bb28f0c50cc2ac7f4ee"
     ),
 }
 SIMPLEFOLD_EXECUTION_ENABLED = True
@@ -124,19 +87,6 @@ def proteinmpnn_provider_identity() -> dict[str, str]:
         "source": "ProteinMPNN",
         "source_revision": PROTEINMPNN_REVISION,
         "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
-    }
-
-
-def simplefold_provider_identity(
-    artifact_sha256: dict[str, str],
-) -> dict[str, Any]:
-    return {
-        "source": "ml-simplefold",
-        "source_revision": SIMPLEFOLD_REVISION,
-        "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
-        "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-        "esm2_artifact_sha256": SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-        "artifact_sha256": dict(sorted(artifact_sha256.items())),
     }
 
 

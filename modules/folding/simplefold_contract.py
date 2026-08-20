@@ -1,25 +1,28 @@
-"""Lightweight identities for the folding package's SimpleFold boundary."""
+"""Binding identities derived from the owned SimpleFold asset closures."""
 
 from __future__ import annotations
 
-from modules.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
+from .simplefold_asset_closure import (
+    SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+    SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
 )
 
 
-SIMPLEFOLD_FOLDING_ARTIFACTS = (
-    "ccd.pkl",
-    "plddt.ckpt",
-    "simplefold_1.6B.ckpt",
-    "simplefold_100M.ckpt",
+SIMPLEFOLD_FOLDING_ARTIFACTS = tuple(
+    entry.runtime_filename
+    for entry in SIMPLEFOLD_FOLDING_ASSET_CLOSURE.files
+    if entry.environment_key == "model_root"
 )
-SIMPLEFOLD_CONFIDENCE_ARTIFACTS = (
-    "ccd.pkl",
-    "plddt.ckpt",
-    "simplefold_1.6B.ckpt",
+SIMPLEFOLD_CONFIDENCE_ARTIFACTS = tuple(
+    entry.runtime_filename
+    for entry in SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.files
+    if entry.environment_key == "model_root"
 )
-SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS = ("esm2_t36_3B_UR50D.pt",)
+SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS = tuple(
+    entry.runtime_filename
+    for entry in SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.files
+    if entry.environment_key == "esm2_model_root"
+)
 SIMPLEFOLD_MODEL = "simplefold_100M"
 SIMPLEFOLD_DEVICE = "cpu"
 SIMPLEFOLD_CONFIDENCE_DEVICE = "cpu"
@@ -33,23 +36,21 @@ SIMPLEFOLD_CONFIDENCE_ADAPTER = (
 
 def simplefold_folding_artifact_sha256() -> dict[str, str]:
     """Return the exact checkpoint closure used by the folding Binding."""
-    return {
-        name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-        for name in SIMPLEFOLD_FOLDING_ARTIFACTS
-    }
+    return SIMPLEFOLD_FOLDING_ASSET_CLOSURE.file_sha256("model_root")
+
+
+def simplefold_folding_esm2_artifact_sha256() -> dict[str, str]:
+    """Return the exact ESM2 weight closure used by folding."""
+    return SIMPLEFOLD_FOLDING_ASSET_CLOSURE.file_sha256("esm2_model_root")
 
 
 def simplefold_confidence_artifact_sha256() -> dict[str, str]:
     """Return the exact SimpleFold model/data closure used by confidence."""
-    return {
-        name: SIMPLEFOLD_ARTIFACT_SHA256[name]
-        for name in SIMPLEFOLD_CONFIDENCE_ARTIFACTS
-    }
+    return SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.file_sha256("model_root")
 
 
 def simplefold_confidence_esm2_artifact_sha256() -> dict[str, str]:
     """Return the representation-only ESM2 weight closure."""
-    return {
-        name: SIMPLEFOLD_ESM2_ARTIFACT_SHA256[name]
-        for name in SIMPLEFOLD_CONFIDENCE_ESM2_ARTIFACTS
-    }
+    return SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.file_sha256(
+        "esm2_model_root"
+    )

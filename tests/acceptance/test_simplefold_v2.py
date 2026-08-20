@@ -35,10 +35,8 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
 ) -> None:
     """Execute the exact v2 Binding; skips are forbidden by its full gate."""
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.folding.simplefold_adapter import (
-        SIMPLEFOLD_DEVICE,
-        provider_identity,
-    )
+    from modules.folding.simplefold_adapter import provider_identity
+    from modules.folding.simplefold_contract import SIMPLEFOLD_DEVICE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -63,7 +61,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         node_type_id="folding.fold",
         node_type_version="6.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="7.0.0",
+        binding_version="8.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
@@ -123,7 +121,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         workflow=workflow,
     )
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "7.0.0"): {
+        ("folding.fold.simplefold_local", "8.0.0"): {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -210,7 +208,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "7.0.0",
+        "8.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"
@@ -225,12 +223,17 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     prerequisites = binding.descriptor["readiness_declaration"][
         "prerequisites"
     ]
-    assert prerequisites["simplefold_models"]["artifact_sha256"] == (
-        identity["artifact_sha256"]
-    )
-    assert prerequisites["esm2_models"]["artifact_sha256"] == (
-        identity["esm2_artifact_sha256"]
-    )
+    declared_files = prerequisites["provider_asset_closure"]["files"]
+    assert {
+        item["runtime_filename"]: item["sha256"]
+        for item in declared_files
+        if item["environment_key"] == "model_root"
+    } == identity["artifact_sha256"]
+    assert {
+        item["runtime_filename"]: item["sha256"]
+        for item in declared_files
+        if item["environment_key"] == "esm2_model_root"
+    } == identity["esm2_artifact_sha256"]
     public_evidence = json.dumps(
         {"projection": projection, "events": events}
     )
@@ -274,7 +277,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "7.0.0"
+        and event["event"]["binding"]["contract_version"] == "8.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

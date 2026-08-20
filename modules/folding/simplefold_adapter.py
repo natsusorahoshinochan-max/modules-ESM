@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -10,21 +9,13 @@ from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict, TypeAlias
 
 from core import ReadinessResult, RunResources
-from modules.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_REVISION,
-    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-    SIMPLEFOLD_REVISION,
-    simplefold_provider_identity,
-    validate_installed_provider_checkout,
-)
 from datatypes import ProteinSequence, ProteinStructure
-from .simplefold_contract import (
-    SIMPLEFOLD_DEVICE,
-    SIMPLEFOLD_MODEL,
-    simplefold_folding_artifact_sha256,
+
+from . import simplefold_contract
+from .simplefold_asset_closure import (
+    StagedSimpleFoldProviderAssetClosure,
+    admit_simplefold_provider_asset_closure,
+    stage_simplefold_provider_asset_closure,
 )
 
 
@@ -94,8 +85,9 @@ def _translate_provider_structure(structure: ProteinStructure) -> ProteinStructu
 
 def simplefold_folding_provider_identity() -> dict[str, Any]:
     """Return evidence for only the assets actually used by this Binding."""
-    return simplefold_provider_identity(
-        simplefold_folding_artifact_sha256()
+    return (
+        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
+        .provider_identity()
     )
 
 
@@ -107,87 +99,28 @@ def simplefold_runtime_structurally_available() -> bool:
     )
 
 
-def _sha256_file(path: Path, *, expected_bytes: int | None = None) -> str:
-    digest = hashlib.sha256()
-    if expected_bytes is not None and path.stat().st_size != expected_bytes:
-        raise RuntimeError(
-            f"SimpleFold asset byte count mismatch: {path.name}"
-        )
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _validated_file_set(
-    root: object,
-    expected: Mapping[str, str],
-    identities: Mapping[str, Mapping[str, Any]],
-) -> Path:
-    if not isinstance(root, Path) or not root.is_dir():
-        raise FileNotFoundError("SimpleFold asset root is unavailable")
-    for name, expected_digest in sorted(expected.items()):
-        expected_bytes = identities.get(name, {}).get("bytes")
-        if _sha256_file(
-            root / name,
-            expected_bytes=(
-                expected_bytes
-                if isinstance(expected_bytes, int)
-                else None
-            ),
-        ) != expected_digest:
-            raise RuntimeError(
-                f"SimpleFold asset SHA-256 mismatch: {name}"
-            )
-    return root
-
-
-def validate_simplefold_folding_environment(
+def _admit_simplefold_folding_environment(
     environment: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Validate the exact selected folding assets without staging a model."""
-    if environment.get("device") != SIMPLEFOLD_DEVICE:
+) -> None:
+    """Admit the exact folding closure without staging a model."""
+    if environment.get("device") != simplefold_contract.SIMPLEFOLD_DEVICE:
         raise RuntimeError("SimpleFold device identity does not match")
-    model_root = _validated_file_set(
-        environment.get("model_root"),
-        simplefold_folding_artifact_sha256(),
-        SIMPLEFOLD_ARTIFACT_IDENTITIES,
+    admit_simplefold_provider_asset_closure(
+        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        environment,
     )
-    esm2_model_root = _validated_file_set(
-        environment.get("esm2_model_root"),
-        SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-        SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
-    )
-    source_root = environment.get("esm2_source_root")
-    if not isinstance(source_root, Path):
-        raise FileNotFoundError("SimpleFold ESM2 source root is unavailable")
-    from .simplefold_runtime import validated_simplefold_esm2_root
-
-    observed_source = validated_simplefold_esm2_root(source_root)
-    if Path(observed_source).resolve() != source_root.resolve():
-        raise RuntimeError("SimpleFold ESM2 source identity changed")
-    return {
-        "model_root": model_root,
-        "esm2_model_root": esm2_model_root,
-        "esm2_source_root": source_root,
-    }
 
 
 def simplefold_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
     try:
-        validate_installed_provider_checkout(
-            "simplefold",
-            SIMPLEFOLD_REVISION,
-        )
-        validate_simplefold_folding_environment(environment)
+        _admit_simplefold_folding_environment(environment)
     except (
         FileNotFoundError,
         ImportError,
         OSError,
         RuntimeError,
-        ValueError,
     ):
         return ReadinessResult(
             False,
@@ -245,6 +178,7 @@ class LocalSimpleFoldAdapter:
         num_samples: int,
         effective_seed: int,
         staging_directory: Path,
+        staged_closure: StagedSimpleFoldProviderAssetClosure,
     ) -> Callable[[], _SimpleFoldNativeResult]:
         client = self._environment.get("provider_client")
         if client is not None:
@@ -256,21 +190,15 @@ class LocalSimpleFoldAdapter:
                         num_steps=num_steps,
                         num_samples=num_samples,
                         effective_seed=effective_seed,
-                        staging_directory=staging_directory,
+                        staging_directory=staged_closure.root,
                     ),
                 )
 
             return invoke_client
         configured = {
-            "model_root": cast(Path, self._environment["model_root"]),
-            "esm2_source_root": cast(
-                Path,
-                self._environment["esm2_source_root"],
-            ),
-            "esm2_model_root": cast(
-                Path,
-                self._environment["esm2_model_root"],
-            ),
+            "model_root": staged_closure.group_root("simplefold_models"),
+            "esm2_source_root": staged_closure.group_root("esm2_source"),
+            "esm2_model_root": staged_closure.group_root("esm2_models"),
         }
         from .simplefold_runtime import fold_sequence
 
@@ -279,15 +207,15 @@ class LocalSimpleFoldAdapter:
                 _SimpleFoldNativeResult,
                 fold_sequence(
                     sequence=sequence,
-                    model_name=SIMPLEFOLD_MODEL,
+                    model_name=simplefold_contract.SIMPLEFOLD_MODEL,
                     num_steps=num_steps,
                     num_samples=num_samples,
                     project_dir=str(staging_directory),
                     effective_seed=effective_seed,
-                    model_root=configured["model_root"],
-                    esm2_source_root=configured["esm2_source_root"],
-                    esm2_model_root=configured["esm2_model_root"],
-                    required_device=SIMPLEFOLD_DEVICE,
+                    staged_model_root=configured["model_root"],
+                    staged_esm2_source_root=configured["esm2_source_root"],
+                    staged_esm2_model_root=configured["esm2_model_root"],
+                    required_device=simplefold_contract.SIMPLEFOLD_DEVICE,
                     record_evidence=False,
                 ),
             )
@@ -307,12 +235,18 @@ class LocalSimpleFoldAdapter:
         with self._resources.temporary_directory(
             prefix="simplefold-fold-"
         ) as staging_directory:
+            staged_closure = stage_simplefold_provider_asset_closure(
+                simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+                self._environment,
+                staging_directory,
+            )
             provider_call = self._provider_call(
                 sequence=sequence,
                 num_steps=num_steps,
                 num_samples=num_samples,
                 effective_seed=derived_call_seed,
                 staging_directory=staging_directory,
+                staged_closure=staged_closure,
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,
