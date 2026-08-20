@@ -50,10 +50,10 @@ from .adapter import (
 )
 
 
-_PACKAGE_VERSION = "3.0.0"
+_PACKAGE_VERSION = "4.0.0"
 _METHOD_VERSION = "3.0.0"
 _METRIC_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "4.0.0"
+_NODE_BINDING_VERSION = "5.0.0"
 _MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
 
 

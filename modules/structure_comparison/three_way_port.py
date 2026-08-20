@@ -27,7 +27,7 @@ from .domain import (
 )
 
 
-THREE_WAY_CONSISTENCY_VERSION = "2.0.0"
+THREE_WAY_CONSISTENCY_VERSION = "3.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONFIDENCE_ROLES = ("esmfold2", "simplefold")
 _CONFIDENCE_METHODS = (

@@ -48,21 +48,21 @@ from .domain import (
 )
 
 
-_PACKAGE_VERSION = "6.0.0"
+_PACKAGE_VERSION = "7.0.0"
 _CONSTRAINTS_VERSION = "4.0.0"
 _SCORE_METRIC_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
 _NODE_VERSIONS = {
     "constraints": "4.0.0",
     "random_fixed_positions": "4.0.0",
-    "design": "9.0.0",
-    "score": "6.0.0",
+    "design": "10.0.0",
+    "score": "7.0.0",
 }
 _BINDING_VERSIONS = {
     "constraints": "4.0.0",
     "random_fixed_positions": "4.0.0",
-    "design": "10.0.0",
-    "score": "7.0.0",
+    "design": "11.0.0",
+    "score": "8.0.0",
 }
 _METHOD_VERSIONS = {
     "constraints": "3.0.0",

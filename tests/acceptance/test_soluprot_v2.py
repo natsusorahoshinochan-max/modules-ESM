@@ -138,7 +138,7 @@ def _run(
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="4.0.0",
+                    node_type_version="5.0.0",
                     binding_id=binding_id,
                     binding_version="4.0.0",
                     node_parameters={},

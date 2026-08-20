@@ -49,8 +49,8 @@ from modules.collection_ops.implementation import CollectionOpsImplementation
 
 
 VERSION = "2.1.0"
-CANDIDATE_NODE_VERSION = "3.0.0"
-SCORE_NODE_VERSION = "4.0.0"
+CANDIDATE_NODE_VERSION = "4.0.0"
+SCORE_NODE_VERSION = "5.0.0"
 PAIRING_METHOD_VERSION = "3.0.0"
 SOURCE_NODE_VERSION = CANDIDATE_NODE_VERSION
 SCORER_NODE_VERSION = SCORE_NODE_VERSION
@@ -1046,7 +1046,7 @@ def test_public_score_merge_preserves_observation_identity_and_partitions(
     )
     sequence_port = catalog.require_port_type(
         "protein.sequence",
-        CANDIDATE_NODE_VERSION,
+        "3.0.0",
     )
     expected_subjects = {
         candidate.candidate_id: CandidateDataReference(

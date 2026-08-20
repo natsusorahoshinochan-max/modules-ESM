@@ -41,7 +41,98 @@ from tests.fixtures.scientific_operation import (
 from tests.fixtures.simplefold import build_fixture_simplefold_closure
 
 
-_SIMPLEFOLD_BINDING_VERSION = "8.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "9.0.0"
+
+
+def test_simplefold_runtime_applies_the_exact_normalized_step_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import sys
+    from types import ModuleType
+
+    from modules.folding import simplefold_runtime
+
+    class StopAfterInferenceConstruction(Exception):
+        pass
+
+    captured: dict[str, int] = {}
+
+    class ModelWrapper:
+        device = "cpu"
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def from_pretrained_folding_model(self) -> object:
+            return object()
+
+        def from_pretrained_plddt_model(self) -> object:
+            return object()
+
+    class InferenceWrapper:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["num_steps"] = kwargs["num_steps"]
+            raise StopAfterInferenceConstruction
+
+    modules = {
+        "simplefold": ModuleType("simplefold"),
+        "simplefold.utils": ModuleType("simplefold.utils"),
+        "simplefold.wrapper": ModuleType("simplefold.wrapper"),
+        "simplefold.utils.boltz_utils": ModuleType(
+            "simplefold.utils.boltz_utils"
+        ),
+        "simplefold.utils.fasta_utils": ModuleType(
+            "simplefold.utils.fasta_utils"
+        ),
+        "simplefold.utils.datamodule_utils": ModuleType(
+            "simplefold.utils.datamodule_utils"
+        ),
+        "utils.esm_utils": ModuleType("utils.esm_utils"),
+    }
+    modules["simplefold.wrapper"].ModelWrapper = ModelWrapper
+    modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.utils.boltz_utils"].process_structure = object()
+    modules["simplefold.utils.boltz_utils"].to_pdb = object()
+    modules["simplefold.utils.fasta_utils"].process_fastas = (
+        lambda **_kwargs: None
+    )
+    modules[
+        "simplefold.utils.datamodule_utils"
+    ].process_one_inference_structure = object()
+    modules["utils.esm_utils"].esm_registry = {}
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "_setup_simplefold_imports",
+        os.getcwd,
+    )
+    model_root = tmp_path / "model"
+    esm2_source_root = tmp_path / "esm2-source"
+    esm2_model_root = tmp_path / "esm2-model"
+    for root in (model_root, esm2_source_root, esm2_model_root):
+        root.mkdir()
+    (model_root / "ccd.pkl").write_bytes(b"reviewed-ccd")
+
+    with pytest.raises(StopAfterInferenceConstruction):
+        simplefold_runtime.fold_sequence(
+            ProteinSequence("AG", ("A:1", "A:2")),
+            model_name="simplefold_100M",
+            num_steps=75,
+            num_samples=1,
+            project_dir=str(tmp_path / "project"),
+            effective_seed=1603,
+            staged_model_root=model_root,
+            staged_esm2_source_root=esm2_source_root,
+            staged_esm2_model_root=esm2_model_root,
+            required_device="cpu",
+            record_evidence=False,
+        )
+
+    assert captured == {"num_steps": 75}
 
 
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
@@ -66,7 +157,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "8.0.0",
+        "9.0.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -178,12 +269,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "7.0.0",
+        "8.0.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "8.0.0",
+        "9.0.0",
     )
     snapshots = {
         item["binding"]["contract_id"]: item
@@ -270,8 +361,9 @@ def _simplefold_environment(
     esm2_model_root.mkdir()
     esm2_source_root.mkdir()
     model_payloads = {
-        name: f"fixture-{name}".encode()
-        for name in contract.SIMPLEFOLD_FOLDING_ARTIFACTS
+        entry.runtime_filename: f"fixture-{entry.runtime_filename}".encode()
+        for entry in contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE.files
+        if entry.environment_key == "model_root"
     }
     esm2_payloads = {
         "esm2_t36_3B_UR50D.pt": b"fixture-esm2",
@@ -333,16 +425,16 @@ def _run_simplefold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="6.0.0",
+        node_type_version="7.0.0",
         binding_id="folding.fold.simplefold_local",
         binding_version=_SIMPLEFOLD_BINDING_VERSION,
         node_parameters={
@@ -354,9 +446,9 @@ def _run_simplefold(
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",
         node_type_id="structure_prediction.materialize_confidence",
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id="structure_prediction.materialize_confidence.direct",
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -465,7 +557,7 @@ def test_staging_failure_is_an_operation_failure_before_provider_entry(
     def fail_staging(_source: Path, _destination: Path) -> None:
         raise OSError("fixture staging failure")
 
-    monkeypatch.setattr(asset_closure, "_copy_file", fail_staging)
+    monkeypatch.setattr(asset_closure.shutil, "copyfile", fail_staging)
     _, _, projection, events = _run_simplefold(
         tmp_path / "run",
         monkeypatch,

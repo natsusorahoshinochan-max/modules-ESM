@@ -13,6 +13,6 @@ rules.
 
 The current decomposition still computes alignment once and reuses it, but the
 only active comparison evidence contract is the package-owned
-`structure_comparison.alignment_evidence@4.0.0`. RMSD and TM-score consume that
+`structure_comparison.alignment_evidence@5.0.0`. RMSD and TM-score consume that
 exact admitted evidence. The superseded built-in Datatype and Port Type are not
 registered and have no compatibility alias or decoder.

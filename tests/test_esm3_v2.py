@@ -78,9 +78,9 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         and "esm3" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("esm3.generate_sequence", "7.0.0"),
-        ("esm3.generate_structure", "7.0.0"),
-        ("esm3.generate_paired", "7.0.0"),
+        ("esm3.generate_sequence", "8.0.0"),
+        ("esm3.generate_structure", "8.0.0"),
+        ("esm3.generate_paired", "8.0.0"),
         ("esm3.represent_sequence", "5.0.0"),
     }
 
@@ -143,7 +143,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
     }
 
     sequence_generation = catalog.require_contract(
-        "node_type", "esm3.generate_sequence", "7.0.0"
+        "node_type", "esm3.generate_sequence", "8.0.0"
     )
     assert sequence_generation.descriptor["node_parameters"]["num_steps"][
         "scientific_meaning"
@@ -209,7 +209,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "7.0.0",
+            "8.0.0",
         )
         assert "model_name" not in node.descriptor["node_parameters"]
         if operation in {"generate_sequence", "generate_paired"}:
@@ -223,7 +223,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
             binding = catalog.require_contract(
                 "binding",
                 f"esm3.{operation}.{route}",
-                "7.0.0",
+                "8.0.0",
             )
             assert "model_name" not in (
                 binding.descriptor["binding_parameters"]
@@ -337,9 +337,9 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_sequence",
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id="protein_io.import_sequence.direct",
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={"project_input_ref": "sequence.fasta"},
                 binding_parameters={},
             ),
@@ -1169,7 +1169,7 @@ def test_open_binding_factory_receives_its_exact_model(
     binding = catalog.require_contract(
         "binding",
         "esm3.generate_sequence.biohub_open",
-        "7.0.0",
+        "8.0.0",
     )
     method = catalog.require_contract(
         "method",
@@ -1928,8 +1928,8 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         for response in (ProviderResponse("ACD"), structure_response())
     ]
     generation_common = {
-        "node_type_version": "7.0.0",
-        "binding_version": "7.0.0",
+        "node_type_version": "8.0.0",
+        "binding_version": "8.0.0",
         "binding_parameters": {},
         "forbidden_public_fragments": (
             "ctk-secret-must-not-publish",
@@ -2169,9 +2169,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 WorkflowNodeInstance(
                     node_id="sequence-source",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="5.0.0",
+                    node_type_version="6.0.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="5.0.0",
+                    binding_version="6.0.0",
                     node_parameters={
                         "project_input_ref": "sequence-input",
                     },

@@ -170,7 +170,7 @@ def _candidate_catalog(
     declare_root_node_as_parent: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    candidates = builtin.require_port_type("candidate.collection", "3.0.0")
+    candidates = builtin.require_port_type("candidate.collection", "4.0.0")
     method = _contract(
         "method",
         "test.candidate.method",

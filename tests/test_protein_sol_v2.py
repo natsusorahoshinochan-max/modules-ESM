@@ -186,7 +186,7 @@ def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
     binding = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "4.0.0",
+        "5.0.0",
     )
     metrics = {
         metric_id: catalog.require_contract(
@@ -354,7 +354,7 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
     from modules.solubility.package import MODULE_PACKAGE
 
     catalog = build_frozen_catalog((MODULE_PACKAGE,))
-    score_type = catalog.require_port_type("score.collection", "4.0.0")
+    score_type = catalog.require_port_type("score.collection", "5.0.0")
     metric = catalog.require_contract(
         "metric",
         "solubility.protein_sol_scaled",
@@ -565,18 +565,18 @@ def _run_protein_sol(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     score = WorkflowNodeInstance(
         node_id="score",
         node_type_id="solubility.score_sequence",
-        node_type_version="4.0.0",
+        node_type_version="5.0.0",
         binding_id="solubility.protein_sol.local",
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -612,7 +612,7 @@ def _run_protein_sol(
         authoring,
         EnvironmentConfiguration(
             {
-                ("solubility.protein_sol.local", "4.0.0"): {
+                ("solubility.protein_sol.local", "5.0.0"): {
                     "values": _protein_sol_admitted_environment(
                         private_runtime_path="/must/not/publish"
                     ),
@@ -934,9 +934,9 @@ def test_protein_sol_passes_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
@@ -946,9 +946,9 @@ def test_protein_sol_passes_shared_contract_test_kit(
             ModulePackageContractCase(
                 case_id=case_id,
                 node_type_id="solubility.score_sequence",
-                node_type_version="4.0.0",
+                node_type_version="5.0.0",
                 binding_id=binding_id,
-                binding_version="4.0.0",
+                binding_version="5.0.0",
                 node_parameters={},
                 binding_parameters={},
                 environment_values=(

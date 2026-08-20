@@ -37,11 +37,6 @@ from modules.structure_prediction.domain import (
 from modules.structure_prediction.port_types import (
     PREDICTION_RESIDUE_AXIS_PORT_TYPE,
 )
-from modules.structure_transform.domain import (
-    CandidateResolvedResidueAxisAssociations,
-)
-from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
-
 from .adapter import (
     ESMFold2Adapter,
 )
@@ -116,7 +111,6 @@ def _prediction_axes(
         strict=True,
     ):
         sequence = parent.data
-        assert type(sequence) is ProteinSequence
         axes.append(_prediction_axis(sequence, parent_reference))
     return tuple(axes)
 
@@ -192,19 +186,10 @@ class ESMFold2FoldingImplementation:
                 "folding requires one sequence Candidate Collection"
             )
         collection = inputs["sequence_candidates"].value
-        if (
-            type(collection) is not CandidateCollection
-            or collection.item_type != "protein.sequence"
-            or not collection.items
-        ):
+        if collection.item_type != "protein.sequence" or not collection.items:
             raise ValueError(
                 "folding requires non-empty protein sequence Candidates"
             )
-        for candidate in collection.items:
-            if type(candidate) is not Candidate or type(
-                candidate.data
-            ) is not ProteinSequence:
-                raise ValueError("folding received an incomplete sequence")
         return list(collection.items)
 
     @staticmethod
@@ -247,7 +232,6 @@ class ESMFold2FoldingImplementation:
         confidence_facts: list[ConfidenceFact] = []
         for parent_index, parent in enumerate(parents):
             sequence = parent.data
-            assert type(sequence) is ProteinSequence
             axis = prediction_axes[parent_index]
             for sample_index in range(sample_count):
                 call_seed = self._call_seed(
@@ -382,7 +366,6 @@ class SimpleFoldFoldingImplementation:
         confidence_facts: list[ConfidenceFact] = []
         for parent_index, parent in enumerate(parents):
             sequence = parent.data
-            assert type(sequence) is ProteinSequence
             axis = prediction_axes[parent_index]
             call_seed = self._call_seed(
                 effective_seed,
@@ -465,6 +448,7 @@ class SimpleFoldConfidenceImplementation:
             Candidate,
             CandidateDataReference,
             ResolvedStructureResidueAxis,
+            ResidueAxisReference,
         ],
         ...,
     ]:
@@ -479,13 +463,7 @@ class SimpleFoldConfidenceImplementation:
         collection = call.inputs["structure_candidates"].value
         associations = call.inputs["structure_residue_axes"].value
         admitted = call.inputs.get("structure_candidates")
-        if (
-            type(collection) is not CandidateCollection
-            or collection.item_type != "protein.structure"
-            or not collection.items
-            or type(associations)
-            is not CandidateResolvedResidueAxisAssociations
-        ):
+        if collection.item_type != "protein.structure" or not collection.items:
             raise ValueError(
                 "SimpleFold confidence requires exact structure Candidates "
                 "and resolved axes"
@@ -493,11 +471,7 @@ class SimpleFoldConfidenceImplementation:
 
         candidates_by_id: dict[str, Candidate] = {}
         for candidate in collection.items:
-            if (
-                type(candidate) is not Candidate
-                or type(candidate.data) is not ProteinStructure
-                or candidate.candidate_id in candidates_by_id
-            ):
+            if candidate.candidate_id in candidates_by_id:
                 raise ValueError(
                     "SimpleFold confidence structure Candidates are "
                     "incomplete or duplicate"
@@ -519,6 +493,10 @@ class SimpleFoldConfidenceImplementation:
                 "structure references"
             )
 
+        admitted_axes_by_reference = {
+            axis.source: axis
+            for axis in call.inputs["structure_residue_axes"].scientific_axes
+        }
         joined = []
         for candidate in collection.items:
             reference = references_by_id[candidate.candidate_id]
@@ -528,36 +506,23 @@ class SimpleFoldConfidenceImplementation:
                     "SimpleFold confidence resolved axis contradicts its "
                     "structure Candidate"
                 )
-            joined.append((candidate, reference, residue_axis))
+            joined.append(
+                (
+                    candidate,
+                    reference,
+                    residue_axis,
+                    admitted_axes_by_reference[reference],
+                )
+            )
         if any(
             not any(residue_axis.ca_coordinate_mask)
-            for _, _, residue_axis in joined
+            for _, _, residue_axis, _ in joined
         ):
             raise ValueError(
                 "SimpleFold confidence requires at least one resolved CA "
                 "coordinate per structure"
             )
         return tuple(joined)
-
-    @staticmethod
-    def _resolved_axis_reference(
-        subject: CandidateDataReference,
-        residue_axis: ResolvedStructureResidueAxis,
-    ) -> ResidueAxisReference:
-        return ResidueAxisReference(
-            axis_kind="resolved_structure",
-            axis_contract=ExactContractReference(
-                contract_kind="port_type",
-                contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
-                contract_version=RESOLVED_AXIS_PORT_TYPE.version,
-                contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
-            ),
-            axis_content_digest=RESOLVED_AXIS_PORT_TYPE.content_digest(
-                residue_axis
-            ),
-            source=subject,
-            layout=residue_axis.layout,
-        )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         if call.node_parameters or call.binding_parameters:
@@ -570,6 +535,7 @@ class SimpleFoldConfidenceImplementation:
             _candidate,
             subject,
             residue_axis,
+            axis_reference,
         ) in enumerate(candidates_with_axes):
             adapter_result = self._adapter.evaluate(
                 residue_axis=residue_axis,
@@ -578,10 +544,6 @@ class SimpleFoldConfidenceImplementation:
             values = adapter_result.per_residue_plddt
             finite_values = [value for value in values if value is not None]
             mean_value = math.fsum(finite_values) / len(finite_values)
-            axis_reference = self._resolved_axis_reference(
-                subject,
-                residue_axis,
-            )
             for metric_id, value in (
                 ("structure.plddt.per_residue", list(values)),
                 ("structure.plddt.mean_residue", mean_value),

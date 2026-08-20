@@ -26,7 +26,7 @@ from .domain import (
 
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-EVIDENCE_VERSION = "4.0.0"
+EVIDENCE_VERSION = "5.0.0"
 _METHOD_BY_POLICY = {
     "sequence_primary_affine": SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
     "structure_first_tm_align": STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE,

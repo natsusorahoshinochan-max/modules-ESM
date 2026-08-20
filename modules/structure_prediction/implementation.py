@@ -10,7 +10,6 @@ from typing import Any
 from core import OperationCall, ResolvedProducedObservation
 from datatypes import (
     Candidate,
-    CandidateCollection,
     CandidateDataReference,
     IntrinsicObservationContext,
     ResidueAxisReference,
@@ -19,12 +18,6 @@ from datatypes import (
 )
 
 from .domain import ConfidenceFact, ConfidenceFactCollection, prediction_key
-from .port_types import (
-    PREDICTION_RESIDUE_AXIS_PORT_TYPE,
-    prediction_axis_reference,
-)
-
-
 _METRICS = frozenset(
     {
         "structure.ptm",
@@ -70,7 +63,14 @@ class MaterializeConfidenceImplementation:
         call: OperationCall,
     ) -> tuple[
         ConfidenceFactCollection,
-        tuple[tuple[CandidateDataReference, ConfidenceFact], ...],
+        tuple[
+            tuple[
+                CandidateDataReference,
+                ConfidenceFact,
+                ResidueAxisReference,
+            ],
+            ...,
+        ],
     ]:
         if set(call.inputs) != {
             "structure_candidates",
@@ -82,18 +82,10 @@ class MaterializeConfidenceImplementation:
             )
         candidates = call.inputs["structure_candidates"].value
         facts = call.inputs["confidence_facts"].value
-        if (
-            type(candidates) is not CandidateCollection
-            or candidates.item_type != "protein.structure"
-            or not candidates.items
-        ):
+        if candidates.item_type != "protein.structure" or not candidates.items:
             raise ValueError(
                 "structure_candidates must be a nonempty structure Candidate "
                 "Collection"
-            )
-        if type(facts) is not ConfidenceFactCollection:
-            raise ValueError(
-                "confidence_facts must be an admitted ConfidenceFactCollection"
             )
 
         references_by_id = {
@@ -108,10 +100,7 @@ class MaterializeConfidenceImplementation:
         candidate_ids: set[str] = set()
         producer_slots: set[tuple[str, int]] = set()
         for candidate in candidates.items:
-            if (
-                type(candidate) is not Candidate
-                or candidate.candidate_id in candidate_ids
-            ):
+            if candidate.candidate_id in candidate_ids:
                 raise ValueError(
                     "structure_candidates contain duplicate or incomplete "
                     "Candidates"
@@ -163,7 +152,35 @@ class MaterializeConfidenceImplementation:
                 "complete prediction-key set"
             )
 
-        joined: list[tuple[CandidateDataReference, ConfidenceFact]] = []
+        admitted_axis_records: list[
+            tuple[object, ResidueAxisReference]
+        ] = []
+        admitted_axes = iter(
+            call.inputs["confidence_facts"].scientific_axes
+        )
+        admitted_axes_by_key: dict[str, ResidueAxisReference] = {}
+        for fact in facts.entries:
+            axis_reference = next(
+                (
+                    reference
+                    for axis, reference in admitted_axis_records
+                    if axis == fact.prediction_axis
+                ),
+                None,
+            )
+            if axis_reference is None:
+                axis_reference = next(admitted_axes)
+                admitted_axis_records.append(
+                    (fact.prediction_axis, axis_reference)
+                )
+            admitted_axes_by_key[fact.prediction_key] = axis_reference
+        joined: list[
+            tuple[
+                CandidateDataReference,
+                ConfidenceFact,
+                ResidueAxisReference,
+            ]
+        ] = []
         for candidate in candidates.items:
             key = candidate.metadata["prediction_key"]
             assert type(key) is str
@@ -174,14 +191,13 @@ class MaterializeConfidenceImplementation:
                     "confidence fact structure digest contradicts admitted "
                     "Candidate content"
                 )
+            axis_reference = admitted_axes_by_key[key]
             expected_key = prediction_key(
                 output_role=output_port,
                 output_slot=output_slot,
                 structure_content_digest=reference.content_digest,
                 prediction_axis_content_digest=(
-                    PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
-                        fact.prediction_axis
-                    )
+                    axis_reference.axis_content_digest
                 ),
             )
             if key != expected_key:
@@ -189,7 +205,13 @@ class MaterializeConfidenceImplementation:
                     "prediction_key does not bind the canonical output slot, "
                     "admitted structure content, and prediction axis"
                 )
-            joined.append((reference, fact))
+            joined.append(
+                (
+                    reference,
+                    fact,
+                    axis_reference,
+                )
+            )
         return facts, tuple(joined)
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -200,8 +222,7 @@ class MaterializeConfidenceImplementation:
 
         facts, joined = self._full_join(call)
         observations: list[ScoreObservation] = []
-        for subject, fact in joined:
-            axis = prediction_axis_reference(fact.prediction_axis)
+        for subject, fact, axis in joined:
             non_null_plddt = tuple(
                 value
                 for value in fact.plddt_per_residue

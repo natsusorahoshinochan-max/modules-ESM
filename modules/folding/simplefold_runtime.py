@@ -1,6 +1,6 @@
 """SimpleFold adapter: wraps ml-simplefold for sequence folding and structure evaluation.
 
-Fold: sequence -> structures + pLDDT (100M model, num_steps capped at 50).
+Fold: sequence -> structures + pLDDT (100M model, exact normalized num_steps).
 Evaluate: structure -> pLDDT scores (larger model, no re-folding).
 """
 
@@ -46,10 +46,6 @@ def _get_artifact_dir(project_dir: str) -> Path:
     artifacts = base / "simplefold_artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     return artifacts
-
-
-def _copy_file(source: Path, destination: Path) -> None:
-    shutil.copyfile(source, destination)
 
 
 def _load_reviewed_simplefold_esm2(
@@ -112,7 +108,7 @@ def _bind_simplefold_esm2_source(
 
 def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
     """Populate a fresh cache from verified objects; never invoke a downloader."""
-    _copy_file(model_dir / "ccd.pkl", cache / "ccd.pkl")
+    shutil.copyfile(model_dir / "ccd.pkl", cache / "ccd.pkl")
 
 
 def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -148,11 +144,10 @@ def fold_sequence(
 
     Returns structures plus provider-native per-sample confidence data.
 
-    num_steps is capped at 50 per ADR 0013.
+    num_steps is the exact Plan-normalized value admitted by the Binding.
     """
     if model_name != "simplefold_100M":
         raise ValueError("SimpleFold folding requires simplefold_100M")
-    num_steps = min(num_steps, 50)
     artifacts = _get_artifact_dir(project_dir)
     model_dir = staged_model_root
     esm2_source_root = staged_esm2_source_root

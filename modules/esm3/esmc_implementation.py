@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from core import OperationCall
-from datatypes import ProteinSequence
 
 from .esmc_adapter import BiohubESMCAdapter
 
@@ -27,8 +26,4 @@ class ESMCRepresentationOperation:
                 "parameters"
             )
         sequence = call.inputs["sequence"].value
-        if type(sequence) is not ProteinSequence:
-            raise ValueError(
-                "direct ESMC representation requires one ProteinSequence"
-            )
         return {"representation": self._adapter.represent(sequence)}

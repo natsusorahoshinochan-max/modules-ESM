@@ -46,9 +46,9 @@ from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 VERSION = "2.1.0"
-NODE_BINDING_VERSION = "4.0.0"
-SOURCE_NODE_VERSION = "3.0.0"
-SCORER_NODE_VERSION = "4.0.0"
+NODE_BINDING_VERSION = "5.0.0"
+SOURCE_NODE_VERSION = "4.0.0"
+SCORER_NODE_VERSION = "5.0.0"
 SOURCE_PARTITION = "contract_test.partition.a"
 
 
@@ -300,8 +300,8 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             )
             for port in node.descriptor["inputs"]
         ] == [
-            ("candidates", "candidate.collection", "3.0.0"),
-            ("scores", "score.collection", "4.0.0"),
+            ("candidates", "candidate.collection", "4.0.0"),
+            ("scores", "score.collection", "5.0.0"),
         ]
         binding = contracts[("binding", f"selection.{operation}.direct")]
         method = contracts[("method", f"selection.{operation}.method")]

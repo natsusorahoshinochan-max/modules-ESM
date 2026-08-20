@@ -344,17 +344,17 @@ def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
     node = catalog.require_contract(
         "node_type",
         "solubility.score_sequence",
-        "4.0.0",
+        "5.0.0",
     )
     full = catalog.require_contract(
         "binding",
         "solubility.soluprot_full.local",
-        "4.0.0",
+        "5.0.0",
     )
     no_tm = catalog.require_contract(
         "binding",
         "solubility.soluprot_no_tm.local",
-        "4.0.0",
+        "5.0.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
@@ -471,7 +471,7 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "4.0.0",
+            "5.0.0",
         )
         produced = binding.descriptor["produced_observations"]
         assert len(produced) == 1
@@ -498,7 +498,7 @@ def test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible() -> No
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "4.0.0",
+            "5.0.0",
         )
         del binding
         snapshot = availability[f"solubility.soluprot_{mode}.local"]
@@ -689,18 +689,18 @@ def _run_soluprot(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     score = WorkflowNodeInstance(
         node_id="score",
         node_type_id="solubility.score_sequence",
-        node_type_version="4.0.0",
+        node_type_version="5.0.0",
         binding_id=f"solubility.soluprot_{mode}.local",
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -736,7 +736,7 @@ def _run_soluprot(
         authoring,
         EnvironmentConfiguration(
             {
-                (f"solubility.soluprot_{mode}.local", "4.0.0"): {
+                (f"solubility.soluprot_{mode}.local", "5.0.0"): {
                     "values": _soluprot_admitted_environment(
                         private_runtime_path="/must/not/publish"
                     ),
@@ -1018,9 +1018,9 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
@@ -1028,9 +1028,9 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id=f"soluprot-{mode}",
             node_type_id="solubility.score_sequence",
-            node_type_version="4.0.0",
+            node_type_version="5.0.0",
             binding_id=f"solubility.soluprot_{mode}.local",
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=_soluprot_admitted_environment(
@@ -1053,9 +1053,9 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="protein-sol",
             node_type_id="solubility.score_sequence",
-            node_type_version="4.0.0",
+            node_type_version="5.0.0",
             binding_id="solubility.protein_sol.local",
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=_protein_sol_admitted_environment(

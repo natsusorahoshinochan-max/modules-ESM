@@ -1,20 +1,20 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.prediction_axis_source
-version: "4.0.0"
+version: "5.0.0"
 title: Exact prediction-axis conformance source
 summary: Projects an admitted 75-residue sequence Candidate into its exact prediction-input axis.
 category: contract_test
 inputs:
   - name: sequence_parents
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact 75-residue sequence Candidate.
 outputs:
   - name: prediction_axis
     port_type_id: structure_prediction.prediction_residue_axis
-    port_type_version: "1.0.0"
+    port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: The exact prediction-input axis sourced from the admitted sequence Candidate.

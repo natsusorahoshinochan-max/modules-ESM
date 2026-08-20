@@ -104,7 +104,7 @@ def test_mkdssp_4_6_1_publishes_complete_3gb1_sasa_and_coil(
         operation_call(
             catalog=catalog,
             binding_id="structure_annotation.dssp_compute.mkdssp_local",
-            binding_version="6.0.0",
+            binding_version="7.0.0",
             inputs={
                 "structure_candidates": candidates,
                 "residue_axes": residue_axes,

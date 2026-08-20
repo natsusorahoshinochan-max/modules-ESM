@@ -939,7 +939,7 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
     if tier_name == "fresh-1pga":
         from modules.folding.simplefold_contract import SIMPLEFOLD_DEVICE
 
-        environment[("folding.fold.simplefold_local", "8.0.0")] = {
+        environment[("folding.fold.simplefold_local", "9.0.0")] = {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -960,7 +960,7 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
             PROTEINMPNN_DEVICE,
         )
 
-        environment[("proteinmpnn.design.local", "10.0.0")] = {
+        environment[("proteinmpnn.design.local", "11.0.0")] = {
             "values": {
                 "device": PROTEINMPNN_DEVICE,
                 "provider_root": Path(
@@ -968,7 +968,7 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
                 ).resolve(),
             },
         }
-        environment[("solubility.protein_sol.local", "4.0.0")] = {
+        environment[("solubility.protein_sol.local", "5.0.0")] = {
             "values": {
                 "source_root": Path(
                     os.environ["PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT"]

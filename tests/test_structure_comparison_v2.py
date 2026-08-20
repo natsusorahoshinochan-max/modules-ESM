@@ -89,7 +89,11 @@ from tests.fixtures.structure_comparison_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
     mse_structure_axis_fixture,
 )
-from tests.fixtures.scientific_operation import build_operation, operation_call
+from tests.fixtures.scientific_operation import (
+    admitted_port_fixture,
+    build_operation,
+    operation_call,
+)
 
 
 _SUBJECT_DIGEST = "sha256:" + "1" * 64
@@ -139,6 +143,70 @@ def _axis(
     return resolve_residue_axis(
         _multi_segment_structure(((chain_id, sequence, coordinates),))
     )
+
+
+def test_evidence_operations_reuse_the_admitted_structure_axis_identity(
+) -> None:
+    from core import OperationCall
+    from datatypes import ResidueAxisReference
+    from modules.structure_comparison.inserted_loop import _axes_by_subject
+    from modules.structure_comparison.three_way import _axis as _three_way_axis
+    from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
+
+    subject = CandidateDataReference(
+        candidate_id="axis-subject",
+        data_type_id="protein.structure",
+        content_digest="sha256:" + "1" * 64,
+    )
+    residue_axis = _axis(
+        "A",
+        "AG",
+        ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
+    )
+    associations = CandidateResolvedResidueAxisAssociations(
+        (
+            CandidateResolvedResidueAxisAssociation(
+                subject,
+                residue_axis,
+            ),
+        )
+    )
+    admitted_axis = ResidueAxisReference(
+        axis_kind="resolved_structure",
+        axis_contract=ExactContractReference(
+            contract_kind="port_type",
+            contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
+            contract_version=RESOLVED_AXIS_PORT_TYPE.version,
+            contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
+        ),
+        axis_content_digest="sha256:" + "9" * 64,
+        source=subject,
+        layout=residue_axis.layout,
+    )
+    admitted = admitted_port_fixture(
+        associations,
+        port_type_id=(
+            "structure_transform."
+            "candidate_resolved_residue_axis_associations"
+        ),
+        value_content_digests=("sha256:" + "2" * 64,),
+        scientific_axes=(admitted_axis,),
+    )
+    call = OperationCall(
+        inputs={"axes": admitted},
+        node_parameters={},
+        binding_parameters={},
+        effective_randomness={},
+    )
+
+    assert _three_way_axis(call, "axes", subject) == (
+        residue_axis,
+        admitted_axis,
+    )
+    assert _axes_by_subject(
+        admitted,
+        {subject.candidate_id: subject},
+    ) == {subject: (residue_axis, admitted_axis)}
 
 
 def test_sequence_primary_axis_alignment_ignores_coordinate_lure() -> None:
@@ -519,7 +587,7 @@ def test_v3_alignment_methods_publish_exact_nonfallback_algorithms() -> None:
     assert "alignment=None" in tm_method["engine_call"]
 
 
-def test_v4_alignment_evidence_codec_carries_axis_provenance_and_counts() -> None:
+def test_v5_alignment_evidence_codec_carries_axis_provenance_and_counts() -> None:
     subject_axis = _axis("S", "AA", ((1.0, 0.0, 0.0), (2.0, 0.0, 0.0)))
     reference_axis = _axis("R", "AA", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)))
     resolved = align_resolved_axes(subject_axis, reference_axis)
@@ -548,7 +616,7 @@ def test_v4_alignment_evidence_codec_carries_axis_provenance_and_counts() -> Non
 
     wire = alignment_evidence_to_wire(evidence)
 
-    assert wire["schema_version"] == "4.0.0"
+    assert wire["schema_version"] == "5.0.0"
     assert wire["subject"] == {
         "candidate_id": "subject-a",
         "data_type_id": "protein.structure",
@@ -713,13 +781,13 @@ def test_alignment_rejects_stale_axis_reference_before_engine_start() -> None:
         catalog,
         binding_id,
         resources,
-        binding_version="4.0.0",
+        binding_version="5.0.0",
     )
     with pytest.raises(ValueError, match="structure content digest"):
         operation_call(
             catalog=catalog,
             binding_id=binding_id,
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             inputs={
                 "subjects": subjects,
                 "subject_residue_axes": subject_axes,
@@ -733,7 +801,7 @@ def test_alignment_rejects_stale_axis_reference_before_engine_start() -> None:
     assert resources.invocations == 0
 
 
-def test_v4_alignment_and_v5_metric_preserve_exact_candidate_references() -> None:
+def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
     catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
     reference_structure = _multi_segment_structure(
         (("R", "AA", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))),)
@@ -787,30 +855,81 @@ def test_v4_alignment_and_v5_metric_preserve_exact_candidate_references() -> Non
         catalog,
         alignment_binding,
         _RunResources(),
-        binding_version="4.0.0",
+        binding_version="5.0.0",
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id=alignment_binding,
+        binding_version="5.0.0",
+        inputs={
+            "subjects": subjects,
+            "subject_residue_axes": subject_axes,
+            "references": references,
+            "reference_residue_axes": reference_axes,
+        },
+        node_parameters={"pin_matching_chain_ids": False},
+        binding_parameters={},
+    )
+    subject_axis_port = call.inputs["subject_residue_axes"]
+    trusted_subject_axes = tuple(
+        replace(
+            axis,
+            axis_content_digest="sha256:" + symbol * 64,
+        )
+        for axis, symbol in zip(
+            subject_axis_port.scientific_axes,
+            ("8", "9"),
+            strict=True,
+        )
+    )
+    reference_axis_port = call.inputs["reference_residue_axes"]
+    trusted_reference_axis = replace(
+        reference_axis_port.scientific_axes[0],
+        axis_content_digest="sha256:" + "7" * 64,
+    )
+    call = replace(
+        call,
+        inputs={
+            **call.inputs,
+            "subject_residue_axes": replace(
+                subject_axis_port,
+                values=(
+                    replace(
+                        subject_axis_port.values[0],
+                        scientific_axes=trusted_subject_axes,
+                    ),
+                ),
+            ),
+            "reference_residue_axes": replace(
+                reference_axis_port,
+                values=(
+                    replace(
+                        reference_axis_port.values[0],
+                        scientific_axes=(trusted_reference_axis,),
+                    ),
+                ),
+            ),
+        },
     )
 
-    aligned = aligner.execute(
-        operation_call(
-            catalog=catalog,
-            binding_id=alignment_binding,
-            binding_version="4.0.0",
-            inputs={
-                "subjects": subjects,
-                "subject_residue_axes": subject_axes,
-                "references": references,
-                "reference_residue_axes": reference_axes,
-            },
-            node_parameters={"pin_matching_chain_ids": False},
-            binding_parameters={},
-        )
-    )["alignments"]
+    aligned = aligner.execute(call)["alignments"]
 
     assert [entry.subject.candidate_id for entry in aligned] == [
         "alpha",
         "zeta",
     ]
     assert all(entry.reference.candidate_id == "fixed" for entry in aligned)
+    trusted_subject_digests = {
+        axis.source: axis.axis_content_digest
+        for axis in trusted_subject_axes
+    }
+    assert {
+        entry.subject: entry.subject_axis_content_digest
+        for entry in aligned
+    } == trusted_subject_digests
+    assert {
+        entry.reference_axis_content_digest for entry in aligned
+    } == {trusted_reference_axis.axis_content_digest}
     assert all(
         ALIGNMENT_EVIDENCE_PORT_TYPE.decode(
             ALIGNMENT_EVIDENCE_PORT_TYPE.encode(entry)
@@ -827,13 +946,13 @@ def test_v4_alignment_and_v5_metric_preserve_exact_candidate_references() -> Non
         catalog,
         metric_binding,
         _RunResources(),
-        binding_version="5.0.0",
+        binding_version="6.0.0",
     )
     observed = scorer.execute(
         operation_call(
             catalog=catalog,
             binding_id=metric_binding,
-            binding_version="5.0.0",
+            binding_version="6.0.0",
             inputs={
                 "alignments": aligned,
                 "subjects": subjects,
@@ -865,7 +984,7 @@ def test_v4_alignment_and_v5_metric_preserve_exact_candidate_references() -> Non
     metric_contract = catalog.require_contract(
         "binding",
         metric_binding,
-        "5.0.0",
+        "6.0.0",
     )
     metric_inputs = {
         "alignments": aligned,
@@ -883,8 +1002,8 @@ def test_v4_alignment_and_v5_metric_preserve_exact_candidate_references() -> Non
 
     provenance_conflicts = (
         {"evidence_content_digest": "sha256:" + "9" * 64},
-        {"subject_axis_content_digest": "sha256:" + "8" * 64},
-        {"reference_axis_content_digest": "sha256:" + "7" * 64},
+        {"subject_axis_content_digest": "sha256:" + "6" * 64},
+        {"reference_axis_content_digest": "sha256:" + "5" * 64},
         {"evidence_method": STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE},
         {"normalization_length": 3},
         {"aligned_atom_count": 1},
@@ -938,24 +1057,24 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         for contract in contracts
         if contract.contract_kind == "node_type"
     } == {
-        ("structure_comparison.align_single", "4.0.0"),
-        ("structure_comparison.align_fixed_reference", "4.0.0"),
-        ("structure_comparison.align_counterparts", "4.0.0"),
-        ("structure_comparison.evaluate_inserted_loop", "1.0.0"),
+        ("structure_comparison.align_single", "5.0.0"),
+        ("structure_comparison.align_fixed_reference", "5.0.0"),
+        ("structure_comparison.align_counterparts", "5.0.0"),
+        ("structure_comparison.evaluate_inserted_loop", "2.0.0"),
         (
             "structure_comparison.classify_three_way_consistency",
-            "2.0.0",
+            "3.0.0",
         ),
-        ("structure_comparison.rmsd_fixed_reference", "5.0.0"),
-        ("structure_comparison.rmsd_counterparts", "5.0.0"),
-        ("structure_comparison.tm_score_fixed_reference", "5.0.0"),
-        ("structure_comparison.tm_score_counterparts", "5.0.0"),
+        ("structure_comparison.rmsd_fixed_reference", "6.0.0"),
+        ("structure_comparison.rmsd_counterparts", "6.0.0"),
+        ("structure_comparison.tm_score_fixed_reference", "6.0.0"),
+        ("structure_comparison.tm_score_counterparts", "6.0.0"),
     }
     assert {
         contract.contract_version
         for contract in contracts
         if contract.contract_kind in {"method", "metric", "utility_transform"}
-    } == {"1.0.0", "2.0.0", "3.0.0"}
+    } == {"2.0.0", "3.0.0", "4.0.0"}
     assert {
         (contract.contract_id, contract.contract_version)
         for contract in contracts
@@ -963,49 +1082,49 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
     } == {
         (
             "structure_comparison.align_single.sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.align_single.structure_first_tm_align",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.align_fixed_reference."
             "sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.align_counterparts."
             "sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.classify_three_way_consistency.direct",
-            "2.0.0",
+            "3.0.0",
         ),
         (
             "structure_comparison.evaluate_inserted_loop.direct",
-            "1.0.0",
+            "2.0.0",
         ),
         (
             "structure_comparison.rmsd_fixed_reference."
             "from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
         (
             "structure_comparison.rmsd_counterparts."
             "from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
         (
             "structure_comparison.tm_score_fixed_reference."
             "from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
         (
             "structure_comparison.tm_score_counterparts."
             "from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
     }
     node_ids = {
@@ -1025,7 +1144,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         "structure_comparison.tm_score_counterparts",
     }
     for operation in ("align", "rmsd", "tm_score"):
-        operation_version = "4.0.0" if operation == "align" else "5.0.0"
+        operation_version = "5.0.0" if operation == "align" else "6.0.0"
         fixed_name = (
             "align_fixed_reference"
             if operation == "align"
@@ -1061,12 +1180,12 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
                     for item in node.descriptor["outputs"]
                     if item["name"] == "scores"
                 )
-                assert scores["port_type"]["contract_version"] == "4.0.0"
+                assert scores["port_type"]["contract_version"] == "5.0.0"
     score_bindings = [
         contract
         for contract in contracts
         if contract.contract_kind == "binding"
-        and contract.contract_version == "5.0.0"
+        and contract.contract_version == "6.0.0"
     ]
     assert all(
         declaration["axis_direction"] is None
@@ -1092,9 +1211,9 @@ def _source_node(scenario: str) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_comparison_source",
-        node_type_version="4.0.0",
+        node_type_version="5.0.0",
         binding_id="contract_test.structure_comparison_source.fixture",
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         node_parameters={"scenario": scenario},
         binding_parameters={},
     )
@@ -1104,9 +1223,9 @@ def _axis_node(node_id: str) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id=node_id,
         node_type_id="structure_transform.resolve_candidate_residue_axes",
-        node_type_version="5.0.0",
+        node_type_version="6.0.0",
         binding_id="structure_transform.resolve_candidate_residue_axes.direct",
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -1156,9 +1275,9 @@ def _ctk_case(
     pairing_mode: str | None,
 ) -> ModulePackageContractCase:
     contract_version = (
-        "4.0.0"
+        "5.0.0"
         if operation in {"align_single", "align_pairwise"}
-        else "5.0.0"
+        else "6.0.0"
     )
     scenario = (
         "single"
@@ -1208,9 +1327,9 @@ def _ctk_case(
         alignment = WorkflowNodeInstance(
             node_id="alignment",
             node_type_id=f"structure_comparison.{alignment_node_name}",
-            node_type_version="4.0.0",
+            node_type_version="5.0.0",
             binding_id=alignment_binding,
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             node_parameters={"pin_matching_chain_ids": False},
             binding_parameters={},
         )
@@ -1314,13 +1433,13 @@ def _inserted_loop_ctk_case(
     source = operation_node(
         "loop-source",
         "contract_test.inserted_loop_source",
-        "4.0.0",
+        "5.0.0",
         "contract_test.inserted_loop_source.fixture",
     )
     subject_axis = operation_node(
         "loop-subject-axis",
         "structure_transform.resolve_candidate_residue_axes",
-        "5.0.0",
+        "6.0.0",
         "structure_transform.resolve_candidate_residue_axes.direct",
     )
     reference_axis = replace(subject_axis, node_id="loop-reference-axis")
@@ -1328,58 +1447,58 @@ def _inserted_loop_ctk_case(
     core_alignment = operation_node(
         "loop-core-alignment",
         "structure_comparison.align_fixed_reference",
-        "4.0.0",
+        "5.0.0",
         "structure_comparison.align_fixed_reference.sequence_primary_affine",
         {"pin_matching_chain_ids": False},
     )
     core_tm = operation_node(
         "loop-core-tm",
         "structure_comparison.tm_score_fixed_reference",
-        "5.0.0",
+        "6.0.0",
         "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
     )
     core_rmsd = operation_node(
         "loop-core-rmsd",
         "structure_comparison.rmsd_fixed_reference",
-        "5.0.0",
+        "6.0.0",
         "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
     )
     counterpart_alignment = operation_node(
         "loop-counterpart-alignment",
         "structure_comparison.align_counterparts",
-        "4.0.0",
+        "5.0.0",
         "structure_comparison.align_counterparts.sequence_primary_affine",
         {"pin_matching_chain_ids": False},
     )
     counterpart_tm = operation_node(
         "loop-counterpart-tm",
         "structure_comparison.tm_score_counterparts",
-        "5.0.0",
+        "6.0.0",
         "structure_comparison.tm_score_counterparts.from_alignment_evidence",
     )
     counterpart_rmsd = operation_node(
         "loop-counterpart-rmsd",
         "structure_comparison.rmsd_counterparts",
-        "5.0.0",
+        "6.0.0",
         "structure_comparison.rmsd_counterparts.from_alignment_evidence",
     )
     prediction_axis = operation_node(
         "loop-prediction-axis",
         "contract_test.prediction_axis_source",
-        "4.0.0",
+        "5.0.0",
         "contract_test.prediction_axis_source.fixture",
     )
     confidence_facts = operation_node(
         "loop-confidence-facts",
         "contract_test.prediction_confidence_fact_source",
-        "4.0.0",
+        "5.0.0",
         "contract_test.esmfold2_confidence_fact_source.fixture",
         {"missing_loop_plddt": missing_loop_plddt},
     )
     confidence = operation_node(
         "loop-confidence",
         "contract_test.prediction_confidence_source",
-        "4.0.0",
+        "5.0.0",
         confidence_binding_id,
     )
     edges = (
@@ -1430,9 +1549,9 @@ def _inserted_loop_ctk_case(
     return ModulePackageContractCase(
         case_id="evaluate-inserted-loop",
         node_type_id="structure_comparison.evaluate_inserted_loop",
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id="structure_comparison.evaluate_inserted_loop.direct",
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={
             "resolved_core_residue_ids": ["A:1", "A:2", "A:3", "A:4"],
             "loop_residue_ids": ["A:loop"],
@@ -1573,9 +1692,9 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
     source = _three_way_node(
         "source",
         "contract_test.1pga_three_way_source",
-        "4.0.0",
+        "5.0.0",
         "contract_test.1pga_three_way_source.fixture",
-        "4.0.0",
+        "5.0.0",
     )
     nodes = (
         source,
@@ -1583,57 +1702,57 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
             _three_way_node(
                 f"axis-{role}",
                 "structure_transform.resolve_candidate_residue_axes",
-                "5.0.0",
+                "6.0.0",
                 "structure_transform.resolve_candidate_residue_axes.direct",
-                "5.0.0",
+                "6.0.0",
             )
             for role in ("input", "esmfold2", "simplefold")
         ),
         _three_way_node(
             "pair-methods",
             "collection_ops.pair_siblings_by_parent",
-            "3.0.0",
+            "4.0.0",
             "collection_ops.pair_siblings_by_parent.direct",
-            "3.0.0",
+            "4.0.0",
         ),
         _three_way_node(
             "prediction-axis",
             "contract_test.prediction_axis_source",
-            "4.0.0",
+            "5.0.0",
             "contract_test.prediction_axis_source.fixture",
-            "4.0.0",
+            "5.0.0",
         ),
         _three_way_node(
             "align-esmfold2-input",
             "structure_comparison.align_fixed_reference",
-            "4.0.0",
+            "5.0.0",
             "structure_comparison.align_fixed_reference.sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         _three_way_node(
             "align-simplefold-input",
             "structure_comparison.align_fixed_reference",
-            "4.0.0",
+            "5.0.0",
             "structure_comparison.align_fixed_reference.sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         _three_way_node(
             "align-methods",
             "structure_comparison.align_counterparts",
-            "4.0.0",
+            "5.0.0",
             "structure_comparison.align_counterparts.sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         *(
             _three_way_node(
                 f"{metric}-{edge}",
                 f"structure_comparison.{metric}_{mode}",
-                "5.0.0",
+                "6.0.0",
                 (
                     f"structure_comparison.{metric}_{mode}."
                     "from_alignment_evidence"
                 ),
-                "5.0.0",
+                "6.0.0",
             )
             for edge, mode in (
                 ("esmfold2-input", "fixed_reference"),
@@ -1645,30 +1764,30 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
         _three_way_node(
             "confidence-esmfold2",
             "contract_test.prediction_confidence_source",
-            "4.0.0",
+            "5.0.0",
             "contract_test.esmfold2_confidence_source.fixture",
-            "4.0.0",
+            "5.0.0",
         ),
         _three_way_node(
             "confidence-fact-esmfold2",
             "contract_test.prediction_confidence_fact_source",
-            "4.0.0",
+            "5.0.0",
             "contract_test.esmfold2_confidence_fact_source.fixture",
-            "4.0.0",
+            "5.0.0",
         ),
         _three_way_node(
             "confidence-simplefold",
             "contract_test.prediction_confidence_source",
-            "4.0.0",
+            "5.0.0",
             "contract_test.simplefold_confidence_source.fixture",
-            "4.0.0",
+            "5.0.0",
         ),
         _three_way_node(
             "confidence-fact-simplefold",
             "contract_test.prediction_confidence_fact_source",
-            "4.0.0",
+            "5.0.0",
             "contract_test.simplefold_confidence_fact_source.fixture",
-            "4.0.0",
+            "5.0.0",
         ),
     )
     edges: list[WorkflowEdge] = []
@@ -1770,9 +1889,9 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
     return ModulePackageContractCase(
         case_id="classify-1pga-three-way-consistency",
         node_type_id="structure_comparison.classify_three_way_consistency",
-        node_type_version="2.0.0",
+        node_type_version="3.0.0",
         binding_id="structure_comparison.classify_three_way_consistency.direct",
-        binding_version="2.0.0",
+        binding_version="3.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -2049,7 +2168,7 @@ def _inserted_loop_port_case() -> ModulePackagePortCase:
     )
     return ModulePackagePortCase(
         "structure_comparison.inserted_loop_evaluation",
-        "1.0.0",
+        "2.0.0",
         loop_evidence,
         (
             object(),
@@ -2326,15 +2445,15 @@ def test_structure_comparison_contract_test_kit(
         MODULE_PACKAGE,
         execution_cases=cases,
         port_cases=(
-            ModulePackagePortCase(
-                "structure_comparison.alignment_evidence",
-                "4.0.0",
+                ModulePackagePortCase(
+                    "structure_comparison.alignment_evidence",
+                    "5.0.0",
                 evidence,
                 (object(), replace(evidence, correspondence=())),
             ),
                 ModulePackagePortCase(
                     "structure_comparison.three_way_consistency",
-                "2.0.0",
+                "3.0.0",
                 consistency,
                 (object(), replace(consistency, classification="all_disagree")),
                 ),

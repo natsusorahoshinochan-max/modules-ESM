@@ -153,9 +153,9 @@ def test_local_protein_sol_golden_multiple_metrics(
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="4.0.0",
+                    node_type_version="5.0.0",
                     binding_id="solubility.protein_sol.local",
-                    binding_version="4.0.0",
+                    binding_version="5.0.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -177,7 +177,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         authoring,
         EnvironmentConfiguration(
             {
-                ("solubility.protein_sol.local", "4.0.0"): {
+                ("solubility.protein_sol.local", "5.0.0"): {
                     "values": _environment(),
                 }
             }
@@ -300,7 +300,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     binding = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "4.0.0",
+        "5.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "solubility.protein_sol.sequence_prediction_2017"

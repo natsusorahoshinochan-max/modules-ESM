@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 
 from core import OperationCall
 from datatypes import (
@@ -13,6 +14,7 @@ from datatypes import (
     PairwiseCandidateMapping,
     PairwiseObservationContext,
     ProteinSequence,
+    ResidueAxisReference,
     ResolvedStructureResidueAxis,
     ScoreCollection,
     ScoreObservation,
@@ -20,8 +22,6 @@ from datatypes import (
 from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
-
 from .contracts import (
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
@@ -46,8 +46,7 @@ def _candidate_scope(
     call: OperationCall,
     port: str,
 ) -> tuple[Candidate, CandidateDataReference]:
-    collection = call.inputs[port].value
-    assert type(collection) is CandidateCollection
+    collection = cast(CandidateCollection, call.inputs[port].value)
     if len(collection.items) != 1:
         raise ValueError(f"{port} must contain exactly one Candidate")
     candidate = collection.items[0]
@@ -62,15 +61,22 @@ def _axis(
     call: OperationCall,
     port: str,
     subject: CandidateDataReference,
-) -> ResolvedStructureResidueAxis:
-    associations = call.inputs[port].value
-    assert type(associations) is CandidateResolvedResidueAxisAssociations
+) -> tuple[ResolvedStructureResidueAxis, ResidueAxisReference]:
+    associations = cast(
+        CandidateResolvedResidueAxisAssociations,
+        call.inputs[port].value,
+    )
     matches = tuple(
         item for item in associations.entries if item.subject == subject
     )
     if len(matches) != 1 or len(associations.entries) != 1:
         raise ValueError(f"{port} must bind one exact residue axis")
-    return matches[0].residue_axis
+    admitted_axis = next(
+        axis
+        for axis in call.inputs[port].scientific_axes
+        if axis.source == subject
+    )
+    return matches[0].residue_axis, admitted_axis
 
 
 def _observation(
@@ -80,8 +86,7 @@ def _observation(
     metric: tuple[str, str],
     subject: CandidateDataReference,
 ) -> ScoreObservation:
-    collection = call.inputs[port].value
-    assert type(collection) is ScoreCollection
+    collection = cast(ScoreCollection, call.inputs[port].value)
     matches = tuple(
         item
         for item in collection.entries
@@ -136,12 +141,13 @@ def _edge(
     subject: CandidateDataReference,
     reference: CandidateDataReference,
 ) -> ThreeWayComparisonEdge:
-    alignments = call.inputs[alignment_port].value
-    assert type(alignments) is tuple
+    alignments = cast(
+        tuple[StructureAlignmentEvidence, ...],
+        call.inputs[alignment_port].value,
+    )
     if len(alignments) != 1:
         raise ValueError(f"{alignment_port} must contain one exact alignment")
     alignment = alignments[0]
-    assert type(alignment) is StructureAlignmentEvidence
     if (alignment.subject, alignment.reference) != (subject, reference):
         raise ValueError(f"{alignment_port} contradicts the declared edge")
     alignment_digest = _value_digest(call, alignment_port)
@@ -217,20 +223,20 @@ class ThreeWayConsistencyImplementation:
             "simplefold_structures",
         )
         if (
-            type(sequence_candidate.data) is not ProteinSequence
-            or sequence_candidate.parent_ids != (input_candidate.candidate_id,)
+            sequence_candidate.parent_ids != (input_candidate.candidate_id,)
             or esmfold2_candidate.parent_ids != (sequence_candidate.candidate_id,)
             or simplefold_candidate.parent_ids != (sequence_candidate.candidate_id,)
         ):
             raise ValueError("three-way Candidates do not retain exact lineage")
 
-        sequence = sequence_candidate.data.sequence
+        sequence = cast(ProteinSequence, sequence_candidate.data).sequence
         residue_count = len(sequence)
-        axes = (
+        axis_records = (
             _axis(call, "input_residue_axes", input_reference),
             _axis(call, "esmfold2_residue_axes", esmfold2_reference),
             _axis(call, "simplefold_residue_axes", simplefold_reference),
         )
+        axes = tuple(axis for axis, _ in axis_records)
         if any(
             axis.layout.length != residue_count or axis.sequence != sequence
             for axis in axes
@@ -241,15 +247,10 @@ class ThreeWayConsistencyImplementation:
             call.inputs["input_simplefold_alignments"].value,
             call.inputs["method_alignments"].value,
         )
-        if any(
-            type(items) is not tuple
-            or len(items) != 1
-            or type(items[0]) is not StructureAlignmentEvidence
-            for items in alignment_values
-        ):
+        if any(len(items) != 1 for items in alignment_values):
             raise ValueError("three-way graph requires exactly three alignments")
         axis_digests = tuple(
-            RESOLVED_AXIS_PORT_TYPE.content_digest(axis) for axis in axes
+            reference.axis_content_digest for _, reference in axis_records
         )
         input_esmfold2_alignment = alignment_values[0][0]
         input_simplefold_alignment = alignment_values[1][0]
@@ -268,8 +269,10 @@ class ThreeWayConsistencyImplementation:
         ):
             raise ValueError("three-way alignments contradict their exact axes")
 
-        pairing = call.inputs["method_pairing"].value
-        assert type(pairing) is PairwiseCandidateMapping
+        pairing = cast(
+            PairwiseCandidateMapping,
+            call.inputs["method_pairing"].value,
+        )
         if (
             len(pairing.entries) != 1
             or pairing.entries[0].subject != esmfold2_reference

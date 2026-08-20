@@ -99,13 +99,13 @@ def _verify_comparison_package(
         port_cases=(
             ModulePackagePortCase(
                 "structure_comparison.alignment_evidence",
-                "4.0.0",
+                "5.0.0",
                 evidence,
                 (object(), replace(evidence, correspondence=())),
             ),
             ModulePackagePortCase(
                 "structure_comparison.three_way_consistency",
-                "2.0.0",
+                "3.0.0",
                 _three_way_consistency_value(),
                 (
                     object(),

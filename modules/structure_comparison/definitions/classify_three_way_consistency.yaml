@@ -1,128 +1,128 @@
 schema_version: "2.1.0"
 node_type_id: structure_comparison.classify_three_way_consistency
-version: "2.0.0"
+version: "3.0.0"
 title: Classify three-way structural consistency
 summary: Classifies one input, one ESMFold2 prediction, and one SimpleFold prediction from complete exact lineage, confidence, sibling-pairing, alignment, TM-score, and RMSD evidence.
 category: structure_comparison
 inputs:
   - name: input_structures
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one source structure Candidate whose coordinate B-factor field remains uninterpreted.
   - name: sequence_parents
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one sequence Candidate extracted from the input structure and shared as the exact parent of both predictions.
   - name: esmfold2_structures
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one ESMFold2 structure Candidate descended from the exact sequence parent.
   - name: simplefold_structures
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one SimpleFold structure Candidate descended from the exact sequence parent.
   - name: input_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact Candidate-associated source structure axis.
   - name: esmfold2_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact Candidate-associated ESMFold2 structure axis.
   - name: simplefold_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact Candidate-associated SimpleFold structure axis.
   - name: method_pairing
     port_type_id: candidate.pairing
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact ESMFold2-subject to SimpleFold-reference sibling pairing derived only from their common sequence parent.
   - name: input_esmfold2_alignments
     port_type_id: structure_comparison.alignment_evidence
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: many
     scientific_meaning: Exact ESMFold2-subject to input-reference alignment evidence.
   - name: input_simplefold_alignments
     port_type_id: structure_comparison.alignment_evidence
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: many
     scientific_meaning: Exact SimpleFold-subject to input-reference alignment evidence.
   - name: method_alignments
     port_type_id: structure_comparison.alignment_evidence
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: many
     scientific_meaning: Exact ESMFold2-subject to SimpleFold-reference sibling alignment evidence.
   - name: input_esmfold2_tm_scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Reference-normalized TM-score for the ESMFold2-to-input edge.
   - name: input_esmfold2_rmsd_scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: C-alpha RMSD for the ESMFold2-to-input edge.
   - name: input_simplefold_tm_scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Reference-normalized TM-score for the SimpleFold-to-input edge.
   - name: input_simplefold_rmsd_scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: C-alpha RMSD for the SimpleFold-to-input edge.
   - name: method_tm_scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Reference-normalized TM-score for the exact sibling edge.
   - name: method_rmsd_scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: C-alpha RMSD for the exact sibling edge.
   - name: esmfold2_confidence
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Candidate-associated ESMFold2 confidence Observations retaining the exact provider Method and prediction-input residue axis.
   - name: simplefold_confidence
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Candidate-associated SimpleFold confidence Observations retaining the exact provider Method and prediction-input residue axis.
 outputs:
   - name: consistency
     port_type_id: structure_comparison.three_way_consistency
-    port_type_version: "2.0.0"
+    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Closed three-way threshold graph, exact evidence references, Method-specific confidence gates, classification, and optional insufficiency subreason.

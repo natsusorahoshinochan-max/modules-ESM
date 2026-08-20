@@ -1,26 +1,26 @@
 schema_version: "2.1.0"
 node_type_id: structure_transform.resolve_candidate_residue_axes
-version: "5.0.0"
+version: "6.0.0"
 title: Resolve Candidate structure residue axes
 summary: Resolves every structure Candidate into an exact-reference-associated residue axis without using collection position as correspondence.
 category: structure_transform
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Nonempty structure Candidates whose admitted CandidateDataReference values are the sole association keys.
   - name: modified_residue_normalizations
     port_type_id: structure_transform.candidate_modified_residue_normalization_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Complete reference-associated normalization sets for exactly the input structure Candidates; entry order has no correspondence semantics.
 outputs:
   - name: residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One resolved axis per exact structure Candidate reference, canonically ordered only for serialization.

@@ -1,32 +1,32 @@
 schema_version: "2.1.0"
 node_type_id: structure_comparison.rmsd_fixed_reference
-version: "5.0.0"
+version: "6.0.0"
 title: Project fixed-reference alignment-evidence RMSD
 summary: Emits fixed-reference RMSD Observations solely from immutable v4 alignment evidence without structures, axes, or new superposition.
 category: structure_comparison
 inputs:
   - name: alignments
     port_type_id: structure_comparison.alignment_evidence
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: many
     scientific_meaning: Nonempty fixed-reference alignment evidence whose exact residuals and provenance determine every Observation.
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact subject Candidate scope used only to close Observation provenance; RMSD values are not computed from Candidate data.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact single fixed-reference Candidate scope used only to close Observation provenance; RMSD values are not computed from Candidate data.
 outputs:
   - name: scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Evidence-provenanced fixed-reference RMSD Observations, one per subject.

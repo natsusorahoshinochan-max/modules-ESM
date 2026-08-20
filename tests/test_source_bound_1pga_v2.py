@@ -314,14 +314,14 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     esmfold2 = _ControlledESMFold2(source_text)
     simplefold = _ControlledSimpleFold(source_text)
     environment = {
-        ("folding.fold.esmfold2_remote", "7.0.0"): {
+        ("folding.fold.esmfold2_remote", "8.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "8.0.0"): {
+        ("folding.fold.simplefold_local", "9.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,
@@ -597,13 +597,13 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         )
         alignment_codec = catalog.require_port_type(
             "structure_comparison.alignment_evidence",
-            "4.0.0",
+            "5.0.0",
         )
         assert [
             edge.alignment_evidence_content_digest
             for edge in consistency.edges
         ] == [alignment_codec.content_digest(item) for item in alignments]
-        score_codec = catalog.require_port_type("score.collection", "4.0.0")
+        score_codec = catalog.require_port_type("score.collection", "5.0.0")
         tm_scores = tuple(
             _decoded_output(client, catalog, projection, node_id, "scores")
             for node_id in (
@@ -688,14 +688,14 @@ def test_source_bound_1pga_public_classification_contract(
         plddt=simplefold_plddt,
     )
     environment = {
-        ("folding.fold.esmfold2_remote", "7.0.0"): {
+        ("folding.fold.esmfold2_remote", "8.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "8.0.0"): {
+        ("folding.fold.simplefold_local", "9.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,

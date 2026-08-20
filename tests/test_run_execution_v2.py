@@ -746,7 +746,7 @@ def _pipeline_catalog(
     builtin = builtin_frozen_catalog()
     candidate_collection_type = builtin.require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
     candidate_data_type = builtin.require_port_type(
         "protein.sequence",

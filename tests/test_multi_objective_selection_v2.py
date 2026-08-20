@@ -62,9 +62,9 @@ from tests.fixtures.scientific_operation import build_operation, operation_call
 WORKFLOW_SCHEMA_VERSION = "2.1.0"
 SOURCE_METHOD_VERSION = "2.1.0"
 SELECTION_METHOD_VERSION = "4.0.0"
-NODE_BINDING_VERSION = "4.0.0"
-SOURCE_NODE_BINDING_VERSION = "3.0.0"
-SCORER_NODE_BINDING_VERSION = "4.0.0"
+NODE_BINDING_VERSION = "5.0.0"
+SOURCE_NODE_BINDING_VERSION = "4.0.0"
+SCORER_NODE_BINDING_VERSION = "5.0.0"
 METRIC_UTILITY_VERSION = "3.0.0"
 OPERATIONS = ("weighted_rank", "pareto", "diversity")
 
@@ -452,9 +452,9 @@ def test_fixture_scores_only_already_admitted_candidate_data_references() -> Non
         )
         for port in scorer.descriptor["inputs"]
     ] == [
-        ("candidates", "candidate.collection", "3.0.0"),
-        ("references", "candidate.collection", "3.0.0"),
-        ("pairing", "candidate.pairing", "3.0.0"),
+        ("candidates", "candidate.collection", "4.0.0"),
+        ("references", "candidate.collection", "4.0.0"),
+        ("pairing", "candidate.pairing", "4.0.0"),
     ]
     assert [
         (
@@ -463,7 +463,7 @@ def test_fixture_scores_only_already_admitted_candidate_data_references() -> Non
             output["port_type"]["contract_version"],
         )
         for output in scorer.descriptor["outputs"]
-    ] == [("scores", "score.collection", "4.0.0")]
+    ] == [("scores", "score.collection", "5.0.0")]
     assert all(
         declaration["subject_direction"] == "input"
         and declaration["reference_direction"] == "input"

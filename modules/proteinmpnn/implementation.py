@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 from core import AdmittedPort, OperationCall, RunResources
 from datatypes import (
@@ -13,9 +13,7 @@ from datatypes import (
     CandidateDataReference,
     ExactContractReference,
     IntrinsicObservationContext,
-    ProteinMPNNConstraints,
     ProteinSequence,
-    ProteinStructure,
     ResidueAxisReference,
     ResolvedStructureResidueAxis,
     ScoreCollection,
@@ -24,7 +22,6 @@ from datatypes import (
 from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 
 from .adapter import LocalProteinMPNNAdapter
 from .domain import (
@@ -51,31 +48,32 @@ def _structure_candidates_with_axes(
         Candidate,
         CandidateDataReference,
         ResolvedStructureResidueAxis,
+        ResidueAxisReference,
     ],
     ...,
 ]:
     admitted = call.inputs.get("structure_candidates")
     axis_input = call.inputs.get("structure_residue_axes")
-    collection = None if admitted is None else admitted.value
-    associations = None if axis_input is None else axis_input.value
     if (
-        type(collection) is not CandidateCollection
-        or collection.item_type != "protein.structure"
-        or not collection.items
-        or type(associations)
-        is not CandidateResolvedResidueAxisAssociations
+        admitted is None
+        or axis_input is None
     ):
+        raise ValueError(
+            "ProteinMPNN requires exact structure Candidates and resolved axes"
+        )
+    collection = cast(CandidateCollection, admitted.value)
+    associations = cast(
+        CandidateResolvedResidueAxisAssociations,
+        axis_input.value,
+    )
+    if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(
             "ProteinMPNN requires exact structure Candidates and resolved axes"
         )
 
     candidates_by_id: dict[str, Candidate] = {}
     for candidate in collection.items:
-        if (
-            type(candidate) is not Candidate
-            or type(candidate.data) is not ProteinStructure
-            or candidate.candidate_id in candidates_by_id
-        ):
+        if candidate.candidate_id in candidates_by_id:
             raise ValueError(
                 "ProteinMPNN structure Candidates are incomplete or duplicate"
             )
@@ -89,6 +87,9 @@ def _structure_candidates_with_axes(
     axes_by_reference = {
         entry.subject: entry.residue_axis
         for entry in associations.entries
+    }
+    admitted_axes_by_reference = {
+        axis.source: axis for axis in axis_input.scientific_axes
     }
     references = tuple(
         sorted(references_by_id.values(), key=_reference_key)
@@ -106,28 +107,15 @@ def _structure_candidates_with_axes(
             raise ValueError(
                 "ProteinMPNN resolved axis contradicts its structure Candidate"
             )
-        result.append((candidate, reference, residue_axis))
+        result.append(
+            (
+                candidate,
+                reference,
+                residue_axis,
+                admitted_axes_by_reference[reference],
+            )
+        )
     return tuple(result)
-
-
-def _resolved_axis_reference(
-    subject: CandidateDataReference,
-    residue_axis: ResolvedStructureResidueAxis,
-) -> ResidueAxisReference:
-    return ResidueAxisReference(
-        axis_kind="resolved_structure",
-        axis_contract=ExactContractReference(
-            contract_kind="port_type",
-            contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
-            contract_version=RESOLVED_AXIS_PORT_TYPE.version,
-            contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
-        ),
-        axis_content_digest=RESOLVED_AXIS_PORT_TYPE.content_digest(
-            residue_axis
-        ),
-        source=subject,
-        layout=residue_axis.layout,
-    )
 
 
 class ProteinMPNNConstraintsImplementation:
@@ -250,21 +238,14 @@ class ProteinMPNNDesignImplementation:
         seed, count, temperature, noise = self._parameters(call)
         reference_input = call.inputs.get("sequence")
         reference = (
-            None if reference_input is None else reference_input.value
+            None
+            if reference_input is None
+            else cast(ProteinSequence, reference_input.value)
         )
-        if reference is not None and type(reference) is not ProteinSequence:
-            raise ValueError("sequence input must be a complete ProteinSequence")
         constraint_input = call.inputs.get("constraints")
         constraints = (
             None if constraint_input is None else constraint_input.value
         )
-        if (
-            constraints is not None
-            and type(constraints) is not ProteinMPNNConstraints
-        ):
-            raise ValueError(
-                "constraints input must be complete ProteinMPNN constraints"
-            )
         constraint_digest = self._constraint_digest(call)
         candidates: list[Candidate] = []
         try:
@@ -272,6 +253,7 @@ class ProteinMPNNDesignImplementation:
                 parent_candidate,
                 parent_reference,
                 residue_axis,
+                _axis_reference,
             ) in enumerate(parents):
                 parent_ids = (parent_candidate.candidate_id,)
                 call_seed = self._call_seed(
@@ -318,7 +300,7 @@ class ProteinMPNNDesignImplementation:
             self._adapter.close()
         if len(candidates) != len(parents) * count:
             raise RuntimeError("ProteinMPNN design children are incomplete")
-        for parent_candidate, _, _ in parents:
+        for parent_candidate, _, _, _ in parents:
             parent_ids = (parent_candidate.candidate_id,)
             children = [
                 candidate
@@ -361,6 +343,7 @@ class ProteinMPNNScoreImplementation:
         CandidateDataReference,
         CandidateDataReference,
         ResolvedStructureResidueAxis,
+        ResidueAxisReference,
     ]:
         if set(call.inputs) != {
             "structure_candidates",
@@ -372,15 +355,10 @@ class ProteinMPNNScoreImplementation:
                 "Candidate inputs with resolved axes"
             )
         parents = _structure_candidates_with_axes(call)
-        admitted_sequences = call.inputs.get("sequence_candidates")
-        sequences = (
-            None
-            if admitted_sequences is None
-            else admitted_sequences.value
-        )
+        admitted_sequences = call.inputs["sequence_candidates"]
+        sequences = cast(CandidateCollection, admitted_sequences.value)
         if (
             len(parents) != 1
-            or type(sequences) is not CandidateCollection
             or sequences.item_type != "protein.sequence"
             or len(sequences.items) != 1
         ):
@@ -388,15 +366,11 @@ class ProteinMPNNScoreImplementation:
                 "ProteinMPNN scoring requires one structure Candidate and "
                 "one sequence Candidate"
             )
-        structure, structure_reference, residue_axis = parents[0]
+        structure, structure_reference, residue_axis, axis_reference = parents[0]
         sequence = sequences.items[0]
         if (
-            type(structure) is not Candidate
-            or not structure.candidate_id
-            or type(structure.data) is not ProteinStructure
-            or type(sequence) is not Candidate
+            not structure.candidate_id
             or not sequence.candidate_id
-            or type(sequence.data) is not ProteinSequence
             or sequence.parent_ids != (structure.candidate_id,)
         ):
             raise ValueError(
@@ -410,6 +384,7 @@ class ProteinMPNNScoreImplementation:
             structure_reference,
             sequence_reference,
             residue_axis,
+            axis_reference,
         )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -423,9 +398,9 @@ class ProteinMPNNScoreImplementation:
             structure_reference,
             sequence_reference,
             residue_axis,
+            axis_reference,
         ) = self._subject(call)
-        sequence = sequence_candidate.data
-        assert type(sequence) is ProteinSequence
+        sequence = cast(ProteinSequence, sequence_candidate.data)
         try:
             score = self._adapter.score(
                 residue_axis=residue_axis,
@@ -439,10 +414,7 @@ class ProteinMPNNScoreImplementation:
             method=self._method,
             context=IntrinsicObservationContext(),
             value=score,
-            residue_axis=_resolved_axis_reference(
-                structure_reference,
-                residue_axis,
-            ),
+            residue_axis=axis_reference,
         )
         return {
             "scores": ScoreCollection(

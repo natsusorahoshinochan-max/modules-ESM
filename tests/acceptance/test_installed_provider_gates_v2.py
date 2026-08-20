@@ -21,7 +21,7 @@ BIOHUB_ESM3_GATE_BINDINGS = (
     "esm3.generate_paired.biohub_open",
 )
 BIOHUB_ESM3_GATE_INVOCATIONS = 8
-BIOHUB_ESM3_GATE_VERSION = "7.0.0"
+BIOHUB_ESM3_GATE_VERSION = "8.0.0"
 
 _ESM3_GENERATION_PARAMETERS = {
     "num_steps": 2,
@@ -884,7 +884,7 @@ def test_biohub_esmfold2_executes_exact_method(
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_remote",
-        "7.0.0",
+        "8.0.0",
     )
     assert method.descriptor["model_identity"]["model"] == (
         REMOTE_ESMFOLD2_MODEL
@@ -894,7 +894,7 @@ def test_biohub_esmfold2_executes_exact_method(
         events=events,
         node_id="fold",
         binding_id="folding.fold.esmfold2_remote",
-        binding_version="7.0.0",
+        binding_version="8.0.0",
         method_digest=method.contract_digest,
         expected_roles=("fold_parent_0_sample_0",),
     )
@@ -957,14 +957,14 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_local",
-        "8.0.0",
+        "9.0.0",
     )
     started = _assert_exact_execution(
         projection=projection,
         events=events,
         node_id="fold",
         binding_id="folding.fold.esmfold2_local",
-        binding_version="8.0.0",
+        binding_version="9.0.0",
         method_digest=method.contract_digest,
         expected_roles=("fold_parent_0_sample_0",),
     )
@@ -1012,9 +1012,9 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
     structure_source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.proteinmpnn_3gb1_structure",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.proteinmpnn_3gb1_structure.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -1024,9 +1024,9 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="9.0.0",
+            node_type_version="10.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="10.0.0",
+            binding_version="11.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -1060,20 +1060,20 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             ),
         ),
         binding_id="proteinmpnn.design.local",
-        binding_version="10.0.0",
+        binding_version="11.0.0",
     )
     assert design_projection["status"] == "succeeded", design_events
     design_method = _method_for_binding(
         design_catalog,
         "proteinmpnn.design.local",
-        "10.0.0",
+        "11.0.0",
     )
     design_started = _assert_exact_execution(
         projection=design_projection,
         events=design_events,
         node_id="design",
         binding_id="proteinmpnn.design.local",
-        binding_version="10.0.0",
+        binding_version="11.0.0",
         method_digest=design_method.contract_digest,
         expected_roles=("design_parent_0",),
     )
@@ -1101,18 +1101,18 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
         WorkflowNodeInstance(
             node_id="sequence-source",
             node_type_id="contract_test.proteinmpnn_3gb1_sequence",
-            node_type_version="3.0.0",
+            node_type_version="4.0.0",
             binding_id="contract_test.proteinmpnn_3gb1_sequence.direct",
-            binding_version="3.0.0",
+            binding_version="4.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="score",
             node_type_id="proteinmpnn.score",
-            node_type_version="6.0.0",
+            node_type_version="7.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="7.0.0",
+            binding_version="8.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -1153,20 +1153,20 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             ),
         ),
         binding_id="proteinmpnn.score.local",
-        binding_version="7.0.0",
+        binding_version="8.0.0",
     )
     assert score_projection["status"] == "succeeded", score_events
     score_method = _method_for_binding(
         score_catalog,
         "proteinmpnn.score.local",
-        "7.0.0",
+        "8.0.0",
     )
     _assert_exact_execution(
         projection=score_projection,
         events=score_events,
         node_id="score",
         binding_id="proteinmpnn.score.local",
-        binding_version="7.0.0",
+        binding_version="8.0.0",
         method_digest=score_method.contract_digest,
         expected_roles=("score_subject",),
     )
@@ -1261,9 +1261,9 @@ def test_mkdssp_executes_exact_method_through_public_run(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_structure",
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id="protein_io.import_structure.direct",
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={"project_input_ref": "structure-input"},
                 binding_parameters={},
             ),
@@ -1272,7 +1272,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
                 node_type_id=(
                     "structure_transform.resolve_candidate_residue_axes"
                 ),
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id=(
                     "structure_transform."
                     "resolve_candidate_residue_axes.direct"
@@ -1284,11 +1284,11 @@ def test_mkdssp_executes_exact_method_through_public_run(
             WorkflowNodeInstance(
                 node_id="annotate",
                 node_type_id="structure_annotation.dssp_compute",
-                node_type_version="6.0.0",
+                node_type_version="7.0.0",
                 binding_id=(
                     "structure_annotation.dssp_compute.mkdssp_local"
                 ),
-                binding_version="6.0.0",
+                binding_version="7.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),

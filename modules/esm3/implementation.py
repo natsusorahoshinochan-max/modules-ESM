@@ -187,8 +187,6 @@ class ESM3GenerationOperation:
                 "parameters"
             )
         prompt = call.inputs["protein_prompt"].value
-        if type(prompt) is not ProteinPrompt:
-            raise ValueError("protein_prompt has the wrong runtime type")
         effective_seed, num_samples, parameters = self._parameters(
             call.node_parameters
         )

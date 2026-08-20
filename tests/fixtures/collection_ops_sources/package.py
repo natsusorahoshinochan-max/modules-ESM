@@ -38,8 +38,9 @@ from tests.fixtures.exact_content_identity import exact_content_identity
 
 
 VERSION = "2.1.0"
-CANDIDATE_NODE_VERSION = "3.0.0"
-SCORE_NODE_VERSION = "4.0.0"
+CANDIDATE_NODE_VERSION = "4.0.0"
+SCORE_NODE_VERSION = "5.0.0"
+PACKAGE_VERSION = "3.0.0"
 METRIC = ContractIdentity(
     "metric",
     "contract_test.collection_ops_value",
@@ -578,7 +579,7 @@ def _utility(partition: str) -> UtilityTransformDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="contract_test.collection_ops_sources",
-    package_version=VERSION,
+    package_version=PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("source.yaml"),

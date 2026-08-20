@@ -93,11 +93,6 @@ class CollectionOpsImplementation:
             )
         candidates = inputs["candidates"].value
         parents = inputs["parents"].value
-        if (
-            type(candidates) is not CandidateCollection
-            or type(parents) is not CandidateCollection
-        ):
-            raise ValueError("child selection inputs must be Candidate Collections")
         parent_ids = {candidate.candidate_id for candidate in parents.items}
         selected = []
         for candidate in candidates.items:
@@ -126,12 +121,7 @@ class CollectionOpsImplementation:
             raise ValueError(
                 "Candidate intersection requires at least two connected inputs"
             )
-        if any(type(value) is not CandidateCollection for value in supplied):
-            raise ValueError(
-                "Candidate intersection inputs must be Candidate Collections"
-            )
         first = supplied[0]
-        assert type(first) is CandidateCollection
         if any(value.item_type != first.item_type for value in supplied[1:]):
             raise ValueError("Candidate intersection requires one exact item type")
         identities = [
@@ -168,8 +158,6 @@ class CollectionOpsImplementation:
             )
         candidates = inputs["candidates"].value
         k = node_parameters["k"]
-        if type(candidates) is not CandidateCollection:
-            raise ValueError("candidates must be an exact Candidate Collection")
         if type(k) is not int or k < 1:
             raise ValueError("k must be a positive integer")
         if k > len(candidates.items):
@@ -185,14 +173,14 @@ class CollectionOpsImplementation:
     def _candidate_references(
         self,
         call: OperationCall,
-        value: object,
+        value: CandidateCollection,
         *,
         port: str,
     ) -> tuple[
         CandidateCollection,
         dict[str, tuple[Candidate, CandidateDataReference]],
     ]:
-        if type(value) is not CandidateCollection or not value.items:
+        if not value.items:
             raise ValueError(f"{port} must be a non-empty Candidate Collection")
         admitted = call.inputs[port]
         admitted_by_id = {
@@ -239,8 +227,6 @@ class CollectionOpsImplementation:
             port="references",
         )
         pairing = inputs["parent_pairing"].value
-        if type(pairing) is not PairwiseCandidateMapping:
-            raise ValueError("parent_pairing must be an exact Candidate pairing")
         parent_to_reference: dict[
             str, CandidateDataReference
         ] = {}
@@ -381,8 +367,6 @@ class CollectionOpsImplementation:
         candidates: list[Candidate] = []
         source_by_identity: dict[str, str] = {}
         for port, collection in supplied:
-            if type(collection) is not CandidateCollection:
-                raise ValueError(f"{port} is not a Candidate Collection")
             if item_type is None:
                 item_type = collection.item_type
             elif collection.item_type != item_type:
@@ -421,13 +405,7 @@ class CollectionOpsImplementation:
             tuple[ScoreObservation, bytes],
         ] = {}
         for port, collection in supplied:
-            if type(collection) is not ScoreCollection:
-                raise ValueError(f"{port} is not a Score Collection")
             for entry in collection.entries:
-                if type(entry) is not ScoreObservation:
-                    raise ValueError(
-                        "Score merge requires exact typed Observations"
-                    )
                 try:
                     encoded_value = canonical_json_bytes(entry.value)
                 except CatalogBuildError as error:
@@ -473,8 +451,6 @@ class CollectionOpsImplementation:
         subject_sources: dict[CandidateDataReference, str] = {}
         reference_sources: dict[CandidateDataReference, str] = {}
         for port, pairing in supplied:
-            if type(pairing) is not PairwiseCandidateMapping:
-                raise ValueError(f"{port} is not an exact Candidate pairing")
             for entry in pairing.entries:
                 if entry.subject in subject_sources:
                     raise ValueError(

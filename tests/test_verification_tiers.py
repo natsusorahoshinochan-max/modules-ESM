@@ -297,7 +297,7 @@ def test_installed_provider_case_matrix_is_exact_and_collectable() -> None:
         "esm3.generate_paired.biohub_open",
     )
     assert BIOHUB_ESM3_GATE_INVOCATIONS == 8
-    assert BIOHUB_ESM3_GATE_VERSION == "7.0.0"
+    assert BIOHUB_ESM3_GATE_VERSION == "8.0.0"
     from core import build_discovered_frozen_catalog
 
     catalog = build_discovered_frozen_catalog()
@@ -446,7 +446,7 @@ def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
     binding = catalog.require_contract(
         "binding",
         "structure_annotation.dssp_compute.mkdssp_local",
-        "6.0.0",
+        "7.0.0",
     )
     method = binding.descriptor["method"]
     assert catalog.require_contract(

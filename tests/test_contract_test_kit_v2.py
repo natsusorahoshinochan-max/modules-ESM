@@ -186,7 +186,7 @@ def test_source_and_scorer_publish_distinct_exact_contracts() -> None:
             "port_type": catalog.require_contract(
                 "port_type",
                 "candidate.collection",
-                "3.0.0",
+                "4.0.0",
             ).reference(),
             "required": True,
             "multiplicity": "one",

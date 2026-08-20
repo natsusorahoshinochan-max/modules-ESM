@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.inserted_loop_source
-version: "4.0.0"
+version: "5.0.0"
 title: Inserted-loop conformance source
 summary: Emits one exact core, inserted-loop subject, paired counterpart, and prediction sequence.
 category: contract_test
@@ -8,31 +8,31 @@ inputs: []
 outputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One independently folded inserted-loop structure.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact resolved-core reference.
   - name: counterparts
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact generated structure counterpart.
   - name: sequence_parents
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One identity-addressed prediction input sequence.
   - name: pairing
     port_type_id: candidate.pairing
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact subject-to-counterpart pairing.

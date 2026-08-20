@@ -52,18 +52,19 @@ from .implementation import (
 )
 
 
+_PACKAGE_VERSION = "3.0.0"
 _VERSION = "2.1.0"
 _METHOD_VERSION = "2.2.0"
 _PORT_VERSION = "4.0.0"
 _METRIC_VERSION = "3.0.0"
 _NODE_BINDING_VERSIONS = {
-    "dssp_compute": "6.0.0",
+    "dssp_compute": "7.0.0",
     "secondary_structure_extract": "4.0.0",
     "sasa_compute": "4.0.0",
-    "secondary_structure_agreement": "5.0.0",
+    "secondary_structure_agreement": "6.0.0",
     "apply_secondary_structure_to_prompt": "5.0.0",
     "apply_sasa_to_prompt": "5.0.0",
-    "expected_secondary_structure_from_prompt": "5.0.0",
+    "expected_secondary_structure_from_prompt": "6.0.0",
 }
 _METHOD_VERSIONS = {
     "dssp_compute": "3.0.0",
@@ -715,7 +716,7 @@ def _port_type(
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="structure_annotation",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=tuple(
         DefinitionResource(f"definitions/{name}.yaml")

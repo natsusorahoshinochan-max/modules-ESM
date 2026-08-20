@@ -37,7 +37,7 @@ def test_candidate_collection_rejects_noncanonical_or_duplicate_parent_ids(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
     value = CandidateCollection(
         "collection",
@@ -67,7 +67,7 @@ def test_candidate_collection_codec_rejects_invalid_parent_ids(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
     canonical = port_type.encode(
         CandidateCollection(
@@ -119,7 +119,7 @@ def test_candidate_collection_rejects_internal_lineage_cycles_on_encode(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
 
     with pytest.raises(PortValueError, match="self-parent|contains a cycle"):
@@ -143,7 +143,7 @@ def test_candidate_collection_codec_rejects_internal_lineage_cycles(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
     canonical = port_type.encode(
         CandidateCollection(
@@ -225,7 +225,7 @@ def test_candidate_normalization_rejects_parent_ids_that_converge() -> None:
             inputs={
                 "admitted_parents": admitted_port_values(
                     port_type=_BUILTINS.require_port_type(
-                        "candidate.collection", "3.0.0"
+                        "candidate.collection", "4.0.0"
                     ),
                     multiplicity="one",
                     values=(

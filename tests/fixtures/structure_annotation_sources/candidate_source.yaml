@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.structure_annotation_candidate_source
-version: "3.0.0"
+version: "4.0.0"
 title: Structure annotation Candidate source
 summary: Emits independent deterministic subject and reference ProteinStructure Candidates for structure-annotation conformance.
 category: contract_test
@@ -8,13 +8,13 @@ inputs: []
 outputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one independently produced subject ProteinStructure Candidate.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one independently produced reference ProteinStructure Candidate.

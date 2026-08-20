@@ -1,19 +1,19 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.structure_annotation_value_source
-version: "3.0.0"
+version: "4.0.0"
 title: Candidate-associated structure annotation value source
 summary: Emits deterministic annotations and Prompt values associated with exact admitted subject and reference Candidates.
 category: contract_test
 inputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one admitted subject Candidate whose exact reference is attached to observed values.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one admitted reference Candidate whose exact reference is attached to expected values.

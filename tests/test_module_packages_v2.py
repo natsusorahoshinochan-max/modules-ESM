@@ -58,7 +58,7 @@ inputs:
     scientific_meaning: Text supplied to the synthetic operation.
   - name: candidate_subjects
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Candidate subjects supplied to the synthetic operation.
@@ -71,13 +71,13 @@ outputs:
     scientific_meaning: Text returned by the synthetic operation.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Candidates observed by the synthetic operation.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Typed observations emitted by the synthetic operation.
@@ -260,7 +260,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:956f8e395b5922006268652f379fef5ae71c3372c986500fbd30c3a1b16534be"
+        "sha256:f2d03215cb81344c594564cdb3aa1b3543b6fd43c68878464e8573252320c475"
     ),
     ("method", "synthetic.echo"): (
         "sha256:e485971a5abafb8460fd29fc8978b89ed2dc4d66efec93c37b75d0289c807120"
@@ -269,7 +269,7 @@ EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
         "sha256:51f0164af916ccf5c3e69c72fc2adb1be6d07c07254869e5a304e870d6bfb2e5"
     ),
     ("node_type", "synthetic.echo"): (
-        "sha256:fe7a9d2b63694e628601ba1c0cc89a744c492f336b82b5c3bbd67a2e13a6139d"
+        "sha256:aaf22801384d7aeca66a440a3550e5b34f73fb3f379f8c973f33395524056503"
     ),
     ("port_type", "synthetic.text"): (
         "sha256:cc3fa0e72b72eb82ced2b58697b44a98587c61b6a6ce567c133ca847d2f47870"
@@ -612,11 +612,11 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
     [
         (
             {"output_port": "value"},
-            "output must use exact score.collection@4.0.0",
+            "output must use exact score.collection@5.0.0",
         ),
         (
             {"subject_port": "value"},
-            "subject must use exact candidate.collection@3.0.0",
+            "subject must use exact candidate.collection@4.0.0",
         ),
     ],
 )
@@ -664,7 +664,7 @@ def test_binding_rejects_many_valued_observation_propagation_inputs(
             "    multiplicity: one\n"
             "    scientific_meaning: Text supplied to the synthetic operation.",
             "    port_type_id: score.collection\n"
-            "    port_type_version: \"4.0.0\"\n"
+            "    port_type_version: \"5.0.0\"\n"
             "    required: true\n"
             "    multiplicity: many\n"
             "    scientific_meaning: Scores supplied to the synthetic operation.",

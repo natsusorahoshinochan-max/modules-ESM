@@ -43,9 +43,11 @@ from .three_way_port import THREE_WAY_CONSISTENCY_PORT_TYPE
 
 _RMSD_NORMALIZATION = "aligned-CA-mean-square-distance"
 _TM_NORMALIZATION = "reference-axis-residue-count"
-ALIGNMENT_NODE_VERSION = "4.0.0"
-SCORE_NODE_VERSION = "5.0.0"
-THREE_WAY_VERSION = "2.0.0"
+ALIGNMENT_NODE_VERSION = "5.0.0"
+SCORE_NODE_VERSION = "6.0.0"
+THREE_WAY_VERSION = "3.0.0"
+INSERTED_LOOP_VERSION = "2.0.0"
+TM_UTILITY_VERSION = "4.0.0"
 
 
 def _available() -> AvailabilityResult:
@@ -88,11 +90,11 @@ def _build_inserted_loop(
 
 INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     binding_id="structure_comparison.evaluate_inserted_loop.direct",
-    version="1.0.0",
+    version=INSERTED_LOOP_VERSION,
     node_type=ContractIdentity(
         "node_type",
         "structure_comparison.evaluate_inserted_loop",
-        "1.0.0",
+        INSERTED_LOOP_VERSION,
     ),
     method=INSERTED_LOOP_EVALUATION_METHOD.identity,
     binding_parameters={},
@@ -100,7 +102,7 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     factory=ScientificOperationFactory(
         behavior=BehaviorReference(
             "structure_comparison.evaluate_inserted_loop.direct/factory",
-            "1.0.0",
+            INSERTED_LOOP_VERSION,
             {"execution_route": "direct"},
         ),
         build=_build_inserted_loop,
@@ -108,7 +110,7 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     availability=AvailabilityDeclaration(
         behavior=BehaviorReference(
             "structure_comparison.evaluate_inserted_loop.direct/availability",
-            "1.0.0",
+            INSERTED_LOOP_VERSION,
             {"observation": "startup"},
         ),
         prerequisites={},
@@ -117,7 +119,7 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     readiness=ReadinessDeclaration(
         behavior=BehaviorReference(
             "structure_comparison.evaluate_inserted_loop.direct/readiness",
-            "1.0.0",
+            INSERTED_LOOP_VERSION,
             {"observation": "per-run"},
         ),
         prerequisites={},
@@ -207,7 +209,7 @@ def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
             "structure_comparison.tm_score."
             f"{pairing_mode}.identity"
         ),
-        version=VERSION,
+        version=TM_UTILITY_VERSION,
         compatible_input_contract={
             "metric": ContractIdentity(
                 "metric",
@@ -226,7 +228,7 @@ def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
         parameters={},
         behavior=BehaviorReference(
             "structure_comparison.tm_score.identity/transform",
-            VERSION,
+            TM_UTILITY_VERSION,
             {"mapping": "identity"},
         ),
         transform=_tm_score_identity,
@@ -353,7 +355,7 @@ def _binding(
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="structure_comparison",
-    package_version="6.0.0",
+    package_version="7.0.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/align_single.yaml"),

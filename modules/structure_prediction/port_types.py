@@ -29,7 +29,7 @@ from .domain import (
 )
 
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 _BUILTINS = builtin_frozen_catalog()
 _LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
 _SEQUENCE_CODEC = _BUILTINS.require_port_type("protein.sequence", "3.0.0")
@@ -447,7 +447,7 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
             "entry_order": "canonical-prediction-key",
             "observation_method": "one-exact-shared-Method",
             "axis_contract": (
-                "structure_prediction.prediction_residue_axis@1.0.0"
+                "structure_prediction.prediction_residue_axis@2.0.0"
             ),
         },
     ),
@@ -459,7 +459,7 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
             "character_encoding": "UTF-8",
             "collection_order": "prediction_key",
             "nested_axis_codec": (
-                "structure_prediction.prediction_residue_axis@1.0.0"
+                "structure_prediction.prediction_residue_axis@2.0.0"
             ),
         },
     ),

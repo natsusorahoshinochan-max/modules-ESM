@@ -30,8 +30,8 @@ from datatypes import (
 )
 
 
-_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "3.0.0"
+_VERSION = "3.0.0"
+_NODE_BINDING_VERSION = "4.0.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _PDB_PATH = _PROJECT_ROOT / "pdbs" / "3GB1.pdb"
 _PDB_SHA256 = (

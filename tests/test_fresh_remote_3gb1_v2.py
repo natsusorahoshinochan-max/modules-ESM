@@ -37,25 +37,25 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROJECT_ID = "canonical-3gb1"
 RUN_LABEL = "fresh-canonical-3gb1"
 PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
-PROTEINMPNN_BINDING_VERSION = "10.0.0"
+PROTEINMPNN_BINDING_VERSION = "11.0.0"
 PROTEINMPNN_METHOD_ID = "proteinmpnn.design.v_48_020_8907e667"
 PROTEINMPNN_METHOD_VERSION = "6.0.0"
 REMOTE_BINDINGS = {
     "esm3.generate_paired.biohub_medium": {
-        "binding_version": "7.0.0",
+        "binding_version": "8.0.0",
         "method_id": "esm3.generate_paired.esm3_medium_2024_08",
         "method_version": "5.0.0",
         "adapter_id": "esm3.biohub/adapter",
-        "adapter_version": "7.0.0",
+        "adapter_version": "8.0.0",
         "model": "esm3-medium-2024-08",
         "source": "Biohub",
     },
     "folding.fold.esmfold2_remote": {
-        "binding_version": "7.0.0",
+        "binding_version": "8.0.0",
         "method_id": "folding.fold.esmfold2_fast_biohub_2026_05",
         "method_version": "4.0.0",
         "adapter_id": "folding.esmfold2_remote/adapter",
-        "adapter_version": "7.0.0",
+        "adapter_version": "8.0.0",
         "model": "esmfold2-fast-2026-05",
         "source": "Biohub",
     },
@@ -367,7 +367,7 @@ def _provider_invocation_contract_fixture(
     add_node(
         "generate-paired",
         "esm3.generate_paired.biohub_medium",
-        "7.0.0",
+        "8.0.0",
         tuple(
             call
             for index in range(10)
@@ -393,7 +393,7 @@ def _provider_invocation_contract_fixture(
         add_node(
             node_id,
             "folding.fold.esmfold2_remote",
-            "7.0.0",
+            "8.0.0",
             tuple(
                 (
                     f"{node_id}-{index}",
@@ -442,7 +442,7 @@ def _provider_invocation_contract_fixture(
     add_node(
         "align-fixed",
         "structure_comparison.align_fixed_reference.sequence_primary_affine",
-        "4.0.0",
+        "5.0.0",
         (
             (
                 "local-alignment-failed-attempt",

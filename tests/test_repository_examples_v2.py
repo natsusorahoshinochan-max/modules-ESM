@@ -406,18 +406,18 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         and contract.contract_id.startswith("structure_comparison.")
     }
     assert comparison_nodes == {
-        ("structure_comparison.align_counterparts", "4.0.0"),
-        ("structure_comparison.align_fixed_reference", "4.0.0"),
-        ("structure_comparison.align_single", "4.0.0"),
+        ("structure_comparison.align_counterparts", "5.0.0"),
+        ("structure_comparison.align_fixed_reference", "5.0.0"),
+        ("structure_comparison.align_single", "5.0.0"),
         (
             "structure_comparison.classify_three_way_consistency",
-            "2.0.0",
+            "3.0.0",
         ),
-        ("structure_comparison.evaluate_inserted_loop", "1.0.0"),
-        ("structure_comparison.rmsd_counterparts", "5.0.0"),
-        ("structure_comparison.rmsd_fixed_reference", "5.0.0"),
-        ("structure_comparison.tm_score_counterparts", "5.0.0"),
-        ("structure_comparison.tm_score_fixed_reference", "5.0.0"),
+        ("structure_comparison.evaluate_inserted_loop", "2.0.0"),
+        ("structure_comparison.rmsd_counterparts", "6.0.0"),
+        ("structure_comparison.rmsd_fixed_reference", "6.0.0"),
+        ("structure_comparison.tm_score_counterparts", "6.0.0"),
+        ("structure_comparison.tm_score_fixed_reference", "6.0.0"),
     }
     comparison_bindings = {
         (contract.contract_id, contract.contract_version)
@@ -429,46 +429,46 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         (
             "structure_comparison.align_counterparts."
             "sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.align_fixed_reference."
             "sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.align_single.sequence_primary_affine",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.align_single.structure_first_tm_align",
-            "4.0.0",
+            "5.0.0",
         ),
         (
             "structure_comparison.classify_three_way_consistency.direct",
-            "2.0.0",
+            "3.0.0",
         ),
         (
             "structure_comparison.evaluate_inserted_loop.direct",
-            "1.0.0",
+            "2.0.0",
         ),
         (
             "structure_comparison.rmsd_counterparts.from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
         (
             "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
         (
             "structure_comparison.tm_score_counterparts."
             "from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
         (
             "structure_comparison.tm_score_fixed_reference."
             "from_alignment_evidence",
-            "5.0.0",
+            "6.0.0",
         ),
     }
     comparison_scientific_contracts = {
@@ -483,9 +483,9 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
     }
     assert comparison_scientific_contracts
     assert {version for _, _, version in comparison_scientific_contracts} == {
-        "1.0.0",
         "2.0.0",
         "3.0.0",
+        "4.0.0",
     }
 
 

@@ -19,7 +19,7 @@ from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
 VERSION = "2.1.0"
-PROTEIN_IO_STRUCTURE_VERSION = "5.0.0"
+PROTEIN_IO_STRUCTURE_VERSION = "6.0.0"
 STRUCTURE_TRANSFORM_VERSION = "4.0.0"
 SEQUENCE_EXPORT_VERSION = "3.0.0"
 _MULTI_CHAIN_PDB = (

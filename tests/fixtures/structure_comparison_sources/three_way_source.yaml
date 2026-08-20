@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.1pga_three_way_source
-version: "4.0.0"
+version: "5.0.0"
 title: Exact 1PGA-shaped three-way conformance source
 summary: Supplies independently constructed exact lineage for the 75-residue classifier conformance case.
 category: contract_test
@@ -8,25 +8,25 @@ inputs: []
 outputs:
   - name: input_structures
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One independent 75-residue input structure Candidate.
   - name: sequence_parents
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact 75-residue sequence Candidate descended from the input.
   - name: esmfold2_structures
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One structure Candidate descended from the sequence parent.
   - name: simplefold_structures
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One second structure Candidate descended from the same sequence parent.

@@ -6,7 +6,6 @@ from typing import Any
 
 from core import OperationCall, OperationContext, ResolvedProducedObservation
 from datatypes import (
-    CandidateCollection,
     CandidateDataReference,
     PairwiseCandidateMapping,
     ScoreCollection,
@@ -16,7 +15,6 @@ from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 
 from .alignment import align_resolved_axes
 from .contracts import (
@@ -48,11 +46,7 @@ def _candidate_references(
 ) -> tuple[CandidateDataReference, ...]:
     admitted = call.inputs.get(port_name)
     collection = None if admitted is None else admitted.value
-    if (
-        type(collection) is not CandidateCollection
-        or collection.item_type != "protein.structure"
-        or not collection.items
-    ):
+    if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(
             f"{port_name} must carry non-empty exact structure Candidates"
         )
@@ -60,13 +54,11 @@ def _candidate_references(
 
 
 def _axis_associations(
-    value: object,
+    value: CandidateResolvedResidueAxisAssociations,
     references: tuple[CandidateDataReference, ...],
     *,
     role: str,
 ) -> dict[CandidateDataReference, CandidateResolvedResidueAxisAssociation]:
-    if type(value) is not CandidateResolvedResidueAxisAssociations:
-        raise ValueError(f"{role} residue axes have the wrong nominal type")
     by_reference = {entry.subject: entry for entry in value.entries}
     if set(by_reference) != set(references):
         raise ValueError(
@@ -85,11 +77,11 @@ def _fixed_reference_pairs(
 
 
 def _counterpart_pairs(
-    value: object,
+    value: PairwiseCandidateMapping,
     subjects: tuple[CandidateDataReference, ...],
     references: tuple[CandidateDataReference, ...],
 ) -> tuple[tuple[CandidateDataReference, CandidateDataReference], ...]:
-    if type(value) is not PairwiseCandidateMapping or not value.entries:
+    if not value.entries:
         raise ValueError("counterpart comparison requires exact Candidate pairing")
     subjects_by_identity = {item: item for item in subjects}
     references_by_identity = {item: item for item in references}
@@ -183,6 +175,14 @@ class StructureComparisonImplementation:
             references,
             role="reference",
         )
+        admitted_subject_axes = {
+            axis.source: axis
+            for axis in call.inputs["subject_residue_axes"].scientific_axes
+        }
+        admitted_reference_axes = {
+            axis.source: axis
+            for axis in call.inputs["reference_residue_axes"].scientific_axes
+        }
         if self._operation == "align_single":
             if len(subjects) != 1 or len(references) != 1:
                 raise ValueError(
@@ -219,14 +219,14 @@ class StructureComparisonImplementation:
                     subject=subject_association.subject,
                     reference=reference_association.subject,
                     subject_axis_content_digest=(
-                        RESOLVED_AXIS_PORT_TYPE.content_digest(
-                            subject_association.residue_axis
-                        )
+                        admitted_subject_axes[
+                            subject_association.subject
+                        ].axis_content_digest
                     ),
                     reference_axis_content_digest=(
-                        RESOLVED_AXIS_PORT_TYPE.content_digest(
-                            reference_association.residue_axis
-                        )
+                        admitted_reference_axes[
+                            reference_association.subject
+                        ].axis_content_digest
                     ),
                     segment_map=resolved.segment_map,
                     policy=resolved.policy,
@@ -262,14 +262,7 @@ class StructureComparisonImplementation:
             if admitted_alignments is None
             else admitted_alignments.value
         )
-        if (
-            type(alignments) is not tuple
-            or not alignments
-            or any(
-                type(alignment) is not StructureAlignmentEvidence
-                for alignment in alignments
-            )
-        ):
+        if not alignments:
             raise ValueError("structure metrics require alignment evidence")
         subjects = [alignment.subject for alignment in alignments]
         references = [alignment.reference for alignment in alignments]

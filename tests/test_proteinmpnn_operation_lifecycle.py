@@ -15,6 +15,7 @@ from datatypes import (
     CandidateDataReference,
     ExactContractReference,
     ProteinSequence,
+    ResidueAxisReference,
 )
 from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from modules.proteinmpnn.implementation import (
@@ -26,6 +27,7 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
@@ -49,6 +51,21 @@ def _operation_call(operation: str) -> OperationCall:
     structure = _fixture_structure(0)
     structure_candidate = Candidate("structure", structure)
     structure_reference = _reference("structure", "protein.structure", "2")
+    residue_axis = resolve_residue_axis(structure)
+    axis_reference = ResidueAxisReference(
+        axis_kind="resolved_structure",
+        axis_contract=ExactContractReference(
+            contract_kind="port_type",
+            contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
+            contract_version=RESOLVED_AXIS_PORT_TYPE.version,
+            contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
+        ),
+        axis_content_digest=RESOLVED_AXIS_PORT_TYPE.content_digest(
+            residue_axis
+        ),
+        source=structure_reference,
+        layout=residue_axis.layout,
+    )
     inputs: dict[str, Any] = {
         "structure_candidates": CandidateCollection(
             "structures",
@@ -58,7 +75,7 @@ def _operation_call(operation: str) -> OperationCall:
         "structure_residue_axes": CandidateResolvedResidueAxisAssociations((
             CandidateResolvedResidueAxisAssociation(
                 structure_reference,
-                resolve_residue_axis(structure),
+                residue_axis,
             ),
         )),
     }
@@ -76,6 +93,7 @@ def _operation_call(operation: str) -> OperationCall:
                 "candidate_resolved_residue_axis_associations"
             ),
             value_content_digests=(_DIGEST,),
+            scientific_axes=(axis_reference,),
         ),
     }
     if operation == "design":

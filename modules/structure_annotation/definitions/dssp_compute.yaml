@@ -1,19 +1,19 @@
 schema_version: "2.1.0"
 node_type_id: structure_annotation.dssp_compute
-version: "6.0.0"
+version: "7.0.0"
 title: Compute DSSP annotations
 summary: Runs the exact bound DSSP binary and reconciles its annotations to the authoritative resolved structure residue axis.
 category: structure_annotation
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one ProteinStructure Candidate whose admitted candidate ID, data type, and content digest identify the annotation subject.
   - name: residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one authoritative resolved residue axis associated by the complete admitted ProteinStructure Candidate reference; this axis alone defines residue identity, order, and layout, while its embedded exact structure is the sole mkdssp request value.

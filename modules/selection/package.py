@@ -23,9 +23,9 @@ from core.operation import OperationContext
 from .implementation import SelectionImplementation
 
 
-PACKAGE_VERSION = "2.1.0"
+PACKAGE_VERSION = "3.0.0"
 METHOD_VERSION = "4.0.0"
-NODE_BINDING_VERSION = "4.0.0"
+NODE_BINDING_VERSION = "5.0.0"
 OPERATIONS = (
     "filter",
     "sort",

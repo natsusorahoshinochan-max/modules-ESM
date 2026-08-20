@@ -82,13 +82,14 @@ def test_candidate_ports_publish_only_the_active_identifier_generation() -> None
         "candidate.collection",
         "candidate.pairing",
     ):
-        assert catalog.require_port_type(type_id, "3.0.0").version == "3.0.0"
-        with pytest.raises(UnknownPortTypeError):
-            catalog.require_port_type(type_id, "2.1.0")
+        assert catalog.require_port_type(type_id, "4.0.0").version == "4.0.0"
+        for inactive_version in ("2.1.0", "3.0.0"):
+            with pytest.raises(UnknownPortTypeError):
+                catalog.require_port_type(type_id, inactive_version)
     assert catalog.require_port_type(
-        "score.collection", "4.0.0"
-    ).version == "4.0.0"
-    for inactive_version in ("2.1.0", "3.0.0"):
+        "score.collection", "5.0.0"
+    ).version == "5.0.0"
+    for inactive_version in ("2.1.0", "3.0.0", "4.0.0"):
         with pytest.raises(UnknownPortTypeError):
             catalog.require_port_type("score.collection", inactive_version)
 
@@ -96,7 +97,7 @@ def test_candidate_ports_publish_only_the_active_identifier_generation() -> None
 def test_candidate_collection_v3_closes_all_candidate_identifiers() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
     valid = CandidateCollection(
         "collection/a:b+c",
@@ -135,7 +136,7 @@ def test_candidate_collection_v3_closes_all_candidate_identifiers() -> None:
 def test_candidate_pairing_v3_closes_both_participant_identifiers() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.pairing",
-        "3.0.0",
+        "4.0.0",
     )
     valid_match = PairwiseCandidateMatch(
         subject=CandidateDataReference(
@@ -226,7 +227,7 @@ def _score(
 def test_score_collection_v4_closes_every_public_generic_identifier() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "score.collection",
-        "4.0.0",
+        "5.0.0",
     )
     pairwise_context = PairwiseObservationContext(
         subject=PairwiseParticipant(

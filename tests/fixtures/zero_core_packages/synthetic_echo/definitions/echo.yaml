@@ -7,7 +7,7 @@ category: contract_test
 inputs:
   - name: candidate_input
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Admitted Candidate collection echoed as the scored subject.
@@ -20,13 +20,13 @@ outputs:
     scientific_meaning: Deterministically repeated contract-test text.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Input Candidate collection echoed without reassociation.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One typed intrinsic Observation for each input Candidate.

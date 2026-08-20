@@ -479,7 +479,7 @@ def test_expected_secondary_structure_from_prompt_is_an_explicit_role_node() -> 
     node = catalog.require_contract(
         "node_type",
         "structure_annotation.expected_secondary_structure_from_prompt",
-        "5.0.0",
+        "6.0.0",
     ).descriptor
     assert [
         (port["name"], port["port_type"]["contract_id"])
@@ -524,7 +524,7 @@ def test_expected_secondary_structure_from_prompt_is_an_explicit_role_node() -> 
             "structure_annotation."
             "expected_secondary_structure_from_prompt.direct"
         ),
-        "5.0.0",
+        "6.0.0",
     ).descriptor
     assert binding["binding_parameters"] == {}
     assert binding["execution_route"] == "direct"

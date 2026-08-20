@@ -1,19 +1,19 @@
 schema_version: "2.1.0"
 node_type_id: proteinmpnn.design
-version: "9.0.0"
+version: "10.0.0"
 title: Design sequences with ProteinMPNN
 summary: Designs an exact complete number of child sequences for each selected structure parent through one fixed ProteinMPNN Method.
 category: protein_design
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete protein-structure parent Candidates whose exact identities become the parent of every designed child.
   - name: structure_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete exact-reference-associated resolved residue axes for every structure Candidate; collection position has no correspondence meaning.
@@ -32,7 +32,7 @@ inputs:
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete designed sequence children ordered by parent then zero-based sample slot with exact parent lineage.

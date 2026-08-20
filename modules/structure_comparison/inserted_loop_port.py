@@ -24,7 +24,7 @@ from .domain import (
 )
 
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 

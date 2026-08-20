@@ -34,7 +34,7 @@ from modules.structure_annotation import (
 )
 
 
-_VERSION = "3.0.0"
+_VERSION = "4.0.0"
 _OPERATIONS = ("candidate_source", "value_source")
 
 

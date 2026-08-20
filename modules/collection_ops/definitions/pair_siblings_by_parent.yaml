@@ -1,26 +1,26 @@
 schema_version: "2.1.0"
 node_type_id: collection_ops.pair_siblings_by_parent
-version: "3.0.0"
+version: "4.0.0"
 title: Pair sibling Candidates by common parent
 summary: Creates one explicit subject-to-reference pairing from exact one-parent sibling lineage without using collection order.
 category: collection_ops
 inputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Subject Candidates with exactly one parent each and exactly one subject for every shared parent.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Reference Candidates with exactly one parent each and exactly one reference for every shared parent.
 outputs:
   - name: pairing
     port_type_id: candidate.pairing
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete one-to-one subject-to-reference pairing keyed only by exact common parent identity, with both participants represented by full Candidate Data References.

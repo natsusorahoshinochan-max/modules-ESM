@@ -47,9 +47,10 @@ from .port_types import (
 )
 
 
+_PACKAGE_VERSION = "3.0.0"
 _VERSION = "2.1.0"
 _BACKBONE_PORT_VERSION = "4.0.0"
-_CANDIDATE_NODE_VERSION = "3.0.0"
+_CANDIDATE_NODE_VERSION = "4.0.0"
 _STRUCTURE_NODE_VERSION = "4.0.0"
 _NORMALIZE_CSH_NODE_VERSION = "5.0.0"
 _NORMALIZE_CSH_METHOD_VERSION = "4.0.0"
@@ -75,9 +76,9 @@ _NODE_BINDING_VERSIONS = {
     "extract_sequence": _STRUCTURE_NODE_VERSION,
     "extract_sequence_candidates": _CANDIDATE_NODE_VERSION,
     "normalize_csh_parent_span": _NORMALIZE_CSH_NODE_VERSION,
-    "normalize_csh_parent_span_candidates": "1.0.0",
-    "materialize_candidate_normalizations": "1.0.0",
-    "project_single_residue_axis": "1.0.0",
+    "normalize_csh_parent_span_candidates": "2.0.0",
+    "materialize_candidate_normalizations": "2.0.0",
+    "project_single_residue_axis": "2.0.0",
     "resolve_residue_axis": RESOLVED_AXIS_VERSION,
     "resolve_candidate_residue_axes": CANDIDATE_ASSOCIATION_VERSION,
     "backbone_to_structure": _STRUCTURE_NODE_VERSION,
@@ -337,7 +338,7 @@ def _backbone_from_wire(value: object) -> object:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="structure_transform",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/select_chains.yaml"),

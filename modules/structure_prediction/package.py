@@ -26,7 +26,7 @@ from .port_types import (
 )
 
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 _METRIC_VERSIONS = {
     "structure.ptm": "2.1.0",
     "structure.plddt.per_residue": "3.0.0",
@@ -73,9 +73,9 @@ MATERIALIZE_CONFIDENCE_METHOD = MethodDefinition(
     model_identity={"kind": "none"},
     checkpoint_identity={"kind": "none"},
     featurization_identity={
-        "structure_candidates": "candidate.collection@3.0.0",
+        "structure_candidates": "candidate.collection@4.0.0",
         "confidence_facts": (
-            "structure_prediction.confidence_facts@1.0.0"
+            "structure_prediction.confidence_facts@2.0.0"
         ),
         "reparsing": "none",
     },

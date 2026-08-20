@@ -59,18 +59,18 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="6.0.0",
+        node_type_version="7.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="8.0.0",
+        binding_version="9.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",
         node_type_id="structure_prediction.materialize_confidence",
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id="structure_prediction.materialize_confidence.direct",
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -121,7 +121,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         workflow=workflow,
     )
     environment = EnvironmentConfiguration({
-        ("folding.fold.simplefold_local", "8.0.0"): {
+        ("folding.fold.simplefold_local", "9.0.0"): {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -208,7 +208,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "8.0.0",
+        "9.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"

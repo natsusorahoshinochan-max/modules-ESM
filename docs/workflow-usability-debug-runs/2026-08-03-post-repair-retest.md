@@ -184,7 +184,7 @@ schema validation 或 durable write error，publication exception 未被 termina
 
 - 1PGA-75：`folding.fold.simplefold_local@6.0.0`，
   `simplefold_runtime_unavailable`；
-- 2EMO：`solubility.protein_sol.local@4.0.0`，
+- 2EMO：`solubility.protein_sol.local@5.0.0`，
   `protein_sol_runtime_unavailable`。
 
 这两个公开响应本身是正确的 `readiness_rejected`，且没有返回 Run ID；但 runtime 中分别
@@ -213,7 +213,7 @@ Evidence：
 
 当前 Catalog 的 `structure_transform.normalize_csh_parent_span@5.0.0` 只产生单值
 `protein.structure` 和 `structure_transform.modified_residue_normalizations`；
-`structure_transform.resolve_candidate_residue_axes@5.0.0` 若要为 Candidate Collection
+`structure_transform.resolve_candidate_residue_axes@6.0.0` 若要为 Candidate Collection
 应用同一 normalization，则需要
 `structure_transform.candidate_modified_residue_normalization_associations`。
 

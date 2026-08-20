@@ -45,7 +45,7 @@ from modules.structure_prediction.port_types import (
 )
 
 
-_VERSION = "4.0.0"
+_VERSION = "5.0.0"
 _RESIDUE_NAMES = {
     "A": "ALA",
     "G": "GLY",
@@ -717,6 +717,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.inserted_loop_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
+            method_version="4.0.0",
             factory_name="contract_test.inserted_loop_confidence_source/factory",
             build=_build_inserted_loop_confidence_source,
             produced_observations=(
@@ -741,6 +742,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.esmfold2_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
+            method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_source/factory",
             build=_build_esmfold2_confidence_source,
             produced_observations=(
@@ -790,6 +792,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.esmfold2_confidence_fact_source.fixture",
             node_type_id="contract_test.prediction_confidence_fact_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
+            method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_fact_source/factory",
             build=_build_confidence_fact_source,
         ),

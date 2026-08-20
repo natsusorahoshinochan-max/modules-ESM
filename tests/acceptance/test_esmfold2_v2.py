@@ -197,7 +197,7 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "7.0.0",
+        "8.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -334,7 +334,7 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "8.0.0",
+        "9.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -531,7 +531,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "8.0.0",
+        "9.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(

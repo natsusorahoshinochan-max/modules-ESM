@@ -198,10 +198,6 @@ def _source_tree_sha256(
     return digest.hexdigest()
 
 
-def _copy_file(source: Path, destination: Path) -> None:
-    shutil.copyfile(source, destination)
-
-
 def admit_simplefold_provider_asset_closure(
     closure: SimpleFoldProviderAssetClosure,
     environment: Mapping[str, Any],
@@ -290,7 +286,7 @@ def stage_simplefold_provider_asset_closure(
     group_roots = dict(groups)
     for file in closure.files:
         source_root = cast(Path, environment[file.environment_key])
-        _copy_file(
+        shutil.copyfile(
             source_root / file.runtime_filename,
             group_roots[file.staging_group] / file.runtime_filename,
         )
@@ -305,7 +301,7 @@ def stage_simplefold_provider_asset_closure(
         for relative in source.reviewed_files:
             destination = destination_root / relative
             destination.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-            _copy_file(source_root / relative, destination)
+            shutil.copyfile(source_root / relative, destination)
     return StagedSimpleFoldProviderAssetClosure(root=root, groups=groups)
 
 

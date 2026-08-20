@@ -331,12 +331,12 @@ def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
     for binding_id, version, closure in (
         (
             "folding.fold.simplefold_local",
-            "8.0.0",
+            "9.0.0",
             SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
         ),
         (
             "folding.simplefold_confidence.simplefold_local",
-            "5.0.0",
+            "6.0.0",
             SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         ),
     ):
@@ -361,22 +361,26 @@ def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
         ),
         "4.0.0",
     )
-    for contract_kind, contract_id in (
+    for contract_kind, contract_id, version in (
         (
             "method",
             "structure_comparison.three_way_consistency.threshold_graph",
+            "2.0.0",
         ),
         (
             "port_type",
             "structure_comparison.three_way_consistency",
+            "3.0.0",
         ),
         (
             "node_type",
             "structure_comparison.classify_three_way_consistency",
+            "3.0.0",
         ),
         (
             "binding",
             "structure_comparison.classify_three_way_consistency.direct",
+            "3.0.0",
         ),
     ):
-        catalog.require_contract(contract_kind, contract_id, "2.0.0")
+        catalog.require_contract(contract_kind, contract_id, version)

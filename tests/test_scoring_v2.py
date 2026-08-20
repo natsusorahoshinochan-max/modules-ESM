@@ -89,8 +89,8 @@ def _contract(
 def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     builtin = builtin_frozen_catalog()
     selection_catalog = build_frozen_catalog((SELECTION_PACKAGE,))
-    candidates_type = builtin.require_port_type("candidate.collection", "3.0.0")
-    scores_type = builtin.require_port_type("score.collection", "4.0.0")
+    candidates_type = builtin.require_port_type("candidate.collection", "4.0.0")
+    scores_type = builtin.require_port_type("score.collection", "5.0.0")
     metric_quality = _contract(
         "metric",
         "quality",
@@ -523,8 +523,8 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
 def _dynamic_observation_method_catalog(
 ) -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     catalog, contracts = _scoring_catalog()
-    candidates_type = catalog.require_port_type("candidate.collection", "3.0.0")
-    scores_type = catalog.require_port_type("score.collection", "4.0.0")
+    candidates_type = catalog.require_port_type("candidate.collection", "4.0.0")
+    scores_type = catalog.require_port_type("score.collection", "5.0.0")
     facts_type = CONFIDENCE_FACTS_PORT_TYPE
     generation_node = _contract(
         "node_type",
@@ -820,7 +820,7 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
 
 def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "4.0.0")
+    score_type = catalog.require_port_type("score.collection", "5.0.0")
     observation = _observation(contracts, "candidate-1", 90)
 
     encoded = score_type.encode(
@@ -910,7 +910,7 @@ def test_selection_rejects_one_observation_identity_in_two_partitions() -> None:
 
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "4.0.0")
+    score_type = catalog.require_port_type("score.collection", "5.0.0")
     malformed = replace(
         _observation(contracts, "candidate-1", 90),
         metric=_reference(contracts["method.a"]),
@@ -1759,9 +1759,9 @@ def _workflow_payload(
             {
                 "node_id": "select",
                 "node_type_id": "selection.weighted_rank",
-                "node_type_version": "4.0.0",
+                "node_type_version": "5.0.0",
                 "binding_id": "selection.weighted_rank.direct",
-                "binding_version": "4.0.0",
+                "binding_version": "5.0.0",
                 "node_parameters": {
                     "objective_ids": ["quality-objective"],
                     "tie_policy": "candidate_id_ascending",
@@ -1828,9 +1828,9 @@ def _dynamic_observation_method_payload(
         selection_node = {
             "node_id": selection_node_id,
             "node_type_id": "selection.weighted_rank",
-            "node_type_version": "4.0.0",
+            "node_type_version": "5.0.0",
             "binding_id": "selection.weighted_rank.direct",
-            "binding_version": "4.0.0",
+            "binding_version": "5.0.0",
             "node_parameters": {
                 "objective_ids": ["quality-objective"],
                 "tie_policy": "candidate_id_ascending",
@@ -1842,9 +1842,9 @@ def _dynamic_observation_method_payload(
         selection_node = {
             "node_id": selection_node_id,
             "node_type_id": "selection.filter",
-            "node_type_version": "4.0.0",
+            "node_type_version": "5.0.0",
             "binding_id": "selection.filter.direct",
-            "binding_version": "4.0.0",
+            "binding_version": "5.0.0",
             "node_parameters": {
                 "selector_id": "quality-selector",
                 "operator": ">=",

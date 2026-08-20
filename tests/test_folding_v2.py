@@ -44,10 +44,10 @@ from tests.fixtures.public_v2 import decode_service_typed_output_value
 from tests.fixtures.simplefold import build_fixture_simplefold_closure
 
 
-_FOLD_NODE_VERSION = "6.0.0"
-_REMOTE_FOLD_BINDING_VERSION = "7.0.0"
-_LOCAL_FOLD_BINDING_VERSION = "8.0.0"
-_SIMPLEFOLD_BINDING_VERSION = "8.0.0"
+_FOLD_NODE_VERSION = "7.0.0"
+_REMOTE_FOLD_BINDING_VERSION = "8.0.0"
+_LOCAL_FOLD_BINDING_VERSION = "9.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "9.0.0"
 
 
 def _esmfold2_binding_version(route: str) -> str:
@@ -151,9 +151,9 @@ def _run_fold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": source_sequence},
         binding_parameters={},
     )
@@ -169,9 +169,9 @@ def _run_fold(
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",
         node_type_id="structure_prediction.materialize_confidence",
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id="structure_prediction.materialize_confidence.direct",
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -270,7 +270,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         for registration in discover_module_packages()
     }
     registration = registrations["folding"]
-    assert registration.package_version == "8.0.0"
+    assert registration.package_version == "9.0.0"
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
@@ -358,10 +358,10 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         )
         for output in node.descriptor["outputs"]
     } == {
-        "structure_candidates": ("candidate.collection", "3.0.0"),
+        "structure_candidates": ("candidate.collection", "4.0.0"),
         "confidence_facts": (
             "structure_prediction.confidence_facts",
-            "1.0.0",
+            "2.0.0",
         ),
     }
     assert set(node.descriptor["node_parameters"]) == {
@@ -412,7 +412,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
     )
     collection_type = catalog.require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
     admitted_parents = admitted_port_fixture(
         parents,
@@ -430,9 +430,9 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
         source = WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.folding_sequence_source",
-            node_type_version="3.0.0",
+            node_type_version="4.0.0",
             binding_id="contract_test.folding_sequence_source.direct",
-            binding_version="3.0.0",
+            binding_version="4.0.0",
             node_parameters={"sequence": "AG"},
             binding_parameters={},
         )
@@ -1109,7 +1109,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
         catalog,
         "folding.fold.esmfold2_local",
         object(),
-        binding_version="8.0.0",
+        binding_version="9.0.0",
     )
 
     def observed(candidate_id: str, sequence: str) -> int:
@@ -1128,7 +1128,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.esmfold2_local",
-                binding_version="8.0.0",
+                binding_version="9.0.0",
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",
@@ -1438,9 +1438,9 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     source_node = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
@@ -1459,8 +1459,11 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     simplefold_esm2_models.mkdir()
     simplefold_esm2_source.mkdir()
     simplefold_payloads = {
-        name: f"fixture-{name}".encode()
-        for name in simplefold_contract.SIMPLEFOLD_FOLDING_ARTIFACTS
+        entry.runtime_filename: f"fixture-{entry.runtime_filename}".encode()
+        for entry in (
+            simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE.files
+        )
+        if entry.environment_key == "model_root"
     }
     simplefold_esm2_payloads = {
         "esm2_t36_3B_UR50D.pt": b"fixture-esm2",
@@ -1543,9 +1546,9 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     structure_source_node = WorkflowNodeInstance(
         node_id="structure-source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"pdb_string": _two_residue_pdb()},
         binding_parameters={},
     )
@@ -1554,12 +1557,12 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         node_type_id=(
             "structure_transform.resolve_candidate_residue_axes"
         ),
-        node_type_version="5.0.0",
+        node_type_version="6.0.0",
         binding_id=(
             "structure_transform."
             "resolve_candidate_residue_axes.direct"
         ),
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -1632,11 +1635,11 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="simplefold-confidence-local",
             node_type_id="folding.simplefold_confidence",
-            node_type_version="4.0.0",
+            node_type_version="5.0.0",
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="5.0.0",
+            binding_version="6.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=confidence_environment,

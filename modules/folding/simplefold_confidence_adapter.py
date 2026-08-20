@@ -103,10 +103,6 @@ def simplefold_confidence_readiness(
     return ReadinessResult(True, proof_source="direct-observation")
 
 
-def _copy_file(source: Path, destination: Path) -> None:
-    shutil.copyfile(source, destination)
-
-
 def _load_representation_only_esm2(
     source_root: Path,
     model_path: Path,
@@ -263,7 +259,7 @@ def _native_existing_structure_confidence(
             output_dir = staging_directory / "confidence-features"
             cache.mkdir(mode=0o700)
             output_dir.mkdir(mode=0o700)
-            _copy_file(model_dir / "ccd.pkl", cache / "ccd.pkl")
+            shutil.copyfile(model_dir / "ccd.pkl", cache / "ccd.pkl")
             fasta_path = cache / "existing.fasta"
             fasta_path.write_text(
                 "".join(

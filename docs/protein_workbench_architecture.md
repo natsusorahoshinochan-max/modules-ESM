@@ -509,29 +509,29 @@ TM-score、RMSD、DSSP、confidence 和 solubility 不能退化为自由字符�
 
 ### 10.1 结构预测置信度的两阶段 seam
 
-`structure_prediction@1.0.0` Module Package 拥有共享的
-`structure_prediction.prediction_residue_axis@1.0.0`、
-`structure_prediction.confidence_facts@1.0.0` 与
-`structure_prediction.materialize_confidence@1.0.0`。materializer 的输入是
-`structure_candidates: candidate.collection@3.0.0` 和
-`confidence_facts: structure_prediction.confidence_facts@1.0.0`，输出是
-`observations: score.collection@4.0.0`。它通过
-`structure_prediction.materialize_confidence.direct@1.0.0` Binding 绑定
-`structure_prediction.materialize_confidence.exact_reference_join@1.0.0`
+`structure_prediction@2.0.0` Module Package 拥有共享的
+`structure_prediction.prediction_residue_axis@2.0.0`、
+`structure_prediction.confidence_facts@2.0.0` 与
+`structure_prediction.materialize_confidence@2.0.0`。materializer 的输入是
+`structure_candidates: candidate.collection@4.0.0` 和
+`confidence_facts: structure_prediction.confidence_facts@2.0.0`，输出是
+`observations: score.collection@5.0.0`。它通过
+`structure_prediction.materialize_confidence.direct@2.0.0` Binding 绑定
+`structure_prediction.materialize_confidence.exact_reference_join@2.0.0`
 Method，且没有科学或部署参数。
 
-`folding.fold@6.0.0`、`esm3.generate_sequence@7.0.0`、
-`esm3.generate_structure@7.0.0` 和 `esm3.generate_paired@7.0.0` 不在产生 Candidate
-的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `7.0.0`、
-remote ESMFold2 `7.0.0` 或 local ESMFold2 `8.0.0`；ESM3 generation Bindings 为
-`7.0.0`。其 exact provider Methods 也依 route 固定：SimpleFold 与 remote ESMFold2 为
+`folding.fold@7.0.0`、`esm3.generate_sequence@8.0.0`、
+`esm3.generate_structure@8.0.0` 和 `esm3.generate_paired@8.0.0` 不在产生 Candidate
+的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `9.0.0`、
+remote ESMFold2 `8.0.0` 或 local ESMFold2 `9.0.0`；ESM3 generation Bindings 为
+`8.0.0`。其 exact provider Methods 也依 route 固定：SimpleFold 与 remote ESMFold2 为
 `4.0.0`、local ESMFold2 为 `6.0.0`、ESM3 generation 为 `5.0.0`。每个
 confidence-bearing structure 或 coordinate-conditioned reconstruction output 同时产生：
 
-1. `candidate.collection@3.0.0`，其中 Candidate metadata 携带 content-derived
+1. `candidate.collection@4.0.0`，其中 Candidate metadata 携带 content-derived
    Prediction Key；
-2. `structure_prediction.confidence_facts@1.0.0`，其中 subjectless fact 携带同一 key、
-   exact structure digest、`structure_prediction.prediction_residue_axis@1.0.0`、provider
+2. `structure_prediction.confidence_facts@2.0.0`，其中 subjectless fact 携带同一 key、
+   exact structure digest、`structure_prediction.prediction_residue_axis@2.0.0`、provider
    Method 与 canonical confidence values。
 
 纯 sequence output 没有 structure-confidence fact 或 Prediction Key。PAE 与 pTM 位于同一
@@ -542,9 +542,9 @@ flowchart LR
     GEN["Folding or ESM generation"] --> CAND["Unadmitted structure Candidates"]
     GEN --> FACTS["Subjectless confidence facts"]
     CAND --> ADMIT["Candidate output admission"]
-    ADMIT --> MAT["structure_prediction.materialize_confidence@1.0.0"]
+    ADMIT --> MAT["structure_prediction.materialize_confidence@2.0.0"]
     FACTS --> MAT
-    MAT --> SCORE["score.collection@4.0.0"]
+    MAT --> SCORE["score.collection@5.0.0"]
 ```
 
 producer 根据 exact output role/slot、structure content digest 和 prediction-axis digest
@@ -559,7 +559,7 @@ exact full-set closure，之后才创建 Candidate-associated Score Observations
 Confidence-facts Port 的 `scientific_axis_projection` 动态提供 prediction-axis references，
 `observation_method_projection` 动态提供 exact provider Method。materializer Binding 的
 Produced Observation Interface 将这两个 Port projection 声明为 axis 与 Method source；因此
-`structure_prediction.materialize_confidence.exact_reference_join@1.0.0` 只代表确定性的
+`structure_prediction.materialize_confidence.exact_reference_join@2.0.0` 只代表确定性的
 关联/物化算法，不能冒充 folding/ESM provider Method。
 
 per-residue pLDDT 的长度精确等于 prediction axis，null 位置显式保留；mean-residue pLDDT 是

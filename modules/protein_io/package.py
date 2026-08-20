@@ -32,12 +32,13 @@ from .implementation import (
 )
 
 
-_PACKAGE_VERSION = "2.1.0"
+_PACKAGE_VERSION = "3.0.0"
+_ARTIFACT_PORT_VERSION = "2.1.0"
 _OPERATION_VERSIONS = {
-    "import_sequence": "5.0.0",
-    "import_structure": "5.0.0",
+    "import_sequence": "6.0.0",
+    "import_structure": "6.0.0",
     "export_sequence": "3.0.0",
-    "export_structure": "5.0.0",
+    "export_structure": "6.0.0",
 }
 _METHOD_VERSIONS = {
     "import_sequence": "4.0.0",
@@ -203,10 +204,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=(
         PortTypeDefinition(
             type_id="protein_io.artifact_payload",
-            version=_PACKAGE_VERSION,
+            version=_ARTIFACT_PORT_VERSION,
             validator=BehaviorReference(
                 "protein_io.artifact_payload/validate",
-                _PACKAGE_VERSION,
+                _ARTIFACT_PORT_VERSION,
                 {
                     "accepted_value_kind": "artifact_payload",
                     "artifact_publication": {
@@ -219,7 +220,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             codec=BehaviorReference(
                 "protein_io.artifact_payload/codec",
-                _PACKAGE_VERSION,
+                _ARTIFACT_PORT_VERSION,
                 {
                     "canonicalization": "RFC 8785",
                     "binary_encoding": "base64",
@@ -227,7 +228,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             content_identity=BehaviorReference(
                 "protein_io.artifact_payload/content",
-                _PACKAGE_VERSION,
+                _ARTIFACT_PORT_VERSION,
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_artifact_payload,

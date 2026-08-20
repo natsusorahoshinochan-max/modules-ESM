@@ -13,24 +13,15 @@ from core import (
 )
 from datatypes import (
     Candidate,
-    CandidateCollection,
     CandidateDataReference,
     ExactContractReference,
     PairwiseObservationContext,
     PairwiseParticipant,
-    ProteinPrompt,
-    ProteinStructure,
-    ResidueAxisReference,
     ResolvedStructureResidueAxis,
     ResidueTrack,
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_transform import (
-    CandidateResolvedResidueAxisAssociations,
-)
-from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
-
 from .domain import DSSPAnnotation, StructureAnnotationTrack
 
 
@@ -78,10 +69,8 @@ def _annotation_input(inputs: Mapping[str, AdmittedPort]) -> DSSPAnnotation:
     if set(inputs) != {"annotations"}:
         raise ValueError(
             "annotation extraction requires exactly one annotation input"
-        )
+    )
     annotation = inputs["annotations"].value
-    if type(annotation) is not DSSPAnnotation:
-        raise ValueError("annotations must be a DSSPAnnotation")
     return annotation
 
 
@@ -92,7 +81,7 @@ def _singleton_candidate_reference(
     expected_data_type_id: str | None = None,
 ) -> tuple[Candidate, CandidateDataReference]:
     collection = call.inputs[port_name].value
-    if type(collection) is not CandidateCollection or len(collection.items) != 1:
+    if len(collection.items) != 1:
         raise ValueError(f"{port_name} must contain exactly one Candidate")
     candidate = collection.items[0]
     if (
@@ -123,14 +112,9 @@ class DSSPComputeOperation:
             port_name="structure_candidates",
             expected_data_type_id="protein.structure",
         )
-        if type(candidate.data) is not ProteinStructure:
-            raise ValueError(
-                "structure_candidates must contain one ProteinStructure Candidate"
-            )
         associations = call.inputs["residue_axes"].value
         if (
-            type(associations) is not CandidateResolvedResidueAxisAssociations
-            or len(associations.entries) != 1
+            len(associations.entries) != 1
             or associations.entries[0].subject != subject
         ):
             raise ValueError(
@@ -202,12 +186,6 @@ class ApplySecondaryStructureToPromptOperation:
             )
         prompt = call.inputs["protein_prompt"].value
         track = call.inputs["secondary_structure_track"].value
-        if type(prompt) is not ProteinPrompt:
-            raise ValueError("protein_prompt must be a ProteinPrompt")
-        if type(track) is not StructureAnnotationTrack:
-            raise ValueError(
-                "secondary_structure_track must be a structure-annotation track"
-            )
         if prompt.target_layout != track.layout:
             raise ValueError(
                 "Prompt and secondary-structure track layouts must be exactly equal"
@@ -242,10 +220,6 @@ class ApplySASAToPromptOperation:
             )
         prompt = call.inputs["protein_prompt"].value
         track = call.inputs["sasa_track"].value
-        if type(prompt) is not ProteinPrompt:
-            raise ValueError("protein_prompt must be a ProteinPrompt")
-        if type(track) is not StructureAnnotationTrack:
-            raise ValueError("sasa_track must be a structure-annotation track")
         if prompt.target_layout != track.layout:
             raise ValueError(
                 "Prompt and SASA track layouts must be exactly equal"
@@ -272,8 +246,6 @@ class ExpectedSecondaryStructureFromPromptOperation:
                 "and one reference"
             )
         prompt = call.inputs["protein_prompt"].value
-        if type(prompt) is not ProteinPrompt:
-            raise ValueError("protein_prompt must be a ProteinPrompt")
         if prompt.target_layout is None:
             raise ValueError("ProteinPrompt must carry an exact target layout")
         if prompt.secondary_structure_track is None:
@@ -352,8 +324,7 @@ class SecondaryStructureAgreementOperation:
         )
         associations = inputs["subject_residue_axes"].value
         if (
-            type(associations) is not CandidateResolvedResidueAxisAssociations
-            or len(associations.entries) != 1
+            len(associations.entries) != 1
             or associations.entries[0].subject != subject_reference
         ):
             raise ValueError(
@@ -361,13 +332,7 @@ class SecondaryStructureAgreementOperation:
                 "residue-axis association for the admitted subject Candidate"
             )
         residue_axis = associations.entries[0].residue_axis
-        if (
-            type(expected) is not StructureAnnotationTrack
-            or type(observed) is not StructureAnnotationTrack
-        ):
-            raise ValueError(
-                "agreement inputs must be exact structure-annotation tracks"
-            )
+        admitted_axis = inputs["subject_residue_axes"].scientific_axes[0]
         if observed.subject != subject_reference:
             raise ValueError(
                 "observed track subject must equal the admitted subject Candidate"
@@ -427,22 +392,7 @@ class SecondaryStructureAgreementOperation:
                     normalization=str(profile["normalization"]),
                 ),
                 value=agreement,
-                residue_axis=ResidueAxisReference(
-                    axis_kind="resolved_structure",
-                    axis_contract=ExactContractReference(
-                        contract_kind="port_type",
-                        contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
-                        contract_version=RESOLVED_AXIS_PORT_TYPE.version,
-                        contract_digest=(
-                            RESOLVED_AXIS_PORT_TYPE.contract_digest
-                        ),
-                    ),
-                    axis_content_digest=(
-                        RESOLVED_AXIS_PORT_TYPE.content_digest(residue_axis)
-                    ),
-                    source=subject_reference,
-                    layout=residue_axis.layout,
-                ),
+                residue_axis=admitted_axis,
                 source_partition=produced.output_partition,
             )
         return {

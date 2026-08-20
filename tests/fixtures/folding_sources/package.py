@@ -28,7 +28,7 @@ from datatypes import (
 
 
 _PACKAGE_METHOD_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "3.0.0"
+_NODE_BINDING_VERSION = "4.0.0"
 
 
 class _SequenceSource:
@@ -254,7 +254,7 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="contract_test.folding_sources",
-    package_version=_PACKAGE_METHOD_VERSION,
+    package_version="3.0.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),

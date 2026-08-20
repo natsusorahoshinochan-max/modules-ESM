@@ -40,12 +40,12 @@ from datatypes import (
 from tests.fixtures.exact_content_identity import exact_content_identity
 
 
-PACKAGE_VERSION = "2.1.0"
+PACKAGE_VERSION = "3.0.0"
 METHOD_VERSION = "2.1.0"
 METRIC_VERSION = "3.0.0"
 UTILITY_VERSION = "3.0.0"
-SOURCE_NODE_BINDING_VERSION = "3.0.0"
-SCORER_NODE_BINDING_VERSION = "4.0.0"
+SOURCE_NODE_BINDING_VERSION = "4.0.0"
+SCORER_NODE_BINDING_VERSION = "5.0.0"
 SOURCE_NODE_TYPE = ContractIdentity(
     "node_type",
     "contract_test.multi_objective_selection_source",
