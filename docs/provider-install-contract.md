@@ -79,10 +79,11 @@ precision, device, or model identity.
 
 SimpleFold commit `c7a5570a6be9f5c695126e27c804e77567209934` selects the
 following CDN objects. Retain the object ETag and byte count alongside each
-download; these are the upstream object identities because the CDN does not expose
-versioned URLs or published SHA-256 values. The upstream wrapper does not enforce
-these identities, and multipart ETags are not cryptographic content digests. The
-Workbench therefore enforces the separately reviewed SHA-256 manifest below:
+download as acquisition records because the CDN does not expose versioned URLs
+or published SHA-256 values. Neither value is Provider Asset Closure identity or
+a local Readiness content proof, and multipart ETags are not cryptographic
+content digests. The Workbench enforces the separately reviewed SHA-256 manifest
+below as the exact local file-content identity:
 
 | Upstream object | Runtime filename | Bytes | ETag | SHA-256 |
 | --- | --- | ---: | --- | --- |
@@ -94,10 +95,13 @@ Workbench therefore enforces the separately reviewed SHA-256 manifest below:
 The SimpleFold ESM2 dependency is recorded as
 `facebookresearch/esm@2b369911bb5b4b0dda914521b9475cad1656b2ac`. Configure a
 checkout at that exact commit with
-`PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`. The adapter verifies its Git root, HEAD,
-and the reviewed result-affecting runtime source-tree aggregate
+`PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT`. The folding package's shared SimpleFold
+Provider Asset Closure module resolves that configured checkout, verifies its
+exact HEAD and the declaration-owned reviewed runtime file set, and checks the
+result-affecting source-tree aggregate
 `da1fd5e94771906950ccc9b4e789d50b0e8f8c4594608898dbcb14f14e3c50ba`.
-It then stages that already admitted source subset for namespace isolation.
+It then stages that same declared and already admitted source subset for
+namespace isolation, without another Git query or source-tree discovery.
 
 The ESM2 loader also deserializes two separate Facebook checkpoint objects. Place
 these in `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT`:
@@ -107,21 +111,36 @@ these in `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT`:
 | `esm2_t36_3B_UR50D.pt` | 5678116398 | `7de8b4082ba15891959ab368b77ce3886697af1efb16d3c9e9e7b0c5d3f07500` |
 | `esm2_t36_3B_UR50D-contact-regression.pt` | 6759 | `4da500eab246481dc9c8c95bc7b1d02f2803d761c380b0e95186d4a07d0fc84e` |
 
-Both ESM2 objects are hashed once at Readiness and copied into the isolated run
-root. The adapter removes the incompatible Biohub `esm` namespace,
-imports Facebook ESM only from the staged source, and calls its local-file loader
-with the staged objects using explicit `weights_only=True` deserialization and an
-`argparse.Namespace` safe-global allowlist for the upstream metadata. It never
-invokes the upstream ESM2 network or `TORCH_HOME` checkpoint loader.
+The byte counts in this table are acquisition metadata; the SHA-256 values are
+the closure's exact local content identities.
+
+The folding closure admits both ESM2 objects. The confidence closure admits only
+`esm2_t36_3B_UR50D.pt` because that Method uses representations without contact
+regression. Each exact file is hashed once by its Binding's Readiness and copied
+into the isolated run root before the corresponding Engine Invocation begins. The
+owning Adapter removes the incompatible Biohub `esm` namespace, imports Facebook
+ESM only from the staged source, and calls its local-file loader with the staged
+objects using explicit `weights_only=True` deserialization and an
+`argparse.Namespace` safe-global allowlist for the upstream metadata. Neither
+Adapter invokes the upstream ESM2 network or `TORCH_HOME` checkpoint loader.
 
 The folding and confidence gates use separate result-affecting asset closures.
 The `folding.fold.simplefold_local` Binding uses `simplefold_100M.ckpt`,
 `simplefold_1.6B.ckpt`, `plddt.ckpt`, and `ccd.pkl`, plus the two ESM2 objects
-and exact ESM2 source checkout above. No other upstream SimpleFold checkpoint is a
-current product capability.
+and exact ESM2 source checkout above. The
+`folding.simplefold_confidence.simplefold_local` Binding uses
+`simplefold_1.6B.ckpt`, `plddt.ckpt`, `ccd.pkl`, the primary ESM2 weight, and the
+same exact source identities. It does not use `simplefold_100M.ckpt`,
+`simplefold_360M.ckpt`, ESM2 contact regression, or `boltz1_conf.ckpt`. Extra files
+in configured roots are outside both closures and are neither rejected nor
+staged. No other upstream SimpleFold checkpoint is a current product capability.
 
-Neither adapter invokes the SimpleFold downloader. Each hashes its exact
-configured file set once at the Adapter-owned Readiness boundary, stages it,
+Neither Adapter invokes the SimpleFold downloader. The shared package-private
+closure module admits each Binding's exact configured source and file set once at
+the Binding-owned Readiness seam. Before each Adapter call enters its Engine
+Invocation, the module stages only that admitted closure into a fresh private
+root, without rehashing, searching another location, or adding a shared proof
+cache. Staging also performs no Git query or source-tree rediscovery. The Adapter
 then trusts the staged files during Provider invocation.
 
 The pinned SimpleFold PDB writer pads every record to 80 columns and represents
