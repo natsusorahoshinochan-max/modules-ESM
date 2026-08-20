@@ -175,7 +175,7 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     confidence_method = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "8.0.0",
+        "9.0.0",
     ).descriptor["method"]
     evaluation_method = catalog.require_contract(
         "method",

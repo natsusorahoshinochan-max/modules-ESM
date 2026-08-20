@@ -38,7 +38,7 @@ _CANDIDATE_PROJECTION_NODE_GENERATIONS = {
     "esm3.generate_paired": ("8.0.0", "7.0.0"),
     "esm3.generate_sequence": ("8.0.0", "7.0.0"),
     "esm3.generate_structure": ("8.0.0", "7.0.0"),
-    "folding.fold": ("7.0.0", "6.0.0"),
+    "folding.fold": ("8.0.0", "7.0.0"),
     "folding.simplefold_confidence": ("5.0.0", "4.0.0"),
     "protein_io.export_structure": ("6.0.0", "5.0.0"),
     "protein_io.import_sequence": ("6.0.0", "5.0.0"),
@@ -125,9 +125,9 @@ _CANDIDATE_PROJECTION_BINDING_GENERATIONS = {
     "esm3.generate_structure.biohub_medium": ("8.0.0", "7.0.0"),
     "esm3.generate_structure.biohub_open": ("8.0.0", "7.0.0"),
     "esm3.generate_structure.local_open": ("8.0.0", "7.0.0"),
-    "folding.fold.esmfold2_local": ("9.0.0", "8.0.0"),
-    "folding.fold.esmfold2_remote": ("8.0.0", "7.0.0"),
-    "folding.fold.simplefold_local": ("9.0.0", "8.0.0"),
+    "folding.fold.esmfold2_local": ("10.0.0", "9.0.0"),
+    "folding.fold.esmfold2_remote": ("9.0.0", "8.0.0"),
+    "folding.fold.simplefold_local": ("10.0.0", "9.0.0"),
     "folding.simplefold_confidence.simplefold_local": ("6.0.0", "5.0.0"),
     "protein_io.export_structure.direct": ("6.0.0", "5.0.0"),
     "protein_io.import_sequence.direct": ("6.0.0", "5.0.0"),
@@ -637,7 +637,7 @@ def test_folding_and_confidence_materialization_use_fact_then_score_generations(
 ) -> None:
     catalog = _cascade_catalog()
 
-    fold = catalog.require_contract("node_type", "folding.fold", "7.0.0")
+    fold = catalog.require_contract("node_type", "folding.fold", "8.0.0")
     assert {
         output["name"]: (
             output["port_type"]["contract_id"],
@@ -652,9 +652,9 @@ def test_folding_and_confidence_materialization_use_fact_then_score_generations(
         ),
     }
     for binding_id, binding_version in (
-        ("folding.fold.esmfold2_remote", "8.0.0"),
-        ("folding.fold.esmfold2_local", "9.0.0"),
-        ("folding.fold.simplefold_local", "9.0.0"),
+        ("folding.fold.esmfold2_remote", "9.0.0"),
+        ("folding.fold.esmfold2_local", "10.0.0"),
+        ("folding.fold.simplefold_local", "10.0.0"),
     ):
         binding = catalog.require_contract(
             "binding",

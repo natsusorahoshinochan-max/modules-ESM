@@ -314,14 +314,14 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     esmfold2 = _ControlledESMFold2(source_text)
     simplefold = _ControlledSimpleFold(source_text)
     environment = {
-        ("folding.fold.esmfold2_remote", "8.0.0"): {
+        ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "9.0.0"): {
+        ("folding.fold.simplefold_local", "10.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,
@@ -688,14 +688,14 @@ def test_source_bound_1pga_public_classification_contract(
         plddt=simplefold_plddt,
     )
     environment = {
-        ("folding.fold.esmfold2_remote", "8.0.0"): {
+        ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "9.0.0"): {
+        ("folding.fold.simplefold_local", "10.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,

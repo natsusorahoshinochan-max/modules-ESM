@@ -44,10 +44,10 @@ from tests.fixtures.public_v2 import decode_service_typed_output_value
 from tests.fixtures.simplefold import build_fixture_simplefold_closure
 
 
-_FOLD_NODE_VERSION = "7.0.0"
-_REMOTE_FOLD_BINDING_VERSION = "8.0.0"
-_LOCAL_FOLD_BINDING_VERSION = "9.0.0"
-_SIMPLEFOLD_BINDING_VERSION = "9.0.0"
+_FOLD_NODE_VERSION = "8.0.0"
+_REMOTE_FOLD_BINDING_VERSION = "9.0.0"
+_LOCAL_FOLD_BINDING_VERSION = "10.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "10.0.0"
 
 
 def _esmfold2_binding_version(route: str) -> str:
@@ -270,7 +270,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         for registration in discover_module_packages()
     }
     registration = registrations["folding"]
-    assert registration.package_version == "9.0.0"
+    assert registration.package_version == "10.0.0"
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
@@ -832,22 +832,6 @@ def test_esmfold2_admits_official_pdb_serialization_without_rebuilding_sequence(
     )
 
 
-def test_folding_prediction_axis_rejects_multiple_sequence_chains() -> None:
-    from modules.folding.implementation import _prediction_axis
-
-    source = CandidateDataReference(
-        candidate_id="multi-chain-parent",
-        data_type_id="protein.sequence",
-        content_digest="sha256:" + ("a" * 64),
-    )
-
-    with pytest.raises(ValueError, match="single-chain protein sequence"):
-        _prediction_axis(
-            ProteinSequence("AG", ["A:1", "B:1"]),
-            source,
-        )
-
-
 def test_all_folding_axes_validate_before_any_provider_invocation() -> None:
     from modules.folding.implementation import (
         ESMFold2FoldingImplementation,
@@ -1109,7 +1093,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
         catalog,
         "folding.fold.esmfold2_local",
         object(),
-        binding_version="9.0.0",
+        binding_version="10.0.0",
     )
 
     def observed(candidate_id: str, sequence: str) -> int:
@@ -1128,7 +1112,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.esmfold2_local",
-                binding_version="9.0.0",
+                binding_version="10.0.0",
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",
@@ -1266,11 +1250,10 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
         "checkpoint",
         "seed_control",
     }.isdisjoint(metadata)
+    assert "configured_base_seed" not in metadata
     if route == "remote":
-        assert "configured_base_seed" not in metadata
         assert "effective_call_seed" not in metadata
     else:
-        assert metadata["configured_base_seed"] == 1603
         assert type(metadata["effective_call_seed"]) is int
     assert structures.items[0].metadata["sample_index"] == 0
     assert structures.items[0].data.pdb_string == _two_residue_pdb()

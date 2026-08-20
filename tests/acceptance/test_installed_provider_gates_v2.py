@@ -884,7 +884,7 @@ def test_biohub_esmfold2_executes_exact_method(
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_remote",
-        "8.0.0",
+        "9.0.0",
     )
     assert method.descriptor["model_identity"]["model"] == (
         REMOTE_ESMFOLD2_MODEL
@@ -894,7 +894,7 @@ def test_biohub_esmfold2_executes_exact_method(
         events=events,
         node_id="fold",
         binding_id="folding.fold.esmfold2_remote",
-        binding_version="8.0.0",
+        binding_version="9.0.0",
         method_digest=method.contract_digest,
         expected_roles=("fold_parent_0_sample_0",),
     )
@@ -957,14 +957,14 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_local",
-        "9.0.0",
+        "10.0.0",
     )
     started = _assert_exact_execution(
         projection=projection,
         events=events,
         node_id="fold",
         binding_id="folding.fold.esmfold2_local",
-        binding_version="9.0.0",
+        binding_version="10.0.0",
         method_digest=method.contract_digest,
         expected_roles=("fold_parent_0_sample_0",),
     )

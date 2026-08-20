@@ -197,7 +197,7 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "8.0.0",
+        "9.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -309,7 +309,7 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         "checkpoint",
         "seed_control",
     }.isdisjoint(metadata)
-    assert metadata["configured_base_seed"] == 1603
+    assert "configured_base_seed" not in metadata
     assert metadata["effective_call_seed"] == client.calls[0][1]
     values = {
         observation.metric.contract_id: observation.value
@@ -328,13 +328,13 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "8.0.0"
+        and event["event"]["binding"]["contract_version"] == "10.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "9.0.0",
+        "10.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -487,7 +487,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         "checkpoint",
         "seed_control",
     }.isdisjoint(metadata)
-    assert metadata["configured_base_seed"] == 1603
+    assert "configured_base_seed" not in metadata
     assert type(metadata["effective_call_seed"]) is int
     assert len(provider_calls) == 1
     provider_call = provider_calls[0]
@@ -525,13 +525,13 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "8.0.0"
+        and event["event"]["binding"]["contract_version"] == "10.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "9.0.0",
+        "10.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(

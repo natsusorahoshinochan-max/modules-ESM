@@ -41,7 +41,7 @@ from tests.fixtures.scientific_operation import (
 from tests.fixtures.simplefold import build_fixture_simplefold_closure
 
 
-_SIMPLEFOLD_BINDING_VERSION = "9.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "10.0.0"
 
 
 def test_simplefold_runtime_applies_the_exact_normalized_step_count(
@@ -157,7 +157,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "9.0.0",
+        "10.0.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -269,12 +269,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "8.0.0",
+        "9.0.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "9.0.0",
+        "10.0.0",
     )
     snapshots = {
         item["binding"]["contract_id"]: item
@@ -434,7 +434,7 @@ def _run_simplefold(
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="7.0.0",
+        node_type_version="8.0.0",
         binding_id="folding.fold.simplefold_local",
         binding_version=_SIMPLEFOLD_BINDING_VERSION,
         node_parameters={
@@ -651,7 +651,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
                         ),
                         "sample_index": sample,
                     }
-                    for sample in range(2)
+                    for sample in reversed(range(2))
                 ],
             )
 
@@ -694,14 +694,19 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     )
     assert len(structures.items) == 2
     assert len(set(item.candidate_id for item in structures.items)) == 2
-    assert {
+    assert [
         item.metadata["sample_index"] for item in structures.items
-    } == {0, 1}
+    ] == [0, 1]
     assert all(len(item.parent_ids) == 1 for item in structures.items)
     assert len(facts.entries) == 2
     assert {
         fact.plddt_per_residue for fact in facts.entries
     } == {(0.71, 0.83), (71.0, 83.0)}
+    facts_by_key = {fact.prediction_key: fact for fact in facts.entries}
+    assert [
+        facts_by_key[item.metadata["prediction_key"]].plddt_per_residue
+        for item in structures.items
+    ] == [(0.71, 0.83), (71.0, 83.0)]
     assert all(fact.ptm is None and fact.pae is None for fact in facts.entries)
     assert {
         item.metadata["prediction_key"] for item in structures.items
@@ -956,6 +961,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
             return SimpleFoldAdapterResult(
                 samples=(
                     SimpleFoldSampleResult(
+                        sample_index=0,
                         structure=ProteinStructure(
                             _two_residue_pdb(),
                         ),
@@ -1071,6 +1077,7 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
             return SimpleFoldAdapterResult(
                 samples=(
                     SimpleFoldSampleResult(
+                        sample_index=0,
                         structure=ProteinStructure(_two_residue_pdb()),
                         per_residue_plddt=(71.0, 83.0),
                     ),

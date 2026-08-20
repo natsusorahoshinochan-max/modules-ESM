@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: folding.fold
-version: "7.0.0"
+version: "8.0.0"
 title: Fold protein sequences
 summary: Folds each complete sequence Candidate through one explicitly selected folding Binding and publishes complete structure Candidates with canonical confidence.
 category: folding

@@ -53,7 +53,7 @@ def biohub_esm3_esmfold2_environment() -> dict[tuple[str, str], Any]:
                 "client_factory": esm3_factory,
             },
         },
-        ("folding.fold.esmfold2_remote", "8.0.0"): {
+        ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": token,

@@ -34,9 +34,9 @@
     {
       "node_id": "fold-esmfold2",
       "node_type_id": "folding.fold",
-      "node_type_version": "7.0.0",
+      "node_type_version": "8.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "8.0.0",
+      "binding_version": "9.0.0",
       "node_parameters": {
         "effective_seed": 1075001,
         "num_samples": 1
@@ -46,9 +46,9 @@
     {
       "node_id": "fold-simplefold",
       "node_type_id": "folding.fold",
-      "node_type_version": "7.0.0",
+      "node_type_version": "8.0.0",
       "binding_id": "folding.fold.simplefold_local",
-      "binding_version": "9.0.0",
+      "binding_version": "10.0.0",
       "node_parameters": {
         "effective_seed": 1075002,
         "num_samples": 1
@@ -597,14 +597,14 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:028dcb18196730386644c203043afa98f0b6eea850b01040e5ca62ebd666f0dc"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:7c074385741585289c43146e8acdf4d63a21ce60b1f4f7e89e2508b7de2e4d5d"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.simplefold_local",
-      "contract_version": "9.0.0",
-      "contract_digest": "sha256:54f1ab065652462b590d1e5a04285f5d51b59a58a4f14b5f9e047c43f3178295"
+      "contract_version": "10.0.0",
+      "contract_digest": "sha256:993a21c4fe285595817d62a5eedddab19383fa480f65122c5cd8de8d17a107f8"
     },
     {
       "contract_kind": "binding",
@@ -783,8 +783,8 @@
     {
       "contract_kind": "node_type",
       "contract_id": "folding.fold",
-      "contract_version": "7.0.0",
-      "contract_digest": "sha256:0cefdad909731cb42ce7c75642a31f8bfacff9711fff45adc8801208970bb949"
+      "contract_version": "8.0.0",
+      "contract_digest": "sha256:02d1f706a231edff46e8158f1e2b62fb21553e9cc0e21c26475c9ec976954f02"
     },
     {
       "contract_kind": "node_type",

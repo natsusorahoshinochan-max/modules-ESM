@@ -329,9 +329,9 @@
     {
       "node_id": "fold-esmfold2",
       "node_type_id": "folding.fold",
-      "node_type_version": "7.0.0",
+      "node_type_version": "8.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "8.0.0",
+      "binding_version": "9.0.0",
       "node_parameters": {
         "effective_seed": 2066002,
         "num_samples": 1
@@ -878,8 +878,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:028dcb18196730386644c203043afa98f0b6eea850b01040e5ca62ebd666f0dc"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:7c074385741585289c43146e8acdf4d63a21ce60b1f4f7e89e2508b7de2e4d5d"
     },
     {
       "contract_kind": "binding",
@@ -1148,8 +1148,8 @@
     {
       "contract_kind": "node_type",
       "contract_id": "folding.fold",
-      "contract_version": "7.0.0",
-      "contract_digest": "sha256:0cefdad909731cb42ce7c75642a31f8bfacff9711fff45adc8801208970bb949"
+      "contract_version": "8.0.0",
+      "contract_digest": "sha256:02d1f706a231edff46e8158f1e2b62fb21553e9cc0e21c26475c9ec976954f02"
     },
     {
       "contract_kind": "node_type",

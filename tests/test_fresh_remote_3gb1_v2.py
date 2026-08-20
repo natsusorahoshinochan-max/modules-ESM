@@ -51,11 +51,11 @@ REMOTE_BINDINGS = {
         "source": "Biohub",
     },
     "folding.fold.esmfold2_remote": {
-        "binding_version": "8.0.0",
+        "binding_version": "9.0.0",
         "method_id": "folding.fold.esmfold2_fast_biohub_2026_05",
         "method_version": "4.0.0",
         "adapter_id": "folding.esmfold2_remote/adapter",
-        "adapter_version": "8.0.0",
+        "adapter_version": "9.0.0",
         "model": "esmfold2-fast-2026-05",
         "source": "Biohub",
     },
@@ -393,7 +393,7 @@ def _provider_invocation_contract_fixture(
         add_node(
             node_id,
             "folding.fold.esmfold2_remote",
-            "8.0.0",
+            "9.0.0",
             tuple(
                 (
                     f"{node_id}-{index}",

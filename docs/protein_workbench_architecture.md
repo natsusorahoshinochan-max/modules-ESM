@@ -520,10 +520,10 @@ TM-score、RMSD、DSSP、confidence 和 solubility 不能退化为自由字符�
 `structure_prediction.materialize_confidence.exact_reference_join@2.0.0`
 Method，且没有科学或部署参数。
 
-`folding.fold@7.0.0`、`esm3.generate_sequence@8.0.0`、
+`folding.fold@8.0.0`、`esm3.generate_sequence@8.0.0`、
 `esm3.generate_structure@8.0.0` 和 `esm3.generate_paired@8.0.0` 不在产生 Candidate
-的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `9.0.0`、
-remote ESMFold2 `8.0.0` 或 local ESMFold2 `9.0.0`；ESM3 generation Bindings 为
+的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `10.0.0`、
+remote ESMFold2 `9.0.0` 或 local ESMFold2 `10.0.0`；ESM3 generation Bindings 为
 `8.0.0`。其 exact provider Methods 也依 route 固定：SimpleFold 与 remote ESMFold2 为
 `4.0.0`、local ESMFold2 为 `6.0.0`、ESM3 generation 为 `5.0.0`。每个
 confidence-bearing structure 或 coordinate-conditioned reconstruction output 同时产生：

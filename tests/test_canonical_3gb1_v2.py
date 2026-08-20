@@ -56,9 +56,9 @@ WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
 EXPECTED_TOP_THREE = [
-    "candidate-4e0973f5645cd232f778fe1b748c69884de69466b66d3b1e11fe84ffbfdad74c",
-    "candidate-5abe282a86e57d8cdfbe4f3420c5fa63e652086ab18bc5f865b6d016ed1c85ef",
-    "candidate-da90b9df2be20b70e10682940dd88aa09e5b2149d44dd5e05120b6c47aed6cfb",
+    "candidate-eab1e005fdcf40f74379b4e1d92f31c55de63b65f76151f436649c729611e940",
+    "candidate-37862bc7beee528065d925d588fe37f787c74a81532bb05a97197d555255cd68",
+    "candidate-8860c6af17a9dde6ac2bf6cf37b9f62586241909b61b0ef901dae6cc53bfeb02",
 ]
 EXPECTED_TOP_PARENT_INDICES = [2, 0, 3]
 pytestmark = pytest.mark.deterministic_acceptance
@@ -128,7 +128,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
         "override-secondary-structure": "3.0.0",
         "generate-paired": "8.0.0",
         "materialize-generated-confidence": "2.0.0",
-        "fold-sequences": "7.0.0",
+        "fold-sequences": "8.0.0",
         "materialize-folded-confidence": "2.0.0",
         "rebind-counterparts": "4.0.0",
         "resolve-folded-residue-axes": "6.0.0",
@@ -145,7 +145,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
         "build-final-layout": "3.0.0",
         "fixed-positions": "4.0.0",
         "design-children": "10.0.0",
-        "fold-final": "7.0.0",
+        "fold-final": "8.0.0",
         "materialize-final-confidence": "2.0.0",
         "export-final": "6.0.0",
     }
@@ -155,8 +155,8 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
     expected_binding_versions = dict(expected_node_versions)
     expected_binding_versions.update({
         "design-children": "11.0.0",
-        "fold-sequences": "8.0.0",
-        "fold-final": "8.0.0",
+        "fold-sequences": "9.0.0",
+        "fold-final": "9.0.0",
     })
     assert {
         node.node_id: node.binding_version for node in nodes.values()

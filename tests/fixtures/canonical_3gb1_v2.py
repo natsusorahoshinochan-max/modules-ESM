@@ -21,7 +21,8 @@ from datatypes import ProteinSequence
 
 
 VERSION = "2.1.0"
-REMOTE_BINDING_VERSION = "8.0.0"
+ESM3_REMOTE_BINDING_VERSION = "8.0.0"
+FOLDING_REMOTE_BINDING_VERSION = "9.0.0"
 PROTEINMPNN_BINDING_VERSION = "11.0.0"
 CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
     "sha256:af6fb4017077a24d67882151d39beb7790b118b02c155a986a48907e1a569ab8"
@@ -307,7 +308,7 @@ def controlled_environment(
     return {
         (
             "esm3.generate_paired.biohub_medium",
-            REMOTE_BINDING_VERSION,
+            ESM3_REMOTE_BINDING_VERSION,
         ): {
             "values": {
                 "endpoint_id": "biohub",
@@ -315,7 +316,10 @@ def controlled_environment(
                 "provider_client": esm3,
             },
         },
-        ("folding.fold.esmfold2_remote", REMOTE_BINDING_VERSION): {
+        (
+            "folding.fold.esmfold2_remote",
+            FOLDING_REMOTE_BINDING_VERSION,
+        ): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": object(),

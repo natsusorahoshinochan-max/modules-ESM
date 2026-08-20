@@ -331,7 +331,7 @@ def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
     for binding_id, version, closure in (
         (
             "folding.fold.simplefold_local",
-            "9.0.0",
+            "10.0.0",
             SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
         ),
         (

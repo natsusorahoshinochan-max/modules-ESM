@@ -40,6 +40,7 @@ _SimpleFoldNativeResult: TypeAlias = tuple[
 class SimpleFoldSampleResult:
     """One provider-independent folded structure and canonical pLDDT."""
 
+    sample_index: int
     structure: ProteinStructure
     per_residue_plddt: tuple[float, ...]
 
@@ -135,24 +136,20 @@ def provider_identity() -> dict[str, Any]:
 def _decode_fold_result(
     *,
     raw_result: _SimpleFoldNativeResult,
-    sample_count: int,
 ) -> tuple[SimpleFoldSampleResult, ...]:
     """Admit provider-native structures and high-level `[0,100]` scores."""
     structures, scores = raw_result
-    by_sample = {
-        entry["sample_index"]: tuple(
-            float(value) for value in entry["per_residue"]
-        )
-        for entry in scores
-    }
     return tuple(
         SimpleFoldSampleResult(
+            sample_index=entry["sample_index"],
             structure=_translate_provider_structure(
-                structures[sample_index]
+                structures[entry["sample_index"]]
             ),
-            per_residue_plddt=by_sample[sample_index],
+            per_residue_plddt=tuple(
+                float(value) for value in entry["per_residue"]
+            ),
         )
-        for sample_index in range(sample_count)
+        for entry in scores
     )
 
 
@@ -258,7 +255,6 @@ class LocalSimpleFoldAdapter:
                 raw_result = provider_call()
             samples = _decode_fold_result(
                 raw_result=raw_result,
-                sample_count=num_samples,
             )
         return SimpleFoldAdapterResult(
             samples=samples,
