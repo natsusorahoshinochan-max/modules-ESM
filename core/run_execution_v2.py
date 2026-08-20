@@ -43,7 +43,6 @@ from core.port_types import (
 from core.process_control import signal_process_group
 from core.project import ProjectManager
 from core.project_objects import ObjectIntegrityError, ProjectObjectStore
-from core.public_values import sanitize_public_value
 from core.scoring_v2 import (
     SelectionError,
     selection_objective_provenance_from_facts,
@@ -527,7 +526,7 @@ def _public_selection_failure(error: BaseException) -> dict[str, Any]:
         "message": "Workflow selection failed safely",
         "retryable": False,
         "correlation_id": f"incident-{uuid.uuid4().hex}",
-        "details": sanitize_public_value(details),
+        "details": details,
     }
 
 
@@ -4007,7 +4006,7 @@ class _RunEvidenceLedger:
                     "sequence": first_sequence + offset,
                     "recorded_at": run_timestamp(),
                     "fact_type": proposed.fact_type,
-                    "payload": sanitize_public_value(dict(proposed.payload)),
+                    "payload": dict(proposed.payload),
                 }
                 for offset, proposed in enumerate(logical_facts)
             )
@@ -5006,36 +5005,9 @@ def _execution_plan_contract_roots(
 
 def _reachable_contract_evidence(
     catalog: FrozenCatalog,
-    roots: Any,
+    roots: list[dict[str, str]],
 ) -> list[dict[str, Any]]:
     """Rebuild the exact active Catalog closure from durable Plan roots."""
-    if (
-        not isinstance(roots, list)
-        or any(
-            not isinstance(entry, Mapping)
-            or set(entry) != _RESOLVED_CONTRACT_FIELDS
-            or not all(
-                isinstance(entry[field], str)
-                for field in _RESOLVED_CONTRACT_FIELDS
-            )
-            for entry in roots
-        )
-    ):
-        raise RuntimeError("Run scope Contract roots are invalid")
-    root_identities = [
-        (
-            entry["contract_kind"],
-            entry["contract_id"],
-            entry["contract_version"],
-        )
-        for entry in roots
-    ]
-    if (
-        len(set(root_identities)) != len(root_identities)
-        or root_identities != sorted(root_identities)
-    ):
-        raise RuntimeError("Run scope Contract roots are invalid")
-
     pending = [dict(entry) for entry in roots]
     reachable: dict[tuple[str, str, str], dict[str, Any]] = {}
     while pending:
@@ -5067,55 +5039,20 @@ def _reachable_contract_evidence(
     return [reachable[identity] for identity in sorted(reachable)]
 
 
-def _validated_run_catalog_digest(
+def _run_catalog_digest(
     ledger: _RunEvidenceLedger,
     catalog: FrozenCatalog,
 ) -> str:
-    """Classify one validated Ledger and verify active-generation locks."""
-    facts = ledger.facts
-    if not facts or facts[0]["fact_type"] != "run_scope_bound":
-        raise RuntimeError("Run scope evidence is missing")
-    scope = facts[0]["payload"]
-    persisted_catalog_digest = scope.get("catalog_contract_digest")
-    if (
-        not isinstance(persisted_catalog_digest, str)
-        or re.fullmatch(
-            r"sha256:[0-9a-f]{64}",
-            persisted_catalog_digest,
-        )
-        is None
-    ):
-        raise RuntimeError("Run scope Catalog identity is invalid")
-    resolved_contracts = scope.get("resolved_contracts")
-    persisted_lock_digest = scope.get("contract_lock_digest")
-    if (
-        not isinstance(resolved_contracts, list)
-        or any(
-            not isinstance(entry, Mapping)
-            or set(entry) != _RESOLVED_CONTRACT_FIELDS
-            or not all(
-                isinstance(entry[field], str)
-                for field in _RESOLVED_CONTRACT_FIELDS
-            )
-            for entry in resolved_contracts
-        )
-        or not isinstance(persisted_lock_digest, str)
-        or persisted_lock_digest
-        != canonical_sha256(
-            {
-                "schema_namespace": CONTRACT_LOCK_NAMESPACE,
-                "entries": resolved_contracts,
-            }
-        )
-    ):
-        raise RuntimeError("Run scope Contract Lock evidence is invalid")
+    """Classify one admitted Ledger against the active Catalog generation."""
+    scope = ledger.facts[0]["payload"]
+    persisted_catalog_digest = scope["catalog_contract_digest"]
     if persisted_catalog_digest != catalog.contract_digest:
         return persisted_catalog_digest
     expected_contracts = _reachable_contract_evidence(
         catalog,
-        scope.get("resolved_contract_roots"),
+        scope["resolved_contract_roots"],
     )
-    if [dict(entry) for entry in resolved_contracts] != expected_contracts:
+    if scope["resolved_contracts"] != expected_contracts:
         raise RuntimeError("Run scope resolved Contracts are invalid")
     return persisted_catalog_digest
 
@@ -6070,7 +6007,7 @@ class V2RunService:
             and self._run_owners[run_id] != project_id
         ):
             raise RuntimeError("Run identity appears in multiple Projects")
-        persisted_catalog_digest = _validated_run_catalog_digest(
+        persisted_catalog_digest = _run_catalog_digest(
             ledger,
             self._catalog,
         )

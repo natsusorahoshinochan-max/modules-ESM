@@ -1730,7 +1730,9 @@ def test_selection_derivation_failure_closes_selection_and_run_together(
     )
 
     def fail_selection_derivation(*_args: Any, **_kwargs: Any) -> None:
-        raise SelectionError("committed Selection value cannot be derived")
+        raise SelectionError(
+            "Selection Objective AKIAABCDEFGHIJKLMNOP cannot be derived"
+        )
 
     monkeypatch.setattr(
         run_execution_v2,
@@ -1772,7 +1774,7 @@ def test_selection_derivation_failure_closes_selection_and_run_together(
     assert projection["selection_results"] == []
     assert projection["selection_error"]["code"] == "selection_failed"
     assert projection["selection_error"]["details"] == {
-        "reason": "committed Selection value cannot be derived"
+        "reason": "Selection Objective AKIAABCDEFGHIJKLMNOP cannot be derived"
     }
     assert [fact["fact_type"] for fact in closure["facts"]] == [
         "selection_terminal",

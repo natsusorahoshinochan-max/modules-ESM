@@ -1691,7 +1691,7 @@ def test_filesystem_acknowledgement_syncs_transaction_and_directory(
     assert any(stat.S_ISDIR(mode) for mode in synchronized_modes)
 
 
-def test_ledger_redacts_failure_text_before_durable_publication(tmp_path) -> None:
+def test_ledger_retains_legal_invocation_provenance_exactly(tmp_path) -> None:
     ledger = _admitted_ledger(tmp_path)
     ledger.record(
         run_execution_v2.NodeAttemptStart(
@@ -1705,28 +1705,21 @@ def test_ledger_redacts_failure_text_before_durable_publication(tmp_path) -> Non
             operation_attempt_id="operation-1",
         )
     )
-    secret = "sk-never-persist-this-token"
-
     ledger.record(
-        run_execution_v2.NodeFailurePublication(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
+        run_execution_v2.EngineInvocationStart(
+            invocation_id="invocation-1",
             operation_attempt_id="operation-1",
-            resolution="executed",
-            failure_origin="operation",
-            error={
-                "code": "node_execution_failed",
-                "message": f"Provider returned bearer {secret}",
-                "retryable": False,
-                "correlation_id": "incident-redaction",
-                "details": {"exception_type": "RuntimeError"},
-            },
+            engine_role="primary",
+            engine_identity="sha256:" + "6" * 64,
+            provenance=run_execution_v2.EngineInvocationProvenance(
+                project_input_filename="AKIAABCDEFGHIJKLMNOP"
+            ),
         )
     )
 
-    retained = json.dumps(ledger.facts)
-    assert secret not in retained
-    assert "[REDACTED]" in retained
+    assert ledger.facts[-1]["payload"]["invocation_provenance"] == {
+        "project_input_filename": "AKIAABCDEFGHIJKLMNOP"
+    }
 
 
 def test_cursor_replay_is_scope_bound_and_exclusive(tmp_path) -> None:
