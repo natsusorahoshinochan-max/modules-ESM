@@ -812,7 +812,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
                 [2.0, 1.0, 0.0],
             ]
         ),
-        pdb_string=provider_pdb.removesuffix("END\n"),
+        pdb_string=provider_pdb,
     )
     resources = InvocationResources()
     adapter = BiohubESM3Adapter(
@@ -902,7 +902,7 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
 
     class RecordingAdapter:
         def __init__(self) -> None:
-            self.seeds: list[int] = []
+            self.seeds: list[int | None] = []
 
         def __enter__(self) -> RecordingAdapter:
             return self
@@ -915,7 +915,7 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
             prompt: ProteinPrompt,
             *,
             parameters: object,
-            derived_call_seed: int,
+            derived_call_seed: int | None,
         ) -> ESM3SequenceResult:
             del prompt, parameters
             self.seeds.append(derived_call_seed)
@@ -932,7 +932,7 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
         sequence_track=ResidueTrack([None, "C", "D"], None),
     )
 
-    def observed(content_digest: str) -> tuple[int, ...]:
+    def observed(content_digest: str) -> tuple[int | None, ...]:
         adapter = RecordingAdapter()
         operation = ESM3GenerationOperation(
             adapter=adapter,
@@ -976,6 +976,84 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
     assert first == repeated
     assert first[0] != first[1]
     assert first != changed_content
+
+
+def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
+    from modules.esm3.adapter import ESM3SequenceResult
+    from modules.esm3.implementation import ESM3GenerationOperation
+
+    class AcceptingAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def __enter__(self) -> AcceptingAdapter:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            del args
+
+        def generate_sequence(
+            self,
+            prompt: ProteinPrompt,
+            *,
+            parameters: object,
+            derived_call_seed: int | None,
+        ) -> ESM3SequenceResult:
+            del prompt, parameters, derived_call_seed
+            self.calls += 1
+            return ESM3SequenceResult(
+                sequence=ProteinSequence("ACD"),
+                reconstruction=None,
+                confidence=None,
+                effective_num_steps=4,
+                effective_call_seed=None,
+            )
+
+    prompt = ProteinPrompt(
+        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
+        sequence_track=ResidueTrack(["A", "C", "D"], None),
+    )
+    adapter = AcceptingAdapter()
+    operation = ESM3GenerationOperation(
+        adapter=adapter,
+        operation="generate_sequence",
+        method=ExactContractReference(
+            "method",
+            "esm3.generate_sequence.fixture",
+            "5.0.0",
+            "sha256:" + "3" * 64,
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="requires at least one masked residue",
+    ):
+        operation.execute(
+            OperationCall(
+                inputs={
+                    "protein_prompt": admitted_port_fixture(
+                        prompt,
+                        port_type_id="protein.prompt",
+                        value_content_digests=("sha256:" + "a" * 64,),
+                    )
+                },
+                node_parameters={
+                    "effective_seed": 1603,
+                    "num_samples": 1,
+                    "num_steps": 4,
+                    "temperature": 1.0,
+                    "top_p": 1.0,
+                    "schedule": "cosine",
+                    "strategy": "random",
+                    "temperature_annealing": True,
+                },
+                binding_parameters={},
+                effective_randomness={},
+            )
+        )
+
+    assert adapter.calls == 0
 
 
 class _StepShorteningProviderClient(ProviderClient):

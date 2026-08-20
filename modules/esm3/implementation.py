@@ -7,6 +7,7 @@ import hashlib
 from typing import Any, cast
 
 from core import (
+    AdmittedPort,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
     OperationCall,
@@ -30,7 +31,6 @@ from modules.structure_prediction.domain import (
 from modules.structure_prediction.port_types import (
     PREDICTION_RESIDUE_AXIS_PORT_TYPE,
 )
-from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
 
 from .adapter import (
     ESM3CallParameters,
@@ -47,12 +47,14 @@ _STRUCTURE_PORT_TYPE = _BUILTINS.require_port_type(
 
 
 def _derived_call_seed(
-    effective_seed: int,
+    effective_seed: int | None,
     prompt_content_digest: str,
     sample_index: int,
     track: str,
-) -> int:
+) -> int | None:
     """Derive the stable scientific identity for one sample/track slot."""
+    if effective_seed is None:
+        return None
     digest = hashlib.sha256(
         (
             "protein-workbench-esm3-call-seed/v2:"
@@ -72,36 +74,20 @@ class ESM3GenerationOperation:
         operation: str,
         method: ExactContractReference,
     ) -> None:
-        if operation not in {
-            "generate_sequence",
-            "generate_structure",
-            "generate_paired",
-        }:
-            raise ValueError("ESM-3 Operation identity is not declared")
         self._adapter = adapter
         self._operation = operation
         self._method = method
+        self._generate = {
+            "generate_sequence": self._generate_sequence,
+            "generate_structure": self._generate_structure,
+            "generate_paired": self._generate_paired,
+        }[operation]
 
     @staticmethod
     def _parameters(
         parameters: Mapping[str, Any],
-    ) -> tuple[int, int, ESM3CallParameters]:
-        expected = {
-            "effective_seed",
-            "num_samples",
-            "num_steps",
-            "temperature",
-            "top_p",
-            "schedule",
-            "strategy",
-            "temperature_annealing",
-        }
-        if set(parameters) != expected:
-            raise ValueError(
-                "ESM-3 generation parameters are not fully resolved"
-            )
+    ) -> tuple[int, ESM3CallParameters]:
         return (
-            parameters["effective_seed"],
             parameters["num_samples"],
             ESM3CallParameters(
                 num_steps=parameters["num_steps"],
@@ -135,7 +121,7 @@ class ESM3GenerationOperation:
         operation: str,
         sample_index: int,
         classification: str,
-        configured_base_seed: int,
+        configured_base_seed: int | None,
         parameters: ESM3CallParameters,
         call_track: str,
         effective_call_seed: int | None,
@@ -176,56 +162,37 @@ class ESM3GenerationOperation:
             metadata["prediction_key"] = prediction_key
         return metadata
 
-    @staticmethod
-    def _prompt_content_digest(call: OperationCall) -> str:
-        return call.inputs["protein_prompt"].content_digest
-
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        if set(call.inputs) != {"protein_prompt"} or call.binding_parameters:
-            raise ValueError(
-                "ESM-3 generation requires one ProteinPrompt and no Binding "
-                "parameters"
-            )
-        prompt = call.inputs["protein_prompt"].value
-        effective_seed, num_samples, parameters = self._parameters(
-            call.node_parameters
+        admitted_prompt = call.inputs["protein_prompt"]
+        prompt = admitted_prompt.value
+        num_samples, parameters = self._parameters(call.node_parameters)
+        effective_seed: int | None = call.effective_randomness.get(
+            "effective_seed"
         )
-        prompt_content_digest = self._prompt_content_digest(call)
+        prompt_content_digest = admitted_prompt.content_digest
         with self._adapter:
-            if self._operation == "generate_sequence":
-                return self._generate_sequence(
-                    prompt,
-                    effective_seed=effective_seed,
-                    prompt_content_digest=prompt_content_digest,
-                    num_samples=num_samples,
-                    parameters=parameters,
-                )
-            if self._operation == "generate_structure":
-                return self._generate_structure(
-                    prompt,
-                    effective_seed=effective_seed,
-                    prompt_content_digest=prompt_content_digest,
-                    num_samples=num_samples,
-                    parameters=parameters,
-                )
-            return self._generate_paired(
+            return self._generate(
                 prompt,
                 effective_seed=effective_seed,
                 prompt_content_digest=prompt_content_digest,
+                admitted_prompt=admitted_prompt,
                 num_samples=num_samples,
                 parameters=parameters,
             )
 
     @staticmethod
-    def _prompt_reference(prompt_content_digest: str) -> ExactPortValueReference:
+    def _prompt_reference(
+        admitted_prompt: AdmittedPort,
+    ) -> ExactPortValueReference:
+        port_type = admitted_prompt.port_type
         return ExactPortValueReference(
             port_type=ExactContractReference(
-                contract_kind="port_type",
-                contract_id=PROTEIN_PROMPT_PORT_TYPE.type_id,
-                contract_version=PROTEIN_PROMPT_PORT_TYPE.version,
-                contract_digest=PROTEIN_PROMPT_PORT_TYPE.contract_digest,
+                contract_kind=port_type["contract_kind"],
+                contract_id=port_type["contract_id"],
+                contract_version=port_type["contract_version"],
+                contract_digest=port_type["contract_digest"],
             ),
-            content_digest=prompt_content_digest,
+            content_digest=admitted_prompt.content_digest,
         )
 
     @staticmethod
@@ -266,34 +233,36 @@ class ESM3GenerationOperation:
         )
 
     @staticmethod
-    def _assigned_prompt_sequence(prompt: ProteinPrompt) -> str:
+    def _require_assigned_prompt_sequence(prompt: ProteinPrompt) -> None:
         track = prompt.sequence_track
-        if (
-            track is None
-            or len(track.values) != prompt.num_residues
-            or any(
-                type(value) is not str or value == "_"
-                for value in track.values
-            )
-        ):
+        if track is None or None in track.values:
             raise ValueError(
                 "structure generation requires a complete assigned sequence"
             )
-        return "".join(track.values)
+
+    @staticmethod
+    def _require_sequence_mask(prompt: ProteinPrompt) -> None:
+        track = prompt.sequence_track
+        if track is not None and None not in track.values:
+            raise ValueError(
+                "ESM-3 sequence generation requires at least one masked residue"
+            )
 
     def _generate_sequence(
         self,
         prompt: ProteinPrompt,
         *,
-        effective_seed: int,
+        effective_seed: int | None,
         prompt_content_digest: str,
+        admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
+        self._require_sequence_mask(prompt)
         candidates: list[Candidate] = []
         reconstructions: list[Candidate] = []
         reconstruction_facts: list[ConfidenceFact] = []
-        prompt_reference = self._prompt_reference(prompt_content_digest)
+        prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
             call_seed = _derived_call_seed(
                 effective_seed,
@@ -375,15 +344,16 @@ class ESM3GenerationOperation:
         self,
         prompt: ProteinPrompt,
         *,
-        effective_seed: int,
+        effective_seed: int | None,
         prompt_content_digest: str,
+        admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
-        self._assigned_prompt_sequence(prompt)
+        self._require_assigned_prompt_sequence(prompt)
         candidates: list[Candidate] = []
         confidence_facts: list[ConfidenceFact] = []
-        prompt_reference = self._prompt_reference(prompt_content_digest)
+        prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
             result = self._adapter.generate_structure(
                 prompt,
@@ -438,18 +408,20 @@ class ESM3GenerationOperation:
         self,
         prompt: ProteinPrompt,
         *,
-        effective_seed: int,
+        effective_seed: int | None,
         prompt_content_digest: str,
+        admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
     ) -> dict[str, Any]:
+        self._require_sequence_mask(prompt)
         sequence_candidates: list[Candidate] = []
         structure_candidates: list[Candidate] = []
         pairing_entries: list[CandidatePairingIntentEntry] = []
         confidence_facts: list[ConfidenceFact] = []
         reconstruction_candidates: list[Candidate] = []
         reconstruction_facts: list[ConfidenceFact] = []
-        prompt_reference = self._prompt_reference(prompt_content_digest)
+        prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
             result = self._adapter.generate_pair(
                 prompt,

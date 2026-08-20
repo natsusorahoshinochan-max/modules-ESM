@@ -226,8 +226,6 @@ def load_local_esm3_client(
     runtime: LocalESM3Runtime | None = None,
 ) -> Any:
     """Load only the exact readiness-validated local model on explicit demand."""
-    if model_name != LOCAL_ESM3_MODEL:
-        raise RuntimeError("local ESM-3 Binding requested an unknown model")
     if runtime is None:
         runtime = resolve_local_runtime(environment)
     import torch
@@ -239,7 +237,7 @@ def load_local_esm3_client(
         required_builders: dict[str, FunctionType] = {
             name: cast(FunctionType, builders[name])
             for name in (
-                LOCAL_ESM3_MODEL,
+                model_name,
                 "esm3_structure_encoder_v0",
                 "esm3_structure_decoder_v0",
                 "esm3_function_decoder_v0",
@@ -249,7 +247,7 @@ def load_local_esm3_client(
             name: _bind_builder_to_staged_root(builder, staged_root)
             for name, builder in required_builders.items()
         }
-        client = bound[LOCAL_ESM3_MODEL](torch.device(runtime.device))
+        client = bound[model_name](torch.device(runtime.device))
         client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
         client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
         client.function_decoder_fn = bound["esm3_function_decoder_v0"]
@@ -309,8 +307,6 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         resources: RunResources,
         model_name: str,
     ) -> None:
-        if model_name != LOCAL_ESM3_MODEL:
-            raise ValueError("local ESM-3 model identity is not exact")
         super().__init__(
             resources=resources,
             model_name=model_name,
@@ -325,11 +321,11 @@ class LocalESM3Adapter(_BaseESM3Adapter):
             return self._resolved_client
         runtime = _trusted_local_runtime(self._environment)
         client = self._environment.get("provider_client")
-        if callable(getattr(client, "generate", None)):
+        if client is not None:
             self._resolved_client = client
             return client
         client_factory = self._environment.get("client_factory")
-        if callable(client_factory):
+        if client_factory is not None:
             client = client_factory(
                 model_name=self._model_name,
                 model_snapshot_path=runtime.snapshot_path,
@@ -357,14 +353,12 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         *,
         effective_call_seed: int | None,
     ) -> Any:
-        if type(effective_call_seed) is not int:
-            raise RuntimeError("local ESM-3 requires one exact call seed")
         return call_local_provider(
             client,
             provider_prompt,
             config,
             provider_operation,
-            effective_seed=effective_call_seed,
+            effective_seed=cast(int, effective_call_seed),
         )
 
     def _admit_confidence(self, result: Any) -> ESM3Confidence:
