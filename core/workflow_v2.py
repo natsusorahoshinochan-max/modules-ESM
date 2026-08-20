@@ -340,7 +340,6 @@ class _ExecutionPlanNodeRuntime:
         tuple[_ExecutionPlanValueSource, ...],
     ] = field(repr=False, compare=False)
     dependencies: tuple[str, ...]
-    required_dependencies: tuple[str, ...]
     project_input_parameters: tuple[str, ...]
     produced_observations: tuple[ResolvedProducedObservation, ...] = field(
         repr=False,
@@ -380,11 +379,6 @@ class _ExecutionPlanNodeRuntime:
                 ),
             )
         object.__setattr__(self, "dependencies", tuple(self.dependencies))
-        object.__setattr__(
-            self,
-            "required_dependencies",
-            tuple(self.required_dependencies),
-        )
         object.__setattr__(
             self,
             "project_input_parameters",
@@ -2606,15 +2600,6 @@ def compile_workflow(
                     {
                         source.node_id
                         for sources in frozen_input_sources.values()
-                        for source in sources
-                    }
-                )
-            ),
-            required_dependencies=tuple(
-                sorted(
-                    {
-                        source.node_id
-                        for sources in required_input_sources.values()
                         for source in sources
                     }
                 )

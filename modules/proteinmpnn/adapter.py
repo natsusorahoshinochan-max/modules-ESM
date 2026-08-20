@@ -9,7 +9,14 @@ import os
 from pathlib import Path
 from typing import Any, cast
 
-from core import ReadinessResult, RunResources
+from core import (
+    EngineInvocationProvenance,
+    InvocationRandomness,
+    ProviderResidueProjection,
+    ProviderResidueProjectionEntry,
+    ReadinessResult,
+    RunResources,
+)
 from modules.provider_contract import proteinmpnn_provider_identity
 from datatypes import (
     ProteinMPNNConstraints,
@@ -280,30 +287,29 @@ def _target_residue_ids(
 
 def _provider_residue_projection(
     request: ProteinMPNNDesignRequest,
-) -> dict[str, Any]:
+) -> ProviderResidueProjection:
     """Project the exact Workbench layout used by one provider invocation."""
-    return {
-        "position_semantics": "one_based_chain_local",
-        "workbench_chain_order": list(request.workbench_chain_order),
-        "provider_structure_chain_order": list(
+    return ProviderResidueProjection(
+        workbench_chain_order=request.workbench_chain_order,
+        provider_structure_chain_order=(
             request.provider_structure_chain_order
         ),
-        "provider_chain_order": list(request.provider_chain_order),
-        "entries": [
-            {
-                "residue_id": residue_id,
-                "segment_index": segment_index,
-                "provider_chain_id": provider_chain_id,
-                "provider_position": provider_position,
-            }
+        provider_chain_order=request.provider_chain_order,
+        entries=tuple(
+            ProviderResidueProjectionEntry(
+                residue_id=residue_id,
+                segment_index=segment_index,
+                provider_chain_id=provider_chain_id,
+                provider_position=provider_position,
+            )
             for (
                 residue_id,
                 segment_index,
                 provider_chain_id,
                 provider_position,
             ) in request.residue_identity_mapping
-        ],
-    }
+        ),
+    )
 
 
 def _restore_structure_chain_order(
@@ -459,15 +465,15 @@ class LocalProteinMPNNAdapter:
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,
-                invocation_provenance={
-                    "effective_randomness": {
-                        "control": "exact_seed",
-                        "effective_seed": seed,
-                    },
-                    "provider_residue_projection": (
+                invocation_provenance=EngineInvocationProvenance(
+                    effective_randomness=InvocationRandomness(
+                        control="exact_seed",
+                        effective_seed=seed,
+                    ),
+                    provider_residue_projection=(
                         _provider_residue_projection(request)
                     ),
-                },
+                ),
             ):
                 raw_sequences = provider.design(request)
             sequences = _admit_design_result(
@@ -498,15 +504,15 @@ class LocalProteinMPNNAdapter:
             )
             with self._resources.engine_invocation(
                 engine_role="score_subject",
-                invocation_provenance={
-                    "effective_randomness": {
-                        "control": "exact_seed",
-                        "effective_seed": PROTEINMPNN_SCORING_SEED,
-                    },
-                    "provider_residue_projection": (
+                invocation_provenance=EngineInvocationProvenance(
+                    effective_randomness=InvocationRandomness(
+                        control="exact_seed",
+                        effective_seed=PROTEINMPNN_SCORING_SEED,
+                    ),
+                    provider_residue_projection=(
                         _provider_residue_projection(request)
-                    )
-                },
+                    ),
+                ),
             ):
                 raw_score = provider.score(request, sequence)
             return _admit_scoring_result(raw_score)

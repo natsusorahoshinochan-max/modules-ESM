@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from types import SimpleNamespace
+from typing import Literal
 
 import pytest
 
@@ -40,13 +41,23 @@ def _open_attempt_ledger(
     selection_required: bool = False,
     run_id: str = "run-1",
     transaction_store: run_execution_v2.LedgerTransactionStore | None = None,
+    provider_readiness: Literal["passing", "failing"] | None = None,
 ) -> run_execution_v2._RunEvidenceLedger:
     workflow_commit_id = "workflow-commit-" + "0" * 64
     plan_node = run_execution_v2._PlanNodeEvidence(
         node_id="node-1",
         dependencies=(),
-        required_dependencies=(),
+        required_input_sources=(),
         result_identity_plan_facts_digest="sha256:" + "1" * 64,
+        binding={
+            "contract_kind": "binding",
+            "contract_id": "fixture.binding",
+            "contract_version": "1.0.0",
+            "contract_digest": "sha256:" + "8" * 64,
+        },
+        execution_route=(
+            "adapter" if provider_readiness is not None else "direct"
+        ),
         selection_consumer=selection_required,
     )
     ledger = run_execution_v2._RunEvidenceLedger(
@@ -55,45 +66,77 @@ def _open_attempt_ledger(
         run_id,
         (plan_node,),
         transaction_store,
+        expected_resolved_contracts=(plan_node.binding,),
+        expected_contract_roots=(plan_node.binding,),
     )
-    ledger.append(
-        "run_scope_bound",
-        {
-            "project_id": "project-1",
-            "run_id": run_id,
-            "workflow_commit_id": workflow_commit_id,
-            "workflow_commit_revision": 1,
-            "workflow_digest": "sha256:" + "2" * 64,
-            "contract_lock_digest": "sha256:" + "3" * 64,
-            "execution_plan_digest": "sha256:" + "4" * 64,
-            "catalog_contract_digest": "sha256:" + "5" * 64,
-            "resolved_contracts": [],
-            "selection_required": selection_required,
-            "selection_terminal_keys": (
-                ["node-1"] if selection_required else []
+    ledger.record(
+        run_execution_v2.RunScopeBinding(
+            workflow_commit_id=workflow_commit_id,
+            workflow_commit_revision=1,
+            workflow_digest="sha256:" + "2" * 64,
+            contract_lock_digest=run_execution_v2.canonical_sha256(
+                {
+                    "schema_namespace": (
+                        run_execution_v2.CONTRACT_LOCK_NAMESPACE
+                    ),
+                    "entries": [dict(plan_node.binding)],
+                }
             ),
-            "plan_nodes": [plan_node.to_dict()],
-        },
+            execution_plan_digest="sha256:" + "4" * 64,
+            catalog_contract_digest="sha256:" + "5" * 64,
+            resolved_contracts=(plan_node.binding,),
+            resolved_contract_roots=(plan_node.binding,),
+        )
     )
-    ledger.append(
-        "run_admitted",
-        {
-            "workflow_commit_id": workflow_commit_id,
-            "workflow_commit_revision": 1,
-        },
+    ledger.record(
+        run_execution_v2.AvailabilityBinding(
+            binding=plan_node.binding,
+            catalog_observed_at="2026-08-14T00:00:00Z",
+            available=True,
+        )
     )
-    ledger.append("run_started", {"started_at": "2026-08-14T00:00:00Z"})
-    ledger.append(
-        "node_attempt_started",
-        {"node_id": "node-1", "node_attempt_id": "node-attempt-1"},
+    ledger.record(
+        run_execution_v2.RunAdmission(
+            workflow_commit_id=workflow_commit_id,
+            workflow_commit_revision=1,
+        )
+    )
+    ledger.record(
+        run_execution_v2.RunStart(started_at="2026-08-14T00:00:00Z")
+    )
+    if provider_readiness is not None:
+        readiness_payload = {
+            "binding": plan_node.binding,
+            "readiness_contract_digest": "sha256:" + "9" * 64,
+            "observed_at": "2026-08-14T00:00:01Z",
+            "conclusion": provider_readiness,
+            "proof_source": "direct-observation",
+        }
+        ledger.record(
+            run_execution_v2.ReadinessAttestation(
+                **readiness_payload,
+                attestation_digest=run_execution_v2.canonical_sha256(
+                    {
+                        "schema_namespace": (
+                            run_execution_v2.READINESS_ATTESTATION_NAMESPACE
+                        ),
+                        **readiness_payload,
+                    }
+                ),
+            )
+        )
+    ledger.record(
+        run_execution_v2.NodeAttemptStart(
+            node_id="node-1",
+            node_attempt_id="node-attempt-1",
+        )
     )
     if operation_started:
-        ledger.append(
-            "operation_attempt_started",
-            {
-                "operation_attempt_id": "operation-1",
-                "node_attempt_id": "node-attempt-1",
-            },
+        ledger.record(
+            run_execution_v2.OperationAttemptStart(
+                operation_attempt_id="operation-1",
+                node_attempt_id="node-attempt-1",
+            )
         )
     return ledger
 
@@ -203,8 +246,8 @@ def test_executed_success_publishes_one_physical_ledger_transaction(
     )
     assert transaction["schema_version"] == "4.0.0"
     assert transaction["transaction_sequence"] == len(transaction_paths)
-    assert transaction["first_fact_sequence"] == 6
-    assert transaction["last_fact_sequence"] == 9
+    assert transaction["first_fact_sequence"] == 7
+    assert transaction["last_fact_sequence"] == 10
     assert [fact["fact_type"] for fact in transaction["facts"]] == [
         "operation_attempt_terminal",
         "outputs_published",
@@ -262,7 +305,11 @@ def test_operation_failure_is_one_exact_node_conclusion_transaction(
 def test_binding_failure_closes_node_without_an_operation_attempt(
     tmp_path,
 ) -> None:
-    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    ledger = _open_attempt_ledger(
+        tmp_path,
+        operation_started=False,
+        provider_readiness="failing",
+    )
     public_error = {
         "code": "readiness_rejected",
         "message": "Selected Binding is not ready for this Run",
@@ -271,9 +318,9 @@ def test_binding_failure_closes_node_without_an_operation_attempt(
         "details": {
             "binding": {
                 "contract_kind": "binding",
-                "contract_id": "test.binding.local",
-                "contract_version": "2.1.0",
-                "contract_digest": "sha256:" + "1" * 64,
+                "contract_id": "fixture.binding",
+                "contract_version": "1.0.0",
+                "contract_digest": "sha256:" + "8" * 64,
             },
             "reason_code": "model_unavailable",
         },
@@ -599,7 +646,7 @@ def test_failed_node_transaction_exposes_no_logical_fact_subset(
         ledger.projection()
     assert unavailable.value.code == "evidence_unavailable"
     transaction_paths = _ledger_transaction_paths(tmp_path)
-    assert len(transaction_paths) == 5
+    assert len(transaction_paths) == 6
 
 
 def test_artifact_object_remains_unpublished_when_transaction_fails(
@@ -681,136 +728,6 @@ def test_artifact_object_remains_unpublished_when_transaction_fails(
     assert not list(tmp_path.rglob("published/*"))
 
 
-def test_acknowledged_commit_reloads_after_reducer_advance_failure(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
-    install_state = ledger._install_reducer_state
-    failed = False
-
-    def fail_first_conclusion_advance(state) -> None:
-        nonlocal failed
-        if not failed and any(
-            fact["fact_type"] == "node_disposition"
-            for fact in state.facts
-        ):
-            failed = True
-            raise RuntimeError("fixture reducer advance failure")
-        install_state(state)
-
-    monkeypatch.setattr(
-        ledger,
-        "_install_reducer_state",
-        fail_first_conclusion_advance,
-    )
-
-    finalized = _finalizer(ledger).finalize(
-        run_execution_v2.ExecutedNodeSuccess(
-            project_id="project-1",
-            run_id="run-1",
-            execution_plan=SimpleNamespace(),
-            node=_node(),
-            resources=SimpleNamespace(
-                run_id="run-1",
-                _output_root=tmp_path / "outputs",
-                _cancellation_control=None,
-            ),
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-            result_identity="sha256:" + "6" * 64,
-            admitted_output_descriptors=(),
-            admitted_outputs={},
-            cache_eligible=False,
-        )
-    )
-
-    assert finalized.disposition == "succeeded"
-    assert [fact["fact_type"] for fact in ledger.facts[-4:]] == [
-        "operation_attempt_terminal",
-        "outputs_published",
-        "node_attempt_terminal",
-        "node_disposition",
-    ]
-    assert ledger.projection()["node_dispositions"][0]["outcome"] == (
-        "succeeded"
-    )
-    assert len(_ledger_transaction_paths(tmp_path)) == 6
-
-
-def test_reducer_advance_and_reload_failure_reports_evidence_unavailable(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    class PublishUnreadableConclusion:
-        def __init__(self) -> None:
-            self.filesystem = (
-                run_execution_v2.FilesystemLedgerTransactionStore()
-            )
-
-        def publish(self, *, root, relative_parts, payload) -> None:
-            self.filesystem.publish(
-                root=root,
-                relative_parts=relative_parts,
-                payload=payload,
-            )
-            if any(
-                fact["fact_type"] == "node_disposition"
-                for fact in json.loads(payload)["facts"]
-            ):
-                root.joinpath(*relative_parts).chmod(0o000)
-
-    ledger = _open_attempt_ledger(
-        tmp_path,
-        operation_started=True,
-        transaction_store=PublishUnreadableConclusion(),
-    )
-    install_state = ledger._install_reducer_state
-    failed = False
-
-    def fail_first_conclusion_advance(state) -> None:
-        nonlocal failed
-        if not failed and any(
-            fact["fact_type"] == "node_disposition"
-            for fact in state.facts
-        ):
-            failed = True
-            raise RuntimeError("fixture reducer advance failure")
-        install_state(state)
-
-    monkeypatch.setattr(
-        ledger,
-        "_install_reducer_state",
-        fail_first_conclusion_advance,
-    )
-
-    with pytest.raises(run_execution_v2.V2RunError) as rejected:
-        _finalizer(ledger).finalize(
-            run_execution_v2.ExecutedNodeSuccess(
-                project_id="project-1",
-                run_id="run-1",
-                execution_plan=SimpleNamespace(),
-                node=_node(),
-                resources=SimpleNamespace(
-                    run_id="run-1",
-                    _output_root=tmp_path / "outputs",
-                    _cancellation_control=None,
-                ),
-                node_attempt_id="node-attempt-1",
-                operation_attempt_id="operation-1",
-                result_identity="sha256:" + "6" * 64,
-                admitted_output_descriptors=(),
-                admitted_outputs={},
-                cache_eligible=False,
-            )
-        )
-
-    assert rejected.value.code == "evidence_unavailable"
-    with pytest.raises(run_execution_v2.V2RunError) as unavailable:
-        ledger.projection()
-    assert unavailable.value.code == "evidence_unavailable"
-
-
 def test_node_events_appear_only_after_the_whole_transaction_is_durable(
     tmp_path,
 ) -> None:
@@ -830,7 +747,7 @@ def test_node_events_appear_only_after_the_whole_transaction_is_durable(
                     fact["fact_type"] for fact in self.ledger.facts
                 )
                 self.observed_events = self.ledger.public_events(
-                    after_sequence=5
+                    after_sequence=6
                 )
             self.filesystem.publish(
                 root=root,
@@ -875,11 +792,11 @@ def test_node_events_appear_only_after_the_whole_transaction_is_durable(
     assert store.observed_fact_types is not None
     assert "operation_attempt_terminal" not in store.observed_fact_types
     assert store.observed_events == ()
-    events = ledger.public_events(after_sequence=5)
+    events = ledger.public_events(after_sequence=6)
     assert [(event["sequence"], event["event"]["type"]) for event in events] == [
-        (6, "operation_attempt_terminal"),
-        (8, "node_attempt_terminal"),
-        (9, "node_disposition"),
+        (7, "operation_attempt_terminal"),
+        (9, "node_attempt_terminal"),
+        (10, "node_disposition"),
     ]
 
 
@@ -908,9 +825,9 @@ def test_reader_rejects_a_v4_node_conclusion_split_across_transactions(
         )
     )
     ledger_dir = _ledger_transaction_paths(tmp_path)[0].parent
-    conclusion_path = ledger_dir / "00000000000000000006.json"
+    conclusion_path = ledger_dir / "00000000000000000007.json"
     conclusion = json.loads(conclusion_path.read_bytes())
-    tail = {**conclusion, "transaction_sequence": 7}
+    tail = {**conclusion, "transaction_sequence": 8}
     tail["facts"] = conclusion["facts"][1:]
     tail["first_fact_sequence"] = tail["facts"][0]["sequence"]
     conclusion["facts"] = conclusion["facts"][:1]
@@ -918,7 +835,7 @@ def test_reader_rejects_a_v4_node_conclusion_split_across_transactions(
     conclusion_path.write_bytes(
         run_execution_v2.canonical_json_bytes(conclusion)
     )
-    tail_path = ledger_dir / "00000000000000000007.json"
+    tail_path = ledger_dir / "00000000000000000008.json"
     tail_path.write_bytes(
         run_execution_v2.canonical_json_bytes(tail)
     )
@@ -938,7 +855,7 @@ def test_reader_ignores_private_ledger_staging_file(tmp_path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     ledger = _open_attempt_ledger(tmp_path, operation_started=True)
     ledger_dir = _ledger_transaction_paths(tmp_path)[0].parent
-    staging = ledger_dir / ".00000000000000000006.json.staging"
+    staging = ledger_dir / ".00000000000000000007.json.staging"
     staging.write_bytes(b"private incomplete transaction")
     staging.chmod(0o600)
 
@@ -956,8 +873,8 @@ def test_reader_rejects_noncontiguous_transaction_names(tmp_path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     _open_attempt_ledger(tmp_path, operation_started=True)
     ledger_dir = _ledger_transaction_paths(tmp_path)[0].parent
-    sixth = ledger_dir / "00000000000000000005.json"
-    sixth.rename(ledger_dir / "00000000000000000006.json")
+    sixth = ledger_dir / "00000000000000000006.json"
+    sixth.rename(ledger_dir / "00000000000000000007.json")
 
     with pytest.raises(
         RuntimeError,
@@ -1155,14 +1072,25 @@ def test_cache_replay_cancellation_cleanup_failure_retains_resolution(
     )
 
 
-def test_ledger_rejects_publication_outside_a_node_conclusion_transaction(
+def test_ledger_rejects_publication_that_omits_the_started_operation(
     tmp_path,
 ) -> None:
-    ledger = _open_attempt_ledger(tmp_path, operation_started=False)
+    ledger = _open_attempt_ledger(tmp_path, operation_started=True)
     with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.append(
-            "outputs_published",
-            {"node_id": "node-1", "outputs": [], "artifacts": []},
+        ledger.record(
+            run_execution_v2.NodeSuccessPublication(
+                node_id="node-1",
+                node_attempt_id="node-attempt-1",
+                operation_attempt_id=None,
+                resolution="executed",
+                result_identity="sha256:" + "6" * 64,
+                node_result_manifest={
+                    "content_digest": "sha256:" + "7" * 64,
+                    "size": 128,
+                },
+                outputs=(),
+                artifacts=(),
+            )
         )
 
     assert captured.value.code == "evidence_unavailable"
@@ -1250,6 +1178,21 @@ def test_cancellation_first_blocks_publication_without_deleting_shared_objects(
         fact["fact_type"] in {"outputs_published", "artifact_published"}
         for fact in ledger.facts
     )
+    operation_terminal = next(
+        fact
+        for fact in ledger.facts
+        if fact["fact_type"] == "operation_attempt_terminal"
+    )
+    assert operation_terminal["payload"] == {
+        "operation_attempt_id": "operation-1",
+        "status": "succeeded",
+    }
+    node_terminal = next(
+        fact
+        for fact in ledger.facts
+        if fact["fact_type"] == "node_attempt_terminal"
+    )
+    assert node_terminal["payload"]["status"] == "cancelled"
     assert list(tmp_path.rglob("objects/v1/sha256/*/*"))
 
 

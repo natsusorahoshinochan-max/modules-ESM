@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path, PurePosixPath
 import re
 import tempfile
@@ -54,8 +55,15 @@ def _write_file(
     payload: bytes,
     *,
     replace: bool,
+    durable: bool = False,
 ) -> Path:
     path = Path(root).joinpath(*relative_parts)
+    missing_directories: list[Path] = []
+    if durable:
+        existing_ancestor = path.parent
+        while not existing_ancestor.exists():
+            missing_directories.append(existing_ancestor)
+            existing_ancestor = existing_ancestor.parent
     path.parent.mkdir(parents=True, exist_ok=True)
     if not replace and path.exists():
         raise FileExistsError(path)
@@ -68,10 +76,24 @@ def _write_file(
     try:
         with temporary:
             temporary.write(payload)
+            if durable:
+                temporary.flush()
+                os.fsync(temporary.fileno())
         if replace:
             temporary_path.replace(path)
         else:
             temporary_path.rename(path)
+        if durable:
+            directories = [
+                path.parent,
+                *(directory.parent for directory in missing_directories),
+            ]
+            for directory in dict.fromkeys(directories):
+                descriptor = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
@@ -85,6 +107,21 @@ def write_new_file(
 ) -> Path:
     """Publish a new file without exposing a partial payload."""
     return _write_file(root, relative_parts, payload, replace=False)
+
+
+def write_new_file_durable(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    payload: bytes,
+) -> Path:
+    """Publish and durably acknowledge one new file and its path entries."""
+    return _write_file(
+        root,
+        relative_parts,
+        payload,
+        replace=False,
+        durable=True,
+    )
 
 
 def replace_file(

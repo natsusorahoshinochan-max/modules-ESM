@@ -924,6 +924,17 @@ class _AdapterResources:
         self.invocations.append(kwargs)
         return nullcontext()
 
+    @property
+    def public_invocations(self) -> list[dict[str, Any]]:
+        plain: list[dict[str, Any]] = []
+        for invocation in self.invocations:
+            item = dict(invocation)
+            provenance = item.get("invocation_provenance")
+            if provenance is not None:
+                item["invocation_provenance"] = provenance.to_public()
+            plain.append(item)
+        return plain
+
 
 class _ControlledProteinMPNNProvider:
     """Controlled provider injected through LocalProteinMPNNAdapter."""
@@ -1563,7 +1574,7 @@ def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -
         ("B:21", 1, "B", 2),
         ("B:22", 1, "B", 3),
     )
-    assert resources.invocations == [
+    assert resources.public_invocations == [
         {
             "engine_role": "score_subject",
             "invocation_provenance": {
@@ -1701,7 +1712,7 @@ def test_design_projects_canonical_axis_into_provider_safe_structure(
     assert request.bias_by_res_dict[target_name]["C"][1][19] == 1.25
     assert _sequence_in_provider_chain_order("ACDEFG", request) == "DEFGAC"
     assert result == (ProteinSequence("ACYYYY", layout.residue_ids),)
-    assert resources.invocations == [
+    assert resources.public_invocations == [
         {
             "engine_role": "design_parent_0",
             "invocation_provenance": {
@@ -1828,7 +1839,7 @@ def test_scoring_stages_numbering_gaps_and_preserves_backbone_mask(
     assert provider.batch["mask"].tolist() == [[1.0, 0.0]]
     assert provider.batch["chain_M"].tolist() == [[1.0, 1.0]]
     assert provider.batch["chain_M_pos"].tolist() == [[1.0, 1.0]]
-    assert resources.invocations[0]["invocation_provenance"][
+    assert resources.public_invocations[0]["invocation_provenance"][
         "provider_residue_projection"
     ] == {
         "position_semantics": "one_based_chain_local",
@@ -2013,10 +2024,10 @@ def test_design_and_score_preserve_same_chain_segment_topology(
             },
         ],
     }
-    assert resources.invocations[0]["invocation_provenance"][
+    assert resources.public_invocations[0]["invocation_provenance"][
         "provider_residue_projection"
     ] == expected_projection
-    assert resources.invocations[1]["invocation_provenance"][
+    assert resources.public_invocations[1]["invocation_provenance"][
         "provider_residue_projection"
     ] == expected_projection
 
@@ -2168,7 +2179,7 @@ def test_provider_residue_projection_starts_before_provider_failure(
 
     class FailingProvider(_ControlledProteinMPNNProvider):
         def _fail(self) -> None:
-            assert resources.invocations == [
+            assert resources.public_invocations == [
                 {
                     "engine_role": (
                         "design_parent_0"

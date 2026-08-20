@@ -6,7 +6,12 @@ import re
 import string
 from typing import Any
 
-from core import ArtifactPayload, OperationCall, RunResources
+from core import (
+    ArtifactPayload,
+    EngineInvocationProvenance,
+    OperationCall,
+    RunResources,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -36,9 +41,9 @@ class SequenceImportImplementation:
         reference = node_parameters["project_input_ref"]
         descriptor, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
-            invocation_provenance={
-                "project_input_filename": descriptor["filename"]
-            }
+            invocation_provenance=EngineInvocationProvenance(
+                project_input_filename=descriptor["filename"]
+            )
         ):
             try:
                 text = payload.decode("utf-8")
@@ -90,9 +95,9 @@ class StructureImportImplementation:
         reference = node_parameters["project_input_ref"]
         descriptor, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
-            invocation_provenance={
-                "project_input_filename": descriptor["filename"]
-            }
+            invocation_provenance=EngineInvocationProvenance(
+                project_input_filename=descriptor["filename"]
+            )
         ):
             try:
                 text = payload.decode("utf-8")

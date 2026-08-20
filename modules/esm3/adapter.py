@@ -6,7 +6,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from core import RunResources
+from core import (
+    EngineInvocationProvenance,
+    InvocationRandomness,
+    RunResources,
+)
 from datatypes import (
     FunctionAnnotation,
     ProteinPrompt,
@@ -503,19 +507,20 @@ class _BaseESM3Adapter:
         effective_call_seed = (
             derived_call_seed if self._exact_seed_control else None
         )
-        randomness: dict[str, Any] = {
-            "control": (
+        randomness = InvocationRandomness(
+            control=(
                 "exact_seed"
                 if effective_call_seed is not None
                 else "provider_uncontrolled"
-            )
-        }
-        if effective_call_seed is not None:
-            randomness["effective_seed"] = effective_call_seed
+            ),
+            effective_seed=effective_call_seed,
+        )
         with self._resources.engine_invocation(
             engine_role=role,
             parent_invocation_id=parent_invocation_id,
-            invocation_provenance={"effective_randomness": randomness},
+            invocation_provenance=EngineInvocationProvenance(
+                effective_randomness=randomness
+            ),
         ) as invocation_id:
             result = self._call_provider(
                 client,

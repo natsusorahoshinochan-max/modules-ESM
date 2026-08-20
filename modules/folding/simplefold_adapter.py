@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict, TypeAlias
 
-from core import ReadinessResult, RunResources
+from core import (
+    EngineInvocationProvenance,
+    InvocationRandomness,
+    ReadinessResult,
+    RunResources,
+)
 from datatypes import ProteinSequence, ProteinStructure
 
 from . import simplefold_contract
@@ -243,12 +248,12 @@ class LocalSimpleFoldAdapter:
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,
-                invocation_provenance={
-                    "effective_randomness": {
-                        "control": "exact_seed",
-                        "effective_seed": derived_call_seed,
-                    }
-                },
+                invocation_provenance=EngineInvocationProvenance(
+                    effective_randomness=InvocationRandomness(
+                        control="exact_seed",
+                        effective_seed=derived_call_seed,
+                    )
+                ),
             ):
                 raw_result = provider_call()
             samples = _decode_fold_result(

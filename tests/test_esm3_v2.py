@@ -52,6 +52,19 @@ from tests.fixtures.esm3_generation import (
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
+def _plain_invocations(
+    invocations: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    plain: list[dict[str, object]] = []
+    for invocation in invocations:
+        item = dict(invocation)
+        provenance = item.get("invocation_provenance")
+        if provenance is not None:
+            item["invocation_provenance"] = provenance.to_public()  # type: ignore[union-attr]
+        plain.append(item)
+    return plain
+
+
 def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> None:
     registrations = {
         registration.package_id: registration
@@ -565,7 +578,7 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission() -> None:
         sequence_logits_shape=(5, 64),
     )
     assert client.calls == ["encode", "logits"]
-    assert resources.invocations == [
+    assert _plain_invocations(resources.invocations) == [
         {
             "engine_role": "sequence_encode",
         },
@@ -741,7 +754,7 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
         effective_num_steps=4,
         effective_call_seed=None,
     )
-    assert resources.invocations == [
+    assert _plain_invocations(resources.invocations) == [
         {
             "engine_role": "sequence_sample",
             "parent_invocation_id": None,
@@ -861,7 +874,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     )
     assert result.structure.effective_num_steps == 4
     assert result.structure.effective_call_seed is None
-    assert resources.invocations == [
+    assert _plain_invocations(resources.invocations) == [
         {
             "engine_role": "sequence_parent",
             "parent_invocation_id": None,

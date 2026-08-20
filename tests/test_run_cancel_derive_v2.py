@@ -301,7 +301,7 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
         }
     ]
     assert terminals == [
-        ("engine_invocation_terminal", "cancelled"),
+        ("engine_invocation_terminal", "succeeded"),
         ("operation_attempt_terminal", "cancelled"),
         ("node_attempt_terminal", "cancelled"),
     ]

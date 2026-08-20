@@ -55,6 +55,7 @@ from core.storage import (
     validate_identifier,
     validate_relative_path,
     write_new_file,
+    write_new_file_durable,
 )
 from core.value_admission import (
     admitted_port_values,
@@ -127,6 +128,46 @@ _DISPOSITION_OUTCOMES = frozenset(
 )
 
 
+def _is_sha256_digest(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+    )
+
+
+def _contract_reference_key(
+    value: Mapping[str, Any],
+) -> tuple[str, str, str, str]:
+    return (
+        value["contract_kind"],
+        value["contract_id"],
+        value["contract_version"],
+        value["contract_digest"],
+    )
+
+
+def _validated_contract_reference_key(
+    value: Any,
+    *,
+    expected_kind: str | None = None,
+) -> tuple[str, str, str, str]:
+    try:
+        validate_schema("#/$defs/ContractReference", value)
+    except ProtocolValidationError as error:
+        raise ValueError("Contract reference is invalid") from error
+    if expected_kind is not None and value["contract_kind"] != expected_kind:
+        raise ValueError("Contract reference kind is invalid")
+    return _contract_reference_key(value)
+
+
+def _is_timestamp(value: Any) -> bool:
+    try:
+        validate_schema("#/$defs/Timestamp", value)
+    except ProtocolValidationError:
+        return False
+    return True
+
+
 def _run_terminal_status(
     dispositions: Mapping[str, Mapping[str, Any]],
     selection_terminals: tuple[Mapping[str, Any], ...],
@@ -158,34 +199,95 @@ def _is_immutable_object_descriptor(value: Any) -> bool:
     )
 
 
-def _freeze_invocation_provenance(
-    value: Mapping[str, Any],
-) -> Mapping[str, Any]:
-    """Validate closed orthogonal provenance facts and freeze caller containers."""
+@dataclass(frozen=True, slots=True)
+class InvocationRandomness:
+    """Typed effective-randomness provenance transported to the Ledger."""
+
+    control: Literal["exact_seed", "provider_uncontrolled"]
+    effective_seed: int | None = None
+
+    def to_public(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"control": self.control}
+        if self.effective_seed is not None:
+            result["effective_seed"] = self.effective_seed
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResidueProjectionEntry:
+    """One typed Workbench-to-Provider residue association."""
+
+    residue_id: str
+    segment_index: int
+    provider_chain_id: str
+    provider_position: int
+
+    def to_public(self) -> dict[str, Any]:
+        return {
+            "residue_id": self.residue_id,
+            "segment_index": self.segment_index,
+            "provider_chain_id": self.provider_chain_id,
+            "provider_position": self.provider_position,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResidueProjection:
+    """Typed chain, order, and residue-mapping invocation provenance."""
+
+    workbench_chain_order: tuple[str, ...]
+    provider_structure_chain_order: tuple[str, ...]
+    provider_chain_order: tuple[str, ...]
+    entries: tuple[ProviderResidueProjectionEntry, ...]
+    position_semantics: Literal["one_based_chain_local"] = (
+        "one_based_chain_local"
+    )
+
+    def to_public(self) -> dict[str, Any]:
+        return {
+            "position_semantics": self.position_semantics,
+            "workbench_chain_order": list(self.workbench_chain_order),
+            "provider_structure_chain_order": list(
+                self.provider_structure_chain_order
+            ),
+            "provider_chain_order": list(self.provider_chain_order),
+            "entries": [entry.to_public() for entry in self.entries],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class EngineInvocationProvenance:
+    """Closed typed provenance frozen for transport to durable admission."""
+
+    effective_randomness: InvocationRandomness | None = None
+    project_input_filename: str | None = None
+    provider_residue_projection: ProviderResidueProjection | None = None
+
+    def to_public(self) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        if self.effective_randomness is not None:
+            result["effective_randomness"] = (
+                self.effective_randomness.to_public()
+            )
+        if self.project_input_filename is not None:
+            result["project_input_filename"] = self.project_input_filename
+        if self.provider_residue_projection is not None:
+            result["provider_residue_projection"] = (
+                self.provider_residue_projection.to_public()
+            )
+        return result
+
+
+def _validate_invocation_provenance(value: Mapping[str, Any]) -> None:
+    """Admit the closed provenance grammar at the Ledger durable seam."""
     try:
         validate_schema("#/$defs/InvocationProvenance", value)
     except ProtocolValidationError as error:
         raise ValueError("Engine invocation provenance is malformed") from error
 
-    frozen: dict[str, Any] = {}
-    randomness = value.get("effective_randomness")
-    if randomness is not None:
-        frozen_randomness = {"control": randomness["control"]}
-        if randomness["control"] == "exact_seed":
-            frozen_randomness["effective_seed"] = randomness[
-                "effective_seed"
-            ]
-        frozen["effective_randomness"] = MappingProxyType(
-            frozen_randomness
-        )
-
-    project_input_filename = value.get("project_input_filename")
-    if project_input_filename is not None:
-        frozen["project_input_filename"] = project_input_filename
-
     projection = value.get("provider_residue_projection")
     if projection is None:
-        return MappingProxyType(frozen)
+        return
 
     workbench_chain_order = tuple(projection["workbench_chain_order"])
     provider_structure_chain_order = tuple(
@@ -201,7 +303,6 @@ def _freeze_invocation_provenance(
     ):
         raise ValueError("Engine invocation provenance chain order is malformed")
 
-    frozen_entries: list[Mapping[str, Any]] = []
     residue_ids: set[str] = set()
     workbench_entry_chains: set[str] = set()
     provider_entry_chains: set[str] = set()
@@ -259,16 +360,6 @@ def _freeze_invocation_provenance(
         workbench_entry_chains.add(workbench_chain_id)
         provider_entry_chains.add(provider_chain_id)
         provider_positions.add(provider_coordinate)
-        frozen_entries.append(
-            MappingProxyType(
-                {
-                    "residue_id": residue_id,
-                    "segment_index": segment_index,
-                    "provider_chain_id": provider_chain_id,
-                    "provider_position": provider_position,
-                }
-            )
-        )
     if (
         workbench_entry_chains != set(workbench_chain_order)
         or provider_entry_chains != set(provider_structure_chain_order)
@@ -282,18 +373,7 @@ def _freeze_invocation_provenance(
     ):
         raise ValueError("Engine invocation provenance entries are malformed")
 
-    frozen["provider_residue_projection"] = MappingProxyType(
-        {
-            "position_semantics": "one_based_chain_local",
-            "workbench_chain_order": workbench_chain_order,
-            "provider_structure_chain_order": (
-                provider_structure_chain_order
-            ),
-            "provider_chain_order": provider_chain_order,
-            "entries": tuple(frozen_entries),
-        }
-    )
-    return MappingProxyType(frozen)
+    return
 
 
 def _utc_now() -> datetime:
@@ -818,20 +898,15 @@ class RunResources:
         *,
         engine_role: str = "primary",
         parent_invocation_id: str | None = None,
-        invocation_provenance: Mapping[str, Any] | None = None,
+        invocation_provenance: EngineInvocationProvenance | None = None,
     ):
         """Record one explicit crossing of a scientific engine boundary."""
         if self._invocation_recorder is None:
             raise RuntimeError("Engine Invocation is unavailable")
-        frozen_provenance = (
-            None
-            if invocation_provenance is None
-            else _freeze_invocation_provenance(invocation_provenance)
-        )
         with self._invocation_recorder.invoke(
             engine_role=engine_role,
             parent_invocation_id=parent_invocation_id,
-            invocation_provenance=frozen_provenance,
+            invocation_provenance=invocation_provenance,
         ) as invocation_id:
             yield invocation_id
 
@@ -1045,12 +1120,18 @@ class CancelledOrInterruptedNode:
     public_error: Mapping[str, Any] | None
     node_attempt_id: str | None = None
     operation_attempt_id: str | None = None
+    operation_status: Literal[
+        "succeeded",
+        "cancelled",
+        "interrupted",
+        "outcome_unknown",
+    ] | None = None
     resolution: Literal["executed", "cache_replayed"] = "executed"
 
 
 @dataclass(frozen=True, slots=True)
 class BlockedNode:
-    """One unstarted Node blocked by concluded required dependencies."""
+    """One unstarted Node blocked by concluded required input sources."""
 
     node_id: str
     blocked_by: tuple[str, ...]
@@ -1091,11 +1172,37 @@ class FinalizedNode:
 
 
 @dataclass(frozen=True, slots=True)
+class _PlanValueSourceEvidence:
+    node_id: str
+    output_port: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "node_id": self.node_id,
+            "output_port": self.output_port,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class _PlanRequiredInputEvidence:
+    input_port: str
+    sources: tuple[_PlanValueSourceEvidence, ...]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "input_port": self.input_port,
+            "sources": [source.to_dict() for source in self.sources],
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class _PlanNodeEvidence:
     node_id: str
     dependencies: tuple[str, ...]
-    required_dependencies: tuple[str, ...]
+    required_input_sources: tuple[_PlanRequiredInputEvidence, ...]
     result_identity_plan_facts_digest: str
+    binding: Mapping[str, Any]
+    execution_route: Literal["direct", "adapter"]
     node_type: Mapping[str, Any] | None = None
     artifact_outputs: tuple[Mapping[str, Any], ...] = ()
     selection_consumer: bool = False
@@ -1104,10 +1211,15 @@ class _PlanNodeEvidence:
         result = {
             "node_id": self.node_id,
             "dependencies": list(self.dependencies),
-            "required_dependencies": list(self.required_dependencies),
+            "required_input_sources": [
+                required_input.to_dict()
+                for required_input in self.required_input_sources
+            ],
             "result_identity_plan_facts_digest": (
                 self.result_identity_plan_facts_digest
             ),
+            "binding": dict(self.binding),
+            "execution_route": self.execution_route,
         }
         if self.node_type is not None:
             result["node_type"] = dict(self.node_type)
@@ -1138,8 +1250,10 @@ def _parse_plan_evidence(
         allowed_fields = {
             "node_id",
             "dependencies",
-            "required_dependencies",
+            "required_input_sources",
             "result_identity_plan_facts_digest",
+            "binding",
+            "execution_route",
         }
         if (
             not isinstance(item, Mapping)
@@ -1148,7 +1262,7 @@ def _parse_plan_evidence(
             - {"node_type", "artifact_outputs", "selection_consumer"}
             or not isinstance(item["node_id"], str)
             or not isinstance(item["dependencies"], list)
-            or not isinstance(item["required_dependencies"], list)
+            or not isinstance(item["required_input_sources"], list)
             or not isinstance(
                 item["result_identity_plan_facts_digest"],
                 str,
@@ -1161,31 +1275,96 @@ def _parse_plan_evidence(
             or type(item.get("selection_consumer", False)) is not bool
             or not all(
                 isinstance(dependency, str)
-                for dependency in (
-                    *item["dependencies"],
-                    *item["required_dependencies"],
-                )
+                for dependency in item["dependencies"]
             )
+            or item["execution_route"] not in {"direct", "adapter"}
             or item["node_id"] in seen
         ):
             raise ValueError("Run plan evidence is invalid")
         node_id = validate_identifier(item["node_id"], "node_id")
         dependencies = tuple(sorted(set(item["dependencies"])))
-        required = tuple(sorted(set(item["required_dependencies"])))
+        if list(dependencies) != item["dependencies"]:
+            raise ValueError("Run plan evidence is invalid")
+        try:
+            _validated_contract_reference_key(
+                item["binding"],
+                expected_kind="binding",
+            )
+        except ValueError as error:
+            raise ValueError("Run plan evidence is invalid") from error
+        required_input_sources: list[_PlanRequiredInputEvidence] = []
+        for required_input in item["required_input_sources"]:
+            if (
+                not isinstance(required_input, Mapping)
+                or set(required_input) != {"input_port", "sources"}
+                or not isinstance(required_input["input_port"], str)
+                or not isinstance(required_input["sources"], list)
+                or not required_input["sources"]
+            ):
+                raise ValueError("Run plan evidence is invalid")
+            input_port = validate_identifier(
+                required_input["input_port"],
+                "input_port",
+            )
+            sources: list[_PlanValueSourceEvidence] = []
+            for source in required_input["sources"]:
+                if (
+                    not isinstance(source, Mapping)
+                    or set(source) != {"node_id", "output_port"}
+                    or not isinstance(source["node_id"], str)
+                    or not isinstance(source["output_port"], str)
+                ):
+                    raise ValueError("Run plan evidence is invalid")
+                sources.append(
+                    _PlanValueSourceEvidence(
+                        validate_identifier(source["node_id"], "node_id"),
+                        validate_identifier(
+                            source["output_port"],
+                            "output_port",
+                        ),
+                    )
+                )
+            canonical_sources = tuple(
+                sorted(
+                    set(sources),
+                    key=lambda source: (source.node_id, source.output_port),
+                )
+            )
+            if (
+                [source.to_dict() for source in canonical_sources]
+                != required_input["sources"]
+                or any(
+                    source.node_id not in dependencies
+                    for source in canonical_sources
+                )
+            ):
+                raise ValueError("Run plan evidence is invalid")
+            required_input_sources.append(
+                _PlanRequiredInputEvidence(input_port, canonical_sources)
+            )
+        canonical_required_inputs = tuple(
+            sorted(
+                set(required_input_sources),
+                key=lambda required_input: required_input.input_port,
+            )
+        )
         if (
-            list(dependencies) != item["dependencies"]
-            or list(required) != item["required_dependencies"]
-            or not set(required) <= set(dependencies)
+            [
+                required_input.to_dict()
+                for required_input in canonical_required_inputs
+            ]
+            != item["required_input_sources"]
         ):
             raise ValueError("Run plan evidence is invalid")
         node_type = item.get("node_type")
         if node_type is not None:
             try:
-                validate_schema("#/$defs/ContractReference", node_type)
-            except ProtocolValidationError as error:
+                _validated_contract_reference_key(
+                    node_type,
+                    expected_kind="node_type",
+                )
+            except ValueError as error:
                 raise ValueError("Run plan evidence is invalid") from error
-            if node_type["contract_kind"] != "node_type":
-                raise ValueError("Run plan evidence is invalid")
             node_type = dict(node_type)
         raw_artifact_outputs = item.get("artifact_outputs", [])
         if not isinstance(raw_artifact_outputs, list):
@@ -1240,14 +1419,12 @@ def _parse_plan_evidence(
             ):
                 raise ValueError("Run plan evidence is invalid")
             try:
-                validate_schema(
-                    "#/$defs/ContractReference",
+                _validated_contract_reference_key(
                     artifact_output["port_type"],
+                    expected_kind="port_type",
                 )
-            except ProtocolValidationError as error:
+            except ValueError as error:
                 raise ValueError("Run plan evidence is invalid") from error
-            if artifact_output["port_type"]["contract_kind"] != "port_type":
-                raise ValueError("Run plan evidence is invalid")
             artifact_output_names.add(output_port)
             artifact_outputs.append(
                 {
@@ -1263,13 +1440,17 @@ def _parse_plan_evidence(
         seen.add(node_id)
         parsed.append(
             _PlanNodeEvidence(
-                node_id,
-                dependencies,
-                required,
-                item["result_identity_plan_facts_digest"],
-                node_type,
-                tuple(artifact_outputs),
-                item.get("selection_consumer", False),
+                node_id=node_id,
+                dependencies=dependencies,
+                required_input_sources=canonical_required_inputs,
+                result_identity_plan_facts_digest=(
+                    item["result_identity_plan_facts_digest"]
+                ),
+                binding=dict(item["binding"]),
+                execution_route=item["execution_route"],
+                node_type=node_type,
+                artifact_outputs=tuple(artifact_outputs),
+                selection_consumer=item.get("selection_consumer", False),
             )
         )
     if any(
@@ -1282,15 +1463,214 @@ def _parse_plan_evidence(
 
 
 @dataclass(frozen=True, slots=True)
-class ProposedFact:
-    """One typed logical fact proposed for a Ledger transaction."""
+class RunScopeBinding:
+    """Complete immutable Run scope selected before Ledger admission."""
+
+    workflow_commit_id: str
+    workflow_commit_revision: int
+    workflow_digest: str
+    contract_lock_digest: str
+    execution_plan_digest: str
+    catalog_contract_digest: str
+    resolved_contracts: tuple[Mapping[str, Any], ...]
+    resolved_contract_roots: tuple[Mapping[str, Any], ...]
+    derived_from: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AvailabilityBinding:
+    """One exact Binding Availability snapshot selected for this Run."""
+
+    binding: Mapping[str, Any]
+    catalog_observed_at: str
+    available: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RunAdmission:
+    """The exact Workflow Commit admitted into one bound Run scope."""
+
+    workflow_commit_id: str
+    workflow_commit_revision: int
+
+
+@dataclass(frozen=True, slots=True)
+class RunStart:
+    """The execution start of one admitted Run."""
+
+    started_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessAttestation:
+    """One complete run-scoped Readiness conclusion for an exact Binding."""
+
+    binding: Mapping[str, Any]
+    readiness_contract_digest: str
+    observed_at: str
+    conclusion: Literal["passing", "failing"]
+    proof_source: str
+    attestation_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class EngineInvocationStart:
+    """One complete typed entry into a declared scientific engine seam."""
+
+    invocation_id: str
+    operation_attempt_id: str
+    engine_role: str
+    engine_identity: str
+    parent_invocation_id: str | None = None
+    provenance: EngineInvocationProvenance | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NodeAttemptStart:
+    """One scheduled Node Execution Attempt start."""
+
+    node_id: str
+    node_attempt_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class OperationAttemptStart:
+    """One Operation Attempt start under a Node Execution Attempt."""
+
+    node_attempt_id: str
+    operation_attempt_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class EngineInvocationConclusion:
+    """One complete terminal conclusion for a started Engine Invocation."""
+
+    invocation_id: str
+    status: Literal[
+        "succeeded",
+        "failed",
+        "cancelled",
+        "interrupted",
+        "outcome_unknown",
+    ]
+    error: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NodeSuccessPublication:
+    """Complete successful Node Outcome Publication selected by runtime."""
+
+    node_id: str
+    node_attempt_id: str
+    operation_attempt_id: str | None
+    resolution: Literal["executed", "cache_replayed"]
+    result_identity: str
+    node_result_manifest: Mapping[str, Any]
+    outputs: tuple[Mapping[str, Any], ...]
+    artifacts: tuple[Mapping[str, Any], ...]
+    nonempty_output_ports: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NodeFailurePublication:
+    """Complete failed Node Outcome Publication selected by runtime."""
+
+    node_id: str
+    node_attempt_id: str
+    operation_attempt_id: str | None
+    resolution: Literal["executed", "cache_replayed"]
+    error: Mapping[str, Any]
+    failure_origin: Literal["binding", "operation", "publication"]
+
+
+@dataclass(frozen=True, slots=True)
+class NodeTerminationPublication:
+    """Complete cancelled or interrupted Node outcome at its causal depth."""
+
+    node_id: str
+    status: Literal["cancelled", "interrupted", "outcome_unknown"]
+    node_attempt_id: str
+    operation_attempt_id: str | None = None
+    operation_status: Literal[
+        "succeeded",
+        "cancelled",
+        "interrupted",
+        "outcome_unknown",
+    ] | None = None
+    resolution: Literal["executed", "cache_replayed"] = "executed"
+    error: Mapping[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class UnstartedNodeConclusion:
+    """One complete disposition for a Node with no Execution Attempt."""
+
+    node_id: str
+    outcome: Literal["blocked", "cancelled", "interrupted"]
+    blocked_by: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionSuccess:
+    """One successful Selection conclusion chosen for Run Closure."""
+
+    result: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class SelectionFailure:
+    """One failed Selection conclusion chosen for Run Closure."""
+
+    error: Mapping[str, Any]
+
+
+SelectionConclusion = SelectionSuccess | SelectionFailure
+
+
+@dataclass(frozen=True, slots=True)
+class RunClosure:
+    """The complete normal Selection and Run Closure conclusion."""
+
+    selections: tuple[SelectionConclusion, ...] = ()
+
+
+LedgerTransition = (
+    RunScopeBinding
+    | AvailabilityBinding
+    | RunAdmission
+    | RunStart
+    | ReadinessAttestation
+    | NodeAttemptStart
+    | OperationAttemptStart
+    | EngineInvocationStart
+    | EngineInvocationConclusion
+    | NodeSuccessPublication
+    | NodeFailurePublication
+    | NodeTerminationPublication
+    | UnstartedNodeConclusion
+    | RunClosure
+)
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerAcknowledgement:
+    """The durable logical range acknowledged for one typed transition."""
+
+    first_sequence: int
+    last_sequence: int
+    cursor: str
+
+
+@dataclass(frozen=True, slots=True)
+class _LogicalFact:
+    """One Ledger-owned logical fact inside a typed transition."""
 
     fact_type: str
     payload: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
-class CommittedFactRange:
+class _CommittedFactRange:
     """The acknowledged contiguous logical facts from one commit."""
 
     first_sequence: int
@@ -1320,7 +1700,7 @@ class FilesystemLedgerTransactionStore:
         relative_parts: tuple[str, ...],
         payload: bytes,
     ) -> None:
-        write_new_file(
+        write_new_file_durable(
             root,
             relative_parts,
             payload,
@@ -1330,12 +1710,21 @@ class FilesystemLedgerTransactionStore:
 @dataclass(slots=True)
 class _LedgerReducerState:
     facts: list[dict[str, Any]]
+    availability_by_binding: dict[
+        tuple[str, str, str, str],
+        dict[str, Any],
+    ]
+    readiness_by_binding: dict[
+        tuple[str, str, str, str],
+        dict[str, Any],
+    ]
     node_attempts: dict[str, dict[str, Any]]
     node_attempt_by_node: dict[str, str]
     operations: dict[str, dict[str, Any]]
     invocations: dict[str, dict[str, Any]]
     dispositions: dict[str, dict[str, Any]]
     outputs_published: set[str]
+    nonempty_output_ports: dict[str, set[str]]
     run_admitted: bool
     run_started: bool
     selection_required: bool
@@ -1349,12 +1738,18 @@ class _LedgerReducerState:
         """Stage from immutable retained facts and copied reducer indexes."""
         return _LedgerReducerState(
             facts=list(self.facts),
+            availability_by_binding=deepcopy(self.availability_by_binding),
+            readiness_by_binding=deepcopy(self.readiness_by_binding),
             node_attempts=deepcopy(self.node_attempts),
             node_attempt_by_node=dict(self.node_attempt_by_node),
             operations=deepcopy(self.operations),
             invocations=deepcopy(self.invocations),
             dispositions=deepcopy(self.dispositions),
             outputs_published=set(self.outputs_published),
+            nonempty_output_ports={
+                node_id: set(output_ports)
+                for node_id, output_ports in self.nonempty_output_ports.items()
+            },
             run_admitted=self.run_admitted,
             run_started=self.run_started,
             selection_required=self.selection_required,
@@ -1378,6 +1773,9 @@ class _RunEvidenceLedger:
         run_id: str,
         plan_nodes: tuple[_PlanNodeEvidence, ...],
         transaction_store: LedgerTransactionStore | None = None,
+        *,
+        expected_resolved_contracts: tuple[Mapping[str, Any], ...],
+        expected_contract_roots: tuple[Mapping[str, Any], ...],
     ) -> None:
         self._projects = projects
         run_dir = projects.run_dir(project_id, run_id)
@@ -1390,10 +1788,56 @@ class _RunEvidenceLedger:
             node.node_id: frozenset(node.dependencies)
             for node in plan_nodes
         }
-        self._required_dependencies = {
-            node.node_id: frozenset(node.required_dependencies)
+        self._required_input_sources = {
+            node.node_id: node.required_input_sources
             for node in plan_nodes
         }
+        self._bindings_by_node = {
+            node.node_id: dict(node.binding) for node in plan_nodes
+        }
+        self._execution_routes = {
+            node.node_id: node.execution_route for node in plan_nodes
+        }
+        self._expected_binding_keys = frozenset(
+            _contract_reference_key(node.binding)
+            for node in plan_nodes
+        )
+        self._provider_binding_keys = frozenset(
+            _contract_reference_key(node.binding)
+            for node in plan_nodes
+            if node.execution_route == "adapter"
+        )
+        minimum_roots = tuple(
+            reference
+            for node in plan_nodes
+            for reference in (
+                node.binding,
+                *((node.node_type,) if node.node_type is not None else ()),
+            )
+        )
+        minimum_contracts = (
+            *minimum_roots,
+            *(
+                output["port_type"]
+                for node in plan_nodes
+                for output in node.artifact_outputs
+            ),
+        )
+        self._minimum_contract_root_keys = frozenset(
+            _contract_reference_key(reference) for reference in minimum_roots
+        )
+        self._minimum_resolved_contract_keys = frozenset(
+            _contract_reference_key(reference)
+            for reference in minimum_contracts
+        )
+        self._expected_contract_roots = tuple(
+            dict(reference)
+            for reference in expected_contract_roots
+        )
+        self._expected_resolved_contracts = tuple(
+            dict(reference)
+            for reference in expected_resolved_contracts
+        )
         self._result_identity_plan_facts_digests = {
             node.node_id: node.result_identity_plan_facts_digest
             for node in plan_nodes
@@ -1424,12 +1868,15 @@ class _RunEvidenceLedger:
         )
         self._state = _LedgerReducerState(
             facts=[],
+            availability_by_binding={},
+            readiness_by_binding={},
             node_attempts={},
             node_attempt_by_node={},
             operations={},
             invocations={},
             dispositions={},
             outputs_published=set(),
+            nonempty_output_ports={},
             run_admitted=False,
             run_started=False,
             selection_required=False,
@@ -1467,9 +1914,6 @@ class _RunEvidenceLedger:
                 details=unavailable.details,
             ) from unavailable
 
-    def _capture_reducer_state(self) -> _LedgerReducerState:
-        return self._state.clone()
-
     def _install_reducer_state(self, state: _LedgerReducerState) -> None:
         self._state = state
 
@@ -1489,9 +1933,9 @@ class _RunEvidenceLedger:
             return self._state.run_terminal
 
     @property
-    def started(self) -> bool:
+    def admitted(self) -> bool:
         with self._condition:
-            return self._state.run_started
+            return self._state.run_admitted
 
     @property
     def cancellation_requested(self) -> bool:
@@ -1519,13 +1963,17 @@ class _RunEvidenceLedger:
     def plan_nodes(self) -> tuple[_PlanNodeEvidence, ...]:
         return tuple(
             _PlanNodeEvidence(
-                node_id,
-                tuple(sorted(self._dependencies[node_id])),
-                tuple(sorted(self._required_dependencies[node_id])),
-                self._result_identity_plan_facts_digests[node_id],
-                self._node_types[node_id],
-                self._artifact_outputs[node_id],
-                node_id in self._selection_consumer_ids,
+                node_id=node_id,
+                dependencies=tuple(sorted(self._dependencies[node_id])),
+                required_input_sources=self._required_input_sources[node_id],
+                result_identity_plan_facts_digest=(
+                    self._result_identity_plan_facts_digests[node_id]
+                ),
+                binding=self._bindings_by_node[node_id],
+                execution_route=self._execution_routes[node_id],
+                node_type=self._node_types[node_id],
+                artifact_outputs=self._artifact_outputs[node_id],
+                selection_consumer=node_id in self._selection_consumer_ids,
             )
             for node_id in self._plan_node_order
         )
@@ -1581,6 +2029,463 @@ class _RunEvidenceLedger:
                 raise ValueError("Ledger cursor sequence is outside the Run")
             return self._cursor_at(sequence)
 
+    def _acknowledgement(
+        self,
+        committed: _CommittedFactRange,
+    ) -> LedgerAcknowledgement:
+        return LedgerAcknowledgement(
+            first_sequence=committed.first_sequence,
+            last_sequence=committed.last_sequence,
+            cursor=self._cursor_at(committed.last_sequence),
+        )
+
+    def record(
+        self,
+        transition: LedgerTransition,
+    ) -> LedgerAcknowledgement:
+        """Validate and durably acknowledge one complete legal transition."""
+        if isinstance(transition, RunScopeBinding):
+            return self._record_run_scope(transition)
+        if isinstance(transition, AvailabilityBinding):
+            return self._record_availability(transition)
+        if isinstance(transition, RunAdmission):
+            return self._record_run_admission(transition)
+        if isinstance(transition, RunStart):
+            return self._record_run_start(transition)
+        if isinstance(transition, ReadinessAttestation):
+            return self._record_readiness(transition)
+        if isinstance(transition, NodeAttemptStart):
+            return self._record_node_attempt_start(transition)
+        if isinstance(transition, OperationAttemptStart):
+            return self._record_operation_attempt_start(transition)
+        if isinstance(transition, EngineInvocationStart):
+            return self._record_engine_invocation_start(transition)
+        if isinstance(transition, EngineInvocationConclusion):
+            return self._record_engine_invocation_conclusion(transition)
+        if isinstance(transition, NodeSuccessPublication):
+            return self._record_node_success(transition)
+        if isinstance(transition, NodeFailurePublication):
+            return self._record_node_failure(transition)
+        if isinstance(transition, NodeTerminationPublication):
+            return self._record_node_termination(transition)
+        if isinstance(transition, UnstartedNodeConclusion):
+            return self._record_unstarted_node(transition)
+        if isinstance(transition, RunClosure):
+            return self._record_run_closure(transition)
+        raise TypeError("Run Evidence Ledger transition is not current")
+
+    def _record_run_scope(
+        self,
+        scope: RunScopeBinding,
+    ) -> LedgerAcknowledgement:
+        """Durably bind the complete immutable scope of this Run."""
+        payload: dict[str, Any] = {
+            "project_id": self._project_id,
+            "run_id": self._run_id,
+            "workflow_commit_id": scope.workflow_commit_id,
+            "workflow_commit_revision": scope.workflow_commit_revision,
+            "workflow_digest": scope.workflow_digest,
+            "contract_lock_digest": scope.contract_lock_digest,
+            "execution_plan_digest": scope.execution_plan_digest,
+            "catalog_contract_digest": scope.catalog_contract_digest,
+            "resolved_contracts": [
+                dict(reference) for reference in scope.resolved_contracts
+            ],
+            "resolved_contract_roots": [
+                dict(reference)
+                for reference in scope.resolved_contract_roots
+            ],
+            "plan_nodes": [node.to_dict() for node in self.plan_nodes],
+            "selection_required": bool(self._selection_consumer_ids),
+            "selection_terminal_keys": list(self._selection_consumer_ids),
+        }
+        if scope.derived_from is not None:
+            payload["derived_from"] = dict(scope.derived_from)
+        return self._acknowledgement(
+            self._commit((_LogicalFact("run_scope_bound", payload),))
+        )
+
+    def _record_availability(
+        self,
+        availability: AvailabilityBinding,
+    ) -> LedgerAcknowledgement:
+        """Durably bind one exact startup Availability snapshot."""
+        return self._acknowledgement(
+            self._commit(
+                (
+                    _LogicalFact(
+                        "availability_bound",
+                        {
+                            "binding": dict(availability.binding),
+                            "catalog_observed_at": (
+                                availability.catalog_observed_at
+                            ),
+                            "available": availability.available,
+                        },
+                    ),
+                )
+            )
+        )
+
+    def _record_run_admission(
+        self,
+        admission: RunAdmission,
+    ) -> LedgerAcknowledgement:
+        """Durably admit the exact Workflow Commit bound to the Run scope."""
+        return self._acknowledgement(
+            self._commit(
+                (
+                    _LogicalFact(
+                        "run_admitted",
+                        {
+                            "workflow_commit_id": admission.workflow_commit_id,
+                            "workflow_commit_revision": (
+                                admission.workflow_commit_revision
+                            ),
+                        },
+                    ),
+                )
+            )
+        )
+
+    def _record_run_start(
+        self,
+        transition: RunStart,
+    ) -> LedgerAcknowledgement:
+        """Durably record that admitted Run execution started."""
+        return self._acknowledgement(
+            self._commit(
+                (
+                    _LogicalFact(
+                        "run_started",
+                        {"started_at": transition.started_at},
+                    ),
+                )
+            )
+        )
+
+    def _record_readiness(
+        self,
+        attestation: ReadinessAttestation,
+    ) -> LedgerAcknowledgement:
+        """Durably admit one exact Binding Readiness conclusion."""
+        return self._acknowledgement(
+            self._commit(
+                (
+                    _LogicalFact(
+                        "readiness_attested",
+                        {
+                            "binding": dict(attestation.binding),
+                            "readiness_contract_digest": (
+                                attestation.readiness_contract_digest
+                            ),
+                            "observed_at": attestation.observed_at,
+                            "conclusion": attestation.conclusion,
+                            "proof_source": attestation.proof_source,
+                            "attestation_digest": (
+                                attestation.attestation_digest
+                            ),
+                        },
+                    ),
+                )
+            )
+        )
+
+    def _record_node_attempt_start(
+        self,
+        transition: NodeAttemptStart,
+    ) -> LedgerAcknowledgement:
+        """Durably start one scheduled Node Execution Attempt."""
+        return self._acknowledgement(
+            self._commit(
+                (
+                    _LogicalFact(
+                        "node_attempt_started",
+                        {
+                            "node_id": transition.node_id,
+                            "node_attempt_id": transition.node_attempt_id,
+                        },
+                    ),
+                )
+            )
+        )
+
+    def _record_operation_attempt_start(
+        self,
+        transition: OperationAttemptStart,
+    ) -> LedgerAcknowledgement:
+        """Durably start one Operation Attempt under its Node Attempt."""
+        return self._acknowledgement(
+            self._commit(
+                (
+                    _LogicalFact(
+                        "operation_attempt_started",
+                        {
+                            "node_attempt_id": transition.node_attempt_id,
+                            "operation_attempt_id": (
+                                transition.operation_attempt_id
+                            ),
+                        },
+                    ),
+                )
+            )
+        )
+
+    def _record_engine_invocation_start(
+        self,
+        transition: EngineInvocationStart,
+    ) -> LedgerAcknowledgement:
+        """Durably admit one complete Engine Invocation start."""
+        payload: dict[str, Any] = {
+            "invocation_id": transition.invocation_id,
+            "operation_attempt_id": transition.operation_attempt_id,
+            "engine_role": transition.engine_role,
+            "engine_identity": transition.engine_identity,
+        }
+        if transition.parent_invocation_id is not None:
+            payload["parent_invocation_id"] = transition.parent_invocation_id
+        if transition.provenance is not None:
+            payload["invocation_provenance"] = (
+                transition.provenance.to_public()
+            )
+        return self._acknowledgement(
+            self._commit((_LogicalFact("engine_invocation_started", payload),))
+        )
+
+    def _record_engine_invocation_conclusion(
+        self,
+        conclusion: EngineInvocationConclusion,
+    ) -> LedgerAcknowledgement:
+        """Durably conclude one started Engine Invocation."""
+        payload: dict[str, Any] = {
+            "invocation_id": conclusion.invocation_id,
+            "status": conclusion.status,
+        }
+        if conclusion.error is not None:
+            payload["error"] = dict(conclusion.error)
+        return self._acknowledgement(
+            self._commit((_LogicalFact("engine_invocation_terminal", payload),))
+        )
+
+    def _record_node_success(
+        self,
+        publication: NodeSuccessPublication,
+    ) -> LedgerAcknowledgement:
+        """Assemble and durably publish one successful Node outcome."""
+        facts: list[_LogicalFact] = []
+        if publication.operation_attempt_id is not None:
+            facts.append(
+                _LogicalFact(
+                    "operation_attempt_terminal",
+                    {
+                        "operation_attempt_id": (
+                            publication.operation_attempt_id
+                        ),
+                        "status": "succeeded",
+                    },
+                )
+            )
+        facts.append(
+            _LogicalFact(
+                "outputs_published",
+                {
+                    "node_id": publication.node_id,
+                    "result_identity": publication.result_identity,
+                    "node_result_manifest": dict(
+                        publication.node_result_manifest
+                    ),
+                    "outputs": [dict(output) for output in publication.outputs],
+                    "artifacts": [
+                        dict(artifact) for artifact in publication.artifacts
+                    ],
+                    "nonempty_output_ports": list(
+                        publication.nonempty_output_ports
+                    ),
+                },
+            )
+        )
+        facts.extend(
+            _LogicalFact(
+                "artifact_published",
+                {"artifact": dict(artifact)},
+            )
+            for artifact in publication.artifacts
+        )
+        facts.extend(
+            (
+                _LogicalFact(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": publication.node_attempt_id,
+                        "status": "succeeded",
+                        "resolution": publication.resolution,
+                    },
+                ),
+                _LogicalFact(
+                    "node_disposition",
+                    {
+                        "node_id": publication.node_id,
+                        "outcome": "succeeded",
+                        "resolution": publication.resolution,
+                        "blocked_by": [],
+                    },
+                ),
+            )
+        )
+        return self._acknowledgement(self._commit(tuple(facts)))
+
+    def _record_node_failure(
+        self,
+        publication: NodeFailurePublication,
+    ) -> LedgerAcknowledgement:
+        """Assemble and durably publish one failed Node outcome."""
+        facts: list[_LogicalFact] = []
+        if publication.operation_attempt_id is not None:
+            operation_status = (
+                "failed"
+                if publication.failure_origin == "operation"
+                else "succeeded"
+            )
+            operation_payload: dict[str, Any] = {
+                "operation_attempt_id": publication.operation_attempt_id,
+                "status": operation_status,
+            }
+            if operation_status == "failed":
+                operation_payload["error"] = dict(publication.error)
+            facts.append(
+                _LogicalFact(
+                    "operation_attempt_terminal",
+                    operation_payload,
+                )
+            )
+        facts.extend(
+            (
+                _LogicalFact(
+                    "node_attempt_terminal",
+                    {
+                        "node_attempt_id": publication.node_attempt_id,
+                        "status": "failed",
+                        "resolution": publication.resolution,
+                        "error": dict(publication.error),
+                        "failure_origin": publication.failure_origin,
+                    },
+                ),
+                _LogicalFact(
+                    "node_disposition",
+                    {
+                        "node_id": publication.node_id,
+                        "outcome": "failed",
+                        "blocked_by": [],
+                    },
+                ),
+            )
+        )
+        return self._acknowledgement(self._commit(tuple(facts)))
+
+    def _record_node_termination(
+        self,
+        publication: NodeTerminationPublication,
+    ) -> LedgerAcknowledgement:
+        """Assemble one cancelled or interrupted Node outcome."""
+        disposition = (
+            "interrupted"
+            if publication.status == "outcome_unknown"
+            else publication.status
+        )
+        facts: list[_LogicalFact] = []
+        terminal_payload: dict[str, Any] = {"status": publication.status}
+        if publication.error is not None:
+            terminal_payload["error"] = dict(publication.error)
+        if (
+            publication.operation_attempt_id is not None
+            or publication.operation_status is not None
+        ):
+            operation_payload: dict[str, Any] = {
+                "operation_attempt_id": publication.operation_attempt_id,
+                "status": publication.operation_status,
+            }
+            if (
+                publication.operation_status != "succeeded"
+                and publication.error is not None
+            ):
+                operation_payload["error"] = dict(publication.error)
+            facts.append(
+                _LogicalFact(
+                    "operation_attempt_terminal",
+                    operation_payload,
+                )
+            )
+        facts.append(
+            _LogicalFact(
+                "node_attempt_terminal",
+                {
+                    "node_attempt_id": publication.node_attempt_id,
+                    "resolution": publication.resolution,
+                    **terminal_payload,
+                },
+            )
+        )
+        facts.append(
+            _LogicalFact(
+                "node_disposition",
+                {
+                    "node_id": publication.node_id,
+                    "outcome": disposition,
+                    "blocked_by": [],
+                },
+            )
+        )
+        return self._acknowledgement(self._commit(tuple(facts)))
+
+    def _record_unstarted_node(
+        self,
+        conclusion: UnstartedNodeConclusion,
+    ) -> LedgerAcknowledgement:
+        """Durably conclude one Node that never began an Attempt."""
+        return self._acknowledgement(
+            self._commit(
+                (
+                    _LogicalFact(
+                        "node_disposition",
+                        {
+                            "node_id": conclusion.node_id,
+                            "outcome": conclusion.outcome,
+                            "blocked_by": list(conclusion.blocked_by),
+                        },
+                    ),
+                )
+            )
+        )
+
+    def _record_run_closure(
+        self,
+        closure: RunClosure,
+    ) -> LedgerAcknowledgement:
+        """Atomically conclude required Selection and normal Run Closure."""
+        selection_payloads = tuple(
+            (
+                {"status": "succeeded", "result": dict(selection.result)}
+                if isinstance(selection, SelectionSuccess)
+                else {"status": "failed", "error": dict(selection.error)}
+            )
+            for selection in closure.selections
+        )
+        run_status = _run_terminal_status(
+            self._state.dispositions,
+            selection_payloads,
+        )
+        return self._acknowledgement(
+            self._commit(
+                (
+                    *(
+                        _LogicalFact("selection_terminal", payload)
+                        for payload in selection_payloads
+                    ),
+                    _LogicalFact("run_terminal", {"status": run_status}),
+                )
+            )
+        )
+
     def _require_fields(
         self,
         payload: Mapping[str, Any],
@@ -1602,6 +2507,18 @@ class _RunEvidenceLedger:
             "Required Run evidence failed causal validation",
             details={"last_durable_cursor": self.cursor},
         )
+
+    def _required_input_blocker_set(self, node_id: str) -> frozenset[str]:
+        blockers: set[str] = set()
+        for required_input in self._required_input_sources[node_id]:
+            if any(
+                source.output_port
+                in self._state.nonempty_output_ports.get(source.node_id, set())
+                for source in required_input.sources
+            ):
+                continue
+            blockers.update(source.node_id for source in required_input.sources)
+        return frozenset(blockers)
 
     def _validate_causality(
         self,
@@ -1634,7 +2551,12 @@ class _RunEvidenceLedger:
         ):
             raise self._causal_error()
         if fact_type == "availability_bound":
-            if self._state.run_admitted:
+            binding_key = _contract_reference_key(payload["binding"])
+            if (
+                self._state.run_admitted
+                or binding_key not in self._expected_binding_keys
+                or binding_key in self._state.availability_by_binding
+            ):
                 raise self._causal_error()
             return
         if fact_type == "run_admitted":
@@ -1646,6 +2568,8 @@ class _RunEvidenceLedger:
                 != scope["workflow_commit_id"]
                 or payload["workflow_commit_revision"]
                 != scope["workflow_commit_revision"]
+                or set(self._state.availability_by_binding)
+                != set(self._expected_binding_keys)
             ):
                 raise self._causal_error()
             return
@@ -1654,7 +2578,15 @@ class _RunEvidenceLedger:
                 raise self._causal_error()
             return
         if fact_type == "readiness_attested":
-            if not self._state.run_started:
+            binding_key = _contract_reference_key(payload["binding"])
+            availability = self._state.availability_by_binding.get(binding_key)
+            if (
+                not self._state.run_started
+                or binding_key not in self._provider_binding_keys
+                or availability is None
+                or availability["available"] is not True
+                or binding_key in self._state.readiness_by_binding
+            ):
                 raise self._causal_error()
             return
         if fact_type == "cancellation_requested":
@@ -1669,6 +2601,7 @@ class _RunEvidenceLedger:
             attempt_id = payload["node_attempt_id"]
             if (
                 not self._state.run_started
+                or self._state.cancellation_sequence is not None
                 or node_id not in self._plan_nodes
                 or node_id in self._state.node_attempt_by_node
                 or node_id in self._state.dispositions
@@ -1677,6 +2610,7 @@ class _RunEvidenceLedger:
                     upstream not in self._state.dispositions
                     for upstream in self._dependencies[node_id]
                 )
+                or self._required_input_blocker_set(node_id)
             ):
                 raise self._causal_error()
             return
@@ -1684,13 +2618,27 @@ class _RunEvidenceLedger:
             attempt_id = payload["node_attempt_id"]
             operation_id = payload["operation_attempt_id"]
             attempt = self._state.node_attempts.get(attempt_id)
+            if attempt is None:
+                raise self._causal_error()
+            node_id = attempt["node_id"]
+            binding_key = _contract_reference_key(
+                self._bindings_by_node[node_id]
+            )
+            readiness = self._state.readiness_by_binding.get(binding_key)
             if (
-                attempt is None
+                self._state.cancellation_sequence is not None
                 or attempt["terminal"] is not None
                 or operation_id in self._state.operations
                 or any(
                     operation["node_attempt_id"] == attempt_id
                     for operation in self._state.operations.values()
+                )
+                or (
+                    self._execution_routes[node_id] == "adapter"
+                    and (
+                        readiness is None
+                        or readiness["conclusion"] != "passing"
+                    )
                 )
             ):
                 raise self._causal_error()
@@ -1706,7 +2654,8 @@ class _RunEvidenceLedger:
                 else None
             )
             if (
-                operation is None
+                self._state.cancellation_sequence is not None
+                or operation is None
                 or operation["terminal"] is not None
                 or invocation_id in self._state.invocations
                 or (
@@ -1760,7 +2709,8 @@ class _RunEvidenceLedger:
                 else None
             )
             if (
-                attempt is None
+                self._state.cancellation_sequence is not None
+                or attempt is None
                 or attempt["terminal"] is not None
                 or node_id in self._state.dispositions
                 or (
@@ -1840,7 +2790,15 @@ class _RunEvidenceLedger:
                     )
                     and not (
                         self._state.cancellation_sequence is not None
-                        and payload["status"] == "cancelled"
+                        and payload["status"]
+                        in {"cancelled", "interrupted", "outcome_unknown"}
+                        and child_operations[-1]["terminal"]
+                        in {
+                            "succeeded",
+                            "cancelled",
+                            "interrupted",
+                            "outcome_unknown",
+                        }
                     )
                 )
             ):
@@ -1857,6 +2815,36 @@ class _RunEvidenceLedger:
                 or child_operations
             ):
                 raise self._causal_error()
+            if failure_origin == "binding":
+                node_id = attempt["node_id"]
+                binding_key = _contract_reference_key(
+                    self._bindings_by_node[node_id]
+                )
+                availability = self._state.availability_by_binding.get(
+                    binding_key
+                )
+                readiness = self._state.readiness_by_binding.get(binding_key)
+                error = payload["error"]
+                if (
+                    self._execution_routes[node_id] != "adapter"
+                    or error["details"]["binding"]
+                    != self._bindings_by_node[node_id]
+                    or (
+                        error["code"] == "binding_unavailable"
+                        and (
+                            availability is None
+                            or availability["available"] is not False
+                        )
+                    )
+                    or (
+                        error["code"] == "readiness_rejected"
+                        and (
+                            readiness is None
+                            or readiness["conclusion"] != "failing"
+                        )
+                    )
+                ):
+                    raise self._causal_error()
             if failure_origin == "publication" and (
                 (
                     payload["resolution"] == "executed"
@@ -1885,17 +2873,26 @@ class _RunEvidenceLedger:
             )
             if outcome == "blocked":
                 blocked_by = frozenset(payload["blocked_by"])
+                required_input_blockers = self._required_input_blocker_set(
+                    node_id
+                )
                 if (
-                    attempt is not None
+                    self._state.cancellation_sequence is not None
+                    or attempt is not None
                     or not blocked_by
-                    or not blocked_by <= self._dependencies[node_id]
                     or any(
                         upstream not in self._state.dispositions
-                        for upstream in blocked_by
+                        for upstream in self._dependencies[node_id]
                     )
+                    or blocked_by != required_input_blockers
                 ):
                     raise self._causal_error()
                 return
+            if (
+                outcome == "succeeded"
+                and self._state.cancellation_sequence is not None
+            ):
+                raise self._causal_error()
             if outcome in {"cancelled", "interrupted"} and attempt is None:
                 return
             if attempt is None or attempt["terminal"] is None:
@@ -1955,7 +2952,7 @@ class _RunEvidenceLedger:
         if fact_type == "run_terminal":
             if (
                 payload["status"] == "interrupted"
-                and self._state.run_started
+                and self._state.run_admitted
                 and not self._state.run_terminal
             ):
                 return
@@ -2015,12 +3012,13 @@ class _RunEvidenceLedger:
                         "execution_plan_digest",
                         "catalog_contract_digest",
                         "resolved_contracts",
+                        "resolved_contract_roots",
                         "plan_nodes",
                         "selection_required",
                         "selection_terminal_keys",
                     }
                 ),
-                frozenset({"derived_from", "resolved_contract_roots"}),
+                frozenset({"derived_from"}),
             ),
             "availability_bound": (
                 frozenset(
@@ -2089,6 +3087,7 @@ class _RunEvidenceLedger:
                         "node_result_manifest",
                         "outputs",
                         "artifacts",
+                        "nonempty_output_ports",
                     }
                 ),
                 frozenset(),
@@ -2124,12 +3123,55 @@ class _RunEvidenceLedger:
             required=required,
             optional=optional,
         )
+        identifier_fields = {
+            "node_attempt_started": (
+                ("node_id", "#/$defs/NodeInstanceId"),
+                ("node_attempt_id", "#/$defs/Identifier"),
+            ),
+            "operation_attempt_started": (
+                ("operation_attempt_id", "#/$defs/Identifier"),
+                ("node_attempt_id", "#/$defs/Identifier"),
+            ),
+            "engine_invocation_started": (
+                ("invocation_id", "#/$defs/Identifier"),
+                ("operation_attempt_id", "#/$defs/Identifier"),
+                ("engine_role", "#/$defs/Identifier"),
+            ),
+            "engine_invocation_terminal": (
+                ("invocation_id", "#/$defs/Identifier"),
+            ),
+            "operation_attempt_terminal": (
+                ("operation_attempt_id", "#/$defs/Identifier"),
+            ),
+            "node_attempt_terminal": (
+                ("node_attempt_id", "#/$defs/Identifier"),
+            ),
+            "node_disposition": (
+                ("node_id", "#/$defs/NodeInstanceId"),
+            ),
+        }
+        try:
+            for field_name, schema_reference in identifier_fields.get(
+                fact_type,
+                (),
+            ):
+                validate_schema(schema_reference, payload[field_name])
+            if (
+                fact_type == "engine_invocation_started"
+                and "parent_invocation_id" in payload
+            ):
+                validate_schema(
+                    "#/$defs/Identifier",
+                    payload["parent_invocation_id"],
+                )
+        except ProtocolValidationError as error:
+            raise self._causal_error() from error
         if (
             fact_type == "engine_invocation_started"
             and "invocation_provenance" in payload
         ):
             try:
-                _freeze_invocation_provenance(
+                _validate_invocation_provenance(
                     payload["invocation_provenance"]
                 )
             except (TypeError, ValueError) as error:
@@ -2139,7 +3181,59 @@ class _RunEvidenceLedger:
                     details={"last_durable_cursor": self.cursor},
                 ) from error
         if fact_type == "run_scope_bound":
+            resolved_contracts = payload["resolved_contracts"]
+            resolved_contract_roots = payload["resolved_contract_roots"]
+            try:
+                resolved_contract_keys = [
+                    _validated_contract_reference_key(reference)
+                    for reference in resolved_contracts
+                ]
+                resolved_root_keys = [
+                    _validated_contract_reference_key(reference)
+                    for reference in resolved_contract_roots
+                ]
+            except (TypeError, ValueError) as error:
+                raise self._causal_error() from error
+            if (
+                not all(
+                    _is_sha256_digest(payload[field_name])
+                    for field_name in (
+                        "workflow_digest",
+                        "contract_lock_digest",
+                        "execution_plan_digest",
+                        "catalog_contract_digest",
+                    )
+                )
+                or not isinstance(resolved_contracts, list)
+                or resolved_contract_keys != sorted(set(resolved_contract_keys))
+                or resolved_contracts
+                != [
+                    dict(reference)
+                    for reference in self._expected_resolved_contracts
+                ]
+                or not isinstance(resolved_contract_roots, list)
+                or resolved_root_keys != sorted(set(resolved_root_keys))
+                or resolved_contract_roots
+                != [
+                    dict(reference)
+                    for reference in self._expected_contract_roots
+                ]
+                or not set(resolved_root_keys) <= set(resolved_contract_keys)
+                or not self._minimum_contract_root_keys
+                <= set(resolved_root_keys)
+                or not self._minimum_resolved_contract_keys
+                <= set(resolved_contract_keys)
+                or payload["contract_lock_digest"]
+                != canonical_sha256(
+                    {
+                        "schema_namespace": CONTRACT_LOCK_NAMESPACE,
+                        "entries": resolved_contracts,
+                    }
+                )
+            ):
+                raise self._causal_error()
             plan_nodes = payload["plan_nodes"]
+
             def valid_plan_node(item: Any) -> bool:
                 node_id = (
                     item.get("node_id")
@@ -2160,8 +3254,10 @@ class _RunEvidenceLedger:
                 expected_fields = {
                     "node_id",
                     "dependencies",
-                    "required_dependencies",
+                    "required_input_sources",
                     "result_identity_plan_facts_digest",
+                    "binding",
+                    "execution_route",
                 }
                 if expected_node_type is not None:
                     expected_fields.add("node_type")
@@ -2178,10 +3274,18 @@ class _RunEvidenceLedger:
                 return (
                     item["dependencies"]
                     == sorted(self._dependencies[node_id])
-                    and item["required_dependencies"]
-                    == sorted(self._required_dependencies[node_id])
+                    and item["required_input_sources"]
+                    == [
+                        required_input.to_dict()
+                        for required_input in (
+                            self._required_input_sources[node_id]
+                        )
+                    ]
                     and item["result_identity_plan_facts_digest"]
                     == self._result_identity_plan_facts_digests[node_id]
+                    and item["binding"] == self._bindings_by_node[node_id]
+                    and item["execution_route"]
+                    == self._execution_routes[node_id]
                     and item.get("node_type") == expected_node_type
                     and item.get("artifact_outputs", [])
                     == expected_artifact_outputs
@@ -2236,8 +3340,84 @@ class _RunEvidenceLedger:
                         *derived_from["forced_node_ids"],
                     )
                 )
+                or list(
+                    dict.fromkeys(derived_from["selected_node_ids"])
+                )
+                != derived_from["selected_node_ids"]
+                or list(dict.fromkeys(derived_from["forced_node_ids"]))
+                != derived_from["forced_node_ids"]
+                or not set(derived_from["selected_node_ids"])
+                <= self._plan_nodes
+                or not set(derived_from["forced_node_ids"])
+                <= self._plan_nodes
             ):
                 raise self._causal_error()
+        if fact_type == "availability_bound":
+            try:
+                _validated_contract_reference_key(
+                    payload["binding"],
+                    expected_kind="binding",
+                )
+            except ValueError as error:
+                raise self._causal_error() from error
+            if (
+                not _is_timestamp(payload["catalog_observed_at"])
+                or type(payload["available"]) is not bool
+            ):
+                raise self._causal_error()
+        if fact_type == "readiness_attested":
+            try:
+                _validated_contract_reference_key(
+                    payload["binding"],
+                    expected_kind="binding",
+                )
+                validate_schema(
+                    "#/$defs/Identifier",
+                    payload["proof_source"],
+                )
+            except (ProtocolValidationError, ValueError) as error:
+                raise self._causal_error() from error
+            attestation_payload = {
+                "binding": payload["binding"],
+                "readiness_contract_digest": payload[
+                    "readiness_contract_digest"
+                ],
+                "observed_at": payload["observed_at"],
+                "conclusion": payload["conclusion"],
+                "proof_source": payload["proof_source"],
+            }
+            if (
+                not _is_sha256_digest(payload["readiness_contract_digest"])
+                or not _is_timestamp(payload["observed_at"])
+                or payload["conclusion"] not in {"passing", "failing"}
+                or not _is_sha256_digest(payload["attestation_digest"])
+                or payload["attestation_digest"]
+                != canonical_sha256(
+                    {
+                        "schema_namespace": READINESS_ATTESTATION_NAMESPACE,
+                        **attestation_payload,
+                    }
+                )
+            ):
+                raise self._causal_error()
+        if fact_type in {"run_started", "cancellation_requested"}:
+            timestamp_field = (
+                "started_at"
+                if fact_type == "run_started"
+                else "requested_at"
+            )
+            if not _is_timestamp(payload[timestamp_field]):
+                raise self._causal_error()
+        if fact_type == "run_admitted" and (
+            not isinstance(payload["workflow_commit_id"], str)
+            or type(payload["workflow_commit_revision"]) is not int
+            or payload["workflow_commit_revision"] < 1
+        ):
+            raise self._causal_error()
+        if fact_type == "engine_invocation_started" and (
+            not _is_sha256_digest(payload["engine_identity"])
+        ):
+            raise self._causal_error()
         if (
             fact_type.endswith("_terminal")
             and fact_type != "run_terminal"
@@ -2278,10 +3458,40 @@ class _RunEvidenceLedger:
                 payload["outcome"] == "succeeded"
             ) != ("resolution" in payload):
                 raise self._causal_error()
+            if (
+                not isinstance(payload["blocked_by"], list)
+                or any(
+                    not isinstance(node_id, str)
+                    for node_id in payload["blocked_by"]
+                )
+                or payload["blocked_by"]
+                != sorted(set(payload["blocked_by"]))
+                or (
+                    "resolution" in payload
+                    and payload["resolution"]
+                    not in {"executed", "cache_replayed"}
+                )
+            ):
+                raise self._causal_error()
+        if fact_type == "artifact_published":
+            try:
+                validate_schema(
+                    "#/$defs/ArtifactDescriptor",
+                    payload["artifact"],
+                )
+            except ProtocolValidationError as error:
+                raise self._causal_error() from error
         if fact_type == "outputs_published":
             if (
                 not isinstance(payload["outputs"], list)
                 or not isinstance(payload["artifacts"], list)
+                or not isinstance(payload["nonempty_output_ports"], list)
+                or any(
+                    not isinstance(output_port, str)
+                    for output_port in payload["nonempty_output_ports"]
+                )
+                or payload["nonempty_output_ports"]
+                != sorted(set(payload["nonempty_output_ports"]))
                 or not isinstance(payload["result_identity"], str)
                 or re.fullmatch(
                     r"sha256:[0-9a-f]{64}",
@@ -2300,6 +3510,45 @@ class _RunEvidenceLedger:
                     validate_schema("#/$defs/ArtifactDescriptor", artifact)
             except ProtocolValidationError as error:
                 raise self._causal_error() from error
+            output_ports = {
+                output.get("output_port")
+                for output in payload["outputs"]
+                if isinstance(output, Mapping)
+            } | {
+                artifact.get("output_port")
+                for artifact in payload["artifacts"]
+                if isinstance(artifact, Mapping)
+            }
+            expected_nonempty_output_ports = {
+                output["output_port"]
+                for output in payload["outputs"]
+                if output["value_count"] > 0
+            } | {
+                artifact["output_port"] for artifact in payload["artifacts"]
+            }
+            if (
+                payload["nonempty_output_ports"]
+                != sorted(expected_nonempty_output_ports)
+                or expected_nonempty_output_ports - output_ports
+                or any(
+                    output["node_id"] != payload["node_id"]
+                    or output["result_identity"]
+                    != payload["result_identity"]
+                    for output in payload["outputs"]
+                )
+                or any(
+                    artifact["node_id"] != payload["node_id"]
+                    for artifact in payload["artifacts"]
+                )
+            ):
+                raise self._causal_error()
+        if fact_type == "run_terminal" and payload["status"] not in {
+            "succeeded",
+            "failed",
+            "cancelled",
+            "interrupted",
+        }:
+            raise self._causal_error()
         if fact_type == "selection_terminal":
             status = payload["status"]
             if (
@@ -2328,6 +3577,12 @@ class _RunEvidenceLedger:
             self._state.expected_selection_terminal_keys = tuple(
                 payload["selection_terminal_keys"]
             )
+        elif fact_type == "availability_bound":
+            binding_key = _contract_reference_key(payload["binding"])
+            self._state.availability_by_binding[binding_key] = dict(payload)
+        elif fact_type == "readiness_attested":
+            binding_key = _contract_reference_key(payload["binding"])
+            self._state.readiness_by_binding[binding_key] = dict(payload)
         elif fact_type == "run_admitted":
             self._state.run_admitted = True
         elif fact_type == "run_started":
@@ -2373,6 +3628,9 @@ class _RunEvidenceLedger:
             attempt["resolution"] = payload["resolution"]
         elif fact_type == "outputs_published":
             self._state.outputs_published.add(payload["node_id"])
+            self._state.nonempty_output_ports[payload["node_id"]] = set(
+                payload["nonempty_output_ports"]
+            )
         elif fact_type == "node_disposition":
             self._state.dispositions[payload["node_id"]] = dict(payload)
         elif fact_type == "selection_terminal":
@@ -2506,14 +3764,19 @@ class _RunEvidenceLedger:
                     "decision_sequence": decision_sequence,
                     "cursor": self._cursor_at(decision_sequence),
                 }
-            fact = self.append(
-                "cancellation_requested",
-                {"requested_at": run_timestamp()},
+            committed = self._commit(
+                (
+                    _LogicalFact(
+                        "cancellation_requested",
+                        {"requested_at": run_timestamp()},
+                    ),
+                )
             )
+            decision_sequence = committed.last_sequence
             return {
                 "outcome": "cancellation_requested",
-                "decision_sequence": fact["sequence"],
-                "cursor": self._cursor_at(fact["sequence"]),
+                "decision_sequence": decision_sequence,
+                "cursor": self._cursor_at(decision_sequence),
             }
 
     def projection(self) -> dict[str, Any]:
@@ -2729,10 +3992,10 @@ class _RunEvidenceLedger:
         if [fact["fact_type"] for fact in facts] != expected_fact_types:
             raise self._causal_error()
 
-    def commit(
+    def _commit(
         self,
-        logical_facts: tuple[ProposedFact, ...],
-    ) -> CommittedFactRange:
+        logical_facts: tuple[_LogicalFact, ...],
+    ) -> _CommittedFactRange:
         """Validate and durably publish one atomic logical transition."""
         if not logical_facts:
             raise ValueError("Run Ledger transaction must contain facts")
@@ -2793,39 +4056,9 @@ class _RunEvidenceLedger:
                 )
                 self._mark_evidence_unavailable(unavailable)
                 raise unavailable from error
-            try:
-                self._install_reducer_state(staged_state)
-            except RuntimeError:
-                try:
-                    reloaded = _read_run_evidence_ledger(
-                        self._projects,
-                        self._project_id,
-                        self._run_id,
-                        self._transaction_store,
-                    )
-                    if reloaded is None:
-                        raise RuntimeError(
-                            "Acknowledged Run evidence is absent"
-                        )
-                except (OSError, StoragePathError, RuntimeError) as reload_error:
-                    unavailable = V2RunError(
-                        "evidence_unavailable",
-                        "Acknowledged Run evidence could not be reloaded",
-                        details={"last_durable_cursor": self.cursor},
-                    )
-                    self._mark_evidence_unavailable(unavailable)
-                    raise unavailable from reload_error
-                _RunEvidenceLedger._install_reducer_state(
-                    self,
-                    reloaded._capture_reducer_state(),
-                )
-                self._transaction_count = reloaded._transaction_count
-                self._committed_fact_count = (
-                    reloaded._committed_fact_count
-                )
-            else:
-                self._transaction_count = transaction_sequence
-                self._committed_fact_count = facts[-1]["sequence"]
+            self._install_reducer_state(staged_state)
+            self._transaction_count = transaction_sequence
+            self._committed_fact_count = facts[-1]["sequence"]
             try:
                 self._refresh_projections()
             except (OSError, StoragePathError) as error:
@@ -2834,40 +4067,15 @@ class _RunEvidenceLedger:
                 self._projection_error = None
             self._condition.notify_all()
             retained = tuple(deepcopy(fact) for fact in facts)
-            return CommittedFactRange(
+            return _CommittedFactRange(
                 first_sequence=first_sequence,
                 last_sequence=facts[-1]["sequence"],
                 facts=retained,
             )
 
-    def append(self, fact_type: str, payload: Mapping[str, Any]) -> dict[str, Any]:
-        """Commit one logical fact through the sole transaction interface."""
-        committed = self.commit((ProposedFact(fact_type, payload),))
-        return dict(committed.facts[0])
-
-    def commit_run_closure(
-        self,
-        selection_terminals: tuple[Mapping[str, Any], ...] = (),
-    ) -> CommittedFactRange:
-        """Conclude Selection and Run status as one durable transition."""
-        with self._condition:
-            run_status = _run_terminal_status(
-                self._state.dispositions,
-                selection_terminals,
-            )
-            return self.commit(
-                (
-                    *(
-                        ProposedFact("selection_terminal", terminal)
-                        for terminal in selection_terminals
-                    ),
-                    ProposedFact("run_terminal", {"status": run_status}),
-                )
-            )
-
     @contextmanager
-    def _ordered_append_scope(self) -> Iterator[None]:
-        """Keep one caller-owned evidence sequence ordered with cancellation."""
+    def _ordered_transition_scope(self) -> Iterator[None]:
+        """Keep one typed outcome transition ordered with cancellation."""
         with self._condition:
             try:
                 yield
@@ -2876,22 +4084,7 @@ class _RunEvidenceLedger:
                     self._mark_evidence_unavailable(error)
                 raise
 
-    def append_terminal_from_success(
-        self,
-        fact_type: str,
-        identity: Mapping[str, Any],
-    ) -> str:
-        """Order successful completion against cancellation atomically."""
-        with self._condition:
-            status = (
-                "cancelled"
-                if self._state.cancellation_sequence is not None
-                else "succeeded"
-            )
-            self.append(fact_type, {**identity, "status": status})
-            return status
-
-    def load_transaction(
+    def _load_transaction(
         self,
         transaction: Mapping[str, Any],
         encoded: bytes,
@@ -2922,7 +4115,7 @@ class _RunEvidenceLedger:
                 or type(transaction["first_fact_sequence"]) is not int
                 or transaction["first_fact_sequence"] != len(self._state.facts) + 1
                 or type(transaction["last_fact_sequence"]) is not int
-                or not isinstance(transaction["committed_at"], str)
+                or not _is_timestamp(transaction["committed_at"])
                 or not isinstance(transaction["facts"], list)
                 or not transaction["facts"]
                 or transaction["last_fact_sequence"]
@@ -2943,7 +4136,7 @@ class _RunEvidenceLedger:
                     != {"sequence", "recorded_at", "fact_type", "payload"}
                     or type(fact["sequence"]) is not int
                     or fact["sequence"] != expected_sequence
-                    or not isinstance(fact["recorded_at"], str)
+                    or not _is_timestamp(fact["recorded_at"])
                     or not isinstance(fact["fact_type"], str)
                     or not isinstance(fact["payload"], Mapping)
                 ):
@@ -3029,11 +4222,13 @@ class _RunEvidenceLedger:
             self._condition.notify_all()
 
     def reconcile_restart(self) -> None:
-        """Mark a previously running process as interrupted."""
+        """Mark a previously admitted process as interrupted."""
         with self._condition:
-            if not self._state.run_started or self._state.run_terminal:
+            if not self._state.run_admitted or self._state.run_terminal:
                 return
-            self.append("run_terminal", {"status": "interrupted"})
+            self._commit(
+                (_LogicalFact("run_terminal", {"status": "interrupted"}),)
+            )
 
 def _load_node_result_manifest(
     object_store: ProjectObjectStore,
@@ -3290,113 +4485,60 @@ class NodeAttemptFinalizer:
         *,
         resolution: Literal["executed", "cache_replayed"],
     ) -> FinalizedNode:
-        with self._ledger._ordered_append_scope():
-            node_terminal_payload = {
-                "status": intent.status,
-                "error": dict(intent.public_error),
-                "failure_origin": intent.failure_origin,
-            }
-            facts: list[ProposedFact] = []
-            if intent.operation_attempt_id is not None:
-                operation_status = (
-                    "failed"
-                    if intent.failure_origin == "operation"
-                    else "succeeded"
-                )
-                operation_payload: dict[str, Any] = {
-                    "operation_attempt_id": intent.operation_attempt_id,
-                    "status": operation_status,
-                }
-                if operation_status == "failed":
-                    operation_payload["error"] = dict(intent.public_error)
-                facts.append(
-                    ProposedFact(
-                        "operation_attempt_terminal",
-                        operation_payload,
-                    )
-                )
+        with self._ledger._ordered_transition_scope():
             disposition = self._disposition_for_status(intent.status)
-            facts.extend(
-                (
-                    ProposedFact(
-                        "node_attempt_terminal",
-                        {
-                            "node_attempt_id": intent.node_attempt_id,
-                            "resolution": resolution,
-                            **node_terminal_payload,
-                        },
-                    ),
-                    ProposedFact(
-                        "node_disposition",
-                        {
-                            "node_id": intent.node_id,
-                            "outcome": disposition,
-                            "blocked_by": [],
-                        },
-                    ),
+            self._ledger.record(
+                NodeFailurePublication(
+                    node_id=intent.node_id,
+                    node_attempt_id=intent.node_attempt_id,
+                    operation_attempt_id=intent.operation_attempt_id,
+                    resolution=resolution,
+                    error=intent.public_error,
+                    failure_origin=intent.failure_origin,
                 )
             )
-            self._ledger.commit(tuple(facts))
             return FinalizedNode(disposition=disposition)
 
     def _finalize_termination(
         self,
         intent: CancelledOrInterruptedNode,
     ) -> FinalizedNode:
-        with self._ledger._ordered_append_scope():
+        with self._ledger._ordered_transition_scope():
             disposition = self._disposition_for_status(intent.status)
-            facts: list[ProposedFact] = []
-            if intent.node_attempt_id is not None:
-                terminal_payload: dict[str, Any] = {"status": intent.status}
-                if intent.public_error is not None:
-                    terminal_payload["error"] = dict(intent.public_error)
-                if intent.operation_attempt_id is not None:
-                    facts.append(
-                        ProposedFact(
-                            "operation_attempt_terminal",
-                            {
-                                "operation_attempt_id": (
-                                    intent.operation_attempt_id
-                                ),
-                                **terminal_payload,
-                            },
-                        )
-                    )
-                facts.append(
-                    ProposedFact(
-                        "node_attempt_terminal",
-                        {
-                            "node_attempt_id": intent.node_attempt_id,
-                            "resolution": intent.resolution,
-                            **terminal_payload,
-                        },
+            if intent.node_attempt_id is None:
+                self._ledger.record(
+                    UnstartedNodeConclusion(
+                        node_id=intent.node_id,
+                        outcome=disposition,
                     )
                 )
-            facts.append(
-                ProposedFact(
-                    "node_disposition",
-                    {
-                        "node_id": intent.node_id,
-                        "outcome": disposition,
-                        "blocked_by": [],
-                    },
+                return FinalizedNode(disposition=disposition)
+            self._ledger.record(
+                NodeTerminationPublication(
+                    node_id=intent.node_id,
+                    status=intent.status,
+                    node_attempt_id=intent.node_attempt_id,
+                    operation_attempt_id=intent.operation_attempt_id,
+                    operation_status=(
+                        intent.operation_status
+                        if intent.operation_status is not None
+                        else intent.status
+                        if intent.operation_attempt_id is not None
+                        else None
+                    ),
+                    resolution=intent.resolution,
+                    error=intent.public_error,
                 )
             )
-            self._ledger.commit(tuple(facts))
             return FinalizedNode(disposition=disposition)
 
     def _finalize_blocked(self, intent: BlockedNode) -> FinalizedNode:
-        with self._ledger._ordered_append_scope():
-            self._ledger.commit(
-                (
-                    ProposedFact(
-                        "node_disposition",
-                        {
-                            "node_id": intent.node_id,
-                            "outcome": "blocked",
-                            "blocked_by": list(intent.blocked_by),
-                        },
-                    ),
+        with self._ledger._ordered_transition_scope():
+            self._ledger.record(
+                UnstartedNodeConclusion(
+                    node_id=intent.node_id,
+                    outcome="blocked",
+                    blocked_by=intent.blocked_by,
                 )
             )
             return FinalizedNode(disposition="blocked")
@@ -3453,6 +4595,7 @@ class NodeAttemptFinalizer:
                     operation_attempt_id=context.operation_attempt_id,
                     status="failed",
                     public_error=_public_failure(cancellation.cleanup_error),
+                    failure_origin="publication",
                 ),
                 resolution=context.resolution,
             )
@@ -3463,6 +4606,11 @@ class NodeAttemptFinalizer:
                 public_error=None,
                 node_attempt_id=context.node_attempt_id,
                 operation_attempt_id=context.operation_attempt_id,
+                operation_status=(
+                    "succeeded"
+                    if context.operation_attempt_id is not None
+                    else None
+                ),
                 resolution=context.resolution,
             )
         )
@@ -3558,57 +4706,27 @@ class NodeAttemptFinalizer:
         result_identity: str,
         node_result_manifest_reference: Mapping[str, Any],
     ) -> FinalizedNode:
-        facts: list[ProposedFact] = []
-        if context.operation_attempt_id is not None:
-            facts.append(
-                ProposedFact(
-                    "operation_attempt_terminal",
-                    {
-                        "operation_attempt_id": context.operation_attempt_id,
-                        "status": "succeeded",
-                    },
-                )
-            )
-        facts.append(
-            ProposedFact(
-                "outputs_published",
-                {
-                    "node_id": context.node_id,
-                    "result_identity": result_identity,
-                    "node_result_manifest": dict(
-                        node_result_manifest_reference
-                    ),
-                    "outputs": typed_descriptors,
-                    "artifacts": artifacts,
-                },
-            )
-        )
-        facts.extend(
-            ProposedFact("artifact_published", {"artifact": artifact})
-            for artifact in artifacts
-        )
-        facts.extend(
-            (
-                ProposedFact(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": context.node_attempt_id,
-                        "status": "succeeded",
-                        "resolution": context.resolution,
-                    },
-                ),
-                ProposedFact(
-                    "node_disposition",
-                    {
-                        "node_id": context.node_id,
-                        "outcome": "succeeded",
-                        "resolution": context.resolution,
-                        "blocked_by": [],
-                    },
+        self._ledger.record(
+            NodeSuccessPublication(
+                node_id=context.node_id,
+                node_attempt_id=context.node_attempt_id,
+                operation_attempt_id=context.operation_attempt_id,
+                resolution=context.resolution,
+                result_identity=result_identity,
+                node_result_manifest=node_result_manifest_reference,
+                outputs=tuple(typed_descriptors),
+                artifacts=tuple(artifacts),
+                nonempty_output_ports=tuple(
+                    sorted(
+                        output_port
+                        for (node_id, output_port), admitted in (
+                            admitted_outputs.items()
+                        )
+                        if node_id == context.node_id and admitted
+                    )
                 ),
             )
         )
-        self._ledger.commit(tuple(facts))
         return FinalizedNode(
             disposition="succeeded",
             admitted_outputs=admitted_outputs,
@@ -3645,7 +4763,7 @@ class NodeAttemptFinalizer:
         except NodePublicationError as error:
             preparation_error = error
 
-        with self._ledger._ordered_append_scope():
+        with self._ledger._ordered_transition_scope():
             cancelled = self._finalize_committed_cancellation(
                 context=context,
             )
@@ -3712,7 +4830,7 @@ class NodeAttemptFinalizer:
             )
         except NodePublicationError as error:
             preparation_error = error
-        with self._ledger._ordered_append_scope():
+        with self._ledger._ordered_transition_scope():
             cancelled = self._finalize_committed_cancellation(
                 context=context,
             )
@@ -3766,50 +4884,46 @@ class _OperationInvocationRecorder:
         *,
         engine_role: str,
         parent_invocation_id: str | None,
-        invocation_provenance: Mapping[str, Any] | None,
+        invocation_provenance: EngineInvocationProvenance | None,
     ):
         invocation_id = f"invocation-{uuid.uuid4().hex}"
-        payload = {
-            "invocation_id": invocation_id,
-            "operation_attempt_id": self.operation_attempt_id,
-            "engine_role": engine_role,
-            "engine_identity": self.default_engine_identity,
-        }
-        if parent_invocation_id is not None:
-            payload["parent_invocation_id"] = parent_invocation_id
-        if invocation_provenance is not None:
-            payload["invocation_provenance"] = invocation_provenance
-        self.ledger.append(
-            "engine_invocation_started",
-            payload,
-        )
+        with self.ledger._ordered_transition_scope():
+            if self.ledger.cancellation_requested:
+                raise ExecutionTermination("cancelled")
+            self.ledger.record(
+                EngineInvocationStart(
+                    invocation_id=invocation_id,
+                    operation_attempt_id=self.operation_attempt_id,
+                    engine_role=engine_role,
+                    engine_identity=self.default_engine_identity,
+                    parent_invocation_id=parent_invocation_id,
+                    provenance=invocation_provenance,
+                )
+            )
         try:
             yield invocation_id
         except BaseException as error:
             terminal_status = (
-                "cancelled"
-                if self.ledger.cancellation_requested
-                else error.status
+                error.status
                 if isinstance(error, ExecutionTermination)
                 else "failed"
             )
-            self.ledger.append(
-                "engine_invocation_terminal",
-                {
-                    "invocation_id": invocation_id,
-                    "status": terminal_status,
-                    "error": _public_failure(error),
-                },
+            self.ledger.record(
+                EngineInvocationConclusion(
+                    invocation_id=invocation_id,
+                    status=terminal_status,
+                    error=_public_failure(error),
+                )
             )
             raise
         else:
-            terminal_status = self.ledger.append_terminal_from_success(
-                "engine_invocation_terminal",
-                {
-                    "invocation_id": invocation_id,
-                },
+            self.ledger.record(
+                EngineInvocationConclusion(
+                    invocation_id=invocation_id,
+                    status="succeeded",
+                )
             )
-            if terminal_status == "cancelled":
+            if self.ledger.cancellation_requested:
                 raise ExecutionTermination("cancelled")
 
 
@@ -4050,13 +5164,19 @@ def _read_run_evidence_ledger(
         run_id,
         plan_nodes,
         transaction_store,
+        expected_resolved_contracts=tuple(
+            first["payload"]["resolved_contracts"]
+        ),
+        expected_contract_roots=tuple(
+            first["payload"]["resolved_contract_roots"]
+        ),
     )
     for transaction, encoded in zip(
         parsed_transactions,
         encoded_transactions,
         strict=True,
     ):
-        ledger.load_transaction(transaction, encoded)
+        ledger._load_transaction(transaction, encoded)
     return ledger
 
 
@@ -4775,13 +5895,41 @@ class V2RunService:
     ) -> tuple[_PlanNodeEvidence, ...]:
         return tuple(
             _PlanNodeEvidence(
-                node.node_id,
-                node._runtime.dependencies,
-                node._runtime.required_dependencies,
-                node.result_identity_plan_facts.digest,
-                node.node_type.to_public(),
-                node._runtime.artifact_outputs,
-                bool(
+                node_id=node.node_id,
+                dependencies=node._runtime.dependencies,
+                required_input_sources=tuple(
+                    _PlanRequiredInputEvidence(
+                        input_port=input_port,
+                        sources=tuple(
+                            sorted(
+                                (
+                                    _PlanValueSourceEvidence(
+                                        source.node_id,
+                                        source.output_port,
+                                    )
+                                    for source in sources
+                                ),
+                                key=lambda source: (
+                                    source.node_id,
+                                    source.output_port,
+                                ),
+                            )
+                        ),
+                    )
+                    for input_port, sources in sorted(
+                        node._runtime.required_input_sources.items()
+                    )
+                ),
+                result_identity_plan_facts_digest=(
+                    node.result_identity_plan_facts.digest
+                ),
+                binding=node.binding.to_public(),
+                execution_route=node._runtime.binding_contract.descriptor[
+                    "execution_route"
+                ],
+                node_type=node.node_type.to_public(),
+                artifact_outputs=node._runtime.artifact_outputs,
+                selection_consumer=bool(
                     node._runtime.selection_objectives
                     or node._runtime.observation_selectors
                 ),
@@ -4915,7 +6063,7 @@ class V2RunService:
         )
         if ledger is None:
             return None
-        if not ledger.started:
+        if not ledger.admitted:
             return None
         if (
             run_id in self._run_owners
@@ -5077,12 +6225,15 @@ class V2RunService:
                 **attestation_payload,
             }
         )
-        ledger.append(
-            "readiness_attested",
-            {
-                **attestation_payload,
-                "attestation_digest": attestation_digest,
-            },
+        ledger.record(
+            ReadinessAttestation(
+                binding=node.binding.to_public(),
+                readiness_contract_digest=readiness_digest,
+                observed_at=attestation_payload["observed_at"],
+                conclusion=attestation_payload["conclusion"],
+                proof_source=result.proof_source,
+                attestation_digest=attestation_digest,
+            )
         )
         if not result.passing:
             raise V2RunError(
@@ -5141,6 +6292,57 @@ class V2RunService:
         validate_candidate_input_identities(inputs)
         return MappingProxyType(inputs)
 
+    @staticmethod
+    def _required_input_blockers(
+        node: ExecutionPlanNode,
+        values: Mapping[tuple[str, str], AdmittedPort],
+    ) -> tuple[str, ...]:
+        """Choose the Plan-level required-input blocking conclusion."""
+        blockers: set[str] = set()
+        for sources in node._runtime.required_input_sources.values():
+            if any(
+                (source := values.get(
+                    (reference.node_id, reference.output_port)
+                ))
+                is not None
+                and bool(source.values)
+                for reference in sources
+            ):
+                continue
+            blockers.update(reference.node_id for reference in sources)
+        return tuple(sorted(blockers))
+
+    @staticmethod
+    def _begin_node_attempt(
+        *,
+        ledger: _RunEvidenceLedger,
+        finalizer: NodeAttemptFinalizer,
+        run_record: _RunRecord,
+        node_id: str,
+        node_attempt_id: str,
+    ) -> FinalizedNode | None:
+        """Order one scheduling decision atomically with cancellation."""
+        with ledger._ordered_transition_scope():
+            if ledger.cancellation_requested:
+                return finalizer.finalize(
+                    CancelledOrInterruptedNode(
+                        node_id=node_id,
+                        status=(
+                            "interrupted"
+                            if run_record.cancellation.cleanup_error is not None
+                            else "cancelled"
+                        ),
+                        public_error=None,
+                    )
+                )
+            ledger.record(
+                NodeAttemptStart(
+                    node_id=node_id,
+                    node_attempt_id=node_attempt_id,
+                )
+            )
+        return None
+
     def _resolve_project_inputs(
         self,
         project_id: str,
@@ -5172,21 +6374,6 @@ class V2RunService:
                 }
             )
         return resolved, tuple(identities)
-
-    def _required_input_blockers(
-        self,
-        node: ExecutionPlanNode,
-        values: Mapping[tuple[str, str], AdmittedPort],
-    ) -> list[str]:
-        blockers: set[str] = set()
-        for sources in node._runtime.required_input_sources.values():
-            if any(
-                values.get((source.node_id, source.output_port))
-                for source in sources
-            ):
-                continue
-            blockers.update(source.node_id for source in sources)
-        return sorted(blockers)
 
     @staticmethod
     def _candidate_values(value: Any) -> list[Candidate]:
@@ -5502,6 +6689,12 @@ class V2RunService:
                 run_id,
                 plan_evidence,
                 self._ledger_transaction_store,
+                expected_resolved_contracts=tuple(
+                    entry.to_public() for entry in plan.resolved_contracts
+                ),
+                expected_contract_roots=tuple(
+                    _execution_plan_contract_roots(plan)
+                ),
             )
         except (OSError, StoragePathError) as error:
             raise V2RunError(
@@ -5509,38 +6702,22 @@ class V2RunService:
                 "Required Run evidence workspace is unavailable",
                 details={"last_durable_cursor": run_cursor(0)},
             ) from error
-        scope_payload: dict[str, Any] = {
-            "project_id": project_id,
-            "run_id": run_id,
-            "workflow_commit_id": workflow_commit_id,
-            "workflow_commit_revision": workflow_commit_revision,
-            "workflow_digest": plan.workflow_digest,
-            "contract_lock_digest": plan.contract_lock_digest,
-            "execution_plan_digest": plan.execution_plan_digest,
-            "catalog_contract_digest": plan.catalog_contract_digest,
-            "resolved_contract_roots": _execution_plan_contract_roots(plan),
-            "resolved_contracts": [
-                entry.to_public()
-                for entry in plan.resolved_contracts
-            ],
-            "selection_required": any(
-                node.selection_consumer for node in plan_evidence
-            ),
-            "selection_terminal_keys": list(
-                node.node_id
-                for node in plan_evidence
-                if node.selection_consumer
-            ),
-            "plan_nodes": [
-                node.to_dict()
-                for node in plan_evidence
-            ],
-        }
-        if _derived_from is not None:
-            scope_payload["derived_from"] = dict(_derived_from)
-        ledger.append(
-            "run_scope_bound",
-            scope_payload,
+        ledger.record(
+            RunScopeBinding(
+                workflow_commit_id=workflow_commit_id,
+                workflow_commit_revision=workflow_commit_revision,
+                workflow_digest=plan.workflow_digest,
+                contract_lock_digest=plan.contract_lock_digest,
+                execution_plan_digest=plan.execution_plan_digest,
+                catalog_contract_digest=plan.catalog_contract_digest,
+                resolved_contract_roots=tuple(
+                    _execution_plan_contract_roots(plan)
+                ),
+                resolved_contracts=tuple(
+                    entry.to_public() for entry in plan.resolved_contracts
+                ),
+                derived_from=_derived_from,
+            )
         )
         distinct: dict[tuple[str, str], ExecutionPlanNode] = {}
         for node in plan.nodes:
@@ -5558,22 +6735,20 @@ class V2RunService:
         for binding_key, node in distinct.items():
             availability = self._availability(node)
             availability_by_binding[binding_key] = availability
-            ledger.append(
-                "availability_bound",
-                {
-                    "binding": node.binding.to_public(),
-                    "catalog_observed_at": availability["observed_at"],
-                    "available": availability["available"],
-                },
+            ledger.record(
+                AvailabilityBinding(
+                    binding=node.binding.to_public(),
+                    catalog_observed_at=availability["observed_at"],
+                    available=availability["available"],
+                )
             )
-        admitted = ledger.append(
-            "run_admitted",
-            {
-                "workflow_commit_id": workflow_commit_id,
-                "workflow_commit_revision": workflow_commit_revision,
-            },
+        admitted = ledger.record(
+            RunAdmission(
+                workflow_commit_id=workflow_commit_id,
+                workflow_commit_revision=workflow_commit_revision,
+            )
         )
-        ledger.append("run_started", {"started_at": run_timestamp()})
+        ledger.record(RunStart(started_at=run_timestamp()))
 
         all_artifacts: list[dict[str, Any]] = []
         record = _RunRecord(
@@ -5593,8 +6768,8 @@ class V2RunService:
             "run_id": run_id,
             "workflow_commit_id": workflow_commit_id,
             "workflow_commit_revision": workflow_commit_revision,
-            "admitted_sequence": admitted["sequence"],
-            "event_cursor": ledger.cursor_at(admitted["sequence"]),
+            "admitted_sequence": admitted.last_sequence,
+            "event_cursor": admitted.cursor,
         }
         if _on_admitted is not None:
             _on_admitted(receipt, record)
@@ -5606,33 +6781,32 @@ class V2RunService:
             V2RunError | None,
         ] = {}
         for node in plan.nodes:
-            if ledger.cancellation_requested:
-                record.cancellation.wait_for_cleanup()
-                cancellation_outcome = (
-                    "interrupted"
-                    if record.cancellation.cleanup_error is not None
-                    else "cancelled"
-                )
-                finalized = finalizer.finalize(
-                    CancelledOrInterruptedNode(
-                        node_id=node.node_id,
-                        status=cancellation_outcome,
-                        public_error=None,
-                    )
-                )
-                continue
             blocked_by = self._required_input_blockers(
                 node,
                 committed_values,
             )
-            if blocked_by:
-                finalized = finalizer.conclude(
-                    BlockedNode(
-                        node_id=node.node_id,
-                        blocked_by=tuple(blocked_by),
+            with ledger._ordered_transition_scope():
+                if ledger.cancellation_requested:
+                    finalized = finalizer.finalize(
+                        CancelledOrInterruptedNode(
+                            node_id=node.node_id,
+                            status=(
+                                "interrupted"
+                                if record.cancellation.cleanup_error is not None
+                                else "cancelled"
+                            ),
+                            public_error=None,
+                        )
                     )
-                )
-                continue
+                    continue
+                if blocked_by:
+                    finalized = finalizer.conclude(
+                        BlockedNode(
+                            node_id=node.node_id,
+                            blocked_by=tuple(blocked_by),
+                        )
+                    )
+                    continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"
             node_inputs: Mapping[str, AdmittedPort] = MappingProxyType({})
@@ -5768,13 +6942,16 @@ class V2RunService:
                     )
             if cache_lookup_failure is not None:
                 failure_origin, public_error = cache_lookup_failure
-                ledger.append(
-                    "node_attempt_started",
-                    {
-                        "node_id": node.node_id,
-                        "node_attempt_id": node_attempt_id,
-                    },
+                cancelled = self._begin_node_attempt(
+                    ledger=ledger,
+                    finalizer=finalizer,
+                    run_record=record,
+                    node_id=node.node_id,
+                    node_attempt_id=node_attempt_id,
                 )
+                if cancelled is not None:
+                    finalized = cancelled
+                    continue
                 finalized = finalizer.finalize(
                     ExecutedNodeNonSuccess(
                         node_id=node.node_id,
@@ -5792,27 +6969,16 @@ class V2RunService:
                 and replayed_runtime is not None
                 and replayed_artifact_plan is not None
             ):
-                if ledger.cancellation_requested:
-                    cancellation_outcome = (
-                        "interrupted"
-                        if record.cancellation.cleanup_error is not None
-                        else "cancelled"
-                    )
-                    finalized = finalizer.finalize(
-                        CancelledOrInterruptedNode(
-                            node_id=node.node_id,
-                            status=cancellation_outcome,
-                            public_error=None,
-                        )
-                    )
-                    continue
-                ledger.append(
-                    "node_attempt_started",
-                    {
-                        "node_id": node.node_id,
-                        "node_attempt_id": node_attempt_id,
-                    },
+                cancelled = self._begin_node_attempt(
+                    ledger=ledger,
+                    finalizer=finalizer,
+                    run_record=record,
+                    node_id=node.node_id,
+                    node_attempt_id=node_attempt_id,
                 )
+                if cancelled is not None:
+                    finalized = cancelled
+                    continue
                 replay_resources = RunResources(
                     project_id=project_id,
                     run_id=run_id,
@@ -5872,13 +7038,16 @@ class V2RunService:
                 else None
             )
             if readiness_error is not None:
-                ledger.append(
-                    "node_attempt_started",
-                    {
-                        "node_id": node.node_id,
-                        "node_attempt_id": node_attempt_id,
-                    },
+                cancelled = self._begin_node_attempt(
+                    ledger=ledger,
+                    finalizer=finalizer,
+                    run_record=record,
+                    node_id=node.node_id,
+                    node_attempt_id=node_attempt_id,
                 )
+                if cancelled is not None:
+                    finalized = cancelled
+                    continue
                 finalized = finalizer.finalize(
                     ExecutedNodeNonSuccess(
                         node_id=node.node_id,
@@ -6012,13 +7181,16 @@ class V2RunService:
                 continue
             if pre_operation_invariant_error is not None:
                 raise pre_operation_invariant_error
-            ledger.append(
-                "node_attempt_started",
-                {
-                    "node_id": node.node_id,
-                    "node_attempt_id": node_attempt_id,
-                },
+            cancelled = self._begin_node_attempt(
+                ledger=ledger,
+                finalizer=finalizer,
+                run_record=record,
+                node_id=node.node_id,
+                node_attempt_id=node_attempt_id,
             )
+            if cancelled is not None:
+                finalized = cancelled
+                continue
             pending_runtime: dict[
                 tuple[str, str],
                 AdmittedPort,
@@ -6026,15 +7198,34 @@ class V2RunService:
             pending_published: list[dict[str, Any]] = []
             pending_artifact_plan = AdmittedArtifactPublicationPlan((), ())
 
+            cancelled_before_operation: FinalizedNode | None = None
+            with ledger._ordered_transition_scope():
+                if ledger.cancellation_requested:
+                    cancelled_before_operation = finalizer.finalize(
+                        CancelledOrInterruptedNode(
+                            node_id=node.node_id,
+                            status=(
+                                "interrupted"
+                                if record.cancellation.cleanup_error is not None
+                                else "cancelled"
+                            ),
+                            public_error=None,
+                            node_attempt_id=node_attempt_id,
+                        )
+                    )
+                else:
+                    ledger.record(
+                        OperationAttemptStart(
+                            operation_attempt_id=operation_attempt_id,
+                            node_attempt_id=node_attempt_id,
+                        )
+                    )
+                    operation_started = True
+            if cancelled_before_operation is not None:
+                finalized = cancelled_before_operation
+                continue
+
             try:
-                ledger.append(
-                    "operation_attempt_started",
-                    {
-                        "operation_attempt_id": operation_attempt_id,
-                        "node_attempt_id": node_attempt_id,
-                    },
-                )
-                operation_started = True
                 assert implementation is not None
                 assert operation_execute is not None
                 assert operation_call is not None
@@ -6166,30 +7357,28 @@ class V2RunService:
             if finalized.disposition == "succeeded":
                 committed_values.update(finalized.admitted_outputs)
                 all_artifacts.extend(finalized.artifacts)
-        selection_terminals: tuple[Mapping[str, Any], ...] = ()
+        selection_conclusions: tuple[SelectionConclusion, ...] = ()
         if ledger.selection_consumer_ids and ledger.all_dispositions_succeeded:
             selection_consumers = {
                 node.node_id: node for node in plan.nodes
             }
             try:
-                selection_terminals = tuple(
-                    {
-                        "status": "succeeded",
-                        "result": _selection_consumer_result(
+                selection_conclusions = tuple(
+                    SelectionSuccess(
+                        result=_selection_consumer_result(
                             selection_consumers[node_id],
                             committed_values,
-                        ),
-                    }
+                        )
+                    )
                     for node_id in ledger.selection_consumer_ids
                 )
             except SelectionError as error:
-                selection_terminals = (
-                    {
-                        "status": "failed",
-                        "error": _public_selection_failure(error),
-                    },
+                selection_conclusions = (
+                    SelectionFailure(
+                        error=_public_selection_failure(error),
+                    ),
                 )
-        ledger.commit_run_closure(selection_terminals)
+        ledger.record(RunClosure(selection_conclusions))
         record.finished.set()
         return receipt
 

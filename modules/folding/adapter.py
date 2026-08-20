@@ -13,7 +13,12 @@ import os
 from pathlib import Path
 from typing import Any, cast, Iterable, Protocol, TYPE_CHECKING
 
-from core import ReadinessResult, RunResources
+from core import (
+    EngineInvocationProvenance,
+    InvocationRandomness,
+    ReadinessResult,
+    RunResources,
+)
 from modules.provider_contract import validate_installed_provider_checkout
 from datatypes import ProteinSequence, ProteinStructure
 
@@ -609,11 +614,11 @@ class BiohubESMFold2Adapter:
         config = fixed_folding_config()
         with self._resources.engine_invocation(
             engine_role=engine_role,
-            invocation_provenance={
-                "effective_randomness": {
-                    "control": "provider_uncontrolled",
-                }
-            },
+            invocation_provenance=EngineInvocationProvenance(
+                effective_randomness=InvocationRandomness(
+                    control="provider_uncontrolled"
+                )
+            ),
         ):
             raw_result = client.fold(
                 sequence=provider_sequence,
@@ -666,12 +671,12 @@ class LocalESMFold2Adapter:
         _, engine = self._provider_engine()
         with self._resources.engine_invocation(
             engine_role=engine_role,
-            invocation_provenance={
-                "effective_randomness": {
-                    "control": "exact_seed",
-                    "effective_seed": derived_call_seed,
-                }
-            },
+            invocation_provenance=EngineInvocationProvenance(
+                effective_randomness=InvocationRandomness(
+                    control="exact_seed",
+                    effective_seed=derived_call_seed,
+                )
+            ),
         ):
             raw_result = engine.fold(
                 sequence=provider_sequence,

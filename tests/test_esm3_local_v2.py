@@ -18,6 +18,19 @@ from core import (
 )
 
 
+def _plain_invocations(
+    invocations: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    plain: list[dict[str, object]] = []
+    for invocation in invocations:
+        item = dict(invocation)
+        provenance = item.get("invocation_provenance")
+        if provenance is not None:
+            item["invocation_provenance"] = provenance.to_public()  # type: ignore[union-attr]
+        plain.append(item)
+    return plain
+
+
 def _patch_local_runtime(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -420,7 +433,7 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
     assert result.effective_num_steps == 4
     assert result.effective_call_seed == 17
     assert client.seeds == [17]
-    assert resources.invocations == [
+    assert _plain_invocations(resources.invocations) == [
         {
             "engine_role": "sequence_sample",
             "parent_invocation_id": None,
