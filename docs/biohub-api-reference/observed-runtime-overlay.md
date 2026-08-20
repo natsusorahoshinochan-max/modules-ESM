@@ -1,21 +1,21 @@
 # Biohub / ESM 真实运行观测
 
-状态：带日期的非规范性运行证据
+状态：按历史 revision 冻结的非规范性运行 Evidence；不定义当前产品能力
 
 初始观测日期：2026-07-20；最近补充：2026-07-23
 
-运行边界：仓库锁定的 ESM SDK 3.3.0、当前 Biohub v1 部署和本地 MPS runtime
+运行边界：当时仓库锁定的 ESM SDK 3.3.0、当时 Biohub v1 部署和本地 MPS runtime
 
 ## 1. 如何使用本文件
 
-本文件记录特定日期、模型、SDK 和设备下实际观察到的行为，用来裁决“当前事实上支持什么”。
-它不是稳定 API 规范，也不自行定义产品功能。规范性产品裁决见
-[Biohub / ESM 产品合同补充](product-contract-supplement.md)，目标合同据此决定本项目公开的
-Capabilities、请求、Preview、Plan、Artifact 与验收矩阵。
+本文件记录特定日期、Git revision、model、SDK 和 device 下实际观察到的行为，只用于解释
+当时的 Acceptance Evidence 与 Provider/SDK 集成调查。它不能修改 Biohub 官方 Provider
+contract、active Catalog、Method、Execution Binding 或 Adapter translation。当前规范性产品
+选择见 [Biohub / ESM 当前产品合同](product-contract-supplement.md)。
 
-不可变的 [`v1/`](v1/README.md) 快照仍用于证明 method/path、请求字段、默认值等 wire 事实；
-它没有响应 body schema，也不能仅凭某个请求字段或端点存在，就证明当前模型已经实现相应功能。
-后续部署或 SDK 行为变化时，应新增或更新带日期的实测证据，再重新裁决产品合同。
+不可变的 [`v1/`](v1/README.md) 快照仍用于证明其明确发布的 method/path、请求字段和默认值等
+wire 事实。新的运行结果若与当前合同不一致，应先作为集成问题调查；不能根据一次成功或失败
+加入兼容 parser、expected-failure 产品分支、retry、fallback，或暗中改变 Catalog capability。
 
 ## 2. ESMFold2 `/fold` 观测矩阵
 
@@ -166,5 +166,5 @@ Biohub `26/26` 与 `completion_eligible=true`；它现在只是不同行为基�
 local-open 与 Biohub 证据，并决定不再运行长时间的组合 `all`。这是一项项目收尾判定，不会把
 不同根目录拼装为发布证据，也不声称存在新的 current-identity
 `completion_eligible=true` summary；该治理决定显式覆盖已退休项目书的单一 fresh-root
-项目完成门，不表示历史门本身已经通过。当前验证状态和未来严格发布规则见
-[`verification.md`](../../verification.md)。
+项目完成门，不表示历史门本身已经通过。当前验证状态和严格发布规则见
+[`backend-verification.md`](../backend-verification.md)。

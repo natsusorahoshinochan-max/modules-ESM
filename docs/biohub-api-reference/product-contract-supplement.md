@@ -1,145 +1,112 @@
-# Biohub / ESM 产品合同补充
+# Biohub / ESM 当前产品合同
 
-状态：已接受的规范性产品补充
+状态：当前规范性产品选择
 
-日期：2026-07-21
+日期：2026-08-20
 
-## 1. 范围与权威
+## 1. 范围与事实 owner
 
-本文记录固定 Biohub v1 快照没有表达、但本产品已经接受的 ESM 模型身份、
-catalog 边界和当前能力裁决。它是由
-[`target-contract-index.md`](../../target-contract-index.md) 路由的
-provider-specific 规范性补充，服从该索引分配给各目标合同的权威边界。
+本文只解释 Protein Workbench 当前如何选择和使用 Biohub / ESM 能力，不建立第二套
+Provider、Catalog、Method 或科学合同。
 
-Biohub 相关事实按下列三层解释，不得混用：
+相关事实由以下 owner 分别持有：
 
-1. 带日期的[真实运行观测](observed-runtime-overlay.md)决定当前 Biohub 模型事实上支持什么；
-2. 目标合同与本文决定本项目公开、规划和验收什么；产品合同不得承诺当前真实运行观测已经否定的能力；
-3. 不可变的 [`v1/`](v1/README.md) 快照只证明其明确发布的 endpoint 和请求 wire
-   事实，不能单独证明某个当前模型已经实现相应能力或会返回某个响应字段。
+1. Biohub 官方 API specification 与仓库固定的官方 ESM SDK revision 定义 Provider
+   request/response representation 和官方 operational outcomes；
+2. active Catalog 中的 Method 与 Execution Binding 定义 Workbench 当前公开的 model、
+   operation、固定配置、随机性和科学解释；
+3. concrete Adapter 在 Provider seam 实现唯一的 Workbench value ↔ Provider representation
+   翻译；
+4. 带 Git revision 的真实 Provider Acceptance Evidence 只证明该 revision 按上述合同执行过，
+   不扩大、缩小或覆盖官方 Provider contract 与 active Catalog。
 
-若旧产品设计、静态请求 schema 与当前真实运行观测冲突，以当前真实运行观测为事实依据，
-并同步修改本地产品合同、实现和测试。带日期的观测本身不是长期产品合同；观测变化时，必须先
-更新 dated evidence 并重新裁决目标合同，不能由 adapter 暗中扩大或缩小产品能力。
+不可变的 [`v1/`](v1/README.md) 快照保留其抓取时官方页面明确发布的 method、path 和
+request wire 事实。快照未包含的 response schema 不从历史运行值反向推断；仓库固定 SDK、
+active Method/Binding 和官方规范共同决定当前唯一翻译。
 
-## 2. 产品模型身份
+## 2. 当前远程模型与操作
 
-初始 ESM3 产品模型集合为：
+当前 active Catalog 只公开以下 Biohub service model identities：
 
-| 规范 endpoint | model ID | 产品身份 |
+| Module Package | model ID | 当前操作 |
 | --- | --- | --- |
-| `biohub` | `esm3-medium-2024-08` | 公开 Biohub 产品模型 |
-| `biohub` | `esm3-open-2024-03` | 公开 Biohub 产品模型 |
-| `local_open` | `esm3_sm_open_v1` | 本地 open-weight 产品模型 |
+| `esm3` | `esmc-600m-2024-12` | encode、logits |
+| `esm3` | `esm3-medium-2024-08` | sequence、structure、paired generation |
+| `esm3` | `esm3-open-2024-03` | sequence、structure、paired generation |
+| `folding` | `esmfold2-fast-2026-05` | strict single-chain fold |
 
-Biohub ESMFold2 的严格单链折叠模型集合为：
+精确 Node Type、Port Type、Method、Execution Binding、parameter 和 output contracts 由
+[`modules/esm3`](../../modules/esm3/package.py) 与
+[`modules/folding`](../../modules/folding/package.py) 的 active registrations 拥有。本文的
+表格帮助维护者定位当前产品选择，不允许独立于 active Catalog 增加 model 或 operation。
 
-- `esmfold2-fast-2026-05`；
-- `esmfold2-2026-05`。
+Availability 只描述 startup 时结构性 prerequisites；Readiness 只在 Cache miss 或 bypass
+实际进入所选 Provider 前检查 exact Binding。二者都不自动选择另一个 model、route 或
+operation。
 
-这里的“公开 Biohub 产品模型”是产品可支持性裁决，不等于某次部署当前已经 ready。Biohub 的
-实际可用性仍取决于规范 endpoint 的授权与 readiness；本地模型的实际可用性仍取决于受控
-runtime 与 readiness。`esm3-medium-2024-08` 不建立 private-entitlement 产品分支。
+## 3. Provider Adapter seam
 
-## 3. ESMFold2 严格单链产品合同
+Biohub Adapter 只执行以下职责：
 
-两个 ESMFold2 产品模型采用同一份严格单链合同：
+1. 接收已经 admitted 的 provider-independent Workbench values；
+2. 按官方规范和 exact Method 构造唯一 request；
+3. 调用 Binding 固定的 endpoint、model 和 SDK；
+4. 假定 conforming request 获得 conforming response，并执行文档规定的唯一确定性翻译；
+5. 记录 exact Method、model、translation、randomness 和 Engine Invocation provenance；
+6. 让官方 operational error 按当前 Run Evidence 合同正常传播和终止。
 
-- 每个合法请求恰好执行一次 Biohub `/fold`；
-- 可选公共控制只有 `include_pae` 和 `include_embeddings`；
-- `include_embeddings=true` 只承诺 `embedding_pair_pooled`；
-- 合法报告组合只有 none、PAE、embeddings、PAE + embeddings；
-- 不公开 distogram，也不承诺 `embedding_sequence`；
-- 不把 `/fold_all_atom` 作为严格单链产品路由、fallback 或重试目标。
+Adapter 不根据 observed value 猜测 schema，不为 hypothetical malformed response 建立
+shape/type/range 兼容矩阵，不 cross-check Provider，不改写 response，不切换 endpoint、model
+或 device，也不加入未由官方合同和 Method 明确拥有的 retry 或 fallback。
 
-`/fold_all_atom` 出现在固定 v1 快照中，只能证明该端点及其请求 wire 被 Biohub 文档发布过；
-这不自动把它变成本项目当前产品能力。相同地，`/fold` 请求 schema 中出现
-`include_distogram`，也不能推导当前两个 ESMFold2 模型已经实现 distogram。当前裁决的实测
-依据见[真实运行观测](observed-runtime-overlay.md#2-esmfold2-fold-观测矩阵)。
+如果固定官方合同、固定 SDK 与当前翻译不再一致，这是需要 fail fast 并重新裁决合同的
+Provider/Adapter 集成缺陷；不能通过同时接受多种猜测表示来掩盖。
 
-## 4. ESM3 structure 与本地上游风险
+## 4. 当前 ESMFold2 合同
 
-Biohub ESM3 structure generation 的产品能力不因旧验收器误判而收窄。SDK 自动带入的
-`invalid_ids=()` 和 `condition_on_coordinates_only=true` 是 structure track 的默认 no-op
-evidence，不是本项目公开拥有的 structure 控制项；验收器只应在值精确等于这些默认值时进行
-边界正规化。非默认值仍必须保留并导致 evidence mismatch。
+`folding.fold.esmfold2_remote` 只调用 `esmfold2-fast-2026-05` 的官方 `/fold` operation。
+当前 Method 固定完整 confidence 请求配置，包括：
 
-本地 open-weight ESM3 的 structure track 中，`cosine + entropy` 与其他合法采样组合具有完全
-相同的 Capabilities、Intent、Preview、Plan 和运行时调用路径。针对固定 SDK 3.3.0 与 MPS 的
-已知上游采样失败，只能在验收证据中精确登记为 `expected_upstream_failure`；产品实现不得为它
-增加 fallback、替换采样策略、切换设备、重试或专用功能分支。若后续上游版本使该组合成功，
-验收应要求删除过期登记，而不是继续掩盖成功。
+- `include_pae=true`；
+- `include_embeddings=false`；
+- exact sampling steps、loops、dropout 与 mask percentage。
 
-### 4.1 ESM3 generation output lineage
+这些值是 Method identity，不是用户参数。Adapter 不调用 `/fold_all_atom`，不公开
+distogram/embedding 选择，也不在 fold failure 时切换 model、endpoint 或配置。
 
-带日期的
-[`2026-07-21 ESM3 generation output study`](research/2026-07-21-esm3-generation-outputs/report.md)
-对 `esm3-open-2024-03` 与 `esm3-medium-2024-08` 冻结了以下 Provider 事实：
+pLDDT、pTM、PAE 与 prediction residue axis 的 canonical scientific semantics 服从
+[ADR-0020](../adr/0020-canonical-plddt-contract.md) 和
+[`structure_prediction` 两阶段 seam](../protein_workbench_architecture.md#101-结构预测置信度的两阶段-seam)。
 
-| live operation | Prompt | response structure fact | 产品 classification 上限 |
-| --- | --- | --- | --- |
-| Direct `generate(track="sequence")` | 无 coordinates | coordinates、pTM、pLDDT、PAE 均缺席 | `absent` |
-| Direct `generate(track="sequence")` | 完整 1PGA coordinates | 返回 coordinates/pTM/pLDDT；对齐后 backbone 与输入极近，且未采样 structure track | `prompt_reconstruction`，不能声称独立 structure sampling |
-| 单次 Guided complete denoise `forward_and_sample(sequence + structure) -> decode` | 无 coordinates | 明确采样 sequence/structure tokens，decode 后产生新 coordinates | `sampled_structure` evidence；但单次 denoise 不等于完整 Guided loop |
+## 5. 当前 ESM-3 generation 合同
 
-因此，公共 Generation Result 可以为 Direct/Guided 使用相同的 optional StructureData 类型，
-但必须同时携带来源 classification 与 parent lineage：
+每个 medium/open generation Binding 固定 exact model、operation、sampling configuration
+和 randomness contract。公共 Node parameters 只表达 Node Type 声明的科学选择；SDK 的
+`condition_on_coordinates_only`、`invalid_ids` 等 Method-fixed representation facts 不成为
+额外用户控制项。
 
-- Direct 无坐标 Prompt 固定为 structure absent，不得因 SDK response type 能容纳 coordinates 而
-  补造结构；
-- coordinate-conditioned Direct present structure 只按 Source Structure + Prompt binding +
-  terminal sequence 的 `prompt_reconstruction` 发布；坐标 hash 改变、frame 改变或 atom coverage
-  改变都不足以升级为 `sampled_structure`；
-- Guided 只有完整产品循环实际选中的 terminal denoise 结构才可按 `sampled_structure` 发布；
-  未选 proposal 和本研究的孤立 denoise 本身都不能伪装成最终公共 Candidate evidence；
-- `prompt_passthrough` 只属于研究期分类词汇，当前公共 Generation Structure Evidence 不公开
-  该 classification，也不能用于这六个 live cases；
-- `independent_fold` 只属于 Folding Backend 的 FoldOutcome，不属于 generation classification。
+Generation output 的科学身份由 `esm3` Module Interface 拥有：
 
-任何 present generation structure 都必须与 terminal sequence/ResidueAxis 一致，并使用独立于
-FoldOutcome 的 `canonical-pdb-v1` data identity、operation/model/endpoint provenance 与 Artifact
-role。它不替代每个 admitted sequence 的独立 Folding，也不在 Fold failure 时构成 fallback。
+- structure-track sampling 产生的结构使用 `sampled_structure` classification；
+- coordinate-conditioned sequence generation 返回的来源结构只使用
+  `prompt_reconstruction` classification；
+- 纯 sequence output 不补造 structure、Prediction Key 或 confidence fact；
+- present structure 必须与 terminal sequence、Prediction Key、structure digest、prediction
+  residue axis 和 exact Method 保持一一关联。
 
-本节的 dated fact 只直接覆盖上述两个 Biohub model。`local_open` 或新增 model 要公开同类结构
-输出，必须通过同一分类合同和对应 Provider/Adapter conformance evidence；共享 output type
-不能替代真实能力证据。
+真实运行中观察到 coordinates、confidence 或其他字段，不能自行升级 classification、补造
+Candidate、扩大当前 output contract，或替代独立 Folding Method。
 
-## 5. structure metric 边界
+## 6. 运行证据的职责
 
-公共科学合同中的 pTM 是无量纲 scalar，PAE 是与目标序列残基一一对应的 `(L,L)` 矩阵。
-adapter 只允许以下精确正规化：
+[真实运行观测](observed-runtime-overlay.md)和
+[带日期研究包](research/README.md)是绑定日期、Git revision、SDK、model、device 与 request
+组合的历史 Evidence。它们用于解释一次 acceptance 或集成调查，不定义 current capability。
 
-- 本地 SDK pTM `(1,)` 转为 scalar；
-- 本地 SDK PAE `(1,L+2,L+2)` 去除 batch 轴及首尾特殊 token，转为 `(L,L)`；
-- 已经是 scalar 或 `(L,L)` 的结果原样保留。
+新的运行结果若与当前合同不一致，应先作为 Provider/SDK 集成问题调查。只有官方合同或当前
+产品科学选择确实改变时，才原子修改 active Method/Binding、Adapter、tests、examples 和当前
+文档；不从一次成功或失败运行中生成 compatibility parser、expected-failure 产品分支或
+fallback route。
 
-不得使用通用 `squeeze`，也不得猜测转换 `(1,1)`、`(1,L,L)`、`(L+2,L+2)` 或其他未知 shape；
-这些结果必须 fail closed。这里保留的是产品科学边界上的窄正规化，不是泛化的本地/远端兼容层。
-
-## 6. Catalog 与可扩展性边界
-
-公共请求中的 `model` 是非空字符串，不冻结为只含上述模型的封闭 enum；但这不表示调用者可以
-提交任意模型。当前部署可选择的 endpoint、model 与 operation 组合只来自后端发布的
-Capabilities 和同一份 transport-neutral catalog。
-
-Catalog 必须显式声明：
-
-- model ID；
-- 支持的 transport / endpoint；
-- 支持的 operation 与控制合同。
-
-新增模型需要增加受控 catalog 条目以及相应的离线合同和真实 provider 验收证据；只有新增
-transport 时才需要新的 transport adapter。不得按 model ID 前缀猜测 transport，不得因 schema
-使用字符串就接受 Capabilities 未声明的模型，也不得为每个新模型复制 runner、adapter 或公共
-请求类型。Catalog 的可扩展性是服务端受控扩展边界，不是用户可编排的动态 provider/plugin
-系统。
-
-## 7. Biohub v1 快照边界
-
-[`v1/`](v1/README.md) 是不可变的上游参考快照。不得为了表达本产品的新增裁决而修改其抓取
-内容、manifest、机器可读定义或 endpoint 文档。
-
-该快照只在其明确覆盖的请求 wire 范围内作为证据，包括 method/path、鉴权与媒体类型、请求
-字段、枚举、范围和默认值。快照没有发布响应 body schema，因此不能据此推断响应字段、shape
-或解析合同。本文补充产品模型身份、ESMFold2 能力与 catalog 裁决，但不把这些裁决伪装成 v1
-快照的原始发布内容，也不扩大快照的证据范围。
+当前真实 Provider gate、source-bound Workflow 与 Acceptance Campaign 定义见
+[`backend-verification.md`](../backend-verification.md)。

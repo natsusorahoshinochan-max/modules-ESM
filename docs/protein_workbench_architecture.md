@@ -727,17 +727,47 @@ flowchart LR
     ESMSTRUCT --> MPNN["ProteinMPNN Design"]
     MPNN --> SF["SimpleFold"]
     MPNN --> EF["ESMFold2"]
-    SF --> CONF["Materialize Prediction Confidence"]
-    EF --> CONF
-    ESMSTRUCT --> CONF
-    SF --> CMP["Structure Metrics"]
-    EF --> CMP
-    ESMSTRUCT --> CMP
-    CONF --> SELECT
-    CMP --> SELECT["Explicit Selection Objectives"]
+
+    ESMSTRUCT -- structure_candidates --> CONF_ESM["Materialize ESM-3 Confidence"]
+    ESMSTRUCT -- confidence_facts --> CONF_ESM
+    SF -- structure_candidates --> CONF_SF["Materialize SimpleFold Confidence"]
+    SF -- confidence_facts --> CONF_SF
+    EF -- structure_candidates --> CONF_EF["Materialize ESMFold2 Confidence"]
+    EF -- confidence_facts --> CONF_EF
+
+    ESMSTRUCT -- counterpart + resolved axis --> CMP_SF["Role-labelled SF Comparison Subgraph"]
+    SF -- subjects + resolved axes --> CMP_SF
+    ESMSTRUCT -- counterpart + resolved axis --> CMP_EF["Role-labelled EF Comparison Subgraph"]
+    EF -- subjects + resolved axes --> CMP_EF
+
+    CONF_ESM --> MERGE["Explicit Score Merge Chain"]
+    CONF_SF --> MERGE
+    CONF_EF --> MERGE
+    CMP_SF --> MERGE
+    CMP_EF --> MERGE
+    MERGE --> SELECT["Explicit Selection Objectives"]
 ```
 
-每条 edge 传递 exact nominal typed values；每个 Candidate 保留 parent lineage；每个 observation 固定 Metric Definition、Method 和 Observation Context；每个 Provider invocation 进入同一 Run Evidence Ledger。
+该图是 active Node/Port Interface 的科学数据流概览；comparison subgraph、residue-axis
+resolution 和 score merge chain 可以折叠多个 active Nodes，因此该图本身不是可提交的
+Workflow。它仍保留以下不可省略的科学关联：
+
+- 每个 confidence-bearing producer 同时发布匹配的 `structure_candidates` 和
+  `confidence_facts`；每个 materializer 只接收一个 producer output pair；
+- materializer 按 Prediction Key、structure content digest、exact Method 和 prediction
+  residue axis 完成 full-set closure，不按数组位置建立关联；
+- 只有 materialization 后的 Candidate-associated Score Observations 才能与其他
+  Observations merge；
+- 结构比较 subgraph 接收 Candidate-associated resolved residue axes，使用显式 participant
+  role 和确定性 Structure Alignment Evidence，不把多路结构汇入一个没有
+  subject/counterpart 含义的 comparison；
+- 每条 edge 传递 exact nominal typed values；每个 Candidate 保留 parent lineage；每个
+  Observation 固定 Metric Definition、Method 和 Observation Context；每个 Provider
+  invocation 进入同一 Run Evidence Ledger。
+
+精确当前实例由可编译的
+[`examples/v2/canonical-3gb1.workflow.json`](../examples/v2/canonical-3gb1.workflow.json)
+拥有。架构图不能建立该 Workflow、active Catalog 或 compiler 不拥有的第二套连接合同。
 
 ## 19. 明确拒绝的设计
 
