@@ -4,9 +4,10 @@ from types import SimpleNamespace
 import pytest
 
 from core.operation import (
+    AdmittedPort,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
-    InputContentDigests,
+    OperationCall,
 )
 from core.port_types import (
     BehaviorReference,
@@ -19,7 +20,7 @@ from core.scoring_v2 import (
     ResolvedMetricFacts,
     validate_produced_score_collection_from_facts,
 )
-from core.value_admission import normalize_scientific_outputs
+from core.value_admission import admitted_port_values, normalize_scientific_outputs
 from core.run_execution_v2 import V2RunService
 from datatypes import (
     Candidate,
@@ -38,7 +39,10 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
-from tests.fixtures.scientific_operation import operation_context
+from tests.fixtures.scientific_operation import (
+    admitted_port_fixture,
+    operation_context,
+)
 
 
 def _method_reference(
@@ -72,26 +76,87 @@ def _intrinsic_score(
     )
 
 
-def test_input_content_digests_snapshots_caller_owned_sequences() -> None:
-    value_content_digests = ["sha256:" + ("1" * 64)]
-    candidate_digest = CandidateDataReference(
+def test_operation_call_carries_one_complete_admitted_port_record() -> None:
+    method = _method_reference("fixture.provider", "1")
+    candidate_reference = CandidateDataReference(
         candidate_id="candidate-1",
         data_type_id="protein.sequence",
         content_digest="sha256:" + ("2" * 64),
     )
-    candidate_data = [candidate_digest]
-
-    admitted = InputContentDigests(
-        port_type_id="candidate.collection",
-        value_content_digests=value_content_digests,  # type: ignore[arg-type]
-        candidate_data=candidate_data,  # type: ignore[arg-type]
+    port_type = PortTypeDefinition(
+        type_id="fixture.facts",
+        version="1.0.0",
+        validator=BehaviorReference("fixture.facts/validate", "1.0.0", {}),
+        codec=BehaviorReference("fixture.facts/codec", "1.0.0", {}),
+        content_identity=BehaviorReference(
+            "fixture.facts/content", "1.0.0", {}
+        ),
+        runtime_validator=lambda value: None,
+        runtime_to_wire=lambda value: value,
+        runtime_from_wire=lambda value: value,
+        candidate_data_projection=BehaviorReference(
+            "fixture.facts/candidate_projection", "1.0.0", {}
+        ),
+        runtime_candidate_data_projection=lambda _value, _port_types: (
+            candidate_reference,
+        ),
+        observation_method_projection=BehaviorReference(
+            "fixture.facts/method_projection", "1.0.0", {}
+        ),
+        runtime_observation_method_projection=lambda _: (method,),
+    )
+    admitted = admitted_port_values(
+        port_type=port_type,
+        multiplicity="one",
+        values=({"facts": [1, 2]},),
+        candidate_data_port_types={},
+    )
+    call = OperationCall(
+        inputs={"facts": admitted},
+        node_parameters={},
+        binding_parameters={},
     )
 
-    value_content_digests.append("sha256:" + ("3" * 64))
-    candidate_data.clear()
+    assert isinstance(call.inputs["facts"], AdmittedPort)
+    assert call.inputs["facts"] is admitted
+    assert admitted.value == {"facts": (1, 2)}
+    assert admitted.values[0].canonical_bytes == (
+        b'{"port_type_id":"fixture.facts","port_type_version":"1.0.0",'
+        b'"schema_namespace":"protein-workbench-port-value/v2",'
+        b'"value":{"facts":[1,2]}}'
+    )
+    assert admitted.value_content_digests == (admitted.content_digest,)
+    assert admitted.candidate_data == (candidate_reference,)
+    assert admitted.observation_methods == (method,)
 
-    assert admitted.value_content_digests == ("sha256:" + ("1" * 64),)
-    assert admitted.candidate_data == (candidate_digest,)
+
+def test_candidate_data_projection_declaration_and_runtime_are_atomic() -> None:
+    behavior = BehaviorReference(
+        "fixture.candidates/project", "1.0.0", {}
+    )
+    definition_arguments = {
+        "type_id": "fixture.candidates",
+        "version": "1.0.0",
+        "validator": BehaviorReference(
+            "fixture.candidates/validate", "1.0.0", {}
+        ),
+        "codec": BehaviorReference(
+            "fixture.candidates/codec", "1.0.0", {}
+        ),
+        "content_identity": BehaviorReference(
+            "fixture.candidates/content", "1.0.0", {}
+        ),
+    }
+    with pytest.raises(CatalogBuildError, match="provided together"):
+        PortTypeDefinition(
+            **definition_arguments,
+            candidate_data_projection=behavior,
+        )
+    with pytest.raises(CatalogBuildError, match="provided together"):
+        PortTypeDefinition(
+            **definition_arguments,
+            runtime_candidate_data_projection=lambda _value, _types: (),
+        )
 
 
 def test_direct_operation_context_preserves_axis_and_method_sources() -> None:
@@ -257,7 +322,6 @@ def test_output_admission_rejects_a_method_not_owned_by_the_binding(
             node,
             {"confidence_facts": "facts"},
             inputs={},
-            input_content_digests={},
         )
 
 
@@ -310,12 +374,9 @@ def test_output_admission_accepts_the_exact_binding_method_projection() -> None:
         node,
         {"confidence_facts": "facts"},
         inputs={},
-        input_content_digests={},
     )
 
-    assert admitted[("producer", "confidence_facts")].runtime_values == (
-        "facts",
-    )
+    assert admitted[("producer", "confidence_facts")].value == "facts"
 
 
 def test_produced_observation_method_uses_declared_projection_or_binding_default(
@@ -409,16 +470,29 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
             },
             output_port="scores",
             collection=collection,
-            inputs={"candidates": candidates, "confidence": "facts"},
-            outputs={"scores": collection},
+            inputs={
+                "candidates": admitted_port_fixture(
+                    candidates,
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("8" * 64),),
+                    candidate_data=(subject,),
+                ),
+                "confidence": admitted_port_fixture(
+                    "facts",
+                    port_type_id="fixture.confidence",
+                    value_content_digests=("sha256:" + ("9" * 64),),
+                    observation_methods=projected,
+                ),
+            },
+            outputs={
+                "scores": admitted_port_fixture(
+                    collection,
+                    port_type_id="score.collection",
+                    value_content_digests=("sha256:" + ("a" * 64),),
+                    candidate_data=(subject,),
+                )
+            },
             metric_facts={metric_key: facts},
-            axis_references={},
-            method_references={
-                ("input", "confidence"): projected
-            },
-            candidate_references={
-                ("input", "candidates"): (subject,)
-            },
         )
 
     validate(provider_method, dynamic=True, projected=(provider_method,))
@@ -530,12 +604,22 @@ def test_score_axis_source_is_not_rebound_to_the_direct_candidate_input(
         node_id="materializer",
         result_identity="sha256:" + ("5" * 64),
         inputs={
-            "structures": CandidateCollection(
-                "structures",
-                "protein.structure",
-                [Candidate("structure", ProteinStructure("ATOM\n"))],
+            "structures": admitted_port_fixture(
+                CandidateCollection(
+                    "structures",
+                    "protein.structure",
+                    [Candidate("structure", ProteinStructure("ATOM\n"))],
+                ),
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + ("6" * 64),),
+                candidate_data=(subject,),
             ),
-            "confidence_facts": "admitted-axis-owner",
+            "confidence_facts": admitted_port_fixture(
+                "admitted-axis-owner",
+                port_type_id="fixture.confidence",
+                value_content_digests=("sha256:" + ("7" * 64),),
+                scientific_axes=(axis,),
+            ),
         },
         outputs={"scores": ScoreCollection("raw", [score])},
         candidate_content_digest=lambda candidate: (
@@ -573,7 +657,14 @@ def test_observation_propagation_preserves_admitted_pairwise_references(
     normalized = normalize_scientific_outputs(
         node_id="merge",
         result_identity="sha256:" + ("3" * 64),
-        inputs={"source": ScoreCollection("source", [observation])},
+        inputs={
+            "source": admitted_port_fixture(
+                ScoreCollection("source", [observation]),
+                port_type_id="score.collection",
+                value_content_digests=("sha256:" + ("4" * 64),),
+                candidate_data=(subject, reference),
+            )
+        },
         outputs={"scores": ScoreCollection("raw-output", [observation])},
         candidate_content_digest=lambda _: pytest.fail(
             "propagated admitted Score references must not be recomputed"
@@ -620,11 +711,17 @@ def test_observation_propagation_rejects_conflicting_candidate_references(
             node_id="merge",
             result_identity="sha256:" + ("3" * 64),
             inputs={
-                "left": ScoreCollection(
-                    "left", [_intrinsic_score(left_subject)]
+                "left": admitted_port_fixture(
+                    ScoreCollection("left", [_intrinsic_score(left_subject)]),
+                    port_type_id="score.collection",
+                    value_content_digests=("sha256:" + ("4" * 64),),
+                    candidate_data=(left_subject,),
                 ),
-                "right": ScoreCollection(
-                    "right", [_intrinsic_score(right_subject)]
+                "right": admitted_port_fixture(
+                    ScoreCollection("right", [_intrinsic_score(right_subject)]),
+                    port_type_id="score.collection",
+                    value_content_digests=("sha256:" + ("5" * 64),),
+                    candidate_data=(right_subject,),
                 ),
             },
             outputs={
@@ -665,8 +762,11 @@ def test_observation_propagation_rejects_a_ghost_subject() -> None:
             node_id="filter",
             result_identity="sha256:" + ("3" * 64),
             inputs={
-                "source": ScoreCollection(
-                    "source", [_intrinsic_score(admitted)]
+                "source": admitted_port_fixture(
+                    ScoreCollection("source", [_intrinsic_score(admitted)]),
+                    port_type_id="score.collection",
+                    value_content_digests=("sha256:" + ("4" * 64),),
+                    candidate_data=(admitted,),
                 )
             },
             outputs={
@@ -781,15 +881,37 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
     message: str,
 ) -> None:
     inputs = {
-        "subjects": CandidateCollection(
-            "subjects",
-            "protein.sequence",
-            [Candidate("candidate-subject", ProteinSequence("AA"))],
+        "subjects": admitted_port_fixture(
+            CandidateCollection(
+                "subjects",
+                "protein.sequence",
+                [Candidate("candidate-subject", ProteinSequence("AA"))],
+            ),
+            port_type_id="candidate.collection",
+            value_content_digests=("sha256:" + ("5" * 64),),
+            candidate_data=(
+                CandidateDataReference(
+                    "candidate-subject",
+                    "protein.sequence",
+                    "sha256:" + ("1" * 64),
+                ),
+            ),
         ),
-        "references": CandidateCollection(
-            "references",
-            "protein.sequence",
-            [Candidate("candidate-reference", ProteinSequence("AT"))],
+        "references": admitted_port_fixture(
+            CandidateCollection(
+                "references",
+                "protein.sequence",
+                [Candidate("candidate-reference", ProteinSequence("AT"))],
+            ),
+            port_type_id="candidate.collection",
+            value_content_digests=("sha256:" + ("6" * 64),),
+            candidate_data=(
+                CandidateDataReference(
+                    "candidate-reference",
+                    "protein.sequence",
+                    "sha256:" + ("2" * 64),
+                ),
+            ),
         ),
     }
 
@@ -1018,8 +1140,13 @@ def test_cross_input_candidate_identity_rejects_conflicting_canonical_facts(
         ProteinSequence("CC"),
         metadata={"partition": "right"},
     )
-    digests = {
-        "left": InputContentDigests(
+    inputs = {
+        "left": admitted_port_fixture(
+            CandidateCollection(
+                "left",
+                "protein.sequence",
+                [left],
+            ),
             port_type_id="candidate.collection",
             value_content_digests=("sha256:" + "1" * 64,),
             candidate_data=(
@@ -1030,7 +1157,12 @@ def test_cross_input_candidate_identity_rejects_conflicting_canonical_facts(
                 ),
             ),
         ),
-        "right": InputContentDigests(
+        "right": admitted_port_fixture(
+            CandidateCollection(
+                "right",
+                "protein.sequence",
+                [right],
+            ),
             port_type_id="candidate.collection",
             value_content_digests=("sha256:" + "2" * 64,),
             candidate_data=(
@@ -1044,21 +1176,7 @@ def test_cross_input_candidate_identity_rejects_conflicting_canonical_facts(
     }
 
     with pytest.raises(PortValueError, match="conflicting canonical facts"):
-        validate_candidate_input_identities(
-            {
-                "left": CandidateCollection(
-                    "left",
-                    "protein.sequence",
-                    [left],
-                ),
-                "right": CandidateCollection(
-                    "right",
-                    "protein.sequence",
-                    [right],
-                ),
-            },
-            digests,
-        )
+        validate_candidate_input_identities(inputs)
 
 
 def test_cross_input_candidate_identity_allows_exact_canonical_duplicates(
@@ -1085,19 +1203,12 @@ def test_cross_input_candidate_identity_allows_exact_canonical_duplicates(
 
     validate_candidate_input_identities(
         {
-            "left": CandidateCollection(
-                "left",
-                "protein.sequence",
-                [first],
-            ),
-            "right": CandidateCollection(
-                "right",
-                "protein.sequence",
-                [duplicate],
-            ),
-        },
-        {
-            port: InputContentDigests(
+            port: admitted_port_fixture(
+                CandidateCollection(
+                    port,
+                    "protein.sequence",
+                    [first if port == "left" else duplicate],
+                ),
                 port_type_id="candidate.collection",
                 value_content_digests=(value_digest,),
                 candidate_data=(candidate_digest,),
@@ -1146,15 +1257,15 @@ def test_cross_input_candidate_identity_distinguishes_json_boolean_and_number(
 
     with pytest.raises(PortValueError, match="conflicting canonical facts"):
         validate_candidate_input_identities(
-            candidates,
             {
-                port: InputContentDigests(
+                port: admitted_port_fixture(
+                    candidates[port],
                     port_type_id="candidate.collection",
                     value_content_digests=("sha256:" + value * 64,),
                     candidate_data=(candidate_digest,),
                 )
                 for port, value in (("left", "1"), ("right", "2"))
-            },
+            }
         )
 
 
@@ -1165,16 +1276,23 @@ def test_output_normalization_consumes_prevalidated_input_candidates() -> None:
         node_id="consumer",
         result_identity="sha256:" + ("c" * 64),
         inputs={
-            "left": CandidateCollection(
-                "left",
-                "protein.sequence",
-                [Candidate(shared_id, ProteinSequence("AA"))],
-            ),
-            "right": CandidateCollection(
-                "right",
-                "protein.sequence",
-                [Candidate(shared_id, ProteinSequence("AA"))],
-            ),
+            port: admitted_port_fixture(
+                CandidateCollection(
+                    port,
+                    "protein.sequence",
+                    [Candidate(shared_id, ProteinSequence("AA"))],
+                ),
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + (digest * 64),),
+                candidate_data=(
+                    CandidateDataReference(
+                        shared_id,
+                        "protein.sequence",
+                        "sha256:" + ("a" * 64),
+                    ),
+                ),
+            )
+            for port, digest in (("left", "1"), ("right", "2"))
         },
         outputs={},
         candidate_content_digest=lambda candidate: pytest.fail(

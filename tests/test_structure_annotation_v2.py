@@ -11,7 +11,6 @@ import pytest
 
 from core import (
     EnvironmentConfiguration,
-    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
     OperationCall,
@@ -57,7 +56,36 @@ from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.implementation import resolve_residue_axis
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from tests.fixtures.structure_transform_sources.package import _FIXTURES
+
+
+def _operation_call(
+    *,
+    inputs,
+    node_parameters,
+    binding_parameters,
+    candidate_data=None,
+) -> OperationCall:
+    references = {} if candidate_data is None else candidate_data
+    return OperationCall(
+        inputs={
+            name: admitted_port_fixture(
+                value,
+                port_type_id=(
+                    "candidate.collection"
+                    if name
+                    in {"structure_candidates", "subjects", "references"}
+                    else name
+                ),
+                value_content_digests=("sha256:" + ("f" * 64),),
+                candidate_data=references.get(name, ()),
+            )
+            for name, value in inputs.items()
+        },
+        node_parameters=node_parameters,
+        binding_parameters=binding_parameters,
+    )
 
 
 def _candidate_reference(
@@ -523,76 +551,19 @@ def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
         items=[Candidate(candidate_id=subject.candidate_id, data=structure)],
     )
     output = operation.execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "structure_candidates": candidates,
                 "residue_axes": associations,
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("f" * 64),),
-                    candidate_data=(subject,),
-                )
-            },
+            candidate_data={"structure_candidates": (subject,)},
         )
     )
 
     assert adapter.calls == [(axis, subject)]
     assert output == {"annotations": annotation}
-
-
-def test_dssp_requires_singleton_protein_structure_candidate_reference() -> None:
-    structure = ProteinStructure(
-        "ATOM      1  CA  GLY A   1       "
-        "1.000   2.000   3.000  1.00 20.00           C  \n"
-        "TER\nEND\n"
-    )
-    subject = _candidate_reference("subject-structure")
-
-    class ForbiddenAdapter:
-        def annotate(self, *args: Any, **kwargs: Any) -> DSSPAnnotation:
-            raise AssertionError("adapter must not run before admission")
-
-    operation = DSSPComputeOperation(ForbiddenAdapter())
-    candidates = CandidateCollection(
-        collection_id="subject-structures",
-        item_type="protein.structure",
-        items=[Candidate(candidate_id=subject.candidate_id, data=structure)],
-    )
-
-    with pytest.raises(ValueError, match="exact Candidate content identity"):
-        operation.execute(
-            OperationCall(
-                inputs={
-                    "structure_candidates": candidates,
-                    "residue_axes": CandidateResolvedResidueAxisAssociations(
-                        entries=(
-                            CandidateResolvedResidueAxisAssociation(
-                                subject,
-                                resolve_residue_axis(structure),
-                            ),
-                        )
-                    ),
-                },
-                node_parameters={},
-                binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                        candidate_data=(
-                            _candidate_reference(
-                                "another-candidate",
-                                digest_symbol="b",
-                            ),
-                        ),
-                    )
-                },
-            )
-        )
 
 
 def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> None:
@@ -630,20 +601,14 @@ def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> No
         match="one exact resolved residue-axis association",
     ):
         operation.execute(
-            OperationCall(
+            _operation_call(
                 inputs={
                     "structure_candidates": candidates,
                     "residue_axes": wrong_associations,
                 },
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                        candidate_data=(subject,),
-                    )
-                },
+                candidate_data={"structure_candidates": (subject,)},
             )
         )
 
@@ -680,7 +645,7 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
 
     adapter = RecordingAdapter()
     output = DSSPComputeOperation(adapter).execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "structure_candidates": CandidateCollection(
                     collection_id="mse-structures",
@@ -691,13 +656,7 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("f" * 64),),
-                    candidate_data=(subject,),
-                )
-            },
+            candidate_data={"structure_candidates": (subject,)},
         )
     )
 
@@ -719,11 +678,10 @@ def test_secondary_structure_and_sasa_extraction_preserve_subject() -> None:
         secondary_structure=("P", "H"),
         sasa=(12.0, None),
     )
-    call = OperationCall(
+    call = _operation_call(
         inputs={"annotations": annotation},
         node_parameters={},
         binding_parameters={},
-        input_content_digests={},
     )
 
     secondary = SecondaryStructureExtractOperation(
@@ -821,7 +779,7 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
             ),
         )
     )
-    call = OperationCall(
+    call = _operation_call(
         inputs={
             "subjects": subjects,
             "references": references,
@@ -847,17 +805,9 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
         },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={
-            "subjects": InputContentDigests(
-                port_type_id="candidate.collection",
-                value_content_digests=("sha256:" + ("e" * 64),),
-                candidate_data=(subject_reference,),
-            ),
-            "references": InputContentDigests(
-                port_type_id="candidate.collection",
-                value_content_digests=("sha256:" + ("f" * 64),),
-                candidate_data=(expected_reference,),
-            ),
+        candidate_data={
+            "subjects": (subject_reference,),
+            "references": (expected_reference,),
         },
     )
 
@@ -922,21 +872,13 @@ def test_agreement_checks_layout_after_exact_participant_binding() -> None:
 
     with pytest.raises(ValueError, match="one identical exact layout"):
         operation.execute(
-            OperationCall(
+            _operation_call(
                 inputs=inputs,
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={
-                    "subjects": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("e" * 64),),
-                        candidate_data=(subject,),
-                    ),
-                    "references": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                        candidate_data=(reference,),
-                    ),
+                candidate_data={
+                    "subjects": (subject,),
+                    "references": (reference,),
                 },
             )
         )
@@ -974,7 +916,7 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
         match="one exact resolved residue-axis association",
     ):
         operation.execute(
-            OperationCall(
+            _operation_call(
                 inputs={
                     "subjects": CandidateCollection(
                         "subjects",
@@ -1009,17 +951,9 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
                 },
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={
-                    "subjects": InputContentDigests(
-                        "candidate.collection",
-                        ("sha256:" + ("e" * 64),),
-                        (subject,),
-                    ),
-                    "references": InputContentDigests(
-                        "candidate.collection",
-                        ("sha256:" + ("f" * 64),),
-                        (reference,),
-                    ),
+                candidate_data={
+                    "subjects": (subject,),
+                    "references": (reference,),
                 },
             )
         )

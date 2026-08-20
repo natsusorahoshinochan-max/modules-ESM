@@ -12,7 +12,6 @@ import torch
 
 from core import (
     EnvironmentConfiguration,
-    InputContentDigests,
     ModulePackageContractCase,
     ProjectManager,
     ReadinessResult,
@@ -37,6 +36,7 @@ from datatypes import (
     ProteinStructure,
 )
 from tests.fixtures.scientific_operation import (
+    admitted_port_fixture,
     operation_call,
     operation_context,
 )
@@ -413,14 +413,11 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
         "candidate.collection",
         "3.0.0",
     )
-    input_digests = {
-        "sequence_candidates": InputContentDigests(
-            port_type_id="candidate.collection",
-            value_content_digests=(
-                collection_type.content_digest(parents),
-            ),
-        )
-    }
+    admitted_parents = admitted_port_fixture(
+        parents,
+        port_type_id="candidate.collection",
+        value_content_digests=(collection_type.content_digest(parents),),
+    )
 
     def descriptor_for_binding(
         *,
@@ -478,8 +475,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
         )
         return run_execution_v2._result_identity_descriptor(
             plan_node,
-            {"sequence_candidates": parents},
-            input_content_digests=input_digests,
+            {"sequence_candidates": admitted_parents},
         )
 
     first = descriptor_for_binding(

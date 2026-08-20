@@ -7,7 +7,6 @@ from dataclasses import replace
 import pytest
 
 from core import (
-    InputContentDigests,
     OperationCall,
     ResolvedProducedObservation,
     build_frozen_catalog,
@@ -23,6 +22,7 @@ from datatypes import (
     ResidueLayout,
     validate_canonical_identifier,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from modules.structure_prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
@@ -380,24 +380,22 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
     )
     call = OperationCall(
         inputs={
-            "structure_candidates": candidates,
-            "confidence_facts": facts,
-        },
-        node_parameters={},
-        binding_parameters={},
-        input_content_digests={
-            "structure_candidates": InputContentDigests(
+            "structure_candidates": admitted_port_fixture(
+                candidates,
                 port_type_id="candidate.collection",
                 value_content_digests=("sha256:" + "c" * 64,),
                 candidate_data=(subject,),
             ),
-            "confidence_facts": InputContentDigests(
+            "confidence_facts": admitted_port_fixture(
+                facts,
                 port_type_id="structure_prediction.confidence_facts",
                 value_content_digests=(
                     CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),
                 ),
             ),
         },
+        node_parameters={},
+        binding_parameters={},
     )
 
     observations = operation.execute(call)["observations"]
@@ -514,36 +512,36 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
     )
     call = OperationCall(
         inputs={
-            "structure_candidates": CandidateCollection(
-                "structures",
-                "protein.structure",
-                (
-                    Candidate(
-                        "structure-1",
-                        ProteinStructure("ATOM\n"),
-                        metadata={
-                            "prediction_key": supplied_key,
-                            "output_port": output_port,
-                            "sample_slot": sample_slot,
-                        },
+            "structure_candidates": admitted_port_fixture(
+                CandidateCollection(
+                    "structures",
+                    "protein.structure",
+                    (
+                        Candidate(
+                            "structure-1",
+                            ProteinStructure("ATOM\n"),
+                            metadata={
+                                "prediction_key": supplied_key,
+                                "output_port": output_port,
+                                "sample_slot": sample_slot,
+                            },
+                        ),
                     ),
                 ),
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + "c" * 64,),
+                candidate_data=(subject,),
             ),
-            "confidence_facts": facts,
+            "confidence_facts": admitted_port_fixture(
+                facts,
+                port_type_id="structure_prediction.confidence_facts",
+                value_content_digests=(
+                    CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),
+                ),
+            ),
         },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={
-            "structure_candidates": InputContentDigests(
-                "candidate.collection",
-                ("sha256:" + "c" * 64,),
-                (subject,),
-            ),
-            "confidence_facts": InputContentDigests(
-                "structure_prediction.confidence_facts",
-                (CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),),
-            ),
-        },
     )
 
     with pytest.raises(ValueError, match=message):

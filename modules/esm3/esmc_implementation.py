@@ -26,7 +26,7 @@ class ESMCRepresentationOperation:
                 "direct ESMC representation requires one sequence and no "
                 "parameters"
             )
-        sequence = call.inputs["sequence"]
+        sequence = call.inputs["sequence"].value
         if type(sequence) is not ProteinSequence:
             raise ValueError(
                 "direct ESMC representation requires one ProteinSequence"

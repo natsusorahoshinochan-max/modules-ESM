@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -67,6 +66,7 @@ from tests.fixtures.public_v2 import (
     wait_for_testclient_run_terminal,
 )
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 def _transaction_has_fact(payload: bytes, fact_type: str) -> bool:
@@ -515,7 +515,6 @@ def _direct_catalog(
 
             def execute(self, call: OperationCall) -> dict[str, Any]:
                 assert call.inputs == {}
-                assert call.input_content_digests == {}
                 if node_parameter_declarations is None:
                     assert call.node_parameters == {}
                 else:
@@ -896,7 +895,6 @@ def _pipeline_catalog(
 
         def execute(self, call: OperationCall) -> dict[str, Any]:
             assert call.inputs == {}
-            assert call.input_content_digests == {}
             with self._resources.engine_invocation():
                 calls.append(f"execute:{self._node_id}")
                 if (
@@ -943,14 +941,16 @@ def _pipeline_catalog(
             self._resources = resources
 
         def execute(self, call: OperationCall) -> dict[str, Any]:
-            digest = call.input_content_digests.get("text")
-            if "text" in call.inputs:
-                assert digest is not None
-                assert digest.port_type_id == "test.canonical_text"
-                assert len(digest.value_content_digests) == 1
+            text_record = call.inputs.get("text")
+            if text_record is not None:
+                assert (
+                    text_record.port_type["contract_id"]
+                    == "test.canonical_text"
+                )
+                assert len(text_record.value_content_digests) == 1
             if include_candidate_data:
-                candidates = call.inputs["candidates"]
-                candidate_digests = call.input_content_digests["candidates"]
+                candidate_record = call.inputs["candidates"]
+                candidates = candidate_record.value
                 candidate_values = (
                     tuple(
                         candidate
@@ -960,30 +960,40 @@ def _pipeline_catalog(
                     if candidate_conflict_probe
                     else tuple(candidates.items)
                 )
-                assert candidate_digests.port_type_id == "candidate.collection"
-                assert len(candidate_digests.value_content_digests) == (
+                assert (
+                    candidate_record.port_type["contract_id"]
+                    == "candidate.collection"
+                )
+                assert len(candidate_record.value_content_digests) == (
                     2 if candidate_conflict_probe else 1
                 )
                 assert all(
                     type(item) is CandidateDataReference
-                    for item in candidate_digests.candidate_data
+                    for item in candidate_record.candidate_data
                 )
                 assert [
-                    item.candidate_id for item in candidate_digests.candidate_data
+                    item.candidate_id for item in candidate_record.candidate_data
                 ] == [candidate.candidate_id for candidate in candidate_values]
                 assert [
-                    item.data_type_id for item in candidate_digests.candidate_data
+                    item.data_type_id for item in candidate_record.candidate_data
                 ] == ["protein.sequence"] * len(candidate_values)
                 assert [
-                    item.content_digest for item in candidate_digests.candidate_data
+                    item.content_digest for item in candidate_record.candidate_data
                 ] == [
                     candidate_data_type.content_digest(candidate.data)
                     for candidate in candidate_values
                 ]
                 calls.append("candidate-digests:verified")
             with self._resources.engine_invocation():
-                calls.append(f"sink-input:{call.inputs.get('text')}")
-                return {"text": call.inputs.get("text", "OPTIONAL")}
+                text_value = (
+                    text_record.value
+                    if text_record is not None
+                    else "OPTIONAL"
+                )
+                calls.append(
+                    f"sink-input:{text_record.value if text_record else None}"
+                )
+                return {"text": text_value}
 
     for binding_id, node_type, implementation in (
         ("test.pipeline.source.direct", source, SourceImplementation),
@@ -1142,14 +1152,27 @@ def test_runtime_rejects_multiple_admitted_values_for_one_input(
     ).execution_plan
     target = next(node for node in plan.nodes if node.node_id == "sink")
     text = catalog.require_port_type("test.canonical_text", "2.1.0")
+    single = admitted_port_values(
+        port_type=text,
+        multiplicity="many",
+        values=("FIRST",),
+        candidate_data_port_types={},
+    )
     admitted = admitted_port_values(
         port_type=text,
         multiplicity="many",
         values=("FIRST", "SECOND"),
-        candidate_data=lambda _value: (),
+        candidate_data_port_types={},
     )
 
     try:
+        inputs = service._inputs_for(  # noqa: SLF001 - contract seam
+            target,
+            {("source", "text"): single},
+        )
+        assert inputs["text"].value == "first"
+        assert inputs["text"].values[0] is single.values[0]
+
         with pytest.raises(
             RuntimeError,
             match="one-valued input Port 'text'.*2 admitted values",
@@ -1285,7 +1308,6 @@ def _artifact_catalog(
 
         def execute(self, call: OperationCall) -> dict[str, Any]:
             assert call.inputs == {}
-            assert call.input_content_digests == {}
             with self._resources.engine_invocation():
                 pass
             with self._resources.temporary_directory(
@@ -2394,7 +2416,12 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
     randomness_calls: list[dict[str, Any]] = []
 
     def resolve_randomness(**kwargs: Any) -> Mapping[str, Any]:
-        randomness_calls.append(deepcopy(kwargs))
+        randomness_calls.append(
+            {
+                **kwargs,
+                "node_parameters": dict(kwargs["node_parameters"]),
+            }
+        )
         return {"seed": 17}
 
     resolver = EffectiveRandomnessResolver(
@@ -2902,13 +2929,18 @@ def test_operation_call_reuses_admitted_scientific_values_without_copy() -> None
     )
 
     call = OperationCall(
-        inputs={"candidate": candidate},
+        inputs={
+            "candidate": admitted_port_fixture(
+                candidate,
+                port_type_id="candidate",
+                value_content_digests=("sha256:" + ("a" * 64),),
+            )
+        },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={},
     )
 
-    assert call.inputs["candidate"] is candidate
+    assert call.inputs["candidate"].value is candidate
     with pytest.raises(TypeError):
         call.inputs["other"] = candidate
 

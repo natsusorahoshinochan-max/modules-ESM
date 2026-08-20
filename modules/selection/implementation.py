@@ -51,8 +51,10 @@ class SelectionImplementation:
     def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
         if call.binding_parameters:
             raise ValueError("selection accepts no Binding parameters")
-        candidates = call.inputs.get("candidates")
-        scores = call.inputs.get("scores")
+        candidate_input = call.inputs.get("candidates")
+        score_input = call.inputs.get("scores")
+        candidates = None if candidate_input is None else candidate_input.value
+        scores = None if score_input is None else score_input.value
         if type(candidates) is not CandidateCollection:
             raise ValueError("selection requires one exact Candidate Collection")
         if type(scores) is not ScoreCollection:
@@ -417,32 +419,10 @@ class SelectionImplementation:
         call: OperationCall,
         candidates: CandidateCollection,
     ) -> Mapping[str, CandidateDataReference]:
-        admitted = call.input_content_digests.get("candidates")
-        if admitted is None:
-            raise ValueError(
-                "selection Candidate content identities were not admitted"
-            )
-        if len(admitted.candidate_data) != len(candidates.items):
-            raise ValueError(
-                "selection Candidate content identities are incomplete"
-            )
-        resolved: dict[str, CandidateDataReference] = {}
-        for candidate, reference in zip(
-            candidates.items,
-            admitted.candidate_data,
-            strict=True,
-        ):
-            if candidate.candidate_id != reference.candidate_id:
-                raise ValueError(
-                    "selection Candidate content identity names a different "
-                    "Candidate"
-                )
-            resolved[reference.candidate_id] = reference
-        if len(resolved) != len(admitted.candidate_data):
-            raise ValueError(
-                "selection has duplicate admitted Candidate identities"
-            )
-        return resolved
+        return {
+            reference.candidate_id: reference
+            for reference in call.inputs["candidates"].candidate_data
+        }
 
     @staticmethod
     def _require_exact_observation_subjects(

@@ -40,7 +40,11 @@ from tests.fixtures.public_v2 import (
     decode_service_typed_output_value,
     wait_for_testclient_run_terminal,
 )
-from tests.fixtures.scientific_operation import build_operation, operation_call
+from tests.fixtures.scientific_operation import (
+    admitted_port_fixture,
+    build_operation,
+    operation_call,
+)
 from modules.collection_ops.implementation import CollectionOpsImplementation
 
 
@@ -68,10 +72,19 @@ def test_candidate_intersection_and_child_selection_preserve_exact_candidates() 
     )
     selected = CollectionOpsImplementation("select_children_by_parent").execute(
         OperationCall(
-            inputs={"candidates": children, "parents": parents},
+            inputs={
+                name: admitted_port_fixture(
+                    value,
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + digit * 64,),
+                )
+                for name, value, digit in (
+                    ("candidates", children, "a"),
+                    ("parents", parents, "b"),
+                )
+            },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={},
         )
     )["candidates"]
     assert tuple(item.candidate_id for item in selected.items) == ("child-a",)
@@ -79,17 +92,27 @@ def test_candidate_intersection_and_child_selection_preserve_exact_candidates() 
     intersection = CollectionOpsImplementation("intersect_candidates").execute(
         OperationCall(
             inputs={
-                "candidates_a": children,
-                "candidates_b": selected,
-                    "candidates_c": CandidateCollection(
-                        "empty",
-                        "protein.sequence",
-                    (),
-                ),
+                name: admitted_port_fixture(
+                    value,
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + digit * 64,),
+                )
+                for name, value, digit in (
+                    ("candidates_a", children, "a"),
+                    ("candidates_b", selected, "b"),
+                    (
+                        "candidates_c",
+                        CandidateCollection(
+                            "empty",
+                            "protein.sequence",
+                            (),
+                        ),
+                        "c",
+                    ),
+                )
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={},
         )
     )["candidates"]
     assert intersection.item_type == "protein.sequence"

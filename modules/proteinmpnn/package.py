@@ -8,6 +8,7 @@ import math
 from typing import Any
 
 from core import (
+    AdmittedPort,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -420,7 +421,7 @@ def _method(operation: str) -> MethodDefinition:
 
 def _resolve_random_fixed_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -448,7 +449,7 @@ def _resolve_random_fixed_randomness(
 
 def _resolve_design_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:

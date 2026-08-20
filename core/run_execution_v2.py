@@ -29,7 +29,7 @@ from protein_workbench_public import (
 
 from core.artifacts import ArtifactPayload, is_valid_artifact_media_type
 from core.operation import (
-    InputContentDigests,
+    AdmittedPort,
     OperationCall,
     OperationContext,
 )
@@ -46,7 +46,6 @@ from core.project_objects import ObjectIntegrityError, ProjectObjectStore
 from core.public_values import sanitize_public_value
 from core.scoring_v2 import (
     SelectionError,
-    resolve_structure_alignment_evidence_admission_facts,
     selection_objective_provenance_from_facts,
     validate_produced_score_collection_from_facts,
 )
@@ -58,9 +57,9 @@ from core.storage import (
     write_new_file,
 )
 from core.value_admission import (
-    AdmittedPortValues,
     admitted_port_values,
     admitted_port_values_from_bytes,
+    combine_admitted_port_values,
     normalize_scientific_outputs,
     validate_candidate_input_identities,
 )
@@ -75,12 +74,9 @@ from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    PairwiseCandidateMapping,
-    PairwiseObservationContext,
     ProteinSequence,
     ProteinStructure,
     ScoreCollection,
-    ScoreObservation,
     ExactContractReference,
     validate_canonical_identifier,
 )
@@ -849,7 +845,7 @@ class ResultReplaySource:
         project_id: str,
         execution_plan: ExecutionPlan,
         node: ExecutionPlanNode,
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
         result_identity: str,
     ) -> ResultReplayHit | None:
         del project_id, execution_plan, node, inputs, result_identity
@@ -883,7 +879,7 @@ class ResultReplayHit:
     producer_run_id: str
     admitted_outputs: Mapping[
         tuple[str, str],
-        AdmittedPortValues,
+        AdmittedPort,
     ]
 
     def __post_init__(self) -> None:
@@ -891,12 +887,12 @@ class ResultReplayHit:
             not isinstance(key, tuple)
             or len(key) != 2
             or not all(isinstance(part, str) for part in key)
-            or not isinstance(snapshot, AdmittedPortValues)
+            or not isinstance(snapshot, AdmittedPort)
             for key, snapshot in self.admitted_outputs.items()
         ):
             raise TypeError(
                 "Result replay admitted_outputs must contain canonical "
-                "AdmittedPortValues snapshots"
+                "AdmittedPort snapshots"
             )
         object.__setattr__(
             self,
@@ -997,7 +993,7 @@ class ExecutedNodeSuccess:
     operation_attempt_id: str
     result_identity: str
     admitted_output_descriptors: tuple[Mapping[str, Any], ...]
-    admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues]
+    admitted_outputs: Mapping[tuple[str, str], AdmittedPort]
     cache_eligible: bool
     artifact_publication_plan: AdmittedArtifactPublicationPlan = field(
         default_factory=lambda: AdmittedArtifactPublicationPlan((), ())
@@ -1034,7 +1030,7 @@ class CacheReplayNodeSuccess:
     result_identity: str
     producer_run_id: str
     admitted_output_descriptors: tuple[Mapping[str, Any], ...]
-    admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues]
+    admitted_outputs: Mapping[tuple[str, str], AdmittedPort]
     artifact_publication_plan: AdmittedArtifactPublicationPlan = field(
         default_factory=lambda: AdmittedArtifactPublicationPlan((), ())
     )
@@ -1089,7 +1085,7 @@ class FinalizedNode:
     ]
     admitted_outputs: Mapping[
         tuple[str, str],
-        AdmittedPortValues,
+        AdmittedPort,
     ] = field(default_factory=dict)
     artifacts: tuple[Mapping[str, Any], ...] = ()
 
@@ -3209,7 +3205,7 @@ class NodeAttemptFinalizer:
         project_id: str,
         node_id: str,
         descriptors: list[dict[str, Any]],
-        admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues],
+        admitted_outputs: Mapping[tuple[str, str], AdmittedPort],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         published: list[dict[str, Any]] = []
         result_outputs: list[dict[str, Any]] = []
@@ -3556,7 +3552,7 @@ class NodeAttemptFinalizer:
         self,
         *,
         context: _NodeCompletionContext,
-        admitted_outputs: Mapping[tuple[str, str], AdmittedPortValues],
+        admitted_outputs: Mapping[tuple[str, str], AdmittedPort],
         typed_descriptors: list[dict[str, Any]],
         artifacts: list[dict[str, Any]],
         result_identity: str,
@@ -4097,7 +4093,7 @@ class _EffectiveRandomnessSnapshot:
 
 def _resolve_effective_randomness(
     node: ExecutionPlanNode,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
 ) -> _EffectiveRandomnessSnapshot:
     binding_contract = node._runtime.binding_contract
     node_parameters = _plain_json(node.node_parameters)
@@ -4190,9 +4186,8 @@ def _read_bounded_file(
 
 def _result_identity_descriptor(
     node: ExecutionPlanNode,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     *,
-    input_content_digests: Mapping[str, InputContentDigests],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> dict[str, Any]:
@@ -4205,18 +4200,17 @@ def _result_identity_descriptor(
         port["input_port"]: port
         for port in static_facts["input_contracts"]
     }
-    admitted_input_digests = input_content_digests
     input_identities: list[dict[str, Any]] = []
     for port_name in sorted(inputs):
         declaration = declared_inputs[port_name]
-        digest_record = admitted_input_digests[port_name]
+        admitted = inputs[port_name]
         input_identities.append(
             {
                 "input_port": port_name,
                 "port_type": declaration["port_type"],
                 "multiplicity": declaration["multiplicity"],
                 "value_content_digests": list(
-                    digest_record.value_content_digests
+                    admitted.value_content_digests
                 ),
             }
         )
@@ -4310,40 +4304,10 @@ def _exact_reference(reference: Any) -> ExactContractReference:
     )
 
 
-def _candidate_digests_for_value(
-    port_types: Mapping[str, Any],
-    value: Any,
-) -> tuple[CandidateDataReference, ...]:
-    if type(value) is Candidate:
-        candidates = (value,)
-    elif type(value) is CandidateCollection:
-        candidates = tuple(value.items)
-    else:
-        return ()
-    digests: list[CandidateDataReference] = []
-    for candidate in candidates:
-        type_id = _candidate_data_type_id(candidate.data)
-        if type_id is None:
-            continue
-        digests.append(
-            CandidateDataReference(
-                candidate_id=candidate.candidate_id,
-                data_type_id=type_id,
-                content_digest=_active_content_digest(
-                    port_types,
-                    type_id,
-                    candidate.data,
-                ),
-            )
-        )
-    return tuple(digests)
-
-
 def _result_identity(
     node: ExecutionPlanNode,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     *,
-    input_content_digests: Mapping[str, InputContentDigests],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> str:
@@ -4351,7 +4315,6 @@ def _result_identity(
         _result_identity_descriptor(
             node,
             inputs,
-            input_content_digests=input_content_digests,
             resolved_resource_inputs=resolved_resource_inputs,
             effective_randomness_snapshot=effective_randomness_snapshot,
         )
@@ -4360,7 +4323,7 @@ def _result_identity(
 
 def _selection_consumer_result(
     node: ExecutionPlanNode,
-    values: Mapping[tuple[str, str], AdmittedPortValues],
+    values: Mapping[tuple[str, str], AdmittedPort],
 ) -> dict[str, Any]:
     """Project one declared selection Node's actual typed output."""
     resolved_objectives = node._runtime.selection_objectives
@@ -4381,19 +4344,20 @@ def _selection_consumer_result(
         )
     output_port = node._runtime.selection_candidate_output_port
     resolved = (
-        values.get((node.node_id, output_port), [])
+        values.get((node.node_id, output_port))
         if isinstance(output_port, str)
-        else []
+        else None
     )
     if (
-        len(resolved) != 1
-        or type(resolved[0]) is not CandidateCollection
+        resolved is None
+        or resolved.multiplicity != "one"
+        or type(resolved.value) is not CandidateCollection
     ):
         raise SelectionError(
             "Selection consumer output did not resolve to one exact "
             "CandidateCollection"
         )
-    selected = resolved[0]
+    selected = resolved.value
     candidate_reference = next(iter(candidate_references))
     result = {
         "status": "succeeded",
@@ -4441,9 +4405,8 @@ def _contains_unresolved_identity(value: Any) -> bool:
 
 def _result_identity_is_cache_safe(
     node: ExecutionPlanNode,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     *,
-    input_content_digests: Mapping[str, InputContentDigests],
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> bool:
@@ -4451,13 +4414,15 @@ def _result_identity_is_cache_safe(
         node.result_identity_plan_facts.canonical_projection()
     ):
         return False
-    if _contains_unresolved_identity(inputs):
+    if any(
+        _contains_unresolved_identity(admitted.value)
+        for admitted in inputs.values()
+    ):
         return False
     if _contains_unresolved_identity(
         _result_identity_descriptor(
             node,
             inputs,
-            input_content_digests=input_content_digests,
             resolved_resource_inputs=resolved_resource_inputs,
             effective_randomness_snapshot=effective_randomness_snapshot,
         )
@@ -4465,8 +4430,8 @@ def _result_identity_is_cache_safe(
         return False
     return all(
         not _contains_unresolved_identity(candidate.candidate_id)
-        for value in inputs.values()
-        for candidate in V2RunService._candidate_values(value)
+        for admitted in inputs.values()
+        for candidate in V2RunService._candidate_values(admitted.value)
     )
 
 
@@ -4511,7 +4476,7 @@ def _admitted_output_from_manifest(
     execution_plan: ExecutionPlan,
     node: ExecutionPlanNode,
     output: Mapping[str, Any],
-) -> AdmittedPortValues:
+) -> AdmittedPort:
     """Materialize one committed Port manifest through its exact codec."""
     output_port = output["output_port"]
     declaration = node._runtime.output_ports[output_port].declaration
@@ -4542,9 +4507,8 @@ def _admitted_output_from_manifest(
         port_type=port_type,
         multiplicity=declaration["multiplicity"],
         canonical_values=tuple(canonical_values),
-        candidate_data=lambda value: _candidate_digests_for_value(
-            execution_plan._runtime.candidate_data_port_types,
-            value,
+        candidate_data_port_types=(
+            execution_plan._runtime.candidate_data_port_types
         ),
     )
     if admitted.content_digest != manifest["content_digest"]:
@@ -4599,7 +4563,7 @@ class _ProjectResultCache(ResultReplaySource):
         execution_plan: ExecutionPlan,
         node: ExecutionPlanNode,
         output: Mapping[str, Any],
-    ) -> AdmittedPortValues:
+    ) -> AdmittedPort:
         return _admitted_output_from_manifest(
             object_store=self._object_store,
             project_id=project_id,
@@ -4660,7 +4624,7 @@ class _ProjectResultCache(ResultReplaySource):
             raise RuntimeError("Current Node Result Manifest is invalid")
         admitted_outputs: dict[
             tuple[str, str],
-            AdmittedPortValues,
+            AdmittedPort,
         ] = {}
         for output in node_result["outputs"]:
             if output["output_port"] not in declarations:
@@ -5135,12 +5099,9 @@ class V2RunService:
         node: ExecutionPlanNode,
         values: Mapping[
             tuple[str, str],
-            AdmittedPortValues,
+            AdmittedPort,
         ],
-    ) -> tuple[
-        dict[str, Any],
-        Mapping[str, InputContentDigests],
-    ]:
+    ) -> Mapping[str, AdmittedPort]:
         declarations = {
             name: port.declaration
             for name, port in node._runtime.input_ports.items()
@@ -5160,35 +5121,25 @@ class V2RunService:
                     source.values
                 )
 
-        inputs: dict[str, Any] = {}
-        digests: dict[str, InputContentDigests] = {}
+        inputs: dict[str, AdmittedPort] = {}
         for port_name, admitted in admitted_inputs.items():
             declaration = declarations[port_name]
-            if declaration["multiplicity"] == "many":
-                inputs[port_name] = tuple(
-                    value.runtime_value for value in admitted
+            if (
+                declaration["multiplicity"] == "one"
+                and len(admitted) != 1
+            ):
+                raise RuntimeError(
+                    "Execution Plan one-valued input Port "
+                    f"{port_name!r} resolved to {len(admitted)} "
+                    "admitted values"
                 )
-            else:
-                if len(admitted) != 1:
-                    raise RuntimeError(
-                        "Execution Plan one-valued input Port "
-                        f"{port_name!r} resolved to {len(admitted)} "
-                        "admitted values"
-                    )
-                inputs[port_name] = admitted[0].runtime_value
-            digests[port_name] = InputContentDigests(
-                port_type_id=declaration["port_type"]["contract_id"],
-                value_content_digests=tuple(
-                    value.content_digest for value in admitted
-                ),
-                candidate_data=tuple(
-                    digest
-                    for value in admitted
-                    for digest in value.candidate_data
-                ),
+            inputs[port_name] = combine_admitted_port_values(
+                port_type=declaration["port_type"],
+                multiplicity=declaration["multiplicity"],
+                values=tuple(admitted),
             )
-        validate_candidate_input_identities(inputs, digests)
-        return inputs, MappingProxyType(digests)
+        validate_candidate_input_identities(inputs)
+        return MappingProxyType(inputs)
 
     def _resolve_project_inputs(
         self,
@@ -5225,7 +5176,7 @@ class V2RunService:
     def _required_input_blockers(
         self,
         node: ExecutionPlanNode,
-        values: Mapping[tuple[str, str], AdmittedPortValues],
+        values: Mapping[tuple[str, str], AdmittedPort],
     ) -> list[str]:
         blockers: set[str] = set()
         for sources in node._runtime.required_input_sources.values():
@@ -5283,7 +5234,7 @@ class V2RunService:
         node: ExecutionPlanNode,
         admitted: Mapping[
             tuple[str, str],
-            AdmittedPortValues,
+            AdmittedPort,
         ],
     ) -> list[dict[str, Any]]:
         return [
@@ -5303,11 +5254,10 @@ class V2RunService:
         node: ExecutionPlanNode,
         outputs: Any,
         *,
-        inputs: Mapping[str, Any],
-        input_content_digests: Mapping[str, InputContentDigests],
+        inputs: Mapping[str, AdmittedPort],
     ) -> tuple[
         list[dict[str, Any]],
-        dict[tuple[str, str], AdmittedPortValues],
+        dict[tuple[str, str], AdmittedPort],
     ]:
         if not isinstance(outputs, Mapping):
             raise PortValueError("Direct implementation output must be an object")
@@ -5318,7 +5268,7 @@ class V2RunService:
         if set(outputs) - set(declared):
             raise PortValueError("Direct implementation returned unknown outputs")
 
-        admitted: dict[tuple[str, str], AdmittedPortValues] = {}
+        admitted: dict[tuple[str, str], AdmittedPort] = {}
         for port_name, declaration in declared.items():
             if declaration["required"] is True and port_name not in outputs:
                 raise PortValueError(
@@ -5344,9 +5294,8 @@ class V2RunService:
                 port_type=port_type,
                 multiplicity=declaration["multiplicity"],
                 values=values,
-                candidate_data=lambda value: _candidate_digests_for_value(
-                    plan._runtime.candidate_data_port_types,
-                    value,
+                candidate_data_port_types=(
+                    plan._runtime.candidate_data_port_types
                 ),
             )
             if (
@@ -5354,14 +5303,9 @@ class V2RunService:
                 and port_type.observation_method_projection is not None
             ):
                 producing_method = _exact_reference(node.method)
-                projected_methods = tuple(
-                    method
-                    for value in snapshot.runtime_values
-                    for method in port_type.observation_method_references(value)
-                )
                 if any(
                     method != producing_method
-                    for method in projected_methods
+                    for method in snapshot.observation_methods
                 ):
                     raise PortValueError(
                         "Output Observation Method projection does not equal "
@@ -5369,207 +5313,29 @@ class V2RunService:
                     )
             admitted[(node.node_id, port_name)] = snapshot
 
-        canonical_outputs = {
-            port_name: (
-                snapshot.runtime_values
-                if snapshot.multiplicity == "many"
-                else snapshot.values[0].runtime_value
-            )
-            for (node_id, port_name), snapshot in admitted.items()
-            if node_id == node.node_id
-        }
-        axis_references: dict[tuple[str, str], tuple[Any, ...]] = {}
-        method_references: dict[tuple[str, str], tuple[Any, ...]] = {}
-        alignment_evidence_references: dict[
-            tuple[str, str],
-            tuple[Any, ...],
-        ] = {}
-        candidate_references: dict[
-            tuple[str, str],
-            tuple[CandidateDataReference, ...],
-        ] = {}
-        for resolved_metric in node._runtime.produced_metric_facts.values():
-            evidence_contract = resolved_metric.structure_alignment_evidence
-            if evidence_contract is None:
-                continue
-            direction = evidence_contract["source_direction"]
-            source_port = evidence_contract["source_port"]
-            key = (direction, source_port)
-            if key in alignment_evidence_references:
-                continue
-            if direction == "input":
-                port = node._runtime.input_ports.get(source_port)
-                digest_record = input_content_digests.get(source_port)
-                if (
-                    port is None
-                    or source_port not in inputs
-                    or digest_record is None
-                ):
-                    raise PortValueError(
-                        "Produced Observation alignment evidence input lacks "
-                        "admitted identity evidence"
-                    )
-                raw_value = inputs[source_port]
-                values = (
-                    tuple(raw_value)
-                    if port.declaration["multiplicity"] == "many"
-                    else (raw_value,)
-                )
-                content_digests = digest_record.value_content_digests
-            elif direction == "output":
-                snapshot = admitted.get((node.node_id, source_port))
-                if snapshot is None:
-                    raise PortValueError(
-                        "Produced Observation alignment evidence output was "
-                        "not admitted"
-                    )
-                values = snapshot.runtime_values
-                content_digests = tuple(
-                    value.content_digest for value in snapshot.values
-                )
-            else:
-                raise PortValueError(
-                    "Produced Observation alignment evidence source direction "
-                    "is invalid"
-                )
-            alignment_evidence_references[key] = (
-                resolve_structure_alignment_evidence_admission_facts(
-                    values,
-                    content_digests,
-                )
-            )
-        for declaration in node._runtime.binding_contract.descriptor.get(
-            "produced_observations",
-            (),
-        ):
-            for projection_kind, direction, source_port in (
-                (
-                    "axis",
-                    declaration.get("axis_direction"),
-                    declaration.get("axis_port"),
-                ),
-                (
-                    "method",
-                    declaration.get("method_direction"),
-                    declaration.get("method_port"),
-                ),
-            ):
-                if direction not in {"input", "output"} or not isinstance(
-                    source_port, str
-                ):
-                    continue
-                target = (
-                    axis_references
-                    if projection_kind == "axis"
-                    else method_references
-                )
-                key = (direction, source_port)
-                if key in target:
-                    continue
-                if direction == "input":
-                    port = node._runtime.input_ports.get(source_port)
-                    if (
-                        port is None
-                        or source_port not in input_content_digests
-                    ):
-                        raise PortValueError(
-                            f"Declared input {projection_kind} Port lacks "
-                            "admitted identity evidence"
-                        )
-                    raw_value = inputs.get(source_port)
-                else:
-                    port = node._runtime.output_ports.get(source_port)
-                    snapshot = admitted.get((node.node_id, source_port))
-                    if port is None or snapshot is None:
-                        raise PortValueError(
-                            f"Declared output {projection_kind} Port was not "
-                            "admitted"
-                        )
-                    raw_value = canonical_outputs.get(source_port)
-                if raw_value is None:
-                    target[key] = ()
-                    continue
-                values = (
-                    tuple(raw_value)
-                    if port.declaration["multiplicity"] == "many"
-                    else (raw_value,)
-                )
-                projected = tuple(
-                    reference
-                    for value in values
-                    for reference in (
-                        port.port_type.scientific_axis_references(value)
-                        if projection_kind == "axis"
-                        else port.port_type.observation_method_references(value)
-                    )
-                )
-                if len(projected) != len(set(projected)):
-                    raise PortValueError(
-                        f"Declared {projection_kind} Port projected duplicate "
-                        "exact references"
-                    )
-                target[key] = projected
-        for declaration in node._runtime.binding_contract.descriptor.get(
-            "produced_observations",
-            (),
-        ):
-            for direction_name, port_name_key in (
-                ("subject_direction", "subject_port"),
-                ("reference_direction", "reference_port"),
-            ):
-                direction = declaration.get(direction_name)
-                source_port = declaration.get(port_name_key)
-                if direction not in {"input", "output"} or not isinstance(
-                    source_port, str
-                ):
-                    continue
-                key = (direction, source_port)
-                if key in candidate_references:
-                    continue
-                if direction == "input":
-                    evidence = input_content_digests.get(source_port)
-                    if evidence is None:
-                        raise PortValueError(
-                            "Produced Observation Candidate source lacks "
-                            "admitted identity evidence"
-                        )
-                    candidate_references[key] = tuple(
-                        evidence.candidate_data
-                    )
-                else:
-                    snapshot = admitted.get((node.node_id, source_port))
-                    if snapshot is None:
-                        raise PortValueError(
-                            "Produced Observation output Candidate source was "
-                            "not admitted"
-                        )
-                    candidate_references[key] = tuple(
-                        reference
-                        for value in snapshot.values
-                        for reference in value.candidate_data
-                    )
-        for (node_id, port_name), snapshot in admitted.items():
+        admitted_outputs = MappingProxyType(
+            {
+                port_name: snapshot
+                for (node_id, port_name), snapshot in admitted.items()
+                if node_id == node.node_id
+            }
+        )
+        for port_name, snapshot in admitted_outputs.items():
             if (
-                node_id != node.node_id
-                or snapshot.port_type["contract_id"] != "score.collection"
+                node._runtime.output_ports[port_name].port_type.type_id
+                != "score.collection"
             ):
                 continue
-            for value in snapshot.runtime_values:
+            for value in snapshot.values:
                 validate_produced_score_collection_from_facts(
                     binding_descriptor=(
                         node._runtime.binding_contract.descriptor
                     ),
                     output_port=port_name,
-                    collection=value,
+                    collection=value.value,
                     inputs=inputs,
-                    outputs=canonical_outputs,
+                    outputs=admitted_outputs,
                     metric_facts=node._runtime.produced_metric_facts,
-                    axis_references=axis_references,
-                    method_references=method_references,
-                    candidate_references=candidate_references,
-                    alignment_evidence_references=(
-                        alignment_evidence_references
-                    ),
                 )
         return self._published_outputs(node, admitted), admitted
 
@@ -5578,7 +5344,7 @@ class V2RunService:
         *,
         node: ExecutionPlanNode,
         admitted_output_descriptors: list[dict[str, Any]],
-        runtime: Mapping[tuple[str, str], AdmittedPortValues],
+        runtime: Mapping[tuple[str, str], AdmittedPort],
         current_artifact_count: int,
         current_artifact_bytes: int,
         trusted_replay: bool,
@@ -5593,9 +5359,10 @@ class V2RunService:
             declaration = port_declarations[output["output_port"]]
             output_port = output["output_port"]
             port_type = node._runtime.output_ports[output_port].port_type
-            decoded_values = runtime[
-                (node.node_id, output_port)
-            ].runtime_values
+            decoded_values = tuple(
+                admitted.value
+                for admitted in runtime[(node.node_id, output_port)].values
+            )
             artifact_kind = declaration.get("artifact_kind")
             if artifact_kind is None:
                 if port_type.artifact_media_types is None:
@@ -5833,7 +5600,7 @@ class V2RunService:
             _on_admitted(receipt, record)
         if _before_execute is not None:
             _before_execute()
-        committed_values: dict[tuple[str, str], AdmittedPortValues] = {}
+        committed_values: dict[tuple[str, str], AdmittedPort] = {}
         readiness_failures: dict[
             tuple[str, str],
             V2RunError | None,
@@ -5868,14 +5635,10 @@ class V2RunService:
                 continue
             node_attempt_id = f"node-attempt-{uuid.uuid4().hex}"
             operation_attempt_id = f"operation-{uuid.uuid4().hex}"
-            node_inputs: dict[str, Any] = {}
-            input_content_digests: Mapping[
-                str,
-                InputContentDigests,
-            ] = MappingProxyType({})
+            node_inputs: Mapping[str, AdmittedPort] = MappingProxyType({})
             input_admission_error: PortValueError | None = None
             try:
-                node_inputs, input_content_digests = self._inputs_for(
+                node_inputs = self._inputs_for(
                     node,
                     committed_values,
                 )
@@ -5928,7 +5691,6 @@ class V2RunService:
                 and _result_identity_is_cache_safe(
                     node,
                     node_inputs,
-                    input_content_digests=input_content_digests,
                     resolved_resource_inputs=resource_identities,
                     effective_randomness_snapshot=(
                         effective_randomness_snapshot
@@ -5942,7 +5704,6 @@ class V2RunService:
                 result_identity = _result_identity(
                     node,
                     node_inputs,
-                    input_content_digests=input_content_digests,
                     resolved_resource_inputs=resource_identities,
                     effective_randomness_snapshot=(
                         effective_randomness_snapshot
@@ -5951,7 +5712,7 @@ class V2RunService:
             replayed_published: list[dict[str, Any]] | None = None
             replayed_runtime: dict[
                 tuple[str, str],
-                AdmittedPortValues,
+                AdmittedPort,
             ] | None = None
             replayed_artifact_plan: (
                 AdmittedArtifactPublicationPlan | None
@@ -6158,7 +5919,6 @@ class V2RunService:
                     binding_parameters=(
                         effective_randomness_snapshot.binding_parameters
                     ),
-                    input_content_digests=input_content_digests,
                 )
                 environment = self._environment.for_binding(
                     node.binding.contract_id,
@@ -6258,7 +6018,7 @@ class V2RunService:
             )
             pending_runtime: dict[
                 tuple[str, str],
-                AdmittedPortValues,
+                AdmittedPort,
             ] = {}
             pending_published: list[dict[str, Any]] = []
             pending_artifact_plan = AdmittedArtifactPublicationPlan((), ())
@@ -6283,7 +6043,6 @@ class V2RunService:
                     result_identity = _result_identity(
                         node,
                         node_inputs,
-                        input_content_digests=input_content_digests,
                         resolved_resource_inputs=(
                             resources.result_identity_inputs
                         ),
@@ -6304,7 +6063,6 @@ class V2RunService:
                     node,
                     raw_outputs,
                     inputs=node_inputs,
-                    input_content_digests=input_content_digests,
                 )
                 pending_artifact_plan = self._artifact_publication_plan(
                     node=node,

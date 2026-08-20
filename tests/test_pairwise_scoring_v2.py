@@ -60,6 +60,8 @@ from protein_workbench_public import (
 CONTRACT_VERSION = "2.1.0"
 PORT_VERSION = "3.0.0"
 SCORE_PORT_VERSION = "4.0.0"
+CANDIDATE_COLLECTION_PORT_TYPE_VERSION = "3.0.0"
+CANDIDATE_PAIRING_PORT_TYPE_VERSION = "3.0.0"
 NODE_BINDING_VERSION = "3.0.0"
 SELECTION_NODE_BINDING_VERSION = "4.0.0"
 
@@ -110,8 +112,44 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         "node_type",
         "score.test.pairwise",
         {
-            "inputs": [],
-            "outputs": [],
+            "inputs": [
+                {
+                    "name": name,
+                    "port_type": builtin.require_port_type(
+                        "candidate.pairing"
+                        if name == "pairings"
+                        else "score.collection"
+                        if name in {"left", "right", "source"}
+                        else "candidate.collection",
+                        CANDIDATE_PAIRING_PORT_TYPE_VERSION
+                        if name == "pairings"
+                        else SCORE_PORT_VERSION
+                        if name in {"left", "right", "source"}
+                        else CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
+                    ).reference(),
+                    "required": False,
+                    "multiplicity": "one",
+                }
+                for name in (
+                    "subjects",
+                    "counterparts",
+                    "pairings",
+                    "left",
+                    "right",
+                    "source",
+                )
+            ],
+            "outputs": [
+                {
+                    "name": "scores",
+                    "port_type": builtin.require_port_type(
+                        "score.collection",
+                        SCORE_PORT_VERSION,
+                    ).reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                }
+            ],
             "node_parameters": {},
         },
     )
@@ -739,7 +777,7 @@ def test_per_subject_pairing_rejects_one_global_implicit_reference() -> None:
         ],
     )
 
-    with pytest.raises(PortValueError, match="distinct exact counterpart"):
+    with pytest.raises(PortValueError, match="reuses one counterpart"):
         validate_produced_score_collection(
             catalog=catalog,
             binding=_pairwise_binding(contracts),

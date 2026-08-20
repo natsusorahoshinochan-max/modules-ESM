@@ -46,9 +46,10 @@ from core.port_types import (
     canonical_sha256,
 )
 from core.operation import (
+    AdmittedPort,
+    AdmittedValue,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
-    InputContentDigests,
     OperationCall,
     OperationContext,
     ResolvedProducedObservation,
@@ -103,6 +104,8 @@ from core.workflow_v2 import (
 
 __all__ = [
     "ArtifactPayload",
+    "AdmittedPort",
+    "AdmittedValue",
     "BehaviorReference",
     "AvailabilityDeclaration",
     "AvailabilityResult",
@@ -117,7 +120,6 @@ __all__ = [
     "ExecutionBindingDefinition",
     "ExpectedOptionalDependencyMissing",
     "FrozenCatalog",
-    "InputContentDigests",
     "InactiveContractGenerationError",
     "ModulePackageDiscoveryError",
     "ModulePackageCaseReport",

@@ -45,23 +45,13 @@ def _candidate_scope(
     CandidateCollection,
     dict[str, CandidateDataReference],
 ]:
-    collection: CandidateCollection = call.inputs[port]
-    admitted = call.input_content_digests[port]
+    admitted = call.inputs[port]
+    collection = cast(CandidateCollection, admitted.value)
     if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(f"{port} must be exact structure Candidates")
     references = {
         reference.candidate_id: reference for reference in admitted.candidate_data
     }
-    if (
-        len(references) != len(admitted.candidate_data)
-        or set(references) != {candidate.candidate_id for candidate in collection.items}
-        or any(
-            reference.data_type_id != "protein.structure"
-            for candidate in collection.items
-            for reference in (references[candidate.candidate_id],)
-        )
-    ):
-        raise ValueError(f"{port} exact Candidate references are incomplete")
     return collection, references
 
 
@@ -80,8 +70,8 @@ def _alignment_values(
     call: OperationCall,
     port: str,
 ) -> dict[CandidateDataReference, tuple[StructureAlignmentEvidence, str]]:
-    values = cast(tuple[StructureAlignmentEvidence, ...], call.inputs[port])
-    admitted = call.input_content_digests[port]
+    admitted = call.inputs[port]
+    values = cast(tuple[StructureAlignmentEvidence, ...], admitted.value)
     if not values or len(admitted.value_content_digests) != len(values):
         raise ValueError(f"{port} must contain exact alignment evidence")
     result = {
@@ -230,11 +220,11 @@ class EvaluateInsertedLoopImplementation:
             raise ValueError("inserted-loop evaluation requires one fixed reference")
         reference = next(iter(reference_references.values()))
         axes = _axes_by_subject(
-            call.inputs["subject_residue_axes"],
+            call.inputs["subject_residue_axes"].value,
             subject_references,
         )
         paired = _paired_counterparts(
-            call.inputs["counterpart_pairing"],
+            call.inputs["counterpart_pairing"].value,
             subject_references,
             counterpart_references,
         )
@@ -247,26 +237,28 @@ class EvaluateInsertedLoopImplementation:
             "counterpart_alignments",
         )
         core_tm = _score_by_subject(
-            call.inputs["resolved_core_tm_scores"],
+            call.inputs["resolved_core_tm_scores"].value,
             metric_id="structure_comparison.tm_score",
             method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
         )
         core_rmsd = _score_by_subject(
-            call.inputs["resolved_core_rmsd_scores"],
+            call.inputs["resolved_core_rmsd_scores"].value,
             metric_id="structure_comparison.rmsd",
             method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
         )
         counterpart_tm = _score_by_subject(
-            call.inputs["counterpart_tm_scores"],
+            call.inputs["counterpart_tm_scores"].value,
             metric_id="structure_comparison.tm_score",
             method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
         )
         counterpart_rmsd = _score_by_subject(
-            call.inputs["counterpart_rmsd_scores"],
+            call.inputs["counterpart_rmsd_scores"].value,
             metric_id="structure_comparison.rmsd",
             method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
         )
-        confidence = _per_residue_confidence(call.inputs["confidence_observations"])
+        confidence = _per_residue_confidence(
+            call.inputs["confidence_observations"].value
+        )
         expected_subjects = set(subject_references.values())
         for mapping in (
             core_alignments,
@@ -321,7 +313,7 @@ class EvaluateInsertedLoopImplementation:
                 parameters["loop_core_nonbonded_distance_angstrom_minimum"]
             ),
         )
-        confidence_digests = call.input_content_digests[
+        confidence_digests = call.inputs[
             "confidence_observations"
         ].value_content_digests
         if len(confidence_digests) != 1:

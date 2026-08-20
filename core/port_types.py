@@ -1096,6 +1096,15 @@ class PortTypeDefinition:
         repr=False,
         compare=False,
     )
+    candidate_data_projection: BehaviorReference | None = None
+    runtime_candidate_data_projection: Callable[
+        [Any, Mapping[str, "PortTypeDefinition"]],
+        tuple[CandidateDataReference, ...],
+    ] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
     scientific_axis_projection: BehaviorReference | None = None
     runtime_scientific_axis_projection: Callable[
         [Any], tuple[ResidueAxisReference, ...]
@@ -1116,6 +1125,13 @@ class PortTypeDefinition:
     def __post_init__(self) -> None:
         _validate_identifier(self.type_id, "type_id")
         _validate_version(self.version, "version")
+        if (self.candidate_data_projection is None) != (
+            self.runtime_candidate_data_projection is None
+        ):
+            raise CatalogBuildError(
+                "candidate_data_projection declaration and runtime must be "
+                "provided together"
+            )
         if (self.scientific_axis_projection is None) != (
             self.runtime_scientific_axis_projection is None
         ):
@@ -1143,6 +1159,10 @@ class PortTypeDefinition:
             "codec": self.codec.descriptor(),
             "content_identity": self.content_identity.descriptor(),
         }
+        if self.candidate_data_projection is not None:
+            descriptor["candidate_data_projection"] = (
+                self.candidate_data_projection.descriptor()
+            )
         if self.scientific_axis_projection is not None:
             descriptor["scientific_axis_projection"] = (
                 self.scientific_axis_projection.descriptor()
@@ -1229,6 +1249,34 @@ class PortTypeDefinition:
                 "scientific-axis projection returned duplicate exact axes"
             )
         return references
+
+    def candidate_data_references(
+        self,
+        value: Any,
+        candidate_data_port_types: Mapping[str, "PortTypeDefinition"],
+    ) -> tuple[CandidateDataReference, ...]:
+        """Project exact Candidate data identities using the nominal owner."""
+        projector = self.runtime_candidate_data_projection
+        if projector is None:
+            raise PortValueError(
+                f"Port Type {self.type_id}@{self.version} does not own a "
+                "Candidate Data Reference projection"
+            )
+        references = tuple(projector(value, candidate_data_port_types))
+        if any(type(item) is not CandidateDataReference for item in references):
+            raise PortValueError(
+                "Candidate Data Reference projection returned a non-reference"
+            )
+        by_candidate: dict[str, CandidateDataReference] = {}
+        for reference in references:
+            known = by_candidate.get(reference.candidate_id)
+            if known is not None and known != reference:
+                raise PortValueError(
+                    "Candidate Data Reference projection returned conflicting "
+                    "exact references for one Candidate"
+                )
+            by_candidate[reference.candidate_id] = reference
+        return tuple(by_candidate.values())
 
     def observation_method_references(
         self,
@@ -1794,6 +1842,72 @@ _BUILTIN_VALUE_KINDS = (
 )
 
 
+def _candidate_collection_data_references(
+    value: Any,
+    candidate_data_port_types: Mapping[str, PortTypeDefinition],
+) -> tuple[CandidateDataReference, ...]:
+    if type(value) is not CandidateCollection:
+        raise PortValueError(
+            "candidate.collection projection requires a CandidateCollection"
+        )
+    try:
+        data_port_type = candidate_data_port_types[value.item_type]
+    except KeyError as error:
+        raise PortValueError(
+            f"Candidate collection uses unavailable data Port Type "
+            f"{value.item_type!r}"
+        ) from error
+    return tuple(
+        CandidateDataReference(
+            candidate_id=candidate.candidate_id,
+            data_type_id=value.item_type,
+            content_digest=data_port_type.content_digest(candidate.data),
+        )
+        for candidate in value.items
+    )
+
+
+def _candidate_pairing_data_references(
+    value: Any,
+    _candidate_data_port_types: Mapping[str, PortTypeDefinition],
+) -> tuple[CandidateDataReference, ...]:
+    if type(value) is not PairwiseCandidateMapping:
+        raise PortValueError(
+            "candidate.pairing projection requires a PairwiseCandidateMapping"
+        )
+    return tuple(
+        reference
+        for entry in value.entries
+        for reference in (entry.subject, entry.reference)
+    )
+
+
+def _score_collection_data_references(
+    value: Any,
+    _candidate_data_port_types: Mapping[str, PortTypeDefinition],
+) -> tuple[CandidateDataReference, ...]:
+    if type(value) is not ScoreCollection:
+        raise PortValueError(
+            "score.collection projection requires a ScoreCollection"
+        )
+    references: list[CandidateDataReference] = []
+    for observation in value.entries:
+        references.append(observation.subject)
+        if isinstance(observation.context, PairwiseObservationContext):
+            references.extend(
+                (
+                    observation.context.subject.candidate,
+                    observation.context.reference.candidate,
+                )
+            )
+        if (
+            observation.residue_axis is not None
+            and type(observation.residue_axis.source) is CandidateDataReference
+        ):
+            references.append(observation.residue_axis.source)
+    return tuple(references)
+
+
 def _builtin_port_type(
     type_id: str,
     value_kind: str,
@@ -1852,6 +1966,11 @@ def _builtin_port_type(
             "subject": participant_fields,
             "reference": participant_fields,
         }
+    candidate_projection = {
+        "candidate.collection": _candidate_collection_data_references,
+        "candidate.pairing": _candidate_pairing_data_references,
+        "score.collection": _score_collection_data_references,
+    }.get(type_id)
     return PortTypeDefinition(
         type_id=type_id,
         version=version,
@@ -1876,6 +1995,18 @@ def _builtin_port_type(
                 ),
             },
         ),
+        candidate_data_projection=(
+            BehaviorReference(
+                behavior_id=f"{behavior_prefix}/candidate-data-projection",
+                behavior_version=version,
+                parameters={
+                    "projection": "all-exact-Candidate-Data-References",
+                },
+            )
+            if candidate_projection is not None
+            else None
+        ),
+        runtime_candidate_data_projection=candidate_projection,
     )
 
 

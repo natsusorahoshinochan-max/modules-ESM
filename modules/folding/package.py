@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from core import (
+    AdmittedPort,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -160,7 +161,7 @@ def _simplefold_confidence_available() -> AvailabilityResult:
 
 def _resolve_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -179,7 +180,7 @@ def _resolve_effective_randomness(
 
 def _resolve_simplefold_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:

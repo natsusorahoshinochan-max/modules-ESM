@@ -378,13 +378,13 @@ class _ConfidenceSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError("confidence source accepts no parameters")
-        structures = call.inputs["structures"]
-        facts = call.inputs["confidence_facts"]
+        structures = call.inputs["structures"].value
+        facts = call.inputs["confidence_facts"].value
         assert type(structures) is CandidateCollection
         assert type(facts) is ConfidenceFactCollection
         if len(structures.items) != 1 or len(facts.entries) != 1:
             raise ValueError("confidence source requires one structure and fact")
-        structure_reference = call.input_content_digests[
+        structure_reference = call.inputs[
             "structures"
         ].candidate_data[0]
         fact = facts.entries[0]
@@ -417,13 +417,13 @@ class _PerResidueConfidenceSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError("per-residue confidence source accepts no parameters")
-        structures = call.inputs["structures"]
-        facts = call.inputs["confidence_facts"]
+        structures = call.inputs["structures"].value
+        facts = call.inputs["confidence_facts"].value
         assert type(structures) is CandidateCollection
         assert type(facts) is ConfidenceFactCollection
         if len(structures.items) != 1 or len(facts.entries) != 1:
             raise ValueError("per-residue confidence source requires one prediction")
-        subject = call.input_content_digests["structures"].candidate_data[0]
+        subject = call.inputs["structures"].candidate_data[0]
         fact = facts.entries[0]
         if fact.structure_content_digest != subject.content_digest:
             raise ValueError("confidence fact does not identify the structure")
@@ -456,13 +456,13 @@ class _ConfidenceFactSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.binding_parameters:
             raise ValueError("confidence-fact source accepts no Binding parameters")
-        structures = call.inputs["structures"]
-        prediction_axis = call.inputs["prediction_axis"]
+        structures = call.inputs["structures"].value
+        prediction_axis = call.inputs["prediction_axis"].value
         assert type(structures) is CandidateCollection
         assert type(prediction_axis) is PredictionResidueAxis
         if len(structures.items) != 1:
             raise ValueError("confidence-fact source requires one structure")
-        structure_reference = call.input_content_digests[
+        structure_reference = call.inputs[
             "structures"
         ].candidate_data[0]
         axis_digest = PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
@@ -502,7 +502,7 @@ class _PredictionAxisSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError("prediction-axis source accepts no parameters")
-        sequences = call.inputs["sequence_parents"]
+        sequences = call.inputs["sequence_parents"].value
         assert type(sequences) is CandidateCollection
         if len(sequences.items) != 1:
             raise ValueError("prediction-axis source requires one sequence")
@@ -511,7 +511,7 @@ class _PredictionAxisSource:
         residue_ids = tuple(candidate.data.residue_ids or ())
         if len(residue_ids) != len(candidate.data):
             raise ValueError("prediction-axis source requires exact residue identities")
-        reference = call.input_content_digests[
+        reference = call.inputs[
             "sequence_parents"
         ].candidate_data[0]
         with self._resources.engine_invocation():

@@ -652,6 +652,13 @@ def _port_type(
     from_wire: Any,
     quantity_contract: Mapping[str, str] | None = None,
 ) -> PortTypeDefinition:
+    def candidate_data_references(
+        value: object,
+        _candidate_data_port_types: object,
+    ) -> tuple[CandidateDataReference, ...]:
+        validator(value)
+        return (value.subject,)
+
     return PortTypeDefinition(
         type_id=type_id,
         version=_PORT_VERSION,
@@ -697,6 +704,12 @@ def _port_type(
         runtime_validator=validator,
         runtime_to_wire=to_wire,
         runtime_from_wire=from_wire,
+        candidate_data_projection=BehaviorReference(
+            f"{type_id}/candidate_data_projection",
+            _PORT_VERSION,
+            {"fields": ["subject"]},
+        ),
+        runtime_candidate_data_projection=candidate_data_references,
     )
 
 

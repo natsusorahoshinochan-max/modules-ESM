@@ -107,7 +107,6 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
         descriptor = run_execution_v2._result_identity_descriptor(
             node,
             {},
-            input_content_digests={},
         )
         cache_metadata = run_execution_v2._result_contract_metadata(node)
         ledger_plan_facts = app.state.run_execution_v2._plan_evidence(plan)[0]
@@ -158,7 +157,6 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
         descriptor = run_execution_v2._result_identity_descriptor(
             compiled.execution_plan.nodes[0],
             {},
-            input_content_digests={},
         )
 
     assert descriptor["node_parameters"] == {parameter_name: 17}
@@ -253,7 +251,6 @@ def _candidate_catalog(
 
         def execute(self, call: OperationCall) -> dict[str, Any]:
             assert call.inputs == {}
-            assert call.input_content_digests == {}
             calls.append(self._resources.run_id)
             with self._resources.engine_invocation():
                 pass

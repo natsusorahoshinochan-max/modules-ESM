@@ -14,7 +14,6 @@ from core import (
     CatalogBuildError,
     ContractIdentity,
     EnvironmentConfiguration,
-    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
     ProjectManager,
@@ -62,6 +61,7 @@ from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 TARGET_LAYOUT = ResidueLayout(
@@ -1021,22 +1021,18 @@ def test_structure_axis_join_uses_full_reference_and_not_collection_order(
     ) -> OperationCall:
         return OperationCall(
             inputs={
-                "structure_candidates": CandidateCollection(
-                    "reference-join-subjects",
-                    "protein.structure",
-                    candidates,
-                ),
-                "structure_residue_axes": supplied,
-            },
-            node_parameters={},
-            binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
+                "structure_candidates": admitted_port_fixture(
+                    CandidateCollection(
+                        "reference-join-subjects",
+                        "protein.structure",
+                        candidates,
+                    ),
                     port_type_id="candidate.collection",
                     value_content_digests=("sha256:" + "1" * 64,),
                     candidate_data=references,
                 ),
-                "structure_residue_axes": InputContentDigests(
+                "structure_residue_axes": admitted_port_fixture(
+                    supplied,
                     port_type_id=(
                         "structure_transform."
                         "candidate_resolved_residue_axis_associations"
@@ -1044,6 +1040,8 @@ def test_structure_axis_join_uses_full_reference_and_not_collection_order(
                     value_content_digests=("sha256:" + "2" * 64,),
                 ),
             },
+            node_parameters={},
+            binding_parameters={},
         )
 
     joined = _structure_candidates_with_axes(call(associations))
@@ -1347,7 +1345,7 @@ def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
         def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
             if kwargs["node"].node_id != "score":
                 return None
-            subjects = kwargs["inputs"]["sequence_candidates"]
+            subjects = kwargs["inputs"]["sequence_candidates"].value
             assert type(subjects) is CandidateCollection
             subject = subjects.items[0]
             subject_reference = CandidateDataReference(
@@ -1358,13 +1356,7 @@ def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
                     "3.0.0",
                 ).content_digest(subject.data),
             )
-            axes = catalog.require_port_type(
-                "structure_transform."
-                "candidate_resolved_residue_axis_associations",
-                "5.0.0",
-            ).scientific_axis_references(
-                kwargs["inputs"]["structure_residue_axes"]
-            )
+            axes = kwargs["inputs"]["structure_residue_axes"].scientific_axes
             assert len(axes) == 1
             outputs = {
                 "scores": ScoreCollection(

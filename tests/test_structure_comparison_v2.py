@@ -68,7 +68,11 @@ from modules.structure_comparison.port_types import (
     alignment_evidence_to_wire,
 )
 from modules.structure_comparison.three_way_port import (
+    THREE_WAY_CONSISTENCY_PORT_TYPE,
     validate_three_way_consistency,
+)
+from modules.structure_comparison.inserted_loop_port import (
+    INSERTED_LOOP_EVALUATION_PORT_TYPE,
 )
 from modules.structure_comparison.package import MODULE_PACKAGE
 from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS_PACKAGE
@@ -1932,6 +1936,26 @@ def test_three_way_port_requires_tuples_and_exact_method_references() -> None:
         validate_three_way_consistency(
             replace(value, classification_method=wrong_kind)
         )
+
+
+def test_package_ports_project_all_nested_candidate_data_references() -> None:
+    three_way = _three_way_consistency_value()
+    assert {
+        reference.candidate_id
+        for reference in THREE_WAY_CONSISTENCY_PORT_TYPE.candidate_data_references(
+            three_way,
+            {},
+        )
+    } == {"input", "sequence", "esmfold2", "simplefold"}
+
+    inserted_loop = _inserted_loop_port_case().valid_value
+    assert {
+        reference.candidate_id
+        for reference in INSERTED_LOOP_EVALUATION_PORT_TYPE.candidate_data_references(
+            inserted_loop,
+            {},
+        )
+    } == {"loop-subject", "loop-reference", "loop-counterpart"}
 
 
 def _inserted_loop_port_case() -> ModulePackagePortCase:

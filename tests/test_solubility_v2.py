@@ -219,7 +219,6 @@ def test_soluprot_parser_preserves_provider_subject_keys() -> None:
 def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
 ) -> None:
     from core import (
-        InputContentDigests,
         OperationCall,
         ResolvedProducedObservation,
     )
@@ -232,6 +231,7 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
     )
     from modules.solubility.adapter import SoluProtPrediction
     from modules.solubility.implementation import SoluProtImplementation
+    from tests.fixtures.scientific_operation import admitted_port_fixture
 
     candidates = CandidateCollection(
         "soluprot-subjects",
@@ -298,16 +298,16 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
     )
 
     call = OperationCall(
-        inputs={"sequence_candidates": candidates},
-        node_parameters={},
-        binding_parameters={},
-        input_content_digests={
-            "sequence_candidates": InputContentDigests(
+        inputs={
+            "sequence_candidates": admitted_port_fixture(
+                candidates,
                 port_type_id="candidate.collection",
                 value_content_digests=(f"sha256:{'e' * 64}",),
                 candidate_data=references,
             )
         },
+        node_parameters={},
+        binding_parameters={},
     )
     scores = implementation.execute(call)["scores"]
 
@@ -321,9 +321,14 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
             replace(
                 call,
                 inputs={
-                    "sequence_candidates": replace(
-                        candidates,
-                        item_type="protein.structure",
+                    "sequence_candidates": admitted_port_fixture(
+                        replace(
+                            candidates,
+                            item_type="protein.structure",
+                        ),
+                        port_type_id="candidate.collection",
+                        value_content_digests=(f"sha256:{'e' * 64}",),
+                        candidate_data=references,
                     )
                 },
             )

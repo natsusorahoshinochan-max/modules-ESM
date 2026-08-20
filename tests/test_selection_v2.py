@@ -588,7 +588,7 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
         binding_parameters={},
     )
     output = implementation.execute(call)["candidates"]
-    admitted_candidates = call.inputs["candidates"]
+    admitted_candidates = call.inputs["candidates"].value
 
     assert output.items == (admitted_candidates.items[0],)
     assert output.items[0] is admitted_candidates.items[0]
@@ -636,7 +636,7 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
     ]
     assert (
         sorted_candidates.items[1]
-        is sort_call.inputs["candidates"].items[2]
+        is sort_call.inputs["candidates"].value.items[2]
     )
     _, top_k = _direct_implementation("top_k")
     selected = top_k.execute(operation_call(
@@ -662,7 +662,7 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
         ))
 
 
-def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> None:
+def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
     catalog, implementation = _direct_implementation("sort")
     candidates, scores = _runtime_values(catalog)
     parameters = {
@@ -671,19 +671,6 @@ def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> No
         "tie_policy": "candidate_id_ascending",
     }
 
-    duplicate = ScoreCollection(
-        "duplicate",
-        [*scores.entries, scores.entries[0]],
-    )
-    with pytest.raises(ValueError, match="duplicate observation"):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="selection.sort.direct",
-            binding_version=NODE_BINDING_VERSION,
-            inputs={"candidates": candidates, "scores": duplicate},
-            node_parameters=parameters,
-            binding_parameters={},
-        ))
     conflict = ScoreCollection(
         "conflict",
         [*scores.entries, replace(scores.entries[0], value=0.1)],

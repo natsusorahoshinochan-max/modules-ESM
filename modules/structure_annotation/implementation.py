@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Mapping, Protocol
 
-from core import OperationCall, ResolvedProducedObservation, RunResources
+from core import (
+    AdmittedPort,
+    OperationCall,
+    ResolvedProducedObservation,
+    RunResources,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -69,12 +74,12 @@ def _reject_parameters(call: OperationCall) -> None:
         raise ValueError("structure annotation Nodes do not accept parameters")
 
 
-def _annotation_input(inputs: Mapping[str, Any]) -> DSSPAnnotation:
+def _annotation_input(inputs: Mapping[str, AdmittedPort]) -> DSSPAnnotation:
     if set(inputs) != {"annotations"}:
         raise ValueError(
             "annotation extraction requires exactly one annotation input"
         )
-    annotation = inputs["annotations"]
+    annotation = inputs["annotations"].value
     if type(annotation) is not DSSPAnnotation:
         raise ValueError("annotations must be a DSSPAnnotation")
     return annotation
@@ -86,7 +91,7 @@ def _singleton_candidate_reference(
     port_name: str,
     expected_data_type_id: str | None = None,
 ) -> tuple[Candidate, CandidateDataReference]:
-    collection = call.inputs[port_name]
+    collection = call.inputs[port_name].value
     if type(collection) is not CandidateCollection or len(collection.items) != 1:
         raise ValueError(f"{port_name} must contain exactly one Candidate")
     candidate = collection.items[0]
@@ -97,20 +102,7 @@ def _singleton_candidate_reference(
         raise ValueError(
             f"{port_name} must contain {expected_data_type_id} Candidates"
         )
-    digest_record = call.input_content_digests.get(port_name)
-    if digest_record is None or len(digest_record.candidate_data) != 1:
-        raise ValueError(
-            f"{port_name} lacks one exact Candidate content identity"
-        )
-    reference = digest_record.candidate_data[0]
-    if (
-        reference.candidate_id != candidate.candidate_id
-        or reference.data_type_id != collection.item_type
-    ):
-        raise ValueError(
-            f"{port_name} lacks one exact Candidate content identity"
-        )
-    return candidate, reference
+    return candidate, call.inputs[port_name].candidate_data[0]
 
 
 class DSSPComputeOperation:
@@ -135,7 +127,7 @@ class DSSPComputeOperation:
             raise ValueError(
                 "structure_candidates must contain one ProteinStructure Candidate"
             )
-        associations = call.inputs["residue_axes"]
+        associations = call.inputs["residue_axes"].value
         if (
             type(associations) is not CandidateResolvedResidueAxisAssociations
             or len(associations.entries) != 1
@@ -208,8 +200,8 @@ class ApplySecondaryStructureToPromptOperation:
                 "secondary-structure Prompt conversion requires one Prompt "
                 "and one annotation track"
             )
-        prompt = call.inputs["protein_prompt"]
-        track = call.inputs["secondary_structure_track"]
+        prompt = call.inputs["protein_prompt"].value
+        track = call.inputs["secondary_structure_track"].value
         if type(prompt) is not ProteinPrompt:
             raise ValueError("protein_prompt must be a ProteinPrompt")
         if type(track) is not StructureAnnotationTrack:
@@ -248,8 +240,8 @@ class ApplySASAToPromptOperation:
                 "SASA Prompt conversion requires one Prompt and one "
                 "annotation track"
             )
-        prompt = call.inputs["protein_prompt"]
-        track = call.inputs["sasa_track"]
+        prompt = call.inputs["protein_prompt"].value
+        track = call.inputs["sasa_track"].value
         if type(prompt) is not ProteinPrompt:
             raise ValueError("protein_prompt must be a ProteinPrompt")
         if type(track) is not StructureAnnotationTrack:
@@ -279,7 +271,7 @@ class ExpectedSecondaryStructureFromPromptOperation:
                 "expected secondary structure requires exactly one Prompt "
                 "and one reference"
             )
-        prompt = call.inputs["protein_prompt"]
+        prompt = call.inputs["protein_prompt"].value
         if type(prompt) is not ProteinPrompt:
             raise ValueError("protein_prompt must be a ProteinPrompt")
         if prompt.target_layout is None:
@@ -348,8 +340,8 @@ class SecondaryStructureAgreementOperation:
                 "secondary-structure agreement requires subjects, references, "
                 "expected, observed, and the subject residue axis"
             )
-        expected = inputs["expected"]
-        observed = inputs["observed"]
+        expected = inputs["expected"].value
+        observed = inputs["observed"].value
         _, subject_reference = _singleton_candidate_reference(
             call,
             port_name="subjects",
@@ -358,7 +350,7 @@ class SecondaryStructureAgreementOperation:
             call,
             port_name="references",
         )
-        associations = inputs["subject_residue_axes"]
+        associations = inputs["subject_residue_axes"].value
         if (
             type(associations) is not CandidateResolvedResidueAxisAssociations
             or len(associations.entries) != 1

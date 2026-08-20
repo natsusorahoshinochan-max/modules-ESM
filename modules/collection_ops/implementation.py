@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core.operation import OperationCall
+from core.operation import AdmittedPort, OperationCall
 from core.port_types import CatalogBuildError, canonical_json_bytes
 from datatypes import (
     Candidate,
@@ -85,14 +85,14 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _select_children_by_parent(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> CandidateCollection:
         if set(inputs) != {"candidates", "parents"}:
             raise ValueError(
                 "child selection requires exact candidates and parents inputs"
             )
-        candidates = inputs["candidates"]
-        parents = inputs["parents"]
+        candidates = inputs["candidates"].value
+        parents = inputs["parents"].value
         if (
             type(candidates) is not CandidateCollection
             or type(parents) is not CandidateCollection
@@ -115,10 +115,12 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _intersect_candidates(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> CandidateCollection:
         supplied = [
-            inputs[port] for port in _INTERSECTION_PORTS if port in inputs
+            inputs[port].value
+            for port in _INTERSECTION_PORTS
+            if port in inputs
         ]
         if len(supplied) < 2:
             raise ValueError(
@@ -152,7 +154,7 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _take_candidates(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
         node_parameters: Mapping[str, Any],
     ) -> CandidateCollection:
         if set(inputs) != {"candidates"}:
@@ -164,7 +166,7 @@ class CollectionOpsImplementation:
                 "Candidate prefix selection requires exactly the k Node "
                 "parameter"
             )
-        candidates = inputs["candidates"]
+        candidates = inputs["candidates"].value
         k = node_parameters["k"]
         if type(candidates) is not CandidateCollection:
             raise ValueError("candidates must be an exact Candidate Collection")
@@ -192,38 +194,18 @@ class CollectionOpsImplementation:
     ]:
         if type(value) is not CandidateCollection or not value.items:
             raise ValueError(f"{port} must be a non-empty Candidate Collection")
-        admitted = call.input_content_digests.get(port)
-        if admitted is None:
-            raise ValueError(f"{port} has no admitted Candidate content identity")
+        admitted = call.inputs[port]
         admitted_by_id = {
             entry.candidate_id: entry
             for entry in admitted.candidate_data
         }
-        if len(admitted_by_id) != len(admitted.candidate_data):
-            raise ValueError(f"{port} has duplicate admitted Candidate identities")
-        by_id: dict[str, tuple[Candidate, CandidateDataReference]] = {}
-        for candidate in value.items:
-            if (
-                type(candidate) is not Candidate
-                or not candidate.candidate_id
-                or candidate.candidate_id in by_id
-            ):
-                raise ValueError(
-                    f"{port} contains incomplete or duplicate Candidates"
-                )
-            reference = admitted_by_id.get(candidate.candidate_id)
-            if reference is None:
-                raise ValueError(
-                    f"{port} Candidate content identity was not admitted"
-                )
-            by_id[candidate.candidate_id] = (
+        by_id = {
+            candidate.candidate_id: (
                 candidate,
-                reference,
+                admitted_by_id[candidate.candidate_id],
             )
-        if set(admitted_by_id) != set(by_id):
-            raise ValueError(
-                f"{port} admitted Candidate identities do not match the input"
-            )
+            for candidate in value.items
+        }
         return value, by_id
 
     def _rebind_candidate_pairing(
@@ -243,20 +225,20 @@ class CollectionOpsImplementation:
             )
         subjects, subjects_by_id = self._candidate_references(
             call,
-            inputs["subjects"],
+            inputs["subjects"].value,
             port="subjects",
         )
         parents, parents_by_id = self._candidate_references(
             call,
-            inputs["parents"],
+            inputs["parents"].value,
             port="parents",
         )
         references, references_by_id = self._candidate_references(
             call,
-            inputs["references"],
+            inputs["references"].value,
             port="references",
         )
-        pairing = inputs["parent_pairing"]
+        pairing = inputs["parent_pairing"].value
         if type(pairing) is not PairwiseCandidateMapping:
             raise ValueError("parent_pairing must be an exact Candidate pairing")
         parent_to_reference: dict[
@@ -335,12 +317,12 @@ class CollectionOpsImplementation:
             )
         subjects, subjects_by_id = self._candidate_references(
             call,
-            inputs["subjects"],
+            inputs["subjects"].value,
             port="subjects",
         )
         references, references_by_id = self._candidate_references(
             call,
-            inputs["references"],
+            inputs["references"].value,
             port="references",
         )
 
@@ -383,10 +365,10 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _concat_candidates(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> CandidateCollection:
         supplied = [
-            (port, inputs[port])
+            (port, inputs[port].value)
             for port in _CONCAT_CANDIDATE_PORTS
             if port in inputs
         ]
@@ -424,9 +406,9 @@ class CollectionOpsImplementation:
         )
 
     @staticmethod
-    def _merge_scores(inputs: Mapping[str, Any]) -> ScoreCollection:
+    def _merge_scores(inputs: Mapping[str, AdmittedPort]) -> ScoreCollection:
         supplied = [
-            (port, inputs[port])
+            (port, inputs[port].value)
             for port in _SCORE_PORTS
             if port in inputs
         ]
@@ -475,10 +457,10 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _concat_pairings(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> PairwiseCandidateMapping:
         supplied = [
-            (port, inputs[port])
+            (port, inputs[port].value)
             for port in _PAIRING_PORTS
             if port in inputs
         ]

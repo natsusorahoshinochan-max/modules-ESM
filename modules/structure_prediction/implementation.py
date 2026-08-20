@@ -80,8 +80,8 @@ class MaterializeConfidenceImplementation:
                 "materialize confidence requires exact structure_candidates "
                 "and confidence_facts inputs"
             )
-        candidates = call.inputs["structure_candidates"]
-        facts = call.inputs["confidence_facts"]
+        candidates = call.inputs["structure_candidates"].value
+        facts = call.inputs["confidence_facts"].value
         if (
             type(candidates) is not CandidateCollection
             or candidates.item_type != "protein.structure"
@@ -96,26 +96,10 @@ class MaterializeConfidenceImplementation:
                 "confidence_facts must be an admitted ConfidenceFactCollection"
             )
 
-        admitted = call.input_content_digests.get("structure_candidates")
-        if (
-            admitted is None
-            or admitted.port_type_id != "candidate.collection"
-        ):
-            raise ValueError(
-                "structure_candidates lack admitted Candidate data references"
-            )
-        references_by_id: dict[str, CandidateDataReference] = {}
-        for reference in admitted.candidate_data:
-            if (
-                type(reference) is not CandidateDataReference
-                or reference.data_type_id != "protein.structure"
-                or reference.candidate_id in references_by_id
-            ):
-                raise ValueError(
-                    "structure_candidates admitted references are incomplete "
-                    "or duplicate"
-                )
-            references_by_id[reference.candidate_id] = reference
+        references_by_id = {
+            reference.candidate_id: reference
+            for reference in call.inputs["structure_candidates"].candidate_data
+        }
 
         candidates_by_key: dict[
             str,

@@ -209,6 +209,19 @@ def _prediction_axis_from_wire(value: object) -> object:
     return result
 
 
+def _prediction_axis_candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    _validate_prediction_residue_axis(value)
+    assert type(value) is PredictionResidueAxis
+    return (
+        (value.source,)
+        if type(value.source) is CandidateDataReference
+        else ()
+    )
+
+
 PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_prediction.prediction_residue_axis",
     version=VERSION,
@@ -243,6 +256,15 @@ PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
     runtime_validator=_validate_prediction_residue_axis,
     runtime_to_wire=_prediction_axis_to_wire,
     runtime_from_wire=_prediction_axis_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_prediction.prediction_residue_axis/"
+        "candidate_data_projection",
+        VERSION,
+        {"fields": ["source-if-CandidateDataReference"]},
+    ),
+    runtime_candidate_data_projection=(
+        _prediction_axis_candidate_data_references
+    ),
 )
 
 

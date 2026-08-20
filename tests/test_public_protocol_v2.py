@@ -965,6 +965,7 @@ def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
             **public_contract,
             "descriptor": {
                 **public_contract["descriptor"],
+                "candidate_data_projection": projection_behavior,
                 "scientific_axis_projection": projection_behavior,
                 "observation_method_projection": projection_behavior,
             },

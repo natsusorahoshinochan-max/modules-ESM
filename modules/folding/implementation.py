@@ -8,6 +8,7 @@ import math
 from typing import Any
 
 from core.operation import (
+    AdmittedPort,
     OperationCall,
     ResolvedProducedObservation,
 )
@@ -185,12 +186,12 @@ class ESMFold2FoldingImplementation:
         return seed, count
 
     @staticmethod
-    def _inputs(inputs: Mapping[str, Any]) -> list[Candidate]:
+    def _inputs(inputs: Mapping[str, AdmittedPort]) -> list[Candidate]:
         if set(inputs) != {"sequence_candidates"}:
             raise ValueError(
                 "folding requires one sequence Candidate Collection"
             )
-        collection = inputs["sequence_candidates"]
+        collection = inputs["sequence_candidates"].value
         if (
             type(collection) is not CandidateCollection
             or collection.item_type != "protein.sequence"
@@ -227,31 +228,11 @@ class ESMFold2FoldingImplementation:
         call: OperationCall,
         parents: Sequence[Candidate],
     ) -> tuple[CandidateDataReference, ...]:
-        digest_set = call.input_content_digests.get("sequence_candidates")
-        if (
-            digest_set is None
-            or digest_set.port_type_id != "candidate.collection"
-        ):
-            raise ValueError(
-                "folding requires admitted sequence Candidate content "
-                "identities"
-            )
+        digest_set = call.inputs["sequence_candidates"]
         by_candidate_id = {
             item.candidate_id: item
             for item in digest_set.candidate_data
         }
-        if (
-            len(by_candidate_id) != len(digest_set.candidate_data)
-            or set(by_candidate_id)
-            != {parent.candidate_id for parent in parents}
-            or any(
-                item.data_type_id != "protein.sequence"
-                for item in by_candidate_id.values()
-            )
-        ):
-            raise ValueError(
-                "folding sequence Candidate content identities are incomplete"
-            )
         return tuple(by_candidate_id[parent.candidate_id] for parent in parents)
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -367,7 +348,7 @@ class SimpleFoldFoldingImplementation:
         return seed, sample_count, num_steps
 
     @staticmethod
-    def _inputs(inputs: Mapping[str, Any]) -> list[Candidate]:
+    def _inputs(inputs: Mapping[str, AdmittedPort]) -> list[Candidate]:
         return ESMFold2FoldingImplementation._inputs(inputs)
 
     @staticmethod
@@ -495,17 +476,15 @@ class SimpleFoldConfidenceImplementation:
                 "SimpleFold confidence requires exact structure Candidates "
                 "and resolved axes"
             )
-        collection = call.inputs["structure_candidates"]
-        associations = call.inputs["structure_residue_axes"]
-        admitted = call.input_content_digests.get("structure_candidates")
+        collection = call.inputs["structure_candidates"].value
+        associations = call.inputs["structure_residue_axes"].value
+        admitted = call.inputs.get("structure_candidates")
         if (
             type(collection) is not CandidateCollection
             or collection.item_type != "protein.structure"
             or not collection.items
             or type(associations)
             is not CandidateResolvedResidueAxisAssociations
-            or admitted is None
-            or admitted.port_type_id != "candidate.collection"
         ):
             raise ValueError(
                 "SimpleFold confidence requires exact structure Candidates "
@@ -525,23 +504,10 @@ class SimpleFoldConfidenceImplementation:
                 )
             candidates_by_id[candidate.candidate_id] = candidate
 
-        references_by_id: dict[str, CandidateDataReference] = {}
-        for reference in admitted.candidate_data:
-            if (
-                type(reference) is not CandidateDataReference
-                or reference.data_type_id != "protein.structure"
-                or reference.candidate_id in references_by_id
-            ):
-                raise ValueError(
-                    "SimpleFold confidence lacks complete exact structure "
-                    "references"
-                )
-            references_by_id[reference.candidate_id] = reference
-        if set(references_by_id) != set(candidates_by_id):
-            raise ValueError(
-                "SimpleFold confidence lacks complete exact structure "
-                "references"
-            )
+        references_by_id = {
+            reference.candidate_id: reference
+            for reference in admitted.candidate_data
+        }
 
         axes_by_reference = {
             entry.subject: entry.residue_axis

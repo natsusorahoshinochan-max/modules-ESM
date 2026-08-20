@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core import OperationCall, RunResources
+from core import AdmittedPort, OperationCall, RunResources
 from datatypes import (
     FunctionAnnotations,
     ProteinPrompt,
@@ -75,18 +75,18 @@ class EditResidueLayoutImplementation(_Implementation):
             )
         with self._invocation():
             residue_map = build_residue_map(
-                inputs["source_layout"],
-                inputs["target_layout"],
+                inputs["source_layout"].value,
+                inputs["target_layout"].value,
                 node_parameters["edits"],
             )
         return {"residue_map": residue_map}
 
 
 def _selected_track(
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
 ) -> tuple[str, TrackKind, object]:
     selected = [
-        (port, kind, inputs[port])
+        (port, kind, inputs[port].value)
         for port, kind in _TRACK_PORTS.items()
         if port in inputs
     ]
@@ -112,7 +112,7 @@ class MapResidueTrackImplementation(_Implementation):
         with self._invocation():
             converted = map_track(
                 track,
-                inputs["residue_map"],
+                inputs["residue_map"].value,
                 kind=kind,
             )
         return {port: converted}
@@ -135,7 +135,7 @@ class OverrideResidueTrackImplementation(_Implementation):
         with self._invocation():
             result = override_track(
                 track,
-                inputs["target_layout"],
+                inputs["target_layout"].value,
                 node_parameters["overrides"],
                 kind=kind,
             )
@@ -194,7 +194,9 @@ class PromptFromStructureImplementation(_Implementation):
                 "prompt construction requires one resolved axis and no parameters"
             )
         with self._invocation():
-            layout, prompt = _prompt_from_structure(inputs["residue_axis"])
+            layout, prompt = _prompt_from_structure(
+                inputs["residue_axis"].value
+            )
         return {"layout": layout, "protein_prompt": prompt}
 
 
@@ -213,7 +215,7 @@ class OverrideProteinPromptTrackImplementation(_Implementation):
             )
         with self._invocation():
             prompt = override_protein_prompt_track(
-                inputs["protein_prompt"],
+                inputs["protein_prompt"].value,
                 track=node_parameters["track"],
                 overrides=node_parameters["overrides"],
             )
@@ -236,15 +238,19 @@ class AssembleProteinPromptImplementation(_Implementation):
                 "prompt assembly accepts only layout and declared optional tracks"
             )
         tracks = {
-            name: inputs[name]
+            name: inputs[name].value
             for name in _TRACK_PORTS
             if name in inputs
         }
         with self._invocation():
             prompt = assemble_protein_prompt(
-                inputs["layout"],
+                inputs["layout"].value,
                 tracks,
-                inputs.get("function_annotations"),
+                (
+                    inputs["function_annotations"].value
+                    if "function_annotations" in inputs
+                    else None
+                ),
             )
         return {"protein_prompt": prompt}
 
@@ -268,8 +274,12 @@ class AddFunctionAnnotationImplementation(_Implementation):
             )
         with self._invocation():
             annotations = add_function_annotation(
-                inputs["layout"],
-                inputs.get("existing_annotations"),
+                inputs["layout"].value,
+                (
+                    inputs["existing_annotations"].value
+                    if "existing_annotations" in inputs
+                    else None
+                ),
                 node_parameters["annotation"],
                 overlap_policy=node_parameters["overlap_policy"],
             )
@@ -291,8 +301,8 @@ class UpdatePromptSequenceImplementation(_Implementation):
             )
         with self._invocation():
             prompt = update_prompt_sequence(
-                inputs["protein_prompt"],
-                inputs["sequence"],
+                inputs["protein_prompt"].value,
+                inputs["sequence"].value,
             )
         return {"protein_prompt": prompt}
 
@@ -318,7 +328,7 @@ class RandomMaskImplementation(_Implementation):
             )
         with self._invocation():
             prompt = random_mask_prompt(
-                inputs["protein_prompt"],
+                inputs["protein_prompt"].value,
                 effective_seed=node_parameters["effective_seed"],
                 count=node_parameters["count"],
                 track=node_parameters["track"],
@@ -347,7 +357,7 @@ class RandomInsertMaskedImplementation(_Implementation):
             )
         with self._invocation():
             prompt, residue_map = random_insert_masked(
-                inputs["protein_prompt"],
+                inputs["protein_prompt"].value,
                 effective_seed=node_parameters["effective_seed"],
                 count=node_parameters["count"],
                 eligible_chain_ids=node_parameters["eligible_chain_ids"],
@@ -373,7 +383,7 @@ class InsertMaskedResiduesImplementation(_Implementation):
             )
         with self._invocation():
             prompt, residue_map = insert_masked_residues(
-                inputs["protein_prompt"],
+                inputs["protein_prompt"].value,
                 node_parameters["insertions"],
             )
         return {

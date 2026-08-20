@@ -31,6 +31,7 @@ from core import (
     discover_module_packages,
     verify_module_package_contract,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from core.parameter_contract import (
     ParameterContractDefinitionError,
     validate_parameter_declarations,
@@ -212,10 +213,15 @@ def test_candidate_artifact_filenames_are_deterministic_ordinal_components(
     )
     operation = StructureExportImplementation(Resources())  # type: ignore[arg-type]
     call = OperationCall(
-        inputs={"structures": candidates},
+        inputs={
+            "structures": admitted_port_fixture(
+                candidates,
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + ("a" * 64),),
+            )
+        },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={},
     )
 
     first = operation.execute(call)["candidate_artifacts"]

@@ -178,18 +178,7 @@ class ESM3GenerationOperation:
 
     @staticmethod
     def _prompt_content_digest(call: OperationCall) -> str:
-        digest_set = call.input_content_digests.get("protein_prompt")
-        if (
-            digest_set is None
-            or digest_set.port_type_id != "protein.prompt"
-            or len(digest_set.value_content_digests) != 1
-            or digest_set.candidate_data
-        ):
-            raise ValueError(
-                "ESM-3 generation requires one admitted ProteinPrompt "
-                "content identity"
-            )
-        return digest_set.value_content_digests[0]
+        return call.inputs["protein_prompt"].content_digest
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         if set(call.inputs) != {"protein_prompt"} or call.binding_parameters:
@@ -197,7 +186,7 @@ class ESM3GenerationOperation:
                 "ESM-3 generation requires one ProteinPrompt and no Binding "
                 "parameters"
             )
-        prompt = call.inputs["protein_prompt"]
+        prompt = call.inputs["protein_prompt"].value
         if type(prompt) is not ProteinPrompt:
             raise ValueError("protein_prompt has the wrong runtime type")
         effective_seed, num_samples, parameters = self._parameters(

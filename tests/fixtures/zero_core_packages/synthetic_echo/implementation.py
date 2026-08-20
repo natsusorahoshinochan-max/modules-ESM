@@ -101,7 +101,7 @@ class SyntheticEchoScorerImplementation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         if set(call.inputs) != {"candidate_input"}:
             raise ValueError("synthetic echo scorer requires Candidate input")
-        candidates = call.inputs["candidate_input"]
+        candidates = call.inputs["candidate_input"].value
         if type(candidates) is not CandidateCollection:
             raise ValueError(
                 "synthetic echo candidate_input must be a Candidate collection"
@@ -111,23 +111,8 @@ class SyntheticEchoScorerImplementation:
             run_resources=self._run_resources,
             environment=self._environment,
         )
-        admitted = call.input_content_digests["candidate_input"]
+        admitted = call.inputs["candidate_input"]
         references = admitted.candidate_data
-        if (
-            admitted.port_type_id != "candidate.collection"
-            or len(references) != len(candidates.items)
-            or any(
-                reference.candidate_id != candidate.candidate_id
-                for reference, candidate in zip(
-                    references,
-                    candidates.items,
-                    strict=True,
-                )
-            )
-        ):
-            raise ValueError(
-                "synthetic echo lacks exact input Candidate references"
-            )
         return {
             "text": echoed,
             "candidates": candidates,

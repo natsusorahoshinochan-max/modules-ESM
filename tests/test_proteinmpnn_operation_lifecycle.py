@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from core import InputContentDigests, OperationCall
+from core import OperationCall
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -27,6 +27,7 @@ from modules.structure_transform.domain import (
 )
 from modules.structure_transform.implementation import resolve_residue_axis
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 _DIGEST = "sha256:" + "1" * 64
@@ -61,13 +62,15 @@ def _operation_call(operation: str) -> OperationCall:
             ),
         )),
     }
-    input_digests = {
-        "structure_candidates": InputContentDigests(
+    admitted_inputs = {
+        "structure_candidates": admitted_port_fixture(
+            inputs["structure_candidates"],
             port_type_id="candidate.collection",
             value_content_digests=(_DIGEST,),
             candidate_data=(structure_reference,),
         ),
-        "structure_residue_axes": InputContentDigests(
+        "structure_residue_axes": admitted_port_fixture(
+            inputs["structure_residue_axes"],
             port_type_id=(
                 "structure_transform."
                 "candidate_resolved_residue_axis_associations"
@@ -77,7 +80,7 @@ def _operation_call(operation: str) -> OperationCall:
     }
     if operation == "design":
         return OperationCall(
-            inputs=inputs,
+            inputs=admitted_inputs,
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -85,7 +88,6 @@ def _operation_call(operation: str) -> OperationCall:
                 "backbone_noise": 0,
             },
             binding_parameters={},
-            input_content_digests=input_digests,
         )
 
     sequence = Candidate(
@@ -102,16 +104,16 @@ def _operation_call(operation: str) -> OperationCall:
         "protein.sequence",
         (sequence,),
     )
-    input_digests["sequence_candidates"] = InputContentDigests(
+    admitted_inputs["sequence_candidates"] = admitted_port_fixture(
+        inputs["sequence_candidates"],
         port_type_id="candidate.collection",
         value_content_digests=(_DIGEST,),
         candidate_data=(sequence_reference,),
     )
     return OperationCall(
-        inputs=inputs,
+        inputs=admitted_inputs,
         node_parameters={},
         binding_parameters={},
-        input_content_digests=input_digests,
     )
 
 

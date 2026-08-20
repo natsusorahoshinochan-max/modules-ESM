@@ -6,6 +6,7 @@ from collections.abc import Mapping, Sequence
 import hashlib
 from typing import Any
 
+from core.operation import AdmittedPort
 from core.port_types import canonical_json_bytes
 from datatypes import (
     FunctionAnnotation,
@@ -185,14 +186,14 @@ def _resolved_mask_parameters(
 
 def resolve_random_mask_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Resolve the canonical effective random-mask set before Cache lookup."""
     if binding_parameters:
         raise ValueError("random_mask accepts no Binding parameters")
-    source = validate_protein_prompt(inputs["protein_prompt"])
+    source = validate_protein_prompt(inputs["protein_prompt"].value)
     seed = node_parameters.get("effective_seed")
     count = node_parameters.get("count")
     track = node_parameters.get("track")
@@ -331,14 +332,14 @@ def _resolved_insert_parameters(
 
 def resolve_random_insert_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Resolve the canonical effective insertion set before Cache lookup."""
     if binding_parameters:
         raise ValueError("random_insert_masked accepts no Binding parameters")
-    source = validate_protein_prompt(inputs["protein_prompt"])
+    source = validate_protein_prompt(inputs["protein_prompt"].value)
     seed = node_parameters.get("effective_seed")
     count = node_parameters.get("count")
     declared_eligibility = _unique_string_sequence(

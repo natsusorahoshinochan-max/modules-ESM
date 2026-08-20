@@ -1070,6 +1070,18 @@ def _candidate_axis_references(
     )
 
 
+def _association_candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    if type(value) not in {
+        CandidateModifiedResidueNormalizationAssociations,
+        CandidateResolvedResidueAxisAssociations,
+    }:
+        raise ValueError("candidate association projection has the wrong type")
+    return tuple(entry.subject for entry in value.entries)
+
+
 def _validate_normalization_facts(value: object) -> None:
     if type(value) is not CandidateNormalizationFactCollection:
         raise ValueError("candidate normalization facts have the wrong type")
@@ -1212,6 +1224,15 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_candidate_normalization_associations,
     runtime_to_wire=_candidate_normalizations_to_wire,
     runtime_from_wire=_candidate_normalizations_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_transform.candidate_modified_residue_normalization_"
+        "associations/candidate_data_projection",
+        CANDIDATE_ASSOCIATION_VERSION,
+        {"fields": ["entries[].subject"]},
+    ),
+    runtime_candidate_data_projection=(
+        _association_candidate_data_references
+    ),
 )
 
 
@@ -1256,6 +1277,15 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_candidate_resolved_axis_associations,
     runtime_to_wire=_candidate_axes_to_wire,
     runtime_from_wire=_candidate_axes_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_transform.candidate_resolved_residue_axis_associations/"
+        "candidate_data_projection",
+        CANDIDATE_ASSOCIATION_VERSION,
+        {"fields": ["entries[].subject"]},
+    ),
+    runtime_candidate_data_projection=(
+        _association_candidate_data_references
+    ),
     scientific_axis_projection=BehaviorReference(
         (
             "structure_transform."

@@ -9,7 +9,6 @@ import json
 import pytest
 
 from core import (
-    InputContentDigests,
     OperationCall,
     PortValueError,
     canonical_json_bytes,
@@ -40,7 +39,35 @@ from modules.structure_transform.port_types import (
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
     CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from tests.fixtures.structure_transform_sources.package import _FIXTURES
+
+
+def _operation_call(
+    *,
+    inputs,
+    node_parameters,
+    binding_parameters,
+    candidate_data=None,
+) -> OperationCall:
+    references = {} if candidate_data is None else candidate_data
+    return OperationCall(
+        inputs={
+            name: admitted_port_fixture(
+                value,
+                port_type_id=(
+                    "candidate.collection"
+                    if name == "structure_candidates"
+                    else name
+                ),
+                value_content_digests=("sha256:" + ("e" * 64),),
+                candidate_data=references.get(name, ()),
+            )
+            for name, value in inputs.items()
+        },
+        node_parameters=node_parameters,
+        binding_parameters=binding_parameters,
+    )
 
 
 class _RunResources:
@@ -130,7 +157,6 @@ def test_candidate_axis_port_binds_each_axis_to_exact_structure_content() -> Non
             )
         )
 
-
 def test_candidate_normalization_port_is_exact_and_not_position_addressed() -> None:
     structure = _standard_structure(1)
     alpha = _structure_reference("alpha", structure)
@@ -178,17 +204,11 @@ def test_candidate_csh_normalization_materializes_after_candidate_admission() ->
     normalized_outputs = NormalizeCshParentSpanCandidatesImplementation(
         _RunResources()
     ).execute(
-        OperationCall(
+        _operation_call(
             inputs={"structure_candidates": candidates},
             node_parameters={},
             binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("e" * 64),),
-                    candidate_data=(raw_reference,),
-                )
-            },
+            candidate_data={"structure_candidates": (raw_reference,)},
         )
     )
     normalized = normalized_outputs["structure_candidates"]
@@ -220,7 +240,7 @@ def test_candidate_csh_normalization_materializes_after_candidate_admission() ->
     associations = MaterializeCandidateNormalizationsImplementation(
         _RunResources()
     ).execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "structure_candidates": CandidateCollection(
                     collection_id=normalized.collection_id,
@@ -231,13 +251,7 @@ def test_candidate_csh_normalization_materializes_after_candidate_admission() ->
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("f" * 64),),
-                    candidate_data=(admitted_reference,),
-                )
-            },
+            candidate_data={"structure_candidates": (admitted_reference,)},
         )
     )["modified_residue_normalizations"]
 
@@ -251,7 +265,7 @@ def test_candidate_normalization_facts_reject_noncanonical_wire_order() -> None:
     outputs = NormalizeCshParentSpanCandidatesImplementation(
         _RunResources()
     ).execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "structure_candidates": CandidateCollection(
                     collection_id="raw-structures",
@@ -264,14 +278,10 @@ def test_candidate_normalization_facts_reject_noncanonical_wire_order() -> None:
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("e" * 64),),
-                    candidate_data=(
-                        replace(raw_reference, candidate_id="raw-csh-a"),
-                        replace(raw_reference, candidate_id="raw-csh-b"),
-                    ),
+            candidate_data={
+                "structure_candidates": (
+                    replace(raw_reference, candidate_id="raw-csh-a"),
+                    replace(raw_reference, candidate_id="raw-csh-b"),
                 )
             },
         )
@@ -316,20 +326,16 @@ def test_candidate_axis_operation_joins_references_and_normalizations_by_identit
             ),
         )
     )
-    call = OperationCall(
+    call = _operation_call(
         inputs={
             "structure_candidates": candidates,
             "modified_residue_normalizations": normalizations,
         },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={
-            "structure_candidates": InputContentDigests(
-                port_type_id="candidate.collection",
-                value_content_digests=("sha256:" + ("e" * 64),),
-                # Deliberately not in CandidateCollection order.
-                candidate_data=(standard_reference, csh_reference),
-            ),
+        candidate_data={
+            # Deliberately not in CandidateCollection order.
+            "structure_candidates": (standard_reference, csh_reference),
         },
     )
 
@@ -381,62 +387,13 @@ def test_candidate_axis_operation_rejects_nonclosed_normalization_association(
 
     with pytest.raises(ValueError, match="complete exact Candidate references"):
         ResolveCandidateResidueAxesImplementation(_RunResources()).execute(
-            OperationCall(
+            _operation_call(
                 inputs={
                     "structure_candidates": candidates,
                     "modified_residue_normalizations": normalizations,
                 },
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("e" * 64),),
-                        candidate_data=(subject,),
-                    ),
-                },
-            )
-        )
-
-
-@pytest.mark.parametrize("case", ["missing", "duplicate", "extra", "structure"])
-def test_candidate_axis_operation_rejects_incomplete_or_conflicting_evidence(
-    case: str,
-) -> None:
-    structure = _standard_structure(1)
-    subject = _structure_reference("subject", structure)
-    other = _structure_reference("other", structure)
-    candidate_items = {
-        "missing": (Candidate("subject", structure),),
-        "duplicate": (Candidate("subject", structure),),
-        "extra": (Candidate("subject", structure),),
-        "structure": (Candidate("subject", _standard_structure(2)),),
-    }[case]
-    evidence = {
-        "missing": (),
-        "duplicate": (subject, subject),
-        "extra": (subject, other),
-        "structure": (subject,),
-    }[case]
-
-    with pytest.raises(ValueError, match="complete exact Candidate references"):
-        ResolveCandidateResidueAxesImplementation(_RunResources()).execute(
-            OperationCall(
-                inputs={
-                    "structure_candidates": CandidateCollection(
-                        collection_id="structures",
-                        item_type="protein.structure",
-                        items=candidate_items,
-                    )
-                },
-                node_parameters={},
-                binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("e" * 64),),
-                        candidate_data=evidence,
-                    ),
-                },
+                candidate_data={"structure_candidates": (subject,)},
             )
         )

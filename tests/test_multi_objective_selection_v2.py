@@ -772,7 +772,7 @@ def test_canonical_scopes_yield_accepted_weighted_top_three() -> None:
         "charlie",
         "delta",
     ]
-    assert selected.items[0] is call.inputs["candidates"].items[2]
+    assert selected.items[0] is call.inputs["candidates"].value.items[2]
 
 
 def test_pareto_and_exact_diversity_method_are_deterministic() -> None:

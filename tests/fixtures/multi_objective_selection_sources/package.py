@@ -184,9 +184,9 @@ class _Scorer:
     def execute(self, call: OperationCall) -> dict[str, ScoreCollection]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError("canonical selection scorer accepts no parameters")
-        candidates = call.inputs["candidates"]
-        references = call.inputs["references"]
-        pairing = call.inputs["pairing"]
+        candidates = call.inputs["candidates"].value
+        references = call.inputs["references"].value
+        pairing = call.inputs["pairing"].value
         if (
             type(candidates) is not CandidateCollection
             or type(references) is not CandidateCollection
@@ -196,13 +196,13 @@ class _Scorer:
 
         candidate_references = {
             reference.candidate_id: reference
-            for reference in call.input_content_digests[
+            for reference in call.inputs[
                 "candidates"
             ].candidate_data
         }
         reference_references = {
             reference.candidate_id: reference
-            for reference in call.input_content_digests[
+            for reference in call.inputs[
                 "references"
             ].candidate_data
         }

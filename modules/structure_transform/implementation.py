@@ -1220,7 +1220,8 @@ def _structure_candidate_parents(value: object) -> list[Candidate]:
 def _candidate_structures_and_references(
     call: OperationCall,
 ) -> tuple[tuple[Candidate, CandidateDataReference], ...]:
-    collection = call.inputs.get("structure_candidates")
+    admitted = call.inputs.get("structure_candidates")
+    collection = None if admitted is None else admitted.value
     if (
         type(collection) is not CandidateCollection
         or collection.item_type != "protein.structure"
@@ -1244,41 +1245,14 @@ def _candidate_structures_and_references(
             )
         candidates_by_id[candidate.candidate_id] = candidate
 
-    admitted = call.input_content_digests.get("structure_candidates")
-    if admitted is None or admitted.port_type_id != "candidate.collection":
-        raise ValueError(
-            "Candidate structure association requires complete exact "
-            "Candidate references"
-        )
-    references_by_id: dict[str, CandidateDataReference] = {}
-    for reference in admitted.candidate_data:
-        if (
-            type(reference) is not CandidateDataReference
-            or reference.data_type_id != "protein.structure"
-            or reference.candidate_id in references_by_id
-        ):
-            raise ValueError(
-                "Candidate structure association requires complete exact "
-                "Candidate references"
-            )
-        references_by_id[reference.candidate_id] = reference
-    if set(candidates_by_id) != set(references_by_id):
-        raise ValueError(
-            "Candidate structure association requires complete exact "
-            "Candidate references"
-        )
+    references_by_id = {
+        reference.candidate_id: reference
+        for reference in admitted.candidate_data
+    }
 
     pairs: list[tuple[Candidate, CandidateDataReference]] = []
     for candidate in collection.items:
         reference = references_by_id[candidate.candidate_id]
-        if (
-            _STRUCTURE_CONTENT_TYPE.content_digest(candidate.data)
-            != reference.content_digest
-        ):
-            raise ValueError(
-                "Candidate structure association requires complete exact "
-                "Candidate references"
-            )
         pairs.append((candidate, reference))
     return tuple(pairs)
 
@@ -1504,7 +1478,7 @@ class StructureTransformImplementation:
                     "Candidate normalization materialization inputs are invalid"
                 )
             candidates_and_references = _candidate_structures_and_references(call)
-            facts = inputs["normalization_facts"]
+            facts = inputs["normalization_facts"].value
             if type(facts) is not CandidateNormalizationFactCollection:
                 raise ValueError(
                     "normalization_facts must be an exact admitted collection"
@@ -1582,7 +1556,7 @@ class StructureTransformImplementation:
             ):
                 raise ValueError("single residue-axis projection inputs are invalid")
             candidates_and_references = _candidate_structures_and_references(call)
-            axes = inputs["residue_axes"]
+            axes = inputs["residue_axes"].value
             if (
                 len(candidates_and_references) != 1
                 or type(axes) is not CandidateResolvedResidueAxisAssociations
@@ -1606,7 +1580,7 @@ class StructureTransformImplementation:
             candidates_and_references = _candidate_structures_and_references(
                 call
             )
-            residue_axes = inputs["residue_axes"]
+            residue_axes = inputs["residue_axes"].value
             if (
                 type(residue_axes)
                 is not CandidateResolvedResidueAxisAssociations
@@ -1684,7 +1658,7 @@ class StructureTransformImplementation:
             }
             normalizations_by_id = (
                 _candidate_normalizations_by_id(
-                    inputs["modified_residue_normalizations"],
+                    inputs["modified_residue_normalizations"].value,
                     references_by_id,
                 )
                 if "modified_residue_normalizations" in inputs
@@ -1724,8 +1698,12 @@ class StructureTransformImplementation:
             with self._run_resources.engine_invocation():
                 return {
                     "residue_axis": resolve_residue_axis(
-                        inputs["structure"],
-                        inputs.get("modified_residue_normalizations"),
+                        inputs["structure"].value,
+                        (
+                            inputs["modified_residue_normalizations"].value
+                            if "modified_residue_normalizations" in inputs
+                            else None
+                        ),
                     )
                 }
         if self._operation == "backbone_to_structure":
@@ -1740,7 +1718,7 @@ class StructureTransformImplementation:
             raise ValueError(
                 "structure transform requires exactly one declared input"
             )
-        structure = inputs[expected_input]
+        structure = inputs[expected_input].value
         expected_parameters = (
             {"chain_ids"}
             if self._operation in {

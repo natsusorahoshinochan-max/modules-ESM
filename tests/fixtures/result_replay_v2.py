@@ -7,10 +7,8 @@ from types import MappingProxyType
 from typing import Any
 
 from core.port_types import FrozenCatalog, PortValueError
-from core.run_execution_v2 import (
-    _candidate_digests_for_value,
-)
-from core.value_admission import AdmittedPortValues, admitted_port_values
+from core.operation import AdmittedPort
+from core.value_admission import admitted_port_values
 from core.workflow_v2 import ExecutionPlanNode
 
 
@@ -19,7 +17,7 @@ def admitted_replay_outputs(
     catalog: FrozenCatalog,
     node: ExecutionPlanNode,
     outputs: Mapping[str, Any],
-) -> Mapping[tuple[str, str], AdmittedPortValues]:
+) -> Mapping[tuple[str, str], AdmittedPort]:
     """Admit fixture outputs once, as a conforming Cache source would."""
     declarations = {
         name: port.declaration
@@ -32,7 +30,7 @@ def admitted_replay_outputs(
     if set(outputs) - set(declarations):
         raise PortValueError("Replay fixture supplied an unknown output Port")
 
-    snapshots: dict[tuple[str, str], AdmittedPortValues] = {}
+    snapshots: dict[tuple[str, str], AdmittedPort] = {}
     for output_port, supplied in outputs.items():
         declaration = declarations[output_port]
         port_type = node._runtime.output_ports[output_port].port_type
@@ -45,9 +43,6 @@ def admitted_replay_outputs(
             port_type=port_type,
             multiplicity=declaration["multiplicity"],
             values=values,
-            candidate_data=lambda value: _candidate_digests_for_value(
-                candidate_data_port_types,
-                value,
-            ),
+            candidate_data_port_types=candidate_data_port_types,
         )
     return MappingProxyType(snapshots)

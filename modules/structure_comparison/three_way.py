@@ -46,22 +46,16 @@ def _candidate_scope(
     call: OperationCall,
     port: str,
 ) -> tuple[Candidate, CandidateDataReference]:
-    collection = call.inputs[port]
+    collection = call.inputs[port].value
     assert type(collection) is CandidateCollection
     if len(collection.items) != 1:
         raise ValueError(f"{port} must contain exactly one Candidate")
     candidate = collection.items[0]
-    references = call.input_content_digests[port].candidate_data
-    if len(references) != 1 or references[0].candidate_id != candidate.candidate_id:
-        raise ValueError(f"{port} does not identify one exact Candidate")
-    return candidate, references[0]
+    return candidate, call.inputs[port].candidate_data[0]
 
 
 def _value_digest(call: OperationCall, port: str) -> str:
-    digests = call.input_content_digests[port].value_content_digests
-    if len(digests) != 1:
-        raise ValueError(f"{port} must carry exactly one canonical value")
-    return digests[0]
+    return call.inputs[port].content_digest
 
 
 def _axis(
@@ -69,7 +63,7 @@ def _axis(
     port: str,
     subject: CandidateDataReference,
 ) -> ResolvedStructureResidueAxis:
-    associations = call.inputs[port]
+    associations = call.inputs[port].value
     assert type(associations) is CandidateResolvedResidueAxisAssociations
     matches = tuple(
         item for item in associations.entries if item.subject == subject
@@ -86,7 +80,7 @@ def _observation(
     metric: tuple[str, str],
     subject: CandidateDataReference,
 ) -> ScoreObservation:
-    collection = call.inputs[port]
+    collection = call.inputs[port].value
     assert type(collection) is ScoreCollection
     matches = tuple(
         item
@@ -142,7 +136,7 @@ def _edge(
     subject: CandidateDataReference,
     reference: CandidateDataReference,
 ) -> ThreeWayComparisonEdge:
-    alignments = call.inputs[alignment_port]
+    alignments = call.inputs[alignment_port].value
     assert type(alignments) is tuple
     if len(alignments) != 1:
         raise ValueError(f"{alignment_port} must contain one exact alignment")
@@ -243,9 +237,9 @@ class ThreeWayConsistencyImplementation:
         ):
             raise ValueError("three-way residue axes do not share one sequence")
         alignment_values = (
-            call.inputs["input_esmfold2_alignments"],
-            call.inputs["input_simplefold_alignments"],
-            call.inputs["method_alignments"],
+            call.inputs["input_esmfold2_alignments"].value,
+            call.inputs["input_simplefold_alignments"].value,
+            call.inputs["method_alignments"].value,
         )
         if any(
             type(items) is not tuple
@@ -274,7 +268,7 @@ class ThreeWayConsistencyImplementation:
         ):
             raise ValueError("three-way alignments contradict their exact axes")
 
-        pairing = call.inputs["method_pairing"]
+        pairing = call.inputs["method_pairing"].value
         assert type(pairing) is PairwiseCandidateMapping
         if (
             len(pairing.entries) != 1

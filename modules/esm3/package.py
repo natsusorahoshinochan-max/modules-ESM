@@ -7,6 +7,7 @@ import importlib.util
 from typing import Any
 
 from core import (
+    AdmittedPort,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -401,7 +402,7 @@ def _local_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
 
 def _resolve_local_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:

@@ -13,7 +13,6 @@ import pytest
 
 from core import (
     EnvironmentConfiguration,
-    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
     OperationCall,
@@ -50,6 +49,7 @@ from tests.fixtures.esm3_generation import (
     run_generation_from_prompt_fixture,
     three_residue_pdb,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> None:
@@ -933,7 +933,13 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
         )
         operation.execute(
             OperationCall(
-                inputs={"protein_prompt": prompt},
+                inputs={
+                    "protein_prompt": admitted_port_fixture(
+                        prompt,
+                        port_type_id="protein.prompt",
+                        value_content_digests=(content_digest,),
+                    )
+                },
                 node_parameters={
                     "effective_seed": 1603,
                     "num_samples": 2,
@@ -945,12 +951,6 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
                     "temperature_annealing": True,
                 },
                 binding_parameters={},
-                input_content_digests={
-                    "protein_prompt": InputContentDigests(
-                        port_type_id="protein.prompt",
-                        value_content_digests=(content_digest,),
-                    )
-                },
             )
         )
         return tuple(adapter.seeds)

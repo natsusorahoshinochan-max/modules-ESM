@@ -39,7 +39,7 @@ class _IncompleteProvenanceImplementation:
         )
         with self._run_resources.engine_invocation():
             pass
-        candidates = call.inputs["candidate_input"]
+        candidates = call.inputs["candidate_input"].value
         if type(candidates) is not CandidateCollection:
             raise ValueError(
                 "invalid fixture candidate_input must be a Candidate collection"
@@ -53,7 +53,7 @@ class _IncompleteProvenanceImplementation:
                 filename="result.txt",
             ),
         }
-        references = call.input_content_digests[
+        references = call.inputs[
             "candidate_input"
         ].candidate_data
         outputs["scores"] = ScoreCollection(

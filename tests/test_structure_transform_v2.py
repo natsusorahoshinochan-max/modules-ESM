@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from core import (
-    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
     OperationCall,
@@ -65,6 +64,7 @@ from modules.structure_transform.implementation import (
     resolve_residue_axis,
     select_chains,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from tests.fixtures.structure_transform_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
@@ -401,18 +401,20 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     ).execute(
         OperationCall(
             inputs={
-                "structure_candidates": structure_candidates,
-                "residue_axes": residue_axes,
-            },
-            node_parameters={},
-            binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
+                "structure_candidates": admitted_port_fixture(
+                    structure_candidates,
                     port_type_id="candidate.collection",
                     value_content_digests=("sha256:" + ("e" * 64),),
                     candidate_data=(subject,),
-                )
+                ),
+                "residue_axes": admitted_port_fixture(
+                    residue_axes,
+                    port_type_id="structure_transform.residue_axes",
+                    value_content_digests=("sha256:" + ("f" * 64),),
+                ),
             },
+            node_parameters={},
+            binding_parameters={},
         )
     )["sequence_candidates"]
     selected_output = SelectCandidateChainsImplementation(
@@ -420,11 +422,14 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     ).execute(
         OperationCall(
             inputs={
-                "structure_candidates": structure_candidates
+                "structure_candidates": admitted_port_fixture(
+                    structure_candidates,
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("e" * 64),),
+                )
             },
             node_parameters={"chain_ids": ["A"]},
             binding_parameters={},
-            input_content_digests={},
         )
     )["structure_candidates"]
 
@@ -449,18 +454,20 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
         ExtractSequenceCandidatesImplementation(_RunResources()).execute(
             OperationCall(
                 inputs={
-                    "structure_candidates": structure_candidates,
-                    "residue_axes": mismatched_axes,
-                },
-                node_parameters={},
-                binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
+                    "structure_candidates": admitted_port_fixture(
+                        structure_candidates,
                         port_type_id="candidate.collection",
                         value_content_digests=("sha256:" + ("e" * 64),),
                         candidate_data=(subject,),
-                    )
+                    ),
+                    "residue_axes": admitted_port_fixture(
+                        mismatched_axes,
+                        port_type_id="structure_transform.residue_axes",
+                        value_content_digests=("sha256:" + ("f" * 64),),
+                    ),
                 },
+                node_parameters={},
+                binding_parameters={},
             )
         )
 

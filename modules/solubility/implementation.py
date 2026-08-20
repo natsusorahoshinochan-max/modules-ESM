@@ -43,13 +43,11 @@ def _sequence_subjects(
     """Attach the staging identity to each already-admitted sequence subject."""
     collection = cast(
         CandidateCollection,
-        call.inputs["sequence_candidates"],
+        call.inputs["sequence_candidates"].value,
     )
     if collection.item_type != "protein.sequence":
         raise ValueError(f"{provider_name} requires protein.sequence item_type")
-    references = call.input_content_digests[
-        "sequence_candidates"
-    ].candidate_data
+    references = call.inputs["sequence_candidates"].candidate_data
     return tuple(
         (provider_sequence_id(index), candidate, reference)
         for index, (candidate, reference) in enumerate(

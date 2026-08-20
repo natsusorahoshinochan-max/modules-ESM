@@ -58,6 +58,7 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,
@@ -332,9 +333,9 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "output_port": "scores",
                     "metric": metric_quality.reference(),
                     "context_profile": {"kind": "intrinsic"},
-                    "subject_grain": "candidate",
-                    "source_role": "subject",
-                    "subject_direction": "input",
+                        "subject_grain": "candidate",
+                        "source_role": "subject",
+                        "subject_direction": "input",
                     "subject_port": "candidates",
                     "guaranteed_multiplicity": "one",
                 },
@@ -412,9 +413,10 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         def execute(self, call: OperationCall) -> dict:
             assert call.node_parameters == {}
             assert call.binding_parameters == {}
-            candidates = call.inputs["candidates"]
+            admitted_candidates = call.inputs["candidates"]
+            candidates = admitted_candidates.value
             assert type(candidates) is CandidateCollection
-            admitted = call.input_content_digests["candidates"].candidate_data
+            admitted = admitted_candidates.candidate_data
             assert len(admitted) == 2
             first, second = candidates.items
             first_ref, second_ref = admitted
@@ -1105,6 +1107,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         }
         | {
             "inputs": [
+                original_node["inputs"][0],
                 {
                     "name": "residue_axis",
                     "port_type": axis_type.reference(),
@@ -1143,7 +1146,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
                     "source_role": "subject",
-                    "subject_direction": "output",
+                    "subject_direction": "input",
                     "subject_port": "candidates",
                     "axis_direction": "input",
                     "axis_port": "residue_axis",
@@ -1202,8 +1205,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         binding=residue_binding,
         output_port="scores",
         collection=scores,
-        inputs={"residue_axis": "fixture-axis"},
-        outputs={"candidates": candidates, "scores": scores},
+        inputs={
+            "candidates": candidates,
+            "residue_axis": "fixture-axis",
+        },
+        outputs={"scores": scores},
     )
 
     with pytest.raises(PortValueError, match="canonical range"):
@@ -1215,8 +1221,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, value=[80, None, 101])],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
     with pytest.raises(PortValueError, match="exact residue layout"):
         validate_produced_score_collection(
@@ -1227,8 +1236,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, value=[80, 95])],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
     with pytest.raises(PortValueError, match="does not resolve exactly once"):
         validate_produced_score_collection(
@@ -1239,15 +1251,18 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, residue_axis=None)],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
     wrong_subject = CandidateDataReference(
         "candidate-1",
         "protein.sequence",
         "sha256:" + ("f" * 64),
     )
-    with pytest.raises(PortValueError, match="exact subject"):
+    with pytest.raises(PortValueError, match="conflicting exact references"):
         validate_produced_score_collection(
             catalog=residue_catalog,
             binding=residue_binding,
@@ -1256,8 +1271,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, subject=wrong_subject)],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
 
 
@@ -1327,12 +1345,29 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
         output_port="scores",
         collection=collection,
         inputs={
-            "structures": CandidateCollection(
-                "structures", "protein.structure", [structure]
+            "structures": admitted_port_fixture(
+                CandidateCollection(
+                    "structures", "protein.structure", [structure]
+                ),
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + ("6" * 64),),
+                candidate_data=(subject,),
             ),
-            "axes": "axis",
+            "axes": admitted_port_fixture(
+                "axis",
+                port_type_id="fixture.residue-axis",
+                value_content_digests=("sha256:" + ("7" * 64),),
+                scientific_axes=(axis,),
+            ),
         },
-        outputs={"scores": collection},
+        outputs={
+            "scores": admitted_port_fixture(
+                collection,
+                port_type_id="score.collection",
+                value_content_digests=("sha256:" + ("8" * 64),),
+                candidate_data=(subject,),
+            )
+        },
         metric_facts={
             (
                 metric.contract_kind,
@@ -1350,9 +1385,6 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
                 True,
             )
         },
-        axis_references={("input", "axes"): (axis,)},
-        method_references={},
-        candidate_references={("input", "structures"): (subject,)},
     )
 
 

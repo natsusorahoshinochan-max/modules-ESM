@@ -389,6 +389,26 @@ def three_way_consistency_from_wire(value: object) -> ThreeWayConsistencyEvidenc
     return result
 
 
+def _candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    validate_three_way_consistency(value)
+    assert type(value) is ThreeWayConsistencyEvidence
+    return (
+        value.input_structure,
+        value.sequence_parent,
+        value.esmfold2_structure,
+        value.simplefold_structure,
+        *(entry.subject for entry in value.confidences),
+        *(
+            reference
+            for edge in value.edges
+            for reference in (edge.subject, edge.reference)
+        ),
+    )
+
+
 THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
     type_id="structure_comparison.three_way_consistency",
     version=THREE_WAY_CONSISTENCY_VERSION,
@@ -434,4 +454,21 @@ THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_three_way_consistency,
     runtime_to_wire=three_way_consistency_to_wire,
     runtime_from_wire=three_way_consistency_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_comparison.three_way_consistency/"
+        "candidate_data_projection",
+        THREE_WAY_CONSISTENCY_VERSION,
+        {
+            "fields": [
+                "input_structure",
+                "sequence_parent",
+                "esmfold2_structure",
+                "simplefold_structure",
+                "confidences[].subject",
+                "edges[].subject",
+                "edges[].reference",
+            ]
+        },
+    ),
+    runtime_candidate_data_projection=_candidate_data_references,
 )

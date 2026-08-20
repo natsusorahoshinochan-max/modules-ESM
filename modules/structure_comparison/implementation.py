@@ -46,35 +46,17 @@ def _candidate_references(
     *,
     port_name: str,
 ) -> tuple[CandidateDataReference, ...]:
-    collection = call.inputs.get(port_name)
-    admitted = call.input_content_digests.get(port_name)
+    admitted = call.inputs.get(port_name)
+    collection = None if admitted is None else admitted.value
     if (
         type(collection) is not CandidateCollection
         or collection.item_type != "protein.structure"
         or not collection.items
-        or admitted is None
-        or admitted.port_type_id != "candidate.collection"
     ):
         raise ValueError(
             f"{port_name} must carry non-empty exact structure Candidates"
         )
-    candidate_ids = tuple(candidate.candidate_id for candidate in collection.items)
-    references_by_id: dict[str, CandidateDataReference] = {}
-    for reference in admitted.candidate_data:
-        if (
-            type(reference) is not CandidateDataReference
-            or reference.data_type_id != "protein.structure"
-            or reference.candidate_id in references_by_id
-        ):
-            raise ValueError(
-                f"{port_name} lacks complete exact Candidate references"
-            )
-        references_by_id[reference.candidate_id] = reference
-    if len(set(candidate_ids)) != len(candidate_ids) or set(candidate_ids) != set(
-        references_by_id
-    ):
-        raise ValueError(f"{port_name} lacks complete exact Candidate references")
-    return tuple(sorted(references_by_id.values(), key=_reference_key))
+    return tuple(sorted(admitted.candidate_data, key=_reference_key))
 
 
 def _axis_associations(
@@ -192,12 +174,12 @@ class StructureComparisonImplementation:
         subjects = _candidate_references(call, port_name="subjects")
         references = _candidate_references(call, port_name="references")
         subject_axes = _axis_associations(
-            call.inputs["subject_residue_axes"],
+            call.inputs["subject_residue_axes"].value,
             subjects,
             role="subject",
         )
         reference_axes = _axis_associations(
-            call.inputs["reference_residue_axes"],
+            call.inputs["reference_residue_axes"].value,
             references,
             role="reference",
         )
@@ -211,7 +193,7 @@ class StructureComparisonImplementation:
             pairs = _fixed_reference_pairs(subjects, references)
         elif self._pairing_mode == "per_subject_counterpart":
             pairs = _counterpart_pairs(
-                call.inputs["pairing"],
+                call.inputs["pairing"].value,
                 subjects,
                 references,
             )
@@ -274,7 +256,12 @@ class StructureComparisonImplementation:
             not in {"fixed_reference", "per_subject_counterpart"}
         ):
             raise ValueError("structure metric inputs are unresolved")
-        alignments = call.inputs["alignments"]
+        admitted_alignments = call.inputs.get("alignments")
+        alignments = (
+            None
+            if admitted_alignments is None
+            else admitted_alignments.value
+        )
         if (
             type(alignments) is not tuple
             or not alignments
@@ -284,17 +271,6 @@ class StructureComparisonImplementation:
             )
         ):
             raise ValueError("structure metrics require alignment evidence")
-        admitted_alignments = call.input_content_digests.get("alignments")
-        if (
-            admitted_alignments is None
-            or admitted_alignments.port_type_id
-            != "structure_comparison.alignment_evidence"
-            or len(admitted_alignments.value_content_digests)
-            != len(alignments)
-        ):
-            raise ValueError(
-                "structure metrics require admitted alignment evidence"
-            )
         subjects = [alignment.subject for alignment in alignments]
         references = [alignment.reference for alignment in alignments]
         if len(set(subjects)) != len(subjects):
@@ -308,7 +284,7 @@ class StructureComparisonImplementation:
             )
         else:
             expected_pairs = _counterpart_pairs(
-                call.inputs["pairing"],
+                call.inputs["pairing"].value,
                 subject_scope,
                 reference_scope,
             )

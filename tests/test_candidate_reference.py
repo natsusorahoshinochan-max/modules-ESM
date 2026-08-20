@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from core.operation import InputContentDigests
+from core.operation import AdmittedValue
 from datatypes import CandidateDataReference
 
 
@@ -85,11 +85,12 @@ def test_candidate_data_reference_from_public_requires_exact_fields(
         CandidateDataReference.from_public(public)
 
 
-def test_input_content_digests_admits_only_candidate_data_references() -> None:
+def test_admitted_value_admits_only_candidate_data_references() -> None:
     with pytest.raises(TypeError, match="CandidateDataReference"):
-        InputContentDigests(
-            port_type_id="candidate.collection",
-            value_content_digests=("sha256:" + ("1" * 64),),
+        AdmittedValue(
+            value="candidate fixture",
+            canonical_bytes=b"candidate fixture",
+            content_digest="sha256:" + ("1" * 64),
             candidate_data=(
                 {
                     "candidate_id": "candidate-1",

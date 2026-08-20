@@ -5,16 +5,23 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
-from core.scoring_v2 import (
-    ResolvedObservationSelector,
-    ResolvedSelectionObjective,
+from datatypes import (
+    CandidateDataReference,
+    ExactContractReference,
+    ResidueAxisReference,
 )
-from datatypes import CandidateDataReference, ExactContractReference
 
 if TYPE_CHECKING:
     from core.run_execution_v2 import RunResources
+    from core.scoring_v2 import (
+        ResolvedObservationSelector,
+        ResolvedSelectionObjective,
+    )
+
+
+PortMultiplicity = Literal["one", "many"]
 
 
 def _freeze_container(value: Any) -> Any:
@@ -26,6 +33,115 @@ def _freeze_container(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_container(item) for item in value)
     return value
+
+
+@dataclass(frozen=True, slots=True)
+class AdmittedValue:
+    """One immutable canonical value and every Port-owned projection."""
+
+    value: Any
+    canonical_bytes: bytes
+    content_digest: str
+    candidate_data: tuple[CandidateDataReference, ...] = ()
+    scientific_axes: tuple[ResidueAxisReference, ...] = ()
+    observation_methods: tuple[ExactContractReference, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "value", _freeze_container(self.value))
+        object.__setattr__(self, "canonical_bytes", bytes(self.canonical_bytes))
+        candidate_data = tuple(self.candidate_data)
+        if any(
+            type(reference) is not CandidateDataReference
+            for reference in candidate_data
+        ):
+            raise TypeError(
+                "candidate_data entries must be CandidateDataReference values"
+            )
+        object.__setattr__(self, "candidate_data", candidate_data)
+        scientific_axes = tuple(self.scientific_axes)
+        if any(
+            type(reference) is not ResidueAxisReference
+            for reference in scientific_axes
+        ):
+            raise TypeError(
+                "scientific_axes entries must be ResidueAxisReference values"
+            )
+        object.__setattr__(self, "scientific_axes", scientific_axes)
+        observation_methods = tuple(self.observation_methods)
+        if any(
+            type(reference) is not ExactContractReference
+            or reference.contract_kind != "method"
+            for reference in observation_methods
+        ):
+            raise TypeError(
+                "observation_methods entries must be exact Method references"
+            )
+        object.__setattr__(
+            self,
+            "observation_methods",
+            observation_methods,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class AdmittedPort:
+    """Complete admitted record for one exact input or output Port."""
+
+    port_type: Mapping[str, Any]
+    multiplicity: PortMultiplicity
+    values: tuple[AdmittedValue, ...]
+    content_digest: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "port_type",
+            MappingProxyType(dict(self.port_type)),
+        )
+        values = tuple(self.values)
+        if any(type(value) is not AdmittedValue for value in values):
+            raise TypeError("values must contain exact AdmittedValue records")
+        if self.multiplicity not in {"one", "many"}:
+            raise ValueError("multiplicity must be one or many")
+        object.__setattr__(self, "values", values)
+
+    @property
+    def value(self) -> Any:
+        """Return the admitted scientific value in its declared multiplicity."""
+        if self.multiplicity == "many":
+            return tuple(item.value for item in self.values)
+        return self.values[0].value
+
+    def __bool__(self) -> bool:
+        return bool(self.values)
+
+    @property
+    def value_content_digests(self) -> tuple[str, ...]:
+        return tuple(value.content_digest for value in self.values)
+
+    @property
+    def candidate_data(self) -> tuple[CandidateDataReference, ...]:
+        return tuple(
+            reference
+            for value in self.values
+            for reference in value.candidate_data
+        )
+
+    @property
+    def scientific_axes(self) -> tuple[ResidueAxisReference, ...]:
+        return tuple(
+            reference
+            for value in self.values
+            for reference in value.scientific_axes
+        )
+
+    @property
+    def observation_methods(self) -> tuple[ExactContractReference, ...]:
+        return tuple(
+            reference
+            for value in self.values
+            for reference in value.observation_methods
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,31 +160,6 @@ class CandidatePairingIntent:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "entries", tuple(self.entries))
-
-
-@dataclass(frozen=True, slots=True)
-class InputContentDigests:
-    """Content identities admitted for one exact input Port."""
-
-    port_type_id: str
-    value_content_digests: tuple[str, ...]
-    candidate_data: tuple[CandidateDataReference, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "value_content_digests",
-            tuple(self.value_content_digests),
-        )
-        candidate_data = tuple(self.candidate_data)
-        if any(
-            type(reference) is not CandidateDataReference
-            for reference in candidate_data
-        ):
-            raise TypeError(
-                "candidate_data entries must be CandidateDataReference values"
-            )
-        object.__setattr__(self, "candidate_data", candidate_data)
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,16 +226,20 @@ class OperationContext:
 class OperationCall:
     """Immutable admitted values supplied to one scientific operation call."""
 
-    inputs: Mapping[str, Any]
+    inputs: Mapping[str, AdmittedPort]
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
-    input_content_digests: Mapping[str, InputContentDigests]
 
     def __post_init__(self) -> None:
+        if any(
+            type(port_name) is not str or type(record) is not AdmittedPort
+            for port_name, record in self.inputs.items()
+        ):
+            raise TypeError("inputs must contain complete AdmittedPort records")
         object.__setattr__(
             self,
             "inputs",
-            _freeze_container(self.inputs),
+            MappingProxyType(dict(self.inputs)),
         )
         object.__setattr__(
             self,
@@ -155,11 +250,6 @@ class OperationCall:
             self,
             "binding_parameters",
             _freeze_container(self.binding_parameters),
-        )
-        object.__setattr__(
-            self,
-            "input_content_digests",
-            _freeze_container(self.input_content_digests),
         )
 
 
