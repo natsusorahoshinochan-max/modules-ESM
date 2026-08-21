@@ -1016,6 +1016,56 @@ def test_successful_process_fallback_is_confirmed_when_context_exits(
     assert projection["status"] == "cancelled"
 
 
+def test_cancel_during_factory_closes_started_node_before_operation_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_factory(resources) -> None:
+        del resources
+        entered.set()
+        assert release.wait(timeout=3)
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            factory_action=hold_factory,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-during-factory")
+        assert entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        release.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["outcome"] == "cancellation_requested"
+    assert projection["status"] == "cancelled"
+    assert projection["node_dispositions"][0]["outcome"] == "cancelled"
+    events = _public_events(app, project_id, receipt["run_id"])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("node_attempt_started") == 1
+    assert event_types.count("node_attempt_terminal") == 1
+    assert "operation_attempt_started" not in event_types
+    assert "engine_invocation_started" not in event_types
+
+
 def test_cancel_factory_cleanup_failure_interrupts_started_node_attempt(
     tmp_path,
     monkeypatch,

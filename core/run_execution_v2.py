@@ -1024,18 +1024,6 @@ class ResultCachePublicationError(RuntimeError):
     """Optional Cache indexing failed after committed Node success."""
 
 
-class PreOperationAttemptTermination(RuntimeError):
-    """A conclusion after Node Execution Attempt start, before Operation Attempt."""
-
-    def __init__(self, outcome: str) -> None:
-        if outcome not in {"cancelled", "interrupted"}:
-            raise ValueError(
-                "Pre-Operation Attempt disposition outcome is invalid"
-            )
-        self.outcome = outcome
-        super().__init__("Operation Attempt did not start")
-
-
 @dataclass(frozen=True, slots=True)
 class AdmittedArtifactPublication:
     """Operation-admitted Artifact facts ready for immutable persistence."""
@@ -5377,7 +5365,6 @@ class _NodeExecutionAttemptModule:
         state: _NodeExecutionAttemptState,
         *,
         outcome: Literal["cancelled", "interrupted"],
-        cause: BaseException | None = None,
     ) -> _CommittedNodeOutcome:
         resources = state.resources
         if resources is None:
@@ -5389,11 +5376,6 @@ class _NodeExecutionAttemptModule:
         try:
             resources.cleanup_temporary_work()
         except BaseException as cleanup_error:
-            if cause is not None:
-                cause.add_note(
-                    "Run workspace cleanup also failed: "
-                    f"{type(cleanup_error).__name__}"
-                )
             outcome = "interrupted"
         if self._run_record.cancellation.cleanup_error is not None:
             outcome = "interrupted"
@@ -5452,12 +5434,6 @@ class _NodeExecutionAttemptModule:
                     "Scientific Operation factory must return an "
                     "object with callable execute(OperationCall)"
                 )
-        except PreOperationAttemptTermination as termination:
-            return self._cleanup_before_operation_attempt(
-                state,
-                outcome=termination.outcome,
-                cause=termination,
-            )
         except BaseException as error:
             try:
                 resources.cleanup_temporary_work()

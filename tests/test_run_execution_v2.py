@@ -27,7 +27,6 @@ from core import (
     OperationContext,
     PortTypeDefinition,
     PortValueError,
-    PreOperationAttemptTermination,
     ProjectManager,
     ReadinessCheckInput,
     ReadinessResult,
@@ -570,7 +569,6 @@ def _pipeline_catalog(
     invalid_source_output: bool = False,
     failing_source_node_id: str | None = None,
     terminating_source_nodes: Mapping[str, str] | None = None,
-    pre_operation_attempt_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
     cacheable: bool = False,
     unresolved_port_identity: bool = False,
@@ -893,13 +891,6 @@ def _pipeline_catalog(
                 calls.append(f"factory:{context.resources.node_id}")
             if implementation is SourceImplementation:
                 node_id = context.resources.node_id
-                if (
-                    pre_operation_attempt_source_nodes is not None
-                    and node_id in pre_operation_attempt_source_nodes
-                ):
-                    raise PreOperationAttemptTermination(
-                        pre_operation_attempt_source_nodes[node_id]
-                    )
                 return implementation(node_id, context.resources)
             return implementation(context.resources)
 
@@ -1494,55 +1485,6 @@ def test_started_engine_terminal_statuses_are_causally_closed(
             for event in terminal_events
         }
     ) == 3
-
-
-@pytest.mark.parametrize("outcome", ("cancelled", "interrupted"))
-def test_factory_termination_closes_started_node_attempt_before_operation_attempt(
-    tmp_path,
-    monkeypatch,
-    outcome: str,
-) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_pipeline_catalog(
-            [],
-            pre_operation_attempt_source_nodes={"source": outcome},
-        )
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_pipeline(client)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": f"pre-operation-attempt-{outcome}",
-            },
-        )
-        assert started.status_code == 202
-        run_id = started.json()["run_id"]
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id=project_id,
-            run_id=run_id,
-        )
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
-
-    assert projection["status"] == outcome
-    assert [
-        (item["node_id"], item["outcome"], item["blocked_by"])
-        for item in projection["node_dispositions"]
-    ] == [
-        ("source", outcome, []),
-        ("sink", "blocked", ["source"]),
-    ]
-    event_types = [event["event"]["type"] for event in events]
-    assert event_types.count("node_attempt_started") == 1
-    assert event_types.count("node_attempt_terminal") == 1
-    assert "operation_attempt_started" not in event_types
-    assert "engine_invocation_started" not in event_types
 
 
 def test_invalid_scientific_operation_factory_fails_after_attempt_start(
