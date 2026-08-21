@@ -1024,14 +1024,16 @@ class ResultCachePublicationError(RuntimeError):
     """Optional Cache indexing failed after committed Node success."""
 
 
-class PreScheduleTermination(RuntimeError):
-    """A scheduler conclusion before a Node Execution Attempt starts."""
+class PreOperationAttemptTermination(RuntimeError):
+    """A conclusion after Node Execution Attempt start, before Operation Attempt."""
 
     def __init__(self, outcome: str) -> None:
         if outcome not in {"cancelled", "interrupted"}:
-            raise ValueError("Pre-schedule disposition outcome is invalid")
+            raise ValueError(
+                "Pre-Operation Attempt disposition outcome is invalid"
+            )
         self.outcome = outcome
-        super().__init__("Node was not scheduled")
+        super().__init__("Operation Attempt did not start")
 
 
 @dataclass(frozen=True, slots=True)
@@ -5370,7 +5372,7 @@ class _NodeExecutionAttemptModule:
             _project_input_identities=state.resource_identities,
         )
 
-    def _cleanup_before_operation(
+    def _cleanup_before_operation_attempt(
         self,
         state: _NodeExecutionAttemptState,
         *,
@@ -5450,8 +5452,8 @@ class _NodeExecutionAttemptModule:
                     "Scientific Operation factory must return an "
                     "object with callable execute(OperationCall)"
                 )
-        except PreScheduleTermination as termination:
-            return self._cleanup_before_operation(
+        except PreOperationAttemptTermination as termination:
+            return self._cleanup_before_operation_attempt(
                 state,
                 outcome=termination.outcome,
                 cause=termination,
@@ -5466,7 +5468,7 @@ class _NodeExecutionAttemptModule:
                 )
             raise
         if self._ledger.cancellation_requested:
-            return self._cleanup_before_operation(
+            return self._cleanup_before_operation_attempt(
                 state,
                 outcome="cancelled",
             )
@@ -5673,7 +5675,7 @@ class _NodeExecutionAttemptModule:
         _, operation_execute, operation_call = operation
         cancellation = self._start_operation(state)
         if cancellation is not None:
-            return self._cleanup_before_operation(
+            return self._cleanup_before_operation_attempt(
                 state,
                 outcome=cancellation,
             )

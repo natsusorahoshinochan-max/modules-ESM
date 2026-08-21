@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import math
 from typing import Any
@@ -271,8 +270,8 @@ def controlled_catalog() -> Any:
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
 
-    def ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-        return ReadinessResult(isinstance(check_input.values, Mapping))
+    def ready(_check_input: ReadinessCheckInput) -> ReadinessResult:
+        return ReadinessResult(True)
 
     registrations: list[ModulePackageRegistration] = []
     for registration in discover_module_packages():

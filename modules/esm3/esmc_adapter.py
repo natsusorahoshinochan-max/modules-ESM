@@ -78,10 +78,8 @@ def normalize_representation(
     )
 
 
-def environment_ready(environment: object) -> bool:
+def environment_ready(environment: Mapping[str, Any]) -> bool:
     """Require an exact deployment client/factory and an opaque credential."""
-    if not isinstance(environment, Mapping):
-        return False
     if environment.get("endpoint_id") != "biohub":
         return False
     client = environment.get("provider_client")

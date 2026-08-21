@@ -128,9 +128,7 @@ def local_runtime_structurally_available() -> bool:
     )
 
 
-def remote_readiness(environment: object) -> bool:
-    if not isinstance(environment, Mapping):
-        return False
+def remote_readiness(environment: Mapping[str, Any]) -> bool:
     client = environment.get("provider_client")
     factory = environment.get("client_factory")
     return (
@@ -297,14 +295,8 @@ def _trusted_local_runtime(
     )
 
 
-def local_readiness(environment: object) -> ReadinessResult:
+def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Return a bounded conclusion for exactly one selected local Binding."""
-    if not isinstance(environment, Mapping):
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="local_runtime_unavailable",
-        )
     try:
         resolve_local_runtime(environment)
     except (

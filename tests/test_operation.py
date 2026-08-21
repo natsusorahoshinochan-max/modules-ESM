@@ -21,7 +21,6 @@ from core.scoring_v2 import (
     validate_produced_score_collection_from_facts,
 )
 from core.value_admission import admitted_port_values, normalize_scientific_outputs
-from core.run_execution_v2 import _NodeExecutionAttemptModule
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -264,125 +263,6 @@ def test_observation_method_projection_declaration_and_runtime_are_atomic(
     )
     assert definition.observation_method_references("facts") == (method,)
     assert "observation_method_projection" in definition.descriptor()
-
-
-@pytest.mark.parametrize(
-    "projected_method",
-    (
-        _method_reference("fixture.producer", "d"),
-        _method_reference("fixture.other", "c"),
-    ),
-)
-def test_output_admission_rejects_a_method_not_owned_by_the_binding(
-    projected_method: ExactContractReference,
-) -> None:
-    producing_method = _method_reference("fixture.producer", "c")
-    port_type = PortTypeDefinition(
-        type_id="fixture.confidence_facts",
-        version="1.0.0",
-        validator=BehaviorReference(
-            "fixture.confidence_facts/validate", "1.0.0", {}
-        ),
-        codec=BehaviorReference(
-            "fixture.confidence_facts/codec", "1.0.0", {}
-        ),
-        content_identity=BehaviorReference(
-            "fixture.confidence_facts/content", "1.0.0", {}
-        ),
-        runtime_validator=lambda value: None,
-        runtime_to_wire=lambda value: value,
-        runtime_from_wire=lambda value: value,
-        observation_method_projection=BehaviorReference(
-            "fixture.confidence_facts/method_projection",
-            "1.0.0",
-            {"projection": "exact-method"},
-        ),
-        runtime_observation_method_projection=lambda _: (projected_method,),
-    )
-    runtime_port = SimpleNamespace(
-        declaration={"required": True, "multiplicity": "one"},
-        port_type=port_type,
-    )
-    node = SimpleNamespace(
-        node_id="producer",
-        method=producing_method,
-        _runtime=SimpleNamespace(
-            output_ports={"confidence_facts": runtime_port},
-            binding_contract=SimpleNamespace(
-                descriptor={"produced_observations": ()}
-            ),
-            produced_metric_facts={},
-        ),
-    )
-    plan = SimpleNamespace(
-        _runtime=SimpleNamespace(candidate_data_port_types={})
-    )
-
-    with pytest.raises(
-        PortValueError,
-        match="does not equal the producing Binding Method",
-    ):
-        _NodeExecutionAttemptModule._admit_outputs(
-            object.__new__(_NodeExecutionAttemptModule),
-            plan,
-            node,
-            {"confidence_facts": "facts"},
-            inputs={},
-        )
-
-
-def test_output_admission_accepts_the_exact_binding_method_projection() -> None:
-    producing_method = _method_reference("fixture.producer", "c")
-    port_type = PortTypeDefinition(
-        type_id="fixture.confidence_facts",
-        version="1.0.0",
-        validator=BehaviorReference(
-            "fixture.confidence_facts/validate", "1.0.0", {}
-        ),
-        codec=BehaviorReference(
-            "fixture.confidence_facts/codec", "1.0.0", {}
-        ),
-        content_identity=BehaviorReference(
-            "fixture.confidence_facts/content", "1.0.0", {}
-        ),
-        runtime_validator=lambda value: None,
-        runtime_to_wire=lambda value: value,
-        runtime_from_wire=lambda value: value,
-        observation_method_projection=BehaviorReference(
-            "fixture.confidence_facts/method_projection",
-            "1.0.0",
-            {"projection": "exact-method"},
-        ),
-        runtime_observation_method_projection=lambda _: (producing_method,),
-    )
-    runtime_port = SimpleNamespace(
-        declaration={"required": True, "multiplicity": "one"},
-        port_type=port_type,
-    )
-    node = SimpleNamespace(
-        node_id="producer",
-        method=producing_method,
-        _runtime=SimpleNamespace(
-            output_ports={"confidence_facts": runtime_port},
-            binding_contract=SimpleNamespace(
-                descriptor={"produced_observations": ()}
-            ),
-            produced_metric_facts={},
-        ),
-    )
-    plan = SimpleNamespace(
-        _runtime=SimpleNamespace(candidate_data_port_types={})
-    )
-
-    _, admitted = _NodeExecutionAttemptModule._admit_outputs(
-        object.__new__(_NodeExecutionAttemptModule),
-        plan,
-        node,
-        {"confidence_facts": "facts"},
-        inputs={},
-    )
-
-    assert admitted[("producer", "confidence_facts")].value == "facts"
 
 
 def test_produced_observation_method_uses_declared_projection_or_binding_default(

@@ -34,7 +34,7 @@ from core import (
     validate_produced_score_collection,
 )
 from core.port_types import PortValueError
-from core.run_execution_v2 import _NodeExecutionAttemptModule
+from core.value_admission import normalize_scientific_outputs
 from core.workflow_v2 import WorkflowEdge as V2WorkflowEdge
 from datatypes import (
     Candidate,
@@ -1434,17 +1434,6 @@ def test_compiler_rejects_unknown_partition_before_any_provider_invocation() -> 
 
 def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
     catalog, contracts = _compiler_catalog()
-    workflow = _compiler_workflow(contracts)
-    compiled = compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    node = next(
-        item
-        for item in compiled.execution_plan.nodes
-        if item.node_id == "producer"
-    )
     subject = Candidate("raw-subject", ProteinSequence("AA"))
     reference = Candidate("raw-reference", ProteinSequence("AT"))
     fixed = _pairwise_observation(
@@ -1486,33 +1475,22 @@ def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
         ),
         "scores": ScoreCollection("raw-scores", [fixed, paired]),
     }
-    attempts = object.__new__(_NodeExecutionAttemptModule)
-
     with pytest.raises(
         PortValueError,
         match="cannot reference a same-operation output Candidate",
     ):
-        attempts._normalize_candidate_outputs(
-            plan=compiled.execution_plan,
-            node=node,
+        normalize_scientific_outputs(
+            node_id="producer",
             result_identity="sha256:" + "a" * 64,
             inputs={},
             outputs=outputs,
+            candidate_content_digest=lambda _candidate: (
+                "sha256:" + "b" * 64
+            ),
         )
 
 
 def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
-    catalog, contracts = _compiler_catalog()
-    compiled = compile_workflow(
-        relock_workflow(_compiler_workflow(contracts), catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    node = next(
-        item
-        for item in compiled.execution_plan.nodes
-        if item.node_id == "producer"
-    )
     shared = Candidate("raw-shared", ProteinSequence("AA"))
     outputs = {
         "candidates": CandidateCollection(
@@ -1526,18 +1504,18 @@ def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
             [shared],
         ),
     }
-    attempts = object.__new__(_NodeExecutionAttemptModule)
-
     with pytest.raises(
         PortValueError,
         match="reuses one producer identity",
     ):
-        attempts._normalize_candidate_outputs(
-            plan=compiled.execution_plan,
-            node=node,
+        normalize_scientific_outputs(
+            node_id="producer",
             result_identity="sha256:" + "a" * 64,
             inputs={},
             outputs=outputs,
+            candidate_content_digest=lambda _candidate: (
+                "sha256:" + "b" * 64
+            ),
         )
 
     assert shared.candidate_id == "raw-shared"

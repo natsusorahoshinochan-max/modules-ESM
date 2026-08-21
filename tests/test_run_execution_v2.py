@@ -27,7 +27,7 @@ from core import (
     OperationContext,
     PortTypeDefinition,
     PortValueError,
-    PreScheduleTermination,
+    PreOperationAttemptTermination,
     ProjectManager,
     ReadinessCheckInput,
     ReadinessResult,
@@ -53,6 +53,7 @@ from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    ExactContractReference,
     ProteinSequence,
 )
 from protein_workbench_public import (
@@ -74,6 +75,11 @@ def _transaction_has_fact(payload: bytes, fact_type: str) -> bool:
     return any(
         fact["fact_type"] == fact_type for fact in transaction["facts"]
     )
+
+
+def test_readiness_check_input_rejects_non_mapping_values() -> None:
+    with pytest.raises(TypeError, match="Readiness values must be a Mapping"):
+        ReadinessCheckInput(object())  # type: ignore[arg-type]
 
 
 def _durable_facts(root) -> list[dict[str, Any]]:
@@ -169,9 +175,9 @@ def _direct_catalog(
     node_title: str = "Deterministic direct test Node",
     effective_randomness_parameters: tuple[str, ...] = (),
     effective_randomness_resolver: EffectiveRandomnessResolver | None = None,
+    output_method_projection: Literal["binding", "other"] | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    text = builtin.require_port_type("text", "2.1.0")
     method = _contract(
         "method",
         "test.direct.method",
@@ -188,6 +194,49 @@ def _direct_catalog(
             "scale_contract": {"kind": "identity"},
         },
     )
+    text = builtin.require_port_type("text", "2.1.0")
+    catalog_port_types = builtin.port_types
+    if output_method_projection is not None:
+        producing_method = ExactContractReference(**method.reference())
+        projected_method = (
+            producing_method
+            if output_method_projection == "binding"
+            else replace(
+                producing_method,
+                contract_id="test.other.method",
+            )
+        )
+        text = PortTypeDefinition(
+            type_id="test.method_observation",
+            version="2.1.0",
+            validator=BehaviorReference(
+                "test.method_observation/validate",
+                "2.1.0",
+                {},
+            ),
+            codec=BehaviorReference(
+                "test.method_observation/codec",
+                "2.1.0",
+                {},
+            ),
+            content_identity=BehaviorReference(
+                "test.method_observation/content",
+                "2.1.0",
+                {},
+            ),
+            runtime_validator=lambda value: None,
+            runtime_to_wire=lambda value: value,
+            runtime_from_wire=lambda value: value,
+            observation_method_projection=BehaviorReference(
+                "test.method_observation/method_projection",
+                "2.1.0",
+                {},
+            ),
+            runtime_observation_method_projection=lambda _: (
+                projected_method,
+            ),
+        )
+        catalog_port_types = (*builtin.port_types, text)
     node_type = _contract(
         "node_type",
         "test.direct",
@@ -409,7 +458,7 @@ def _direct_catalog(
 
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
-        builtin.port_types,
+        catalog_port_types,
         contracts=(method, node_type, *bindings),
         availability=tuple(
             (
@@ -521,7 +570,7 @@ def _pipeline_catalog(
     invalid_source_output: bool = False,
     failing_source_node_id: str | None = None,
     terminating_source_nodes: Mapping[str, str] | None = None,
-    pre_schedule_source_nodes: Mapping[str, str] | None = None,
+    pre_operation_attempt_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
     cacheable: bool = False,
     unresolved_port_identity: bool = False,
@@ -845,11 +894,11 @@ def _pipeline_catalog(
             if implementation is SourceImplementation:
                 node_id = context.resources.node_id
                 if (
-                    pre_schedule_source_nodes is not None
-                    and node_id in pre_schedule_source_nodes
+                    pre_operation_attempt_source_nodes is not None
+                    and node_id in pre_operation_attempt_source_nodes
                 ):
-                    raise PreScheduleTermination(
-                        pre_schedule_source_nodes[node_id]
+                    raise PreOperationAttemptTermination(
+                        pre_operation_attempt_source_nodes[node_id]
                     )
                 return implementation(node_id, context.resources)
             return implementation(context.resources)
@@ -1448,7 +1497,7 @@ def test_started_engine_terminal_statuses_are_causally_closed(
 
 
 @pytest.mark.parametrize("outcome", ("cancelled", "interrupted"))
-def test_factory_termination_closes_node_attempt_without_operation(
+def test_factory_termination_closes_started_node_attempt_before_operation_attempt(
     tmp_path,
     monkeypatch,
     outcome: str,
@@ -1459,7 +1508,7 @@ def test_factory_termination_closes_node_attempt_without_operation(
     app = create_app(
         frozen_catalog_override=_pipeline_catalog(
             [],
-            pre_schedule_source_nodes={"source": outcome},
+            pre_operation_attempt_source_nodes={"source": outcome},
         )
     )
 
@@ -1469,7 +1518,7 @@ def test_factory_termination_closes_node_attempt_without_operation(
             f"/api/v2/projects/{project_id}/runs",
             json={
                 "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": f"pre-schedule-{outcome}",
+                "client_request_id": f"pre-operation-attempt-{outcome}",
             },
         )
         assert started.status_code == 202
@@ -2299,6 +2348,116 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         "node_attempt_terminal",
         "node_disposition",
     ]
+
+
+def test_run_accepts_output_method_projected_by_its_binding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            output_method_projection="binding",
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "matching-output-method",
+            },
+        )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started.json()["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert projection["node_dispositions"][0]["outcome"] == "succeeded"
+
+
+def test_run_rejects_output_method_not_owned_by_its_binding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            output_method_projection="other",
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "mismatched-output-method",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=run_id,
+        )
+        events = app.state.run_execution_v2.public_events(project_id, run_id)
+
+    assert projection["status"] == "failed"
+    assert projection["node_dispositions"][0]["outcome"] == "failed"
+    operation_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal["status"] == "failed"
+    assert node_terminal["failure_origin"] == "operation"
 
 
 def test_run_executes_only_the_resolved_plan_after_compilation(
