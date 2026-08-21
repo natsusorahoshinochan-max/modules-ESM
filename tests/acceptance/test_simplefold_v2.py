@@ -50,9 +50,9 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": SEQUENCE_3GB1},
         binding_parameters={},
     )

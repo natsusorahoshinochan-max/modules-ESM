@@ -56,9 +56,9 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"pdb_string": pdb_3gb1.pdb_string},
         binding_parameters={},
     )
@@ -72,7 +72,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
             "structure_transform."
             "resolve_candidate_residue_axes.direct"
         ),
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -370,7 +370,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.simplefold_confidence.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "5.0.0"
+        and event["event"]["binding"]["contract_version"] == "6.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(
