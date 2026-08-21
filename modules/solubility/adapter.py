@@ -194,6 +194,10 @@ class ProteinSolProviderOutputUnavailable(ProteinSolInvocationError):
     """The exact upstream invocation produced no readable result."""
 
 
+class SolubilityReadinessUnavailable(RuntimeError):
+    """An exact solubility Provider prerequisite cannot be admitted."""
+
+
 def _regular_file_sha256(
     path: object,
     *,
@@ -201,17 +205,22 @@ def _regular_file_sha256(
     provider_name: str = "SoluProt",
 ) -> str:
     if not isinstance(path, Path) or not path.is_file():
-        raise FileNotFoundError(
+        raise SolubilityReadinessUnavailable(
             f"configured {provider_name} asset is unavailable"
         )
     if executable and not os.access(path, os.X_OK):
-        raise FileNotFoundError(
+        raise SolubilityReadinessUnavailable(
             f"configured {provider_name} executable is unavailable"
         )
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError as error:
+        raise SolubilityReadinessUnavailable(
+            f"configured {provider_name} asset is unavailable"
+        ) from error
     return digest.hexdigest()
 
 
@@ -230,7 +239,7 @@ def _require_digest(
         )
         != expected
     ):
-        raise RuntimeError(
+        raise SolubilityReadinessUnavailable(
             f"configured {provider_name} asset identity changed"
         )
     return cast(Path, path)
@@ -284,7 +293,7 @@ print(json.dumps({{
         subprocess.TimeoutExpired,
         json.JSONDecodeError,
     ) as error:
-        raise RuntimeError(
+        raise SolubilityReadinessUnavailable(
             "configured SoluProt Python identity is unavailable"
         ) from error
     if (
@@ -296,7 +305,9 @@ print(json.dumps({{
         or not isinstance(identity["distributions"], dict)
         or identity["distributions"] != SOLUPROT_RUNTIME_VERSIONS
     ):
-        raise RuntimeError("configured SoluProt Python identity changed")
+        raise SolubilityReadinessUnavailable(
+            "configured SoluProt Python identity changed"
+        )
     return python_path
 
 
@@ -306,7 +317,9 @@ def _validate_perl_runtime(path: object) -> Path:
         not isinstance(path, Path)
         or path.resolve() != Path("/usr/bin/perl").resolve()
     ):
-        raise FileNotFoundError("configured SoluProt Perl is unavailable")
+        raise SolubilityReadinessUnavailable(
+            "configured SoluProt Perl is unavailable"
+        )
     perl_path = _require_digest(
         path,
         SOLUPROT_PERL_SHA256,
@@ -331,11 +344,13 @@ def _validate_perl_runtime(path: object) -> Path:
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
     ) as error:
-        raise RuntimeError(
+        raise SolubilityReadinessUnavailable(
             "configured SoluProt Perl identity is unavailable"
         ) from error
     if completed.stdout != SOLUPROT_PERL_VERSION:
-        raise RuntimeError("configured SoluProt Perl identity changed")
+        raise SolubilityReadinessUnavailable(
+            "configured SoluProt Perl identity changed"
+        )
     return perl_path
 
 
@@ -371,7 +386,9 @@ def validate_soluprot_environment(
         not isinstance(site_packages_root, Path)
         or not site_packages_root.is_dir()
     ):
-        raise FileNotFoundError("configured SoluProt package root is unavailable")
+        raise SolubilityReadinessUnavailable(
+            "configured SoluProt package root is unavailable"
+        )
     _validate_python_runtime(
         python_executable,
         site_packages_root=site_packages_root,
@@ -394,7 +411,9 @@ def validate_soluprot_environment(
             not isinstance(tmhmm_root, Path)
             or not tmhmm_root.is_dir()
         ):
-            raise FileNotFoundError("configured SoluProt TMHMM root is unavailable")
+            raise SolubilityReadinessUnavailable(
+                "configured SoluProt TMHMM root is unavailable"
+            )
         for relative, expected in SOLUPROT_TMHMM_SHA256.items():
             _require_digest(
                 tmhmm_root / relative,
@@ -416,7 +435,7 @@ def soluprot_readiness(
     """Independently attest one mode without loading either model."""
     try:
         validate_soluprot_environment(environment, mode=mode)
-    except (FileNotFoundError, OSError, RuntimeError):
+    except SolubilityReadinessUnavailable:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -604,7 +623,7 @@ def _validate_executable_runtime(
         not isinstance(path, Path)
         or path.resolve() != expected_path.resolve()
     ):
-        raise FileNotFoundError(
+        raise SolubilityReadinessUnavailable(
             f"configured Protein-Sol {runtime_name} is unavailable"
         )
     runtime_path = _require_digest(
@@ -632,12 +651,12 @@ def _validate_executable_runtime(
         subprocess.CalledProcessError,
         subprocess.TimeoutExpired,
     ) as error:
-        raise RuntimeError(
+        raise SolubilityReadinessUnavailable(
             f"configured Protein-Sol {runtime_name} identity is unavailable"
         ) from error
     observed = completed.stdout.splitlines()[0] if completed.stdout else ""
     if observed != expected_version:
-        raise RuntimeError(
+        raise SolubilityReadinessUnavailable(
             f"configured Protein-Sol {runtime_name} identity changed"
         )
     return runtime_path
@@ -652,7 +671,7 @@ def validate_protein_sol_environment(
         not isinstance(source_root, Path)
         or not source_root.is_dir()
     ):
-        raise FileNotFoundError(
+        raise SolubilityReadinessUnavailable(
             "configured Protein-Sol source root is unavailable"
         )
     for relative, expected in PROTEIN_SOL_SOURCE_SHA256.items():
@@ -685,7 +704,7 @@ def protein_sol_readiness(
     """Observe exact source and interpreter prerequisites for one Run."""
     try:
         validate_protein_sol_environment(environment)
-    except (FileNotFoundError, OSError, RuntimeError):
+    except SolubilityReadinessUnavailable:
         return ReadinessResult(
             False,
             proof_source="direct-observation",

@@ -68,6 +68,10 @@ PROTEINMPNN_V_48_020_SHA256 = (
 )
 
 
+class ProviderInstallationUnavailable(RuntimeError):
+    """An exact installed Provider source cannot be admitted."""
+
+
 def esm_provider_identity(*, local: bool = False) -> dict[str, Any]:
     identity: dict[str, Any] = {
         "sdk": "esm",
@@ -100,7 +104,9 @@ def _git(*args: str, cwd: Path) -> str:
             timeout=10,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError("Provider package is not from a verifiable Git checkout") from exc
+        raise ProviderInstallationUnavailable(
+            "Provider package is not from a verifiable Git checkout"
+        ) from exc
     return completed.stdout.strip()
 
 
@@ -109,14 +115,23 @@ def validate_installed_provider_checkout(
     expected_revision: str,
 ) -> Path:
     """Resolve one provider package from its locked source revision."""
-    distribution = importlib.metadata.distribution(package_name)
+    try:
+        distribution = importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError as error:
+        raise ProviderInstallationUnavailable(
+            "Provider package is not installed"
+        ) from error
     direct_url_text = distribution.read_text("direct_url.json")
     if not direct_url_text:
-        raise RuntimeError("Provider package has no PEP 610 VCS provenance")
+        raise ProviderInstallationUnavailable(
+            "Provider package has no PEP 610 VCS provenance"
+        )
     try:
         direct_url = json.loads(direct_url_text)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("Provider package has invalid PEP 610 provenance") from exc
+        raise ProviderInstallationUnavailable(
+            "Provider package has invalid PEP 610 provenance"
+        ) from exc
     vcs_info = direct_url.get("vcs_info")
     if isinstance(vcs_info, dict):
         if (
@@ -124,18 +139,24 @@ def validate_installed_provider_checkout(
             or vcs_info.get("commit_id") != expected_revision
             or vcs_info.get("requested_revision") != expected_revision
         ):
-            raise RuntimeError(
+            raise ProviderInstallationUnavailable(
                 "Provider package VCS provenance does not match locked revision"
             )
         package_root_path = Path(distribution.locate_file(package_name))
         if not package_root_path.is_dir():
-            raise RuntimeError("Installed provider package is unavailable")
+            raise ProviderInstallationUnavailable(
+                "Installed provider package is unavailable"
+            )
         return package_root_path.resolve()
     if direct_url.get("dir_info", {}).get("editable") is not True:
-        raise RuntimeError("Provider package is not from a locked VCS install")
+        raise ProviderInstallationUnavailable(
+            "Provider package is not from a locked VCS install"
+        )
     parsed_url = urlparse(str(direct_url.get("url", "")))
     if parsed_url.scheme != "file":
-        raise RuntimeError("Editable provider provenance is not a local file URL")
+        raise ProviderInstallationUnavailable(
+            "Editable provider provenance is not a local file URL"
+        )
     editable_root = Path(unquote(parsed_url.path)).resolve()
     checkout = Path(
         _git("rev-parse", "--show-toplevel", cwd=editable_root)
@@ -150,9 +171,13 @@ def validate_installed_provider_checkout(
         if (root / "__init__.py").is_file()
     ), None)
     if package_root is None:
-        raise RuntimeError("Editable provider checkout lacks the expected package")
+        raise ProviderInstallationUnavailable(
+            "Editable provider checkout lacks the expected package"
+        )
     if _git("rev-parse", "HEAD", cwd=checkout) != expected_revision:
-        raise RuntimeError("Provider package checkout does not match locked revision")
+        raise ProviderInstallationUnavailable(
+            "Provider package checkout does not match locked revision"
+        )
     return checkout
 
 

@@ -7240,10 +7240,16 @@ class V2RunService:
         admitted.wait()
         error = state.get("error")
         if "receipt" not in state:
-            assert isinstance(error, BaseException)
-            raise error
-        record = state["record"]
-        assert isinstance(record, _RunRecord)
+            if isinstance(error, BaseException):
+                raise error
+            raise RuntimeError(
+                "Background Run admission ended without a receipt or error"
+            )
+        record = state.get("record")
+        if not isinstance(record, _RunRecord):
+            raise RuntimeError(
+                "Background Run admission did not retain its Run record"
+            )
         record.finished.wait(FAST_RUN_COMPLETION_GRACE_SECONDS)
         if record.finished.is_set() and record.execution_error is not None:
             raise record.execution_error

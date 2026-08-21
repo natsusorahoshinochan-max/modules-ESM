@@ -18,6 +18,7 @@ from core import ReadinessResult, RunResources
 from modules.provider_contract import (
     LOCAL_ESM3_SNAPSHOT_REVISION,
     LOCAL_ESM3_WEIGHT_SHA256,
+    ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
 )
 
@@ -34,6 +35,10 @@ LOCAL_ESM3_SNAPSHOT_SOURCE = "biohub/esm3-sm-open-v1"
 LOCAL_ESM3_DEVICE = "cpu"
 LOCAL_ESM3_TORCH_VERSION = "2.13.0"
 LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
+
+
+class LocalESM3RuntimeUnavailable(RuntimeError):
+    """The exact local ESM-3 runtime cannot be admitted."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,7 +65,7 @@ def _regular_file_sha256(path: Path) -> str:
         with path.open("rb") as artifact:
             return hashlib.file_digest(artifact, "sha256").hexdigest()
     except OSError as error:
-        raise RuntimeError(
+        raise LocalESM3RuntimeUnavailable(
             "local ESM-3 model artifact could not be validated"
         ) from error
 
@@ -72,20 +77,28 @@ def _snapshot_artifact_source(
 ) -> Path:
     target = snapshot_path / relative_path
     if _regular_file_sha256(target) != expected_digest:
-        raise RuntimeError("local ESM-3 model artifact identity mismatch")
+        raise LocalESM3RuntimeUnavailable(
+            "local ESM-3 model artifact identity mismatch"
+        )
     return target
 
 
 def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
     value = environment.get(key)
     if not isinstance(value, (str, os.PathLike)):
-        raise RuntimeError(f"local ESM-3 {key} is not configured")
+        raise LocalESM3RuntimeUnavailable(
+            f"local ESM-3 {key} is not configured"
+        )
     try:
         path = Path(value).resolve(strict=True)
     except OSError as error:
-        raise RuntimeError(f"local ESM-3 {key} is unavailable") from error
+        raise LocalESM3RuntimeUnavailable(
+            f"local ESM-3 {key} is unavailable"
+        ) from error
     if not path.is_dir():
-        raise RuntimeError(f"local ESM-3 {key} is not a directory")
+        raise LocalESM3RuntimeUnavailable(
+            f"local ESM-3 {key} is not a directory"
+        )
     return path
 
 
@@ -96,7 +109,7 @@ def _validated_performance_settings(
     if not isinstance(raw, Mapping) or dict(raw) != dict(
         LOCAL_ESM3_PERFORMANCE_SETTINGS
     ):
-        raise RuntimeError(
+        raise LocalESM3RuntimeUnavailable(
             "local ESM-3 performance settings do not match the Binding"
         )
     return dict(LOCAL_ESM3_PERFORMANCE_SETTINGS)
@@ -104,11 +117,18 @@ def _validated_performance_settings(
 
 def _validate_device(device: object) -> str:
     if device != LOCAL_ESM3_DEVICE:
-        raise RuntimeError("local ESM-3 device does not match the Binding")
-    import torch
+        raise LocalESM3RuntimeUnavailable(
+            "local ESM-3 device does not match the Binding"
+        )
+    try:
+        import torch
+    except ImportError as error:
+        raise LocalESM3RuntimeUnavailable(
+            "exact local ESM-3 runtime is unavailable"
+        ) from error
 
     if str(torch.__version__) != LOCAL_ESM3_TORCH_VERSION:
-        raise RuntimeError(
+        raise LocalESM3RuntimeUnavailable(
             "local ESM-3 Torch runtime does not match the Binding"
         )
     return LOCAL_ESM3_DEVICE
@@ -119,13 +139,17 @@ def resolve_local_runtime(
 ) -> LocalESM3Runtime:
     """Validate exact artifacts before entering the local Provider."""
     if not local_runtime_structurally_available():
-        raise RuntimeError("exact local ESM-3 runtime is unavailable")
+        raise LocalESM3RuntimeUnavailable(
+            "exact local ESM-3 runtime is unavailable"
+        )
     validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     if (
         environment.get("model_snapshot_revision")
         != LOCAL_ESM3_SNAPSHOT_REVISION
     ):
-        raise RuntimeError("local ESM-3 snapshot revision is not exact")
+        raise LocalESM3RuntimeUnavailable(
+            "local ESM-3 snapshot revision is not exact"
+        )
     snapshot_path = _configured_path(environment, "model_snapshot_path")
     runtime_directory = _configured_path(environment, "runtime_directory")
     device = _validate_device(environment.get("device"))
@@ -167,7 +191,10 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Return one bounded, redacted conclusion for the selected local Binding."""
     try:
         resolve_local_runtime(environment)
-    except (ImportError, OSError, RuntimeError, ValueError):
+    except (
+        LocalESM3RuntimeUnavailable,
+        ProviderInstallationUnavailable,
+    ):
         return ReadinessResult(
             False,
             proof_source="direct-observation",

@@ -47,7 +47,9 @@ def _patch_local_runtime(
 
     def resolve(environment: Any) -> local_adapter.LocalESM3Runtime:
         if environment.get("artifact_generation") != accepted_generation:
-            raise RuntimeError("fixture model identity changed")
+            raise local_adapter.LocalESM3RuntimeUnavailable(
+                "fixture model identity changed"
+            )
         return local_adapter.LocalESM3Runtime(
             snapshot_path=snapshot_path,
             runtime_directory=runtime_directory,

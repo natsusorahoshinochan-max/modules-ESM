@@ -646,7 +646,7 @@ def test_full_readiness_failure_does_not_block_no_tm(
         del environment
         observed.append(mode)
         if mode == "full":
-            raise FileNotFoundError("TMHMM is absent")
+            raise adapter.SolubilityReadinessUnavailable("TMHMM is absent")
         return {"mode": mode}
 
     monkeypatch.setattr(adapter, "validate_soluprot_environment", validate)

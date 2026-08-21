@@ -25,7 +25,10 @@ from core import (
     ScientificOperation,
     ScientificOperationFactory,
 )
-from modules.provider_contract import validate_installed_provider_checkout
+from modules.provider_contract import (
+    ProviderInstallationUnavailable,
+    validate_installed_provider_checkout,
+)
 
 from .adapter import (
     BIOHUB_ESM3_MEDIUM_MODEL,
@@ -100,7 +103,7 @@ def _provider_installation_is_exact() -> bool:
         return False
     try:
         validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except (OSError, RuntimeError, ValueError):
+    except ProviderInstallationUnavailable:
         return False
     return True
 

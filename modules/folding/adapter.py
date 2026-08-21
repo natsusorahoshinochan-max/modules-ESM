@@ -19,7 +19,10 @@ from core import (
     ReadinessResult,
     RunResources,
 )
-from modules.provider_contract import validate_installed_provider_checkout
+from modules.provider_contract import (
+    ProviderInstallationUnavailable,
+    validate_installed_provider_checkout,
+)
 from datatypes import ProteinSequence, ProteinStructure
 
 from .esmfold2_contract import (
@@ -66,6 +69,10 @@ _PDB_RESIDUE_TO_ONE = {
 }
 
 
+class LocalESMFold2RuntimeUnavailable(RuntimeError):
+    """The exact local ESMFold2 runtime cannot be admitted."""
+
+
 def remote_runtime_structurally_available() -> bool:
     return not (
         importlib.util.find_spec("esm") is None
@@ -100,12 +107,10 @@ def transformers_esmfold2_runtime_is_exact() -> bool:
             if _regular_file_sha256(source) != expected_digest:
                 return False
     except (
-        ImportError,
         importlib.metadata.PackageNotFoundError,
         json.JSONDecodeError,
+        LocalESMFold2RuntimeUnavailable,
         OSError,
-        RuntimeError,
-        ValueError,
     ):
         return False
     return True
@@ -144,7 +149,7 @@ def _remote_provider_installation_is_exact() -> bool:
         return False
     try:
         validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except (ImportError, OSError, RuntimeError, ValueError):
+    except ProviderInstallationUnavailable:
         return False
     return True
 
@@ -173,15 +178,17 @@ def _configured_directory(
 ) -> Path:
     raw = environment.get(key)
     if not isinstance(raw, (str, os.PathLike)):
-        raise RuntimeError(f"local ESMFold2 {key} is not configured")
+        raise LocalESMFold2RuntimeUnavailable(
+            f"local ESMFold2 {key} is not configured"
+        )
     try:
         path = Path(raw).resolve(strict=True)
     except OSError as error:
-        raise RuntimeError(
+        raise LocalESMFold2RuntimeUnavailable(
             f"local ESMFold2 {key} is unavailable"
         ) from error
     if not path.is_dir():
-        raise RuntimeError(
+        raise LocalESMFold2RuntimeUnavailable(
             f"local ESMFold2 {key} is not a directory"
         )
     return path
@@ -194,7 +201,7 @@ def _regular_file_sha256(path: Path) -> str:
             while chunk := handle.read(1024 * 1024):
                 digest.update(chunk)
     except OSError as error:
-        raise RuntimeError(
+        raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 artifact could not be validated"
         ) from error
     return digest.hexdigest()
@@ -208,11 +215,13 @@ def _artifact_source(
     try:
         target = (snapshot_path / relative_path).resolve(strict=True)
     except OSError as error:
-        raise RuntimeError(
+        raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 artifact could not be validated"
         ) from error
     if _regular_file_sha256(target) != expected_digest:
-        raise RuntimeError("local ESMFold2 artifact identity mismatch")
+        raise LocalESMFold2RuntimeUnavailable(
+            "local ESMFold2 artifact identity mismatch"
+        )
     return target
 
 
@@ -221,23 +230,38 @@ def resolve_local_runtime(
 ) -> LocalESMFold2Runtime:
     """Resolve both immutable snapshots before any local model invocation."""
     if not local_runtime_structurally_available():
-        raise RuntimeError("exact local ESMFold2 runtime is unavailable")
+        raise LocalESMFold2RuntimeUnavailable(
+            "exact local ESMFold2 runtime is unavailable"
+        )
     validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     if not transformers_esmfold2_runtime_is_exact():
-        raise RuntimeError("exact local ESMFold2 runtime is unavailable")
-    import torch
+        raise LocalESMFold2RuntimeUnavailable(
+            "exact local ESMFold2 runtime is unavailable"
+        )
+    try:
+        import torch
+    except ImportError as error:
+        raise LocalESMFold2RuntimeUnavailable(
+            "exact local ESMFold2 runtime is unavailable"
+        ) from error
 
     if str(torch.__version__) != LOCAL_TORCH_VERSION:
-        raise RuntimeError("local ESMFold2 Torch runtime is not exact")
+        raise LocalESMFold2RuntimeUnavailable(
+            "local ESMFold2 Torch runtime is not exact"
+        )
     if (
         environment.get("model_snapshot_revision")
         != LOCAL_ESMFOLD2_REVISION
         or environment.get("language_model_snapshot_revision")
         != LOCAL_ESMC_REVISION
     ):
-        raise RuntimeError("local ESMFold2 snapshot revision is not exact")
+        raise LocalESMFold2RuntimeUnavailable(
+            "local ESMFold2 snapshot revision is not exact"
+        )
     if environment.get("device") != LOCAL_DEVICE:
-        raise RuntimeError("local ESMFold2 device does not match the Binding")
+        raise LocalESMFold2RuntimeUnavailable(
+            "local ESMFold2 device does not match the Binding"
+        )
     model_path = _configured_directory(environment, "model_snapshot_path")
     language_path = _configured_directory(
         environment,
@@ -283,7 +307,10 @@ def local_readiness(environment: object) -> ReadinessResult:
         )
     try:
         resolve_local_runtime(environment)
-    except (ImportError, OSError, RuntimeError, ValueError):
+    except (
+        LocalESMFold2RuntimeUnavailable,
+        ProviderInstallationUnavailable,
+    ):
         return ReadinessResult(
             False,
             proof_source="direct-observation",

@@ -28,6 +28,10 @@ _LOCAL_PROVIDER_IDENTITY = "local-proteinmpnn"
 _LOCKED_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
 
 
+class ProteinMPNNReadinessUnavailable(RuntimeError):
+    """The exact ProteinMPNN source or checkpoint cannot be admitted."""
+
+
 def _run_provider_git(root: Path, *args: str) -> str:
     try:
         completed = subprocess.run(
@@ -38,7 +42,7 @@ def _run_provider_git(root: Path, *args: str) -> str:
             timeout=10,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise FileNotFoundError(
+        raise ProteinMPNNReadinessUnavailable(
             f"ProteinMPNN provider root is not a usable locked Git checkout: {root}"
         ) from exc
     return completed.stdout.strip()
@@ -47,7 +51,7 @@ def _run_provider_git(root: Path, *args: str) -> str:
 def _verify_provider_checkout(root: Path) -> None:
     provider_file = root / "protein_mpnn_utils.py"
     if not provider_file.is_file():
-        raise FileNotFoundError(
+        raise ProteinMPNNReadinessUnavailable(
             "Configured ProteinMPNN provider root must contain "
             "protein_mpnn_utils.py"
         )
@@ -55,10 +59,12 @@ def _verify_provider_checkout(root: Path) -> None:
         _run_provider_git(root, "rev-parse", "--show-toplevel")
     ).resolve()
     if repository_root != root:
-        raise RuntimeError("ProteinMPNN provider root must be the Git checkout root")
+        raise ProteinMPNNReadinessUnavailable(
+            "ProteinMPNN provider root must be the Git checkout root"
+        )
     commit = _run_provider_git(root, "rev-parse", "HEAD")
     if commit != PROTEINMPNN_REVISION:
-        raise RuntimeError(
+        raise ProteinMPNNReadinessUnavailable(
             f"ProteinMPNN checkout commit {commit} does not match "
             f"locked commit {PROTEINMPNN_REVISION}"
         )
@@ -87,9 +93,14 @@ def _provider_module(provider_root: Path) -> ModuleType:
 
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    except OSError as error:
+        raise ProteinMPNNReadinessUnavailable(
+            "ProteinMPNN checkpoint is unavailable"
+        ) from error
     return digest.hexdigest()
 
 
@@ -114,7 +125,7 @@ def validate_proteinmpnn_checkpoint(
     """Admit the configured checkpoint against its exact scientific identity."""
     digest = _sha256_file(path)
     if digest != PROTEINMPNN_V_48_020_SHA256:
-        raise RuntimeError(
+        raise ProteinMPNNReadinessUnavailable(
             f"ProteinMPNN checkpoint SHA-256 mismatch for {path.name}: "
             f"expected {PROTEINMPNN_V_48_020_SHA256}, got {digest}"
         )
@@ -189,7 +200,7 @@ def check_proteinmpnn_readiness(
         checkpoint_path = validate_proteinmpnn_checkpoint(
             _checkpoint_path(resolved_root),
         )
-    except (FileNotFoundError, RuntimeError) as exc:
+    except ProteinMPNNReadinessUnavailable as exc:
         return ProteinMPNNReadiness(ready=False, detail=str(exc))
     return ProteinMPNNReadiness(
         ready=True,

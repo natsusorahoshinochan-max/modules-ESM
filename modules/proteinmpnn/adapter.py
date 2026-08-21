@@ -147,9 +147,14 @@ def proteinmpnn_readiness(
 ) -> ReadinessResult:
     """Validate prerequisites without constructing or loading the model."""
     try:
-        if importlib.metadata.version("torch") != PROTEINMPNN_TORCH_VERSION:
-            raise RuntimeError("ProteinMPNN Torch identity does not match")
-    except (ImportError, importlib.metadata.PackageNotFoundError, RuntimeError):
+        torch_version = importlib.metadata.version("torch")
+    except importlib.metadata.PackageNotFoundError:
+        return ReadinessResult(
+            False,
+            proof_source="direct-observation",
+            reason_code="proteinmpnn_runtime_unavailable",
+        )
+    if torch_version != PROTEINMPNN_TORCH_VERSION:
         return ReadinessResult(
             False,
             proof_source="direct-observation",

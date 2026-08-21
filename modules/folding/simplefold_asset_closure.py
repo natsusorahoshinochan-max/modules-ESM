@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.metadata
 import shutil
 import subprocess
 from collections.abc import Mapping
@@ -17,6 +16,7 @@ from modules.provider_contract import (
     SIMPLEFOLD_ESM2_REVISION,
     SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
     SIMPLEFOLD_REVISION,
+    ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
 )
 
@@ -210,11 +210,7 @@ def admit_simplefold_provider_asset_closure(
                     source.package_name,
                     source.revision,
                 )
-            except (
-                importlib.metadata.PackageNotFoundError,
-                OSError,
-                RuntimeError,
-            ) as error:
+            except ProviderInstallationUnavailable as error:
                 raise SimpleFoldAssetClosureAdmissionError(
                     "SimpleFold installed source revision is unavailable"
                 ) from error
