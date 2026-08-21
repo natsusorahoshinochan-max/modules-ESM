@@ -93,6 +93,7 @@ def _operation_call(operation: str) -> OperationCall:
                 "candidate_resolved_residue_axis_associations"
             ),
             value_content_digests=(_DIGEST,),
+            candidate_data=(structure_reference,),
             scientific_axes=(axis_reference,),
         ),
     }
@@ -169,7 +170,6 @@ def test_operation_closes_adapter_before_success_or_error_returns(
     adapter = _Adapter(fail=fail)
     if operation == "design":
         implementation = ProteinMPNNDesignImplementation(
-            resources=object(),  # type: ignore[arg-type]
             adapter=adapter,  # type: ignore[arg-type]
         )
     else:

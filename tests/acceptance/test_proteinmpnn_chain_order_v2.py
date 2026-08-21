@@ -11,6 +11,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
+from core import EngineInvocationProvenance
 from datatypes import (
     ProteinMPNNConstraints,
     ProteinSequence,
@@ -46,6 +47,17 @@ class _RunResources:
     def engine_invocation(self, **details: object) -> Iterator[None]:
         self.invocations.append(details)
         yield
+
+    @property
+    def public_invocations(self) -> list[dict[str, object]]:
+        result: list[dict[str, object]] = []
+        for invocation in self.invocations:
+            details = dict(invocation)
+            provenance = details.get("invocation_provenance")
+            if type(provenance) is EngineInvocationProvenance:
+                details["invocation_provenance"] = provenance.to_public()
+            result.append(details)
+        return result
 
 
 def _split_3gb1_into_two_chains(structure: ProteinStructure) -> ProteinStructure:
@@ -168,7 +180,7 @@ def test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_layout(
 
     assert restored.sequence[:28] == "MTYKLILNGKTLKGETTTEAVDAATAEK"
     assert restored.residue_ids == layout.residue_ids
-    assert resources.invocations == [
+    assert resources.public_invocations == [
         {
             "engine_role": "design_parent_0",
             "invocation_provenance": {
@@ -253,7 +265,7 @@ def test_real_proteinmpnn_design_and_score_preserve_same_chain_segments(
     assert result[0].residue_ids == residue_axis.layout.residue_ids
     assert result[0].sequence[27:29] == residue_axis.sequence[27:29]
     assert math.isfinite(score)
-    projection = resources.invocations[0]["invocation_provenance"][
+    projection = resources.public_invocations[0]["invocation_provenance"][
         "provider_residue_projection"
     ]
     assert projection["workbench_chain_order"] == ["A"]
@@ -271,7 +283,7 @@ def test_real_proteinmpnn_design_and_score_preserve_same_chain_segments(
         "provider_chain_id": "B",
         "provider_position": 1,
     }
-    assert resources.invocations[1]["invocation_provenance"][
+    assert resources.public_invocations[1]["invocation_provenance"][
         "provider_residue_projection"
     ] == projection
 
@@ -343,7 +355,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
         "provider_chain_order": ["A"],
         "entries": expected_entries,
     }
-    assert resources.invocations == [
+    assert resources.public_invocations == [
         {
             "engine_role": "design_parent_0",
             "invocation_provenance": {
@@ -401,7 +413,7 @@ def test_real_proteinmpnn_scores_signed_insertion_and_gap_axis(
         "A:3",
     )
     assert math.isfinite(score)
-    projection = resources.invocations[0]["invocation_provenance"][
+    projection = resources.public_invocations[0]["invocation_provenance"][
         "provider_residue_projection"
     ]
     assert projection["entries"][:3] == [

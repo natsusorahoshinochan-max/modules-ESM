@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import hashlib
-import math
-from typing import Any
+from typing import Any, cast
 
 from datatypes import (
     ProteinMPNNConstraints,
@@ -15,53 +14,6 @@ from datatypes import (
 from datatypes.protein import validate_residue_layout
 
 
-_MAX_SEED = 9_007_199_254_740_991
-_CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
-
-
-def normalize_design_parameters(
-    node_parameters: Mapping[str, Any],
-    binding_parameters: Mapping[str, Any],
-) -> dict[str, int | float]:
-    """Validate and normalize the one shared v2 design parameter contract."""
-    if binding_parameters or set(node_parameters) != {
-        "effective_seed",
-        "num_sequences",
-        "temperature",
-        "backbone_noise",
-    }:
-        raise ValueError(
-            "ProteinMPNN design parameters are not fully resolved"
-        )
-    seed = node_parameters["effective_seed"]
-    count = node_parameters["num_sequences"]
-    temperature = node_parameters["temperature"]
-    noise = node_parameters["backbone_noise"]
-    if (
-        type(seed) is not int
-        or not 0 <= seed <= _MAX_SEED
-        or type(count) is not int
-        or not 1 <= count <= 100
-        or isinstance(temperature, bool)
-        or not isinstance(temperature, (int, float))
-        or not math.isfinite(float(temperature))
-        or not 0 < float(temperature) <= 10
-        or isinstance(noise, bool)
-        or not isinstance(noise, (int, float))
-        or not math.isfinite(float(noise))
-        or not 0 <= float(noise) <= 10
-    ):
-        raise ValueError(
-            "ProteinMPNN design parameters are outside their contract"
-        )
-    return {
-        "effective_seed": seed,
-        "num_sequences": count,
-        "temperature": float(temperature),
-        "backbone_noise": float(noise),
-    }
-
-
 def validate_layout(
     value: object,
     *,
@@ -69,29 +21,18 @@ def validate_layout(
 ) -> tuple[ResidueLayout, tuple[str, ...], tuple[str, ...]]:
     """Validate an identity-complete contiguous-chain layout."""
     layout = validate_residue_layout(value, subject=subject)
-    assert layout.residue_ids is not None
+    residue_ids = cast(tuple[str, ...], layout.residue_ids)
     return (
         layout,
         tuple(layout.chain_id.split(",")),
-        tuple(residue_id.split(":", 1)[0] for residue_id in layout.residue_ids),
+        tuple(residue_id.split(":", 1)[0] for residue_id in residue_ids),
     )
 
 
 def _optional_list(value: object, name: str) -> list[Any] | None:
-    if not isinstance(value, Sequence) or isinstance(
-        value,
-        (str, bytes, bytearray),
-    ):
-        raise ValueError(f"{name} must be an array")
     items = list(value)
     if name == "tied_residue_groups":
-        items = [
-            list(item)
-            if isinstance(item, Sequence)
-            and not isinstance(item, (str, bytes, bytearray))
-            else item
-            for item in items
-        ]
+        items = [list(item) for item in items]
     return items or None
 
 
@@ -99,39 +40,12 @@ def author_constraints(
     layout_value: object,
     parameters: Mapping[str, Any],
 ) -> ProteinMPNNConstraints:
-    """Build and layout-validate one complete constraint value."""
-    expected = {
-        "designable_residue_ids",
-        "fixed_residue_ids",
-        "designed_chains",
-        "fixed_chains",
-        "omit_amino_acids",
-        "tied_residue_groups",
-        "bias_by_residue",
-    }
-    if set(parameters) != expected:
-        raise ValueError(
-            "constraint authoring parameters are not fully resolved"
-        )
-    layout, chain_order, residue_chains = validate_layout(layout_value)
+    """Build one constraint value from an admitted layout and Plan values."""
+    layout = cast(ResidueLayout, layout_value)
     bias_entries = parameters["bias_by_residue"]
-    if not isinstance(bias_entries, Sequence) or isinstance(
-        bias_entries,
-        (str, bytes, bytearray),
-    ):
-        raise ValueError("bias_by_residue must be an array")
     bias_by_residue: dict[str, dict[str, float]] = {}
     seen_biases: set[tuple[str, str]] = set()
-    for index, entry in enumerate(bias_entries):
-        if not isinstance(entry, Mapping) or set(entry) != {
-            "residue_id",
-            "amino_acid",
-            "bias",
-        }:
-            raise ValueError(
-                f"bias_by_residue[{index}] must contain residue_id, "
-                "amino_acid, bias"
-            )
+    for entry in bias_entries:
         residue_id = entry["residue_id"]
         amino_acid = entry["amino_acid"]
         bias = entry["bias"]
@@ -143,7 +57,7 @@ def author_constraints(
         seen_biases.add(pair)
         bias_by_residue.setdefault(residue_id, {})[amino_acid] = bias
 
-    constraints = ProteinMPNNConstraints(
+    return ProteinMPNNConstraints(
         layout=layout,
         designable_residue_ids=_optional_list(
             parameters["designable_residue_ids"],
@@ -171,13 +85,6 @@ def author_constraints(
         ),
         bias_by_residue=bias_by_residue or None,
     )
-    validate_constraints_against_layout(
-        constraints,
-        layout=layout,
-        chain_order=chain_order,
-        residue_chains=residue_chains,
-    )
-    return constraints
 
 
 def validate_constraints_against_layout(
@@ -192,12 +99,6 @@ def validate_constraints_against_layout(
     if constraints.layout != layout:
         raise ValueError(
             "constraint layout identity does not match the target layout"
-        )
-    if _CANONICAL_AMINO_ACIDS <= set(
-        constraints.omit_amino_acids or ()
-    ):
-        raise ValueError(
-            "omit_amino_acids must leave at least one canonical amino acid"
         )
     if chain_order is None or residue_chains is None:
         _, resolved_order, resolved_residue_chains = validate_layout(layout)
@@ -226,7 +127,7 @@ def validate_constraints_against_layout(
     if not effective_designed:
         raise ValueError("constraints must leave at least one designed chain")
 
-    residue_ids = list(layout.residue_ids or ())
+    residue_ids = list(cast(tuple[str, ...], layout.residue_ids))
     position_by_id = {
         residue_id: position
         for position, residue_id in enumerate(residue_ids)
@@ -290,28 +191,17 @@ def random_fixed_positions(
     fraction: object,
 ) -> ProteinMPNNConstraints:
     """Select a deterministic without-replacement subset by SHA-256 rank."""
-    layout, _, _ = validate_layout(layout_value)
-    if (
-        type(effective_seed) is not int
-        or effective_seed < 0
-        or effective_seed > _MAX_SEED
-    ):
-        raise ValueError("effective_seed is outside the supported range")
-    if (
-        isinstance(fraction, bool)
-        or not isinstance(fraction, (int, float))
-        or not math.isfinite(float(fraction))
-        or not 0 <= float(fraction) <= 1
-    ):
-        raise ValueError("fraction must be finite and in [0, 1]")
-    count = int(layout.length * float(fraction))
+    layout = cast(ResidueLayout, layout_value)
+    seed = cast(int, effective_seed)
+    selected_fraction = cast(float, fraction)
+    count = int(layout.length * selected_fraction)
     ranked = sorted(
         range(layout.length),
         key=lambda position: (
             hashlib.sha256(
                 (
                     "protein-workbench-proteinmpnn-fixed/v2\0"
-                    f"{effective_seed}\0"
+                    f"{seed}\0"
                     f"{layout.residue_ids[position]}\0"
                     f"{position}"
                 ).encode()

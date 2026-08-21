@@ -24,6 +24,7 @@ from core import (
     WorkflowAuthoringService,
     WorkflowDocument,
     WorkflowNodeInstance,
+    builtin_frozen_catalog,
     build_discovered_frozen_catalog,
     build_frozen_catalog,
     discover_module_packages,
@@ -61,7 +62,14 @@ from modules.proteinmpnn.adapter import (
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
+from modules.structure_transform.domain import (
+    CandidateResolvedResidueAxisAssociation,
+    CandidateResolvedResidueAxisAssociations,
+)
+from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
+from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
@@ -145,6 +153,71 @@ def _resolved_axis(
     )
 
 
+def _structure_candidate_references(
+    candidates: tuple[Candidate, ...],
+) -> tuple[CandidateDataReference, ...]:
+    structure_port = builtin_frozen_catalog().require_port_type(
+        "protein.structure",
+        "4.0.0",
+    )
+    return tuple(
+        CandidateDataReference(
+            candidate_id=candidate.candidate_id,
+            data_type_id="protein.structure",
+            content_digest=structure_port.content_digest(candidate.data),
+        )
+        for candidate in candidates
+    )
+
+
+def _admitted_structure_axis_inputs(
+    candidates: tuple[Candidate, ...],
+    associations: CandidateResolvedResidueAxisAssociations,
+) -> dict[str, Any]:
+    references = _structure_candidate_references(candidates)
+    axis_contract = ExactContractReference(
+        contract_kind="port_type",
+        contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
+        contract_version=RESOLVED_AXIS_PORT_TYPE.version,
+        contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
+    )
+    return {
+        "structure_candidates": admitted_port_fixture(
+            CandidateCollection(
+                "admitted-structure-candidates",
+                "protein.structure",
+                candidates,
+            ),
+            port_type_id="candidate.collection",
+            value_content_digests=("sha256:" + "1" * 64,),
+            candidate_data=references,
+        ),
+        "structure_residue_axes": admitted_port_fixture(
+            associations,
+            port_type_id=(
+                "structure_transform."
+                "candidate_resolved_residue_axis_associations"
+            ),
+            value_content_digests=("sha256:" + "2" * 64,),
+            candidate_data=tuple(
+                entry.subject for entry in associations.entries
+            ),
+            scientific_axes=tuple(
+                ResidueAxisReference(
+                    axis_kind="resolved_structure",
+                    axis_contract=axis_contract,
+                    axis_content_digest=(
+                        RESOLVED_AXIS_PORT_TYPE.content_digest(
+                            entry.residue_axis
+                        )
+                    ),
+                    source=entry.subject,
+                    layout=entry.residue_axis.layout,
+                )
+                for entry in associations.entries
+            ),
+        ),
+    }
 def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
@@ -793,28 +866,77 @@ def test_constraint_authoring_fails_closed_on_layout_or_chain_contradictions(
     )
 
 
-def test_constraint_authoring_rejects_public_x_bias() -> None:
-    from modules.proteinmpnn.domain import author_constraints
+def test_constraint_parameter_schema_rejects_public_x_bias() -> None:
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
 
-    with pytest.raises(ValueError, match="unsupported amino acid"):
-        author_constraints(
-            TARGET_LAYOUT,
-            {
-                "designable_residue_ids": [],
-                "fixed_residue_ids": [],
-                "designed_chains": [],
-                "fixed_chains": [],
-                "omit_amino_acids": [],
-                "tied_residue_groups": [],
-                "bias_by_residue": [
-                    {
-                        "residue_id": "A:1",
-                        "amino_acid": "X",
-                        "bias": 1.0,
-                    },
-                ],
-            },
+    catalog = build_frozen_catalog(
+        (
+            PROMPT_AUTHORING_PACKAGE,
+            PROTEINMPNN_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
         )
+    )
+    workflow = WorkflowDocument(
+        schema_version="2.1.0",
+        workflow_id="proteinmpnn-x-bias",
+        nodes=(
+            WorkflowNodeInstance(
+                node_id="layout",
+                node_type_id="prompt_authoring.build_residue_layout",
+                node_type_version="3.0.0",
+                binding_id="prompt_authoring.build_residue_layout.direct",
+                binding_version="3.0.0",
+                node_parameters={
+                    "chains": [{"chain_id": "A", "length": 1}]
+                },
+                binding_parameters={},
+            ),
+            WorkflowNodeInstance(
+                node_id="constraints",
+                node_type_id="proteinmpnn.constraints",
+                node_type_version="4.0.0",
+                binding_id="proteinmpnn.constraints.local",
+                binding_version="4.0.0",
+                node_parameters={
+                    "designable_residue_ids": [],
+                    "fixed_residue_ids": [],
+                    "designed_chains": [],
+                    "fixed_chains": [],
+                    "omit_amino_acids": [],
+                    "tied_residue_groups": [],
+                    "bias_by_residue": [
+                        {
+                            "residue_id": "A:1",
+                            "amino_acid": "X",
+                            "bias": 1.0,
+                        }
+                    ],
+                },
+                binding_parameters={},
+            ),
+        ),
+        edges=(WorkflowEdge("layout", "layout", "constraints", "layout"),),
+        contract_lock=(),
+    )
+
+    locked = relock_workflow(workflow, catalog)
+    with pytest.raises(WorkflowCompileError) as rejected:
+        compile_workflow(
+            locked,
+            workflow_commit_revision=1,
+            catalog=catalog,
+        )
+
+    assert rejected.value.field_path[-3:] == (
+        "bias_by_residue",
+        0,
+        "amino_acid",
+    )
 
 
 def test_random_fixed_positions_replays_and_randomness_changes_identity(
@@ -981,21 +1103,11 @@ def _controlled_adapter(
     )
 
 
-def test_structure_axis_join_uses_full_reference_and_not_collection_order(
+def test_design_operation_joins_axes_by_full_reference_not_collection_order(
 ) -> None:
-    from core import builtin_frozen_catalog
     from modules.proteinmpnn.implementation import (
-        _structure_candidates_with_axes,
+        ProteinMPNNDesignImplementation,
     )
-    from modules.structure_transform.domain import (
-        CandidateResolvedResidueAxisAssociation,
-        CandidateResolvedResidueAxisAssociations,
-    )
-    from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
-    from tests.fixtures.proteinmpnn_sources.package import (
-        _fixture_structure,
-    )
-
     structures = (
         _fixture_structure(0),
         _fixture_structure(1),
@@ -1004,89 +1116,65 @@ def test_structure_axis_join_uses_full_reference_and_not_collection_order(
         Candidate("z-parent", structures[0]),
         Candidate("a-parent", structures[1]),
     )
-    structure_codec = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
-    references = tuple(
-        CandidateDataReference(
-            candidate_id=candidate.candidate_id,
-            data_type_id="protein.structure",
-            content_digest=structure_codec.content_digest(candidate.data),
-        )
-        for candidate in candidates
-    )
+    references = _structure_candidate_references(candidates)
     associations = CandidateResolvedResidueAxisAssociations(
         (
             CandidateResolvedResidueAxisAssociation(
                 references[1],
-                _resolved_axis(structure=structures[1]),
+                resolve_residue_axis(structures[1]),
             ),
             CandidateResolvedResidueAxisAssociation(
                 references[0],
-                _resolved_axis(structure=structures[0]),
+                resolve_residue_axis(structures[0]),
             ),
         )
     )
-    axis_contract = ExactContractReference(
-        contract_kind="port_type",
-        contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
-        contract_version=RESOLVED_AXIS_PORT_TYPE.version,
-        contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
-    )
-    trusted_axes = tuple(
-        ResidueAxisReference(
-            axis_kind="resolved_structure",
-            axis_contract=axis_contract,
-            axis_content_digest="sha256:" + symbol * 64,
-            source=entry.subject,
-            layout=entry.residue_axis.layout,
-        )
-        for entry, symbol in zip(associations.entries, ("8", "9"), strict=True)
-    )
-
     def call(
         supplied: CandidateResolvedResidueAxisAssociations,
     ) -> OperationCall:
         return OperationCall(
-            inputs={
-                "structure_candidates": admitted_port_fixture(
-                    CandidateCollection(
-                        "reference-join-subjects",
-                        "protein.structure",
-                        candidates,
-                    ),
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + "1" * 64,),
-                    candidate_data=references,
-                ),
-                "structure_residue_axes": admitted_port_fixture(
-                    supplied,
-                    port_type_id=(
-                        "structure_transform."
-                        "candidate_resolved_residue_axis_associations"
-                    ),
-                    value_content_digests=("sha256:" + "2" * 64,),
-                    scientific_axes=trusted_axes,
-                ),
+            inputs=_admitted_structure_axis_inputs(candidates, supplied),
+            node_parameters={
+                "effective_seed": 1603,
+                "num_sequences": 1,
+                "temperature": 0.1,
+                "backbone_noise": 0.0,
             },
-            node_parameters={},
             binding_parameters={},
-            effective_randomness={},
+            effective_randomness={
+                "effective_seed": 1603,
+                "num_sequences": 1,
+                "temperature": 0.1,
+                "backbone_noise": 0.0,
+            },
         )
 
-    joined = _structure_candidates_with_axes(call(associations))
-    assert [candidate.candidate_id for candidate, _, _, _ in joined] == [
-        "z-parent",
-        "a-parent",
-    ]
-    trusted_by_source = {axis.source: axis for axis in trusted_axes}
-    assert [
-        axis_reference
-        for _, reference, _, axis_reference in joined
-    ] == [
-        trusted_by_source[reference]
-        for _, reference, _, _ in joined
+    class RecordingAdapter:
+        def __init__(self) -> None:
+            self.structures: list[ProteinStructure] = []
+
+        def design(self, **kwargs: Any) -> tuple[ProteinSequence, ...]:
+            residue_axis = kwargs["residue_axis"]
+            self.structures.append(residue_axis.structure)
+            return (
+                ProteinSequence(
+                    "A" * residue_axis.layout.length,
+                    residue_axis.layout.residue_ids,
+                ),
+            )
+
+        @staticmethod
+        def close() -> None:
+            return None
+
+    adapter = RecordingAdapter()
+    operation = ProteinMPNNDesignImplementation(adapter=adapter)
+    output = operation.execute(call(associations))["sequence_candidates"]
+
+    assert adapter.structures == list(structures)
+    assert [candidate.parent_ids for candidate in output.items] == [
+        ("z-parent",),
+        ("a-parent",),
     ]
     mismatched_reference = CandidateDataReference(
         candidate_id=references[0].candidate_id,
@@ -1094,13 +1182,13 @@ def test_structure_axis_join_uses_full_reference_and_not_collection_order(
         content_digest="sha256:" + "0" * 64,
     )
     with pytest.raises(ValueError, match="cover exact structure references"):
-        _structure_candidates_with_axes(
+        operation.execute(
             call(
                 CandidateResolvedResidueAxisAssociations(
                     (
                         CandidateResolvedResidueAxisAssociation(
                             mismatched_reference,
-                            _resolved_axis(structure=structures[0]),
+                            resolve_residue_axis(structures[0]),
                         ),
                         associations.entries[0],
                     )
@@ -1526,19 +1614,92 @@ def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
 
 
 def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> None:
-    provider = _ControlledProteinMPNNProvider()
+    from modules.proteinmpnn.implementation import ProteinMPNNScoreImplementation
+
+    class TrustingAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.close_count = 0
+
+        def score(self, **kwargs: Any) -> float:
+            del kwargs
+            self.calls += 1
+            return 2.75
+
+        def close(self) -> None:
+            self.close_count += 1
+
+    structure = _fixture_structure(0)
+    structure_candidate = Candidate("score-parent", structure)
+    structure_reference = _structure_candidate_references(
+        (structure_candidate,)
+    )[0]
+    residue_axis = resolve_residue_axis(structure)
+    structure_inputs = _admitted_structure_axis_inputs(
+        (structure_candidate,),
+        CandidateResolvedResidueAxisAssociations((
+            CandidateResolvedResidueAxisAssociation(
+                structure_reference,
+                residue_axis,
+            ),
+        )),
+    )
+    sequence_candidate = Candidate(
+        "score-sequence",
+        ProteinSequence(
+            "AGSTW",
+            ["A:1", "A:2", "A:3", "B:1", "B:2"],
+        ),
+        (structure_candidate.candidate_id,),
+    )
+    sequence_reference = CandidateDataReference(
+        "score-sequence",
+        "protein.sequence",
+        "sha256:" + "9" * 64,
+    )
+    adapter = TrustingAdapter()
+    operation = ProteinMPNNScoreImplementation(
+        adapter=adapter,
+        method=ExactContractReference(
+            "method",
+            "proteinmpnn.score.fixture",
+            "1.0.0",
+            "sha256:" + "a" * 64,
+        ),
+        metric=ExactContractReference(
+            "metric",
+            "proteinmpnn.native-sequence-nll.fixture",
+            "1.0.0",
+            "sha256:" + "b" * 64,
+        ),
+    )
+
     with pytest.raises(
         ValueError,
         match="exact resolved residue axis",
     ):
-            _controlled_adapter(provider).score(
-                residue_axis=_resolved_axis(),
-            sequence=ProteinSequence(
-                "AGSTW",
-                ["A:1", "A:2", "A:3", "B:1", "B:2"],
-            ),
+        operation.execute(
+            OperationCall(
+                inputs={
+                    **structure_inputs,
+                    "sequence_candidates": admitted_port_fixture(
+                        CandidateCollection(
+                            "score-sequences",
+                            "protein.sequence",
+                            (sequence_candidate,),
+                        ),
+                        port_type_id="candidate.collection",
+                        value_content_digests=("sha256:" + "e" * 64,),
+                        candidate_data=(sequence_reference,),
+                    ),
+                },
+                node_parameters={},
+                binding_parameters={},
+                effective_randomness={},
+            )
         )
-    assert provider.requests == []
+    assert adapter.calls == 0
+    assert adapter.close_count == 1
 
 
 def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -> None:
@@ -2658,6 +2819,7 @@ def test_provider_scoring_uses_exact_backbone_and_designability_mask(
         },
         "ACD",
         torch.device("cpu"),
+        _proteinmpnn_provider_root(),
     )
 
     assert score == 1.25
@@ -3343,76 +3505,102 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     ).passing is False
 
 
-def test_design_rejects_noncanonical_sampling_and_reference_layout_drift() -> None:
-    provider = _ControlledProteinMPNNProvider()
-    adapter = _controlled_adapter(provider)
-    structure = ProteinStructure("REMARK exact-layout\nEND\n")
-
-    with pytest.raises(ValueError, match="canonical amino acid"):
-        adapter.design(
-            residue_axis=_resolved_axis(structure=structure),
-            num_sequences=1,
-            temperature=0.1,
-            backbone_noise=0,
-            seed=1603,
-            constraints=ProteinMPNNConstraints(
-                layout=TARGET_LAYOUT,
-                omit_amino_acids=list("ACDEFGHIKLMNPQRSTVWY"),
-            ),
-            reference_sequence=None,
-            engine_role="design_parent_0",
-        )
-
-    with pytest.raises(ValueError, match="exact resolved residue axis"):
-        adapter.design(
-            residue_axis=_resolved_axis(structure=structure),
-            num_sequences=1,
-            temperature=0.1,
-            backbone_noise=0,
-            seed=1603,
-            constraints=None,
-            reference_sequence=ProteinSequence(
-                "AGSTW",
-                ["B:3", "B:2", "B:1", "A:2", "A:1"],
-            ),
-            engine_role="design_parent_0",
-        )
-
-    adapter.design(
-        residue_axis=_resolved_axis(structure=structure),
-        num_sequences=1,
-        temperature=0.1,
-        backbone_noise=0,
-        seed=1603,
-        constraints=None,
-        reference_sequence=ProteinSequence(
-            "AGSTW",
-            TARGET_LAYOUT.residue_ids,
-        ),
-        engine_role="design_parent_0",
+def test_design_operation_owns_reference_and_constraint_axis_closure() -> None:
+    from modules.proteinmpnn.implementation import (
+        ProteinMPNNDesignImplementation,
     )
-    request = provider.requests[-1]
-    assert request.reference_sequences == {"A": "AG", "B": "STW"}
 
-    changed_boundary_layout = ResidueLayout(
+    class TrustingAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def design(self, **kwargs: Any) -> tuple[ProteinSequence, ...]:
+            del kwargs
+            self.calls += 1
+            return (ProteinSequence("AGSTW", TARGET_LAYOUT.residue_ids),)
+
+        @staticmethod
+        def close() -> None:
+            return None
+
+    structure = _fixture_structure(0)
+    candidate = Candidate("exact-parent", structure)
+    reference = _structure_candidate_references((candidate,))[0]
+    residue_axis = resolve_residue_axis(structure)
+    associations = CandidateResolvedResidueAxisAssociations(
+        (
+            CandidateResolvedResidueAxisAssociation(
+                reference,
+                residue_axis,
+            ),
+        )
+    )
+    base_inputs = _admitted_structure_axis_inputs((candidate,), associations)
+    adapter = TrustingAdapter()
+    operation = ProteinMPNNDesignImplementation(
+        adapter=adapter,
+    )
+
+    def execute(extra_inputs: dict[str, Any]) -> None:
+        operation.execute(
+            OperationCall(
+                inputs={**base_inputs, **extra_inputs},
+                node_parameters={
+                    "effective_seed": 1603,
+                    "num_sequences": 1,
+                    "temperature": 0.1,
+                    "backbone_noise": 0.0,
+                },
+                binding_parameters={},
+                effective_randomness={
+                    "effective_seed": 1603,
+                    "num_sequences": 1,
+                    "temperature": 0.1,
+                    "backbone_noise": 0.0,
+                },
+            )
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="reference sequence must use the exact resolved residue axis",
+    ):
+        execute(
+            {
+                "sequence": admitted_port_fixture(
+                    ProteinSequence(
+                        "AGSTW",
+                        ["B:3", "B:2", "B:1", "A:2", "A:1"],
+                    ),
+                    port_type_id="protein.sequence",
+                    value_content_digests=("sha256:" + "5" * 64,),
+                )
+            }
+        )
+
+    changed_layout = ResidueLayout(
         "A,B",
         5,
         ["A:1", "A:2", "A:3", "B:1", "B:2"],
     )
-    with pytest.raises(ValueError, match="exact resolved residue axis"):
-        adapter.design(
-            residue_axis=_resolved_axis(structure=structure),
-            num_sequences=1,
-            temperature=0.1,
-            backbone_noise=0,
-            seed=1603,
-            constraints=ProteinMPNNConstraints(
-                layout=changed_boundary_layout,
-                designed_chains=["B"],
-            ),
-            reference_sequence=None,
-            engine_role="design_parent_0",
+    with pytest.raises(
+        ValueError,
+        match="constraints must use the exact resolved residue axis",
+    ):
+        execute(
+            {
+                "constraints": admitted_port_fixture(
+                    ProteinMPNNConstraints(
+                        layout=changed_layout,
+                        designed_chains=["B"],
+                    ),
+                    port_type_id="proteinmpnn.constraints",
+                    value_content_digests=("sha256:" + "6" * 64,),
+                )
+            }
         )
+
+    assert adapter.calls == 0
 
 
 def test_design_accepts_exact_immutable_reference_residue_layout() -> None:
@@ -4130,9 +4318,13 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
     )
     monkeypatch.setattr(provider_runtime, "_compute_score", compute_score)
 
-    cold_provider = provider_runtime._LocalProteinMPNNProvider()
+    cold_provider = provider_runtime._LocalProteinMPNNProvider(
+        provider_root=_proteinmpnn_provider_root()
+    )
     cold_score = cold_provider.score(Request(), ProteinSequence("A"))
-    warm_provider = provider_runtime._LocalProteinMPNNProvider()
+    warm_provider = provider_runtime._LocalProteinMPNNProvider(
+        provider_root=_proteinmpnn_provider_root()
+    )
     warm_provider._resident_model("v_48_020", 0.0)
     first_warm_score = warm_provider.score(Request(), ProteinSequence("A"))
     second_warm_score = warm_provider.score(Request(), ProteinSequence("A"))
@@ -4168,9 +4360,13 @@ def test_exact_design_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_featurize", lambda *_args: {})
     monkeypatch.setattr(provider_runtime, "_run_design", run_design)
 
-    cold_provider = provider_runtime._LocalProteinMPNNProvider()
+    cold_provider = provider_runtime._LocalProteinMPNNProvider(
+        provider_root=_proteinmpnn_provider_root()
+    )
     cold_design = cold_provider.design(Request())
-    warm_provider = provider_runtime._LocalProteinMPNNProvider()
+    warm_provider = provider_runtime._LocalProteinMPNNProvider(
+        provider_root=_proteinmpnn_provider_root()
+    )
     warm_provider._resident_model("v_48_020", 0.0)
     first_warm_design = warm_provider.design(Request())
     second_warm_design = warm_provider.design(Request())
