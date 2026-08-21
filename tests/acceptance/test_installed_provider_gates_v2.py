@@ -1277,7 +1277,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
                     "structure_transform."
                     "resolve_candidate_residue_axes.direct"
                 ),
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1326,7 +1326,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
         authoring,
         EnvironmentConfiguration(
             {
-                (binding_id, "6.0.0"): {
+                (binding_id, "7.0.0"): {
                     "values": {"dssp_binary": str(binary)},
                 }
             }
@@ -1382,13 +1382,13 @@ def test_mkdssp_executes_exact_method_through_public_run(
     )
     assert all(type(value) is float for value in annotation.sasa)
 
-    method = _method_for_binding(catalog, binding_id, "6.0.0")
+    method = _method_for_binding(catalog, binding_id, "7.0.0")
     _assert_exact_execution(
         projection=projection,
         events=events,
         node_id="annotate",
         binding_id=binding_id,
-        binding_version="6.0.0",
+        binding_version="7.0.0",
         method_digest=method.contract_digest,
         expected_roles=("primary",),
     )
