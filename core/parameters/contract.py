@@ -6,9 +6,16 @@ from collections.abc import Mapping
 import re
 from typing import Any
 
+from core.parameters.model import (
+    AdmittedParameterValues,
+    ParameterContract,
+    ParameterDeclaration,
+)
+from datatypes.i_json import thaw_i_json
+
 
 class ParameterContractDefinitionError(ValueError):
-    """A Catalog parameter declaration is open or semantically unsafe."""
+    """A Catalog parameter declaration is outside the scientific contract."""
 
 
 _SUPPORTED_VALUE_CONTRACT_KEYS = frozenset(
@@ -102,7 +109,7 @@ _ENVIRONMENT_TOKEN_PAIRS = frozenset(
 )
 
 
-def parameter_name_tokens(name: str) -> tuple[str, ...]:
+def _parameter_name_tokens(name: str) -> tuple[str, ...]:
     """Normalize snake/kebab/dotted/camel/acronym names to semantic tokens."""
     separated = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     separated = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", separated)
@@ -110,9 +117,9 @@ def parameter_name_tokens(name: str) -> tuple[str, ...]:
     return tuple(part for part in normalized.split("_") if part)
 
 
-def is_environment_parameter_name(name: str) -> bool:
+def _is_environment_parameter_name(name: str) -> bool:
     """Return whether a field denotes runtime/model/environment selection."""
-    tokens = parameter_name_tokens(name)
+    tokens = _parameter_name_tokens(name)
     if set(tokens).intersection(_ENVIRONMENT_TOKENS):
         return True
     return any(
@@ -121,7 +128,7 @@ def is_environment_parameter_name(name: str) -> bool:
     )
 
 
-def find_environment_parameter_field(
+def _find_environment_parameter_field(
     value: Any,
     *,
     path: tuple[str | int, ...] = (),
@@ -130,9 +137,9 @@ def find_environment_parameter_field(
     if isinstance(value, Mapping):
         for name, item in value.items():
             item_path = (*path, name)
-            if is_environment_parameter_name(name):
+            if _is_environment_parameter_name(name):
                 return item_path
-            nested = find_environment_parameter_field(
+            nested = _find_environment_parameter_field(
                 item,
                 path=item_path,
             )
@@ -140,7 +147,7 @@ def find_environment_parameter_field(
                 return nested
     elif isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
-            nested = find_environment_parameter_field(
+            nested = _find_environment_parameter_field(
                 item,
                 path=(*path, index),
             )
@@ -149,7 +156,7 @@ def find_environment_parameter_field(
     return None
 
 
-def parameter_value_contract(
+def _parameter_value_contract(
     declaration: Mapping[str, Any],
 ) -> Mapping[str, Any]:
     """Return the only supported v2.1 parameter value schema."""
@@ -161,7 +168,7 @@ def parameter_value_contract(
     return value_contract
 
 
-def validate_parameter_declarations(
+def _validate_parameter_declarations(
     declarations: Mapping[str, Any],
     *,
     path: str,
@@ -169,7 +176,7 @@ def validate_parameter_declarations(
     """Fail closed unless declarations use the supported value vocabulary."""
     for name, declaration in declarations.items():
         declaration_path = f"{path}.{name}"
-        if is_environment_parameter_name(name):
+        if _is_environment_parameter_name(name):
             raise ParameterContractDefinitionError(
                 f"{declaration_path} declares Environment Configuration "
                 "or model identity"
@@ -225,23 +232,13 @@ def validate_parameter_declarations(
             allow_parameter_required=False,
         )
         if "default" in declaration:
-            unsafe_default = find_environment_parameter_field(
+            environment_default = _find_environment_parameter_field(
                 declaration["default"]
             )
-            if unsafe_default is not None:
+            if environment_default is not None:
                 raise ParameterContractDefinitionError(
                     f"{declaration_path}.default contains Environment "
                     "Configuration or model identity"
-                )
-            violation = parameter_contract_violation(
-                declaration["default"],
-                schema,
-                path=(name,),
-            )
-            if violation is not None:
-                _, reason = violation
-                raise ParameterContractDefinitionError(
-                    f"{declaration_path}.default {reason}"
                 )
 
 
@@ -315,7 +312,7 @@ def _validate_value_contract_schema(
     for keyword in ("const", "enum"):
         if (
             keyword in schema
-            and find_environment_parameter_field(schema[keyword]) is not None
+            and _find_environment_parameter_field(schema[keyword]) is not None
         ):
             raise ParameterContractDefinitionError(
                 f"{path}.{keyword} contains Environment Configuration "
@@ -500,7 +497,7 @@ def _validate_value_contract_schema(
                     f"{path}.properties.{name}.scientific_meaning must "
                     "explicitly describe the scientific value field"
                 )
-            if is_environment_parameter_name(name):
+            if _is_environment_parameter_name(name):
                 raise ParameterContractDefinitionError(
                     f"{path}.properties.{name} declares Environment "
                     "Configuration or model identity"
@@ -539,7 +536,7 @@ def _validate_value_contract_schema(
         )
 
 
-def parameter_contract_violation(
+def _parameter_contract_violation(
     value: Any,
     schema: Mapping[str, Any],
     *,
@@ -556,7 +553,7 @@ def parameter_contract_violation(
         if alternatives is None:
             continue
         results = [
-            parameter_contract_violation(value, item, path=path)
+            _parameter_contract_violation(value, item, path=path)
             for item in alternatives
         ]
         matches = sum(result is None for result in results)
@@ -634,7 +631,7 @@ def parameter_contract_violation(
         item_schema = schema.get("items")
         if isinstance(item_schema, Mapping):
             for index, item in enumerate(value):
-                violation = parameter_contract_violation(
+                violation = _parameter_contract_violation(
                     item,
                     item_schema,
                     path=(*path, index),
@@ -676,7 +673,7 @@ def parameter_contract_violation(
             )
             if item_schema is None:
                 return (*path, name), "is not an allowed field"
-            violation = parameter_contract_violation(
+            violation = _parameter_contract_violation(
                 item,
                 item_schema,
                 path=(*path, name),
@@ -696,3 +693,85 @@ def _parameter_type_matches(value: Any, expected_type: Any) -> bool:
         "array": isinstance(value, (list, tuple)),
         "object": isinstance(value, Mapping),
     }.get(expected_type, False)
+
+class ParameterValueAdmissionError(ValueError):
+    """One submitted value set does not satisfy its admitted contract."""
+
+    def __init__(
+        self,
+        code: str,
+        path: tuple[str | int, ...],
+        reason: str,
+    ) -> None:
+        super().__init__(reason)
+        self.code = code
+        self.path = path
+        self.reason = reason
+
+
+def admit_declarations(
+    declarations: Mapping[str, Any],
+    *,
+    path: str,
+) -> ParameterContract:
+    """Admit one complete parameter declaration mapping."""
+    _validate_parameter_declarations(declarations, path=path)
+    return ParameterContract(
+        tuple(
+            ParameterDeclaration(
+                name=name,
+                value_contract=_parameter_value_contract(declaration),
+                required=declaration.get("required") is True,
+                has_default="default" in declaration,
+                default=declaration.get("default"),
+                resource_kind=declaration.get("resource_kind"),
+            )
+            for name, declaration in declarations.items()
+        )
+    )
+
+
+def admit_values(
+    contract: ParameterContract,
+    submitted_values: Mapping[str, Any],
+) -> AdmittedParameterValues:
+    """Admit defaults and submitted values once against one exact contract."""
+    unknown = sorted(set(submitted_values) - set(contract))
+    if unknown:
+        raise ParameterValueAdmissionError(
+            "unknown_parameter",
+            (),
+            f"contains undeclared parameters: {unknown}",
+        )
+    resolved = {
+        entry.name: thaw_i_json(entry.default)
+        for entry in contract.entries
+        if entry.has_default
+    }
+    resolved.update(thaw_i_json(submitted_values))
+    for declaration in contract.entries:
+        if (
+            declaration.required
+            and declaration.name not in submitted_values
+            and not declaration.has_default
+        ):
+            raise ParameterValueAdmissionError(
+                "required_parameter_missing",
+                (declaration.name,),
+                "is required",
+            )
+        if declaration.name not in resolved:
+            continue
+        violation = _parameter_contract_violation(
+            resolved[declaration.name],
+            declaration.value_contract,
+            path=(declaration.name,),
+        )
+        if violation is not None:
+            value_path, reason = violation
+            raise ParameterValueAdmissionError(
+                "invalid_parameter",
+                value_path,
+                reason,
+            )
+    return AdmittedParameterValues(resolved)

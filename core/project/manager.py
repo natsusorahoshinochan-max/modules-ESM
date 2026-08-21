@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import tempfile
 import uuid
@@ -12,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from core.storage import (
+from core.project.storage import (
     StoragePathError,
     contained_path,
     replace_file,
@@ -36,7 +37,7 @@ class ProtectedProjectError(PermissionError):
     """An ordinary write targeted the protected canonical project."""
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ProjectMeta:
     """Closed v2 metadata for one Project scope."""
 
@@ -49,13 +50,23 @@ class ProjectMeta:
     def __post_init__(self) -> None:
         now = datetime.now(timezone.utc).isoformat()
         if not self.created_at:
-            self.created_at = now
+            object.__setattr__(self, "created_at", now)
         if not self.modified_at:
-            self.modified_at = now
+            object.__setattr__(self, "modified_at", now)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectInputDescriptor:
+    """Typed identity for one admitted immutable Project Input."""
+
+    project_input_ref: str
+    filename: str
+    size: int
+    content_digest: str
 
 
 class ProjectManager:
-    """Manage v2 Project identity, inputs, Cache, Runs, and artifacts."""
+    """Own Project identity, metadata, inputs, and storage scopes."""
 
     def __init__(
         self,
@@ -65,32 +76,18 @@ class ProjectManager:
         output_root: str | Path | None = None,
         run_root: str | Path | None = None,
     ) -> None:
-        self.root_dir = Path(root_dir)
-        self.cache_root = Path(cache_root) if cache_root is not None else None
-        self.output_root = Path(output_root) if output_root is not None else None
-        self.run_root = Path(run_root) if run_root is not None else None
+        self._root_dir = Path(root_dir)
+        self._cache_root = (
+            Path(cache_root) if cache_root is not None else None
+        )
+        self._output_root = (
+            Path(output_root) if output_root is not None else None
+        )
+        self._run_root = Path(run_root) if run_root is not None else None
 
-    def _project_dir(self, project_id: str) -> Path:
-        return self.project_dir(project_id)
-
-    def project_dir(self, project_id: str) -> Path:
-        """Resolve a project directory beneath the configured project root."""
+    def _project_storage_root(self, project_id: str) -> Path:
         safe_project_id = validate_identifier(project_id, "project_id")
-        return contained_path(self.root_dir, safe_project_id)
-
-    def input_path(self, project_id: str, input_reference: str) -> Path:
-        """Resolve one immutable Project Input payload for local diagnostics."""
-        safe_reference = validate_identifier(
-            input_reference,
-            "project_input_ref",
-        )
-        return contained_path(
-            self.project_dir(project_id),
-            "inputs",
-            safe_reference,
-            "payload",
-            field="project_input_ref",
-        )
+        return contained_path(self._root_dir, safe_project_id)
 
     @staticmethod
     def _validate_input_filename(filename: str) -> str:
@@ -103,10 +100,26 @@ class ProjectManager:
         return filename
 
     @staticmethod
-    def _input_descriptor_bytes(descriptor: Mapping[str, Any]) -> bytes:
+    def _input_descriptor_data(
+        descriptor: ProjectInputDescriptor,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": PROJECT_INPUT_SCHEMA_VERSION,
+            "artifact_kind": _PROJECT_INPUT_ARTIFACT_KIND,
+            "project_input_ref": descriptor.project_input_ref,
+            "filename": descriptor.filename,
+            "size": descriptor.size,
+            "content_digest": descriptor.content_digest,
+        }
+
+    @classmethod
+    def _input_descriptor_bytes(
+        cls,
+        descriptor: ProjectInputDescriptor,
+    ) -> bytes:
         try:
             return json.dumps(
-                dict(descriptor),
+                cls._input_descriptor_data(descriptor),
                 ensure_ascii=False,
                 separators=(",", ":"),
                 sort_keys=True,
@@ -122,34 +135,19 @@ class ProjectManager:
         payload: bytes,
         *,
         filename: str,
-    ) -> dict[str, Any]:
+    ) -> ProjectInputDescriptor:
         if (
             type(payload) is not bytes
             or len(payload) > MAX_PROJECT_INPUT_BYTES
         ):
             raise ValueError("Project input payload is invalid or too large")
         safe_filename = cls._validate_input_filename(filename)
-        return {
-            "schema_version": PROJECT_INPUT_SCHEMA_VERSION,
-            "artifact_kind": _PROJECT_INPUT_ARTIFACT_KIND,
-            "project_input_ref": input_reference,
-            "filename": safe_filename,
-            "size": len(payload),
-            "content_digest": (
-                "sha256:" + hashlib.sha256(payload).hexdigest()
-            ),
-        }
-
-    @staticmethod
-    def _public_input_descriptor(
-        descriptor: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        return {
-            "project_input_ref": descriptor["project_input_ref"],
-            "filename": descriptor["filename"],
-            "size": descriptor["size"],
-            "content_digest": descriptor["content_digest"],
-        }
+        return ProjectInputDescriptor(
+            project_input_ref=input_reference,
+            filename=safe_filename,
+            size=len(payload),
+            content_digest="sha256:" + hashlib.sha256(payload).hexdigest(),
+        )
 
     def _publish_input_snapshot(
         self,
@@ -158,7 +156,7 @@ class ProjectManager:
         payload: bytes,
         *,
         filename: str,
-    ) -> dict[str, Any]:
+    ) -> ProjectInputDescriptor:
         descriptor = self._input_descriptor(
             input_reference,
             payload,
@@ -197,7 +195,7 @@ class ProjectManager:
         finally:
             if staging_dir.exists():
                 shutil.rmtree(staging_dir)
-        return self._public_input_descriptor(descriptor)
+        return descriptor
 
     def publish_input(
         self,
@@ -206,7 +204,7 @@ class ProjectManager:
         payload: bytes,
         *,
         filename: str,
-    ) -> dict[str, Any]:
+    ) -> ProjectInputDescriptor:
         """Atomically publish one immutable Project Input snapshot."""
         self.assert_writable(project_id)
         safe_reference = validate_identifier(
@@ -214,7 +212,7 @@ class ProjectManager:
             "project_input_ref",
         )
         return self._publish_input_snapshot(
-            self.project_dir(project_id),
+            self._project_storage_root(project_id),
             safe_reference,
             payload,
             filename=filename,
@@ -224,57 +222,131 @@ class ProjectManager:
         self,
         project_id: str,
         input_reference: str,
-    ) -> tuple[dict[str, Any], bytes]:
+    ) -> tuple[ProjectInputDescriptor, bytes]:
         """Read one admitted immutable Project Input snapshot."""
         safe_reference = validate_identifier(
             input_reference,
             "project_input_ref",
         )
-        project_dir = self.project_dir(project_id)
-        input_dir = project_dir / "inputs" / safe_reference
-        descriptor = json.loads(
-            (input_dir / "descriptor.json").read_text(encoding="utf-8")
+        input_dir = contained_path(
+            self._project_storage_root(project_id),
+            "inputs",
+            safe_reference,
         )
-        payload = (input_dir / "payload").read_bytes()
-        return self._public_input_descriptor(descriptor), payload
-
-    def cache_dir(self, project_id: str) -> Path:
-        """Resolve the shared content-addressed Cache directory for a project."""
-        if self.cache_root is None:
-            return contained_path(self.project_dir(project_id), "cache")
-        return contained_path(
-            self.cache_root,
-            validate_identifier(project_id, "project_id"),
-        )
-
-    def _output_base(self, project_id: str) -> Path:
-        if self.output_root is None:
-            return contained_path(self.project_dir(project_id), "outputs")
-        return contained_path(
-            self.output_root,
-            validate_identifier(project_id, "project_id"),
-        )
-
-    def output_dir(self, project_id: str, run_id: str) -> Path:
-        """Resolve one run's artifact directory."""
-        safe_run_id = validate_identifier(run_id, "run_id")
-        return contained_path(self._output_base(project_id), safe_run_id)
-
-    def object_dir(self, project_id: str) -> Path:
-        """Resolve one Project's shared immutable object namespace."""
-        return contained_path(self._output_base(project_id), "objects")
-
-    def run_dir(self, project_id: str, run_id: str) -> Path:
-        """Resolve one run's mutable namespace."""
-        safe_run_id = validate_identifier(run_id, "run_id")
-        if self.run_root is None:
-            base = contained_path(self.project_dir(project_id), "runs")
-        else:
-            base = contained_path(
-                self.run_root,
-                validate_identifier(project_id, "project_id"),
+        raw = json.loads(
+            contained_path(input_dir, "descriptor.json").read_text(
+                encoding="utf-8"
             )
-        return contained_path(base, safe_run_id)
+        )
+        if (
+            not isinstance(raw, dict)
+            or set(raw) != {
+                "schema_version",
+                "artifact_kind",
+                "project_input_ref",
+                "filename",
+                "size",
+                "content_digest",
+            }
+            or raw["schema_version"] != PROJECT_INPUT_SCHEMA_VERSION
+            or raw["artifact_kind"] != _PROJECT_INPUT_ARTIFACT_KIND
+            or raw["project_input_ref"] != safe_reference
+            or type(raw["size"]) is not int
+            or not 0 <= raw["size"] <= MAX_PROJECT_INPUT_BYTES
+            or not isinstance(raw["content_digest"], str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", raw["content_digest"])
+            is None
+        ):
+            raise ValueError("Project input descriptor is invalid")
+        descriptor = ProjectInputDescriptor(
+            project_input_ref=safe_reference,
+            filename=self._validate_input_filename(raw["filename"]),
+            size=raw["size"],
+            content_digest=raw["content_digest"],
+        )
+        payload_path = contained_path(input_dir, "payload")
+        if payload_path.stat().st_size != descriptor.size:
+            raise ValueError("Project input content identity is invalid")
+        payload = payload_path.read_bytes()
+        if (
+            len(payload) != descriptor.size
+            or "sha256:" + hashlib.sha256(payload).hexdigest()
+            != descriptor.content_digest
+        ):
+            raise ValueError("Project input content identity is invalid")
+        return descriptor, payload
+
+    def result_cache_storage_root(self, project_id: str) -> Path:
+        """Return the Project scope assigned to the Result replay owner."""
+        if self._cache_root is None:
+            return contained_path(
+                self._project_storage_root(project_id),
+                "cache",
+            )
+        return contained_path(
+            self._cache_root,
+            validate_identifier(project_id, "project_id"),
+        )
+
+    def _result_storage_root(self, project_id: str) -> Path:
+        if self._output_root is None:
+            return contained_path(
+                self._project_storage_root(project_id),
+                "outputs",
+            )
+        return contained_path(
+            self._output_root,
+            validate_identifier(project_id, "project_id"),
+        )
+
+    def run_output_storage_root(self, project_id: str, run_id: str) -> Path:
+        """Return the Project/run scope assigned to Result publication."""
+        safe_run_id = validate_identifier(run_id, "run_id")
+        return contained_path(
+            self._result_storage_root(project_id),
+            safe_run_id,
+        )
+
+    def _object_storage_root(self, project_id: str) -> Path:
+        return contained_path(self._result_storage_root(project_id), "objects")
+
+    def workflow_storage_root(self, project_id: str) -> Path:
+        """Return the Project scope assigned to Workflow Authoring."""
+        return contained_path(
+            self._project_storage_root(project_id),
+            "workflow-v2",
+        )
+
+    def run_storage_root(self, project_id: str) -> Path:
+        """Return the Project scope assigned to Run Runtime."""
+        if self._run_root is None:
+            return contained_path(
+                self._project_storage_root(project_id),
+                "runs",
+            )
+        return contained_path(
+            self._run_root,
+            validate_identifier(project_id, "project_id"),
+        )
+
+    def run_storage_directory(self, project_id: str, run_id: str) -> Path:
+        """Return one exact Run Runtime storage scope."""
+        safe_run_id = validate_identifier(run_id, "run_id")
+        return contained_path(self.run_storage_root(project_id), safe_run_id)
+
+    def stored_project_ids(self) -> tuple[str, ...]:
+        """List contained Project IDs that currently have local storage."""
+        if not self._root_dir.is_dir():
+            return ()
+        stored: list[str] = []
+        for path in sorted(self._root_dir.iterdir()):
+            if not path.is_dir():
+                continue
+            try:
+                stored.append(validate_identifier(path.name, "project_id"))
+            except StoragePathError:
+                continue
+        return tuple(stored)
 
     def run_context(
         self,
@@ -285,24 +357,22 @@ class ProjectManager:
         seed: int = 42,
     ) -> "RunContext":
         """Build a context whose mutable paths are project/run contained."""
-        from core.run_context import RunContext
+        from core.execution.run_context import RunContext
 
         safe_node_id = validate_identifier(node_id, "node_id")
-        run_dir = self.run_dir(project_id, run_id)
+        run_dir = self.run_storage_directory(project_id, run_id)
         return RunContext(
-            project_dir=str(self.project_dir(project_id)),
+            project_dir=str(self._project_storage_root(project_id)),
             node_id=safe_node_id,
             run_id=run_id,
             seed=seed,
-            temp_dir=str(
-                contained_path(run_dir, "temp", safe_node_id)
-            ),
-            output_dir=str(self.output_dir(project_id, run_id)),
+            temp_dir=str(contained_path(run_dir, "temp", safe_node_id)),
+            output_dir=str(self.run_output_storage_root(project_id, run_id)),
             log_dir=str(contained_path(run_dir, "logs")),
         )
 
     def _ensure_dir(self, project_id: str) -> Path:
-        d = self._project_dir(project_id)
+        d = self._project_storage_root(project_id)
         d.mkdir(parents=True, exist_ok=True)
         (d / "inputs").mkdir(exist_ok=True)
         (d / "outputs").mkdir(exist_ok=True)
@@ -340,7 +410,7 @@ class ProjectManager:
         owner and is installed separately after the Catalog is frozen.
         """
 
-        project_dir = self.project_dir(CANONICAL_3GB1_PROJECT_ID)
+        project_dir = self._project_storage_root(CANONICAL_3GB1_PROJECT_ID)
         metadata_path = project_dir / "project.json"
         if project_dir.exists():
             if (
@@ -385,11 +455,11 @@ class ProjectManager:
             name=name,
             seed=True,
         )
-        self.root_dir.mkdir(parents=True, exist_ok=True)
+        self._root_dir.mkdir(parents=True, exist_ok=True)
         staging_dir = Path(
             tempfile.mkdtemp(
                 prefix=".canonical-3gb1-staging-",
-                dir=self.root_dir,
+                dir=self._root_dir,
             )
         ).resolve()
         try:
@@ -427,7 +497,10 @@ class ProjectManager:
     def load_meta(self, project_id: str) -> ProjectMeta | None:
         """Load exactly one closed v2 Project metadata document."""
         safe_project_id = validate_identifier(project_id, "project_id")
-        path = self.project_dir(safe_project_id) / "project.json"
+        path = contained_path(
+            self._project_storage_root(safe_project_id),
+            "project.json",
+        )
         if not path.exists():
             return None
         if not path.is_file():
@@ -465,10 +538,10 @@ class ProjectManager:
 
     def list_projects(self) -> list[ProjectMeta]:
         """List only Project scopes whose exact v2 metadata is readable."""
-        if not self.root_dir.exists():
+        if not self._root_dir.exists():
             return []
         projects: list[ProjectMeta] = []
-        for path in sorted(self.root_dir.iterdir()):
+        for path in sorted(self._root_dir.iterdir()):
             if not path.is_dir():
                 continue
             try:

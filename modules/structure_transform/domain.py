@@ -5,13 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from core import canonical_sha256
-
-from datatypes import (
-    CandidateDataReference,
-    ModifiedResidueNormalizationCollection,
-    ResolvedStructureResidueAxis,
+from core.catalog.port_contract import (
+    canonical_sha256,
 )
+
+from datatypes.candidate import CandidateDataReference
+from datatypes.residue import ModifiedResidueNormalizationCollection
+from datatypes.structure import ResolvedStructureResidueAxis
 
 
 _NORMALIZATION_KEY = re.compile(r"^normalization-[0-9a-f]{64}$")

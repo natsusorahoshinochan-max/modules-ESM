@@ -1,59 +1,209 @@
-"""Canonical nominal Port Type contracts for the v2 FrozenCatalog."""
+"""Nominal Port contracts, canonical codecs, and artifact media grammar."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
-from datetime import datetime, timezone
-from functools import lru_cache
 import hashlib
 import json
 import math
 import re
 import types
 from types import MappingProxyType
-from typing import Any, Callable, Union, get_args, get_origin, get_type_hints
+from typing import Any, Callable, Union, cast, get_args, get_origin, get_type_hints
 
 import rfc8785
 
-from core.artifacts import is_valid_artifact_media_type
-from core.parameter_contract import (
-    ParameterContractDefinitionError,
-    validate_parameter_declarations,
-)
-from datatypes import (
-    CalibrationObservationContext,
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    validate_candidate_lineage_graph,
+    validate_candidate_parent_ids,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
-    FunctionAnnotations,
+    ResidueAxisReference,
+    validate_canonical_identifier,
+)
+from datatypes.i_json import FrozenList, freeze_i_json, thaw_i_json
+from datatypes.observation import (
+    CalibrationObservationContext,
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
-    ProteinPrompt,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueLayout,
-    ResidueAxisReference,
-    ResidueMap,
-    ResidueTrack,
     ScoreCollection,
     ScoreObservation,
-    validate_canonical_identifier,
 )
-from datatypes.i_json import FrozenList, freeze_i_json, thaw_i_json
-from datatypes.protein import (
-    validate_candidate_lineage_graph,
-    validate_candidate_parent_ids,
-    validate_protein_sequence,
-    validate_protein_structure,
+from datatypes.prompt import FunctionAnnotation, FunctionAnnotations, ProteinPrompt
+from datatypes.residue import (
+    ResidueLayout,
+    ResidueMap,
+    ResidueTrack,
     validate_residue_layout,
     validate_residue_map,
 )
+from datatypes.sequence import ProteinSequence, validate_protein_sequence
+from datatypes.structure import ProteinStructure, validate_protein_structure
+
+
+_MEDIA_TYPE = re.compile(r"^[^\s/]+/[^\s/]+$")
+
+
+def is_valid_artifact_media_type(value: object) -> bool:
+    """Return whether a value uses the public type/subtype media grammar."""
+    return (
+        isinstance(value, str)
+        and len(value) <= 256
+        and _MEDIA_TYPE.fullmatch(value) is not None
+    )
+
+
+def _candidate_data_reference_to_canonical(
+    value: CandidateDataReference,
+) -> dict[str, str]:
+    return {
+        "candidate_id": value.candidate_id,
+        "data_type_id": value.data_type_id,
+        "content_digest": value.content_digest,
+    }
+
+
+def _candidate_data_reference_from_canonical(
+    value: object,
+) -> CandidateDataReference:
+    exact_fields = {
+        "candidate_id",
+        "data_type_id",
+        "content_digest",
+    }
+    if not isinstance(value, Mapping) or set(value) != exact_fields:
+        raise ValueError(
+            "CandidateDataReference canonical value must contain exact fields"
+        )
+    return CandidateDataReference(
+        candidate_id=cast(str, value["candidate_id"]),
+        data_type_id=cast(str, value["data_type_id"]),
+        content_digest=cast(str, value["content_digest"]),
+    )
+
+
+def _exact_contract_reference_to_canonical(
+    value: ExactContractReference,
+) -> dict[str, str]:
+    return {
+        "contract_kind": value.contract_kind,
+        "contract_id": value.contract_id,
+        "contract_version": value.contract_version,
+        "contract_digest": value.contract_digest,
+    }
+
+
+def _exact_port_value_reference_to_canonical(
+    value: ExactPortValueReference,
+) -> dict[str, object]:
+    return {
+        "port_type": _exact_contract_reference_to_canonical(value.port_type),
+        "content_digest": value.content_digest,
+    }
+
+
+def _residue_axis_reference_to_canonical(
+    value: ResidueAxisReference,
+) -> dict[str, object]:
+    if type(value.source) is CandidateDataReference:
+        source_kind = "candidate_data"
+        source = _candidate_data_reference_to_canonical(value.source)
+    else:
+        source_kind = "port_value"
+        source = _exact_port_value_reference_to_canonical(value.source)
+    return {
+        "axis_kind": value.axis_kind,
+        "axis_contract": _exact_contract_reference_to_canonical(
+            value.axis_contract
+        ),
+        "axis_content_digest": value.axis_content_digest,
+        "source": {
+            "kind": source_kind,
+            "reference": source,
+        },
+        "layout": {
+            "chain_id": value.layout.chain_id,
+            "length": value.layout.length,
+            "residue_ids": value.layout.residue_ids,
+        },
+    }
+
+
+def _pairwise_participant_to_canonical(
+    value: PairwiseParticipant,
+) -> dict[str, object]:
+    return {
+        "role": value.role,
+        "candidate": _candidate_data_reference_to_canonical(value.candidate),
+    }
+
+
+def _observation_context_to_canonical(
+    value: (
+        IntrinsicObservationContext
+        | CalibrationObservationContext
+        | PairwiseObservationContext
+    ),
+) -> dict[str, object]:
+    if type(value) is IntrinsicObservationContext:
+        return {"kind": value.kind}
+    if type(value) is CalibrationObservationContext:
+        return {
+            "kind": value.kind,
+            "calibration_metric": value.calibration_metric,
+            "calibration_value": value.calibration_value,
+            "calibration_unit": value.calibration_unit,
+            "population_id": value.population_id,
+        }
+    result: dict[str, object] = {
+        "kind": value.kind,
+        "subject": _pairwise_participant_to_canonical(value.subject),
+        "reference": _pairwise_participant_to_canonical(value.reference),
+        "pairing_mode": value.pairing_mode,
+        "normalization": value.normalization,
+    }
+    if value.evidence_content_digest is not None:
+        result["evidence_content_digest"] = value.evidence_content_digest
+    if value.evidence_method is not None:
+        result["evidence_method"] = _exact_contract_reference_to_canonical(
+            value.evidence_method
+        )
+    if value.subject_axis_content_digest is not None:
+        result["subject_axis_content_digest"] = (
+            value.subject_axis_content_digest
+        )
+    if value.reference_axis_content_digest is not None:
+        result["reference_axis_content_digest"] = (
+            value.reference_axis_content_digest
+        )
+    if value.normalization_length is not None:
+        result["normalization_length"] = value.normalization_length
+    if value.aligned_atom_count is not None:
+        result["aligned_atom_count"] = value.aligned_atom_count
+    return result
+
+
+def _function_annotation_to_canonical(
+    value: FunctionAnnotation,
+) -> dict[str, object]:
+    return {
+        "label": value.label,
+        "start": value.start,
+        "end": value.end,
+        "chain_id": value.chain_id,
+        "start_residue_id": value.start_residue_id,
+        "end_residue_id": value.end_residue_id,
+        "overlap_policy": value.overlap_policy,
+    }
 
 
 CONTRACT_NAMESPACE = "protein-workbench-contract/v2"
@@ -1418,611 +1568,3 @@ class PortTypeDefinition:
     def content_digest(self, value: Any) -> str:
         """Identify validated content by SHA-256 of canonical codec bytes."""
         return f"sha256:{hashlib.sha256(self.encode(value)).hexdigest()}"
-
-
-@dataclass(frozen=True, slots=True)
-class FrozenCatalog:
-    """Immutable, atomically validated v2 Catalog and runtime declarations."""
-
-    port_types: tuple[PortTypeDefinition, ...]
-    contracts: tuple[Any, ...] = ()
-    availability: tuple[Mapping[str, Any], ...] = ()
-    availability_observed_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc),
-    )
-    factories: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    readiness_declarations: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    effective_randomness_resolvers: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    utility_transforms: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    owners: Mapping[tuple[str, str, str], frozenset[str]] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    _by_identity: Mapping[tuple[str, str], PortTypeDefinition] = field(
-        init=False,
-        repr=False,
-    )
-    _contracts_by_identity: Mapping[tuple[str, str, str], Any] = field(
-        init=False,
-        repr=False,
-    )
-    _active_contract_versions: Mapping[tuple[str, str], str] = field(
-        init=False,
-        repr=False,
-    )
-
-    def __post_init__(self) -> None:
-        resolved: dict[tuple[str, str], PortTypeDefinition] = {}
-        for definition in self.port_types:
-            definition.validate_runtime_contract()
-            identity = (definition.type_id, definition.version)
-            if identity in resolved:
-                raise CatalogBuildError(
-                    "duplicate Port Type identity "
-                    f"{definition.type_id}@{definition.version}"
-                )
-            resolved[identity] = definition
-        ordered = tuple(
-            sorted(
-                resolved.values(),
-                key=lambda item: (item.type_id, item.version),
-            )
-        )
-        object.__setattr__(self, "port_types", ordered)
-        object.__setattr__(self, "_by_identity", MappingProxyType(resolved))
-        contracts_by_identity: dict[tuple[str, str, str], Any] = {}
-        ordered_contracts = tuple(
-            sorted(
-                tuple(self.contracts),
-                key=lambda item: (
-                    item.contract_kind,
-                    item.contract_id,
-                    item.contract_version,
-                ),
-            )
-        )
-        for contract in ordered_contracts:
-            identity = (
-                contract.contract_kind,
-                contract.contract_id,
-                contract.contract_version,
-            )
-            if identity[0] == "port_type":
-                raise CatalogBuildError(
-                    "Port Type contracts must use the Port Type definition view"
-                )
-            if identity in contracts_by_identity:
-                raise CatalogBuildError(
-                    "duplicate contract identity "
-                    f"{identity[0]}:{identity[1]}@{identity[2]}"
-                )
-            contracts_by_identity[identity] = contract
-        _require_single_active_contract_version(
-            (
-                "port_type",
-                definition.type_id,
-                definition.version,
-            )
-            for definition in ordered
-        )
-        _require_single_active_contract_version(contracts_by_identity)
-        for contract in ordered_contracts:
-            identity = (
-                contract.contract_kind,
-                contract.contract_id,
-                contract.contract_version,
-            )
-            canonical_json_bytes(contract.public_contract())
-            if identity[0] in {"node_type", "binding"}:
-                declaration_field = (
-                    "node_parameters"
-                    if identity[0] == "node_type"
-                    else "binding_parameters"
-                )
-                declarations = contract.descriptor.get(
-                    declaration_field,
-                    {},
-                )
-                if not isinstance(declarations, Mapping):
-                    raise CatalogBuildError(
-                        f"{declaration_field} must be an object"
-                    )
-                try:
-                    validate_parameter_declarations(
-                        declarations,
-                        path=(
-                            f"{identity[0]}:{identity[1]}"
-                            f"@{identity[2]}.{declaration_field}"
-                        ),
-                    )
-                except ParameterContractDefinitionError as error:
-                    raise CatalogBuildError(str(error)) from error
-        observation_time = self.availability_observed_at
-        if (
-            not isinstance(observation_time, datetime)
-            or observation_time.tzinfo is None
-            or observation_time.utcoffset() is None
-        ):
-            raise CatalogBuildError(
-                "Catalog Availability observation time must be timezone-aware"
-            )
-        frozen_availability = tuple(
-            freeze_i_json(thaw_i_json(snapshot))
-            for snapshot in self.availability
-        )
-        canonical_json_bytes(
-            [thaw_i_json(snapshot) for snapshot in frozen_availability]
-        )
-        object.__setattr__(self, "contracts", ordered_contracts)
-        object.__setattr__(
-            self,
-            "_contracts_by_identity",
-            MappingProxyType(contracts_by_identity),
-        )
-        active_contract_versions = {
-            ("port_type", definition.type_id): definition.version
-            for definition in ordered
-        }
-        active_contract_versions.update(
-            {
-                (contract_kind, contract_id): contract_version
-                for contract_kind, contract_id, contract_version in (
-                    contracts_by_identity
-                )
-            }
-        )
-        object.__setattr__(
-            self,
-            "_active_contract_versions",
-            MappingProxyType(active_contract_versions),
-        )
-        object.__setattr__(self, "availability", frozen_availability)
-        object.__setattr__(
-            self,
-            "availability_observed_at",
-            observation_time.astimezone(timezone.utc),
-        )
-        object.__setattr__(
-            self,
-            "factories",
-            MappingProxyType(dict(self.factories)),
-        )
-        object.__setattr__(
-            self,
-            "readiness_declarations",
-            MappingProxyType(dict(self.readiness_declarations)),
-        )
-        object.__setattr__(
-            self,
-            "effective_randomness_resolvers",
-            MappingProxyType(dict(self.effective_randomness_resolvers)),
-        )
-        object.__setattr__(
-            self,
-            "utility_transforms",
-            MappingProxyType(dict(self.utility_transforms)),
-        )
-        object.__setattr__(
-            self,
-            "owners",
-            MappingProxyType(dict(self.owners)),
-        )
-        canonical_json_bytes(self.catalog_descriptor())
-
-    def catalog_descriptor(self) -> dict[str, Any]:
-        """Return the stable Catalog identity, excluding observed availability."""
-        return {
-            "schema_namespace": CATALOG_NAMESPACE,
-            "contracts": sorted(
-                [
-                    definition.public_contract()
-                    for definition in self.port_types
-                ]
-                + [
-                    contract.public_contract()
-                    for contract in self.contracts
-                ],
-                key=lambda item: (
-                    item["reference"]["contract_kind"],
-                    item["reference"]["contract_id"],
-                    item["reference"]["contract_version"],
-                ),
-            ),
-        }
-
-    @property
-    def catalog_descriptor_bytes(self) -> bytes:
-        """RFC 8785 canonical stable Catalog descriptor bytes."""
-        return canonical_json_bytes(self.catalog_descriptor())
-
-    @property
-    def contract_digest(self) -> str:
-        """SHA-256 identity of all stable contracts in this Catalog."""
-        return (
-            "sha256:"
-            f"{hashlib.sha256(self.catalog_descriptor_bytes).hexdigest()}"
-        )
-
-    def get_port_type(
-        self,
-        type_id: str,
-        version: str,
-    ) -> PortTypeDefinition | None:
-        """Return one exact Port Type identity, or None when unknown."""
-        return self._by_identity.get((type_id, version))
-
-    def require_port_type(
-        self,
-        type_id: str,
-        version: str,
-    ) -> PortTypeDefinition:
-        """Resolve one exact identity and fail closed when it is unknown."""
-        definition = self.get_port_type(type_id, version)
-        if definition is None:
-            raise UnknownPortTypeError(f"Unknown Port Type {type_id}@{version}")
-        return definition
-
-    def directly_compatible(
-        self,
-        source_type_id: str,
-        source_version: str,
-        target_type_id: str,
-        target_version: str,
-    ) -> bool:
-        """Accept a direct connection only between known exact identities."""
-        source = self.require_port_type(source_type_id, source_version)
-        target = self.require_port_type(target_type_id, target_version)
-        return (source.type_id, source.version) == (
-            target.type_id,
-            target.version,
-        )
-
-    def get_contract(
-        self,
-        contract_kind: str,
-        contract_id: str,
-        contract_version: str,
-    ) -> Any | None:
-        """Return one exact stable contract without consulting runtime state."""
-        if contract_kind == "port_type":
-            return self.get_port_type(contract_id, contract_version)
-        return self._contracts_by_identity.get(
-            (contract_kind, contract_id, contract_version)
-        )
-
-    def require_contract(
-        self,
-        contract_kind: str,
-        contract_id: str,
-        contract_version: str,
-    ) -> Any:
-        """Resolve one exact Catalog contract or fail closed."""
-        contract = self.get_contract(
-            contract_kind,
-            contract_id,
-            contract_version,
-        )
-        if contract is None:
-            active_version = self._active_contract_versions.get(
-                (contract_kind, contract_id)
-            )
-            if active_version is None:
-                raise UnknownContractError(
-                    contract_kind,
-                    contract_id,
-                    contract_version,
-                )
-            raise InactiveContractGenerationError(
-                contract_kind,
-                contract_id,
-                contract_version,
-                active_version,
-            )
-        return contract
-
-    def require_factory(
-        self,
-        binding_id: str,
-        binding_version: str,
-    ) -> Any:
-        """Return the lazy factory owned by one exact Binding."""
-        try:
-            return self.factories[(binding_id, binding_version)]
-        except KeyError as error:
-            raise CatalogBuildError(
-                f"Unknown Binding factory {binding_id}@{binding_version}"
-            ) from error
-
-    def require_readiness_declaration(
-        self,
-        binding_id: str,
-        binding_version: str,
-    ) -> Any:
-        """Return the run-scoped Readiness declaration for one Binding."""
-        try:
-            return self.readiness_declarations[
-                (binding_id, binding_version)
-            ]
-        except KeyError as error:
-            raise CatalogBuildError(
-                f"Unknown Binding readiness {binding_id}@{binding_version}"
-            ) from error
-
-    def get_effective_randomness_resolver(
-        self,
-        binding_id: str,
-        binding_version: str,
-    ) -> Any | None:
-        """Return a Binding's optional pre-Cache randomness resolver."""
-        return self.effective_randomness_resolvers.get(
-            (binding_id, binding_version)
-        )
-
-    def require_utility_transform(
-        self,
-        transform_id: str,
-        transform_version: str,
-    ) -> Any:
-        """Return one private Utility Transform runtime."""
-        try:
-            return self.utility_transforms[
-                (transform_id, transform_version)
-            ]
-        except KeyError as error:
-            raise CatalogBuildError(
-                f"Unknown Utility Transform "
-                f"{transform_id}@{transform_version}"
-            ) from error
-
-    def public_snapshot(
-        self,
-        *,
-        protocol_digest: str,
-        observed_at: datetime | None = None,
-    ) -> dict[str, Any]:
-        """Return stable contracts plus the startup Binding observations."""
-        timestamp = observed_at or self.availability_observed_at
-        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-            raise CatalogBuildError(
-                "Catalog Snapshot observation time must be timezone-aware"
-            )
-        timestamp = timestamp.astimezone(timezone.utc)
-        timestamp_text = timestamp.isoformat().replace("+00:00", "Z")
-        availability = [
-            thaw_i_json(snapshot)
-            for snapshot in self.availability
-        ]
-        if observed_at is not None:
-            availability = [
-                {**snapshot, "observed_at": timestamp_text}
-                for snapshot in availability
-            ]
-        return {
-            "schema_namespace": "protein-workbench-public/v2",
-            "protocol_digest": protocol_digest,
-            "catalog_contract_digest": self.contract_digest,
-            "contracts": self.catalog_descriptor()["contracts"],
-            "availability_observed_at": timestamp_text,
-            "availability": availability,
-        }
-
-
-_BUILTIN_VALUE_KINDS = (
-    ("candidate.collection", "candidate_collection"),
-    ("candidate.pairing", "pairwise_candidate_mapping"),
-    ("protein.sequence", "protein_sequence"),
-    ("protein.structure", "protein_structure"),
-    ("residue.layout", "residue_layout"),
-    ("residue.map", "residue_map"),
-    ("residue.track", "residue_track"),
-    ("residue.track.sasa", "sasa_residue_track"),
-    (
-        "residue.track.secondary_structure",
-        "secondary_structure_residue_track",
-    ),
-    ("score.collection", "score_collection"),
-    ("text", "text"),
-)
-
-
-def _candidate_collection_data_references(
-    value: Any,
-    candidate_data_port_types: Mapping[str, PortTypeDefinition],
-) -> tuple[CandidateDataReference, ...]:
-    if type(value) is not CandidateCollection:
-        raise PortValueError(
-            "candidate.collection projection requires a CandidateCollection"
-        )
-    try:
-        data_port_type = candidate_data_port_types[value.item_type]
-    except KeyError as error:
-        raise PortValueError(
-            f"Candidate collection uses unavailable data Port Type "
-            f"{value.item_type!r}"
-        ) from error
-    return tuple(
-        CandidateDataReference(
-            candidate_id=candidate.candidate_id,
-            data_type_id=value.item_type,
-            content_digest=data_port_type.content_digest(candidate.data),
-        )
-        for candidate in value.items
-    )
-
-
-def _candidate_pairing_data_references(
-    value: Any,
-    _candidate_data_port_types: Mapping[str, PortTypeDefinition],
-) -> tuple[CandidateDataReference, ...]:
-    if type(value) is not PairwiseCandidateMapping:
-        raise PortValueError(
-            "candidate.pairing projection requires a PairwiseCandidateMapping"
-        )
-    return tuple(
-        reference
-        for entry in value.entries
-        for reference in (entry.subject, entry.reference)
-    )
-
-
-def _score_collection_data_references(
-    value: Any,
-    _candidate_data_port_types: Mapping[str, PortTypeDefinition],
-) -> tuple[CandidateDataReference, ...]:
-    if type(value) is not ScoreCollection:
-        raise PortValueError(
-            "score.collection projection requires a ScoreCollection"
-        )
-    references: list[CandidateDataReference] = []
-    for observation in value.entries:
-        references.append(observation.subject)
-        if isinstance(observation.context, PairwiseObservationContext):
-            references.extend(
-                (
-                    observation.context.subject.candidate,
-                    observation.context.reference.candidate,
-                )
-            )
-        if (
-            observation.residue_axis is not None
-            and type(observation.residue_axis.source) is CandidateDataReference
-        ):
-            references.append(observation.residue_axis.source)
-    return tuple(references)
-
-
-def _builtin_port_type(
-    type_id: str,
-    value_kind: str,
-    *,
-    version: str = PORT_TYPE_VERSION,
-) -> PortTypeDefinition:
-    behavior_prefix = f"protein-workbench.port-type/{type_id}"
-    validator_parameters: dict[str, Any] = {
-        "accepted_value_kind": value_kind,
-        "complete_values_only": True,
-    }
-    codec_parameters: dict[str, Any] = {
-        "canonicalization": "RFC 8785",
-        "character_encoding": "UTF-8",
-        "envelope_namespace": PORT_VALUE_NAMESPACE,
-        "value_kind": value_kind,
-    }
-    if type_id == "protein.sequence":
-        validator_parameters["sequence_invariants"] = {
-            "alphabet": "ACDEFGHIKLMNPQRSTVWYBXZJUO",
-            "nonempty": True,
-            "residue_ids": {
-                "cardinality": "absent-or-sequence-length",
-                "chain_boundary_constraint": "none",
-                "item_contract": "canonical-residue-identity",
-                "unique": True,
-            },
-        }
-    if type_id == "candidate.collection":
-        validator_parameters["candidate_invariants"] = {
-            "candidate_id": "canonical-identifier",
-            "parent_ids": {
-                "item_contract": "canonical-identifier",
-                "ordered": True,
-                "unique": True,
-            },
-            "internal_lineage": {
-                "acyclic": True,
-                "external_parents": "allowed",
-                "self_parent": "rejected",
-            },
-        }
-    if type_id == "candidate.pairing":
-        participant_fields = [
-            "candidate_id",
-            "data_type_id",
-            "content_digest",
-        ]
-        validator_parameters["association_contract"] = {
-            "entry_fields": ["subject", "reference"],
-            "participant": "CandidateDataReference",
-            "participant_fields": participant_fields,
-            "cardinality": "one-to-one",
-        }
-        codec_parameters["entry_wire_shape"] = {
-            "subject": participant_fields,
-            "reference": participant_fields,
-        }
-    candidate_projection = {
-        "candidate.collection": _candidate_collection_data_references,
-        "candidate.pairing": _candidate_pairing_data_references,
-        "score.collection": _score_collection_data_references,
-    }.get(type_id)
-    return PortTypeDefinition(
-        type_id=type_id,
-        version=version,
-        validator=BehaviorReference(
-            behavior_id=f"{behavior_prefix}/validate",
-            behavior_version=version,
-            parameters=validator_parameters,
-        ),
-        codec=BehaviorReference(
-            behavior_id=f"{behavior_prefix}/canonical-json-codec",
-            behavior_version=version,
-            parameters=codec_parameters,
-        ),
-        content_identity=BehaviorReference(
-            behavior_id=f"{behavior_prefix}/content-sha256",
-            behavior_version=version,
-            parameters={
-                "digest_algorithm": "SHA-256",
-                "digest_input": "canonical_codec_bytes",
-                "digest_representation": (
-                    "sha256:<64 lowercase hexadecimal digits>"
-                ),
-            },
-        ),
-        candidate_data_projection=(
-            BehaviorReference(
-                behavior_id=f"{behavior_prefix}/candidate-data-projection",
-                behavior_version=version,
-                parameters={
-                    "projection": "all-exact-Candidate-Data-References",
-                },
-            )
-            if candidate_projection is not None
-            else None
-        ),
-        runtime_candidate_data_projection=candidate_projection,
-    )
-
-
-@lru_cache(maxsize=1)
-def builtin_frozen_catalog() -> FrozenCatalog:
-    """Build and cache the repository-owned built-in Port Type Catalog."""
-    return FrozenCatalog(
-        tuple(
-            _builtin_port_type(
-                type_id,
-                value_kind,
-                version=_BUILTIN_PORT_TYPE_VERSIONS.get(
-                    type_id,
-                    PORT_TYPE_VERSION,
-                ),
-            )
-            for type_id, value_kind in _BUILTIN_VALUE_KINDS
-        )
-    )

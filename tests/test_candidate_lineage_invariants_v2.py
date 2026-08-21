@@ -4,9 +4,22 @@ from __future__ import annotations
 
 import pytest
 
-from core import PortValueError, builtin_frozen_catalog, canonical_sha256
-from core.value_admission import admitted_port_values, normalize_scientific_outputs
-from datatypes import Candidate, CandidateCollection, ProteinSequence
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    PortValueError,
+    canonical_sha256,
+)
+from tests.support.output_admission import (
+    admit_fixture_port,
+    normalize_fixture_outputs,
+)
+from datatypes.candidate import (
+    Candidate,
+    CandidateCollection,
+)
+from datatypes.sequence import ProteinSequence
 
 
 _RESULT_IDENTITY = "sha256:" + ("c" * 64)
@@ -173,7 +186,7 @@ def test_candidate_collection_codec_rejects_internal_lineage_cycles(
 
 def test_candidate_normalization_rejects_duplicate_raw_parent_ids() -> None:
     with pytest.raises(PortValueError, match="duplicate parent identities"):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="producer",
             result_identity=_RESULT_IDENTITY,
             inputs={},
@@ -219,11 +232,11 @@ def test_candidate_normalization_rejects_parent_ids_that_converge() -> None:
         PortValueError,
         match="normalize to one duplicate parent identity",
     ):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="producer",
             result_identity=_RESULT_IDENTITY,
             inputs={
-                "admitted_parents": admitted_port_values(
+                "admitted_parents": admit_fixture_port(
                     port_type=_BUILTINS.require_port_type(
                         "candidate.collection", "4.0.0"
                     ),

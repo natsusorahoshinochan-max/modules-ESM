@@ -1,4 +1,4 @@
-"""Small filesystem helpers for trusted local project storage."""
+"""Private filesystem primitives for trusted local Project storage."""
 
 from __future__ import annotations
 
@@ -35,8 +35,14 @@ def validate_relative_path(
     """Return the path parts supplied through the public Interface."""
     if not isinstance(value, str) or not value:
         raise StoragePathError(field, f"Invalid {field}")
-    parts = PurePosixPath(value).parts
-    if not parts or (not allow_nested and len(parts) != 1):
+    relative = PurePosixPath(value)
+    parts = relative.parts
+    if (
+        relative.is_absolute()
+        or not parts
+        or any(part in {"", ".", ".."} for part in parts)
+        or (not allow_nested and len(parts) != 1)
+    ):
         raise StoragePathError(field, f"Invalid {field}")
     return parts
 
@@ -45,8 +51,12 @@ def contained_path(
     root: str | Path,
     *parts: str,
 ) -> Path:
-    """Join trusted storage names beneath their configured root."""
-    return Path(root).resolve().joinpath(*parts)
+    """Resolve a path while preserving the configured storage boundary."""
+    resolved_root = Path(root).resolve()
+    candidate = resolved_root.joinpath(*parts).resolve()
+    if not candidate.is_relative_to(resolved_root):
+        raise StoragePathError("storage_path", "Storage path escapes its root")
+    return candidate
 
 
 def _write_file(
@@ -57,7 +67,7 @@ def _write_file(
     replace: bool,
     durable: bool = False,
 ) -> Path:
-    path = Path(root).joinpath(*relative_parts)
+    path = contained_path(root, *relative_parts)
     missing_directories: list[Path] = []
     if durable:
         existing_ancestor = path.parent
@@ -82,7 +92,8 @@ def _write_file(
         if replace:
             temporary_path.replace(path)
         else:
-            temporary_path.rename(path)
+            os.link(temporary_path, path)
+            temporary_path.unlink()
         if durable:
             directories = [
                 path.parent,

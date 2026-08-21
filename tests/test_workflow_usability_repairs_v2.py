@@ -7,17 +7,21 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ProteinPrompt, ProteinStructure, ResidueMap
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.prompt import ProteinPrompt
+from datatypes.residue import ResidueMap
+from datatypes.structure import ProteinStructure
 from modules.prompt_authoring.package import (
     MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
 )
@@ -67,7 +71,7 @@ def _run(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
     )
     receipt = service.start(
         project.id,

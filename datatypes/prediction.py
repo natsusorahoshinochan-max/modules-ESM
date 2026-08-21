@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import math
 import re
 
-from core import builtin_frozen_catalog, canonical_sha256
-from datatypes import (
-    CandidateDataReference,
+import rfc8785
+
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
-    ProteinSequence,
-    ResidueLayout,
+    ResidueAxisReference,
     validate_canonical_identifier,
 )
-from datatypes.protein import validate_protein_sequence, validate_residue_layout
-from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
+from datatypes.i_json import thaw_i_json
+from datatypes.residue import ResidueLayout, validate_residue_layout
+from datatypes.sequence import ProteinSequence, validate_protein_sequence
+
+
+def _canonical_sha256(value: object) -> str:
+    return f"sha256:{hashlib.sha256(rfc8785.dumps(thaw_i_json(value))).hexdigest()}"
 
 
 _CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -25,15 +31,6 @@ _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
-_SEQUENCE_PORT_TYPE = builtin_frozen_catalog().require_port_type(
-    "protein.sequence",
-    "3.0.0",
-)
-_ALLOWED_SCALAR_SOURCES = {
-    ExactContractReference(**_SEQUENCE_PORT_TYPE.reference()),
-    ExactContractReference(**PROTEIN_PROMPT_PORT_TYPE.reference()),
-}
-
 
 def _require_content_digest(value: object, *, field_name: str) -> str:
     if type(value) is not str or _CONTENT_DIGEST.fullmatch(value) is None:
@@ -63,7 +60,7 @@ def prediction_key(
         prediction_axis_content_digest,
         field_name="prediction_axis_content_digest",
     )
-    digest = canonical_sha256(
+    digest = _canonical_sha256(
         {
             "schema_namespace": (
                 "protein-workbench-structure-prediction-key/v1"
@@ -98,9 +95,6 @@ class PredictionResidueAxis:
         if (
             type(self.source) is CandidateDataReference
             and self.source.data_type_id != "protein.sequence"
-        ) or (
-            type(self.source) is ExactPortValueReference
-            and self.source.port_type not in _ALLOWED_SCALAR_SOURCES
         ):
             raise TypeError(
                 "prediction residue axis source must identify an exact "
@@ -120,6 +114,24 @@ class PredictionResidueAxis:
                 "prediction sequence residue identities must exactly equal "
                 "the prediction residue layout"
             )
+
+
+def prediction_axis_reference(
+    axis: PredictionResidueAxis,
+    *,
+    axis_contract: ExactContractReference,
+    axis_content_digest: str,
+) -> ResidueAxisReference:
+    """Project one prediction axis using its codec-owned exact identity."""
+    if type(axis) is not PredictionResidueAxis:
+        raise TypeError("axis must be a PredictionResidueAxis")
+    return ResidueAxisReference(
+        axis_kind="prediction_input",
+        axis_contract=axis_contract,
+        axis_content_digest=axis_content_digest,
+        source=axis.source,
+        layout=axis.layout,
+    )
 
 
 def _finite_metric_value(

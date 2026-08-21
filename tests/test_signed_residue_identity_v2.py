@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import pytest
 
-from core import PortValueError, builtin_frozen_catalog
-from datatypes import ResidueLayout, ResidueMap
-from datatypes.protein import residue_identity_chain
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    PortValueError,
+)
+from datatypes.residue import (
+    ResidueLayout,
+    ResidueMap,
+)
+from datatypes.residue import residue_identity_chain
 
 
 @pytest.mark.parametrize(

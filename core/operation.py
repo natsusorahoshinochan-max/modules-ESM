@@ -2,26 +2,29 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
+from pathlib import Path
+import re
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, ContextManager, Literal, Protocol
 
-from datatypes import (
-    CandidateDataReference,
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
 )
 
 if TYPE_CHECKING:
-    from core.run_execution_v2 import RunResources
-    from core.scoring_v2 import (
+    from core.scoring.observation_plan import ResolvedProducedObservation
+    from core.scoring.selection import (
         ResolvedObservationSelector,
         ResolvedSelectionObjective,
     )
 
 
 PortMultiplicity = Literal["one", "many"]
+_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 
 
 def _freeze_container(value: Any) -> Any:
@@ -33,6 +36,160 @@ def _freeze_container(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_container(item) for item in value)
     return value
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactPayload:
+    """Exact artifact bytes returned by a scientific operation."""
+
+    body: bytes
+    media_type: str
+    filename: str
+    candidate_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InvocationRandomness:
+    """Effective randomness observed at an engine boundary."""
+
+    control: Literal["exact_seed", "provider_uncontrolled"]
+    effective_seed: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResidueProjectionEntry:
+    """One Workbench-to-provider residue association."""
+
+    residue_id: str
+    segment_index: int
+    provider_chain_id: str
+    provider_position: int
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResidueProjection:
+    """Chain order and residue mapping observed at a provider boundary."""
+
+    workbench_chain_order: tuple[str, ...]
+    provider_structure_chain_order: tuple[str, ...]
+    provider_chain_order: tuple[str, ...]
+    entries: tuple[ProviderResidueProjectionEntry, ...]
+    position_semantics: Literal["one_based_chain_local"] = (
+        "one_based_chain_local"
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class EngineInvocationProvenance:
+    """Closed provenance supplied when an operation crosses an engine seam."""
+
+    effective_randomness: InvocationRandomness | None = None
+    project_input_filename: str | None = None
+    provider_residue_projection: ProviderResidueProjection | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BindingEnvironment(Mapping[str, Any]):
+    """Trusted private configuration for one exact execution Binding."""
+
+    values: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.values, Mapping):
+            raise TypeError("Binding Environment values must be a Mapping")
+        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+
+    def __getitem__(self, key: str) -> Any:
+        return self.values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessCheckInput:
+    """Closed private checker input for one selected Binding."""
+
+    values: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.values, Mapping):
+            raise TypeError("Readiness values must be a Mapping")
+        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessResult:
+    """One direct readiness conclusion at an operation boundary."""
+
+    passing: bool
+    proof_source: str = "direct-observation"
+    reason_code: str = "prerequisite_unavailable"
+
+    def __post_init__(self) -> None:
+        if type(self.passing) is not bool:
+            raise TypeError("Readiness conclusion must be boolean")
+        if any(
+            not isinstance(value, str)
+            or len(value) > 128
+            or _PUBLIC_IDENTIFIER.fullmatch(value) is None
+            for value in (self.proof_source, self.reason_code)
+        ):
+            raise ValueError("Readiness metadata must use public identifiers")
+
+
+class OperationProjectInput(Protocol):
+    """Project Input identity visible to a scientific operation."""
+
+    @property
+    def project_input_ref(self) -> str: ...
+
+    @property
+    def filename(self) -> str: ...
+
+    @property
+    def size(self) -> int: ...
+
+    @property
+    def content_digest(self) -> str: ...
+
+
+class OperationResources(Protocol):
+    """Project- and Run-contained capabilities available to an operation."""
+
+    project_id: str
+    run_id: str
+    node_id: str
+
+    def read_project_input(
+        self,
+        input_reference: str,
+    ) -> tuple[OperationProjectInput, bytes]: ...
+
+    @property
+    def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]: ...
+
+    def temporary_directory(self, *, prefix: str) -> ContextManager[Path]: ...
+
+    def cleanup_temporary_work(self) -> None: ...
+
+    def cancellable_process_group(
+        self,
+        process_group: int,
+        *,
+        fallback: Callable[[], None] | None = None,
+    ) -> ContextManager[None]: ...
+
+    def engine_invocation(
+        self,
+        *,
+        engine_role: str = "primary",
+        parent_invocation_id: str | None = None,
+        invocation_provenance: EngineInvocationProvenance | None = None,
+    ) -> ContextManager[str]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,36 +320,6 @@ class CandidatePairingIntent:
 
 
 @dataclass(frozen=True, slots=True)
-class ResolvedProducedObservation:
-    """One Binding-declared Observation with an exact resolved Metric."""
-
-    output_port: str
-    output_partition: str
-    metric: ExactContractReference
-    context_profile: Mapping[str, Any]
-    subject_grain: str
-    source_role: str
-    subject_direction: str
-    subject_port: str
-    guaranteed_multiplicity: str
-    reference_direction: str | None = None
-    reference_port: str | None = None
-    pairing_direction: str | None = None
-    pairing_port: str | None = None
-    axis_direction: str | None = None
-    axis_port: str | None = None
-    method_direction: str | None = None
-    method_port: str | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "context_profile",
-            _freeze_container(self.context_profile),
-        )
-
-
-@dataclass(frozen=True, slots=True)
 class OperationContext:
     """Resolved facts available while constructing one scientific operation."""
 
@@ -200,8 +327,8 @@ class OperationContext:
     produced_observations: tuple[ResolvedProducedObservation, ...]
     selection_objectives: tuple[ResolvedSelectionObjective, ...]
     observation_selectors: tuple[ResolvedObservationSelector, ...]
-    environment: Mapping[str, Any]
-    resources: RunResources
+    environment: BindingEnvironment
+    resources: OperationResources
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -219,7 +346,8 @@ class OperationContext:
             "observation_selectors",
             tuple(self.observation_selectors),
         )
-        object.__setattr__(self, "environment", _freeze_container(self.environment))
+        if type(self.environment) is not BindingEnvironment:
+            raise TypeError("environment must be an admitted BindingEnvironment")
 
 
 @dataclass(frozen=True, slots=True)

@@ -8,18 +8,20 @@ import json
 
 import pytest
 
-from core import (
-    OperationCall,
+from core.catalog.port_contract import (
     PortValueError,
     canonical_json_bytes,
 )
-from datatypes import (
+from core.operation import (
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ModifiedResidueNormalizationCollection,
-    ProteinStructure,
 )
+from datatypes.residue import ModifiedResidueNormalizationCollection
+from datatypes.structure import ProteinStructure
 from modules.structure_transform import (
     CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
@@ -27,13 +29,13 @@ from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import (
+from modules.structure_transform.candidate_transforms import (
     MaterializeCandidateNormalizationsImplementation,
     NormalizeCshParentSpanCandidatesImplementation,
     ResolveCandidateResidueAxesImplementation,
-    normalize_csh_parent_span,
-    resolve_residue_axis,
 )
+from modules.structure_transform.csh_normalization import normalize_csh_parent_span
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import (
     CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
@@ -82,7 +84,9 @@ def _structure_reference(
     candidate_id: str,
     structure: ProteinStructure,
 ) -> CandidateDataReference:
-    from core import builtin_frozen_catalog
+    from core.catalog.builtins import (
+        builtin_frozen_catalog,
+    )
 
     structure_type = builtin_frozen_catalog().require_port_type(
         "protein.structure",

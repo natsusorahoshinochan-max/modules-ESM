@@ -1,14 +1,71 @@
-"""Canonical v2 function-annotation scientific values."""
+"""Provider-independent multi-track protein prompt values."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, is_dataclass
+from typing import Any, Optional
 
-from datatypes.protein import (
-    FunctionAnnotations,
-    residue_identity_chain,
-)
+from datatypes.i_json import FrozenList, freeze_i_json
+from datatypes.residue import ResidueLayout, ResidueTrack, residue_identity_chain
 
+
+def _ordered_list(value: object, *, field_name: str) -> FrozenList:
+    if not isinstance(value, (list, tuple)):
+        raise TypeError(f"{field_name} must be an ordered list or tuple")
+    return FrozenList(value)
+
+
+def _freeze_annotation(value: Any) -> Any:
+    parameters = getattr(type(value), "__dataclass_params__", None)
+    if is_dataclass(value) and parameters is not None and parameters.frozen:
+        return value
+    return freeze_i_json(value)
+
+
+@dataclass(frozen=True, slots=True)
+class FunctionAnnotations:
+    """Named function annotations as residue ranges."""
+
+    annotations: tuple[Any, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "annotations",
+            FrozenList(
+                _freeze_annotation(item)
+                for item in _ordered_list(
+                    self.annotations,
+                    field_name="annotations",
+                )
+            ),
+        )
+
+    def __len__(self) -> int:
+        return len(self.annotations)
+
+
+@dataclass(frozen=True, slots=True)
+class ProteinPrompt:
+    """Multi-track protein prompt for ESM3 conditioning.
+
+    All per-residue tracks must have length equal to the target layout length.
+    Each track is fully independent.
+    """
+
+    target_layout: Optional[ResidueLayout] = None
+    sequence_track: Optional[ResidueTrack] = None
+    structure_track: Optional[ResidueTrack] = None
+    structure_visibility_track: Optional[ResidueTrack] = None
+    secondary_structure_track: Optional[ResidueTrack] = None
+    sasa_track: Optional[ResidueTrack] = None
+    function_annotations: FunctionAnnotations = field(default_factory=FunctionAnnotations)
+
+    @property
+    def num_residues(self) -> int:
+        if self.target_layout is not None:
+            return self.target_layout.length
+        return 0
 
 @dataclass(frozen=True, slots=True)
 class FunctionAnnotation:
@@ -21,19 +78,6 @@ class FunctionAnnotation:
     start_residue_id: str
     end_residue_id: str
     overlap_policy: str
-
-    def to_record(self) -> dict[str, object]:
-        """Return the closed canonical wire record."""
-        return {
-            "label": self.label,
-            "start": self.start,
-            "end": self.end,
-            "chain_id": self.chain_id,
-            "start_residue_id": self.start_residue_id,
-            "end_residue_id": self.end_residue_id,
-            "overlap_policy": self.overlap_policy,
-        }
-
 
 def validate_canonical_function_annotations(
     value: object,

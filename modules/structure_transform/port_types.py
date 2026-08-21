@@ -6,22 +6,38 @@ import json
 from math import isfinite
 from typing import Any, cast
 
-from core import BehaviorReference, PortTypeDefinition, builtin_frozen_catalog
-from core.port_types import canonical_json_bytes
-from datatypes import (
-    CandidateDataReference,
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.catalog.port_contract import (
+    canonical_json_bytes,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import (
     ExactContractReference,
+    ResidueAxisReference,
+)
+from datatypes.residue import (
     ModifiedResidueAtomMapping,
     ModifiedResidueNormalization,
     ModifiedResidueNormalizationCollection,
-    ResidueAxisReference,
+)
+from datatypes.structure import (
     ResolvedStructureResidueAxis,
     StructureAtomCoordinate,
     StructureAxisSegment,
     StructureComponentDisposition,
     StructureResidueCoordinates,
 )
-from datatypes.protein import residue_identity_chain
+from datatypes.residue import residue_identity_chain
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+)
 
 from .domain import (
     CandidateNormalizationFact,
@@ -897,7 +913,7 @@ def _candidate_normalizations_to_wire(value: object) -> object:
     return {
         "entries": [
             {
-                "subject": entry.subject.to_public(),
+                "subject": _candidate_data_reference_to_canonical(entry.subject),
                 "normalizations": normalizations_to_wire(
                     entry.normalizations
                 ),
@@ -926,7 +942,7 @@ def _candidate_normalizations_from_wire(value: object) -> object:
         )
         entries.append(
             CandidateModifiedResidueNormalizationAssociation(
-                subject=CandidateDataReference.from_public(item["subject"]),
+                subject=_candidate_data_reference_from_canonical(item["subject"]),
                 normalizations=normalizations_from_wire(
                     item["normalizations"],
                     require_nonempty=False,
@@ -966,7 +982,7 @@ def _candidate_axes_to_wire(value: object) -> object:
     return {
         "entries": [
             {
-                "subject": entry.subject.to_public(),
+                "subject": _candidate_data_reference_to_canonical(entry.subject),
                 "residue_axis": _wire_value(
                     RESOLVED_AXIS_PORT_TYPE,
                     entry.residue_axis,
@@ -1000,7 +1016,7 @@ def _candidate_axes_from_wire(value: object) -> object:
             raise ValueError("Candidate residue axis has the wrong runtime type")
         entries.append(
             CandidateResolvedResidueAxisAssociation(
-                subject=CandidateDataReference.from_public(item["subject"]),
+                subject=_candidate_data_reference_from_canonical(item["subject"]),
                 residue_axis=residue_axis,
             )
         )

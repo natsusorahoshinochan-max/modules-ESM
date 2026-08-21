@@ -10,33 +10,57 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-import core.workflow_authoring_v2 as workflow_authoring_v2
-from core import (
-    BehaviorReference,
+import core.workflow.authoring as workflow_authoring
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.declarations import (
     CatalogContract,
-    FrozenCatalog,
-    ObservationSelector,
-    OperationContext,
-    ProjectManager,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
-    SelectionInput,
+)
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    ReadinessResult,
+)
+from core.parameters.contract import admit_declarations
+from core.workflow.authoring import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
+)
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
-    WorkflowAuthoringService,
-    WorkflowAuthoringError,
-    build_frozen_catalog,
-    builtin_frozen_catalog,
-    compile_workflow,
-    parse_workflow_document,
-    relock_workflow,
 )
-from core.project import CANONICAL_3GB1_PROJECT_ID
-from core.server import create_app
-from core.workflow_authoring_v2 import WorkflowCommit, WorkflowDraft
-from core.workflow_v2 import WorkflowEdge, workflow_document_from_admitted_public
-from datatypes import ExactContractReference, IntrinsicObservationContext
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from core.scoring.selection import ObservationSelector, SelectionInput
+from core.project.manager import CANONICAL_3GB1_PROJECT_ID
+from protein_workbench_public.bootstrap import create_application
+from core.workflow.authoring import (
+    WorkflowCommit,
+    WorkflowDraft,
+)
+from core.workflow.document import (
+    WorkflowEdge,
+    workflow_document_from_projection,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import IntrinsicObservationContext
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from protein_workbench_public import validate_error
 from tests.fixtures.zero_core_packages.synthetic_echo.package import (
@@ -53,6 +77,21 @@ def _contract(
     contract_id: str,
     descriptor: dict,
 ) -> CatalogContract:
+    parameter_field = {
+        "node_type": "node_parameters",
+        "binding": "binding_parameters",
+        "utility_transform": "parameters",
+    }.get(contract_kind)
+    parameter_contract = (
+        None
+        if parameter_field is None
+        else admit_declarations(
+            descriptor.get(parameter_field, {}),
+            path=(
+                f"{contract_kind}:{contract_id}@2.1.0.{parameter_field}"
+            ),
+        )
+    )
     return CatalogContract(
         contract_kind=contract_kind,
         contract_id=contract_id,
@@ -64,6 +103,7 @@ def _contract(
             "contract_version": "2.1.0",
             **descriptor,
         },
+        parameter_contract=parameter_contract,
     )
 
 
@@ -98,6 +138,9 @@ def _catalog(*, algorithm_name: str = "source") -> FrozenCatalog:
         {
             "node_type": node.reference(),
             "method": method.reference(),
+            "execution_route": "direct",
+            "deterministic": True,
+            "cacheable": True,
             "binding_parameters": {},
             "produced_observations": [],
         },
@@ -140,7 +183,7 @@ def _workflow(
     invalid_edge: bool = False,
     node_id: str = "source",
 ):
-    return parse_workflow_document(
+    return decode_workflow_document(
         {
             "schema_version": "2.1.0",
             "workflow_id": project_id,
@@ -272,6 +315,7 @@ def _workflow_with_stale_nested_reference(
                     "contract_test.synthetic_echo.method",
                 ),
                 context_selector=IntrinsicObservationContext(),
+                source_partition="default",
             ),
         ),
     )
@@ -321,7 +365,7 @@ def test_commit_locks_compiles_and_activates_one_exact_draft(tmp_path) -> None:
     assert committed.to_public()["issues"] == []
     assert "compile_id" not in committed.to_public()
 
-    compiled = authoring.require_compiled(
+    compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -345,7 +389,7 @@ def test_public_synthetic_scorer_commit_requires_candidate_input(
         )
     catalog = build_frozen_catalog((SYNTHETIC_ECHO_PACKAGE,))
     case = SYNTHETIC_ECHO_EXECUTION_CASE
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
 
     with TestClient(app) as client:
         project_id = client.post(
@@ -417,7 +461,7 @@ def test_commit_relocks_nested_references_without_losing_draft_lineage(
     )
     assert restarted.load_active_commit(project.id) == committed
     assert (
-        restarted.require_compiled(
+        restarted.require_verified_commit(
             project.id,
             workflow_commit_id=committed.workflow_commit_id,
         ).execution_plan.execution_plan_digest
@@ -461,7 +505,7 @@ def test_restart_hydrates_the_exact_active_commit_plan(tmp_path) -> None:
         ProjectManager(project_root),
         catalog,
     )
-    compiled = restarted.require_compiled(
+    compiled = restarted.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -485,7 +529,9 @@ def test_restart_hydrates_the_exact_active_commit_plan(tmp_path) -> None:
     )
 
 
-def test_draft_rejects_environment_configuration_fields(tmp_path) -> None:
+def test_draft_preserves_uncompiled_values_and_commit_rejects_unknown_parameters(
+    tmp_path,
+) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("credential-free draft")
     authoring = WorkflowAuthoringService(projects, _catalog())
@@ -494,20 +540,15 @@ def test_draft_rejects_environment_configuration_fields(tmp_path) -> None:
         "credentials": {"api_key": "must-not-enter-workflow"},
     }
 
-    with pytest.raises(WorkflowAuthoringError) as captured:
-        authoring.save_draft(
-            project.id,
-            workflow=parse_workflow_document(payload),
-        )
+    workflow = decode_workflow_document(payload)
+    draft = authoring.save_draft(project.id, workflow=workflow)
 
-    assert captured.value.code == "malformed_request"
-    assert captured.value.details["field_path"] == [
-        "workflow",
-        "nodes",
-        0,
-        "node_parameters",
-        "credentials",
-    ]
+    assert draft.workflow == workflow
+    with pytest.raises(WorkflowAuthoringError) as captured:
+        authoring.commit(project.id, workflow=workflow)
+
+    assert captured.value.code == "compile_rejected"
+    assert captured.value.details["issues"][0]["code"] == "unknown_parameter"
 
 
 def test_new_invalid_draft_and_failed_commit_keep_active_plan(tmp_path) -> None:
@@ -519,7 +560,7 @@ def test_new_invalid_draft_and_failed_commit_keep_active_plan(tmp_path) -> None:
         workflow=_workflow(project.id),
     )
 
-    retained_before_failure = authoring.require_compiled(
+    retained_before_failure = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=active.workflow_commit_id,
     )
@@ -532,7 +573,7 @@ def test_new_invalid_draft_and_failed_commit_keep_active_plan(tmp_path) -> None:
 
     assert captured.value.code == "compile_rejected"
     assert authoring.load_active_commit(project.id) == active
-    retained_after_failure = authoring.require_compiled(
+    retained_after_failure = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=active.workflow_commit_id,
     )
@@ -584,7 +625,7 @@ def test_published_commit_and_plan_are_reused_without_catalog_resolution(
         )
 
     assert authoring.load_active_commit(project.id) == committed
-    compiled = authoring.require_compiled(
+    compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -633,10 +674,10 @@ def test_commit_publish_failure_keeps_old_active_and_saved_submission(
         workflow=_workflow(project.id),
     )
     submitted = _workflow(project.id, node_id="replacement-source")
-    real_write = workflow_authoring_v2.write_new_file
+    real_write = workflow_authoring.write_new_file
 
     def fail_commit_record(root, relative_parts, payload):
-        if relative_parts[1] == "commits":
+        if relative_parts[0] == "commits":
             raise OSError("simulated durable publish failure")
         return real_write(
             root,
@@ -646,7 +687,7 @@ def test_commit_publish_failure_keeps_old_active_and_saved_submission(
 
     with monkeypatch.context() as scoped:
         scoped.setattr(
-            workflow_authoring_v2,
+            workflow_authoring,
             "write_new_file",
             fail_commit_record,
         )
@@ -658,7 +699,7 @@ def test_commit_publish_failure_keeps_old_active_and_saved_submission(
 
     assert authoring.load_active_commit(project.id) == active
     assert authoring.load_draft(project.id).workflow == submitted
-    assert authoring.require_compiled(
+    assert authoring.require_verified_commit(
         project.id,
         workflow_commit_id=active.workflow_commit_id,
     ).execution_plan.execution_plan_digest == active.execution_plan_digest
@@ -673,7 +714,7 @@ def test_event_stream_rejects_duplicate_query_parameters(
             f"PROTEIN_WORKBENCH_{name}_ROOT",
             str(tmp_path / name.lower()),
         )
-    app = create_app(frozen_catalog_override=_catalog())
+    app = create_application(frozen_catalog_override=_catalog())
 
     with TestClient(app) as client:
         with client.websocket_connect(
@@ -700,7 +741,7 @@ def test_event_stream_maps_unexpected_failure_to_internal_error(
             f"PROTEIN_WORKBENCH_{name}_ROOT",
             str(tmp_path / name.lower()),
         )
-    app = create_app(frozen_catalog_override=_catalog())
+    app = create_application(frozen_catalog_override=_catalog())
 
     with TestClient(app) as client:
         def fail_replay(*_args, **_kwargs):
@@ -753,7 +794,7 @@ def test_restart_rejects_commit_from_a_different_catalog_generation(
         _catalog(algorithm_name="generation-b"),
     )
     with pytest.raises(WorkflowAuthoringError) as captured:
-        restarted.require_compiled(
+        restarted.require_verified_commit(
             project.id,
             workflow_commit_id=committed.workflow_commit_id,
         )
@@ -765,20 +806,20 @@ def test_restart_rejects_commit_from_a_different_catalog_generation(
 def test_admitted_workflow_constructor_matches_the_validating_parser() -> None:
     payload = _workflow("project-1").to_public()
 
-    constructed = workflow_document_from_admitted_public(payload)
+    constructed = workflow_document_from_projection(payload)
 
-    assert constructed == parse_workflow_document(payload)
+    assert constructed == decode_workflow_document(payload)
     assert constructed.to_public() == payload
 
 
-def test_seed_install_uses_the_authoring_owner_and_no_legacy_workflow_file(
+def test_seed_install_uses_the_current_draft_and_commit_owners(
     tmp_path,
 ) -> None:
     project_root = tmp_path / "projects"
     projects = ProjectManager(project_root)
     catalog = _catalog()
     unlocked = _workflow(CANONICAL_3GB1_PROJECT_ID)
-    locked = relock_workflow(unlocked, catalog)
+    locked = lock_workflow(unlocked, catalog)
     authoring = WorkflowAuthoringService(projects, catalog)
 
     committed = authoring.install_seed_commit(
@@ -787,8 +828,6 @@ def test_seed_install_uses_the_authoring_owner_and_no_legacy_workflow_file(
     )
     assert committed is not None
 
-    seed_dir = project_root / CANONICAL_3GB1_PROJECT_ID
-    assert not (seed_dir / "workflow-v2.json").exists()
     assert authoring.load_draft(CANONICAL_3GB1_PROJECT_ID).workflow == (
         unlocked
     )
@@ -803,7 +842,7 @@ def test_seed_install_uses_the_authoring_owner_and_no_legacy_workflow_file(
         locked_workflow=locked,
         input_sources={},
     ) == committed
-    assert restarted.require_compiled(
+    assert restarted.require_verified_commit(
         CANONICAL_3GB1_PROJECT_ID,
         workflow_commit_id=committed.workflow_commit_id,
     ).execution_plan.execution_plan_digest == committed.execution_plan_digest

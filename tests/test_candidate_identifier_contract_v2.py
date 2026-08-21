@@ -6,23 +6,33 @@ from dataclasses import replace
 
 import pytest
 
-from core import PortValueError, UnknownPortTypeError, builtin_frozen_catalog
-from datatypes import (
-    CalibrationObservationContext,
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    PortValueError,
+    UnknownPortTypeError,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
+    validate_canonical_identifier,
+)
+from datatypes.observation import (
+    CalibrationObservationContext,
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
-    validate_canonical_identifier,
 )
+from datatypes.sequence import ProteinSequence
 
 
 _DIGEST_1 = "sha256:" + ("1" * 64)
@@ -321,6 +331,7 @@ def test_score_observation_rejects_non_reference_subject_at_construction() -> No
             metric=_reference("metric", "quality"),
             method=_reference("method", "fixture"),
             context=IntrinsicObservationContext(),
+            source_partition="default",
             value=0.5,
         )
 

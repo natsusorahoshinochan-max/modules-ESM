@@ -7,18 +7,24 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowAuthoringError,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import CandidateCollection, ProteinSequence, ProteinStructure
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from core.workflow.authoring import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
+)
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import CandidateCollection
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from modules.structure_transform import CandidateResolvedResidueAxisAssociations
 from modules.structure_transform.package import MODULE_PACKAGE
 from tests.fixtures.proteinmpnn_model_sources.package import (
@@ -129,20 +135,7 @@ def _run_transform(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                (
-                    f"structure_transform.{operation}.direct",
-                    operation_version,
-                ): {
-                    "values": {
-                        "irrelevant_runtime_label": (
-                            f"not-result-affecting-{environment_label}"
-                        )
-                    },
-                }
-            }
-        ),
+        admit_environment_configuration(catalog, {}),
     )
     receipt = service.start(
         project.id,
@@ -278,7 +271,7 @@ def _run_candidate_transform(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
     )
     receipt = service.start(
         project.id,

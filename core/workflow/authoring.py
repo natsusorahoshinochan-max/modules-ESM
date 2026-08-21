@@ -1,4 +1,4 @@
-"""Project-scoped persistence and explicit authoring transitions for v2."""
+"""Project-scoped Workflow persistence and explicit authoring transitions."""
 
 from __future__ import annotations
 
@@ -9,23 +9,27 @@ from pathlib import Path
 import re
 from typing import Any
 
-from core.parameter_contract import find_environment_parameter_field
-from core.port_types import FrozenCatalog
-from core.project import (
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.project.manager import (
     CANONICAL_3GB1_PROJECT_ID,
     ProjectManager,
     ProjectMeta,
     ProtectedProjectError,
 )
-from core.storage import write_new_file
-from core.workflow_v2 import (
-    CompiledWorkflow,
+from core.project.storage import contained_path, write_new_file
+from core.workflow.compiler import (
+    CompilationRequest,
     WorkflowCompileError,
-    WorkflowDocument,
-    compile_workflow,
-    parse_workflow_document,
-    relock_workflow,
+    compile,
+    lock_workflow,
 )
+from core.workflow.document import (
+    WorkflowDocument,
+    workflow_document_from_projection,
+)
+from core.workflow.plan import ExecutionPlan
 
 
 _AUTHORING_RECORD_SCHEMA_VERSION = "2.1.0"
@@ -163,6 +167,23 @@ class WorkflowCommit:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class VerifiedWorkflowCommit:
+    """One exact Commit paired with its verified Execution Plan."""
+
+    commit: WorkflowCommit
+    execution_plan: ExecutionPlan
+
+    def __post_init__(self) -> None:
+        if (
+            self.commit.workflow_commit_revision
+            != self.execution_plan.workflow_commit_revision
+            or self.commit.execution_plan_digest
+            != self.execution_plan.execution_plan_digest
+        ):
+            raise ValueError("Verified Workflow Commit identity mismatch")
+
+
 def _generation_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
     code = (
         error.code
@@ -200,7 +221,10 @@ class WorkflowAuthoringService:
         self._projects = project_manager
         self._catalog = catalog
         self._active_commits: dict[str, WorkflowCommit] = {}
-        self._committed_plans: dict[tuple[str, str], CompiledWorkflow] = {}
+        self._verified_commits: dict[
+            tuple[str, str],
+            VerifiedWorkflowCommit,
+        ] = {}
 
     def _require_project(self, project_id: str) -> ProjectMeta:
         try:
@@ -227,10 +251,9 @@ class WorkflowAuthoringService:
         return project
 
     def _record_directory(self, project_id: str, collection: str) -> Path:
-        return (
-            self._projects.project_dir(project_id)
-            / "workflow-v2"
-            / collection
+        return contained_path(
+            self._projects.workflow_storage_root(project_id),
+            collection,
         )
 
     @staticmethod
@@ -263,9 +286,8 @@ class WorkflowAuthoringService:
         collection: str,
         revision: int,
     ) -> Mapping[str, Any]:
-        project_dir = self._projects.project_dir(project_id)
-        path = project_dir.joinpath(
-            "workflow-v2",
+        path = contained_path(
+            self._projects.workflow_storage_root(project_id),
             collection,
             self._record_name(revision),
         )
@@ -289,9 +311,8 @@ class WorkflowAuthoringService:
             allow_nan=False,
         ).encode("utf-8")
         write_new_file(
-            self._projects.project_dir(project_id),
+            self._projects.workflow_storage_root(project_id),
             (
-                "workflow-v2",
                 collection,
                 self._record_name(revision),
             ),
@@ -354,7 +375,7 @@ class WorkflowAuthoringService:
                 or not isinstance(payload.get("workflow"), dict)
             ):
                 raise ValueError("closed Workflow Draft schema mismatch")
-            workflow = parse_workflow_document(payload["workflow"])
+            workflow = workflow_document_from_projection(payload["workflow"])
             if workflow.contract_lock or workflow.digest != payload["draft_digest"]:
                 raise ValueError("Workflow Draft identity mismatch")
             return self._draft_value(project_id, revision, workflow)
@@ -384,30 +405,6 @@ class WorkflowAuthoringService:
         project_id: str,
         workflow: WorkflowDocument,
     ) -> None:
-        for index, node in enumerate(workflow.nodes):
-            for field_name, values in (
-                ("node_parameters", node.node_parameters),
-                ("binding_parameters", node.binding_parameters),
-            ):
-                unsafe_path = find_environment_parameter_field(values)
-                if unsafe_path is not None:
-                    raise WorkflowAuthoringError(
-                        "malformed_request",
-                        (
-                            "Workflow parameters cannot contain Environment "
-                            "Configuration, credentials, runtime paths, or "
-                            "model identity"
-                        ),
-                        details={
-                            "field_path": [
-                                "workflow",
-                                "nodes",
-                                index,
-                                field_name,
-                                *unsafe_path,
-                            ]
-                        },
-                    )
         if workflow.workflow_id != project_id:
             raise WorkflowAuthoringError(
                 "malformed_request",
@@ -464,12 +461,11 @@ class WorkflowAuthoringService:
         *,
         project_id: str,
         locked_workflow: WorkflowDocument,
-        compiled: CompiledWorkflow,
+        plan: ExecutionPlan,
         workflow_commit_revision: int,
         source_draft_revision: int,
         source_draft_digest: str,
     ) -> WorkflowCommit:
-        plan = compiled.execution_plan
         return WorkflowCommit(
             project_id=project_id,
             workflow_commit_id=plan.execution_plan_digest.replace(
@@ -533,7 +529,7 @@ class WorkflowAuthoringService:
                 or not isinstance(payload.get("receipt"), dict)
             ):
                 raise ValueError("closed Workflow Commit schema mismatch")
-            workflow = parse_workflow_document(payload["workflow"])
+            workflow = workflow_document_from_projection(payload["workflow"])
             receipt = payload["receipt"]
             expected_receipt_fields = {
                 "accepted",
@@ -600,27 +596,28 @@ class WorkflowAuthoringService:
         self._require_project(project_id)
         return self._active_commit(project_id)
 
-    def _hydrate_compiled_commit(
+    def _hydrate_verified_commit(
         self,
         commit: WorkflowCommit,
-    ) -> CompiledWorkflow:
+    ) -> VerifiedWorkflowCommit:
         key = (commit.project_id, commit.workflow_commit_id)
-        compiled = self._committed_plans.get(key)
-        if compiled is None:
-            try:
-                compiled = compile_workflow(
+        verified = self._verified_commits.get(key)
+        if verified is not None:
+            return verified
+        try:
+            plan = compile(
+                CompilationRequest(
                     commit.locked_workflow,
-                    workflow_commit_revision=(
-                        commit.workflow_commit_revision
-                    ),
-                    catalog=self._catalog,
-                )
-            except WorkflowCompileError as error:
-                raise _commit_error(error) from error
+                    commit.workflow_commit_revision,
+                ),
+                self._catalog,
+            )
+        except WorkflowCompileError as error:
+            raise _commit_error(error) from error
         expected_commit = self._commit_value(
             project_id=commit.project_id,
             locked_workflow=commit.locked_workflow,
-            compiled=compiled,
+            plan=plan,
             workflow_commit_revision=commit.workflow_commit_revision,
             source_draft_revision=commit.source_draft_revision,
             source_draft_digest=commit.source_draft_digest,
@@ -632,12 +629,11 @@ class WorkflowAuthoringService:
                     "Persisted Workflow Commit does not match the exact "
                     "Execution Plan resolved from its record"
                 ),
-                details={
-                    "workflow_commit_id": commit.workflow_commit_id,
-                },
+                details={"workflow_commit_id": commit.workflow_commit_id},
             )
-        self._committed_plans[key] = compiled
-        return compiled
+        verified = VerifiedWorkflowCommit(commit, plan)
+        self._verified_commits[key] = verified
+        return verified
 
     def commit(
         self,
@@ -662,29 +658,28 @@ class WorkflowAuthoringService:
             self._latest_record_revision(project_id, "commits") + 1
         )
         try:
-            locked = relock_workflow(draft.workflow, self._catalog)
-            compiled = compile_workflow(
-                locked,
-                workflow_commit_revision=workflow_commit_revision,
-                catalog=self._catalog,
+            locked = lock_workflow(draft.workflow, self._catalog)
+            plan = compile(
+                CompilationRequest(locked, workflow_commit_revision),
+                self._catalog,
             )
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
         commit = self._commit_value(
             project_id=project_id,
             locked_workflow=locked,
-            compiled=compiled,
+            plan=plan,
             workflow_commit_revision=workflow_commit_revision,
             source_draft_revision=draft.draft_revision,
             source_draft_digest=draft.draft_digest,
         )
-        self._publish_commit(commit, compiled)
+        self._publish_commit(commit, plan)
         return commit
 
     def _publish_commit(
         self,
         commit: WorkflowCommit,
-        compiled: CompiledWorkflow,
+        plan: ExecutionPlan,
     ) -> None:
         self._write_record(
             commit.project_id,
@@ -702,9 +697,9 @@ class WorkflowAuthoringService:
                 "receipt": commit.to_public(),
             },
         )
-        self._committed_plans[
+        self._verified_commits[
             (commit.project_id, commit.workflow_commit_id)
-        ] = compiled
+        ] = VerifiedWorkflowCommit(commit, plan)
         self._active_commits[commit.project_id] = commit
 
     def install_seed_commit(
@@ -726,8 +721,8 @@ class WorkflowAuthoringService:
         unlocked_workflow = replace(locked_workflow, contract_lock=())
         self._validate_draft_submission(project_id, unlocked_workflow)
         try:
-            relocked = relock_workflow(unlocked_workflow, self._catalog)
-            if relocked != locked_workflow:
+            current_lock = lock_workflow(unlocked_workflow, self._catalog)
+            if current_lock != locked_workflow:
                 raise WorkflowCompileError(
                     "contract_digest_mismatch",
                     (
@@ -736,10 +731,9 @@ class WorkflowAuthoringService:
                     ),
                     field_path=("contract_lock",),
                 )
-            compiled = compile_workflow(
-                locked_workflow,
-                workflow_commit_revision=1,
-                catalog=self._catalog,
+            plan = compile(
+                CompilationRequest(locked_workflow, 1),
+                self._catalog,
             )
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
@@ -754,19 +748,6 @@ class WorkflowAuthoringService:
                 "Seed Commit installation requires the protected seed Project",
                 details={"requested_project_id": project_id},
             )
-        legacy_path = self._projects.project_dir(project_id) / "workflow-v2.json"
-        if legacy_path.exists():
-            raise WorkflowAuthoringError(
-                "unsupported_schema_version",
-                "Legacy seed Workflow state cannot be adopted or rewritten",
-                details={
-                    "artifact_kind": "workflow",
-                    "expected_schema_version": (
-                        _AUTHORING_RECORD_SCHEMA_VERSION
-                    ),
-                    "received_schema_version": "unknown",
-                },
-            )
         expected_draft = self._draft_value(
             project_id,
             1,
@@ -775,7 +756,7 @@ class WorkflowAuthoringService:
         expected_commit = self._commit_value(
             project_id=project_id,
             locked_workflow=locked_workflow,
-            compiled=compiled,
+            plan=plan,
             workflow_commit_revision=1,
             source_draft_revision=1,
             source_draft_digest=expected_draft.draft_digest,
@@ -784,7 +765,7 @@ class WorkflowAuthoringService:
         commit_revision = self._latest_record_revision(project_id, "commits")
         if draft_revision == 0 and commit_revision == 0:
             self._publish_draft(project_id, 1, unlocked_workflow)
-            self._publish_commit(expected_commit, compiled)
+            self._publish_commit(expected_commit, plan)
             return expected_commit
         persisted = self._active_commit(project_id)
         if persisted != expected_commit:
@@ -795,17 +776,17 @@ class WorkflowAuthoringService:
                     "workflow_commit_id": persisted.workflow_commit_id,
                 },
             )
-        self._committed_plans[
+        self._verified_commits[
             (project_id, persisted.workflow_commit_id)
-        ] = compiled
+        ] = VerifiedWorkflowCommit(persisted, plan)
         return persisted
 
-    def require_compiled(
+    def require_verified_commit(
         self,
         project_id: str,
         *,
         workflow_commit_id: str,
-    ) -> CompiledWorkflow:
+    ) -> VerifiedWorkflowCommit:
         """Resolve or exactly hydrate the active immutable Execution Plan."""
         self._require_project(project_id)
         commit = self._active_commit(project_id)
@@ -818,15 +799,15 @@ class WorkflowAuthoringService:
                     "resource_id": workflow_commit_id,
                 },
             )
-        return self._hydrate_compiled_commit(commit)
+        return self._hydrate_verified_commit(commit)
 
-    def require_compiled_revision(
+    def require_verified_commit_revision(
         self,
         project_id: str,
         *,
         workflow_commit_id: str,
         workflow_commit_revision: int,
-    ) -> CompiledWorkflow:
+    ) -> VerifiedWorkflowCommit:
         """Hydrate the exact immutable Commit named by durable Run scope."""
         self._require_project(project_id)
         commit = self._load_commit_revision_record(
@@ -839,4 +820,4 @@ class WorkflowAuthoringService:
                 "Workflow Commit revision does not match Run evidence",
                 details={"workflow_commit_id": workflow_commit_id},
             )
-        return self._hydrate_compiled_commit(commit)
+        return self._hydrate_verified_commit(commit)

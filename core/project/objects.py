@@ -4,32 +4,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-from pathlib import Path
 import re
 
-from core.project import ProjectManager
-from core.storage import write_new_file
+from core.project.manager import ProjectManager
+from core.project.storage import write_new_file
 
 
 _DIGEST = re.compile(r"^sha256:([0-9a-f]{64})$")
 
 
 @dataclass(frozen=True, slots=True)
-class ImmutableObject:
-    """The content identity and size of one admitted value."""
+class StoredObject:
+    """The content identity and size of exact stored bytes."""
 
     content_digest: str
     size: int
 
-    def to_dict(self) -> dict[str, object]:
-        return {
-            "content_digest": self.content_digest,
-            "size": self.size,
-        }
-
 
 class ObjectIntegrityError(RuntimeError):
-    """A referenced object is unavailable."""
+    """A referenced object is unavailable or has changed identity."""
 
     def __init__(self, content_digest: str) -> None:
         self.content_digest = content_digest
@@ -50,29 +43,38 @@ class ProjectObjectStore:
         digest = match.group(1)
         return ("v1", "sha256", digest[:2], digest[2:])
 
-    def put_exact(self, project_id: str, payload: bytes) -> ImmutableObject:
-        """Store bytes once and return their content identity."""
-        content_digest = "sha256:" + hashlib.sha256(payload).hexdigest()
-        stored = ImmutableObject(content_digest, len(payload))
+    def store(self, project_id: str, canonical_bytes: bytes) -> StoredObject:
+        """Atomically store exact bytes and return their content identity."""
+        if type(canonical_bytes) is not bytes:
+            raise TypeError("Project Object Store accepts exact bytes")
+        content_digest = (
+            "sha256:" + hashlib.sha256(canonical_bytes).hexdigest()
+        )
+        stored = StoredObject(content_digest, len(canonical_bytes))
         try:
             write_new_file(
-                self._projects.object_dir(project_id),
+                self._projects._object_storage_root(project_id),
                 self._relative_parts(content_digest),
-                payload,
+                canonical_bytes,
             )
         except FileExistsError:
-            pass
+            if self.read(project_id, content_digest) != canonical_bytes:
+                raise ObjectIntegrityError(content_digest)
         return stored
 
     def _read(self, project_id: str, content_digest: str) -> bytes:
-        path = self._projects.object_dir(project_id).joinpath(
+        path = self._projects._object_storage_root(project_id).joinpath(
             *self._relative_parts(content_digest)
         )
         try:
             return path.read_bytes()
-        except FileNotFoundError as error:
+        except OSError as error:
             raise ObjectIntegrityError(content_digest) from error
 
     def read(self, project_id: str, content_digest: str) -> bytes:
-        """Return bytes previously admitted by this store."""
-        return self._read(project_id, content_digest)
+        """Return immutable bytes matching the exact requested identity."""
+        payload = self._read(project_id, content_digest)
+        actual_digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        if actual_digest != content_digest:
+            raise ObjectIntegrityError(content_digest)
+        return payload

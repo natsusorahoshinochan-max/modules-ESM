@@ -2,40 +2,48 @@
 
 from __future__ import annotations
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    PortTypeDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
 )
-from datatypes import ProteinStructure
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.operation import (
+    OperationContext,
+    ReadinessCheckInput,
+    ReadinessResult,
+    ScientificOperation,
+)
+from datatypes.structure import ProteinStructure
 
-from .implementation import (
-    BackboneToStructureImplementation,
-    ExtractBackboneImplementation,
+from .candidate_transforms import (
     ExtractSequenceCandidatesImplementation,
-    ExtractSequenceImplementation,
     MaterializeCandidateNormalizationsImplementation,
     NormalizeCshParentSpanCandidatesImplementation,
-    NormalizeCshParentSpanImplementation,
     ProjectSingleResidueAxisImplementation,
     ResolveCandidateResidueAxesImplementation,
-    ResolveResidueAxisImplementation,
     SelectCandidateChainsImplementation,
+)
+from .csh_normalization import NormalizeCshParentSpanImplementation
+from .projections import (
+    BackboneToStructureImplementation,
+    ExtractBackboneImplementation,
+    ExtractSequenceImplementation,
     SelectChainsImplementation,
     validate_backbone_structure,
 )
+from .residue_axis import ResolveResidueAxisImplementation
 from .port_types import (
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
     CANDIDATE_ASSOCIATION_VERSION,
@@ -97,26 +105,6 @@ _METHOD_VERSIONS = {
     "resolve_residue_axis": _RESOLVE_AXIS_METHOD_VERSION,
     "resolve_candidate_residue_axes": _RESOLVE_AXIS_METHOD_VERSION,
 }
-_IMPLEMENTATIONS = {
-    "select_chains": SelectChainsImplementation,
-    "select_candidate_chains": SelectCandidateChainsImplementation,
-    "extract_backbone": ExtractBackboneImplementation,
-    "extract_sequence": ExtractSequenceImplementation,
-    "extract_sequence_candidates": ExtractSequenceCandidatesImplementation,
-    "normalize_csh_parent_span": NormalizeCshParentSpanImplementation,
-    "normalize_csh_parent_span_candidates": (
-        NormalizeCshParentSpanCandidatesImplementation
-    ),
-    "materialize_candidate_normalizations": (
-        MaterializeCandidateNormalizationsImplementation
-    ),
-    "project_single_residue_axis": ProjectSingleResidueAxisImplementation,
-    "resolve_residue_axis": ResolveResidueAxisImplementation,
-    "resolve_candidate_residue_axes": ResolveCandidateResidueAxesImplementation,
-    "backbone_to_structure": BackboneToStructureImplementation,
-}
-
-
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
@@ -126,11 +114,90 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     return ReadinessResult(True)
 
 
-def _build(operation: str):
-    def factory(context: OperationContext) -> ScientificOperation:
-        return _IMPLEMENTATIONS[operation](context.resources)
+def _build_select_chains(context: OperationContext) -> ScientificOperation:
+    return SelectChainsImplementation(context.resources)
 
-    return factory
+
+def _build_select_candidate_chains(
+    context: OperationContext,
+) -> ScientificOperation:
+    return SelectCandidateChainsImplementation(context.resources)
+
+
+def _build_extract_backbone(context: OperationContext) -> ScientificOperation:
+    return ExtractBackboneImplementation(context.resources)
+
+
+def _build_extract_sequence(context: OperationContext) -> ScientificOperation:
+    return ExtractSequenceImplementation(context.resources)
+
+
+def _build_extract_sequence_candidates(
+    context: OperationContext,
+) -> ScientificOperation:
+    return ExtractSequenceCandidatesImplementation(context.resources)
+
+
+def _build_normalize_csh_parent_span(
+    context: OperationContext,
+) -> ScientificOperation:
+    return NormalizeCshParentSpanImplementation(context.resources)
+
+
+def _build_normalize_csh_parent_span_candidates(
+    context: OperationContext,
+) -> ScientificOperation:
+    return NormalizeCshParentSpanCandidatesImplementation(context.resources)
+
+
+def _build_materialize_candidate_normalizations(
+    context: OperationContext,
+) -> ScientificOperation:
+    return MaterializeCandidateNormalizationsImplementation(context.resources)
+
+
+def _build_project_single_residue_axis(
+    context: OperationContext,
+) -> ScientificOperation:
+    return ProjectSingleResidueAxisImplementation(context.resources)
+
+
+def _build_resolve_residue_axis(
+    context: OperationContext,
+) -> ScientificOperation:
+    return ResolveResidueAxisImplementation(context.resources)
+
+
+def _build_resolve_candidate_residue_axes(
+    context: OperationContext,
+) -> ScientificOperation:
+    return ResolveCandidateResidueAxesImplementation(context.resources)
+
+
+def _build_backbone_to_structure(
+    context: OperationContext,
+) -> ScientificOperation:
+    return BackboneToStructureImplementation(context.resources)
+
+
+_OPERATION_FACTORIES = {
+    "select_chains": _build_select_chains,
+    "select_candidate_chains": _build_select_candidate_chains,
+    "extract_backbone": _build_extract_backbone,
+    "extract_sequence": _build_extract_sequence,
+    "extract_sequence_candidates": _build_extract_sequence_candidates,
+    "normalize_csh_parent_span": _build_normalize_csh_parent_span,
+    "normalize_csh_parent_span_candidates": (
+        _build_normalize_csh_parent_span_candidates
+    ),
+    "materialize_candidate_normalizations": (
+        _build_materialize_candidate_normalizations
+    ),
+    "project_single_residue_axis": _build_project_single_residue_axis,
+    "resolve_residue_axis": _build_resolve_residue_axis,
+    "resolve_candidate_residue_axes": _build_resolve_candidate_residue_axes,
+    "backbone_to_structure": _build_backbone_to_structure,
+}
 
 
 def _method(operation: str) -> MethodDefinition:
@@ -291,7 +358,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 binding_version,
                 {"execution_route": "direct"},
             ),
-            build=_build(operation),
+            build=_OPERATION_FACTORIES[operation],
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(

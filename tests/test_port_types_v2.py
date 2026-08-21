@@ -2,49 +2,62 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import FrozenInstanceError, fields, replace
 import re
 
 from fastapi.testclient import TestClient
 import pytest
 
-from core import (
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
-    FrozenCatalog,
     PortTypeDefinition,
     PortValueError,
     UnknownPortTypeError,
-    build_discovered_frozen_catalog,
     canonical_json_bytes,
     canonical_sha256,
 )
-from core import builtin_frozen_catalog
-from core.server import create_app
-from datatypes import (
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from protein_workbench_public.bootstrap import create_application
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    FunctionAnnotations,
-    FunctionAnnotation,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     IntrinsicObservationContext,
-    ModifiedResidueAtomMapping,
-    ModifiedResidueNormalization,
-    ModifiedResidueNormalizationCollection,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
-    ProteinPrompt,
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueLayout,
-    ResidueMap,
-    ResidueTrack,
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.protein import validate_residue_map as validate_canonical_residue_map
+from datatypes.prompt import (
+    FunctionAnnotations,
+    FunctionAnnotation,
+    ProteinPrompt,
+)
+from datatypes.residue import (
+    ModifiedResidueAtomMapping,
+    ModifiedResidueNormalization,
+    ModifiedResidueNormalizationCollection,
+    ResidueLayout,
+    ResidueMap,
+    ResidueTrack,
+)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
+from datatypes.residue import validate_residue_map as validate_canonical_residue_map
 from protein_workbench_public import validate_response
 
 
@@ -127,7 +140,7 @@ EXPECTED_BUILTIN_PORT_TYPE_IDS = EXPECTED_PORT_TYPE_IDS - {
 def test_superseded_structure_alignment_port_type_is_not_active() -> None:
     for catalog in (
         builtin_frozen_catalog(),
-        build_discovered_frozen_catalog(),
+        build_frozen_catalog(module_registrations()),
     ):
         with pytest.raises(UnknownPortTypeError):
             catalog.require_port_type(
@@ -156,6 +169,7 @@ def _typed_observation(value: object) -> ScoreObservation:
             "sha256:" + ("2" * 64),
         ),
         context=IntrinsicObservationContext(),
+        source_partition="default",
         value=value,
 )
 
@@ -168,8 +182,13 @@ PROTEINMPNN_TEST_LAYOUT = ResidueLayout(
 
 
 def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
-    catalog = build_discovered_frozen_catalog()
-    with TestClient(create_app()) as client:
+    catalog = build_frozen_catalog(module_registrations())
+    with TestClient(
+        create_application(
+            frozen_catalog_override=catalog,
+            _install_canonical_seed=False,
+        )
+    ) as client:
         response = client.get("/api/v2/catalog")
 
     assert response.status_code == 200
@@ -906,9 +925,8 @@ def test_runtime_validators_reject_malformed_complete_values(
 
 
 def test_canonical_constructors_close_domain_invariants_before_encoding() -> None:
-    from core import build_discovered_frozen_catalog
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     sequence = ProteinSequence("MA", ["A:1", "A:2"])
     layout = ResidueLayout("A", 1, ["A:1"])
     with pytest.raises(FrozenInstanceError):
@@ -980,9 +998,8 @@ def test_canonical_constructors_close_domain_invariants_before_encoding() -> Non
 def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
     constraints: ProteinMPNNConstraints,
 ) -> None:
-    from core import build_discovered_frozen_catalog
 
-    definition = build_discovered_frozen_catalog().require_port_type(
+    definition = build_frozen_catalog(module_registrations()).require_port_type(
         "proteinmpnn.constraints",
         "4.0.0",
     )

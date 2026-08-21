@@ -9,35 +9,49 @@ from core.operation import (
     CandidatePairingIntentEntry,
     OperationCall,
 )
-from core.port_types import (
+from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
     PortTypeDefinition,
     PortValueError,
     canonical_sha256,
 )
-from core.scoring_v2 import (
-    ResolvedMetricFacts,
-    validate_produced_score_collection_from_facts,
+from core.scoring.observation_admission import (
+    ObservationAdmissionError,
+    admit_produced_observations,
 )
-from core.value_admission import admitted_port_values, normalize_scientific_outputs
-from datatypes import (
+from core.scoring.observation_plan import (
+    ObservationPropagationFilter,
+    ObservationPropagationPlan,
+    ProducedObservationPlan,
+    ResolvedMetricFacts,
+    ResolvedProducedObservation,
+)
+from tests.support.output_admission import (
+    admit_fixture_port,
+    normalize_fixture_outputs,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
+    ResidueAxisReference,
+)
+from datatypes.observation import (
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueAxisReference,
-    ResidueLayout,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     operation_context,
@@ -71,6 +85,7 @@ def _intrinsic_score(
         ),
         method=_method_reference("fixture.measure", "c"),
         context=IntrinsicObservationContext(),
+        source_partition="default",
         value=value,
     )
 
@@ -104,7 +119,7 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
         ),
         runtime_observation_method_projection=lambda _: (method,),
     )
-    admitted = admitted_port_values(
+    admitted = admit_fixture_port(
         port_type=port_type,
         multiplicity="one",
         values=({"facts": [1, 2]},),
@@ -294,43 +309,24 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
         exact_binary32=False,
         requires_residue_axis=False,
     )
-    metric_key = (
-        metric.contract_kind,
-        metric.contract_id,
-        metric.contract_version,
-        metric.contract_digest,
-    )
-    declaration = {
-        "output_port": "scores",
-        "output_partition": "default",
-        "metric": {
-            "contract_kind": metric.contract_kind,
-            "contract_id": metric.contract_id,
-            "contract_version": metric.contract_version,
-            "contract_digest": metric.contract_digest,
-        },
-        "context_profile": {"kind": "intrinsic"},
-        "subject_grain": "candidate",
-        "source_role": "subject",
-        "subject_direction": "input",
-        "subject_port": "candidates",
-        "guaranteed_multiplicity": "one",
-    }
-
     def validate(
         method: ExactContractReference,
         *,
         dynamic: bool,
         projected: tuple[ExactContractReference, ...],
     ) -> None:
-        dynamic_declaration = (
-            declaration
-            | {
-                "method_direction": "input",
-                "method_port": "confidence",
-            }
-            if dynamic
-            else declaration
+        declaration = ResolvedProducedObservation(
+            output_port="scores",
+            output_partition="default",
+            metric=metric,
+            context_profile={"kind": "intrinsic"},
+            subject_grain="candidate",
+            source_role="subject",
+            subject_direction="input",
+            subject_port="candidates",
+            guaranteed_multiplicity="one",
+            method_direction="input" if dynamic else None,
+            method_port="confidence" if dynamic else None,
         )
         collection = ScoreCollection(
             "scores",
@@ -340,20 +336,17 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
                     metric=metric,
                     method=method,
                     context=IntrinsicObservationContext(),
+                    source_partition="default",
                     value=0.5,
                 )
             ],
         )
-        validate_produced_score_collection_from_facts(
-            binding_descriptor={
-                "method": {
-                    "contract_kind": binding_method.contract_kind,
-                    "contract_id": binding_method.contract_id,
-                    "contract_version": binding_method.contract_version,
-                    "contract_digest": binding_method.contract_digest,
-                },
-                "produced_observations": [dynamic_declaration],
-            },
+        admit_produced_observations(
+            plan=ProducedObservationPlan(
+                binding_method=binding_method,
+                observations=(declaration,),
+                metric_facts={metric: facts},
+            ),
             output_port="scores",
             collection=collection,
             inputs={
@@ -378,21 +371,20 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
                     candidate_data=(subject,),
                 )
             },
-            metric_facts={metric_key: facts},
         )
 
     validate(provider_method, dynamic=True, projected=(provider_method,))
     validate(binding_method, dynamic=False, projected=())
 
-    with pytest.raises(PortValueError, match="undeclared Method"):
+    with pytest.raises(ObservationAdmissionError, match="undeclared Method"):
         validate(provider_method, dynamic=True, projected=())
-    with pytest.raises(PortValueError, match="undeclared Method"):
+    with pytest.raises(ObservationAdmissionError, match="undeclared Method"):
         validate(
             replace(provider_method, contract_digest="sha256:" + ("e" * 64)),
             dynamic=True,
             projected=(provider_method,),
         )
-    with pytest.raises(PortValueError, match="undeclared Method"):
+    with pytest.raises(ObservationAdmissionError, match="undeclared Method"):
         validate(provider_method, dynamic=False, projected=(provider_method,))
 
 
@@ -428,7 +420,7 @@ def test_score_subject_cannot_project_a_same_operation_output_candidate(
         "sha256:" + ("c" * 64),
     )
     with pytest.raises(PortValueError, match="same-operation output"):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="source",
             result_identity="sha256:" + ("d" * 64),
             inputs={},
@@ -450,6 +442,7 @@ def test_score_subject_cannot_project_a_same_operation_output_candidate(
                             metric=reference,
                             method=method,
                             context=IntrinsicObservationContext(),
+                            source_partition="default",
                             value=0.5,
                         )
                     ],
@@ -486,7 +479,7 @@ def test_score_axis_source_is_not_rebound_to_the_direct_candidate_input(
     )
     score = replace(_intrinsic_score(subject), residue_axis=axis)
 
-    normalized = normalize_scientific_outputs(
+    normalized = normalize_fixture_outputs(
         node_id="materializer",
         result_identity="sha256:" + ("5" * 64),
         inputs={
@@ -540,7 +533,7 @@ def test_observation_propagation_preserves_admitted_pairwise_references(
         ),
     )
 
-    normalized = normalize_scientific_outputs(
+    normalized = normalize_fixture_outputs(
         node_id="merge",
         result_identity="sha256:" + ("3" * 64),
         inputs={
@@ -555,13 +548,11 @@ def test_observation_propagation_preserves_admitted_pairwise_references(
         candidate_content_digest=lambda _: pytest.fail(
             "propagated admitted Score references must not be recomputed"
         ),
-        observation_propagation={
-            "schema_version": "2.1.0",
-            "mode": "pass_through",
-            "output_port": "scores",
-            "input_ports": ("source",),
-            "filter": None,
-        },
+        observation_propagation=ObservationPropagationPlan(
+            mode="pass_through",
+            output_port="scores",
+            input_ports=("source",),
+        ),
     )
 
     assert normalized["scores"].entries == (observation,)
@@ -593,7 +584,7 @@ def test_observation_propagation_rejects_conflicting_candidate_references(
         PortValueError,
         match="conflicting propagated Candidate references",
     ):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="merge",
             result_identity="sha256:" + ("3" * 64),
             inputs={
@@ -618,13 +609,11 @@ def test_observation_propagation_rejects_conflicting_candidate_references(
             candidate_content_digest=lambda _: pytest.fail(
                 "propagated admitted Score references must not be recomputed"
             ),
-            observation_propagation={
-                "schema_version": "2.1.0",
-                "mode": "union",
-                "output_port": "scores",
-                "input_ports": ("left", "right"),
-                "filter": None,
-            },
+            observation_propagation=ObservationPropagationPlan(
+                mode="union",
+                output_port="scores",
+                input_ports=("left", "right"),
+            ),
         )
 
 
@@ -644,7 +633,7 @@ def test_observation_propagation_rejects_a_ghost_subject() -> None:
         PortValueError,
         match="unknown propagated Candidate reference",
     ):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="filter",
             result_identity="sha256:" + ("3" * 64),
             inputs={
@@ -663,20 +652,21 @@ def test_observation_propagation_rejects_a_ghost_subject() -> None:
             candidate_content_digest=lambda _: pytest.fail(
                 "propagated admitted Score references must not be recomputed"
             ),
-            observation_propagation={
-                "schema_version": "2.1.0",
-                "mode": "filter",
-                "output_port": "scores",
-                "input_ports": ("source",),
-                "filter": {"source_partition": "default"},
-            },
+            observation_propagation=ObservationPropagationPlan(
+                mode="filter",
+                output_port="scores",
+                input_ports=("source",),
+                filter=ObservationPropagationFilter(
+                    source_partition="default"
+                ),
+            ),
         )
 
 
 def test_pairing_intent_projects_normalized_exact_candidate_content() -> None:
     subject_digest = "sha256:" + ("a" * 64)
     reference_digest = "sha256:" + ("b" * 64)
-    normalized = normalize_scientific_outputs(
+    normalized = normalize_fixture_outputs(
         node_id="source",
         result_identity="sha256:" + ("c" * 64),
         inputs={},
@@ -802,7 +792,7 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
     }
 
     with pytest.raises(PortValueError, match=message):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="pair",
             result_identity="sha256:" + ("4" * 64),
             inputs=inputs,
@@ -863,7 +853,7 @@ def test_pairing_intent_fails_closed_before_port_admission(
     message: str,
 ) -> None:
     with pytest.raises(PortValueError, match=message):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="source",
             result_identity="sha256:" + ("c" * 64),
             inputs={},
@@ -901,7 +891,7 @@ def test_candidate_lineage_resolution_does_not_depend_on_output_port_sort() -> N
         ),
     }
 
-    normalized = normalize_scientific_outputs(
+    normalized = normalize_fixture_outputs(
         node_id="producer",
         result_identity="sha256:" + ("c" * 64),
         inputs={},
@@ -942,7 +932,7 @@ def test_candidate_lineage_resolution_does_not_depend_on_output_port_sort() -> N
         "content_digest": "sha256:" + ("2" * 64),
     }
 
-    normalized_from_reverse_insertion = normalize_scientific_outputs(
+    normalized_from_reverse_insertion = normalize_fixture_outputs(
         node_id="producer",
         result_identity="sha256:" + ("c" * 64),
         inputs={},
@@ -957,7 +947,7 @@ def test_candidate_lineage_rejects_unknown_parent_without_root_fallback() -> Non
         PortValueError,
         match="not a resolved input or output Candidate",
     ):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="producer",
             result_identity="sha256:" + ("c" * 64),
             inputs={},
@@ -979,7 +969,7 @@ def test_candidate_lineage_rejects_unknown_parent_without_root_fallback() -> Non
 
 
 def test_root_candidate_requires_empty_parent_lineage() -> None:
-    normalized = normalize_scientific_outputs(
+    normalized = normalize_fixture_outputs(
         node_id="producer",
         result_identity="sha256:" + ("c" * 64),
         inputs={},
@@ -1002,7 +992,7 @@ def test_candidate_lineage_rejects_duplicate_output_identity() -> None:
         PortValueError,
         match="reuses one producer identity",
     ):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="producer",
             result_identity="sha256:" + ("c" * 64),
             inputs={},
@@ -1013,7 +1003,7 @@ def test_candidate_lineage_rejects_duplicate_output_identity() -> None:
 
 def test_cross_input_candidate_identity_rejects_conflicting_canonical_facts(
 ) -> None:
-    from core.value_admission import validate_candidate_input_identities
+    from tests.support.output_admission import assert_fixture_input_identity_closure
 
     shared_id = "candidate-shared"
     left = Candidate(
@@ -1062,12 +1052,12 @@ def test_cross_input_candidate_identity_rejects_conflicting_canonical_facts(
     }
 
     with pytest.raises(PortValueError, match="conflicting canonical facts"):
-        validate_candidate_input_identities(inputs)
+        assert_fixture_input_identity_closure(inputs)
 
 
 def test_cross_input_candidate_identity_allows_exact_canonical_duplicates(
 ) -> None:
-    from core.value_admission import validate_candidate_input_identities
+    from tests.support.output_admission import assert_fixture_input_identity_closure
 
     first = Candidate(
         "candidate-shared",
@@ -1087,7 +1077,7 @@ def test_cross_input_candidate_identity_allows_exact_canonical_duplicates(
         "sha256:" + "a" * 64,
     )
 
-    validate_candidate_input_identities(
+    assert_fixture_input_identity_closure(
         {
             port: admitted_port_fixture(
                 CandidateCollection(
@@ -1109,7 +1099,7 @@ def test_cross_input_candidate_identity_allows_exact_canonical_duplicates(
 
 def test_cross_input_candidate_identity_distinguishes_json_boolean_and_number(
 ) -> None:
-    from core.value_admission import validate_candidate_input_identities
+    from tests.support.output_admission import assert_fixture_input_identity_closure
 
     candidate_digest = CandidateDataReference(
         "candidate-shared",
@@ -1142,7 +1132,7 @@ def test_cross_input_candidate_identity_distinguishes_json_boolean_and_number(
     }
 
     with pytest.raises(PortValueError, match="conflicting canonical facts"):
-        validate_candidate_input_identities(
+        assert_fixture_input_identity_closure(
             {
                 port: admitted_port_fixture(
                     candidates[port],
@@ -1158,7 +1148,7 @@ def test_cross_input_candidate_identity_distinguishes_json_boolean_and_number(
 def test_output_normalization_consumes_prevalidated_input_candidates() -> None:
     shared_id = "candidate-shared"
 
-    normalized = normalize_scientific_outputs(
+    normalized = normalize_fixture_outputs(
         node_id="consumer",
         result_identity="sha256:" + ("c" * 64),
         inputs={
@@ -1217,7 +1207,7 @@ def test_candidate_lineage_rejects_cycles(
     outputs: dict[str, Candidate],
 ) -> None:
     with pytest.raises(PortValueError, match="lineage contains a cycle"):
-        normalize_scientific_outputs(
+        normalize_fixture_outputs(
             node_id="producer",
             result_identity="sha256:" + ("c" * 64),
             inputs={},
