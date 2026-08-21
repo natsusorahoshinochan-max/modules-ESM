@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 from core import OperationCall, ResolvedProducedObservation
 from datatypes import (
     CalibrationObservationContext,
-    Candidate,
     CandidateCollection,
-    CandidateDataReference,
     ExactContractReference,
     IntrinsicObservationContext,
     ProteinSequence,
@@ -21,63 +19,43 @@ from datatypes import (
 from .adapter import (
     LocalProteinSolAdapter,
     LocalSoluProtAdapter,
+    SequenceSolubilitySubject,
 )
 
 
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
-_PredictionT = TypeVar("_PredictionT")
-
-
-def _sequence_subjects(
+def _method_subjects(
     call: OperationCall,
-) -> tuple[tuple[Candidate, CandidateDataReference], ...]:
-    """Project one complete admitted sequence-subject population."""
+    *,
+    provider_name: str,
+    minimum_length: int,
+) -> tuple[SequenceSolubilitySubject, ...]:
+    """Admit one Method's exact sequence-subject population."""
     collection = cast(
         CandidateCollection,
         call.inputs["sequence_candidates"].value,
     )
     references = call.inputs["sequence_candidates"].candidate_data
-    return tuple(
-        zip(collection.items, references, strict=True)
+    references_by_candidate_id = {
+        reference.candidate_id: reference for reference in references
+    }
+    subjects = tuple(
+        SequenceSolubilitySubject(
+            subject=references_by_candidate_id[candidate.candidate_id],
+            sequence=cast(ProteinSequence, candidate.data),
+        )
+        for candidate in collection.items
     )
-
-
-def _method_sequences(
-    subjects: tuple[tuple[Candidate, CandidateDataReference], ...],
-    *,
-    provider_name: str,
-    minimum_length: int,
-) -> tuple[ProteinSequence, ...]:
-    """Admit one Method's exact sequence population before Provider entry."""
-    sequences = tuple(
-        cast(ProteinSequence, candidate.data)
-        for candidate, _ in subjects
-    )
-    if not sequences or any(
-        len(sequence.sequence) < minimum_length
-        or not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS
-        for sequence in sequences
+    if not subjects or any(
+        len(subject.sequence.sequence) < minimum_length
+        or not set(subject.sequence.sequence) <= _CANONICAL_AMINO_ACIDS
+        for subject in subjects
     ):
         raise ValueError(
             f"{provider_name} requires canonical protein sequences of at "
             f"least {minimum_length} residues"
         )
-    return sequences
-
-
-def _associate_predictions(
-    subjects: tuple[tuple[Candidate, CandidateDataReference], ...],
-    predictions: tuple[_PredictionT, ...],
-) -> tuple[tuple[Candidate, CandidateDataReference, _PredictionT], ...]:
-    """Associate Adapter-aligned predictions with admitted subjects."""
-    return tuple(
-        (candidate, reference, prediction)
-        for (candidate, reference), prediction in zip(
-            subjects,
-            predictions,
-            strict=True,
-        )
-    )
+    return subjects
 
 
 class SoluProtImplementation:
@@ -95,18 +73,16 @@ class SoluProtImplementation:
         self._produced_observation = produced_observation
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        subjects = _sequence_subjects(call)
-        sequences = _method_sequences(
-            subjects,
+        subjects = _method_subjects(
+            call,
             provider_name="SoluProt",
             minimum_length=20,
         )
-        predictions = self._adapter.predict(sequences)
+        predictions = self._adapter.predict(subjects)
         produced = self._produced_observation
-        joined = _associate_predictions(subjects, predictions)
         observations = [
             ScoreObservation(
-                subject=reference,
+                subject=prediction.subject,
                 metric=produced.metric,
                 method=self._method,
                 context=IntrinsicObservationContext(),
@@ -114,7 +90,7 @@ class SoluProtImplementation:
                 residue_axis=None,
                 source_partition=produced.output_partition,
             )
-            for _, reference, prediction in joined
+            for prediction in predictions
         ]
         return {
             "scores": ScoreCollection(
@@ -165,19 +141,15 @@ class ProteinSolImplementation:
         )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        subjects = _sequence_subjects(call)
-        sequences = _method_sequences(
-            subjects,
+        subjects = _method_subjects(
+            call,
             provider_name="Protein-Sol",
             minimum_length=21,
         )
-        predictions = self._adapter.predict(sequences)
+        predictions = self._adapter.predict(subjects)
         produced = self._observation_definitions()
         observations: list[ScoreObservation] = []
-        for _, reference, prediction in _associate_predictions(
-            subjects,
-            predictions,
-        ):
+        for prediction in predictions:
             values = (
                 (
                     "protein_sol_percent",
@@ -193,7 +165,7 @@ class ProteinSolImplementation:
                 observation = produced[partition]
                 observations.append(
                     ScoreObservation(
-                        subject=reference,
+                        subject=prediction.subject,
                         metric=observation.metric,
                         method=self._method,
                         context=self._observation_context(observation),

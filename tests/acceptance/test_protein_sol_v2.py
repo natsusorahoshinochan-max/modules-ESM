@@ -232,16 +232,24 @@ def test_local_protein_sol_golden_multiple_metrics(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)
     )
+    references_by_candidate_id = {
+        entry.candidate_id: entry.subject for entry in scores.entries
+    }
+    staged_subjects = {
+        f"candidate_{index}": references_by_candidate_id[candidate_id]
+        for index, candidate_id in enumerate(candidate_ids)
+    }
     assert adapter.parse_protein_sol_output(
         recorded[0]["raw_output"],
-        sequence_count=len(SEQUENCES),
+        staged_subjects=staged_subjects,
     ) == tuple(
         adapter.ProteinSolPrediction(
+            subject=staged_subjects[f"candidate_{index}"],
             percent_soluble_fraction=expected["percent-sol"],
             scaled_soluble_fraction=expected["scaled-sol"],
             isoelectric_point=expected["pI"],
         )
-        for expected in EXPECTED
+        for index, expected in enumerate(EXPECTED)
     )
     assert [entry.candidate_id for entry in scores.entries] == [
         candidate_id

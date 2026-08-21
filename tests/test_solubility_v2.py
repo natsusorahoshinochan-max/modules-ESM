@@ -93,7 +93,8 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.solubility.adapter as adapter
-    from datatypes import ProteinSequence
+    from datatypes import CandidateDataReference, ProteinSequence
+    from modules.solubility.adapter import SequenceSolubilitySubject
 
     events: list[str] = []
     staging_directory = tmp_path / "staging"
@@ -181,12 +182,23 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
         resources=Resources(),
     )
 
+    subject = CandidateDataReference(
+        "candidate-a",
+        "protein.sequence",
+        f"sha256:{'a' * 64}",
+    )
     predictions = local.predict(
-        (ProteinSequence("ACDEFGHIKLMNPQRSTVWY"),)
+        (
+            SequenceSolubilitySubject(
+                subject,
+                ProteinSequence("ACDEFGHIKLMNPQRSTVWY"),
+            ),
+        )
     )
 
     assert predictions == (
         adapter.SoluProtPrediction(
+            subject=subject,
             soluble_probability=0.331,
         ),
     )
@@ -199,24 +211,40 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
         local.mode = "no_tm"
 
 
-def test_soluprot_adapter_translation_admits_staged_subject_order() -> None:
+def test_soluprot_adapter_translation_preserves_exact_subject_identity() -> None:
+    from datatypes import CandidateDataReference
     from modules.solubility.adapter import (
         SoluProtPrediction,
         parse_soluprot_output,
     )
 
+    references = (
+        CandidateDataReference(
+            "candidate-a",
+            "protein.sequence",
+            f"sha256:{'a' * 64}",
+        ),
+        CandidateDataReference(
+            "candidate-b",
+            "protein.sequence",
+            f"sha256:{'b' * 64}",
+        ),
+    )
     assert parse_soluprot_output(
         b"runtime_id,fa_id,soluble\n"
         b"1,candidate_1,0.9\n"
         b"0,candidate_0,0.1\n",
-        sequence_count=2,
+        staged_subjects={
+            "candidate_0": references[0],
+            "candidate_1": references[1],
+        },
     ) == (
-        SoluProtPrediction(0.1),
-        SoluProtPrediction(0.9),
+        SoluProtPrediction(references[1], 0.9),
+        SoluProtPrediction(references[0], 0.1),
     )
 
 
-def test_soluprot_operation_consumes_adapter_aligned_predictions(
+def test_soluprot_operation_consumes_identity_associated_predictions(
 ) -> None:
     from core import (
         OperationCall,
@@ -274,11 +302,11 @@ def test_soluprot_operation_consumes_adapter_aligned_predictions(
 
     class AlignedAdapter:
         @staticmethod
-        def predict(sequences: Any) -> tuple[SoluProtPrediction, ...]:
-            assert len(sequences) == 2
+        def predict(subjects: Any) -> tuple[SoluProtPrediction, ...]:
+            assert len(subjects) == 2
             return (
-                SoluProtPrediction(0.1),
-                SoluProtPrediction(0.9),
+                SoluProtPrediction(subjects[1].subject, 0.9),
+                SoluProtPrediction(subjects[0].subject, 0.1),
             )
 
     implementation = SoluProtImplementation(
@@ -303,7 +331,7 @@ def test_soluprot_operation_consumes_adapter_aligned_predictions(
                 candidates,
                 port_type_id="candidate.collection",
                 value_content_digests=(f"sha256:{'e' * 64}",),
-                candidate_data=references,
+                candidate_data=tuple(reversed(references)),
             )
         },
         node_parameters={},
@@ -315,7 +343,7 @@ def test_soluprot_operation_consumes_adapter_aligned_predictions(
     assert [
         (observation.subject, observation.value)
         for observation in scores.entries
-    ] == [(references[0], 0.1), (references[1], 0.9)]
+    ] == [(references[1], 0.9), (references[0], 0.1)]
 
 
 @pytest.mark.parametrize(

@@ -88,7 +88,8 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.solubility.adapter as adapter
-    from datatypes import ProteinSequence
+    from datatypes import CandidateDataReference, ProteinSequence
+    from modules.solubility.adapter import SequenceSolubilitySubject
 
     events: list[str] = []
     source_root = tmp_path / "source"
@@ -152,12 +153,23 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
         resources=Resources(),
     )
 
+    subject = CandidateDataReference(
+        "candidate-a",
+        "protein.sequence",
+        f"sha256:{'a' * 64}",
+    )
     predictions = local.predict(
-        (ProteinSequence("ACDEFGHIKLMNPQRSTVWYA"),)
+        (
+            SequenceSolubilitySubject(
+                subject,
+                ProteinSequence("ACDEFGHIKLMNPQRSTVWYA"),
+            ),
+        )
     )
 
     assert predictions == (
         adapter.ProteinSolPrediction(
+            subject=subject,
             percent_soluble_fraction=32.419,
             scaled_soluble_fraction=0.252,
             isoelectric_point=7.13,
@@ -310,12 +322,26 @@ def test_protein_sol_requires_no_core_provider_special_case() -> None:
     assert "protein-sol" not in core_source
 
 
-def test_protein_sol_adapter_translation_admits_staged_subject_order() -> None:
+def test_protein_sol_adapter_translation_preserves_exact_subject_identity(
+) -> None:
+    from datatypes import CandidateDataReference
     from modules.solubility.adapter import (
         ProteinSolPrediction,
         parse_protein_sol_output,
     )
 
+    references = (
+        CandidateDataReference(
+            "candidate-a",
+            "protein.sequence",
+            f"sha256:{'a' * 64}",
+        ),
+        CandidateDataReference(
+            "candidate-b",
+            "protein.sequence",
+            f"sha256:{'b' * 64}",
+        ),
+    )
     parsed = parse_protein_sol_output(
         (
             b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
@@ -323,16 +349,21 @@ def test_protein_sol_adapter_translation_admits_staged_subject_order() -> None:
             b"SEQUENCE PREDICTIONS,>candidate_0,32.419, 0.252, 0.446, 7.130\n"
             b"SEQUENCE PREDICTIONS,>candidate_1,80.162, 0.694, 0.446,11.910\n"
         ),
-        sequence_count=2,
+        staged_subjects={
+            "candidate_0": references[0],
+            "candidate_1": references[1],
+        },
     )
 
     assert parsed == (
         ProteinSolPrediction(
+            subject=references[0],
             percent_soluble_fraction=32.419,
             scaled_soluble_fraction=0.252,
             isoelectric_point=7.13,
         ),
         ProteinSolPrediction(
+            subject=references[1],
             percent_soluble_fraction=80.162,
             scaled_soluble_fraction=0.694,
             isoelectric_point=11.91,

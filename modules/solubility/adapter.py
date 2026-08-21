@@ -16,7 +16,7 @@ import subprocess
 from typing import Any, Literal, cast
 
 from core import ReadinessResult, RunResources
-from datatypes import ProteinSequence
+from datatypes import CandidateDataReference, ProteinSequence
 
 
 SoluProtMode = Literal["full", "no_tm"]
@@ -137,16 +137,26 @@ PROTEIN_SOL_SOURCE_SHA256 = {
 
 
 @dataclass(frozen=True, slots=True)
-class SoluProtPrediction:
-    """One SoluProt value aligned to its admitted input subject."""
+class SequenceSolubilitySubject:
+    """One exact admitted sequence subject crossing the Adapter seam."""
 
+    subject: CandidateDataReference
+    sequence: ProteinSequence
+
+
+@dataclass(frozen=True, slots=True)
+class SoluProtPrediction:
+    """One SoluProt value associated with its exact admitted subject."""
+
+    subject: CandidateDataReference
     soluble_probability: float
 
 
 @dataclass(frozen=True, slots=True)
 class ProteinSolPrediction:
-    """One aligned Provider result without owning Observation Context."""
+    """One Provider result associated without owning Observation Context."""
 
+    subject: CandidateDataReference
     percent_soluble_fraction: float
     scaled_soluble_fraction: float
     isoelectric_point: float
@@ -566,23 +576,18 @@ def invoke_soluprot(
 def parse_soluprot_output(
     payload: bytes,
     *,
-    sequence_count: int,
+    staged_subjects: Mapping[str, CandidateDataReference],
 ) -> tuple[SoluProtPrediction, ...]:
-    """Admit documented SoluProt rows in staged input-subject order."""
+    """Translate documented SoluProt identities to exact input subjects."""
     reader = csv.DictReader(
         io.StringIO(payload.decode("utf-8"), newline="")
     )
-    probabilities_by_provider_id = {
-        row["fa_id"]: float(row["soluble"])
-        for row in reader
-    }
     return tuple(
         SoluProtPrediction(
-            soluble_probability=probabilities_by_provider_id[
-                _provider_sequence_id(index)
-            ],
+            subject=staged_subjects[row["fa_id"]],
+            soluble_probability=float(row["soluble"]),
         )
-        for index in range(sequence_count)
+        for row in reader
     )
 
 
@@ -794,27 +799,25 @@ def invoke_protein_sol(
 def parse_protein_sol_output(
     payload: bytes,
     *,
-    sequence_count: int,
+    staged_subjects: Mapping[str, CandidateDataReference],
 ) -> tuple[ProteinSolPrediction, ...]:
-    """Admit documented Protein-Sol rows in staged input-subject order."""
+    """Translate documented Protein-Sol identities to exact input subjects."""
     rows = csv.reader(io.StringIO(payload.decode("utf-8"), newline=""))
-    values_by_provider_id: dict[str, tuple[float, float, float]] = {}
+    predictions: list[ProteinSolPrediction] = []
     for row in rows:
         if not row or row[0] != "SEQUENCE PREDICTIONS":
             continue
         _, _candidate_label, percent, scaled, _population, pi = row
         provider_id = _candidate_label.removeprefix(">")
-        values_by_provider_id[provider_id] = (
-            float(percent),
-            float(scaled),
-            float(pi),
+        predictions.append(
+            ProteinSolPrediction(
+                subject=staged_subjects[provider_id],
+                percent_soluble_fraction=float(percent),
+                scaled_soluble_fraction=float(scaled),
+                isoelectric_point=float(pi),
+            )
         )
-    return tuple(
-        ProteinSolPrediction(
-            *values_by_provider_id[_provider_sequence_id(index)]
-        )
-        for index in range(sequence_count)
-    )
+    return tuple(predictions)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -827,10 +830,16 @@ class LocalSoluProtAdapter:
 
     def predict(
         self,
-        sequences: Sequence[ProteinSequence],
+        subjects: Sequence[SequenceSolubilitySubject],
     ) -> tuple[SoluProtPrediction, ...]:
-        """Run one exact mode and admit ordered scientific predictions."""
-        provider_sequences = tuple(sequence.sequence for sequence in sequences)
+        """Run one exact mode and retain exact subject association."""
+        provider_sequences = tuple(
+            subject.sequence.sequence for subject in subjects
+        )
+        staged_subjects = {
+            _provider_sequence_id(index): subject.subject
+            for index, subject in enumerate(subjects)
+        }
         resolved = _trusted_soluprot_environment(
             self.environment,
             mode=self.mode,
@@ -860,7 +869,7 @@ class LocalSoluProtAdapter:
                 ) from error
             values = parse_soluprot_output(
                 raw_output,
-                sequence_count=len(provider_sequences),
+                staged_subjects=staged_subjects,
             )
         return values
 
@@ -874,10 +883,16 @@ class LocalProteinSolAdapter:
 
     def predict(
         self,
-        sequences: Sequence[ProteinSequence],
+        subjects: Sequence[SequenceSolubilitySubject],
     ) -> tuple[ProteinSolPrediction, ...]:
-        """Run and translate ordered Protein-Sol prediction values."""
-        provider_sequences = tuple(sequence.sequence for sequence in sequences)
+        """Run and translate values with exact subject association."""
+        provider_sequences = tuple(
+            subject.sequence.sequence for subject in subjects
+        )
+        staged_subjects = {
+            _provider_sequence_id(index): subject.subject
+            for index, subject in enumerate(subjects)
+        }
         resolved = _trusted_protein_sol_environment(self.environment)
         with self.resources.temporary_directory(
             prefix="protein-sol-"
@@ -903,6 +918,6 @@ class LocalProteinSolAdapter:
                 ) from error
             results = parse_protein_sol_output(
                 raw_output,
-                sequence_count=len(provider_sequences),
+                staged_subjects=staged_subjects,
             )
         return results

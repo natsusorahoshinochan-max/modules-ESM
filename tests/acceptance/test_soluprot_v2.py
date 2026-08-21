@@ -298,10 +298,6 @@ def test_model_backed_soluprot_golden_methods(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)
     )
-    raw_predictions = adapter.parse_soluprot_output(
-        record["raw_output"],
-        sequence_count=len(SEQUENCES),
-    )
     sequence_type = catalog.require_port_type(
         "protein.sequence",
         "3.0.0",
@@ -321,6 +317,18 @@ def test_model_backed_soluprot_golden_methods(
             )
         ]
         for candidate in source_candidates.items
+    )
+    raw_predictions = adapter.parse_soluprot_output(
+        record["raw_output"],
+        staged_subjects={
+            f"candidate_{index}": observation.subject
+            for index, observation in enumerate(ordered_observations)
+        },
+    )
+    assert tuple(
+        prediction.subject for prediction in raw_predictions
+    ) == tuple(
+        observation.subject for observation in ordered_observations
     )
     assert tuple(
         observation.value for observation in ordered_observations
