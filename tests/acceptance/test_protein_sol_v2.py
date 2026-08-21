@@ -142,20 +142,20 @@ def test_local_protein_sol_golden_multiple_metrics(
                     node_type_id=(
                         "contract_test.folding_sequence_batch_source"
                     ),
-                    node_type_version="3.0.0",
+                    node_type_version="4.0.0",
                     binding_id=(
                         "contract_test.folding_sequence_batch_source.direct"
                     ),
-                    binding_version="3.0.0",
+                    binding_version="4.0.0",
                     node_parameters={"sequences": list(SEQUENCES)},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="4.0.0",
+                    node_type_version="5.0.0",
                     binding_id="solubility.protein_sol.local",
-                    binding_version="4.0.0",
+                    binding_version="5.0.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -177,7 +177,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         authoring,
         EnvironmentConfiguration(
             {
-                ("solubility.protein_sol.local", "4.0.0"): {
+                ("solubility.protein_sol.local", "5.0.0"): {
                     "values": _environment(),
                 }
             }
@@ -232,15 +232,25 @@ def test_local_protein_sol_golden_multiple_metrics(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)
     )
-    assert adapter.parse_protein_sol_output(recorded[0]["raw_output"]) == [
+    references_by_candidate_id = {
+        entry.candidate_id: entry.subject for entry in scores.entries
+    }
+    staged_subjects = {
+        f"candidate_{index}": references_by_candidate_id[candidate_id]
+        for index, candidate_id in enumerate(candidate_ids)
+    }
+    assert adapter.parse_protein_sol_output(
+        recorded[0]["raw_output"],
+        staged_subjects=staged_subjects,
+    ) == tuple(
         adapter.ProteinSolPrediction(
-            provider_sequence_id=f"candidate_{index}",
+            subject=staged_subjects[f"candidate_{index}"],
             percent_soluble_fraction=expected["percent-sol"],
             scaled_soluble_fraction=expected["scaled-sol"],
             isoelectric_point=expected["pI"],
         )
         for index, expected in enumerate(EXPECTED)
-    ]
+    )
     assert [entry.candidate_id for entry in scores.entries] == [
         candidate_id
         for candidate_id in candidate_ids
@@ -300,7 +310,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     binding = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "4.0.0",
+        "5.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "solubility.protein_sol.sequence_prediction_2017"
@@ -335,7 +345,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "solubility.protein_sol.local"
-        and event["event"]["binding"]["contract_version"] == "4.0.0"
+        and event["event"]["binding"]["contract_version"] == "5.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

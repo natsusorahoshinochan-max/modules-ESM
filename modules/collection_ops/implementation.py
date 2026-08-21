@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core.operation import OperationCall
-from core.port_types import CatalogBuildError, canonical_json_bytes
+from core.operation import AdmittedPort, OperationCall
 from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    i_json_values_equal,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ScoreCollection,
@@ -38,24 +38,15 @@ class CollectionOpsImplementation:
         self._operation = operation
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        if call.binding_parameters:
-            raise ValueError(
-                "collection operations do not accept Binding parameters"
-            )
         if self._operation == "concat_candidates":
-            self._require_no_node_parameters(call.node_parameters)
             return {"candidates": self._concat_candidates(call.inputs)}
         if self._operation == "merge_scores":
-            self._require_no_node_parameters(call.node_parameters)
             return {"scores": self._merge_scores(call.inputs)}
         if self._operation == "concat_pairings":
-            self._require_no_node_parameters(call.node_parameters)
             return {"pairing": self._concat_pairings(call.inputs)}
         if self._operation == "rebind_candidate_pairing":
-            self._require_no_node_parameters(call.node_parameters)
             return {"pairing": self._rebind_candidate_pairing(call)}
         if self._operation == "pair_siblings_by_parent":
-            self._require_no_node_parameters(call.node_parameters)
             return {"pairing": self._pair_siblings_by_parent(call)}
         if self._operation == "take_candidates":
             return {
@@ -65,39 +56,19 @@ class CollectionOpsImplementation:
                 )
             }
         if self._operation == "select_children_by_parent":
-            self._require_no_node_parameters(call.node_parameters)
             return {
                 "candidates": self._select_children_by_parent(call.inputs)
             }
         if self._operation == "intersect_candidates":
-            self._require_no_node_parameters(call.node_parameters)
             return {"candidates": self._intersect_candidates(call.inputs)}
         raise RuntimeError("unknown collection operation")
 
     @staticmethod
-    def _require_no_node_parameters(
-        node_parameters: Mapping[str, Any],
-    ) -> None:
-        if node_parameters:
-            raise ValueError(
-                "this collection operation does not accept Node parameters"
-            )
-
-    @staticmethod
     def _select_children_by_parent(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> CandidateCollection:
-        if set(inputs) != {"candidates", "parents"}:
-            raise ValueError(
-                "child selection requires exact candidates and parents inputs"
-            )
-        candidates = inputs["candidates"]
-        parents = inputs["parents"]
-        if (
-            type(candidates) is not CandidateCollection
-            or type(parents) is not CandidateCollection
-        ):
-            raise ValueError("child selection inputs must be Candidate Collections")
+        candidates = inputs["candidates"].value
+        parents = inputs["parents"].value
         parent_ids = {candidate.candidate_id for candidate in parents.items}
         selected = []
         for candidate in candidates.items:
@@ -115,21 +86,18 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _intersect_candidates(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> CandidateCollection:
         supplied = [
-            inputs[port] for port in _INTERSECTION_PORTS if port in inputs
+            inputs[port].value
+            for port in _INTERSECTION_PORTS
+            if port in inputs
         ]
         if len(supplied) < 2:
             raise ValueError(
                 "Candidate intersection requires at least two connected inputs"
             )
-        if any(type(value) is not CandidateCollection for value in supplied):
-            raise ValueError(
-                "Candidate intersection inputs must be Candidate Collections"
-            )
         first = supplied[0]
-        assert type(first) is CandidateCollection
         if any(value.item_type != first.item_type for value in supplied[1:]):
             raise ValueError("Candidate intersection requires one exact item type")
         identities = [
@@ -152,24 +120,11 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _take_candidates(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
         node_parameters: Mapping[str, Any],
     ) -> CandidateCollection:
-        if set(inputs) != {"candidates"}:
-            raise ValueError(
-                "Candidate prefix selection requires one exact candidates input"
-            )
-        if set(node_parameters) != {"k"}:
-            raise ValueError(
-                "Candidate prefix selection requires exactly the k Node "
-                "parameter"
-            )
-        candidates = inputs["candidates"]
+        candidates = inputs["candidates"].value
         k = node_parameters["k"]
-        if type(candidates) is not CandidateCollection:
-            raise ValueError("candidates must be an exact Candidate Collection")
-        if type(k) is not int or k < 1:
-            raise ValueError("k must be a positive integer")
         if k > len(candidates.items):
             raise ValueError(
                 "k cannot exceed Candidate input cardinality"
@@ -183,47 +138,27 @@ class CollectionOpsImplementation:
     def _candidate_references(
         self,
         call: OperationCall,
-        value: object,
+        value: CandidateCollection,
         *,
         port: str,
     ) -> tuple[
         CandidateCollection,
         dict[str, tuple[Candidate, CandidateDataReference]],
     ]:
-        if type(value) is not CandidateCollection or not value.items:
+        if not value.items:
             raise ValueError(f"{port} must be a non-empty Candidate Collection")
-        admitted = call.input_content_digests.get(port)
-        if admitted is None:
-            raise ValueError(f"{port} has no admitted Candidate content identity")
+        admitted = call.inputs[port]
         admitted_by_id = {
             entry.candidate_id: entry
             for entry in admitted.candidate_data
         }
-        if len(admitted_by_id) != len(admitted.candidate_data):
-            raise ValueError(f"{port} has duplicate admitted Candidate identities")
-        by_id: dict[str, tuple[Candidate, CandidateDataReference]] = {}
-        for candidate in value.items:
-            if (
-                type(candidate) is not Candidate
-                or not candidate.candidate_id
-                or candidate.candidate_id in by_id
-            ):
-                raise ValueError(
-                    f"{port} contains incomplete or duplicate Candidates"
-                )
-            reference = admitted_by_id.get(candidate.candidate_id)
-            if reference is None:
-                raise ValueError(
-                    f"{port} Candidate content identity was not admitted"
-                )
-            by_id[candidate.candidate_id] = (
+        by_id = {
+            candidate.candidate_id: (
                 candidate,
-                reference,
+                admitted_by_id[candidate.candidate_id],
             )
-        if set(admitted_by_id) != set(by_id):
-            raise ValueError(
-                f"{port} admitted Candidate identities do not match the input"
-            )
+            for candidate in value.items
+        }
         return value, by_id
 
     def _rebind_candidate_pairing(
@@ -231,34 +166,22 @@ class CollectionOpsImplementation:
         call: OperationCall,
     ) -> PairwiseCandidateMapping:
         inputs = call.inputs
-        if set(inputs) != {
-            "subjects",
-            "parents",
-            "references",
-            "parent_pairing",
-        }:
-            raise ValueError(
-                "pairing rebinding requires exact subject, parent, reference, "
-                "and parent_pairing inputs"
-            )
         subjects, subjects_by_id = self._candidate_references(
             call,
-            inputs["subjects"],
+            inputs["subjects"].value,
             port="subjects",
         )
         parents, parents_by_id = self._candidate_references(
             call,
-            inputs["parents"],
+            inputs["parents"].value,
             port="parents",
         )
         references, references_by_id = self._candidate_references(
             call,
-            inputs["references"],
+            inputs["references"].value,
             port="references",
         )
-        pairing = inputs["parent_pairing"]
-        if type(pairing) is not PairwiseCandidateMapping:
-            raise ValueError("parent_pairing must be an exact Candidate pairing")
+        pairing = inputs["parent_pairing"].value
         parent_to_reference: dict[
             str, CandidateDataReference
         ] = {}
@@ -329,18 +252,14 @@ class CollectionOpsImplementation:
         call: OperationCall,
     ) -> PairwiseCandidateMapping:
         inputs = call.inputs
-        if set(inputs) != {"subjects", "references"}:
-            raise ValueError(
-                "sibling pairing requires exact subject and reference inputs"
-            )
         subjects, subjects_by_id = self._candidate_references(
             call,
-            inputs["subjects"],
+            inputs["subjects"].value,
             port="subjects",
         )
         references, references_by_id = self._candidate_references(
             call,
-            inputs["references"],
+            inputs["references"].value,
             port="references",
         )
 
@@ -383,27 +302,18 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _concat_candidates(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> CandidateCollection:
         supplied = [
-            (port, inputs[port])
+            (port, inputs[port].value)
             for port in _CONCAT_CANDIDATE_PORTS
             if port in inputs
         ]
-        if not supplied:
-            raise ValueError(
-                "Candidate concatenation requires at least one connected "
-                "collection"
-            )
-        item_type: str | None = None
+        item_type = supplied[0][1].item_type
         candidates: list[Candidate] = []
         source_by_identity: dict[str, str] = {}
         for port, collection in supplied:
-            if type(collection) is not CandidateCollection:
-                raise ValueError(f"{port} is not a Candidate Collection")
-            if item_type is None:
-                item_type = collection.item_type
-            elif collection.item_type != item_type:
+            if collection.item_type != item_type:
                 raise ValueError(
                     "Candidate concatenation requires one exact item type"
                 )
@@ -416,7 +326,6 @@ class CollectionOpsImplementation:
                     )
                 source_by_identity[candidate.candidate_id] = port
                 candidates.append(candidate)
-        assert item_type is not None
         return CandidateCollection(
             collection_id="collection-ops-concatenated-candidates",
             item_type=item_type,
@@ -424,75 +333,45 @@ class CollectionOpsImplementation:
         )
 
     @staticmethod
-    def _merge_scores(inputs: Mapping[str, Any]) -> ScoreCollection:
+    def _merge_scores(inputs: Mapping[str, AdmittedPort]) -> ScoreCollection:
         supplied = [
-            (port, inputs[port])
+            (port, inputs[port].value)
             for port in _SCORE_PORTS
             if port in inputs
         ]
-        if not supplied:
-            raise ValueError(
-                "Score merge requires at least one connected collection"
-            )
-        observations: dict[
-            tuple[object, ...],
-            tuple[ScoreObservation, bytes],
-        ] = {}
+        observations: dict[tuple[object, ...], ScoreObservation] = {}
         for port, collection in supplied:
-            if type(collection) is not ScoreCollection:
-                raise ValueError(f"{port} is not a Score Collection")
             for entry in collection.entries:
-                if type(entry) is not ScoreObservation:
-                    raise ValueError(
-                        "Score merge requires exact typed Observations"
-                    )
-                try:
-                    encoded_value = canonical_json_bytes(entry.value)
-                except CatalogBuildError as error:
-                    raise ValueError(
-                        "Observation value must be canonical I-JSON"
-                    ) from error
                 existing = observations.get(entry.identity)
                 if existing is None:
-                    observations[entry.identity] = (entry, encoded_value)
+                    observations[entry.identity] = entry
                     continue
-                previous, previous_value = existing
-                if previous.source_partition != entry.source_partition:
+                if existing.source_partition != entry.source_partition:
                     raise ValueError(
                         "Observation identity has a source partition collision"
                     )
-                if previous_value != encoded_value:
+                if not i_json_values_equal(existing.value, entry.value):
                     raise ValueError(
                         "Observation identity has conflicting values"
                     )
         return ScoreCollection(
             collection_id="collection-ops-merged-scores",
-            entries=[
-                observation
-                for observation, _ in observations.values()
-            ],
+            entries=list(observations.values()),
         )
 
     @staticmethod
     def _concat_pairings(
-        inputs: Mapping[str, Any],
+        inputs: Mapping[str, AdmittedPort],
     ) -> PairwiseCandidateMapping:
         supplied = [
-            (port, inputs[port])
+            (port, inputs[port].value)
             for port in _PAIRING_PORTS
             if port in inputs
         ]
-        if not supplied:
-            raise ValueError(
-                "Candidate pairing concatenation requires at least one "
-                "connected pairing"
-            )
         entries: list[PairwiseCandidateMatch] = []
         subject_sources: dict[CandidateDataReference, str] = {}
         reference_sources: dict[CandidateDataReference, str] = {}
         for port, pairing in supplied:
-            if type(pairing) is not PairwiseCandidateMapping:
-                raise ValueError(f"{port} is not an exact Candidate pairing")
             for entry in pairing.entries:
                 if entry.subject in subject_sources:
                     raise ValueError(

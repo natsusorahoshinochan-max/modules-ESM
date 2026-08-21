@@ -6,7 +6,12 @@ import re
 import string
 from typing import Any
 
-from core import ArtifactPayload, OperationCall, RunResources
+from core import (
+    ArtifactPayload,
+    EngineInvocationProvenance,
+    OperationCall,
+    RunResources,
+)
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -36,9 +41,9 @@ class SequenceImportImplementation:
         reference = node_parameters["project_input_ref"]
         descriptor, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
-            invocation_provenance={
-                "project_input_filename": descriptor["filename"]
-            }
+            invocation_provenance=EngineInvocationProvenance(
+                project_input_filename=descriptor["filename"]
+            )
         ):
             try:
                 text = payload.decode("utf-8")
@@ -90,9 +95,9 @@ class StructureImportImplementation:
         reference = node_parameters["project_input_ref"]
         descriptor, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
-            invocation_provenance={
-                "project_input_filename": descriptor["filename"]
-            }
+            invocation_provenance=EngineInvocationProvenance(
+                project_input_filename=descriptor["filename"]
+            )
         ):
             try:
                 text = payload.decode("utf-8")
@@ -126,7 +131,7 @@ class SequenceExportImplementation:
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
-        sequence = inputs["sequence"]
+        sequence = inputs["sequence"].value
         with self._run_resources.engine_invocation():
             chars = sequence.sequence
             lines = [
@@ -156,7 +161,7 @@ class StructureExportImplementation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
         if "structures" in inputs:
-            structures = inputs["structures"]
+            structures = inputs["structures"].value
             with self._run_resources.engine_invocation():
                 artifacts = []
                 for index, candidate in enumerate(structures.items):
@@ -170,7 +175,7 @@ class StructureExportImplementation:
                         )
                     )
             return {"candidate_artifacts": artifacts}
-        structure = inputs["structure"]
+        structure = inputs["structure"].value
         with self._run_resources.engine_invocation():
             body = _native_pdb_bytes(structure)
         return {

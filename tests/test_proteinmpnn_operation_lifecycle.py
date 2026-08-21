@@ -8,13 +8,14 @@ from typing import Any
 
 import pytest
 
-from core import InputContentDigests, OperationCall
+from core import OperationCall
 from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
     ExactContractReference,
     ProteinSequence,
+    ResidueAxisReference,
 )
 from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from modules.proteinmpnn.implementation import (
@@ -26,7 +27,9 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 _DIGEST = "sha256:" + "1" * 64
@@ -48,6 +51,21 @@ def _operation_call(operation: str) -> OperationCall:
     structure = _fixture_structure(0)
     structure_candidate = Candidate("structure", structure)
     structure_reference = _reference("structure", "protein.structure", "2")
+    residue_axis = resolve_residue_axis(structure)
+    axis_reference = ResidueAxisReference(
+        axis_kind="resolved_structure",
+        axis_contract=ExactContractReference(
+            contract_kind="port_type",
+            contract_id=RESOLVED_AXIS_PORT_TYPE.type_id,
+            contract_version=RESOLVED_AXIS_PORT_TYPE.version,
+            contract_digest=RESOLVED_AXIS_PORT_TYPE.contract_digest,
+        ),
+        axis_content_digest=RESOLVED_AXIS_PORT_TYPE.content_digest(
+            residue_axis
+        ),
+        source=structure_reference,
+        layout=residue_axis.layout,
+    )
     inputs: dict[str, Any] = {
         "structure_candidates": CandidateCollection(
             "structures",
@@ -57,27 +75,31 @@ def _operation_call(operation: str) -> OperationCall:
         "structure_residue_axes": CandidateResolvedResidueAxisAssociations((
             CandidateResolvedResidueAxisAssociation(
                 structure_reference,
-                resolve_residue_axis(structure),
+                residue_axis,
             ),
         )),
     }
-    input_digests = {
-        "structure_candidates": InputContentDigests(
+    admitted_inputs = {
+        "structure_candidates": admitted_port_fixture(
+            inputs["structure_candidates"],
             port_type_id="candidate.collection",
             value_content_digests=(_DIGEST,),
             candidate_data=(structure_reference,),
         ),
-        "structure_residue_axes": InputContentDigests(
+        "structure_residue_axes": admitted_port_fixture(
+            inputs["structure_residue_axes"],
             port_type_id=(
                 "structure_transform."
                 "candidate_resolved_residue_axis_associations"
             ),
             value_content_digests=(_DIGEST,),
+            candidate_data=(structure_reference,),
+            scientific_axes=(axis_reference,),
         ),
     }
     if operation == "design":
         return OperationCall(
-            inputs=inputs,
+            inputs=admitted_inputs,
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -85,7 +107,7 @@ def _operation_call(operation: str) -> OperationCall:
                 "backbone_noise": 0,
             },
             binding_parameters={},
-            input_content_digests=input_digests,
+            effective_randomness={"effective_seed": 1603},
         )
 
     sequence = Candidate(
@@ -102,16 +124,17 @@ def _operation_call(operation: str) -> OperationCall:
         "protein.sequence",
         (sequence,),
     )
-    input_digests["sequence_candidates"] = InputContentDigests(
+    admitted_inputs["sequence_candidates"] = admitted_port_fixture(
+        inputs["sequence_candidates"],
         port_type_id="candidate.collection",
         value_content_digests=(_DIGEST,),
         candidate_data=(sequence_reference,),
     )
     return OperationCall(
-        inputs=inputs,
+        inputs=admitted_inputs,
         node_parameters={},
         binding_parameters={},
-        input_content_digests=input_digests,
+        effective_randomness={},
     )
 
 
@@ -147,7 +170,6 @@ def test_operation_closes_adapter_before_success_or_error_returns(
     adapter = _Adapter(fail=fail)
     if operation == "design":
         implementation = ProteinMPNNDesignImplementation(
-            resources=object(),  # type: ignore[arg-type]
             adapter=adapter,  # type: ignore[arg-type]
         )
     else:

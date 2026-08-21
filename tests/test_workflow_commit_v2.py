@@ -232,9 +232,9 @@ def _workflow_with_stale_nested_reference(
             WorkflowNodeInstance(
                 node_id="select",
                 node_type_id="selection.filter",
-                node_type_version="4.0.0",
+                node_type_version="5.0.0",
                 binding_id="selection.filter.direct",
-                binding_version="4.0.0",
+                binding_version="5.0.0",
                 node_parameters={
                     "selector_id": "selector-1",
                     "operator": ">=",

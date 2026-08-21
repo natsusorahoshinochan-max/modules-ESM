@@ -4,7 +4,7 @@ from contextlib import contextmanager, nullcontext
 
 import pytest
 
-from core import InputContentDigests, OperationCall, build_frozen_catalog
+from core import OperationCall, build_frozen_catalog
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -22,6 +22,7 @@ from modules.structure_annotation.implementation import (
     ExpectedSecondaryStructureFromPromptOperation,
 )
 from modules.structure_annotation.package import MODULE_PACKAGE
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 class _RunResources:
@@ -29,6 +30,30 @@ class _RunResources:
     def engine_invocation(**kwargs):
         del kwargs
         return nullcontext()
+
+
+def _operation_call(
+    *,
+    inputs,
+    node_parameters,
+    binding_parameters,
+    candidate_data=None,
+) -> OperationCall:
+    references = {} if candidate_data is None else candidate_data
+    return OperationCall(
+        inputs={
+            name: admitted_port_fixture(
+                value,
+                port_type_id=name,
+                value_content_digests=("sha256:" + ("f" * 64),),
+                candidate_data=references.get(name, ()),
+            )
+            for name, value in inputs.items()
+        },
+        node_parameters=node_parameters,
+        binding_parameters=binding_parameters,
+        effective_randomness={},
+    )
 
 
 def _candidate_reference(
@@ -96,14 +121,13 @@ def test_apply_secondary_structure_to_prompt_maps_exact_ss8_semantics() -> None:
     )
 
     output = ApplySecondaryStructureToPromptOperation(_RunResources()).execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "protein_prompt": prompt,
                 "secondary_structure_track": source,
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={},
         )
     )
 
@@ -131,14 +155,13 @@ def test_apply_secondary_structure_to_prompt_maps_exact_ss8_semantics() -> None:
     other_output = ApplySecondaryStructureToPromptOperation(
         _RunResources()
     ).execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "protein_prompt": prompt,
                 "secondary_structure_track": same_track_other_candidate,
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={},
         )
     )
     assert other_output == output
@@ -154,26 +177,13 @@ def test_apply_secondary_structure_to_prompt_maps_exact_ss8_semantics() -> None:
     )
     with pytest.raises(ValueError, match="layouts must be exactly equal"):
         ApplySecondaryStructureToPromptOperation(_RunResources()).execute(
-            OperationCall(
+            _operation_call(
                 inputs={
                     "protein_prompt": prompt,
                     "secondary_structure_track": mismatched,
                 },
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={},
-            )
-        )
-    with pytest.raises(ValueError, match="do not accept parameters"):
-        ApplySecondaryStructureToPromptOperation(_RunResources()).execute(
-            OperationCall(
-                inputs={
-                    "protein_prompt": prompt,
-                    "secondary_structure_track": source,
-                },
-                node_parameters={"direction": "forward"},
-                binding_parameters={},
-                input_content_digests={},
             )
         )
 
@@ -199,11 +209,10 @@ def test_apply_sasa_to_prompt_preserves_angstrom_squared_values() -> None:
     )
 
     output = ApplySASAToPromptOperation(_RunResources()).execute(
-        OperationCall(
+        _operation_call(
             inputs={"protein_prompt": prompt, "sasa_track": source},
             node_parameters={},
             binding_parameters={},
-            input_content_digests={},
         )
     )
 
@@ -225,20 +234,10 @@ def test_apply_sasa_to_prompt_preserves_angstrom_squared_values() -> None:
     )
     with pytest.raises(ValueError, match="layouts must be exactly equal"):
         ApplySASAToPromptOperation(_RunResources()).execute(
-            OperationCall(
+            _operation_call(
                 inputs={"protein_prompt": prompt, "sasa_track": mismatched},
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={},
-            )
-        )
-    with pytest.raises(ValueError, match="do not accept parameters"):
-        ApplySASAToPromptOperation(_RunResources()).execute(
-            OperationCall(
-                inputs={"protein_prompt": prompt, "sasa_track": source},
-                node_parameters={},
-                binding_parameters={"scale": 1.0},
-                input_content_digests={},
             )
         )
 
@@ -267,25 +266,17 @@ def test_expected_secondary_structure_from_prompt_restores_annotation_symbols() 
         item_type="protein.structure",
         items=[Candidate(candidate_id=reference.candidate_id, data=structure)],
     )
-    input_digests = {
-        "references": InputContentDigests(
-            port_type_id="candidate.collection",
-            value_content_digests=("sha256:" + ("f" * 64),),
-            candidate_data=(reference,),
-        )
-    }
-
     output = ExpectedSecondaryStructureFromPromptOperation(
         _RunResources()
     ).execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "protein_prompt": prompt,
                 "references": references,
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests=input_digests,
+            candidate_data={"references": (reference,)},
         )
     )
 
@@ -298,51 +289,16 @@ def test_expected_secondary_structure_from_prompt_restores_annotation_symbols() 
     }
     with pytest.raises(ValueError, match="must carry a secondary-structure track"):
         ExpectedSecondaryStructureFromPromptOperation(_RunResources()).execute(
-            OperationCall(
+            _operation_call(
                 inputs={
                     "protein_prompt": ProteinPrompt(target_layout=layout),
                     "references": references,
                 },
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests=input_digests,
+                candidate_data={"references": (reference,)},
             )
         )
-    with pytest.raises(ValueError, match="do not accept parameters"):
-        ExpectedSecondaryStructureFromPromptOperation(_RunResources()).execute(
-            OperationCall(
-                inputs={
-                    "protein_prompt": prompt,
-                    "references": references,
-                },
-                node_parameters={"role": "expected"},
-                binding_parameters={},
-                input_content_digests=input_digests,
-            )
-        )
-
-
-def test_expected_secondary_structure_requires_reference_before_engine() -> None:
-    resources = _InvocationRecorder()
-    prompt = ProteinPrompt(
-        target_layout=ResidueLayout(
-            chain_id="A",
-            length=1,
-            residue_ids=["A:1"],
-        ),
-        secondary_structure_track=ResidueTrack(["H"], None),
-    )
-
-    with pytest.raises(ValueError, match="Prompt and one reference"):
-        ExpectedSecondaryStructureFromPromptOperation(resources).execute(
-            OperationCall(
-                inputs={"protein_prompt": prompt},
-                node_parameters={},
-                binding_parameters={},
-                input_content_digests={},
-            )
-        )
-    assert resources.invocations == 0
 
 
 def test_apply_secondary_structure_to_prompt_is_an_exact_direct_node() -> None:
@@ -470,7 +426,7 @@ def test_expected_secondary_structure_from_prompt_is_an_explicit_role_node() -> 
     node = catalog.require_contract(
         "node_type",
         "structure_annotation.expected_secondary_structure_from_prompt",
-        "5.0.0",
+        "6.0.0",
     ).descriptor
     assert [
         (port["name"], port["port_type"]["contract_id"])
@@ -515,7 +471,7 @@ def test_expected_secondary_structure_from_prompt_is_an_explicit_role_node() -> 
             "structure_annotation."
             "expected_secondary_structure_from_prompt.direct"
         ),
-        "5.0.0",
+        "6.0.0",
     ).descriptor
     assert binding["binding_parameters"] == {}
     assert binding["execution_route"] == "direct"

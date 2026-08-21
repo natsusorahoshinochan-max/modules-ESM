@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from core import (
+    AdmittedPort,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -22,14 +23,8 @@ from core import (
     ScientificOperation,
     ScientificOperationFactory,
 )
-from modules.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_REVISION,
-    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-    SIMPLEFOLD_REVISION,
-)
 
+from . import simplefold_contract
 from .contracts import (
     CONFIDENCE_METHOD_VERSION,
     FOLD_METHOD_VERSION,
@@ -37,6 +32,7 @@ from .contracts import (
     LOCAL_ESMFOLD2_FOLD_METHOD,
     REMOTE_ESMFOLD2_FOLD_METHOD,
     SIMPLEFOLD_CONFIDENCE_METHOD,
+    SIMPLEFOLD_FOLD_METHOD_VERSION,
     SIMPLEFOLD_FOLD_METHOD,
 )
 
@@ -62,8 +58,6 @@ from .adapter import (
 )
 from .simplefold_adapter import (
     LocalSimpleFoldAdapter,
-    SIMPLEFOLD_DEVICE,
-    SIMPLEFOLD_MODEL,
     simplefold_readiness,
     simplefold_runtime_structurally_available,
 )
@@ -76,18 +70,18 @@ from .simplefold_contract import (
     SIMPLEFOLD_CONFIDENCE_ADAPTER,
     SIMPLEFOLD_CONFIDENCE_DEVICE,
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
-    simplefold_confidence_artifact_sha256,
-    simplefold_confidence_esm2_artifact_sha256,
-    simplefold_folding_artifact_sha256,
+    SIMPLEFOLD_DEVICE,
+    SIMPLEFOLD_MODEL,
 )
 
 
-_PACKAGE_VERSION = "8.0.0"
-_FOLD_NODE_TYPE_VERSION = "6.0.0"
-_REMOTE_FOLD_BINDING_VERSION = "7.0.0"
-_LOCAL_ESMFOLD2_BINDING_VERSION = "8.0.0"
-_SIMPLEFOLD_FOLD_BINDING_VERSION = "7.0.0"
-_CONFIDENCE_NODE_BINDING_VERSION = "4.0.0"
+_PACKAGE_VERSION = "10.0.0"
+_FOLD_NODE_TYPE_VERSION = "8.0.0"
+_REMOTE_FOLD_BINDING_VERSION = "9.0.0"
+_LOCAL_ESMFOLD2_BINDING_VERSION = "10.0.0"
+_SIMPLEFOLD_FOLD_BINDING_VERSION = "10.0.0"
+_CONFIDENCE_NODE_TYPE_VERSION = "5.0.0"
+_SIMPLEFOLD_CONFIDENCE_BINDING_VERSION = "6.0.0"
 _METRIC_VERSIONS = {
     "structure.ptm": "2.1.0",
     "structure.plddt.per_residue": "3.0.0",
@@ -160,7 +154,7 @@ def _simplefold_confidence_available() -> AvailabilityResult:
 
 def _resolve_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -179,7 +173,7 @@ def _resolve_effective_randomness(
 
 def _resolve_simplefold_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -453,6 +447,8 @@ def _binding(route: str) -> ExecutionBindingDefinition:
 
 def _simplefold_binding() -> ExecutionBindingDefinition:
     method_id = "folding.fold.simplefold_100m_c7a5570"
+    closure = simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
+    closure_identity = closure.provider_identity()
     return ExecutionBindingDefinition(
         binding_id="folding.fold.simplefold_local",
         version=_SIMPLEFOLD_FOLD_BINDING_VERSION,
@@ -461,7 +457,11 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             "folding.fold",
             _FOLD_NODE_TYPE_VERSION,
         ),
-        method=ContractIdentity("method", method_id, FOLD_METHOD_VERSION),
+        method=ContractIdentity(
+            "method",
+            method_id,
+            SIMPLEFOLD_FOLD_METHOD_VERSION,
+        ),
         binding_parameters={
             "num_steps": {
                 "parameter_scope": "scientific",
@@ -490,7 +490,8 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             _SIMPLEFOLD_FOLD_BINDING_VERSION,
             {
                 "provider_contract": (
-                    f"ml-simplefold@{SIMPLEFOLD_REVISION}"
+                    "ml-simplefold@"
+                    f"{closure_identity['source_revision']}"
                 ),
                 "native_scale": "[0,100]_identity",
                 "staging": "one-private-directory-per-engine-invocation",
@@ -510,7 +511,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             prerequisites={
                 "provider": {
                     "name": "simplefold",
-                    "source_revision": SIMPLEFOLD_REVISION,
+                    "source_revision": closure_identity["source_revision"],
                 },
                 "runtime": {"name": "torch"},
             },
@@ -527,23 +528,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 },
             ),
             prerequisites={
-                "simplefold_models": {
-                    "artifact_sha256": (
-                        simplefold_folding_artifact_sha256()
-                    ),
-                    "path_source": "trusted_environment_configuration",
-                },
-                "esm2_source": {
-                    "source_revision": SIMPLEFOLD_ESM2_REVISION,
-                    "source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-                    "path_source": "trusted_environment_configuration",
-                },
-                "esm2_models": {
-                    "artifact_sha256": dict(
-                        sorted(SIMPLEFOLD_ESM2_ARTIFACT_SHA256.items())
-                    ),
-                    "path_source": "trusted_environment_configuration",
-                },
+                "provider_asset_closure": closure.readiness_prerequisite(),
                 "device": {
                     "source": "trusted_environment_configuration",
                     "exact_value": SIMPLEFOLD_DEVICE,
@@ -556,7 +541,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
         implementation_identity={
             "name": "folding.simplefold.local-adapter",
             "model": SIMPLEFOLD_MODEL,
-            "source_revision": SIMPLEFOLD_REVISION,
+            "source_revision": closure_identity["source_revision"],
             "device": SIMPLEFOLD_DEVICE,
             "seed_control": "torch_local",
             "determinism_contract": (
@@ -596,13 +581,15 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         "folding.simplefold_confidence."
         "existing_structure_1_6b_c7a5570"
     )
+    closure = simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
+    closure_identity = closure.provider_identity()
     return ExecutionBindingDefinition(
         binding_id="folding.simplefold_confidence.simplefold_local",
-        version=_CONFIDENCE_NODE_BINDING_VERSION,
+        version=_SIMPLEFOLD_CONFIDENCE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "folding.simplefold_confidence",
-            _CONFIDENCE_NODE_BINDING_VERSION,
+            _CONFIDENCE_NODE_TYPE_VERSION,
         ),
         method=ContractIdentity(
             "method",
@@ -614,7 +601,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "folding.simplefold_confidence/factory",
-                _CONFIDENCE_NODE_BINDING_VERSION,
+                _SIMPLEFOLD_CONFIDENCE_BINDING_VERSION,
                 {
                     "route": "simplefold_local",
                     "operation": "existing_structure_confidence",
@@ -625,11 +612,12 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         ),
         adapter_behavior=BehaviorReference(
             "folding.simplefold_confidence/adapter",
-            _CONFIDENCE_NODE_BINDING_VERSION,
+            _SIMPLEFOLD_CONFIDENCE_BINDING_VERSION,
             {
                 "adapter_identity": SIMPLEFOLD_CONFIDENCE_ADAPTER,
                 "provider_contract": (
-                    f"ml-simplefold@{SIMPLEFOLD_REVISION}"
+                    "ml-simplefold@"
+                    f"{closure_identity['source_revision']}"
                 ),
                 "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
                 "native_scale": "[0,1]_multiply_100",
@@ -641,13 +629,13 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_confidence/availability",
-                _CONFIDENCE_NODE_BINDING_VERSION,
+                _SIMPLEFOLD_CONFIDENCE_BINDING_VERSION,
                 {"observation": "startup", "model_load": "forbidden"},
             ),
             prerequisites={
                 "provider": {
                     "name": "simplefold",
-                    "source_revision": SIMPLEFOLD_REVISION,
+                    "source_revision": closure_identity["source_revision"],
                 },
                 "runtime": {"name": "torch"},
             },
@@ -656,7 +644,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "folding.simplefold_confidence/readiness",
-                _CONFIDENCE_NODE_BINDING_VERSION,
+                _SIMPLEFOLD_CONFIDENCE_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "cache_order": "before-provider-entry",
@@ -665,27 +653,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
                 },
             ),
             prerequisites={
-                "simplefold_confidence_models": {
-                    "artifact_sha256": (
-                        simplefold_confidence_artifact_sha256()
-                    ),
-                    "runtime_names": {
-                        "plddt_module_1.6B.ckpt": "plddt.ckpt",
-                    },
-                    "path_source": "trusted_environment_configuration",
-                },
-                "esm2_source": {
-                    "source_revision": SIMPLEFOLD_ESM2_REVISION,
-                    "source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-                    "operation": "representation_only_no_contacts",
-                    "path_source": "trusted_environment_configuration",
-                },
-                "esm2_model": {
-                    "artifact_sha256": (
-                        simplefold_confidence_esm2_artifact_sha256()
-                    ),
-                    "path_source": "trusted_environment_configuration",
-                },
+                "provider_asset_closure": closure.readiness_prerequisite(),
                 "device": {
                     "source": "trusted_environment_configuration",
                     "exact_value": SIMPLEFOLD_CONFIDENCE_DEVICE,
@@ -701,12 +669,12 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
             "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
             "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
             "simplefold_artifact_sha256": (
-                simplefold_confidence_artifact_sha256()
+                closure.file_sha256("model_root")
             ),
             "esm2_artifact_sha256": (
-                simplefold_confidence_esm2_artifact_sha256()
+                closure.file_sha256("esm2_model_root")
             ),
-            "source_revision": SIMPLEFOLD_REVISION,
+            "source_revision": closure_identity["source_revision"],
             "native_scale": "[0,1]_multiply_100",
         },
         produced_observations=tuple(

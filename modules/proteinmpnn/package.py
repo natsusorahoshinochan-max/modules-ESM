@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import importlib.util
-import math
-from typing import Any
+from typing import Any, cast
 
 from core import (
+    AdmittedPort,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -42,26 +42,25 @@ from .adapter import (
     proteinmpnn_readiness,
 )
 from .domain import (
-    normalize_design_parameters,
     validate_constraints_against_layout,
 )
 
 
-_PACKAGE_VERSION = "6.0.0"
+_PACKAGE_VERSION = "7.0.0"
 _CONSTRAINTS_VERSION = "4.0.0"
 _SCORE_METRIC_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
 _NODE_VERSIONS = {
     "constraints": "4.0.0",
     "random_fixed_positions": "4.0.0",
-    "design": "9.0.0",
-    "score": "6.0.0",
+    "design": "10.0.0",
+    "score": "7.0.0",
 }
 _BINDING_VERSIONS = {
     "constraints": "4.0.0",
     "random_fixed_positions": "4.0.0",
-    "design": "10.0.0",
-    "score": "7.0.0",
+    "design": "11.0.0",
+    "score": "8.0.0",
 }
 _METHOD_VERSIONS = {
     "constraints": "3.0.0",
@@ -78,8 +77,7 @@ def _validate_constraints(value: object) -> None:
 
 
 def _constraints_to_wire(value: object) -> dict[str, object]:
-    _validate_constraints(value)
-    assert type(value) is ProteinMPNNConstraints
+    value = cast(ProteinMPNNConstraints, value)
     return thaw_i_json({
         "layout": {
             "chain_id": value.layout.chain_id,
@@ -168,7 +166,6 @@ def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
         tied_residue_groups=value["tied_residue_groups"],
         bias_by_residue=biases,
     )
-    _validate_constraints(constraints)
     return constraints
 
 
@@ -261,12 +258,7 @@ def _build(
         )
         if operation == "design":
             return ProteinMPNNDesignImplementation(
-                resources=context.resources,
                 adapter=adapter,
-            )
-        if len(context.produced_observations) != 1:
-            raise RuntimeError(
-                "ProteinMPNN score Binding must resolve one Observation"
             )
         observation = context.produced_observations[0]
         return ProteinMPNNScoreImplementation(
@@ -420,43 +412,33 @@ def _method(operation: str) -> MethodDefinition:
 
 def _resolve_random_fixed_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    if set(inputs) != {"layout"} or binding_parameters:
-        raise ValueError(
-            "random fixed-position randomness requires one layout"
-        )
-    if set(node_parameters) != {"effective_seed", "fraction"}:
-        raise ValueError(
-            "random fixed-position parameters are not fully resolved"
-        )
-    seed = node_parameters["effective_seed"]
-    fraction = node_parameters["fraction"]
-    if type(seed) is not int or not 0 <= seed <= 9_007_199_254_740_991:
-        raise ValueError("effective_seed is outside its contract")
-    if (
-        isinstance(fraction, bool)
-        or not isinstance(fraction, (int, float))
-        or not math.isfinite(float(fraction))
-        or not 0 <= float(fraction) <= 1
-    ):
-        raise ValueError("fraction is outside its contract")
-    return {"effective_seed": seed, "fraction": float(fraction)}
+    del inputs, binding_parameters
+    return {
+        "effective_seed": node_parameters["effective_seed"],
+        "fraction": node_parameters["fraction"],
+    }
 
 
 def _resolve_design_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    del inputs
-    return normalize_design_parameters(
-        node_parameters,
-        binding_parameters,
-    )
+    del inputs, binding_parameters
+    return {
+        name: node_parameters[name]
+        for name in (
+            "effective_seed",
+            "num_sequences",
+            "temperature",
+            "backbone_noise",
+        )
+    }
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:

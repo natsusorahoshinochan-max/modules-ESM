@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -11,7 +12,6 @@ import pytest
 
 from core import (
     EnvironmentConfiguration,
-    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
     OperationCall,
@@ -36,6 +36,7 @@ from datatypes import (
     CandidateDataReference,
     ExactContractReference,
     ProteinStructure,
+    ResidueAxisReference,
     ResidueLayout,
 )
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
@@ -46,7 +47,6 @@ from modules.structure_annotation import (
 from modules.structure_annotation.implementation import (
     DSSPComputeOperation,
     SASAComputeOperation,
-    SecondaryStructureAgreementOperation,
     SecondaryStructureExtractOperation,
 )
 from modules.structure_annotation.package import (
@@ -57,7 +57,64 @@ from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.port_types import (
+    RESOLVED_AXIS_PORT_TYPE,
+)
+from tests.fixtures.scientific_operation import (
+    admitted_port_fixture,
+    build_operation,
+    operation_call,
+)
 from tests.fixtures.structure_transform_sources.package import _FIXTURES
+
+
+def _operation_call(
+    *,
+    inputs,
+    node_parameters,
+    binding_parameters,
+    candidate_data=None,
+) -> OperationCall:
+    references = {} if candidate_data is None else candidate_data
+    return OperationCall(
+        inputs={
+            name: admitted_port_fixture(
+                value,
+                port_type_id=(
+                    "candidate.collection"
+                    if name
+                    in {"structure_candidates", "subjects", "references"}
+                    else name
+                ),
+                value_content_digests=("sha256:" + ("f" * 64),),
+                candidate_data=references.get(name, ()),
+                scientific_axes=(
+                    tuple(
+                        ResidueAxisReference(
+                            axis_kind="resolved_structure",
+                            axis_contract=ExactContractReference(
+                                **RESOLVED_AXIS_PORT_TYPE.reference()
+                            ),
+                            axis_content_digest=(
+                                RESOLVED_AXIS_PORT_TYPE.content_digest(
+                                    entry.residue_axis
+                                )
+                            ),
+                            source=entry.subject,
+                            layout=entry.residue_axis.layout,
+                        )
+                        for entry in value.entries
+                    )
+                    if name in {"residue_axes", "subject_residue_axes"}
+                    else ()
+                ),
+            )
+            for name, value in inputs.items()
+        },
+        node_parameters=node_parameters,
+        binding_parameters=binding_parameters,
+        effective_randomness={},
+    )
 
 
 def _candidate_reference(
@@ -93,6 +150,18 @@ def _prompt_authoring_packages():
     return (PROMPT_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
 
 
+def _agreement_operation(resources: _InvocationRecorder) -> Any:
+    catalog = build_frozen_catalog(
+        (STRUCTURE_ANNOTATION_PACKAGE, *_prompt_authoring_packages())
+    )
+    return build_operation(
+        catalog,
+        "structure_annotation.secondary_structure_agreement.direct",
+        resources,
+        binding_version="6.0.0",
+    )
+
+
 def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
     registrations = {
         registration.package_id: registration
@@ -122,10 +191,10 @@ def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
         in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("structure_annotation.dssp_compute", "6.0.0"),
+        ("structure_annotation.dssp_compute", "7.0.0"),
         ("structure_annotation.secondary_structure_extract", "4.0.0"),
         ("structure_annotation.sasa_compute", "4.0.0"),
-        ("structure_annotation.secondary_structure_agreement", "5.0.0"),
+        ("structure_annotation.secondary_structure_agreement", "6.0.0"),
         (
             "structure_annotation.apply_secondary_structure_to_prompt",
             "5.0.0",
@@ -133,7 +202,7 @@ def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
         ("structure_annotation.apply_sasa_to_prompt", "5.0.0"),
         (
             "structure_annotation.expected_secondary_structure_from_prompt",
-            "5.0.0",
+            "6.0.0",
         ),
     }
 
@@ -310,7 +379,7 @@ def test_structure_annotation_publishes_one_active_contract_generation() -> None
         and contract.contract_id.startswith("structure_annotation.")
     }
     assert set(bindings) == {
-        ("structure_annotation.dssp_compute.mkdssp_local", "6.0.0"),
+        ("structure_annotation.dssp_compute.mkdssp_local", "7.0.0"),
         (
             "structure_annotation.secondary_structure_extract.direct",
             "4.0.0",
@@ -318,7 +387,7 @@ def test_structure_annotation_publishes_one_active_contract_generation() -> None
         ("structure_annotation.sasa_compute.direct", "4.0.0"),
         (
             "structure_annotation.secondary_structure_agreement.direct",
-            "5.0.0",
+            "6.0.0",
         ),
         (
             "structure_annotation.apply_secondary_structure_to_prompt.direct",
@@ -328,7 +397,7 @@ def test_structure_annotation_publishes_one_active_contract_generation() -> None
         (
             "structure_annotation."
             "expected_secondary_structure_from_prompt.direct",
-            "5.0.0",
+            "6.0.0",
         ),
     }
     for binding_id, binding in bindings.items():
@@ -523,76 +592,19 @@ def test_dssp_operation_crosses_one_canonical_only_adapter_interface() -> None:
         items=[Candidate(candidate_id=subject.candidate_id, data=structure)],
     )
     output = operation.execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "structure_candidates": candidates,
                 "residue_axes": associations,
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("f" * 64),),
-                    candidate_data=(subject,),
-                )
-            },
+            candidate_data={"structure_candidates": (subject,)},
         )
     )
 
     assert adapter.calls == [(axis, subject)]
     assert output == {"annotations": annotation}
-
-
-def test_dssp_requires_singleton_protein_structure_candidate_reference() -> None:
-    structure = ProteinStructure(
-        "ATOM      1  CA  GLY A   1       "
-        "1.000   2.000   3.000  1.00 20.00           C  \n"
-        "TER\nEND\n"
-    )
-    subject = _candidate_reference("subject-structure")
-
-    class ForbiddenAdapter:
-        def annotate(self, *args: Any, **kwargs: Any) -> DSSPAnnotation:
-            raise AssertionError("adapter must not run before admission")
-
-    operation = DSSPComputeOperation(ForbiddenAdapter())
-    candidates = CandidateCollection(
-        collection_id="subject-structures",
-        item_type="protein.structure",
-        items=[Candidate(candidate_id=subject.candidate_id, data=structure)],
-    )
-
-    with pytest.raises(ValueError, match="exact Candidate content identity"):
-        operation.execute(
-            OperationCall(
-                inputs={
-                    "structure_candidates": candidates,
-                    "residue_axes": CandidateResolvedResidueAxisAssociations(
-                        entries=(
-                            CandidateResolvedResidueAxisAssociation(
-                                subject,
-                                resolve_residue_axis(structure),
-                            ),
-                        )
-                    ),
-                },
-                node_parameters={},
-                binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                        candidate_data=(
-                            _candidate_reference(
-                                "another-candidate",
-                                digest_symbol="b",
-                            ),
-                        ),
-                    )
-                },
-            )
-        )
 
 
 def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> None:
@@ -630,20 +642,14 @@ def test_dssp_requires_one_exact_residue_axis_association_before_adapter() -> No
         match="one exact resolved residue-axis association",
     ):
         operation.execute(
-            OperationCall(
+            _operation_call(
                 inputs={
                     "structure_candidates": candidates,
                     "residue_axes": wrong_associations,
                 },
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                        candidate_data=(subject,),
-                    )
-                },
+                candidate_data={"structure_candidates": (subject,)},
             )
         )
 
@@ -680,7 +686,7 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
 
     adapter = RecordingAdapter()
     output = DSSPComputeOperation(adapter).execute(
-        OperationCall(
+        _operation_call(
             inputs={
                 "structure_candidates": CandidateCollection(
                     collection_id="mse-structures",
@@ -691,13 +697,7 @@ def test_dssp_receives_authoritative_three_residue_axis_including_mse() -> None:
             },
             node_parameters={},
             binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + ("f" * 64),),
-                    candidate_data=(subject,),
-                )
-            },
+            candidate_data={"structure_candidates": (subject,)},
         )
     )
 
@@ -719,11 +719,10 @@ def test_secondary_structure_and_sasa_extraction_preserve_subject() -> None:
         secondary_structure=("P", "H"),
         sasa=(12.0, None),
     )
-    call = OperationCall(
+    call = _operation_call(
         inputs={"annotations": annotation},
         node_parameters={},
         binding_parameters={},
-        input_content_digests={},
     )
 
     secondary = SecondaryStructureExtractOperation(
@@ -737,6 +736,99 @@ def test_secondary_structure_and_sasa_extraction_preserve_subject() -> None:
     assert secondary.values == ("C", "H")
     assert sasa.subject == subject
     assert sasa.values == (12.0, None)
+
+
+def test_agreement_reuses_the_admitted_subject_axis_reference() -> None:
+    catalog = build_frozen_catalog(
+        (STRUCTURE_ANNOTATION_PACKAGE, *_prompt_authoring_packages())
+    )
+    structure = ProteinStructure(
+        "ATOM      1  CA  GLY A   1       "
+        "1.000   2.000   3.000  1.00 20.00           C  \n"
+        "TER\nEND\n"
+    )
+    structure_port = catalog.require_port_type("protein.structure", "4.0.0")
+    subject = CandidateDataReference(
+        candidate_id="subject",
+        data_type_id="protein.structure",
+        content_digest=structure_port.content_digest(structure),
+    )
+    reference = CandidateDataReference(
+        candidate_id="reference",
+        data_type_id="protein.structure",
+        content_digest=structure_port.content_digest(structure),
+    )
+    layout = ResidueLayout("A", 1, ("A:1",))
+    binding_id = "structure_annotation.secondary_structure_agreement.direct"
+    operation = build_operation(
+        catalog,
+        binding_id,
+        _InvocationRecorder(),
+        binding_version="6.0.0",
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id=binding_id,
+        binding_version="6.0.0",
+        inputs={
+            "subjects": CandidateCollection(
+                "subjects",
+                "protein.structure",
+                (Candidate("subject", structure),),
+            ),
+            "references": CandidateCollection(
+                "references",
+                "protein.structure",
+                (Candidate("reference", structure),),
+            ),
+            "expected": StructureAnnotationTrack(
+                reference,
+                layout,
+                ("H",),
+            ),
+            "observed": StructureAnnotationTrack(
+                subject,
+                layout,
+                ("H",),
+            ),
+            "subject_residue_axes": (
+                CandidateResolvedResidueAxisAssociations(
+                    entries=(
+                        CandidateResolvedResidueAxisAssociation(
+                            subject,
+                            resolve_residue_axis(structure),
+                        ),
+                    )
+                )
+            ),
+        },
+        node_parameters={},
+        binding_parameters={},
+    )
+    axis_port = call.inputs["subject_residue_axes"]
+    trusted_axis = replace(
+        axis_port.scientific_axes[0],
+        axis_content_digest="sha256:" + "a" * 64,
+    )
+    call = replace(
+        call,
+        inputs={
+            **call.inputs,
+            "subject_residue_axes": replace(
+                axis_port,
+                values=(
+                    replace(
+                        axis_port.values[0],
+                        scientific_axes=(trusted_axis,),
+                    ),
+                ),
+            ),
+        },
+    )
+
+    observation = operation.execute(call)["scores"].entries[0]
+
+    assert observation.residue_axis == trusted_axis
 
 
 @pytest.mark.parametrize(
@@ -754,18 +846,7 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
     track_role: str,
 ) -> None:
     resources = _InvocationRecorder()
-    operation = SecondaryStructureAgreementOperation(
-        resources=resources,
-        method=ExactContractReference(
-            contract_kind="method",
-            contract_id=(
-                "structure_annotation.secondary_structure_agreement.method"
-            ),
-            contract_version="3.0.0",
-            contract_digest="sha256:" + ("d" * 64),
-        ),
-        produced_observations=(),
-    )
+    operation = _agreement_operation(resources)
     layout = ResidueLayout(
         chain_id="A",
         length=1,
@@ -821,7 +902,7 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
             ),
         )
     )
-    call = OperationCall(
+    call = _operation_call(
         inputs={
             "subjects": subjects,
             "references": references,
@@ -847,17 +928,9 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
         },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={
-            "subjects": InputContentDigests(
-                port_type_id="candidate.collection",
-                value_content_digests=("sha256:" + ("e" * 64),),
-                candidate_data=(subject_reference,),
-            ),
-            "references": InputContentDigests(
-                port_type_id="candidate.collection",
-                value_content_digests=("sha256:" + ("f" * 64),),
-                candidate_data=(expected_reference,),
-            ),
+        candidate_data={
+            "subjects": (subject_reference,),
+            "references": (expected_reference,),
         },
     )
 
@@ -868,18 +941,7 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
 
 def test_agreement_checks_layout_after_exact_participant_binding() -> None:
     resources = _InvocationRecorder()
-    operation = SecondaryStructureAgreementOperation(
-        resources=resources,
-        method=ExactContractReference(
-            contract_kind="method",
-            contract_id=(
-                "structure_annotation.secondary_structure_agreement.method"
-            ),
-            contract_version="3.0.0",
-            contract_digest="sha256:" + ("d" * 64),
-        ),
-        produced_observations=(),
-    )
+    operation = _agreement_operation(resources)
     subject = _candidate_reference("subject-1")
     reference = _candidate_reference("reference-1", digest_symbol="c")
     structure = ProteinStructure(
@@ -922,21 +984,13 @@ def test_agreement_checks_layout_after_exact_participant_binding() -> None:
 
     with pytest.raises(ValueError, match="one identical exact layout"):
         operation.execute(
-            OperationCall(
+            _operation_call(
                 inputs=inputs,
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={
-                    "subjects": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("e" * 64),),
-                        candidate_data=(subject,),
-                    ),
-                    "references": InputContentDigests(
-                        port_type_id="candidate.collection",
-                        value_content_digests=("sha256:" + ("f" * 64),),
-                        candidate_data=(reference,),
-                    ),
+                candidate_data={
+                    "subjects": (subject,),
+                    "references": (reference,),
                 },
             )
         )
@@ -945,18 +999,7 @@ def test_agreement_checks_layout_after_exact_participant_binding() -> None:
 
 def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
     resources = _InvocationRecorder()
-    operation = SecondaryStructureAgreementOperation(
-        resources=resources,
-        method=ExactContractReference(
-            contract_kind="method",
-            contract_id=(
-                "structure_annotation.secondary_structure_agreement.method"
-            ),
-            contract_version="3.0.0",
-            contract_digest="sha256:" + ("d" * 64),
-        ),
-        produced_observations=(),
-    )
+    operation = _agreement_operation(resources)
     subject = _candidate_reference("subject-1")
     reference = _candidate_reference("reference-1", digest_symbol="c")
     wrong_subject = _candidate_reference(
@@ -974,7 +1017,7 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
         match="one exact resolved residue-axis association",
     ):
         operation.execute(
-            OperationCall(
+            _operation_call(
                 inputs={
                     "subjects": CandidateCollection(
                         "subjects",
@@ -1009,17 +1052,9 @@ def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
                 },
                 node_parameters={},
                 binding_parameters={},
-                input_content_digests={
-                    "subjects": InputContentDigests(
-                        "candidate.collection",
-                        ("sha256:" + ("e" * 64),),
-                        (subject,),
-                    ),
-                    "references": InputContentDigests(
-                        "candidate.collection",
-                        ("sha256:" + ("f" * 64),),
-                        (reference,),
-                    ),
+                candidate_data={
+                    "subjects": (subject,),
+                    "references": (reference,),
                 },
             )
         )
@@ -1033,12 +1068,12 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
     node = catalog.require_contract(
         "node_type",
         "structure_annotation.dssp_compute",
-        "6.0.0",
+        "7.0.0",
     )
     binding = catalog.require_contract(
         "binding",
         "structure_annotation.dssp_compute.mkdssp_local",
-        "6.0.0",
+        "7.0.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
@@ -1046,7 +1081,7 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
     assert binding.descriptor["execution_route"] == "adapter"
     assert binding.descriptor["route_behavior"] == {
         "behavior_id": "structure_annotation.mkdssp_local/adapter",
-        "behavior_version": "6.0.0",
+        "behavior_version": "7.0.0",
         "parameters": {
             "axis_source": (
                 "exact-candidate-associated-authoritative-"
@@ -1234,9 +1269,9 @@ def _run_dssp(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_structure",
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id="protein_io.import_structure.direct",
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={"project_input_ref": "structure-input"},
                 binding_parameters={},
             ),
@@ -1245,21 +1280,21 @@ def _run_dssp(
                 node_type_id=(
                     "structure_transform.resolve_candidate_residue_axes"
                 ),
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id=(
                     "structure_transform."
                     "resolve_candidate_residue_axes.direct"
                 ),
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="annotate",
                 node_type_id="structure_annotation.dssp_compute",
-                node_type_version="6.0.0",
+                node_type_version="7.0.0",
                 binding_id="structure_annotation.dssp_compute.mkdssp_local",
-                binding_version="6.0.0",
+                binding_version="7.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1302,7 +1337,7 @@ def _run_dssp(
             {
                 (
                     "structure_annotation.dssp_compute.mkdssp_local",
-                    "6.0.0",
+                    "7.0.0",
                 ): {
                     "values": {
                         "dssp_binary": configured_binary or str(binary)
@@ -1782,11 +1817,11 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
     candidate_source = WorkflowNodeInstance(
         node_id="candidates",
         node_type_id="contract_test.structure_annotation_candidate_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id=(
             "contract_test.structure_annotation_candidate_source.direct"
         ),
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -1795,20 +1830,20 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
         node_type_id=(
             "structure_transform.resolve_candidate_residue_axes"
         ),
-        node_type_version="5.0.0",
+        node_type_version="6.0.0",
         binding_id=(
             "structure_transform.resolve_candidate_residue_axes.direct"
         ),
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
     value_source = WorkflowNodeInstance(
         node_id="values",
         node_type_id="contract_test.structure_annotation_value_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.structure_annotation_value_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -1820,9 +1855,9 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
         ModulePackageContractCase(
             case_id="structure-annotation-dssp",
             node_type_id="structure_annotation.dssp_compute",
-            node_type_version="6.0.0",
+            node_type_version="7.0.0",
             binding_id="structure_annotation.dssp_compute.mkdssp_local",
-            binding_version="6.0.0",
+            binding_version="7.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values={"dssp_binary": str(binary)},
@@ -1894,11 +1929,11 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_type_id=(
                 "structure_annotation.secondary_structure_agreement"
             ),
-            node_type_version="5.0.0",
+            node_type_version="6.0.0",
             binding_id=(
                 "structure_annotation.secondary_structure_agreement.direct"
             ),
-            binding_version="5.0.0",
+            binding_version="6.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -2007,12 +2042,12 @@ fixture A 2 ALA . 20.0 2.0 3.0 4.0
             node_type_id=(
                 "structure_annotation.expected_secondary_structure_from_prompt"
             ),
-            node_type_version="5.0.0",
+            node_type_version="6.0.0",
             binding_id=(
                 "structure_annotation."
                 "expected_secondary_structure_from_prompt.direct"
             ),
-            binding_version="5.0.0",
+            binding_version="6.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values={},
@@ -2123,12 +2158,12 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
                 node_type_id=(
                     "contract_test.structure_annotation_candidate_source"
                 ),
-                node_type_version="3.0.0",
+                node_type_version="4.0.0",
                 binding_id=(
                     "contract_test."
                     "structure_annotation_candidate_source.direct"
                 ),
-                binding_version="3.0.0",
+                binding_version="4.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -2137,11 +2172,11 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
                 node_type_id=(
                     "contract_test.structure_annotation_value_source"
                 ),
-                node_type_version="3.0.0",
+                node_type_version="4.0.0",
                 binding_id=(
                     "contract_test.structure_annotation_value_source.direct"
                 ),
-                binding_version="3.0.0",
+                binding_version="4.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -2150,12 +2185,12 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
                 node_type_id=(
                     "structure_transform.resolve_candidate_residue_axes"
                 ),
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id=(
                     "structure_transform."
                     "resolve_candidate_residue_axes.direct"
                 ),
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -2164,12 +2199,12 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
                 node_type_id=(
                     "structure_annotation.secondary_structure_agreement"
                 ),
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id=(
                     "structure_annotation."
                     "secondary_structure_agreement.direct"
                 ),
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from math import isfinite
+from typing import Any, cast
 
 from core import BehaviorReference, PortTypeDefinition, builtin_frozen_catalog
 from core.port_types import canonical_json_bytes
@@ -33,7 +34,7 @@ from .domain import (
 
 
 RESOLVED_AXIS_VERSION = "4.0.0"
-CANDIDATE_ASSOCIATION_VERSION = "5.0.0"
+CANDIDATE_ASSOCIATION_VERSION = "6.0.0"
 NORMALIZATION_FACTS_VERSION = "1.0.0"
 _NORMALIZATION_VERSION = "3.0.0"
 _BUILTINS = builtin_frozen_catalog()
@@ -577,41 +578,6 @@ def validate_resolved_axis(value: object) -> None:
                 "modified-residue normalization lacks a matching disposition"
             )
 
-    explicit_normalization_identities = {
-        _normalization_identity(
-            disposition.component_id,
-            disposition.observed_residue_id,
-            disposition.parent_residue_ids,
-            disposition.parent_sequence,
-        )
-        for disposition in value.component_dispositions
-        if disposition.normalization_source == "explicit_mapping"
-    }
-    explicit_normalizations = ModifiedResidueNormalizationCollection(
-        entries=tuple(
-            normalization
-            for normalization in value.modified_residue_normalizations.entries
-            if _normalization_identity(
-                normalization.component_id,
-                normalization.observed_residue_id,
-                normalization.parent_residue_ids,
-                normalization.parent_sequence,
-            )
-            in explicit_normalization_identities
-        )
-    )
-    from .implementation import resolve_residue_axis
-
-    canonical = resolve_residue_axis(
-        value.structure,
-        explicit_normalizations,
-    )
-    if canonical != value:
-        raise ValueError(
-            "resolved residue axis does not match its embedded structure"
-        )
-
-
 def _axis_to_wire(value: object) -> object:
     assert type(value) is ResolvedStructureResidueAxis
     return {
@@ -1038,17 +1004,14 @@ def _candidate_axes_from_wire(value: object) -> object:
                 residue_axis=residue_axis,
             )
         )
-    result = CandidateResolvedResidueAxisAssociations(entries=tuple(entries))
-    validate_candidate_resolved_axis_associations(result)
-    return result
+    return CandidateResolvedResidueAxisAssociations(entries=tuple(entries))
 
 
 def _candidate_axis_references(
     value: object,
 ) -> tuple[ResidueAxisReference, ...]:
     """Project independently identified scalar axes from one association set."""
-    validate_candidate_resolved_axis_associations(value)
-    assert type(value) is CandidateResolvedResidueAxisAssociations
+    admitted = cast(CandidateResolvedResidueAxisAssociations, value)
     reference = RESOLVED_AXIS_PORT_TYPE.reference()
     axis_contract = ExactContractReference(
         contract_kind=reference["contract_kind"],
@@ -1066,8 +1029,16 @@ def _candidate_axis_references(
             source=entry.subject,
             layout=entry.residue_axis.layout,
         )
-        for entry in value.entries
+        for entry in admitted.entries
     )
+
+
+def _association_candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    admitted = cast(Any, value)
+    return tuple(entry.subject for entry in admitted.entries)
 
 
 def _validate_normalization_facts(value: object) -> None:
@@ -1212,6 +1183,15 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_candidate_normalization_associations,
     runtime_to_wire=_candidate_normalizations_to_wire,
     runtime_from_wire=_candidate_normalizations_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_transform.candidate_modified_residue_normalization_"
+        "associations/candidate_data_projection",
+        CANDIDATE_ASSOCIATION_VERSION,
+        {"fields": ["entries[].subject"]},
+    ),
+    runtime_candidate_data_projection=(
+        _association_candidate_data_references
+    ),
 )
 
 
@@ -1256,6 +1236,15 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_candidate_resolved_axis_associations,
     runtime_to_wire=_candidate_axes_to_wire,
     runtime_from_wire=_candidate_axes_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_transform.candidate_resolved_residue_axis_associations/"
+        "candidate_data_projection",
+        CANDIDATE_ASSOCIATION_VERSION,
+        {"fields": ["entries[].subject"]},
+    ),
+    runtime_candidate_data_projection=(
+        _association_candidate_data_references
+    ),
     scientific_axis_projection=BehaviorReference(
         (
             "structure_transform."

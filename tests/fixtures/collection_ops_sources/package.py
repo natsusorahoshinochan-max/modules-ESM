@@ -38,8 +38,9 @@ from tests.fixtures.exact_content_identity import exact_content_identity
 
 
 VERSION = "2.1.0"
-CANDIDATE_NODE_VERSION = "3.0.0"
-SCORE_NODE_VERSION = "4.0.0"
+CANDIDATE_NODE_VERSION = "4.0.0"
+SCORE_NODE_VERSION = "5.0.0"
+PACKAGE_VERSION = "3.0.0"
 METRIC = ContractIdentity(
     "metric",
     "contract_test.collection_ops_value",
@@ -182,14 +183,15 @@ class _Scorer:
         inputs = call.inputs
         node_parameters = call.node_parameters
         binding_parameters = call.binding_parameters
-        candidates = inputs.get("candidates")
+        candidate_input = inputs.get("candidates")
+        candidates = None if candidate_input is None else candidate_input.value
         if (
             type(candidates) is not CandidateCollection
             or node_parameters
             or binding_parameters
         ):
             raise ValueError("fixture scorer requires exact Candidates")
-        admitted = call.input_content_digests.get("candidates")
+        admitted = call.inputs.get("candidates")
         if admitted is None:
             raise ValueError("fixture scorer requires admitted Candidates")
         subjects: tuple[CandidateDataReference, ...] = admitted.candidate_data
@@ -577,7 +579,7 @@ def _utility(partition: str) -> UtilityTransformDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="contract_test.collection_ops_sources",
-    package_version=VERSION,
+    package_version=PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("source.yaml"),

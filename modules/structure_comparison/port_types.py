@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any
+from typing import Any, cast
 
 from core import BehaviorReference, PortTypeDefinition
 from datatypes import CandidateDataReference, ExactContractReference
@@ -26,7 +26,7 @@ from .domain import (
 
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-EVIDENCE_VERSION = "4.0.0"
+EVIDENCE_VERSION = "5.0.0"
 _METHOD_BY_POLICY = {
     "sequence_primary_affine": SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
     "structure_first_tm_align": STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE,
@@ -579,6 +579,14 @@ def alignment_evidence_from_wire(value: object) -> StructureAlignmentEvidence:
     return evidence
 
 
+def _candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    admitted = cast(StructureAlignmentEvidence, value)
+    return (admitted.subject, admitted.reference)
+
+
 ALIGNMENT_EVIDENCE_PORT_TYPE = PortTypeDefinition(
     type_id="structure_comparison.alignment_evidence",
     version=EVIDENCE_VERSION,
@@ -618,4 +626,10 @@ ALIGNMENT_EVIDENCE_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_alignment_evidence,
     runtime_to_wire=alignment_evidence_to_wire,
     runtime_from_wire=alignment_evidence_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_comparison.alignment_evidence/candidate_data_projection",
+        EVIDENCE_VERSION,
+        {"fields": ["subject", "reference"]},
+    ),
+    runtime_candidate_data_projection=_candidate_data_references,
 )

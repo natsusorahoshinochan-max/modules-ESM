@@ -57,7 +57,7 @@ def test_local_esm3_all_generation_modes(
         binding = catalog.require_contract(
             "binding",
             binding_id,
-            "7.0.0",
+            "8.0.0",
         )
         assert binding.descriptor["method"]["contract_id"] == (
             f"esm3.{operation}.esm3_sm_open_v1_local"
@@ -73,7 +73,7 @@ def test_local_esm3_all_generation_modes(
             for index, event in enumerate(events)
             if event["event"]["type"] == "readiness_attested"
             and event["event"]["binding"]["contract_id"] == binding_id
-            and event["event"]["binding"]["contract_version"] == "7.0.0"
+            and event["event"]["binding"]["contract_version"] == "8.0.0"
             and event["event"]["conclusion"] == "passing"
         )
         invocations = [

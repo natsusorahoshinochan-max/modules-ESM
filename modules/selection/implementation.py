@@ -11,7 +11,6 @@ from core.port_types import canonical_sha256
 from core.scoring_v2 import (
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
-    SelectionError,
     observation_selector_identity_facts_from_facts,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities_from_facts,
@@ -22,7 +21,6 @@ from core.scoring_v2 import (
 from datatypes import (
     CandidateCollection,
     CandidateDataReference,
-    PairwiseObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
@@ -49,17 +47,10 @@ class SelectionImplementation:
         }
 
     def execute(self, call: OperationCall) -> dict[str, CandidateCollection]:
-        if call.binding_parameters:
-            raise ValueError("selection accepts no Binding parameters")
-        candidates = call.inputs.get("candidates")
-        scores = call.inputs.get("scores")
-        if type(candidates) is not CandidateCollection:
-            raise ValueError("selection requires one exact Candidate Collection")
-        if type(scores) is not ScoreCollection:
-            raise ValueError("selection requires one exact Score Collection")
+        candidates = call.inputs["candidates"].value
+        scores = call.inputs["scores"].value
         candidate_data_references = self._candidate_data_references(
             call,
-            candidates,
         )
         if self._operation in {"weighted_rank", "pareto", "diversity"}:
             return self._execute_multi_objective(
@@ -68,24 +59,12 @@ class SelectionImplementation:
                 node_parameters=call.node_parameters,
                 candidate_data_references=candidate_data_references,
             )
-        if (
-            call.node_parameters.get("tie_policy")
-            != "candidate_id_ascending"
-        ):
-            raise ValueError("selection tie policy is unsupported")
-        out_of_scope_policy = call.node_parameters.get("out_of_scope_policy")
-        if out_of_scope_policy not in {"error", "ignore"}:
-            raise ValueError("selection out-of-scope policy is unsupported")
+        out_of_scope_policy = call.node_parameters["out_of_scope_policy"]
 
         if self._operation == "filter":
-            selector_facts = self._selectors.get(
-                call.node_parameters.get("selector_id")
-            )
-            if selector_facts is None:
-                raise ValueError(
-                    "selection selector_id does not resolve one compiled "
-                    "Observation Selector"
-                )
+            selector_facts = self._selectors[
+                call.node_parameters["selector_id"]
+            ]
             selector = selector_facts.selector
             matching = resolve_objective_observations(
                 candidates=candidates,
@@ -94,15 +73,11 @@ class SelectionImplementation:
                 out_of_scope_policy=out_of_scope_policy,
                 duplicate_policy="error",
             )
-            self._require_exact_observation_subjects(
-                matching,
-                candidate_data_references,
-            )
             selected = self._filter(
                 candidates=candidates,
                 matching=matching,
-                operator=call.node_parameters.get("operator"),
-                threshold=call.node_parameters.get("threshold"),
+                operator=call.node_parameters["operator"],
+                threshold=call.node_parameters["threshold"],
             )
             selection_contract = (
                 observation_selector_identity_facts_from_facts(
@@ -112,22 +87,9 @@ class SelectionImplementation:
                 )[0]
             )
         else:
-            objective_id = call.node_parameters.get("objective_id")
-            objective_facts = self._objectives.get(objective_id)
-            if objective_facts is None:
-                raise ValueError(
-                    "selection objective_id does not resolve one compiled "
-                    "objective"
-                )
+            objective_id = call.node_parameters["objective_id"]
+            objective_facts = self._objectives[objective_id]
             objective = objective_facts.objective
-            if objective.match_cardinality != "exactly_one":
-                raise ValueError(
-                    "selection requires exactly_one match cardinality"
-                )
-            if objective.missing_policy != "error":
-                raise ValueError(
-                    "selection requires fail-closed missing policy"
-                )
             matching = resolve_objective_observations(
                 candidates=candidates,
                 collection=scores,
@@ -159,9 +121,7 @@ class SelectionImplementation:
         if self._operation == "sort":
             selected = list(ranked)
         elif self._operation == "top_k":
-            k = call.node_parameters.get("k")
-            if type(k) is not int or k < 1:
-                raise ValueError("top-k requires a positive integer k")
+            k = call.node_parameters["k"]
             if k > len(candidates.items):
                 raise ValueError(
                     "top-k k cannot exceed Candidate input cardinality"
@@ -209,44 +169,17 @@ class SelectionImplementation:
             CandidateDataReference,
         ],
     ) -> dict[str, CandidateCollection]:
-        objective_ids = node_parameters.get("objective_ids")
-        if (
-            not isinstance(objective_ids, (list, tuple))
-            or not objective_ids
-            or not all(isinstance(item, str) for item in objective_ids)
-            or len(objective_ids) != len(set(objective_ids))
-        ):
-            raise ValueError(
-                "multi-objective selection requires unique objective_ids"
-            )
+        objective_ids = node_parameters["objective_ids"]
         objectives = tuple(
-            self._objectives.get(objective_id)
+            self._objectives[objective_id]
             for objective_id in objective_ids
         )
-        if any(objective is None for objective in objectives):
-            raise ValueError(
-                "selection objective_ids do not resolve compiled objectives"
-            )
-        if node_parameters.get("tie_policy") != "candidate_id_ascending":
-            raise ValueError("selection tie policy is unsupported")
-        typed_objectives = tuple(
-            item for item in objectives if item is not None
-        )
-        candidate_references = {
-            item.objective.candidate_input for item in typed_objectives
-        }
-        score_references = {
-            item.objective.score_collection_input for item in typed_objectives
-        }
-        if len(candidate_references) != 1 or len(score_references) != 1:
-            raise SelectionError(
-                "multi-objective selection requires exact shared Candidate "
-                "and Score Collection inputs"
-            )
+        candidate_reference = objectives[0].objective.candidate_input
+        score_reference = objectives[0].objective.score_collection_input
         profile = resolve_candidate_utilities_from_facts(
-            candidate_inputs={next(iter(candidate_references)): candidates},
-            score_collection_inputs={next(iter(score_references)): scores},
-            objectives=typed_objectives,
+            candidate_inputs={candidate_reference: candidates},
+            score_collection_inputs={score_reference: scores},
+            objectives=objectives,
             candidate_data_references=candidate_data_references,
         )
         aggregate = weighted_utility_totals(profile)
@@ -291,11 +224,7 @@ class SelectionImplementation:
                 if candidate_id not in dominated
             ]
         elif self._operation == "diversity":
-            k = node_parameters.get("k")
-            if type(k) is not int or k < 1:
-                raise ValueError(
-                    "diversity selection requires a positive integer k"
-                )
+            k = node_parameters["k"]
             if k > len(candidates.items):
                 raise ValueError(
                     "diversity selection k cannot exceed Candidate input "
@@ -357,7 +286,7 @@ class SelectionImplementation:
                 "input_collection_id": candidates.collection_id,
                 "objectives": list(
                     selection_objective_identity_facts_from_facts(
-                        typed_objectives,
+                        objectives,
                         candidate_input_port="candidates",
                         score_collection_input_port="scores",
                     )
@@ -390,11 +319,6 @@ class SelectionImplementation:
         operator: object,
         threshold: object,
     ) -> list[Any]:
-        if (
-            isinstance(threshold, bool)
-            or not isinstance(threshold, (int, float))
-        ):
-            raise ValueError("filter threshold must be numeric")
         comparisons = {
             ">": lambda value: value > threshold,
             ">=": lambda value: value >= threshold,
@@ -403,9 +327,7 @@ class SelectionImplementation:
             "==": lambda value: value == threshold,
             "!=": lambda value: value != threshold,
         }
-        comparison = comparisons.get(operator)
-        if comparison is None:
-            raise ValueError("filter operator is unsupported")
+        comparison = comparisons[operator]
         return [
             candidate
             for candidate in candidates.items
@@ -415,52 +337,8 @@ class SelectionImplementation:
     @staticmethod
     def _candidate_data_references(
         call: OperationCall,
-        candidates: CandidateCollection,
     ) -> Mapping[str, CandidateDataReference]:
-        admitted = call.input_content_digests.get("candidates")
-        if admitted is None:
-            raise ValueError(
-                "selection Candidate content identities were not admitted"
-            )
-        if len(admitted.candidate_data) != len(candidates.items):
-            raise ValueError(
-                "selection Candidate content identities are incomplete"
-            )
-        resolved: dict[str, CandidateDataReference] = {}
-        for candidate, reference in zip(
-            candidates.items,
-            admitted.candidate_data,
-            strict=True,
-        ):
-            if candidate.candidate_id != reference.candidate_id:
-                raise ValueError(
-                    "selection Candidate content identity names a different "
-                    "Candidate"
-                )
-            resolved[reference.candidate_id] = reference
-        if len(resolved) != len(admitted.candidate_data):
-            raise ValueError(
-                "selection has duplicate admitted Candidate identities"
-            )
-        return resolved
-
-    @staticmethod
-    def _require_exact_observation_subjects(
-        observations: Mapping[str, ScoreObservation],
-        candidates: Mapping[str, CandidateDataReference],
-    ) -> None:
-        for candidate_id, observation in observations.items():
-            expected = candidates.get(candidate_id)
-            if expected is None or observation.subject != expected:
-                raise SelectionError(
-                    "Observation subject does not match the exact Candidate "
-                    "Data Reference"
-                )
-            if (
-                isinstance(observation.context, PairwiseObservationContext)
-                and observation.context.subject.candidate != expected
-            ):
-                raise SelectionError(
-                    "Pairwise Context subject does not match the exact "
-                    "Candidate Data Reference"
-                )
+        return {
+            reference.candidate_id: reference
+            for reference in call.inputs["candidates"].candidate_data
+        }

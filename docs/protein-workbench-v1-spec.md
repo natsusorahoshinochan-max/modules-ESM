@@ -1,6 +1,6 @@
 > Historical v1 specification. This document is non-normative for the active
 > Catalog. In particular, its built-in `StructureAlignment` design is
-> superseded by ADR-0038 and `structure_comparison.alignment_evidence@4.0.0`.
+> superseded by ADR-0038 and `structure_comparison.alignment_evidence@5.0.0`.
 
 ## Problem Statement
 

@@ -7,6 +7,7 @@ import importlib.util
 from typing import Any
 
 from core import (
+    AdmittedPort,
     AvailabilityDeclaration,
     AvailabilityResult,
     BehaviorReference,
@@ -24,7 +25,10 @@ from core import (
     ScientificOperation,
     ScientificOperationFactory,
 )
-from modules.provider_contract import validate_installed_provider_checkout
+from modules.provider_contract import (
+    ProviderInstallationUnavailable,
+    validate_installed_provider_checkout,
+)
 
 from .adapter import (
     BIOHUB_ESM3_MEDIUM_MODEL,
@@ -58,9 +62,9 @@ from .local_adapter import (
 )
 
 
-_PACKAGE_VERSION = "5.0.0"
+_PACKAGE_VERSION = "6.0.0"
 _GENERATION_METHOD_VERSION = "5.0.0"
-_GENERATION_NODE_BINDING_VERSION = "7.0.0"
+_GENERATION_NODE_BINDING_VERSION = "8.0.0"
 _ESMC_METHOD_VERSION = "3.0.0"
 _ESMC_PORT_VERSION = "4.0.0"
 _ESMC_NODE_BINDING_VERSION = "5.0.0"
@@ -99,7 +103,7 @@ def _provider_installation_is_exact() -> bool:
         return False
     try:
         validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except (OSError, RuntimeError, ValueError):
+    except ProviderInstallationUnavailable:
         return False
     return True
 
@@ -401,21 +405,12 @@ def _local_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
 
 def _resolve_local_effective_randomness(
     *,
-    inputs: Mapping[str, Any],
+    inputs: Mapping[str, AdmittedPort],
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    del inputs
-    if binding_parameters:
-        raise ValueError("local ESM-3 Bindings accept no route parameters")
-    seed = node_parameters.get("effective_seed")
-    if (
-        type(seed) is not int
-        or seed < 0
-        or seed > 9_007_199_254_740_991
-    ):
-        raise ValueError("effective_seed must be one resolved I-JSON integer")
-    return {"effective_seed": seed}
+    del inputs, binding_parameters
+    return {"effective_seed": node_parameters["effective_seed"]}
 
 
 def _build(

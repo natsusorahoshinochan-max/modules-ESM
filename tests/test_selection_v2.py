@@ -46,9 +46,9 @@ from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 VERSION = "2.1.0"
-NODE_BINDING_VERSION = "4.0.0"
-SOURCE_NODE_VERSION = "3.0.0"
-SCORER_NODE_VERSION = "4.0.0"
+NODE_BINDING_VERSION = "5.0.0"
+SOURCE_NODE_VERSION = "4.0.0"
+SCORER_NODE_VERSION = "5.0.0"
 SOURCE_PARTITION = "contract_test.partition.a"
 
 
@@ -300,8 +300,8 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             )
             for port in node.descriptor["inputs"]
         ] == [
-            ("candidates", "candidate.collection", "3.0.0"),
-            ("scores", "score.collection", "4.0.0"),
+            ("candidates", "candidate.collection", "4.0.0"),
+            ("scores", "score.collection", "5.0.0"),
         ]
         binding = contracts[("binding", f"selection.{operation}.direct")]
         method = contracts[("method", f"selection.{operation}.method")]
@@ -490,51 +490,6 @@ def _runtime_values(catalog):
     return candidates, scores
 
 
-@pytest.mark.parametrize(
-    ("field_name", "replacement"),
-    (
-        ("content_digest", f"sha256:{'0' * 64}"),
-        ("data_type_id", "protein.structure"),
-    ),
-)
-def test_filter_joins_scores_to_candidates_by_complete_admitted_cdr(
-    field_name: str,
-    replacement: str,
-) -> None:
-    catalog, implementation = _direct_implementation("filter")
-    candidates, scores = _runtime_values(catalog)
-    mismatched_subject = replace(
-        scores.entries[0].subject,
-        **{field_name: replacement},
-    )
-    mismatched = ScoreCollection(
-        "mismatched-subject",
-        [
-            replace(scores.entries[0], subject=mismatched_subject),
-            *scores.entries[1:],
-        ],
-    )
-
-    with pytest.raises(
-        SelectionError,
-        match="exact Candidate Data Reference",
-    ):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="selection.filter.direct",
-            binding_version=NODE_BINDING_VERSION,
-            inputs={"candidates": candidates, "scores": mismatched},
-            node_parameters={
-                "selector_id": "quality",
-                "operator": ">",
-                "threshold": 0.5,
-                "out_of_scope_policy": "error",
-                "tie_policy": "candidate_id_ascending",
-            },
-            binding_parameters={},
-        ))
-
-
 @pytest.mark.parametrize("operation", ("sort", "weighted_rank"))
 def test_utility_selection_joins_by_complete_admitted_cdr(
     operation: str,
@@ -588,7 +543,7 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
         binding_parameters={},
     )
     output = implementation.execute(call)["candidates"]
-    admitted_candidates = call.inputs["candidates"]
+    admitted_candidates = call.inputs["candidates"].value
 
     assert output.items == (admitted_candidates.items[0],)
     assert output.items[0] is admitted_candidates.items[0]
@@ -636,7 +591,7 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
     ]
     assert (
         sorted_candidates.items[1]
-        is sort_call.inputs["candidates"].items[2]
+        is sort_call.inputs["candidates"].value.items[2]
     )
     _, top_k = _direct_implementation("top_k")
     selected = top_k.execute(operation_call(
@@ -662,7 +617,7 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
         ))
 
 
-def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> None:
+def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
     catalog, implementation = _direct_implementation("sort")
     candidates, scores = _runtime_values(catalog)
     parameters = {
@@ -671,19 +626,6 @@ def test_duplicate_conflicting_and_out_of_scope_observations_fail_closed() -> No
         "tie_policy": "candidate_id_ascending",
     }
 
-    duplicate = ScoreCollection(
-        "duplicate",
-        [*scores.entries, scores.entries[0]],
-    )
-    with pytest.raises(ValueError, match="duplicate observation"):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="selection.sort.direct",
-            binding_version=NODE_BINDING_VERSION,
-            inputs={"candidates": candidates, "scores": duplicate},
-            node_parameters=parameters,
-            binding_parameters={},
-        ))
     conflict = ScoreCollection(
         "conflict",
         [*scores.entries, replace(scores.entries[0], value=0.1)],

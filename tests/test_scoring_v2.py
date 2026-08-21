@@ -26,7 +26,6 @@ from core import (
     build_frozen_catalog,
     compile_workflow,
     relock_workflow,
-    select_candidates,
     validate_produced_score_collection,
 )
 from core.port_types import PortValueError
@@ -58,6 +57,10 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
+from tests.fixtures.scientific_operation import (
+    admitted_port_fixture,
+    select_admitted_candidates,
+)
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,
@@ -88,8 +91,8 @@ def _contract(
 def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     builtin = builtin_frozen_catalog()
     selection_catalog = build_frozen_catalog((SELECTION_PACKAGE,))
-    candidates_type = builtin.require_port_type("candidate.collection", "3.0.0")
-    scores_type = builtin.require_port_type("score.collection", "4.0.0")
+    candidates_type = builtin.require_port_type("candidate.collection", "4.0.0")
+    scores_type = builtin.require_port_type("score.collection", "5.0.0")
     metric_quality = _contract(
         "metric",
         "quality",
@@ -332,9 +335,9 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "output_port": "scores",
                     "metric": metric_quality.reference(),
                     "context_profile": {"kind": "intrinsic"},
-                    "subject_grain": "candidate",
-                    "source_role": "subject",
-                    "subject_direction": "input",
+                        "subject_grain": "candidate",
+                        "source_role": "subject",
+                        "subject_direction": "input",
                     "subject_port": "candidates",
                     "guaranteed_multiplicity": "one",
                 },
@@ -412,9 +415,10 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         def execute(self, call: OperationCall) -> dict:
             assert call.node_parameters == {}
             assert call.binding_parameters == {}
-            candidates = call.inputs["candidates"]
+            admitted_candidates = call.inputs["candidates"]
+            candidates = admitted_candidates.value
             assert type(candidates) is CandidateCollection
-            admitted = call.input_content_digests["candidates"].candidate_data
+            admitted = admitted_candidates.candidate_data
             assert len(admitted) == 2
             first, second = candidates.items
             first_ref, second_ref = admitted
@@ -521,8 +525,8 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
 def _dynamic_observation_method_catalog(
 ) -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     catalog, contracts = _scoring_catalog()
-    candidates_type = catalog.require_port_type("candidate.collection", "3.0.0")
-    scores_type = catalog.require_port_type("score.collection", "4.0.0")
+    candidates_type = catalog.require_port_type("candidate.collection", "4.0.0")
+    scores_type = catalog.require_port_type("score.collection", "5.0.0")
     facts_type = CONFIDENCE_FACTS_PORT_TYPE
     generation_node = _contract(
         "node_type",
@@ -818,7 +822,7 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
 
 def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "4.0.0")
+    score_type = catalog.require_port_type("score.collection", "5.0.0")
     observation = _observation(contracts, "candidate-1", 90)
 
     encoded = score_type.encode(
@@ -862,53 +866,9 @@ def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed
         )
 
 
-def test_selection_rejects_one_observation_identity_in_two_partitions() -> None:
-    catalog, contracts = _scoring_catalog()
-    candidate_input = SelectionInput("producer", "candidates")
-    score_input = SelectionInput("producer", "scores")
-    observation = _observation(contracts, "candidate-1", 90)
-
-    with pytest.raises(SelectionError, match="partition collision"):
-        select_candidates(
-            candidate_inputs={
-                candidate_input: CandidateCollection(
-                    "candidates",
-                    "protein.sequence",
-                    [Candidate("candidate-1", ProteinSequence("AA"))],
-                )
-            },
-            score_collection_inputs={
-                score_input: ScoreCollection(
-                    "scores",
-                    [
-                        observation,
-                        replace(observation, source_partition="other"),
-                    ],
-                )
-            },
-            objectives=(
-                SelectionObjective(
-                    objective_id="quality-objective",
-                    candidate_input=candidate_input,
-                    score_collection_input=score_input,
-                    metric=_reference(contracts["quality"]),
-                    method=_reference(contracts["method.a"]),
-                    context_selector=IntrinsicObservationContext(),
-                    utility_transform=_reference(
-                        contracts["quality.linear"]
-                    ),
-                    utility_parameters={},
-                    weight=1,
-                ),
-            ),
-            catalog=catalog,
-            limit=1,
-        )
-
-
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "4.0.0")
+    score_type = catalog.require_port_type("score.collection", "5.0.0")
     malformed = replace(
         _observation(contracts, "candidate-1", 90),
         metric=_reference(contracts["method.a"]),
@@ -1105,6 +1065,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         }
         | {
             "inputs": [
+                original_node["inputs"][0],
                 {
                     "name": "residue_axis",
                     "port_type": axis_type.reference(),
@@ -1143,7 +1104,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
                     "source_role": "subject",
-                    "subject_direction": "output",
+                    "subject_direction": "input",
                     "subject_port": "candidates",
                     "axis_direction": "input",
                     "axis_port": "residue_axis",
@@ -1202,8 +1163,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         binding=residue_binding,
         output_port="scores",
         collection=scores,
-        inputs={"residue_axis": "fixture-axis"},
-        outputs={"candidates": candidates, "scores": scores},
+        inputs={
+            "candidates": candidates,
+            "residue_axis": "fixture-axis",
+        },
+        outputs={"scores": scores},
     )
 
     with pytest.raises(PortValueError, match="canonical range"):
@@ -1215,8 +1179,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, value=[80, None, 101])],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
     with pytest.raises(PortValueError, match="exact residue layout"):
         validate_produced_score_collection(
@@ -1227,8 +1194,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, value=[80, 95])],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
     with pytest.raises(PortValueError, match="does not resolve exactly once"):
         validate_produced_score_collection(
@@ -1239,15 +1209,18 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, residue_axis=None)],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
     wrong_subject = CandidateDataReference(
         "candidate-1",
         "protein.sequence",
         "sha256:" + ("f" * 64),
     )
-    with pytest.raises(PortValueError, match="exact subject"):
+    with pytest.raises(PortValueError, match="conflicting exact references"):
         validate_produced_score_collection(
             catalog=residue_catalog,
             binding=residue_binding,
@@ -1256,8 +1229,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
                 "scores",
                 [replace(observation, subject=wrong_subject)],
             ),
-            inputs={"residue_axis": "fixture-axis"},
-            outputs={"candidates": candidates},
+            inputs={
+                "candidates": candidates,
+                "residue_axis": "fixture-axis",
+            },
+            outputs={},
         )
 
 
@@ -1327,12 +1303,29 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
         output_port="scores",
         collection=collection,
         inputs={
-            "structures": CandidateCollection(
-                "structures", "protein.structure", [structure]
+            "structures": admitted_port_fixture(
+                CandidateCollection(
+                    "structures", "protein.structure", [structure]
+                ),
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + ("6" * 64),),
+                candidate_data=(subject,),
             ),
-            "axes": "axis",
+            "axes": admitted_port_fixture(
+                "axis",
+                port_type_id="fixture.residue-axis",
+                value_content_digests=("sha256:" + ("7" * 64),),
+                scientific_axes=(axis,),
+            ),
         },
-        outputs={"scores": collection},
+        outputs={
+            "scores": admitted_port_fixture(
+                collection,
+                port_type_id="score.collection",
+                value_content_digests=("sha256:" + ("8" * 64),),
+                candidate_data=(subject,),
+            )
+        },
         metric_facts={
             (
                 metric.contract_kind,
@@ -1350,9 +1343,6 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
                 True,
             )
         },
-        axis_references={("input", "axes"): (axis,)},
-        method_references={},
-        candidate_references={("input", "structures"): (subject,)},
     )
 
 
@@ -1412,7 +1402,7 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
         ),
     )
 
-    result = select_candidates(
+    result = select_admitted_candidates(
         candidate_inputs={candidate_input: candidates},
         score_collection_inputs={score_input: scores},
         objectives=objectives,
@@ -1552,7 +1542,7 @@ def test_unselected_collection_cannot_override_pairwise_subject_digest() -> None
     )
 
     with pytest.raises(SelectionError, match="exact Candidate"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs={
                 selected_input: CandidateCollection(
                     "selected",
@@ -1616,7 +1606,7 @@ def test_objective_rejects_non_i_json_integer_and_non_finite_total() -> None:
         [_observation(contracts, "candidate-1", 90)],
     )
     with pytest.raises(SelectionError, match="finite positive total"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs={candidate_input: candidates},
             score_collection_inputs={score_input: scores},
             objectives=(
@@ -1664,7 +1654,7 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         weight=1,
     )
     with pytest.raises(SelectionError, match="missing observation"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs={candidate_input: candidates},
             score_collection_inputs={
                 score_input: ScoreCollection("scores", [])
@@ -1681,7 +1671,7 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         },
     )
     with pytest.raises(SelectionError, match=r"within \[0, 1\]"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs={candidate_input: candidates},
             score_collection_inputs={
                 score_input: ScoreCollection(
@@ -1727,9 +1717,9 @@ def _workflow_payload(
             {
                 "node_id": "select",
                 "node_type_id": "selection.weighted_rank",
-                "node_type_version": "4.0.0",
+                "node_type_version": "5.0.0",
                 "binding_id": "selection.weighted_rank.direct",
-                "binding_version": "4.0.0",
+                "binding_version": "5.0.0",
                 "node_parameters": {
                     "objective_ids": ["quality-objective"],
                     "tie_policy": "candidate_id_ascending",
@@ -1796,9 +1786,9 @@ def _dynamic_observation_method_payload(
         selection_node = {
             "node_id": selection_node_id,
             "node_type_id": "selection.weighted_rank",
-            "node_type_version": "4.0.0",
+            "node_type_version": "5.0.0",
             "binding_id": "selection.weighted_rank.direct",
-            "binding_version": "4.0.0",
+            "binding_version": "5.0.0",
             "node_parameters": {
                 "objective_ids": ["quality-objective"],
                 "tie_policy": "candidate_id_ascending",
@@ -1810,9 +1800,9 @@ def _dynamic_observation_method_payload(
         selection_node = {
             "node_id": selection_node_id,
             "node_type_id": "selection.filter",
-            "node_type_version": "4.0.0",
+            "node_type_version": "5.0.0",
             "binding_id": "selection.filter.direct",
-            "binding_version": "4.0.0",
+            "binding_version": "5.0.0",
             "node_parameters": {
                 "selector_id": "quality-selector",
                 "operator": ">=",

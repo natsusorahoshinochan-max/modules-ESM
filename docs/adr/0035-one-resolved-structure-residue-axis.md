@@ -132,10 +132,10 @@ change, so its normalization Method receives a new exact version as well as a
 new Node Type and Binding version.
 
 The scalar axis describes exactly one structure. Candidate Collection workflows
-use `candidate.collection@3.0.0` together with
-`structure_transform.candidate_resolved_residue_axis_associations@5.0.0` and,
+use `candidate.collection@4.0.0` together with
+`structure_transform.candidate_resolved_residue_axis_associations@6.0.0` and,
 when required,
-`structure_transform.candidate_modified_residue_normalization_associations@5.0.0`.
+`structure_transform.candidate_modified_residue_normalization_associations@6.0.0`.
 Every association carries the complete
 `CandidateDataReference`—Candidate identity, data type, and Candidate data-content
 digest—beside its resolved axis. The codec canonically sorts associations only

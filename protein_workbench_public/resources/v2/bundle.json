@@ -2137,6 +2137,9 @@
         "contract_version": {
           "$ref": "#/$defs/SemanticVersion"
         },
+        "candidate_data_projection": {
+          "$ref": "#/$defs/BehaviorReference"
+        },
         "observation_method_projection": {
           "$ref": "#/$defs/BehaviorReference"
         },

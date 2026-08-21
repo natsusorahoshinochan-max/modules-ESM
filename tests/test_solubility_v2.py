@@ -7,7 +7,7 @@ execution through typed Ports.
 
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +93,8 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.solubility.adapter as adapter
-    from datatypes import ProteinSequence
+    from datatypes import CandidateDataReference, ProteinSequence
+    from modules.solubility.adapter import SequenceSolubilitySubject
 
     events: list[str] = []
     staging_directory = tmp_path / "staging"
@@ -181,13 +182,23 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
         resources=Resources(),
     )
 
+    subject = CandidateDataReference(
+        "candidate-a",
+        "protein.sequence",
+        f"sha256:{'a' * 64}",
+    )
     predictions = local.predict(
-        (ProteinSequence("ACDEFGHIKLMNPQRSTVWY"),)
+        (
+            SequenceSolubilitySubject(
+                subject,
+                ProteinSequence("ACDEFGHIKLMNPQRSTVWY"),
+            ),
+        )
     )
 
     assert predictions == (
         adapter.SoluProtPrediction(
-            provider_sequence_id="candidate_0",
+            subject=subject,
             soluble_probability=0.331,
         ),
     )
@@ -200,26 +211,42 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
         local.mode = "no_tm"
 
 
-def test_soluprot_parser_preserves_provider_subject_keys() -> None:
+def test_soluprot_adapter_translation_preserves_exact_subject_identity() -> None:
+    from datatypes import CandidateDataReference
     from modules.solubility.adapter import (
         SoluProtPrediction,
         parse_soluprot_output,
     )
 
+    references = (
+        CandidateDataReference(
+            "candidate-a",
+            "protein.sequence",
+            f"sha256:{'a' * 64}",
+        ),
+        CandidateDataReference(
+            "candidate-b",
+            "protein.sequence",
+            f"sha256:{'b' * 64}",
+        ),
+    )
     assert parse_soluprot_output(
         b"runtime_id,fa_id,soluble\n"
         b"1,candidate_1,0.9\n"
-        b"0,candidate_0,0.1\n"
-    ) == [
-        SoluProtPrediction("candidate_1", 0.9),
-        SoluProtPrediction("candidate_0", 0.1),
-    ]
+        b"0,candidate_0,0.1\n",
+        staged_subjects={
+            "candidate_0": references[0],
+            "candidate_1": references[1],
+        },
+    ) == (
+        SoluProtPrediction(references[1], 0.9),
+        SoluProtPrediction(references[0], 0.1),
+    )
 
 
-def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
+def test_soluprot_operation_consumes_identity_associated_predictions(
 ) -> None:
     from core import (
-        InputContentDigests,
         OperationCall,
         ResolvedProducedObservation,
     )
@@ -232,6 +259,7 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
     )
     from modules.solubility.adapter import SoluProtPrediction
     from modules.solubility.implementation import SoluProtImplementation
+    from tests.fixtures.scientific_operation import admitted_port_fixture
 
     candidates = CandidateCollection(
         "soluprot-subjects",
@@ -272,17 +300,17 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
         f"sha256:{'d' * 64}",
     )
 
-    class ReorderedAdapter:
+    class AlignedAdapter:
         @staticmethod
-        def predict(sequences: Any) -> tuple[SoluProtPrediction, ...]:
-            assert len(sequences) == 2
+        def predict(subjects: Any) -> tuple[SoluProtPrediction, ...]:
+            assert len(subjects) == 2
             return (
-                SoluProtPrediction("candidate_1", 0.9),
-                SoluProtPrediction("candidate_0", 0.1),
+                SoluProtPrediction(subjects[1].subject, 0.9),
+                SoluProtPrediction(subjects[0].subject, 0.1),
             )
 
     implementation = SoluProtImplementation(
-        adapter=ReorderedAdapter(),
+        adapter=AlignedAdapter(),
         method=method,
         produced_observation=ResolvedProducedObservation(
             output_port="scores",
@@ -298,36 +326,84 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
     )
 
     call = OperationCall(
-        inputs={"sequence_candidates": candidates},
-        node_parameters={},
-        binding_parameters={},
-        input_content_digests={
-            "sequence_candidates": InputContentDigests(
+        inputs={
+            "sequence_candidates": admitted_port_fixture(
+                candidates,
                 port_type_id="candidate.collection",
                 value_content_digests=(f"sha256:{'e' * 64}",),
-                candidate_data=references,
+                candidate_data=tuple(reversed(references)),
             )
         },
+        node_parameters={},
+        binding_parameters={},
+        effective_randomness={},
     )
     scores = implementation.execute(call)["scores"]
 
     assert [
         (observation.subject, observation.value)
         for observation in scores.entries
-    ] == [(references[0], 0.1), (references[1], 0.9)]
+    ] == [(references[1], 0.9), (references[0], 0.1)]
 
-    with pytest.raises(ValueError, match="requires protein.sequence item_type"):
-        implementation.execute(
-            replace(
-                call,
-                inputs={
-                    "sequence_candidates": replace(
-                        candidates,
-                        item_type="protein.structure",
-                    )
-                },
+
+@pytest.mark.parametrize(
+    "sequence",
+    (
+        None,
+        "ACDEFGHIKLMNPQRSTVWX",
+        "ACDEFGHIKLMNPQRSTVW",
+    ),
+)
+def test_soluprot_operation_owns_its_sequence_population(
+    sequence: str | None,
+) -> None:
+    from datatypes import Candidate, CandidateCollection, ProteinSequence
+    from modules.solubility.implementation import SoluProtImplementation
+    from modules.solubility.package import MODULE_PACKAGE
+    from tests.fixtures.scientific_operation import (
+        operation_call,
+        operation_context,
+    )
+
+    class TrustingAdapter:
+        @staticmethod
+        def predict(sequences: Any) -> tuple[Any, ...]:
+            raise AssertionError("invalid Method input reached the Adapter")
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "solubility.soluprot_full.local",
+        object(),
+        binding_version="5.0.0",
+    )
+    operation = SoluProtImplementation(
+        adapter=TrustingAdapter(),
+        method=context.method,
+        produced_observation=context.produced_observations[0],
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="solubility.soluprot_full.local",
+        binding_version="5.0.0",
+        inputs={
+            "sequence_candidates": CandidateCollection(
+                "soluprot-method-inputs",
+                "protein.sequence",
+                (
+                    ()
+                    if sequence is None
+                    else (Candidate("candidate-1", ProteinSequence(sequence)),)
+                ),
             )
-        )
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="canonical protein sequences of at least 20 residues",
+    ):
+        operation.execute(call)
 
 
 def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
@@ -338,17 +414,17 @@ def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
     node = catalog.require_contract(
         "node_type",
         "solubility.score_sequence",
-        "4.0.0",
+        "5.0.0",
     )
     full = catalog.require_contract(
         "binding",
         "solubility.soluprot_full.local",
-        "4.0.0",
+        "5.0.0",
     )
     no_tm = catalog.require_contract(
         "binding",
         "solubility.soluprot_no_tm.local",
-        "4.0.0",
+        "5.0.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
@@ -465,7 +541,7 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "4.0.0",
+            "5.0.0",
         )
         produced = binding.descriptor["produced_observations"]
         assert len(produced) == 1
@@ -492,7 +568,7 @@ def test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible() -> No
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "4.0.0",
+            "5.0.0",
         )
         del binding
         snapshot = availability[f"solubility.soluprot_{mode}.local"]
@@ -508,24 +584,6 @@ def test_soluprot_requires_no_core_dispatch_or_readiness_branch() -> None:
     ).lower()
 
     assert "soluprot" not in core_source
-
-
-@pytest.mark.parametrize(
-    "sequence",
-    (
-        "ACDEFGHIKLMNPQRSTVWX",
-        "acdefghiklmnpqrstvwy",
-        "ACDEFGHIKLMNPQRSTVW",
-        "",
-    ),
-)
-def test_soluprot_invalid_sequences_fail_before_provider(
-    sequence: str,
-) -> None:
-    from modules.solubility.adapter import validate_sequences
-
-    with pytest.raises(ValueError, match="canonical protein sequences"):
-        validate_sequences([sequence])
 
 
 def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
@@ -588,7 +646,7 @@ def test_full_readiness_failure_does_not_block_no_tm(
         del environment
         observed.append(mode)
         if mode == "full":
-            raise FileNotFoundError("TMHMM is absent")
+            raise adapter.SolubilityReadinessUnavailable("TMHMM is absent")
         return {"mode": mode}
 
     monkeypatch.setattr(adapter, "validate_soluprot_environment", validate)
@@ -683,18 +741,18 @@ def _run_soluprot(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     score = WorkflowNodeInstance(
         node_id="score",
         node_type_id="solubility.score_sequence",
-        node_type_version="4.0.0",
+        node_type_version="5.0.0",
         binding_id=f"solubility.soluprot_{mode}.local",
-        binding_version="4.0.0",
+        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -730,7 +788,7 @@ def _run_soluprot(
         authoring,
         EnvironmentConfiguration(
             {
-                (f"solubility.soluprot_{mode}.local", "4.0.0"): {
+                (f"solubility.soluprot_{mode}.local", "5.0.0"): {
                     "values": _soluprot_admitted_environment(
                         private_runtime_path="/must/not/publish"
                     ),
@@ -1012,9 +1070,9 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
@@ -1022,9 +1080,9 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id=f"soluprot-{mode}",
             node_type_id="solubility.score_sequence",
-            node_type_version="4.0.0",
+            node_type_version="5.0.0",
             binding_id=f"solubility.soluprot_{mode}.local",
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=_soluprot_admitted_environment(
@@ -1047,9 +1105,9 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="protein-sol",
             node_type_id="solubility.score_sequence",
-            node_type_version="4.0.0",
+            node_type_version="5.0.0",
             binding_id="solubility.protein_sol.local",
-            binding_version="4.0.0",
+            binding_version="5.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=_protein_sol_admitted_environment(

@@ -18,6 +18,19 @@ from core import (
 )
 
 
+def _plain_invocations(
+    invocations: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    plain: list[dict[str, object]] = []
+    for invocation in invocations:
+        item = dict(invocation)
+        provenance = item.get("invocation_provenance")
+        if provenance is not None:
+            item["invocation_provenance"] = provenance.to_public()  # type: ignore[union-attr]
+        plain.append(item)
+    return plain
+
+
 def _patch_local_runtime(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -34,7 +47,9 @@ def _patch_local_runtime(
 
     def resolve(environment: Any) -> local_adapter.LocalESM3Runtime:
         if environment.get("artifact_generation") != accepted_generation:
-            raise RuntimeError("fixture model identity changed")
+            raise local_adapter.LocalESM3RuntimeUnavailable(
+                "fixture model identity changed"
+            )
         return local_adapter.LocalESM3Runtime(
             snapshot_path=snapshot_path,
             runtime_directory=runtime_directory,
@@ -88,12 +103,12 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         local = catalog.require_contract(
             "binding",
             f"esm3.{operation}.local_open",
-            "7.0.0",
+            "8.0.0",
         )
         remote = catalog.require_contract(
             "binding",
             f"esm3.{operation}.biohub_open",
-            "7.0.0",
+            "8.0.0",
         )
 
         assert local.descriptor["node_type"] == remote.descriptor["node_type"]
@@ -128,7 +143,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "7.0.0",
+            "8.0.0",
         )
         forbidden = {
             "model",
@@ -420,7 +435,7 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
     assert result.effective_num_steps == 4
     assert result.effective_call_seed == 17
     assert client.seeds == [17]
-    assert resources.invocations == [
+    assert _plain_invocations(resources.invocations) == [
         {
             "engine_role": "sequence_sample",
             "parent_invocation_id": None,
@@ -457,7 +472,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
         ProviderResponse,
         decode_output,
         run_generation,
-        three_residue_pdb,
+        three_residue_provider_pdb,
     )
 
     _patch_local_runtime(monkeypatch, tmp_path)
@@ -488,7 +503,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
                 [99.0, 99.0, 99.0, 99.0, 99.0],
             ]]
         ),
-        pdb_string=three_residue_pdb(),
+        pdb_string=three_residue_provider_pdb(),
     )
     responses = {
         "sequence": [ProviderResponse("ACD")],
@@ -588,7 +603,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     binding = catalog.require_contract(
         "binding",
         f"esm3.{operation}.local_open",
-        "7.0.0",
+        "8.0.0",
     )
     method = catalog.require_contract(
         "method",

@@ -22,11 +22,11 @@ from core.operation import OperationContext
 from .implementation import CollectionOpsImplementation
 
 
-_PACKAGE_VERSION = "3.0.0"
+_PACKAGE_VERSION = "4.0.0"
 _METHOD_VERSION = "2.1.0"
 _PAIRING_METHOD_VERSION = "3.0.0"
-_CANDIDATE_NODE_BINDING_VERSION = "3.0.0"
-_SCORE_NODE_BINDING_VERSION = "4.0.0"
+_CANDIDATE_NODE_BINDING_VERSION = "4.0.0"
+_SCORE_NODE_BINDING_VERSION = "5.0.0"
 _OPERATIONS = (
     "concat_candidates",
     "merge_scores",

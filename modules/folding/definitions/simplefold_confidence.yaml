@@ -1,26 +1,26 @@
 schema_version: "2.1.0"
 node_type_id: folding.simplefold_confidence
-version: "4.0.0"
+version: "5.0.0"
 title: Evaluate existing-structure SimpleFold confidence
 summary: Evaluates each supplied existing protein structure with one fixed direct SimpleFold confidence head without folding or generating coordinates.
 category: evaluation
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete existing protein-structure Candidates whose supplied coordinates are evaluated without refolding.
   - name: structure_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact CandidateDataReference-associated resolved structure axes that completely cover the supplied structure Candidates; collection position establishes no correspondence.
 outputs:
   - name: confidence_observations
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one canonical per-residue and one mean-residue intrinsic pLDDT Observation for every supplied structure Candidate, each carrying the same exact resolved-structure residue axis.

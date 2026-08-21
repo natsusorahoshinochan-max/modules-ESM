@@ -65,24 +65,24 @@ EXPECTED_PORT_TYPE_IDS = {
 }
 EXPECTED_PORT_TYPE_VERSIONS = {
     type_id: {
-        "candidate.collection": "3.0.0",
-        "candidate.pairing": "3.0.0",
+        "candidate.collection": "4.0.0",
+        "candidate.pairing": "4.0.0",
         "function.annotations": "3.0.0",
         "protein.prompt": "3.0.0",
         "protein.sequence": "3.0.0",
         "protein.structure": "4.0.0",
         "residue.layout": "3.0.0",
         "residue.map": "3.0.0",
-        "score.collection": "4.0.0",
+        "score.collection": "5.0.0",
     }.get(type_id, "2.1.0")
     for type_id in EXPECTED_PORT_TYPE_IDS
 }
 EXPECTED_PORT_TYPE_DIGESTS = {
     "candidate.collection": (
-        "sha256:e900457e8e059f4f15469e7673fa3156d0f51e060fc8235daf07fc3ce5954812"
+        "sha256:6319f8276636afb85ef8986f12b60645ca38ff5d1fec72e037345832b62bfc1d"
     ),
     "candidate.pairing": (
-        "sha256:20a3e7771705d5d160342a7b3b5c5a311ed224a002c441bd5c2d4eae4d3ee5cf"
+        "sha256:f70a7ebcfb4a57c29148461d2aa84538cd677b5d1cc79b791054187a491bb12a"
     ),
     "function.annotations": (
         "sha256:588a10bc34079eb599d5dba191be126fa067675400427d6b9191d348c32d98a4"
@@ -112,7 +112,7 @@ EXPECTED_PORT_TYPE_DIGESTS = {
         "sha256:9203923af8490d9f3947cdd3b0dd9fc48727aa3aaa61cfea8ede2087046c4890"
     ),
     "score.collection": (
-        "sha256:369193274cf356a6814a81a15d9261467c6eac8768888cfe2643fe5f605d385e"
+        "sha256:0c8447a1a7d95e6bc56f2582eb961551fbb8413c9076a2bb0fb639be23d9a03d"
     ),
     "text": (
         "sha256:deccc91ef2b9b94ad5d14637690c6de2f7b8ea7ff75c401faca95510cf3381c3"
@@ -226,7 +226,7 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         assert descriptor["contract_version"] == EXPECTED_PORT_TYPE_VERSIONS[
             descriptor["contract_id"]
         ]
-        assert set(descriptor) == {
+        expected_descriptor_fields = {
             "schema_namespace",
             "contract_kind",
             "contract_id",
@@ -235,11 +235,27 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             "codec",
             "content_identity",
         }
+        if descriptor["contract_id"] in {
+            "candidate.collection",
+            "candidate.pairing",
+            "score.collection",
+        }:
+            expected_descriptor_fields.add("candidate_data_projection")
+        assert set(descriptor) == expected_descriptor_fields
         assert re.fullmatch(
             r"sha256:[0-9a-f]{64}",
             reference["contract_digest"],
         )
-        for behavior_name in ("validator", "codec", "content_identity"):
+        for behavior_name in (
+            "validator",
+            "codec",
+            "content_identity",
+            *(
+                ("candidate_data_projection",)
+                if "candidate_data_projection" in descriptor
+                else ()
+            ),
+        ):
             behavior = descriptor[behavior_name]
             assert set(behavior) == {
                 "behavior_id",
@@ -383,7 +399,7 @@ def test_builtin_sequence_and_candidate_descriptors_declare_identity_invariants(
     }
     assert catalog.require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     ).validator.parameters["candidate_invariants"] == {
         "candidate_id": "canonical-identifier",
         "internal_lineage": {
@@ -1001,7 +1017,7 @@ def test_score_constructor_rejects_non_i_json_numbers(
 def test_i_json_array_admission_normalizes_list_and_tuple_wire_identity() -> None:
     score_type = builtin_frozen_catalog().require_port_type(
         "score.collection",
-        "4.0.0",
+        "5.0.0",
     )
     list_observation = _typed_observation({"samples": [1, 2]})
     tuple_observation = _typed_observation({"samples": (1, 2)})
@@ -1118,7 +1134,7 @@ def test_builtin_port_type_contract_digests_match_golden_vectors() -> None:
         for type_id in EXPECTED_BUILTIN_PORT_TYPE_IDS
     }
     assert catalog.contract_digest == (
-        "sha256:e1fb6c90341d4c09fef7fad7e030057c1500cf24edb4293cc14f18719da299b3"
+        "sha256:367c80428dda11fbf8cda31217b31bfc696a248d4a28297c81c599a94412b037"
     )
 
 

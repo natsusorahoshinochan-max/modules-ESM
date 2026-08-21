@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any
+from typing import Any, cast
 
 from core import BehaviorReference, PortTypeDefinition
 from datatypes import CandidateDataReference, ExactContractReference
@@ -24,7 +24,7 @@ from .domain import (
 )
 
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -524,6 +524,18 @@ def inserted_loop_evaluation_from_wire(
     return result
 
 
+def _candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    admitted = cast(InsertedLoopEvaluationCollection, value)
+    return tuple(
+        reference
+        for entry in admitted.entries
+        for reference in (entry.subject, entry.reference, entry.counterpart)
+    )
+
+
 INSERTED_LOOP_EVALUATION_PORT_TYPE = PortTypeDefinition(
     type_id="structure_comparison.inserted_loop_evaluation",
     version=VERSION,
@@ -555,6 +567,19 @@ INSERTED_LOOP_EVALUATION_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_inserted_loop_evaluation,
     runtime_to_wire=inserted_loop_evaluation_to_wire,
     runtime_from_wire=inserted_loop_evaluation_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_comparison.inserted_loop_evaluation/"
+        "candidate_data_projection",
+        VERSION,
+        {
+            "fields": [
+                "entries[].subject",
+                "entries[].reference",
+                "entries[].counterpart",
+            ]
+        },
+    ),
+    runtime_candidate_data_projection=_candidate_data_references,
 )
 
 

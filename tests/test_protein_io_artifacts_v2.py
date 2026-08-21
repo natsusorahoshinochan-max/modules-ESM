@@ -57,17 +57,17 @@ def _run_import_export(
             node_id=role,
             node_type_id=f"protein_io.{role}_{value_kind}",
             node_type_version={
-                ("import", "sequence"): "5.0.0",
+                ("import", "sequence"): "6.0.0",
                 ("export", "sequence"): "3.0.0",
-                ("import", "structure"): "5.0.0",
-                ("export", "structure"): "5.0.0",
+                ("import", "structure"): "6.0.0",
+                ("export", "structure"): "6.0.0",
             }[(role, value_kind)],
             binding_id=f"protein_io.{role}_{value_kind}.direct",
             binding_version={
-                ("import", "sequence"): "5.0.0",
+                ("import", "sequence"): "6.0.0",
                 ("export", "sequence"): "3.0.0",
-                ("import", "structure"): "5.0.0",
-                ("export", "structure"): "5.0.0",
+                ("import", "structure"): "6.0.0",
+                ("export", "structure"): "6.0.0",
             }[(role, value_kind)],
             node_parameters=(
                 {"project_input_ref": f"{value_kind}-input"}
@@ -182,12 +182,12 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
     assert original_catalog.get_contract(
         "binding",
         "protein_io.import_sequence.direct",
-        "5.0.0",
+        "6.0.0",
     ) is not None
     assert active_catalog.get_contract(
         "binding",
         "protein_io.import_sequence.direct",
-        "5.0.0",
+        "6.0.0",
     ) is None
 
     artifact = projection["artifact_index"][0]
@@ -384,9 +384,9 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any
+from typing import Any, cast
 
 from core import BehaviorReference, PortTypeDefinition
 from datatypes import CandidateDataReference, ExactContractReference
@@ -27,7 +27,7 @@ from .domain import (
 )
 
 
-THREE_WAY_CONSISTENCY_VERSION = "1.0.0"
+THREE_WAY_CONSISTENCY_VERSION = "3.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONFIDENCE_ROLES = ("esmfold2", "simplefold")
 _CONFIDENCE_METHODS = (
@@ -389,6 +389,25 @@ def three_way_consistency_from_wire(value: object) -> ThreeWayConsistencyEvidenc
     return result
 
 
+def _candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    admitted = cast(ThreeWayConsistencyEvidence, value)
+    return (
+        admitted.input_structure,
+        admitted.sequence_parent,
+        admitted.esmfold2_structure,
+        admitted.simplefold_structure,
+        *(entry.subject for entry in admitted.confidences),
+        *(
+            reference
+            for edge in admitted.edges
+            for reference in (edge.subject, edge.reference)
+        ),
+    )
+
+
 THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
     type_id="structure_comparison.three_way_consistency",
     version=THREE_WAY_CONSISTENCY_VERSION,
@@ -434,4 +453,21 @@ THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
     runtime_validator=validate_three_way_consistency,
     runtime_to_wire=three_way_consistency_to_wire,
     runtime_from_wire=three_way_consistency_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_comparison.three_way_consistency/"
+        "candidate_data_projection",
+        THREE_WAY_CONSISTENCY_VERSION,
+        {
+            "fields": [
+                "input_structure",
+                "sequence_parent",
+                "esmfold2_structure",
+                "simplefold_structure",
+                "confidences[].subject",
+                "edges[].subject",
+                "edges[].reference",
+            ]
+        },
+    ),
+    runtime_candidate_data_projection=_candidate_data_references,
 )

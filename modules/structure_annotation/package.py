@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import json
 import math
-from typing import Any
+from typing import Any, cast
 
 from core import (
     AvailabilityDeclaration,
@@ -52,18 +52,19 @@ from .implementation import (
 )
 
 
+_PACKAGE_VERSION = "3.0.0"
 _VERSION = "2.1.0"
 _METHOD_VERSION = "2.2.0"
 _PORT_VERSION = "4.0.0"
 _METRIC_VERSION = "3.0.0"
 _NODE_BINDING_VERSIONS = {
-    "dssp_compute": "6.0.0",
+    "dssp_compute": "7.0.0",
     "secondary_structure_extract": "4.0.0",
     "sasa_compute": "4.0.0",
-    "secondary_structure_agreement": "5.0.0",
+    "secondary_structure_agreement": "6.0.0",
     "apply_secondary_structure_to_prompt": "5.0.0",
     "apply_sasa_to_prompt": "5.0.0",
-    "expected_secondary_structure_from_prompt": "5.0.0",
+    "expected_secondary_structure_from_prompt": "6.0.0",
 }
 _METHOD_VERSIONS = {
     "dssp_compute": "3.0.0",
@@ -185,7 +186,6 @@ def _validate_annotation(value: object) -> None:
 
 def _annotation_to_wire(value: object) -> object:
     assert type(value) is DSSPAnnotation
-    _validate_annotation(value)
     return {
         "subject": value.subject.to_public(),
         "layout": _wire_value(_LAYOUT_CODEC, value.layout),
@@ -210,7 +210,6 @@ def _annotation_from_wire(value: object) -> object:
         secondary_structure=tuple(value["secondary_structure"]),
         sasa=_validate_sasa(tuple(value["sasa"]), length=layout.length),
     )
-    _validate_annotation(annotation)
     return annotation
 
 
@@ -232,10 +231,6 @@ def _validate_sasa_track(value: object) -> None:
 
 def _track_to_wire(kind: str):
     def encode(value: object) -> object:
-        if kind == "secondary_structure":
-            _validate_secondary_track(value)
-        else:
-            _validate_sasa_track(value)
         assert type(value) is StructureAnnotationTrack
         return {
             "subject": value.subject.to_public(),
@@ -268,10 +263,6 @@ def _track_from_wire(kind: str):
             layout=layout,
             values=values,
         )
-        if kind == "secondary_structure":
-            _validate_secondary_track(annotation_track)
-        else:
-            _validate_sasa_track(annotation_track)
         return annotation_track
 
     return decode
@@ -307,7 +298,7 @@ def _build(operation: str):
             return SecondaryStructureAgreementOperation(
                 resources=context.resources,
                 method=context.method,
-                produced_observations=context.produced_observations,
+                produced_observation=context.produced_observations[0],
             )
         if operation == "apply_secondary_structure_to_prompt":
             return ApplySecondaryStructureToPromptOperation(context.resources)
@@ -652,6 +643,12 @@ def _port_type(
     from_wire: Any,
     quantity_contract: Mapping[str, str] | None = None,
 ) -> PortTypeDefinition:
+    def candidate_data_references(
+        value: object,
+        _candidate_data_port_types: object,
+    ) -> tuple[CandidateDataReference, ...]:
+        return (cast(Any, value).subject,)
+
     return PortTypeDefinition(
         type_id=type_id,
         version=_PORT_VERSION,
@@ -697,13 +694,19 @@ def _port_type(
         runtime_validator=validator,
         runtime_to_wire=to_wire,
         runtime_from_wire=from_wire,
+        candidate_data_projection=BehaviorReference(
+            f"{type_id}/candidate_data_projection",
+            _PORT_VERSION,
+            {"fields": ["subject"]},
+        ),
+        runtime_candidate_data_projection=candidate_data_references,
     )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="structure_annotation",
-    package_version=_VERSION,
+    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=tuple(
         DefinitionResource(f"definitions/{name}.yaml")

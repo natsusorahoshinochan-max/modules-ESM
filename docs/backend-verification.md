@@ -81,6 +81,16 @@ evidence/
   tier-result.json
 ```
 
+For a Campaign child, `tier-result.json` is the retained copy of the same
+structured outcome returned through the Campaign-owned handoff. It identifies
+the tier and clean source revision, retained location, observed Run labels,
+lifecycle receipt, admitted JUnit summary, redacted diagnostic files, and one
+`passed`, `failed`, or `interrupted` conclusion. The Campaign admits that
+outcome once and projects its execution record, Acceptance Result, summary,
+and diagnostic locations from it. The verifier's stdout, console-size and
+read diagnostics, resource-warning literals, and interpreter digest do not
+authorize or deny an Acceptance Result.
+
 Projection, event, Typed Value, and Artifact data are copied only after the
 test's scientific assertions have passed. The REST acceptance client returns
 its already-validated retrieval metadata with each payload; the Service path
@@ -125,6 +135,10 @@ variables required by the selected gate:
 
 Missing or relative required path configuration fails a zero-skip gate.
 Acceptance files do not infer Provider runtimes from another workspace.
+The private Campaign Execution Profile supplies every canonical requirement
+explicitly, including `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`; the direct
+single-tier verifier may still use the repository credential-file convention
+described above.
 
 All declared canonical pytest file targets are required to exist. A developer
 may use a focused override for local work; only the Campaign's fixed selectors

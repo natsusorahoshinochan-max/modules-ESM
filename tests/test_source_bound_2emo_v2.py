@@ -337,7 +337,7 @@ def _assert_closed_scientific_acceptance(
     assert set(alignments_by_subject) == set(fold_ids)
     alignment_codec = catalog.require_port_type(
         "structure_comparison.alignment_evidence",
-        "4.0.0",
+        "5.0.0",
     )
     for fold in folds.items:
         alignment = alignments_by_subject[fold.candidate_id]
@@ -636,21 +636,21 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     folding = _ControlledESMFold2(normalized.pdb_string)
 
     environment = {
-        ("proteinmpnn.design.local", "10.0.0"): {
+        ("proteinmpnn.design.local", "11.0.0"): {
             "values": {
                 "device": "cpu",
                 "provider_root": ROOT / "repositories" / "ProteinMPNN",
                 "private_token": "provider-free",
             },
         },
-        ("folding.fold.esmfold2_remote", "7.0.0"): {
+        ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
                 "credential_handle": object(),
                 "provider_client": folding,
             },
         },
-        ("solubility.protein_sol.local", "4.0.0"): {
+        ("solubility.protein_sol.local", "5.0.0"): {
             "values": {
                 "source_root": Path("/provider-free/protein-sol"),
                 "bash_executable": Path("/provider-free/bash"),

@@ -38,9 +38,101 @@ from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
+from tests.fixtures.simplefold import build_fixture_simplefold_closure
 
 
-_SIMPLEFOLD_BINDING_VERSION = "7.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "10.0.0"
+
+
+def test_simplefold_runtime_applies_the_exact_normalized_step_count(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import sys
+    from types import ModuleType
+
+    from modules.folding import simplefold_runtime
+
+    class StopAfterInferenceConstruction(Exception):
+        pass
+
+    captured: dict[str, int] = {}
+
+    class ModelWrapper:
+        device = "cpu"
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def from_pretrained_folding_model(self) -> object:
+            return object()
+
+        def from_pretrained_plddt_model(self) -> object:
+            return object()
+
+    class InferenceWrapper:
+        def __init__(self, **kwargs: Any) -> None:
+            captured["num_steps"] = kwargs["num_steps"]
+            raise StopAfterInferenceConstruction
+
+    modules = {
+        "simplefold": ModuleType("simplefold"),
+        "simplefold.utils": ModuleType("simplefold.utils"),
+        "simplefold.wrapper": ModuleType("simplefold.wrapper"),
+        "simplefold.utils.boltz_utils": ModuleType(
+            "simplefold.utils.boltz_utils"
+        ),
+        "simplefold.utils.fasta_utils": ModuleType(
+            "simplefold.utils.fasta_utils"
+        ),
+        "simplefold.utils.datamodule_utils": ModuleType(
+            "simplefold.utils.datamodule_utils"
+        ),
+        "utils.esm_utils": ModuleType("utils.esm_utils"),
+    }
+    modules["simplefold.wrapper"].ModelWrapper = ModelWrapper
+    modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.utils.boltz_utils"].process_structure = object()
+    modules["simplefold.utils.boltz_utils"].to_pdb = object()
+    modules["simplefold.utils.fasta_utils"].process_fastas = (
+        lambda **_kwargs: None
+    )
+    modules[
+        "simplefold.utils.datamodule_utils"
+    ].process_one_inference_structure = object()
+    modules["utils.esm_utils"].esm_registry = {}
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "_setup_simplefold_imports",
+        os.getcwd,
+    )
+    model_root = tmp_path / "model"
+    esm2_source_root = tmp_path / "esm2-source"
+    esm2_model_root = tmp_path / "esm2-model"
+    for root in (model_root, esm2_source_root, esm2_model_root):
+        root.mkdir()
+    (model_root / "ccd.pkl").write_bytes(b"reviewed-ccd")
+
+    with pytest.raises(StopAfterInferenceConstruction):
+        simplefold_runtime.fold_sequence(
+            ProteinSequence("AG", ("A:1", "A:2")),
+            model_name="simplefold_100M",
+            num_steps=75,
+            num_samples=1,
+            project_dir=str(tmp_path / "project"),
+            effective_seed=1603,
+            staged_model_root=model_root,
+            staged_esm2_source_root=esm2_source_root,
+            staged_esm2_model_root=esm2_model_root,
+            required_device="cpu",
+            record_evidence=False,
+        )
+
+    assert captured == {"num_steps": 75}
 
 
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
@@ -65,7 +157,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "8.0.0",
+        "10.0.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -99,7 +191,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         method_reference["contract_id"],
         method_reference["contract_version"],
     )
-    assert method_reference["contract_version"] == "4.0.0"
+    assert method_reference["contract_version"] == "5.0.0"
     assert method.descriptor["model_identity"]["folding_model"] == (
         "simplefold_100M"
     )
@@ -177,12 +269,12 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "7.0.0",
+        "9.0.0",
     )
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "8.0.0",
+        "10.0.0",
     )
     snapshots = {
         item["binding"]["contract_id"]: item
@@ -259,7 +351,7 @@ def _simplefold_environment(
     monkeypatch: pytest.MonkeyPatch,
     client: Any,
 ) -> dict[str, Any]:
-    import modules.folding.simplefold_adapter as adapter
+    import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
 
     model_root = tmp_path / "models"
@@ -269,8 +361,9 @@ def _simplefold_environment(
     esm2_model_root.mkdir()
     esm2_source_root.mkdir()
     model_payloads = {
-        name: f"fixture-{name}".encode()
-        for name in contract.SIMPLEFOLD_FOLDING_ARTIFACTS
+        entry.runtime_filename: f"fixture-{entry.runtime_filename}".encode()
+        for entry in contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE.files
+        if entry.environment_key == "model_root"
     }
     esm2_payloads = {
         "esm2_t36_3B_UR50D.pt": b"fixture-esm2",
@@ -280,55 +373,29 @@ def _simplefold_environment(
         (model_root / name).write_bytes(payload)
     for name, payload in esm2_payloads.items():
         (esm2_model_root / name).write_bytes(payload)
+    fixture_digests = {
+        name: hashlib.sha256(payload).hexdigest()
+        for name, payload in (*model_payloads.items(), *esm2_payloads.items())
+    }
+    fixture_closure = build_fixture_simplefold_closure(
+        contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        fixture_digests,
+    )
     monkeypatch.setattr(
         contract,
-        "SIMPLEFOLD_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(payload).hexdigest()
-            for name, payload in model_payloads.items()
-        },
+        "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
+        fixture_closure,
     )
     monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ARTIFACT_IDENTITIES",
-        {
-            name: {"bytes": len(payload)}
-            for name, payload in model_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ESM2_ARTIFACT_SHA256",
-        {
-            name: hashlib.sha256(payload).hexdigest()
-            for name, payload in esm2_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
-        "SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES",
-        {
-            name: {"bytes": len(payload)}
-            for name, payload in esm2_payloads.items()
-        },
-    )
-    monkeypatch.setattr(
-        adapter,
+        asset_closure,
         "validate_installed_provider_checkout",
         lambda *_args, **_kwargs: None,
-    )
-    import modules.folding.simplefold_runtime as provider_runtime
-
-    monkeypatch.setattr(
-        provider_runtime,
-        "validated_simplefold_esm2_root",
-        lambda root=None: root,
     )
     return {
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
-        "device": adapter.SIMPLEFOLD_DEVICE,
+        "device": contract.SIMPLEFOLD_DEVICE,
         "provider_client": client,
         "private_token": "must-never-publish",
     }
@@ -358,16 +425,16 @@ def _run_simplefold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="6.0.0",
+        node_type_version="8.0.0",
         binding_id="folding.fold.simplefold_local",
         binding_version=_SIMPLEFOLD_BINDING_VERSION,
         node_parameters={
@@ -379,9 +446,9 @@ def _run_simplefold(
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",
         node_type_id="structure_prediction.materialize_confidence",
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id="structure_prediction.materialize_confidence.direct",
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -466,6 +533,100 @@ def _run_simplefold(
     return catalog, service, projection, events
 
 
+def test_staging_failure_is_an_operation_failure_before_provider_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_asset_closure as asset_closure
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fold(self, **_kwargs: Any) -> Any:
+            self.calls += 1
+            raise AssertionError("Provider entry must not start")
+
+    client = Client()
+    environment = _simplefold_environment(
+        tmp_path / "environment",
+        monkeypatch,
+        client,
+    )
+
+    def fail_staging(_source: Path, _destination: Path) -> None:
+        raise OSError("fixture staging failure")
+
+    monkeypatch.setattr(asset_closure.shutil, "copyfile", fail_staging)
+    _, _, projection, events = _run_simplefold(
+        tmp_path / "run",
+        monkeypatch,
+        client=client,
+        num_samples=1,
+        environment_values=environment,
+    )
+
+    event_types = [event["event"]["type"] for event in events]
+    assert projection["status"] == "failed"
+    assert event_types.count("operation_attempt_started") == 2
+    assert event_types.count("operation_attempt_terminal") == 2
+    assert all(
+        event["event"].get("engine_role") != "fold_parent_0"
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+    )
+    assert client.calls == 0
+
+
+def test_closure_admission_failure_is_a_binding_failure_without_operation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Client:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fold(self, **_kwargs: Any) -> Any:
+            self.calls += 1
+            raise AssertionError("Provider entry must not start")
+
+    client = Client()
+    environment = _simplefold_environment(
+        tmp_path / "environment",
+        monkeypatch,
+        client,
+    )
+    (environment["model_root"] / "simplefold_100M.ckpt").write_bytes(
+        b"changed-before-admission"
+    )
+
+    _, _, projection, events = _run_simplefold(
+        tmp_path / "run",
+        monkeypatch,
+        client=client,
+        num_samples=1,
+        environment_values=environment,
+    )
+
+    event_types = [event["event"]["type"] for event in events]
+    assert projection["status"] == "failed"
+    assert event_types.count("operation_attempt_started") == 1
+    assert event_types.count("operation_attempt_terminal") == 1
+    assert all(
+        event["event"].get("engine_role") != "fold_parent_0"
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+    )
+    terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+        and event["event"].get("failure_origin") == "binding"
+    )
+    assert terminal["error"]["code"] == "readiness_rejected"
+    assert client.calls == 0
+
+
 def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -490,7 +651,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
                         ),
                         "sample_index": sample,
                     }
-                    for sample in range(2)
+                    for sample in reversed(range(2))
                 ],
             )
 
@@ -533,14 +694,19 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     )
     assert len(structures.items) == 2
     assert len(set(item.candidate_id for item in structures.items)) == 2
-    assert {
+    assert [
         item.metadata["sample_index"] for item in structures.items
-    } == {0, 1}
+    ] == [0, 1]
     assert all(len(item.parent_ids) == 1 for item in structures.items)
     assert len(facts.entries) == 2
     assert {
         fact.plddt_per_residue for fact in facts.entries
     } == {(0.71, 0.83), (71.0, 83.0)}
+    facts_by_key = {fact.prediction_key: fact for fact in facts.entries}
+    assert [
+        facts_by_key[item.metadata["prediction_key"]].plddt_per_residue
+        for item in structures.items
+    ] == [(0.71, 0.83), (71.0, 83.0)]
     assert all(fact.ptm is None and fact.pae is None for fact in facts.entries)
     assert {
         item.metadata["prediction_key"] for item in structures.items
@@ -712,6 +878,7 @@ def test_simplefold_rejects_non_pinned_provider_pdb_tail(
 
 def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.folding.simplefold_adapter import LocalSimpleFoldAdapter
 
@@ -743,7 +910,11 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
             yield
 
     result = LocalSimpleFoldAdapter(
-        environment={"provider_client": Client()},
+        environment=_simplefold_environment(
+            tmp_path / "environment",
+            monkeypatch,
+            Client(),
+        ),
         resources=Resources(),
     ).fold(
         sequence=ProteinSequence("AG", ("Q:-2A", "Q:10")),
@@ -790,6 +961,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
             return SimpleFoldAdapterResult(
                 samples=(
                     SimpleFoldSampleResult(
+                        sample_index=0,
                         structure=ProteinStructure(
                             _two_residue_pdb(),
                         ),
@@ -905,6 +1077,7 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
             return SimpleFoldAdapterResult(
                 samples=(
                     SimpleFoldSampleResult(
+                        sample_index=0,
                         structure=ProteinStructure(_two_residue_pdb()),
                         per_residue_plddt=(71.0, 83.0),
                     ),

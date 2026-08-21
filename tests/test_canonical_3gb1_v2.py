@@ -56,9 +56,9 @@ WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
 EXPECTED_TOP_THREE = [
-    "candidate-18a93adf167bb2f7164fbcf438d34c401f2f959d5d6319c5785b9ea47d936f90",
-    "candidate-c03299c995000fef025616503df550ff98d746379b18a518049b3f4d516dfec6",
-    "candidate-3a57a5e19df809f2a3c27a4cacd39e2f1f5cf96bea0f9a03da3ad1db2d1a98de",
+    "candidate-eab1e005fdcf40f74379b4e1d92f31c55de63b65f76151f436649c729611e940",
+    "candidate-37862bc7beee528065d925d588fe37f787c74a81532bb05a97197d555255cd68",
+    "candidate-8860c6af17a9dde6ac2bf6cf37b9f62586241909b61b0ef901dae6cc53bfeb02",
 ]
 EXPECTED_TOP_PARENT_INDICES = [2, 0, 3]
 pytestmark = pytest.mark.deterministic_acceptance
@@ -116,7 +116,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
     nodes = {node.node_id: node for node in workflow.nodes}
     assert all(not node.binding_parameters for node in nodes.values())
     expected_node_versions = {
-        "import-3gb1": "5.0.0",
+        "import-3gb1": "6.0.0",
         "resolve-source-residue-axis": "4.0.0",
         "extract-imported-backbone": "4.0.0",
         "prompt-backbone-to-structure": "4.0.0",
@@ -126,37 +126,37 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
         "mask-structure": "3.0.0",
         "insert-masked": "3.0.0",
         "override-secondary-structure": "3.0.0",
-        "generate-paired": "7.0.0",
-        "materialize-generated-confidence": "1.0.0",
-        "fold-sequences": "6.0.0",
-        "materialize-folded-confidence": "1.0.0",
-        "rebind-counterparts": "3.0.0",
-        "resolve-folded-residue-axes": "5.0.0",
-        "resolve-generated-residue-axes": "5.0.0",
-        "resolve-canonical-residue-axes": "5.0.0",
-        "align-fixed": "4.0.0",
-        "score-fixed": "5.0.0",
-        "align-paired": "4.0.0",
-        "score-paired": "5.0.0",
-        "merge-scores": "4.0.0",
-        "rank-candidates": "4.0.0",
-        "take-top-three": "3.0.0",
-        "resolve-selected-residue-axes": "5.0.0",
+        "generate-paired": "8.0.0",
+        "materialize-generated-confidence": "2.0.0",
+        "fold-sequences": "8.0.0",
+        "materialize-folded-confidence": "2.0.0",
+        "rebind-counterparts": "4.0.0",
+        "resolve-folded-residue-axes": "6.0.0",
+        "resolve-generated-residue-axes": "6.0.0",
+        "resolve-canonical-residue-axes": "6.0.0",
+        "align-fixed": "5.0.0",
+        "score-fixed": "6.0.0",
+        "align-paired": "5.0.0",
+        "score-paired": "6.0.0",
+        "merge-scores": "5.0.0",
+        "rank-candidates": "5.0.0",
+        "take-top-three": "4.0.0",
+        "resolve-selected-residue-axes": "6.0.0",
         "build-final-layout": "3.0.0",
         "fixed-positions": "4.0.0",
-        "design-children": "9.0.0",
-        "fold-final": "6.0.0",
-        "materialize-final-confidence": "1.0.0",
-        "export-final": "5.0.0",
+        "design-children": "10.0.0",
+        "fold-final": "8.0.0",
+        "materialize-final-confidence": "2.0.0",
+        "export-final": "6.0.0",
     }
     assert {
         node.node_id: node.node_type_version for node in nodes.values()
     } == expected_node_versions
     expected_binding_versions = dict(expected_node_versions)
     expected_binding_versions.update({
-        "design-children": "10.0.0",
-        "fold-sequences": "7.0.0",
-        "fold-final": "7.0.0",
+        "design-children": "11.0.0",
+        "fold-sequences": "9.0.0",
+        "fold-final": "9.0.0",
     })
     assert {
         node.node_id: node.binding_version for node in nodes.values()
@@ -396,7 +396,7 @@ def _assert_prediction_confidence(
             assert axis.axis_contract.contract_id == (
                 "structure_prediction.prediction_residue_axis"
             )
-            assert axis.axis_contract.contract_version == "1.0.0"
+            assert axis.axis_contract.contract_version == "2.0.0"
             assert axis.layout.length == 71
             assert len(axis.layout.residue_ids or ()) == 71
             if metric_id == "structure.plddt.per_residue":
@@ -1000,9 +1000,9 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
                 )
             ]
             assert bound_nodes
-            assert message["sequence"] < min(
+            assert min(
                 attempt_sequences[node_id] for node_id in bound_nodes
-            )
+            ) < message["sequence"]
         proteinmpnn_readiness = next(
             message["event"]
             for message in first_events
@@ -1011,7 +1011,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             == "proteinmpnn.design.local"
         )
         assert proteinmpnn_readiness["binding"]["contract_version"] == (
-            "10.0.0"
+            "11.0.0"
         )
 
         esm_calls_before = len(esm3.sequence_prompts)

@@ -120,6 +120,41 @@ def _provider_free_catalog() -> Any:
     return build_frozen_catalog(tuple(registrations))
 
 
+def _provider_free_simplefold_environment(
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    client: Any,
+) -> dict[str, Any]:
+    import modules.folding.simplefold_contract as simplefold_contract
+
+    closure = replace(
+        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        sources=(),
+    )
+    monkeypatch.setattr(
+        simplefold_contract,
+        "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
+        closure,
+    )
+    configured_roots = {
+        environment_key: root / environment_key
+        for environment_key in {
+            entry.environment_key for entry in closure.files
+        }
+    }
+    for configured_root in configured_roots.values():
+        configured_root.mkdir(parents=True)
+    for entry in closure.files:
+        (configured_roots[entry.environment_key] / entry.runtime_filename).write_bytes(
+            f"provider-free-{entry.runtime_filename}".encode()
+        )
+    return {
+        **configured_roots,
+        "device": simplefold_contract.SIMPLEFOLD_DEVICE,
+        "provider_client": client,
+    }
+
+
 class _ControlledESMFold2:
     def __init__(self, structure: str, *, plddt: float = 90.0) -> None:
         self.structure = structure
@@ -279,15 +314,19 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     esmfold2 = _ControlledESMFold2(source_text)
     simplefold = _ControlledSimpleFold(source_text)
     environment = {
-        ("folding.fold.esmfold2_remote", "7.0.0"): {
+        ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "7.0.0"): {
-            "values": {"provider_client": simplefold},
+        ("folding.fold.simplefold_local", "10.0.0"): {
+            "values": _provider_free_simplefold_environment(
+                tmp_path / "simplefold-assets",
+                monkeypatch,
+                simplefold,
+            ),
         },
     }
     catalog = _provider_free_catalog()
@@ -558,13 +597,13 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         )
         alignment_codec = catalog.require_port_type(
             "structure_comparison.alignment_evidence",
-            "4.0.0",
+            "5.0.0",
         )
         assert [
             edge.alignment_evidence_content_digest
             for edge in consistency.edges
         ] == [alignment_codec.content_digest(item) for item in alignments]
-        score_codec = catalog.require_port_type("score.collection", "4.0.0")
+        score_codec = catalog.require_port_type("score.collection", "5.0.0")
         tm_scores = tuple(
             _decoded_output(client, catalog, projection, node_id, "scores")
             for node_id in (
@@ -649,15 +688,19 @@ def test_source_bound_1pga_public_classification_contract(
         plddt=simplefold_plddt,
     )
     environment = {
-        ("folding.fold.esmfold2_remote", "7.0.0"): {
+        ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
                 "credential_handle": object(),
                 "provider_client": esmfold2,
             },
         },
-        ("folding.fold.simplefold_local", "7.0.0"): {
-            "values": {"provider_client": simplefold},
+        ("folding.fold.simplefold_local", "10.0.0"): {
+            "values": _provider_free_simplefold_environment(
+                tmp_path / "simplefold-assets",
+                monkeypatch,
+                simplefold,
+            ),
         },
     }
     catalog = _provider_free_catalog()

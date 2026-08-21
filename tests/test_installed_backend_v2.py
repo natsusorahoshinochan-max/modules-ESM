@@ -19,7 +19,7 @@ import httpx
 import pytest
 
 from core import build_discovered_frozen_catalog
-from modules.acceptance_verification import ACCEPTANCE_TIER_CONTRACTS
+from modules.acceptance_campaign import acceptance_tier
 from protein_workbench_public import (
     bundle_bytes,
     bundle_digest,
@@ -422,9 +422,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "import",
                         "node_type_id": "protein_io.import_structure",
-                        "node_type_version": "5.0.0",
+                        "node_type_version": "6.0.0",
                         "binding_id": "protein_io.import_structure.direct",
-                        "binding_version": "5.0.0",
+                        "binding_version": "6.0.0",
                         "node_parameters": {
                             "project_input_ref": input_reference
                         },
@@ -433,9 +433,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "export",
                         "node_type_id": "protein_io.export_structure",
-                        "node_type_version": "5.0.0",
+                        "node_type_version": "6.0.0",
                         "binding_id": "protein_io.export_structure.direct",
-                        "binding_version": "5.0.0",
+                        "binding_version": "6.0.0",
                         "node_parameters": {},
                         "binding_parameters": {},
                     },
@@ -443,11 +443,11 @@ def test_installed_backend_completes_full_public_v2_journey(
                         {
                             "node_id": f"export-{index}",
                             "node_type_id": "protein_io.export_structure",
-                            "node_type_version": "5.0.0",
+                            "node_type_version": "6.0.0",
                             "binding_id": (
                                 "protein_io.export_structure.direct"
                             ),
-                            "binding_version": "5.0.0",
+                            "binding_version": "6.0.0",
                             "node_parameters": {},
                             "binding_parameters": {},
                         }
@@ -696,7 +696,7 @@ def _require_configured_installed_evidence() -> None:
     if configured is None:
         return
     tier = os.environ["PROTEIN_WORKBENCH_VERIFICATION_TIER"]
-    contract = ACCEPTANCE_TIER_CONTRACTS[tier]
+    contract = acceptance_tier(tier)
     require_retained_evidence(
         Path(configured),
         required_runs=contract.required_run_labels,
@@ -863,9 +863,9 @@ def _start_installed_esmc_run(
             {
                 "node_id": "import",
                 "node_type_id": "protein_io.import_sequence",
-                "node_type_version": "5.0.0",
+                "node_type_version": "6.0.0",
                 "binding_id": "protein_io.import_sequence.direct",
-                "binding_version": "5.0.0",
+                "binding_version": "6.0.0",
                 "node_parameters": {
                     "project_input_ref": uploaded["project_input_ref"]
                 },

@@ -34,7 +34,7 @@ from modules.structure_annotation import (
 )
 
 
-_VERSION = "3.0.0"
+_VERSION = "4.0.0"
 _OPERATIONS = ("candidate_source", "value_source")
 
 
@@ -88,10 +88,10 @@ def _admitted_reference(
     call: OperationCall,
     port_name: str,
 ) -> CandidateDataReference:
-    collection = call.inputs[port_name]
+    collection = call.inputs[port_name].value
     if type(collection) is not CandidateCollection or len(collection.items) != 1:
         raise ValueError(f"{port_name} must contain exactly one Candidate")
-    references = call.input_content_digests[port_name].candidate_data
+    references = call.inputs[port_name].candidate_data
     if len(references) != 1:
         raise ValueError(f"{port_name} must have one admitted reference")
     reference = references[0]

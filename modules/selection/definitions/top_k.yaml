@@ -1,26 +1,26 @@
 schema_version: "2.1.0"
 node_type_id: selection.top_k
-version: "4.0.0"
+version: "5.0.0"
 title: Select the top Candidates by one exact Utility
 summary: Retains a bounded prefix of original Candidates ranked by a Workflow-owned exact Utility Transform.
 category: selection
 inputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact Candidate subjects named by the selected Workflow objective.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact partitioned Observation source named by the selected Workflow objective.
 outputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Original Candidate identities in preserved exact Utility rank order, truncated to k.

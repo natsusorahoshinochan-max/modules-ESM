@@ -21,15 +21,11 @@ def biohub_esmc_client_factory(
     credential_handle: object,
 ) -> Any:
     """Construct the exact locked SDK client from trusted deployment values."""
-    if model_name != BIOHUB_ESMC_MODEL or endpoint_id != "biohub":
-        raise ValueError("Biohub ESMC client identity is not exact")
-    if not isinstance(credential_handle, str) or not credential_handle:
-        raise ValueError("Biohub ESMC requires a non-empty credential handle")
     from esm.sdk import esmc_client
 
     return esmc_client(
         model=model_name,
-        url="https://biohub.ai",
+        url={"biohub": "https://biohub.ai"}[endpoint_id],
         token=credential_handle,
     )
 
@@ -82,10 +78,8 @@ def normalize_representation(
     )
 
 
-def environment_ready(environment: object) -> bool:
+def environment_ready(environment: Mapping[str, Any]) -> bool:
     """Require an exact deployment client/factory and an opaque credential."""
-    if not isinstance(environment, Mapping):
-        return False
     if environment.get("endpoint_id") != "biohub":
         return False
     client = environment.get("provider_client")
@@ -109,28 +103,18 @@ class BiohubESMCAdapter:
         resources: RunResources,
         model_name: str,
     ) -> None:
-        if model_name != BIOHUB_ESMC_MODEL:
-            raise ValueError("Biohub ESMC model identity is not exact")
         self._environment = environment
         self._resources = resources
         self._model_name = model_name
 
     def _client(self) -> Any:
         client = self._environment.get("provider_client")
-        if (
-            callable(getattr(client, "encode", None))
-            and callable(getattr(client, "logits", None))
-        ):
+        if client is not None:
             return client
-        factory = self._environment.get("client_factory")
-        if callable(factory):
-            return factory(
-                model_name=self._model_name,
-                endpoint_id=self._environment["endpoint_id"],
-                credential_handle=self._environment["credential_handle"],
-            )
-        raise RuntimeError(
-            "Biohub ESMC requires an injected provider client or client factory"
+        return self._environment["client_factory"](
+            model_name=self._model_name,
+            endpoint_id=self._environment["endpoint_id"],
+            credential_handle=self._environment["credential_handle"],
         )
 
     def represent(

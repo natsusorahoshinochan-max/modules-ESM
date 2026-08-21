@@ -453,7 +453,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         if operation == "source"
         else "contract_test.backbone_sink"
     )
-    node_version = "5.0.0" if operation == "source" else "4.0.0"
+    node_version = "6.0.0" if operation == "source" else "4.0.0"
     return ExecutionBindingDefinition(
         binding_id=f"{node_id}.direct",
         version=node_version,
@@ -503,7 +503,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 MODULE_PACKAGE = ModulePackageRegistration(
     schema_version="2.1.0",
     package_id="contract_test.structure_transform_sources",
-    package_version="2.1.0",
+    package_version="3.0.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("source.yaml"),

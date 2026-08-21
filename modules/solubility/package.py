@@ -50,10 +50,10 @@ from .adapter import (
 )
 
 
-_PACKAGE_VERSION = "3.0.0"
+_PACKAGE_VERSION = "4.0.0"
 _METHOD_VERSION = "3.0.0"
 _METRIC_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "4.0.0"
+_NODE_BINDING_VERSION = "5.0.0"
 _MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
 
 
@@ -66,16 +66,6 @@ def _build(mode: SoluProtMode):
     def factory(context: OperationContext) -> ScientificOperation:
         from .implementation import SoluProtImplementation
 
-        matches = tuple(
-            observation
-            for observation in context.produced_observations
-            if observation.output_port == "scores"
-            and observation.output_partition == f"soluprot_{mode}"
-        )
-        if len(matches) != 1:
-            raise RuntimeError(
-                "SoluProt Binding must resolve one exact Observation"
-            )
         return SoluProtImplementation(
             adapter=LocalSoluProtAdapter(
                 mode=mode,
@@ -83,7 +73,7 @@ def _build(mode: SoluProtMode):
                 resources=context.resources,
             ),
             method=context.method,
-            produced_observation=matches[0],
+            produced_observation=context.produced_observations[0],
         )
 
     return factory

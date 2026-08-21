@@ -19,7 +19,6 @@ from core import (
     ContractIdentity,
     ExecutionBindingDefinition,
     ExpectedOptionalDependencyMissing,
-    InputContentDigests,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
@@ -40,6 +39,7 @@ from datatypes import (
     ProteinSequence,
 )
 from protein_workbench_public import validate_response
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 NODE_DEFINITION = """\
@@ -58,7 +58,7 @@ inputs:
     scientific_meaning: Text supplied to the synthetic operation.
   - name: candidate_subjects
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Candidate subjects supplied to the synthetic operation.
@@ -71,13 +71,13 @@ outputs:
     scientific_meaning: Text returned by the synthetic operation.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Candidates observed by the synthetic operation.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "4.0.0"
+    port_type_version: "5.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Typed observations emitted by the synthetic operation.
@@ -260,7 +260,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
 
 EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
     ("binding", "synthetic.echo.direct"): (
-        "sha256:ec35d58a34010bfcb70f251d0800171940d1cbc49c29eb2d0d07571e0b52dadc"
+        "sha256:f2d03215cb81344c594564cdb3aa1b3543b6fd43c68878464e8573252320c475"
     ),
     ("method", "synthetic.echo"): (
         "sha256:e485971a5abafb8460fd29fc8978b89ed2dc4d66efec93c37b75d0289c807120"
@@ -269,7 +269,7 @@ EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
         "sha256:51f0164af916ccf5c3e69c72fc2adb1be6d07c07254869e5a304e870d6bfb2e5"
     ),
     ("node_type", "synthetic.echo"): (
-        "sha256:0e26982b4199f1d90734eb423a1723e8d2c22a239d0e09fbfe48246f0e3d24fb"
+        "sha256:aaf22801384d7aeca66a440a3550e5b34f73fb3f379f8c973f33395524056503"
     ),
     ("port_type", "synthetic.text"): (
         "sha256:cc3fa0e72b72eb82ced2b58697b44a98587c61b6a6ce567c133ca847d2f47870"
@@ -612,11 +612,11 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
     [
         (
             {"output_port": "value"},
-            "output must use exact score.collection@4.0.0",
+            "output must use exact score.collection@5.0.0",
         ),
         (
             {"subject_port": "value"},
-            "subject must use exact candidate.collection@3.0.0",
+            "subject must use exact candidate.collection@4.0.0",
         ),
     ],
 )
@@ -664,7 +664,7 @@ def test_binding_rejects_many_valued_observation_propagation_inputs(
             "    multiplicity: one\n"
             "    scientific_meaning: Text supplied to the synthetic operation.",
             "    port_type_id: score.collection\n"
-            "    port_type_version: \"4.0.0\"\n"
+            "    port_type_version: \"5.0.0\"\n"
             "    required: true\n"
             "    multiplicity: many\n"
             "    scientific_meaning: Scores supplied to the synthetic operation.",
@@ -1265,16 +1265,22 @@ def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
     inputs = {"value": ["A"], "candidates": candidates}
     node_parameters = {"nested": {"values": [1, 2]}}
     call = OperationCall(
-        inputs=inputs,
-        node_parameters=node_parameters,
-        binding_parameters={},
-        input_content_digests={
-            "candidates": InputContentDigests(
+        inputs={
+            "value": admitted_port_fixture(
+                inputs["value"],
+                port_type_id="synthetic.text",
+                value_content_digests=("sha256:" + ("3" * 64),),
+            ),
+            "candidates": admitted_port_fixture(
+                candidates,
                 port_type_id="candidate.collection",
                 value_content_digests=("sha256:" + ("2" * 64),),
                 candidate_data=(candidate_digest,),
-            )
+            ),
         },
+        node_parameters=node_parameters,
+        binding_parameters={},
+        effective_randomness={},
     )
 
     inputs["value"].append("B")
@@ -1284,13 +1290,13 @@ def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
     with pytest.raises(AttributeError):
         candidates.items.clear()
 
-    assert call.inputs["value"] == ("A",)
+    assert call.inputs["value"].value == ("A",)
     admitted = call.inputs["candidates"]
-    assert admitted is candidates
-    assert admitted.items[0].candidate_id == "candidate-1"
-    assert admitted.items[0].data.sequence == "MA"
+    assert admitted.value is candidates
+    assert admitted.value.items[0].candidate_id == "candidate-1"
+    assert admitted.value.items[0].data.sequence == "MA"
     assert call.node_parameters["nested"]["values"] == (1, 2)
-    assert call.input_content_digests["candidates"].candidate_data == (
+    assert call.inputs["candidates"].candidate_data == (
         candidate_digest,
     )
     with pytest.raises(TypeError):

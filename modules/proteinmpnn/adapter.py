@@ -9,7 +9,14 @@ import os
 from pathlib import Path
 from typing import Any, cast
 
-from core import ReadinessResult, RunResources
+from core import (
+    EngineInvocationProvenance,
+    InvocationRandomness,
+    ProviderResidueProjection,
+    ProviderResidueProjectionEntry,
+    ReadinessResult,
+    RunResources,
+)
 from modules.provider_contract import proteinmpnn_provider_identity
 from datatypes import (
     ProteinMPNNConstraints,
@@ -31,13 +38,12 @@ PROTEINMPNN_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
 PROTEINMPNN_DEVICE = "cpu"
 PROTEINMPNN_TORCH_VERSION = "2.13.0"
 PROTEINMPNN_SCORING_SEED = 42
-_CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
 _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
 _INSTALLED_GATE_RESIDENT_MODELS: dict[
-    tuple[str, float, Path | None],
+    tuple[str, float, Path],
     tuple[Any, Any],
 ] = {}
 
@@ -80,7 +86,7 @@ def _stage_provider_structure(
     ]
     residue_name_by_id = dict(
         zip(
-            residue_axis.layout.residue_ids or (),
+            cast(tuple[str, ...], residue_axis.layout.residue_ids),
             residue_axis.residue_names,
             strict=True,
         )
@@ -141,9 +147,14 @@ def proteinmpnn_readiness(
 ) -> ReadinessResult:
     """Validate prerequisites without constructing or loading the model."""
     try:
-        if importlib.metadata.version("torch") != PROTEINMPNN_TORCH_VERSION:
-            raise RuntimeError("ProteinMPNN Torch identity does not match")
-    except (ImportError, importlib.metadata.PackageNotFoundError, RuntimeError):
+        torch_version = importlib.metadata.version("torch")
+    except importlib.metadata.PackageNotFoundError:
+        return ReadinessResult(
+            False,
+            proof_source="direct-observation",
+            reason_code="proteinmpnn_runtime_unavailable",
+        )
+    if torch_version != PROTEINMPNN_TORCH_VERSION:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -170,14 +181,9 @@ def proteinmpnn_readiness(
             reason_code="proteinmpnn_runtime_unavailable",
         )
     readiness = check_proteinmpnn_readiness(
-        PROTEINMPNN_MODEL,
         provider_root,
     )
-    if (
-        not readiness.ready
-        or readiness.checkpoint_path is None
-        or readiness.checkpoint_path.name != "v_48_020.pt"
-    ):
+    if not readiness.ready:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -189,14 +195,9 @@ def proteinmpnn_readiness(
 def _provider_for_environment(
     environment: Mapping[str, Any],
     staging_directory: Path,
-    model_cache: dict[tuple[str, float, Path | None], tuple[Any, Any]],
+    model_cache: dict[tuple[str, float, Path], tuple[Any, Any]],
 ) -> ProteinMPNNProvider:
     """Resolve the declared provider seam without accepting Workflow paths."""
-    client = environment.get("provider_client")
-    if client is not None:
-        raise RuntimeError(
-            "ProteinMPNN design does not accept injected provider clients"
-        )
     return _LocalProteinMPNNProvider(
         temp_dir=staging_directory,
         provider_root=cast(Path, environment["provider_root"]),
@@ -215,35 +216,7 @@ def _prepare_local_design_request(
     constraints: ProteinMPNNConstraints | None,
     reference_sequence: ProteinSequence | None,
 ) -> ProteinMPNNDesignRequest:
-    """Normalize all public design inputs into one provider request."""
-    if type(residue_axis) is not ResolvedStructureResidueAxis:
-        raise ValueError(
-            "design requires one exact resolved structure residue axis"
-        )
-    if constraints is not None and _CANONICAL_AMINO_ACIDS <= set(
-        constraints.omit_amino_acids or ()
-    ):
-        raise ValueError(
-            "omit_amino_acids must leave at least one canonical amino acid"
-        )
-    if (
-        reference_sequence is not None
-        and (
-            not set(reference_sequence.sequence) <= _CANONICAL_AMINO_ACIDS
-            or reference_sequence.residue_ids
-            != residue_axis.layout.residue_ids
-        )
-    ):
-        raise ValueError(
-            "reference sequence must use the exact resolved residue axis"
-        )
-    if (
-        constraints is not None
-        and constraints.layout != residue_axis.layout
-    ):
-        raise ValueError(
-            "constraints must use the exact resolved residue axis"
-        )
+    """Translate admitted design inputs into one provider request."""
     projection = _stage_provider_structure(residue_axis)
     parsed = provider.parse_structure(projection.pdb_string)
     request = _prepare_design_request(
@@ -272,38 +245,31 @@ def _prepare_local_design_request(
     return replace(request, omit_amino_acids=omitted)
 
 
-def _target_residue_ids(
-    request: ProteinMPNNDesignRequest,
-) -> tuple[str, ...]:
-    return tuple(request.target_layout.residue_ids or ())
-
-
 def _provider_residue_projection(
     request: ProteinMPNNDesignRequest,
-) -> dict[str, Any]:
+) -> ProviderResidueProjection:
     """Project the exact Workbench layout used by one provider invocation."""
-    return {
-        "position_semantics": "one_based_chain_local",
-        "workbench_chain_order": list(request.workbench_chain_order),
-        "provider_structure_chain_order": list(
+    return ProviderResidueProjection(
+        workbench_chain_order=request.workbench_chain_order,
+        provider_structure_chain_order=(
             request.provider_structure_chain_order
         ),
-        "provider_chain_order": list(request.provider_chain_order),
-        "entries": [
-            {
-                "residue_id": residue_id,
-                "segment_index": segment_index,
-                "provider_chain_id": provider_chain_id,
-                "provider_position": provider_position,
-            }
+        provider_chain_order=request.provider_chain_order,
+        entries=tuple(
+            ProviderResidueProjectionEntry(
+                residue_id=residue_id,
+                segment_index=segment_index,
+                provider_chain_id=provider_chain_id,
+                provider_position=provider_position,
+            )
             for (
                 residue_id,
                 segment_index,
                 provider_chain_id,
                 provider_position,
             ) in request.residue_identity_mapping
-        ],
-    }
+        ),
+    )
 
 
 def _restore_structure_chain_order(
@@ -335,7 +301,7 @@ def _admit_design_result(
     request: ProteinMPNNDesignRequest,
 ) -> list[ProteinSequence]:
     """Translate the one official design result into canonical sequences."""
-    residue_ids = _target_residue_ids(request)
+    residue_ids = cast(tuple[str, ...], request.target_layout.residue_ids)
     sequences = [
         ProteinSequence(
             _restore_structure_chain_order(
@@ -355,20 +321,7 @@ def _prepare_local_scoring_request(
     residue_axis: ResolvedStructureResidueAxis,
     sequence: ProteinSequence,
 ) -> ProteinMPNNDesignRequest:
-    """Normalize one exact Candidate pair into the fixed scoring request."""
-    if type(residue_axis) is not ResolvedStructureResidueAxis:
-        raise ValueError(
-            "scoring requires one exact resolved structure residue axis"
-        )
-    if (
-        type(sequence) is not ProteinSequence
-        or not sequence.sequence
-        or not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS
-        or sequence.residue_ids != residue_axis.layout.residue_ids
-    ):
-        raise ValueError(
-            "scoring sequence must use the exact resolved residue axis"
-        )
+    """Translate one admitted Candidate pair into the scoring request."""
     projection = _stage_provider_structure(residue_axis)
     parsed = provider.parse_structure(projection.pdb_string)
     request = _prepare_design_request(
@@ -390,11 +343,6 @@ def _prepare_local_scoring_request(
     return request
 
 
-def _admit_scoring_result(raw_result: float) -> float:
-    """Translate the official provider scalar; Metric admission owns bounds."""
-    return raw_result
-
-
 class LocalProteinMPNNAdapter:
     """Translate canonical scientific values to one pinned local provider."""
 
@@ -407,7 +355,7 @@ class LocalProteinMPNNAdapter:
             [
                 Mapping[str, Any],
                 Path,
-                dict[tuple[str, float, Path | None], tuple[Any, Any]],
+                dict[tuple[str, float, Path], tuple[Any, Any]],
             ],
             ProteinMPNNProvider,
         ] = _provider_for_environment,
@@ -422,7 +370,7 @@ class LocalProteinMPNNAdapter:
             self._resident_models = _INSTALLED_GATE_RESIDENT_MODELS
         else:
             self._resident_models: dict[
-                tuple[str, float, Path | None],
+                tuple[str, float, Path],
                 tuple[Any, Any],
             ] = {}
 
@@ -459,15 +407,15 @@ class LocalProteinMPNNAdapter:
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,
-                invocation_provenance={
-                    "effective_randomness": {
-                        "control": "exact_seed",
-                        "effective_seed": seed,
-                    },
-                    "provider_residue_projection": (
+                invocation_provenance=EngineInvocationProvenance(
+                    effective_randomness=InvocationRandomness(
+                        control="exact_seed",
+                        effective_seed=seed,
+                    ),
+                    provider_residue_projection=(
                         _provider_residue_projection(request)
                     ),
-                },
+                ),
             ):
                 raw_sequences = provider.design(request)
             sequences = _admit_design_result(
@@ -498,18 +446,17 @@ class LocalProteinMPNNAdapter:
             )
             with self._resources.engine_invocation(
                 engine_role="score_subject",
-                invocation_provenance={
-                    "effective_randomness": {
-                        "control": "exact_seed",
-                        "effective_seed": PROTEINMPNN_SCORING_SEED,
-                    },
-                    "provider_residue_projection": (
+                invocation_provenance=EngineInvocationProvenance(
+                    effective_randomness=InvocationRandomness(
+                        control="exact_seed",
+                        effective_seed=PROTEINMPNN_SCORING_SEED,
+                    ),
+                    provider_residue_projection=(
                         _provider_residue_projection(request)
-                    )
-                },
+                    ),
+                ),
             ):
-                raw_score = provider.score(request, sequence)
-            return _admit_scoring_result(raw_score)
+                return provider.score(request, sequence)
 
     def close(self) -> None:
         """Release operation-scoped resident models after the Operation."""

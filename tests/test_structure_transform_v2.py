@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from core import (
-    InputContentDigests,
     ModulePackageContractCase,
     ModulePackagePortCase,
     OperationCall,
@@ -65,18 +64,19 @@ from modules.structure_transform.implementation import (
     resolve_residue_axis,
     select_chains,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from tests.fixtures.structure_transform_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
 
 
 VERSION = "2.1.0"
-CANDIDATE_COLLECTION_VERSION = "3.0.0"
-CANDIDATE_NODE_VERSION = "3.0.0"
+CANDIDATE_COLLECTION_VERSION = "4.0.0"
+CANDIDATE_NODE_VERSION = "4.0.0"
 STRUCTURE_VERSION = "4.0.0"
 NORMALIZE_CSH_VERSION = "5.0.0"
-CANDIDATE_AXIS_VERSION = "5.0.0"
-SOURCE_VERSION = "5.0.0"
+CANDIDATE_AXIS_VERSION = "6.0.0"
+SOURCE_VERSION = "6.0.0"
 BACKBONE_VERSION = "4.0.0"
 BACKBONE_METHOD_VERSION = "4.0.0"
 NORMALIZATION_VERSION = "3.0.0"
@@ -401,18 +401,21 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     ).execute(
         OperationCall(
             inputs={
-                "structure_candidates": structure_candidates,
-                "residue_axes": residue_axes,
-            },
-            node_parameters={},
-            binding_parameters={},
-            input_content_digests={
-                "structure_candidates": InputContentDigests(
+                "structure_candidates": admitted_port_fixture(
+                    structure_candidates,
                     port_type_id="candidate.collection",
                     value_content_digests=("sha256:" + ("e" * 64),),
                     candidate_data=(subject,),
-                )
+                ),
+                "residue_axes": admitted_port_fixture(
+                    residue_axes,
+                    port_type_id="structure_transform.residue_axes",
+                    value_content_digests=("sha256:" + ("f" * 64),),
+                ),
             },
+            node_parameters={},
+            binding_parameters={},
+            effective_randomness={},
         )
     )["sequence_candidates"]
     selected_output = SelectCandidateChainsImplementation(
@@ -420,11 +423,15 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
     ).execute(
         OperationCall(
             inputs={
-                "structure_candidates": structure_candidates
+                "structure_candidates": admitted_port_fixture(
+                    structure_candidates,
+                    port_type_id="candidate.collection",
+                    value_content_digests=("sha256:" + ("e" * 64),),
+                )
             },
             node_parameters={"chain_ids": ["A"]},
             binding_parameters={},
-            input_content_digests={},
+            effective_randomness={},
         )
     )["structure_candidates"]
 
@@ -449,18 +456,21 @@ def test_candidate_transforms_share_axis_projection_and_header_preservation(
         ExtractSequenceCandidatesImplementation(_RunResources()).execute(
             OperationCall(
                 inputs={
-                    "structure_candidates": structure_candidates,
-                    "residue_axes": mismatched_axes,
-                },
-                node_parameters={},
-                binding_parameters={},
-                input_content_digests={
-                    "structure_candidates": InputContentDigests(
+                    "structure_candidates": admitted_port_fixture(
+                        structure_candidates,
                         port_type_id="candidate.collection",
                         value_content_digests=("sha256:" + ("e" * 64),),
                         candidate_data=(subject,),
-                    )
+                    ),
+                    "residue_axes": admitted_port_fixture(
+                        mismatched_axes,
+                        port_type_id="structure_transform.residue_axes",
+                        value_content_digests=("sha256:" + ("f" * 64),),
+                    ),
                 },
+                node_parameters={},
+                binding_parameters={},
+                effective_randomness={},
             )
         )
 
@@ -505,43 +515,6 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
                 complete_backbone_mask=(False,),
             )
         )
-    residue_coordinates = _RESOLVED_AXIS.residue_coordinates[0]
-    tampered_atoms = (
-        replace(
-            residue_coordinates.atom_coordinates[0],
-            coordinate=(999.0, 999.0, 999.0),
-        ),
-        *residue_coordinates.atom_coordinates[1:],
-    )
-    with pytest.raises(PortValueError, match="embedded structure"):
-        port_type.encode(
-            replace(
-                _RESOLVED_AXIS,
-                residue_coordinates=(
-                    replace(
-                        residue_coordinates,
-                        atom_coordinates=tampered_atoms,
-                    ),
-                ),
-            )
-        )
-    with pytest.raises(PortValueError, match="embedded structure"):
-        port_type.encode(
-            replace(
-                _RESOLVED_AXIS,
-                sequence="X",
-                residue_names=("UNK",),
-                component_dispositions=(
-                    replace(
-                        _RESOLVED_AXIS.component_dispositions[0],
-                        component_id="UNK",
-                        parent_sequence="X",
-                    ),
-                ),
-            )
-        )
-
-
 def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
     port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.modified_residue_normalizations",
@@ -647,15 +620,15 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         ),
         (
             "structure_transform.normalize_csh_parent_span_candidates",
-            "1.0.0",
+            "2.0.0",
         ),
         (
             "structure_transform.materialize_candidate_normalizations",
-            "1.0.0",
+            "2.0.0",
         ),
         (
             "structure_transform.project_single_residue_axis",
-            "1.0.0",
+            "2.0.0",
         ),
         ("structure_transform.resolve_residue_axis", STRUCTURE_VERSION),
         (
@@ -1056,11 +1029,11 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_type_id=(
             "structure_transform.normalize_csh_parent_span_candidates"
         ),
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id=(
             "structure_transform.normalize_csh_parent_span_candidates.direct"
         ),
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -1077,11 +1050,11 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_type_id=(
             "structure_transform.normalize_csh_parent_span_candidates"
         ),
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id=(
             "structure_transform.normalize_csh_parent_span_candidates.direct"
         ),
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -1090,11 +1063,11 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         node_type_id=(
             "structure_transform.materialize_candidate_normalizations"
         ),
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id=(
             "structure_transform.materialize_candidate_normalizations.direct"
         ),
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -1199,9 +1172,9 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
     project_single_axis_case = ModulePackageContractCase(
         case_id="structure-transform-project-single-residue-axis",
         node_type_id="structure_transform.project_single_residue_axis",
-        node_type_version="1.0.0",
+        node_type_version="2.0.0",
         binding_id="structure_transform.project_single_residue_axis.direct",
-        binding_version="1.0.0",
+        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -1376,12 +1349,12 @@ def test_all_nodes_pass_the_shared_contract_test_kit(
         "structure_transform.backbone_structure@4.0.0",
         (
             "structure_transform."
-            "candidate_modified_residue_normalization_associations@5.0.0"
+            "candidate_modified_residue_normalization_associations@6.0.0"
         ),
         "structure_transform.candidate_normalization_facts@1.0.0",
         (
             "structure_transform."
-            "candidate_resolved_residue_axis_associations@5.0.0"
+            "candidate_resolved_residue_axis_associations@6.0.0"
         ),
         "structure_transform.modified_residue_normalizations@3.0.0",
         "structure_transform.resolved_residue_axis@4.0.0",

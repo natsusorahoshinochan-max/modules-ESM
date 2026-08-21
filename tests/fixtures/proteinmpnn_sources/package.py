@@ -27,10 +27,10 @@ from datatypes import (
 )
 
 
-_VERSION = "2.1.0"
-_SOURCE_NODE_BINDING_VERSION = "4.0.0"
-_SEQUENCE_SOURCE_NODE_BINDING_VERSION = "3.0.0"
-_CANDIDATEIZE_NODE_BINDING_VERSION = "1.0.0"
+_VERSION = "3.0.0"
+_SOURCE_NODE_BINDING_VERSION = "5.0.0"
+_SEQUENCE_SOURCE_NODE_BINDING_VERSION = "4.0.0"
+_CANDIDATEIZE_NODE_BINDING_VERSION = "2.0.0"
 
 
 def _fixture_structure(parent_index: int) -> ProteinStructure:
@@ -116,7 +116,7 @@ class _SequenceSource:
             raise ValueError(
                 "ProteinMPNN sequence source requires exact parents"
             )
-        parents = inputs["structure_candidates"]
+        parents = inputs["structure_candidates"].value
         if (
             type(parents) is not CandidateCollection
             or parents.item_type != "protein.structure"
@@ -154,7 +154,7 @@ class _StructureCandidateize:
             set(call.inputs) != {"structure"}
             or call.node_parameters
             or call.binding_parameters
-            or type(call.inputs["structure"]) is not ProteinStructure
+            or type(call.inputs["structure"].value) is not ProteinStructure
         ):
             raise ValueError(
                 "ProteinMPNN structure candidate fixture requires one structure"
@@ -162,7 +162,7 @@ class _StructureCandidateize:
         with self._run_resources.engine_invocation():
             candidate = Candidate(
                 "fixture-candidateized-structure",
-                call.inputs["structure"],
+                call.inputs["structure"].value,
                 (),
                 {"fixture_role": "candidateized_structure"},
             )

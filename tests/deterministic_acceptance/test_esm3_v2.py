@@ -11,7 +11,7 @@ from tests.fixtures.esm3_generation import (
     ProviderResponse,
     decode_output,
     run_generation,
-    three_residue_pdb,
+    three_residue_provider_pdb,
 )
 
 
@@ -26,7 +26,7 @@ def _structure_response() -> ProviderResponse:
         coordinates=torch.zeros((3, 37, 3)),
         ptm=torch.tensor(0.75),
         plddt=torch.tensor([0.7, 0.8, 0.9]),
-        pdb_string=three_residue_pdb(),
+        pdb_string=three_residue_provider_pdb(),
     )
 
 

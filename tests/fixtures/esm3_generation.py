@@ -146,9 +146,9 @@ def run_generation(
                 WorkflowNodeInstance(
                     node_id="import_sequence",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="5.0.0",
+                    node_type_version="6.0.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="5.0.0",
+                    binding_version="6.0.0",
                     node_parameters={"project_input_ref": "sequence-input"},
                     binding_parameters={},
                 ),
@@ -217,9 +217,9 @@ def run_generation(
         WorkflowNodeInstance(
             node_id="generate",
             node_type_id=f"esm3.{operation}",
-            node_type_version="7.0.0",
+            node_type_version="8.0.0",
             binding_id=f"esm3.{operation}.{binding_route}",
-            binding_version="7.0.0",
+            binding_version="8.0.0",
             node_parameters=resolved_generation_parameters,
             binding_parameters={},
         )
@@ -243,11 +243,11 @@ def run_generation(
                 node_type_id=(
                     "structure_prediction.materialize_confidence"
                 ),
-                node_type_version="1.0.0",
+                node_type_version="2.0.0",
                 binding_id=(
                     "structure_prediction.materialize_confidence.direct"
                 ),
-                binding_version="1.0.0",
+                binding_version="2.0.0",
                 node_parameters={},
                 binding_parameters={},
             )
@@ -307,7 +307,7 @@ def run_generation(
     environment_values.update(environment_overrides or {})
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "7.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "8.0.0"): {
                 "values": environment_values,
             }
         }
@@ -357,6 +357,16 @@ def three_residue_pdb(sequence: str = "ACD") -> str:
             )
             serial += 1
     return "\n".join([*lines, "TER", "END", ""])
+
+
+def three_residue_provider_pdb(sequence: str = "ACD") -> str:
+    """Match the official ESM SDK serializer's ATOM-only PDB body."""
+    return three_residue_pdb(sequence).removesuffix("TER\nEND\n")
+
+
+def three_residue_translated_pdb(sequence: str = "ACD") -> str:
+    """Translate the official SDK body to the canonical terminal record."""
+    return f"{three_residue_provider_pdb(sequence)}END\n"
 
 
 def run_generation_from_prompt_fixture(
@@ -415,9 +425,9 @@ def run_generation_from_prompt_fixture(
             WorkflowNodeInstance(
                 node_id="generate",
                 node_type_id=f"esm3.{operation}",
-                node_type_version="7.0.0",
+                node_type_version="8.0.0",
                 binding_id=f"esm3.{operation}.{binding_route}",
-                binding_version="7.0.0",
+                binding_version="8.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_samples": num_samples,
@@ -441,7 +451,7 @@ def run_generation_from_prompt_fixture(
     )
     environment = EnvironmentConfiguration(
         {
-            (f"esm3.{operation}.{binding_route}", "7.0.0"): {
+            (f"esm3.{operation}.{binding_route}", "8.0.0"): {
                 "values": {
                     "endpoint_id": "biohub",
                     "credential_handle": object(),

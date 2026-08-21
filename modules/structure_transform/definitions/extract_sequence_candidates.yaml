@@ -1,26 +1,26 @@
 schema_version: "2.1.0"
 node_type_id: structure_transform.extract_sequence_candidates
-version: "3.0.0"
+version: "4.0.0"
 title: Extract structure Candidate sequences
 summary: Projects one sequence Candidate from every exact-reference-associated resolved structure residue axis.
 category: structure_transform
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete ordered structure Candidates used only for exact parent lineage and output ordering, never to reparse residue semantics.
   - name: residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "5.0.0"
+    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete exact-reference-associated parent residue populations whose Candidate identities become the sole output lineage.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered sequence Candidates in one-to-one correspondence with the input structure Candidates and carrying exact parent lineage.

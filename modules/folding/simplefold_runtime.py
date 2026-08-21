@@ -1,16 +1,14 @@
 """SimpleFold adapter: wraps ml-simplefold for sequence folding and structure evaluation.
 
-Fold: sequence -> structures + pLDDT (100M model, num_steps capped at 50).
+Fold: sequence -> structures + pLDDT (100M model, exact normalized num_steps).
 Evaluate: structure -> pLDDT scores (larger model, no re-folding).
 """
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 import os
 import shutil
-import subprocess
 import sys
 import threading
 from argparse import Namespace
@@ -25,14 +23,6 @@ from datatypes import (
     ProteinSequence,
     ProteinStructure,
 )
-from modules.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_AUXILIARY_ARTIFACTS,
-    SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES,
-    SIMPLEFOLD_ESM2_REVISION,
-    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-)
-from .simplefold_contract import SIMPLEFOLD_FOLDING_ARTIFACTS
 
 
 _SIMPLEFOLD_PROCESS_LOCK = threading.RLock()
@@ -56,182 +46,6 @@ def _get_artifact_dir(project_dir: str) -> Path:
     artifacts = base / "simplefold_artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     return artifacts
-
-
-def _sha256_file(
-    path: Path,
-    *,
-    expected_bytes: int | None = None,
-) -> str:
-    digest = hashlib.sha256()
-    if expected_bytes is not None and path.stat().st_size != expected_bytes:
-        raise RuntimeError(
-            f"SimpleFold artifact byte count mismatch: {path.name}"
-        )
-    with path.open("rb") as handle:
-        while chunk := handle.read(1024 * 1024):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def stage_simplefold_model_dir(
-    working_artifacts: Path,
-    model_root: Path,
-    *,
-    required_artifacts: tuple[str, ...] | None = None,
-) -> Path:
-    """Stage provider objects already admitted by Binding readiness."""
-    model_dir = model_root.expanduser()
-    required_names = set(
-        required_artifacts
-        if required_artifacts is not None
-        else (
-            *SIMPLEFOLD_ARTIFACT_IDENTITIES,
-            *SIMPLEFOLD_AUXILIARY_ARTIFACTS,
-        )
-    )
-    working_artifacts.mkdir(parents=True, mode=0o700, exist_ok=True)
-    staged = working_artifacts / "verified_provider"
-    staged.mkdir(mode=0o700)
-    for name in sorted(required_names):
-        _copy_file(model_dir / name, staged / name)
-    return staged
-
-
-def _copy_file(source: Path, destination: Path) -> None:
-    shutil.copyfile(source, destination)
-
-
-def _run_simplefold_esm2_git(root: Path, *args: str) -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(root), *args],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (
-        OSError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-    ) as exc:
-        raise RuntimeError(
-            "SimpleFold ESM2 source is not a usable locked Git checkout"
-        ) from exc
-    return completed.stdout.strip()
-
-
-def validated_simplefold_esm2_root(
-    source_root: Path,
-) -> Path:
-    """Resolve the exact local ESM2 checkout used by SimpleFold."""
-    source_root = source_root.expanduser()
-    hubconf = source_root / "hubconf.py"
-    if not source_root.is_dir() or not hubconf.is_file():
-        raise FileNotFoundError(
-            "SimpleFold ESM2 source root must be a Git checkout"
-        )
-    checkout = Path(
-        _run_simplefold_esm2_git(
-            source_root,
-            "rev-parse",
-            "--show-toplevel",
-        )
-    ).resolve()
-    if checkout != source_root.resolve():
-        raise RuntimeError(
-            "SimpleFold ESM2 source root must be the Git checkout root"
-        )
-    if (
-        _run_simplefold_esm2_git(source_root, "rev-parse", "HEAD")
-        != SIMPLEFOLD_ESM2_REVISION
-    ):
-        raise RuntimeError(
-            "SimpleFold ESM2 checkout does not match the locked revision"
-        )
-    runtime_files = _simplefold_esm2_runtime_files(source_root)
-    if (
-        _simplefold_esm2_source_tree_sha256(runtime_files)
-        != SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256
-    ):
-        raise RuntimeError(
-            "SimpleFold ESM2 runtime source does not match the reviewed tree"
-        )
-    return source_root
-
-
-def _simplefold_esm2_runtime_files(
-    source_root: Path,
-) -> list[tuple[str, Path]]:
-    tracked = sorted({
-        relative
-        for relative in _run_simplefold_esm2_git(
-            source_root,
-            "ls-files",
-            "--",
-            "hubconf.py",
-            "esm",
-        ).splitlines()
-        if relative
-    })
-    return [(relative, source_root / relative) for relative in tracked]
-
-
-def _simplefold_esm2_source_tree_sha256(
-    runtime_files: list[tuple[str, Path]],
-) -> str:
-    digest = hashlib.sha256()
-    for relative, path in sorted(runtime_files):
-        digest.update(relative.encode() + b"\0")
-        digest.update(bytes.fromhex(_sha256_file(path)))
-    return digest.hexdigest()
-
-
-def _stage_simplefold_esm2_source(
-    source_root: Path,
-    working_artifacts: Path,
-) -> Path:
-    runtime_files = _simplefold_esm2_runtime_files(source_root)
-    working_artifacts.mkdir(parents=True, mode=0o700, exist_ok=True)
-    staged_root = working_artifacts / "verified_esm2_source"
-    staged_root.mkdir(mode=0o700)
-    for relative, source in runtime_files:
-        destination = staged_root / relative
-        destination.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-        _copy_file(source, destination)
-    return staged_root
-
-
-def stage_simplefold_esm2_model_dir(
-    working_artifacts: Path,
-    model_root: Path,
-) -> Path:
-    """Stage ESM2 weights already admitted by Binding readiness."""
-    model_root = model_root.expanduser()
-    working_artifacts.mkdir(parents=True, mode=0o700, exist_ok=True)
-    staged = working_artifacts / "verified_esm2_models"
-    staged.mkdir(mode=0o700)
-    for name in sorted(SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES):
-        _copy_file(model_root / name, staged / name)
-    return staged
-
-
-def stage_simplefold_esm2_runtime(
-    working_artifacts: Path,
-    source_root: Path,
-    model_root: Path,
-) -> tuple[Path, Path]:
-    """Stage the ESM2 source and weights admitted by Binding readiness."""
-    staged_source = _stage_simplefold_esm2_source(
-        source_root,
-        working_artifacts,
-    )
-    staged_models = stage_simplefold_esm2_model_dir(
-        working_artifacts,
-        model_root,
-    )
-    return staged_source, staged_models
 
 
 def _load_reviewed_simplefold_esm2(
@@ -294,10 +108,7 @@ def _bind_simplefold_esm2_source(
 
 def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
     """Populate a fresh cache from verified objects; never invoke a downloader."""
-    for name in SIMPLEFOLD_AUXILIARY_ARTIFACTS:
-        source = model_dir / name
-        if source.is_file():
-            _copy_file(source, cache / name)
+    shutil.copyfile(model_dir / "ccd.pkl", cache / "ccd.pkl")
 
 
 def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
@@ -323,9 +134,9 @@ def fold_sequence(
     num_samples: int,
     project_dir: str,
     effective_seed: int,
-    model_root: Path,
-    esm2_source_root: Path,
-    esm2_model_root: Path,
+    staged_model_root: Path,
+    staged_esm2_source_root: Path,
+    staged_esm2_model_root: Path,
     required_device: str,
     record_evidence: bool,
 ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
@@ -333,22 +144,14 @@ def fold_sequence(
 
     Returns structures plus provider-native per-sample confidence data.
 
-    num_steps is capped at 50 per ADR 0013.
+    num_steps is the exact Plan-normalized value admitted by the Binding.
     """
     if model_name != "simplefold_100M":
         raise ValueError("SimpleFold folding requires simplefold_100M")
-    num_steps = min(num_steps, 50)
     artifacts = _get_artifact_dir(project_dir)
-    model_dir = stage_simplefold_model_dir(
-        artifacts,
-        model_root,
-        required_artifacts=SIMPLEFOLD_FOLDING_ARTIFACTS,
-    )
-    esm2_source_root, esm2_model_dir = stage_simplefold_esm2_runtime(
-        artifacts,
-        esm2_source_root,
-        esm2_model_root,
-    )
+    model_dir = staged_model_root
+    esm2_source_root = staged_esm2_source_root
+    esm2_model_dir = staged_esm2_model_root
     old_cwd = _setup_simplefold_imports()
     from simplefold.wrapper import ModelWrapper, InferenceWrapper
     from simplefold.utils.boltz_utils import (

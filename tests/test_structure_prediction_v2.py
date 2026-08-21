@@ -7,7 +7,6 @@ from dataclasses import replace
 import pytest
 
 from core import (
-    InputContentDigests,
     OperationCall,
     ResolvedProducedObservation,
     build_frozen_catalog,
@@ -23,6 +22,7 @@ from datatypes import (
     ResidueLayout,
     validate_canonical_identifier,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from modules.structure_prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
@@ -190,7 +190,7 @@ def test_prediction_residue_axis_port_has_exact_round_trip_and_content_identity(
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.type_id == (
         "structure_prediction.prediction_residue_axis"
     )
-    assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.version == "1.0.0"
+    assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.version == "2.0.0"
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.decode(encoded) == axis
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(axis).startswith(
         "sha256:"
@@ -248,7 +248,6 @@ def test_confidence_facts_port_round_trips_and_projects_unique_axis_and_method()
             first,
         ),
     )
-
     encoded = CONFIDENCE_FACTS_PORT_TYPE.encode(facts)
     axes = CONFIDENCE_FACTS_PORT_TYPE.scientific_axis_references(facts)
 
@@ -305,22 +304,25 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
     structure_digest = "sha256:" + "b" * 64
+    trusted_axis_digest = "sha256:" + "c" * 64
     key = prediction_key(
         output_role="structure_candidates",
         output_slot=0,
         structure_content_digest=structure_digest,
-        prediction_axis_content_digest=(
-            PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(axis)
-        ),
+        prediction_axis_content_digest=trusted_axis_digest,
     )
-    method = ExactContractReference(
+    embedded_method = ExactContractReference(
         "method",
         "folding.example.method",
         "1.0.0",
         "sha256:" + "8" * 64,
     )
+    trusted_method = replace(
+        embedded_method,
+        contract_digest="sha256:" + "9" * 64,
+    )
     facts = ConfidenceFactCollection(
-        observation_method=method,
+        observation_method=embedded_method,
         entries=(
             ConfidenceFact(
                 prediction_key=key,
@@ -330,6 +332,14 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
                 ptm=0.75,
                 pae=((0.0, 1.0), (1.0, 0.0)),
             ),
+        ),
+    )
+    trusted_axis = replace(
+        prediction_axis_reference(axis),
+        axis_content_digest=trusted_axis_digest,
+        axis_contract=replace(
+            prediction_axis_reference(axis).axis_contract,
+            contract_digest="sha256:" + "a" * 64,
         ),
     )
     subject = CandidateDataReference(
@@ -380,29 +390,30 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
     )
     call = OperationCall(
         inputs={
-            "structure_candidates": candidates,
-            "confidence_facts": facts,
-        },
-        node_parameters={},
-        binding_parameters={},
-        input_content_digests={
-            "structure_candidates": InputContentDigests(
+            "structure_candidates": admitted_port_fixture(
+                candidates,
                 port_type_id="candidate.collection",
                 value_content_digests=("sha256:" + "c" * 64,),
                 candidate_data=(subject,),
             ),
-            "confidence_facts": InputContentDigests(
+            "confidence_facts": admitted_port_fixture(
+                facts,
                 port_type_id="structure_prediction.confidence_facts",
                 value_content_digests=(
                     CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),
                 ),
+                scientific_axes=(trusted_axis,),
+                observation_methods=(trusted_method,),
             ),
         },
+        node_parameters={},
+        binding_parameters={},
+        effective_randomness={},
     )
 
     observations = operation.execute(call)["observations"]
     by_metric = {entry.metric.contract_id: entry for entry in observations}
-    expected_axis = prediction_axis_reference(axis)
+    expected_axis = trusted_axis
 
     assert set(by_metric) == {
         "structure.plddt.per_residue",
@@ -411,7 +422,7 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         "structure.pae",
     }
     assert all(entry.subject == subject for entry in observations)
-    assert all(entry.method == method for entry in observations)
+    assert all(entry.method == trusted_method for entry in observations)
     assert all(
         entry.source_partition == "prediction_confidence"
         for entry in observations
@@ -514,36 +525,38 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
     )
     call = OperationCall(
         inputs={
-            "structure_candidates": CandidateCollection(
-                "structures",
-                "protein.structure",
-                (
-                    Candidate(
-                        "structure-1",
-                        ProteinStructure("ATOM\n"),
-                        metadata={
-                            "prediction_key": supplied_key,
-                            "output_port": output_port,
-                            "sample_slot": sample_slot,
-                        },
+            "structure_candidates": admitted_port_fixture(
+                CandidateCollection(
+                    "structures",
+                    "protein.structure",
+                    (
+                        Candidate(
+                            "structure-1",
+                            ProteinStructure("ATOM\n"),
+                            metadata={
+                                "prediction_key": supplied_key,
+                                "output_port": output_port,
+                                "sample_slot": sample_slot,
+                            },
+                        ),
                     ),
                 ),
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + "c" * 64,),
+                candidate_data=(subject,),
             ),
-            "confidence_facts": facts,
+            "confidence_facts": admitted_port_fixture(
+                facts,
+                port_type_id="structure_prediction.confidence_facts",
+                value_content_digests=(
+                    CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),
+                ),
+                scientific_axes=(prediction_axis_reference(axis),),
+            ),
         },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={
-            "structure_candidates": InputContentDigests(
-                "candidate.collection",
-                ("sha256:" + "c" * 64,),
-                (subject,),
-            ),
-            "confidence_facts": InputContentDigests(
-                "structure_prediction.confidence_facts",
-                (CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),),
-            ),
-        },
+        effective_randomness={},
     )
 
     with pytest.raises(ValueError, match=message):
@@ -555,17 +568,17 @@ def test_module_package_registers_the_exact_materializer_and_metric_contracts() 
     node = catalog.require_contract(
         "node_type",
         "structure_prediction.materialize_confidence",
-        "1.0.0",
+        "2.0.0",
     )
     binding = catalog.require_contract(
         "binding",
         "structure_prediction.materialize_confidence.direct",
-        "1.0.0",
+        "2.0.0",
     )
     method = catalog.require_contract(
         "method",
         "structure_prediction.materialize_confidence.exact_reference_join",
-        "1.0.0",
+        "2.0.0",
     )
 
     assert {
@@ -575,10 +588,10 @@ def test_module_package_registers_the_exact_materializer_and_metric_contracts() 
         )
         for item in node.descriptor["inputs"]
     } == {
-        "structure_candidates": ("candidate.collection", "3.0.0"),
+        "structure_candidates": ("candidate.collection", "4.0.0"),
         "confidence_facts": (
             "structure_prediction.confidence_facts",
-            "1.0.0",
+            "2.0.0",
         ),
     }
     assert [item["name"] for item in node.descriptor["outputs"]] == [

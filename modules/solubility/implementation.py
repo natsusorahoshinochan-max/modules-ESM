@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, cast
 
 from core import OperationCall, ResolvedProducedObservation
 from datatypes import (
     CalibrationObservationContext,
-    Candidate,
     CandidateCollection,
-    CandidateDataReference,
     ExactContractReference,
     IntrinsicObservationContext,
     ProteinSequence,
@@ -21,60 +19,43 @@ from datatypes import (
 from .adapter import (
     LocalProteinSolAdapter,
     LocalSoluProtAdapter,
-    provider_sequence_id,
+    SequenceSolubilitySubject,
 )
 
 
-class _KeyedProviderPrediction(Protocol):
-    provider_sequence_id: str
-
-
-_PredictionT = TypeVar(
-    "_PredictionT",
-    bound=_KeyedProviderPrediction,
-)
-
-
-def _sequence_subjects(
+_CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
+def _method_subjects(
     call: OperationCall,
     *,
     provider_name: str,
-) -> tuple[tuple[str, Candidate, CandidateDataReference], ...]:
-    """Attach the staging identity to each already-admitted sequence subject."""
+    minimum_length: int,
+) -> tuple[SequenceSolubilitySubject, ...]:
+    """Admit one Method's exact sequence-subject population."""
     collection = cast(
         CandidateCollection,
-        call.inputs["sequence_candidates"],
+        call.inputs["sequence_candidates"].value,
     )
-    if collection.item_type != "protein.sequence":
-        raise ValueError(f"{provider_name} requires protein.sequence item_type")
-    references = call.input_content_digests[
-        "sequence_candidates"
-    ].candidate_data
-    return tuple(
-        (provider_sequence_id(index), candidate, reference)
-        for index, (candidate, reference) in enumerate(
-            zip(collection.items, references)
-        )
-    )
-
-
-def _join_provider_predictions(
-    subjects: tuple[tuple[str, Candidate, CandidateDataReference], ...],
-    predictions: tuple[_PredictionT, ...],
-) -> tuple[tuple[Candidate, CandidateDataReference, _PredictionT], ...]:
-    """Project conforming Provider rows into staged subject order."""
-    predictions_by_provider_id = {
-        prediction.provider_sequence_id: prediction
-        for prediction in predictions
+    references = call.inputs["sequence_candidates"].candidate_data
+    references_by_candidate_id = {
+        reference.candidate_id: reference for reference in references
     }
-    return tuple(
-        (
-            candidate,
-            reference,
-            predictions_by_provider_id[provider_id],
+    subjects = tuple(
+        SequenceSolubilitySubject(
+            subject=references_by_candidate_id[candidate.candidate_id],
+            sequence=cast(ProteinSequence, candidate.data),
         )
-        for provider_id, candidate, reference in subjects
+        for candidate in collection.items
     )
+    if not subjects or any(
+        len(subject.sequence.sequence) < minimum_length
+        or not set(subject.sequence.sequence) <= _CANONICAL_AMINO_ACIDS
+        for subject in subjects
+    ):
+        raise ValueError(
+            f"{provider_name} requires canonical protein sequences of at "
+            f"least {minimum_length} residues"
+        )
+    return subjects
 
 
 class SoluProtImplementation:
@@ -92,19 +73,16 @@ class SoluProtImplementation:
         self._produced_observation = produced_observation
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        if call.node_parameters or call.binding_parameters:
-            raise ValueError("SoluProt accepts no Workflow model selection")
-        subjects = _sequence_subjects(call, provider_name="SoluProt")
-        sequences = tuple(
-            cast(ProteinSequence, candidate.data)
-            for _, candidate, _ in subjects
+        subjects = _method_subjects(
+            call,
+            provider_name="SoluProt",
+            minimum_length=20,
         )
-        predictions = self._adapter.predict(sequences)
+        predictions = self._adapter.predict(subjects)
         produced = self._produced_observation
-        joined = _join_provider_predictions(subjects, predictions)
         observations = [
             ScoreObservation(
-                subject=reference,
+                subject=prediction.subject,
                 metric=produced.metric,
                 method=self._method,
                 context=IntrinsicObservationContext(),
@@ -112,7 +90,7 @@ class SoluProtImplementation:
                 residue_axis=None,
                 source_partition=produced.output_partition,
             )
-            for _, reference, prediction in joined
+            for prediction in predictions
         ]
         return {
             "scores": ScoreCollection(
@@ -142,21 +120,11 @@ class ProteinSolImplementation:
     def _observation_definitions(
         self,
     ) -> Mapping[str, ResolvedProducedObservation]:
-        produced = {
+        return {
             observation.output_partition: observation
             for observation in self._produced_observations
             if observation.output_port == "scores"
         }
-        required = {
-            "protein_sol_percent",
-            "protein_sol_scaled",
-            "protein_sol_pi",
-        }
-        if set(produced) != required:
-            raise RuntimeError(
-                "Protein-Sol Binding must resolve its exact three Observations"
-            )
-        return produced
 
     @staticmethod
     def _observation_context(
@@ -165,34 +133,23 @@ class ProteinSolImplementation:
         profile = produced.context_profile
         if profile["kind"] == "intrinsic":
             return IntrinsicObservationContext()
-        if profile["kind"] == "calibration":
-            return CalibrationObservationContext(
-                calibration_metric=str(profile["calibration_metric"]),
-                calibration_value=float(profile["calibration_value"]),
-                calibration_unit=str(profile["calibration_unit"]),
-                population_id=str(profile["population_id"]),
-            )
-        raise RuntimeError(
-            "Protein-Sol Binding declares an unsupported Observation Context"
+        return CalibrationObservationContext(
+            calibration_metric=cast(str, profile["calibration_metric"]),
+            calibration_value=cast(float, profile["calibration_value"]),
+            calibration_unit=cast(str, profile["calibration_unit"]),
+            population_id=cast(str, profile["population_id"]),
         )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        if call.node_parameters or call.binding_parameters:
-            raise ValueError(
-                "Protein-Sol accepts no Workflow model or scale selection"
-            )
-        subjects = _sequence_subjects(call, provider_name="Protein-Sol")
-        sequences = tuple(
-            cast(ProteinSequence, candidate.data)
-            for _, candidate, _ in subjects
+        subjects = _method_subjects(
+            call,
+            provider_name="Protein-Sol",
+            minimum_length=21,
         )
-        predictions = self._adapter.predict(sequences)
+        predictions = self._adapter.predict(subjects)
         produced = self._observation_definitions()
         observations: list[ScoreObservation] = []
-        for _, reference, prediction in _join_provider_predictions(
-            subjects,
-            predictions,
-        ):
+        for prediction in predictions:
             values = (
                 (
                     "protein_sol_percent",
@@ -208,7 +165,7 @@ class ProteinSolImplementation:
                 observation = produced[partition]
                 observations.append(
                     ScoreObservation(
-                        subject=reference,
+                        subject=prediction.subject,
                         metric=observation.metric,
                         method=self._method,
                         context=self._observation_context(observation),

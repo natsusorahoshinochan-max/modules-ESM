@@ -79,6 +79,13 @@ Availability and Readiness contracts, while model identity remains fixed by the
 Binding.
 _Avoid_: Node Definition, Adapter, provider name
 
+**Provider Asset Closure**:
+The exact minimal set of result-affecting Provider source and artifact identities
+required by one Execution Binding before entry into its Provider seam. Environment
+Configuration locates that set; unrelated installed assets and temporary staged
+copies are not part of the closure.
+_Avoid_: Model directory, Provider inventory, staged assets
+
 **Environment Configuration**:
 Credentials, device selection, deployment endpoints, and runtime filesystem
 locations that make an Execution Binding operable without becoming scientific
@@ -298,7 +305,7 @@ transport policy used to execute one Acceptance Campaign.
 _Avoid_: Workflow parameters, manifest paths, shell-state reconstruction
 
 **Acceptance Result**:
-The retained result of one canonical tier in the current Acceptance Campaign.
-It records the public observations needed to inspect the tier after its
-scientific assertions pass.
+The retained result of one canonical tier after its scientific assertions pass
+in the current Acceptance Campaign. Failed or interrupted diagnostic output is
+not an Acceptance Result.
 _Avoid_: Qualification Result, Certification Result, promoted evidence

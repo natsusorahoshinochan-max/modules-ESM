@@ -35,12 +35,8 @@ PROTEINMPNN_REVISION = "8907e6671bfbfc92303b5f79c4b5e6ce47cdef57"
 SIMPLEFOLD_REVISION = "c7a5570a6be9f5c695126e27c804e77567209934"
 SIMPLEFOLD_ESM2_REVISION = "2b369911bb5b4b0dda914521b9475cad1656b2ac"
 SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256 = (
-    "da1fd5e94771906950ccc9b4e789d50b0e8f8c4594608898dbcb14f14e3c50ba"
+    "0bdb3dcb95c534b967d84bcca090146bd6528328ab8e010b412da9a3e702ac83"
 )
-SIMPLEFOLD_ESM2_ARTIFACT_IDENTITIES = {
-    "esm2_t36_3B_UR50D.pt": {"bytes": 5678116398},
-    "esm2_t36_3B_UR50D-contact-regression.pt": {"bytes": 6759},
-}
 SIMPLEFOLD_ESM2_ARTIFACT_SHA256 = {
     "esm2_t36_3B_UR50D.pt": (
         "7de8b4082ba15891959ab368b77ce3886697af1efb16d3c9e9e7b0c5d3f07500"
@@ -50,41 +46,11 @@ SIMPLEFOLD_ESM2_ARTIFACT_SHA256 = {
     ),
 }
 
-SIMPLEFOLD_ARTIFACT_IDENTITIES = {
-    "simplefold_100M.ckpt": {
-        "object": "simplefold_100M.ckpt",
-        "bytes": 386772550,
-        "etag": "d3f36328118ca08f0aac3a0e910b6829-23",
-    },
-    "simplefold_360M.ckpt": {
-        "object": "simplefold_360M.ckpt",
-        "bytes": 1454881694,
-        "etag": "7c0603668846e72a0bd8a2c8b43b1151-85",
-    },
-    "simplefold_1.6B.ckpt": {
-        "object": "simplefold_1.6B.ckpt",
-        "bytes": 6354525226,
-        "etag": "8547a616a08162144b9591b3e9479b8e-370",
-    },
-    "plddt.ckpt": {
-        "object": "plddt_module_1.6B.ckpt",
-        "bytes": 462812900,
-        "etag": "1ed78d3cf12e8558ec45c596b1197ba9-27",
-    },
-}
-
-SIMPLEFOLD_AUXILIARY_ARTIFACTS = (
-    "ccd.pkl",
-    "boltz1_conf.ckpt",
-)
-# Maintainer-reviewed immutable digests for the exact runtime artifacts.  The
-# adapter verifies and stages every file before importing or invoking SimpleFold.
+# Maintainer-reviewed content identities from which the folding package's two
+# Binding-owned closure declarations select their exact members.
 SIMPLEFOLD_ARTIFACT_SHA256 = {
     "simplefold_100M.ckpt": (
         "4cd0b8a0b317a6ab8634444fffd78ce84cfd49c20fe927b83c76c36fda5f54bd"
-    ),
-    "simplefold_360M.ckpt": (
-        "517338ec36b10ecc774f36b592ffe0fee6a24fa5c7d2fcfa3e3009282d48a49b"
     ),
     "simplefold_1.6B.ckpt": (
         "aaac2d73dcc59c61153c58a1d56e74a8ada9d6057d67000f7836f3c87325312b"
@@ -95,14 +61,15 @@ SIMPLEFOLD_ARTIFACT_SHA256 = {
     "ccd.pkl": (
         "2d3b2f03a3c5665944adba51e33263511e51b21c9cd05d902f9c4b7c1e58d2f4"
     ),
-    "boltz1_conf.ckpt": (
-        "219a73ac67535ad0535b9d3fb11fc7dbbcb7a0b71e4b4bb28f0c50cc2ac7f4ee"
-    ),
 }
 SIMPLEFOLD_EXECUTION_ENABLED = True
 PROTEINMPNN_V_48_020_SHA256 = (
     "c9cb4a671d79604111231f8dbfc7c590e06f1197453b7a6854ac6661a642f5bd"
 )
+
+
+class ProviderInstallationUnavailable(RuntimeError):
+    """An exact installed Provider source cannot be admitted."""
 
 
 def esm_provider_identity(*, local: bool = False) -> dict[str, Any]:
@@ -127,19 +94,6 @@ def proteinmpnn_provider_identity() -> dict[str, str]:
     }
 
 
-def simplefold_provider_identity(
-    artifact_sha256: dict[str, str],
-) -> dict[str, Any]:
-    return {
-        "source": "ml-simplefold",
-        "source_revision": SIMPLEFOLD_REVISION,
-        "esm2_source_revision": SIMPLEFOLD_ESM2_REVISION,
-        "esm2_source_tree_sha256": SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-        "esm2_artifact_sha256": SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-        "artifact_sha256": dict(sorted(artifact_sha256.items())),
-    }
-
-
 def _git(*args: str, cwd: Path) -> str:
     try:
         completed = subprocess.run(
@@ -150,7 +104,9 @@ def _git(*args: str, cwd: Path) -> str:
             timeout=10,
         )
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise RuntimeError("Provider package is not from a verifiable Git checkout") from exc
+        raise ProviderInstallationUnavailable(
+            "Provider package is not from a verifiable Git checkout"
+        ) from exc
     return completed.stdout.strip()
 
 
@@ -159,14 +115,23 @@ def validate_installed_provider_checkout(
     expected_revision: str,
 ) -> Path:
     """Resolve one provider package from its locked source revision."""
-    distribution = importlib.metadata.distribution(package_name)
+    try:
+        distribution = importlib.metadata.distribution(package_name)
+    except importlib.metadata.PackageNotFoundError as error:
+        raise ProviderInstallationUnavailable(
+            "Provider package is not installed"
+        ) from error
     direct_url_text = distribution.read_text("direct_url.json")
     if not direct_url_text:
-        raise RuntimeError("Provider package has no PEP 610 VCS provenance")
+        raise ProviderInstallationUnavailable(
+            "Provider package has no PEP 610 VCS provenance"
+        )
     try:
         direct_url = json.loads(direct_url_text)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("Provider package has invalid PEP 610 provenance") from exc
+        raise ProviderInstallationUnavailable(
+            "Provider package has invalid PEP 610 provenance"
+        ) from exc
     vcs_info = direct_url.get("vcs_info")
     if isinstance(vcs_info, dict):
         if (
@@ -174,18 +139,24 @@ def validate_installed_provider_checkout(
             or vcs_info.get("commit_id") != expected_revision
             or vcs_info.get("requested_revision") != expected_revision
         ):
-            raise RuntimeError(
+            raise ProviderInstallationUnavailable(
                 "Provider package VCS provenance does not match locked revision"
             )
         package_root_path = Path(distribution.locate_file(package_name))
         if not package_root_path.is_dir():
-            raise RuntimeError("Installed provider package is unavailable")
+            raise ProviderInstallationUnavailable(
+                "Installed provider package is unavailable"
+            )
         return package_root_path.resolve()
     if direct_url.get("dir_info", {}).get("editable") is not True:
-        raise RuntimeError("Provider package is not from a locked VCS install")
+        raise ProviderInstallationUnavailable(
+            "Provider package is not from a locked VCS install"
+        )
     parsed_url = urlparse(str(direct_url.get("url", "")))
     if parsed_url.scheme != "file":
-        raise RuntimeError("Editable provider provenance is not a local file URL")
+        raise ProviderInstallationUnavailable(
+            "Editable provider provenance is not a local file URL"
+        )
     editable_root = Path(unquote(parsed_url.path)).resolve()
     checkout = Path(
         _git("rev-parse", "--show-toplevel", cwd=editable_root)
@@ -200,9 +171,13 @@ def validate_installed_provider_checkout(
         if (root / "__init__.py").is_file()
     ), None)
     if package_root is None:
-        raise RuntimeError("Editable provider checkout lacks the expected package")
+        raise ProviderInstallationUnavailable(
+            "Editable provider checkout lacks the expected package"
+        )
     if _git("rev-parse", "HEAD", cwd=checkout) != expected_revision:
-        raise RuntimeError("Provider package checkout does not match locked revision")
+        raise ProviderInstallationUnavailable(
+            "Provider package checkout does not match locked revision"
+        )
     return checkout
 
 

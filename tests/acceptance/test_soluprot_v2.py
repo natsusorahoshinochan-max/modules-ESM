@@ -127,20 +127,20 @@ def _run(
                     node_type_id=(
                         "contract_test.folding_sequence_batch_source"
                     ),
-                    node_type_version="3.0.0",
+                    node_type_version="4.0.0",
                     binding_id=(
                         "contract_test.folding_sequence_batch_source.direct"
                     ),
-                    binding_version="3.0.0",
+                    binding_version="4.0.0",
                     node_parameters={"sequences": list(SEQUENCES)},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="4.0.0",
+                    node_type_version="5.0.0",
                     binding_id=binding_id,
-                    binding_version="4.0.0",
+                    binding_version="5.0.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -163,7 +163,7 @@ def _run(
         authoring,
         EnvironmentConfiguration(
             {
-                (binding_id, "4.0.0"): {
+                (binding_id, "5.0.0"): {
                     "values": environment_values,
                 }
             }
@@ -298,14 +298,6 @@ def test_model_backed_soluprot_golden_methods(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)
     )
-    raw_predictions = adapter.parse_soluprot_output(record["raw_output"])
-    assert {
-        prediction.provider_sequence_id for prediction in raw_predictions
-    } == {"candidate_0", "candidate_1"}
-    raw_by_provider_id = {
-        prediction.provider_sequence_id: prediction
-        for prediction in raw_predictions
-    }
     sequence_type = catalog.require_port_type(
         "protein.sequence",
         "3.0.0",
@@ -317,23 +309,33 @@ def test_model_backed_soluprot_golden_methods(
         ): observation
         for observation in scores.entries
     }
-    observations_by_provider_id = {
-        f"candidate_{index}": observations_by_subject[
+    ordered_observations = tuple(
+        observations_by_subject[
             (
                 candidate.candidate_id,
                 sequence_type.content_digest(candidate.data),
             )
         ]
-        for index, candidate in enumerate(source_candidates.items)
-    }
-    assert {
-        provider_id: observation.value
-        for provider_id, observation in observations_by_provider_id.items()
-    } == {
-        provider_id: prediction.soluble_probability
-        for provider_id, prediction in raw_by_provider_id.items()
-    }
-    assert observations_by_provider_id["candidate_0"].value == expected
+        for candidate in source_candidates.items
+    )
+    raw_predictions = adapter.parse_soluprot_output(
+        record["raw_output"],
+        staged_subjects={
+            f"candidate_{index}": observation.subject
+            for index, observation in enumerate(ordered_observations)
+        },
+    )
+    assert tuple(
+        prediction.subject for prediction in raw_predictions
+    ) == tuple(
+        observation.subject for observation in ordered_observations
+    )
+    assert tuple(
+        observation.value for observation in ordered_observations
+    ) == tuple(
+        prediction.soluble_probability for prediction in raw_predictions
+    )
+    assert ordered_observations[0].value == expected
     assert {
         observation.method.contract_id for observation in scores.entries
     } == {f"solubility.soluprot_{mode}.v1_1_0"}
@@ -365,7 +367,7 @@ def test_model_backed_soluprot_golden_methods(
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"] == binding_id
-        and event["event"]["binding"]["contract_version"] == "4.0.0"
+        and event["event"]["binding"]["contract_version"] == "5.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_id = next(iter(started))[0]

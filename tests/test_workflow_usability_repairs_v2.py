@@ -32,7 +32,7 @@ from tests.fixtures.structure_transform_sources.package import (
 VERSION = "2.1.0"
 STRUCTURE_VERSION = "4.0.0"
 NORMALIZE_CSH_VERSION = "5.0.0"
-SOURCE_VERSION = "5.0.0"
+SOURCE_VERSION = "6.0.0"
 PROMPT_EDIT_VERSION = "3.0.0"
 PROMPT_FROM_STRUCTURE_VERSION = "5.0.0"
 

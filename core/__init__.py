@@ -46,9 +46,10 @@ from core.port_types import (
     canonical_sha256,
 )
 from core.operation import (
+    AdmittedPort,
+    AdmittedValue,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
-    InputContentDigests,
     OperationCall,
     OperationContext,
     ResolvedProducedObservation,
@@ -57,9 +58,12 @@ from core.operation import (
 from core.run_context import RunContext
 from core.run_execution_v2 import (
     BindingEnvironment,
+    EngineInvocationProvenance,
     EnvironmentConfiguration,
     ExecutionTermination,
-    PreScheduleTermination,
+    InvocationRandomness,
+    ProviderResidueProjection,
+    ProviderResidueProjectionEntry,
     ReadinessCheckInput,
     ReadinessResult,
     ResultReplayHit,
@@ -78,7 +82,6 @@ from core.scoring_v2 import (
     resolve_objective_observations,
     resolve_observation_selector,
     resolve_selection_objective,
-    select_candidates,
     validate_produced_score_collection,
 )
 from core.workflow_authoring_v2 import (
@@ -103,6 +106,8 @@ from core.workflow_v2 import (
 
 __all__ = [
     "ArtifactPayload",
+    "AdmittedPort",
+    "AdmittedValue",
     "BehaviorReference",
     "AvailabilityDeclaration",
     "AvailabilityResult",
@@ -117,7 +122,6 @@ __all__ = [
     "ExecutionBindingDefinition",
     "ExpectedOptionalDependencyMissing",
     "FrozenCatalog",
-    "InputContentDigests",
     "InactiveContractGenerationError",
     "ModulePackageDiscoveryError",
     "ModulePackageCaseReport",
@@ -139,9 +143,12 @@ __all__ = [
     "ProjectMeta",
     "RunContext",
     "BindingEnvironment",
+    "EngineInvocationProvenance",
     "EnvironmentConfiguration",
     "ExecutionTermination",
-    "PreScheduleTermination",
+    "InvocationRandomness",
+    "ProviderResidueProjection",
+    "ProviderResidueProjectionEntry",
     "ReadinessCheckInput",
     "ReadinessResult",
     "ResultReplayHit",
@@ -177,7 +184,6 @@ __all__ = [
     "build_frozen_catalog",
     "canonical_json_bytes",
     "canonical_sha256",
-    "select_candidates",
     "validate_produced_score_collection",
     "verify_module_package_contract",
     "ScientificOperation",

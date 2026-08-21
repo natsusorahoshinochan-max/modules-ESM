@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from core import (
     BehaviorReference,
@@ -29,7 +29,7 @@ from .domain import (
 )
 
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 _BUILTINS = builtin_frozen_catalog()
 _LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
 _SEQUENCE_CODEC = _BUILTINS.require_port_type("protein.sequence", "3.0.0")
@@ -209,6 +209,18 @@ def _prediction_axis_from_wire(value: object) -> object:
     return result
 
 
+def _prediction_axis_candidate_data_references(
+    value: object,
+    _candidate_data_port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    admitted = cast(PredictionResidueAxis, value)
+    return (
+        (admitted.source,)
+        if type(admitted.source) is CandidateDataReference
+        else ()
+    )
+
+
 PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_prediction.prediction_residue_axis",
     version=VERSION,
@@ -243,6 +255,15 @@ PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
     runtime_validator=_validate_prediction_residue_axis,
     runtime_to_wire=_prediction_axis_to_wire,
     runtime_from_wire=_prediction_axis_from_wire,
+    candidate_data_projection=BehaviorReference(
+        "structure_prediction.prediction_residue_axis/"
+        "candidate_data_projection",
+        VERSION,
+        {"fields": ["source-if-CandidateDataReference"]},
+    ),
+    runtime_candidate_data_projection=(
+        _prediction_axis_candidate_data_references
+    ),
 )
 
 
@@ -379,7 +400,6 @@ def prediction_axis_reference(
     axis: PredictionResidueAxis,
 ) -> ResidueAxisReference:
     """Project one scalar prediction axis into its exact Score reference."""
-    _validate_prediction_residue_axis(axis)
     return ResidueAxisReference(
         axis_kind="prediction_input",
         axis_contract=ExactContractReference(
@@ -396,10 +416,9 @@ def prediction_axis_reference(
 def _confidence_axis_references(
     value: object,
 ) -> tuple[ResidueAxisReference, ...]:
-    _validate_confidence_facts(value)
-    assert type(value) is ConfidenceFactCollection
+    admitted = cast(ConfidenceFactCollection, value)
     references: list[ResidueAxisReference] = []
-    for entry in value.entries:
+    for entry in admitted.entries:
         reference = prediction_axis_reference(entry.prediction_axis)
         if reference not in references:
             references.append(reference)
@@ -409,9 +428,8 @@ def _confidence_axis_references(
 def _confidence_method_references(
     value: object,
 ) -> tuple[ExactContractReference, ...]:
-    _validate_confidence_facts(value)
-    assert type(value) is ConfidenceFactCollection
-    return (value.observation_method,)
+    admitted = cast(ConfidenceFactCollection, value)
+    return (admitted.observation_method,)
 
 
 CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
@@ -426,7 +444,7 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
             "entry_order": "canonical-prediction-key",
             "observation_method": "one-exact-shared-Method",
             "axis_contract": (
-                "structure_prediction.prediction_residue_axis@1.0.0"
+                "structure_prediction.prediction_residue_axis@2.0.0"
             ),
         },
     ),
@@ -438,7 +456,7 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
             "character_encoding": "UTF-8",
             "collection_order": "prediction_key",
             "nested_axis_codec": (
-                "structure_prediction.prediction_residue_axis@1.0.0"
+                "structure_prediction.prediction_residue_axis@2.0.0"
             ),
         },
     ),

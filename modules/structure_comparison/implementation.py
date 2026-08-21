@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from core import OperationCall, OperationContext, ResolvedProducedObservation
+from core import OperationCall, OperationContext
 from datatypes import (
-    CandidateCollection,
     CandidateDataReference,
     PairwiseCandidateMapping,
     ScoreCollection,
@@ -16,7 +15,6 @@ from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 
 from .alignment import align_resolved_axes
 from .contracts import (
@@ -46,45 +44,21 @@ def _candidate_references(
     *,
     port_name: str,
 ) -> tuple[CandidateDataReference, ...]:
-    collection = call.inputs.get(port_name)
-    admitted = call.input_content_digests.get(port_name)
-    if (
-        type(collection) is not CandidateCollection
-        or collection.item_type != "protein.structure"
-        or not collection.items
-        or admitted is None
-        or admitted.port_type_id != "candidate.collection"
-    ):
+    admitted = call.inputs[port_name]
+    collection = admitted.value
+    if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(
             f"{port_name} must carry non-empty exact structure Candidates"
         )
-    candidate_ids = tuple(candidate.candidate_id for candidate in collection.items)
-    references_by_id: dict[str, CandidateDataReference] = {}
-    for reference in admitted.candidate_data:
-        if (
-            type(reference) is not CandidateDataReference
-            or reference.data_type_id != "protein.structure"
-            or reference.candidate_id in references_by_id
-        ):
-            raise ValueError(
-                f"{port_name} lacks complete exact Candidate references"
-            )
-        references_by_id[reference.candidate_id] = reference
-    if len(set(candidate_ids)) != len(candidate_ids) or set(candidate_ids) != set(
-        references_by_id
-    ):
-        raise ValueError(f"{port_name} lacks complete exact Candidate references")
-    return tuple(sorted(references_by_id.values(), key=_reference_key))
+    return tuple(sorted(admitted.candidate_data, key=_reference_key))
 
 
 def _axis_associations(
-    value: object,
+    value: CandidateResolvedResidueAxisAssociations,
     references: tuple[CandidateDataReference, ...],
     *,
     role: str,
 ) -> dict[CandidateDataReference, CandidateResolvedResidueAxisAssociation]:
-    if type(value) is not CandidateResolvedResidueAxisAssociations:
-        raise ValueError(f"{role} residue axes have the wrong nominal type")
     by_reference = {entry.subject: entry for entry in value.entries}
     if set(by_reference) != set(references):
         raise ValueError(
@@ -103,11 +77,11 @@ def _fixed_reference_pairs(
 
 
 def _counterpart_pairs(
-    value: object,
+    value: PairwiseCandidateMapping,
     subjects: tuple[CandidateDataReference, ...],
     references: tuple[CandidateDataReference, ...],
 ) -> tuple[tuple[CandidateDataReference, CandidateDataReference], ...]:
-    if type(value) is not PairwiseCandidateMapping or not value.entries:
+    if not value.entries:
         raise ValueError("counterpart comparison requires exact Candidate pairing")
     subjects_by_identity = {item: item for item in subjects}
     references_by_identity = {item: item for item in references}
@@ -152,8 +126,6 @@ class StructureComparisonImplementation:
         self._pairing_mode = pairing_mode
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        if call.binding_parameters:
-            raise ValueError("structure comparison Bindings accept no parameters")
         if self._operation in {"align_single", "align_pairwise"}:
             return self._align(call)
         if self._operation in {"rmsd", "tm_score"}:
@@ -168,39 +140,30 @@ class StructureComparisonImplementation:
         raise ValueError("Binding selected an unknown alignment Method")
 
     def _align(self, call: OperationCall) -> dict[str, Any]:
-        expected_inputs = {
-            "subjects",
-            "subject_residue_axes",
-            "references",
-            "reference_residue_axes",
-        }
-        if self._operation == "align_pairwise" and self._pairing_mode == (
-            "per_subject_counterpart"
-        ):
-            expected_inputs.add("pairing")
-        if set(call.inputs) != expected_inputs or set(call.node_parameters) - {
+        pin_matching_chain_ids = call.node_parameters[
             "pin_matching_chain_ids"
-        }:
-            raise ValueError("structure alignment inputs are unresolved")
-        pin_matching_chain_ids = call.node_parameters.get(
-            "pin_matching_chain_ids",
-            False,
-        )
-        if type(pin_matching_chain_ids) is not bool:
-            raise ValueError("pin_matching_chain_ids must be boolean")
+        ]
 
         subjects = _candidate_references(call, port_name="subjects")
         references = _candidate_references(call, port_name="references")
         subject_axes = _axis_associations(
-            call.inputs["subject_residue_axes"],
+            call.inputs["subject_residue_axes"].value,
             subjects,
             role="subject",
         )
         reference_axes = _axis_associations(
-            call.inputs["reference_residue_axes"],
+            call.inputs["reference_residue_axes"].value,
             references,
             role="reference",
         )
+        admitted_subject_axes = {
+            axis.source: axis
+            for axis in call.inputs["subject_residue_axes"].scientific_axes
+        }
+        admitted_reference_axes = {
+            axis.source: axis
+            for axis in call.inputs["reference_residue_axes"].scientific_axes
+        }
         if self._operation == "align_single":
             if len(subjects) != 1 or len(references) != 1:
                 raise ValueError(
@@ -211,7 +174,7 @@ class StructureComparisonImplementation:
             pairs = _fixed_reference_pairs(subjects, references)
         elif self._pairing_mode == "per_subject_counterpart":
             pairs = _counterpart_pairs(
-                call.inputs["pairing"],
+                call.inputs["pairing"].value,
                 subjects,
                 references,
             )
@@ -237,14 +200,14 @@ class StructureComparisonImplementation:
                     subject=subject_association.subject,
                     reference=reference_association.subject,
                     subject_axis_content_digest=(
-                        RESOLVED_AXIS_PORT_TYPE.content_digest(
-                            subject_association.residue_axis
-                        )
+                        admitted_subject_axes[
+                            subject_association.subject
+                        ].axis_content_digest
                     ),
                     reference_axis_content_digest=(
-                        RESOLVED_AXIS_PORT_TYPE.content_digest(
-                            reference_association.residue_axis
-                        )
+                        admitted_reference_axes[
+                            reference_association.subject
+                        ].axis_content_digest
                     ),
                     segment_map=resolved.segment_map,
                     policy=resolved.policy,
@@ -258,43 +221,11 @@ class StructureComparisonImplementation:
             )
         return {"alignments": tuple(alignments)}
 
-    def _produced_observation(self) -> ResolvedProducedObservation:
-        if len(self._produced_observations) != 1:
-            raise ValueError("metric Binding lacks one produced Observation")
-        return self._produced_observations[0]
-
     def _observe(self, call: OperationCall) -> dict[str, Any]:
-        expected_inputs = {"alignments", "subjects", "references"}
-        if self._pairing_mode == "per_subject_counterpart":
-            expected_inputs.add("pairing")
-        if (
-            set(call.inputs) != expected_inputs
-            or call.node_parameters
-            or self._pairing_mode
-            not in {"fixed_reference", "per_subject_counterpart"}
-        ):
-            raise ValueError("structure metric inputs are unresolved")
-        alignments = call.inputs["alignments"]
-        if (
-            type(alignments) is not tuple
-            or not alignments
-            or any(
-                type(alignment) is not StructureAlignmentEvidence
-                for alignment in alignments
-            )
-        ):
+        admitted_alignments = call.inputs["alignments"]
+        alignments = admitted_alignments.value
+        if not alignments:
             raise ValueError("structure metrics require alignment evidence")
-        admitted_alignments = call.input_content_digests.get("alignments")
-        if (
-            admitted_alignments is None
-            or admitted_alignments.port_type_id
-            != "structure_comparison.alignment_evidence"
-            or len(admitted_alignments.value_content_digests)
-            != len(alignments)
-        ):
-            raise ValueError(
-                "structure metrics require admitted alignment evidence"
-            )
         subjects = [alignment.subject for alignment in alignments]
         references = [alignment.reference for alignment in alignments]
         if len(set(subjects)) != len(subjects):
@@ -308,7 +239,7 @@ class StructureComparisonImplementation:
             )
         else:
             expected_pairs = _counterpart_pairs(
-                call.inputs["pairing"],
+                call.inputs["pairing"].value,
                 subject_scope,
                 reference_scope,
             )
@@ -322,7 +253,7 @@ class StructureComparisonImplementation:
                 "alignment evidence contradicts exact Candidate scope"
             )
 
-        produced = self._produced_observation()
+        produced = self._produced_observations[0]
         entries: list[ScoreObservation] = []
         with self._run_resources.engine_invocation(
             engine_role=f"evidence_{self._operation}",

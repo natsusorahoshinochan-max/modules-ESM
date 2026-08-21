@@ -32,11 +32,11 @@ def _source_node() -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.proteinmpnn_3gb1_structure",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id=(
             "contract_test.proteinmpnn_3gb1_structure.direct"
         ),
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -163,11 +163,11 @@ def _axis_resolver() -> WorkflowNodeInstance:
         node_type_id=(
             "structure_transform.resolve_candidate_residue_axes"
         ),
-        node_type_version="5.0.0",
+        node_type_version="6.0.0",
         binding_id=(
             "structure_transform.resolve_candidate_residue_axes.direct"
         ),
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -185,20 +185,20 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         WorkflowNodeInstance(
             node_id="sequence-source",
             node_type_id="contract_test.proteinmpnn_3gb1_sequence",
-            node_type_version="3.0.0",
+            node_type_version="4.0.0",
             binding_id=(
                 "contract_test.proteinmpnn_3gb1_sequence.direct"
             ),
-            binding_version="3.0.0",
+            binding_version="4.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="score",
             node_type_id="proteinmpnn.score",
-            node_type_version="6.0.0",
+            node_type_version="7.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="7.0.0",
+            binding_version="8.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -240,7 +240,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.score.local",
-        binding_version="7.0.0",
+        binding_version="8.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -304,9 +304,9 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="9.0.0",
+            node_type_version="10.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="10.0.0",
+            binding_version="11.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -341,7 +341,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.design.local",
-        binding_version="10.0.0",
+        binding_version="11.0.0",
     )
 
     assert projection["status"] == "succeeded", events

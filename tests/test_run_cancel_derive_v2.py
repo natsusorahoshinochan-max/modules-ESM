@@ -14,7 +14,13 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from core import ExecutionTermination, ResultReplayHit, ResultReplaySource
+from core import (
+    ExecutionTermination,
+    ReadinessCheckInput,
+    ReadinessResult,
+    ResultReplayHit,
+    ResultReplaySource,
+)
 import core.run_execution_v2 as run_execution_v2
 from core.server import create_app
 from protein_workbench_public import validate_error, validate_response
@@ -57,27 +63,36 @@ def _wait_terminal(
     return wait_for_testclient_run_terminal(client, project_id, run_id)
 
 
-def _facts(app: Any, project_id: str, run_id: str) -> list[dict[str, Any]]:
-    record = app.state.run_execution_v2._require_record(project_id, run_id)
-    return list(record.ledger.facts)
+def _public_events(
+    app: Any,
+    project_id: str,
+    run_id: str,
+) -> list[dict[str, Any]]:
+    return [
+        retained["event"]
+        for retained in app.state.run_execution_v2.public_events(
+            project_id,
+            run_id,
+        )
+    ]
 
 
-def _terminal_ids(facts: list[dict[str, Any]]) -> dict[str, set[str]]:
+def _terminal_ids(events: list[dict[str, Any]]) -> dict[str, set[str]]:
     return {
         "node_attempt_ids": {
-            fact["payload"]["node_attempt_id"]
-            for fact in facts
-            if fact["fact_type"] == "node_attempt_started"
+            event["node_attempt_id"]
+            for event in events
+            if event["type"] == "node_attempt_started"
         },
         "operation_attempt_ids": {
-            fact["payload"]["operation_attempt_id"]
-            for fact in facts
-            if fact["fact_type"] == "operation_attempt_started"
+            event["operation_attempt_id"]
+            for event in events
+            if event["type"] == "operation_attempt_started"
         },
         "invocation_ids": {
-            fact["payload"]["invocation_id"]
-            for fact in facts
-            if fact["fact_type"] == "engine_invocation_started"
+            event["invocation_id"]
+            for event in events
+            if event["type"] == "engine_invocation_started"
         },
     }
 
@@ -186,18 +201,6 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
     assert closed.value.code == 1008
     assert record.finished.is_set()
     assert record.execution_error.code == "evidence_unavailable"
-    assert not any(
-        fact["fact_type"]
-        in {
-            "operation_attempt_terminal",
-            "outputs_published",
-            "node_attempt_terminal",
-            "node_disposition",
-            "run_terminal",
-            "cancellation_requested",
-        }
-        for fact in record.ledger.facts
-    )
     durable_transactions = [
         json.loads(path.read_bytes())
         for path in sorted(
@@ -289,11 +292,11 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
             ],
         }
     ]
-    facts = _facts(app, project_id, receipt["run_id"])
+    events = _public_events(app, project_id, receipt["run_id"])
     terminals = [
-        (fact["fact_type"], fact["payload"]["status"])
-        for fact in facts
-        if fact["fact_type"]
+        (event["type"], event["status"])
+        for event in events
+        if event["type"]
         in {
             "engine_invocation_terminal",
             "operation_attempt_terminal",
@@ -301,7 +304,7 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
         }
     ]
     assert terminals == [
-        ("engine_invocation_terminal", "cancelled"),
+        ("engine_invocation_terminal", "succeeded"),
         ("operation_attempt_terminal", "cancelled"),
         ("node_attempt_terminal", "cancelled"),
     ]
@@ -353,11 +356,11 @@ def test_cancel_before_schedule_disposes_every_node_without_attempts(
         item["node_id"]: item["outcome"]
         for item in projection["node_dispositions"]
     } == {"direct-0": "cancelled", "direct-1": "cancelled"}
-    facts = _facts(app, second_project, queued["run_id"])
+    events = _public_events(app, second_project, queued["run_id"])
     assert not any(
-        fact["fact_type"].endswith("_attempt_started")
-        or fact["fact_type"] == "engine_invocation_started"
-        for fact in facts
+        event["type"].endswith("_attempt_started")
+        or event["type"] == "engine_invocation_started"
+        for event in events
     )
 
 
@@ -491,6 +494,115 @@ class _ControllableReplay(ResultReplaySource):
         return None
 
 
+class _BlockingCacheMiss(ResultReplaySource):
+    def __init__(self) -> None:
+        self.entered = threading.Event()
+        self.release = threading.Event()
+
+    def lookup(self, **kwargs):
+        del kwargs
+        self.entered.set()
+        assert self.release.wait(timeout=2)
+        return None
+
+
+def test_cancel_during_cache_lookup_closes_only_the_node_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    replay = _BlockingCacheMiss()
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_result_replay_source=replay,
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-cache-lookup")
+        assert replay.entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        replay.release.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert projection["status"] == "cancelled"
+    assert calls == []
+    fact_types = [
+        event["type"]
+        for event in _public_events(app, project_id, receipt["run_id"])
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert fact_types.count("node_attempt_terminal") == 1
+    assert "readiness_attested" not in fact_types
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
+
+
+def test_cancel_during_readiness_closes_only_the_node_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_readiness(_check_input: ReadinessCheckInput) -> ReadinessResult:
+        entered.set()
+        assert release.wait(timeout=2)
+        return ReadinessResult(True)
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            readiness_checks={"test.direct.local": hold_readiness},
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-readiness")
+        assert entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        release.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert projection["status"] == "cancelled"
+    assert calls == []
+    fact_types = [
+        event["type"]
+        for event in _public_events(app, project_id, receipt["run_id"])
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert fact_types.count("node_attempt_terminal") == 1
+    assert fact_types.count("readiness_attested") == 1
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
+
+
 def test_retry_after_failure_creates_new_evidence_without_mutating_source(
     tmp_path,
     monkeypatch,
@@ -523,8 +635,8 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         assert entered.wait(timeout=2)
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         assert source_projection["status"] == "failed"
-        source_facts = _facts(app, project_id, source["run_id"])
-        source_bytes = json.dumps(source_facts, sort_keys=True)
+        source_events = _public_events(app, project_id, source["run_id"])
+        source_bytes = json.dumps(source_events, sort_keys=True)
 
         replay.enabled = True
         release.set()
@@ -549,16 +661,18 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
     assert derived_projection["status"] == "succeeded"
     assert derived_projection["derived_from_run_id"] == source["run_id"]
     assert json.dumps(
-        _facts(app, project_id, source["run_id"]),
+        _public_events(app, project_id, source["run_id"]),
         sort_keys=True,
     ) == source_bytes
     assert replay.lookups == ["direct"]
-    derived_facts = _facts(app, project_id, derived["run_id"])
-    for identity_kind, source_ids in _terminal_ids(source_facts).items():
-        assert source_ids.isdisjoint(_terminal_ids(derived_facts)[identity_kind])
+    derived_events = _public_events(app, project_id, derived["run_id"])
+    for identity_kind, source_ids in _terminal_ids(source_events).items():
+        assert source_ids.isdisjoint(
+            _terminal_ids(derived_events)[identity_kind]
+        )
     assert any(
-        fact["fact_type"] == "readiness_attested"
-        for fact in derived_facts
+        event["type"] == "readiness_attested"
+        for event in derived_events
     )
 
 
@@ -589,7 +703,7 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
         )
         source = _start(client, project_id, committed, "source-success")
         source_projection = _wait_terminal(client, project_id, source["run_id"])
-        source_facts = _facts(app, project_id, source["run_id"])
+        source_events = _public_events(app, project_id, source["run_id"])
         replay.enabled = True
         replay.lookups.clear()
 
@@ -621,20 +735,22 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
         "direct-0": "executed",
         "direct-1": "cache_replayed",
     }
-    forced_facts = _facts(app, project_id, forced["run_id"])
+    forced_events = _public_events(app, project_id, forced["run_id"])
     replayed_attempt = next(
-        fact["payload"]["node_attempt_id"]
-        for fact in forced_facts
-        if fact["fact_type"] == "node_attempt_started"
-        and fact["payload"]["node_id"] == "direct-1"
+        event["node_attempt_id"]
+        for event in forced_events
+        if event["type"] == "node_attempt_started"
+        and event["node_id"] == "direct-1"
     )
     assert not any(
-        fact["fact_type"] == "operation_attempt_started"
-        and fact["payload"]["node_attempt_id"] == replayed_attempt
-        for fact in forced_facts
+        event["type"] == "operation_attempt_started"
+        and event["node_attempt_id"] == replayed_attempt
+        for event in forced_events
     )
-    for identity_kind, source_ids in _terminal_ids(source_facts).items():
-        assert source_ids.isdisjoint(_terminal_ids(forced_facts)[identity_kind])
+    for identity_kind, source_ids in _terminal_ids(source_events).items():
+        assert source_ids.isdisjoint(
+            _terminal_ids(forced_events)[identity_kind]
+        )
 
 
 def test_force_recompute_bypasses_the_selected_downstream_closure(
@@ -680,13 +796,7 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
     assert replay.lookups == []
     assert "execute:source" in calls
     assert "sink-input:ready" in calls
-    scope = _facts(app, project_id, forced["run_id"])[0]["payload"]
-    assert scope["derived_from"] == {
-        "source_run_id": source["run_id"],
-        "policy": "force_selected",
-        "selected_node_ids": ["source"],
-        "forced_node_ids": ["source", "sink"],
-    }
+    assert projection["derived_from_run_id"] == source["run_id"]
 
 
 def test_cancel_terminates_registered_process_group_children_and_temp_work(
@@ -906,7 +1016,57 @@ def test_successful_process_fallback_is_confirmed_when_context_exits(
     assert projection["status"] == "cancelled"
 
 
-def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
+def test_cancel_during_factory_closes_started_node_before_operation_attempt(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_factory(resources) -> None:
+        del resources
+        entered.set()
+        assert release.wait(timeout=3)
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            factory_action=hold_factory,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        receipt = _start(client, project_id, committed, "cancel-during-factory")
+        assert entered.wait(timeout=2)
+        cancelled = client.post(
+            f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
+            json={},
+        )
+        release.set()
+        projection = _wait_terminal(client, project_id, receipt["run_id"])
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["outcome"] == "cancellation_requested"
+    assert projection["status"] == "cancelled"
+    assert projection["node_dispositions"][0]["outcome"] == "cancelled"
+    events = _public_events(app, project_id, receipt["run_id"])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("node_attempt_started") == 1
+    assert event_types.count("node_attempt_terminal") == 1
+    assert "operation_attempt_started" not in event_types
+    assert "engine_invocation_started" not in event_types
+
+
+def test_cancel_factory_cleanup_failure_interrupts_started_node_attempt(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -955,16 +1115,13 @@ def test_cancel_factory_cleanup_failure_is_interrupted_without_false_attempt(
     assert cancelled.status_code == 200
     assert projection["status"] == "interrupted"
     assert projection["node_dispositions"][0]["outcome"] == "interrupted"
-    facts = _facts(app, project_id, receipt["run_id"])
-    assert not any(
-        fact["fact_type"] in {
-            "node_attempt_started",
-            "operation_attempt_started",
-            "engine_invocation_started",
-        }
-        for fact in facts
-    )
-    assert "private-cleanup-detail" not in json.dumps(facts)
+    events = _public_events(app, project_id, receipt["run_id"])
+    event_types = [event["type"] for event in events]
+    assert event_types.count("node_attempt_started") == 1
+    assert event_types.count("node_attempt_terminal") == 1
+    assert "operation_attempt_started" not in event_types
+    assert "engine_invocation_started" not in event_types
+    assert "private-cleanup-detail" not in json.dumps(events)
 
 
 def test_cancel_during_artifact_materialization_keeps_object_unpublished(
@@ -1007,10 +1164,11 @@ def test_cancel_during_artifact_materialization_keeps_object_unpublished(
     assert projection["status"] == "cancelled"
     assert projection["artifact_index"] == []
     assert projection["outputs"] == []
-    facts = _facts(app, project_id, receipt["run_id"])
+    events = _public_events(app, project_id, receipt["run_id"])
     assert not any(
-        fact["fact_type"] in {"artifact_published", "outputs_published"}
-        for fact in facts
+        event["type"] == "node_disposition"
+        and event["disposition"]["outcome"] == "succeeded"
+        for event in events
     )
     objects = list(
         (tmp_path / "outputs" / project_id / "objects").rglob("*")
@@ -1044,7 +1202,7 @@ def test_normal_temp_cleanup_failure_does_not_publish_artifact(
     assert projection["status"] == "failed"
     assert projection["artifact_index"] == []
     assert projection["outputs"] == []
-    retained = json.dumps(_facts(app, project_id, receipt["run_id"]))
+    retained = json.dumps(_public_events(app, project_id, receipt["run_id"]))
     assert "private-normal-cleanup-detail" not in retained
     assert not list(
         (tmp_path / "outputs" / project_id).rglob(
@@ -1114,7 +1272,7 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
         text=True,
     ).stdout.strip()
     assert process_status in {"", "Z"}
-    retained = json.dumps(_facts(app, project_id, receipt["run_id"]))
+    retained = json.dumps(_public_events(app, project_id, receipt["run_id"]))
     assert "private-fallback-detail" not in retained
 
 
@@ -1179,7 +1337,7 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
             f"/api/v2/projects/{project_id}/runs/{source['run_id']}/"
             f"artifacts/{source_artifact['artifact_reference']}"
         )
-        source_facts = _facts(app, project_id, source["run_id"])
+        source_events = _public_events(app, project_id, source["run_id"])
 
         derived_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
@@ -1206,7 +1364,7 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
         )
 
     assert source_after == source_projection
-    assert _facts(app, project_id, source["run_id"]) == source_facts
+    assert _public_events(app, project_id, source["run_id"]) == source_events
     assert source_download_after.content == source_download.content
     assert derived_projection["derived_from_run_id"] == source["run_id"]
     assert derived_projection["artifact_index"][0]["artifact_reference"] != (

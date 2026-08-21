@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any, cast
 
-from core import OperationCall
+from core import AdmittedPort, OperationCall
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -14,14 +14,14 @@ from datatypes import (
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseObservationContext,
+    ResidueAxisReference,
+    ResolvedStructureResidueAxis,
     ScoreCollection,
     ScoreObservation,
 )
 from modules.structure_transform import (
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
-
 from .contracts import (
     INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
@@ -45,43 +45,43 @@ def _candidate_scope(
     CandidateCollection,
     dict[str, CandidateDataReference],
 ]:
-    collection: CandidateCollection = call.inputs[port]
-    admitted = call.input_content_digests[port]
+    admitted = call.inputs[port]
+    collection = cast(CandidateCollection, admitted.value)
     if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(f"{port} must be exact structure Candidates")
     references = {
         reference.candidate_id: reference for reference in admitted.candidate_data
     }
-    if (
-        len(references) != len(admitted.candidate_data)
-        or set(references) != {candidate.candidate_id for candidate in collection.items}
-        or any(
-            reference.data_type_id != "protein.structure"
-            for candidate in collection.items
-            for reference in (references[candidate.candidate_id],)
-        )
-    ):
-        raise ValueError(f"{port} exact Candidate references are incomplete")
     return collection, references
 
 
 def _axes_by_subject(
-    value: object,
+    admitted: AdmittedPort,
     references: dict[str, CandidateDataReference],
-) -> dict[CandidateDataReference, Any]:
-    associations = cast(CandidateResolvedResidueAxisAssociations, value)
+) -> dict[
+    CandidateDataReference,
+    tuple[ResolvedStructureResidueAxis, ResidueAxisReference],
+]:
+    associations = cast(
+        CandidateResolvedResidueAxisAssociations,
+        admitted.value,
+    )
     axes = {entry.subject: entry.residue_axis for entry in associations.entries}
     if set(axes) != set(references.values()):
         raise ValueError("subject residue axes do not cover exact subjects")
-    return axes
+    admitted_axes = {axis.source: axis for axis in admitted.scientific_axes}
+    return {
+        subject: (axis, admitted_axes[subject])
+        for subject, axis in axes.items()
+    }
 
 
 def _alignment_values(
     call: OperationCall,
     port: str,
 ) -> dict[CandidateDataReference, tuple[StructureAlignmentEvidence, str]]:
-    values = cast(tuple[StructureAlignmentEvidence, ...], call.inputs[port])
-    admitted = call.input_content_digests[port]
+    admitted = call.inputs[port]
+    values = cast(tuple[StructureAlignmentEvidence, ...], admitted.value)
     if not values or len(admitted.value_content_digests) != len(values):
         raise ValueError(f"{port} must contain exact alignment evidence")
     result = {
@@ -234,7 +234,7 @@ class EvaluateInsertedLoopImplementation:
             subject_references,
         )
         paired = _paired_counterparts(
-            call.inputs["counterpart_pairing"],
+            call.inputs["counterpart_pairing"].value,
             subject_references,
             counterpart_references,
         )
@@ -247,26 +247,28 @@ class EvaluateInsertedLoopImplementation:
             "counterpart_alignments",
         )
         core_tm = _score_by_subject(
-            call.inputs["resolved_core_tm_scores"],
+            call.inputs["resolved_core_tm_scores"].value,
             metric_id="structure_comparison.tm_score",
             method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
         )
         core_rmsd = _score_by_subject(
-            call.inputs["resolved_core_rmsd_scores"],
+            call.inputs["resolved_core_rmsd_scores"].value,
             metric_id="structure_comparison.rmsd",
             method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
         )
         counterpart_tm = _score_by_subject(
-            call.inputs["counterpart_tm_scores"],
+            call.inputs["counterpart_tm_scores"].value,
             metric_id="structure_comparison.tm_score",
             method=TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
         )
         counterpart_rmsd = _score_by_subject(
-            call.inputs["counterpart_rmsd_scores"],
+            call.inputs["counterpart_rmsd_scores"].value,
             metric_id="structure_comparison.rmsd",
             method=RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
         )
-        confidence = _per_residue_confidence(call.inputs["confidence_observations"])
+        confidence = _per_residue_confidence(
+            call.inputs["confidence_observations"].value
+        )
         expected_subjects = set(subject_references.values())
         for mapping in (
             core_alignments,
@@ -321,7 +323,7 @@ class EvaluateInsertedLoopImplementation:
                 parameters["loop_core_nonbonded_distance_angstrom_minimum"]
             ),
         )
-        confidence_digests = call.input_content_digests[
+        confidence_digests = call.inputs[
             "confidence_observations"
         ].value_content_digests
         if len(confidence_digests) != 1:
@@ -332,7 +334,7 @@ class EvaluateInsertedLoopImplementation:
         passing: list[Candidate] = []
         for candidate in subjects.items:
             subject = subject_references[candidate.candidate_id]
-            subject_axis = axes[subject]
+            subject_axis, subject_axis_reference = axes[subject]
             confidence_observation = confidence[subject]
             prediction_axis = confidence_observation.residue_axis
             values = confidence_observation.value
@@ -534,8 +536,8 @@ class EvaluateInsertedLoopImplementation:
                     prediction_axis_content_digest=(
                         prediction_axis.axis_content_digest
                     ),
-                    structure_axis_content_digest=RESOLVED_AXIS_PORT_TYPE.content_digest(
-                        subject_axis
+                    structure_axis_content_digest=(
+                        subject_axis_reference.axis_content_digest
                     ),
                     prediction_to_structure_correspondence=correspondence,
                     resolved_core_residue_ids=core_ids,

@@ -1,20 +1,20 @@
 schema_version: "2.1.0"
 node_type_id: contract_test.proteinmpnn_3gb1_sequence
-version: "3.0.0"
+version: "4.0.0"
 title: Exact 3GB1 sequence Candidate source
 summary: Emits the exact 3GB1 sequence as a child of its source-bound structure Candidate.
 category: contract_test
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: The one exact 3GB1 parent structure Candidate.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: The exact 3GB1 sequence Candidate with formal parent lineage.

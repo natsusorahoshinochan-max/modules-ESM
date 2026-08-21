@@ -149,7 +149,10 @@ class _Controlled5G53ESM3:
             ptm=torch.tensor(0.90 - offset * 0.001),
             plddt=torch.tensor([0.90 - offset * 0.001] * length),
             pae=pae,
-            pdb_string=pdb_for_sequence(sequence, bend=offset * 0.01),
+            pdb_string=pdb_for_sequence(
+                sequence,
+                bend=offset * 0.01,
+            ).removesuffix("TER\nEND\n"),
         )
 
     def generate(self, protein: Any, config: Any) -> ControlledESMResponse:
@@ -170,17 +173,17 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     catalog.require_contract(
         "node_type",
         "structure_comparison.evaluate_inserted_loop",
-        "1.0.0",
+        "2.0.0",
     )
     confidence_method = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
-        "7.0.0",
+        "9.0.0",
     ).descriptor["method"]
     evaluation_method = catalog.require_contract(
         "method",
         "structure_comparison.inserted_loop.exact_evidence_gate",
-        "1.0.0",
+        "2.0.0",
     )
     assert (
         evaluation_method.descriptor["algorithm_identity"]["confidence_method"]
@@ -193,7 +196,7 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     evidence_port = catalog.require_contract(
         "port_type",
         "structure_comparison.inserted_loop_evaluation",
-        "1.0.0",
+        "2.0.0",
     )
     assert (
         evidence_port.descriptor()["validator"]["parameters"]["confidence_method"]
@@ -515,7 +518,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             **catalog.require_contract(
                 "binding",
                 "esm3.generate_paired.biohub_medium",
-                "7.0.0",
+                "8.0.0",
             ).descriptor["method"]
         )
         expected_prompt_index = 0

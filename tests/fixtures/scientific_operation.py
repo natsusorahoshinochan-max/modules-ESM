@@ -6,26 +6,95 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from core import (
+    AdmittedPort,
+    AdmittedValue,
     FrozenCatalog,
-    InputContentDigests,
     ObservationSelector,
     OperationCall,
     OperationContext,
     ResolvedProducedObservation,
+    SelectionInput,
     SelectionObjective,
 )
+from core.value_admission import admitted_port_values
 from core.scoring_v2 import (
+    rank_candidates_by_weighted_utility,
+    resolve_candidate_utilities_from_facts,
     resolve_observation_selector_facts,
     resolve_selection_objective_facts,
+    SelectionResult,
 )
 from datatypes import (
-    Candidate,
     CandidateCollection,
     CandidateDataReference,
     ExactContractReference,
-    ProteinSequence,
-    ProteinStructure,
+    ResidueAxisReference,
+    ScoreCollection,
 )
+
+
+def select_admitted_candidates(
+    *,
+    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
+    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
+    objectives: Sequence[SelectionObjective],
+    catalog: FrozenCatalog,
+    limit: int,
+) -> SelectionResult:
+    """Exercise Utility selection from Port-admitted facts in focused tests."""
+    port_types = {
+        definition.type_id: definition for definition in catalog.port_types
+    }
+    candidate_port_type = catalog.require_port_type(
+        "candidate.collection",
+        "4.0.0",
+    )
+    admitted_candidates = {
+        reference: admitted_port_values(
+            port_type=candidate_port_type,
+            multiplicity="one",
+            values=(collection,),
+            candidate_data_port_types=port_types,
+        )
+        for reference, collection in candidate_inputs.items()
+    }
+    score_port_type = catalog.require_port_type("score.collection", "5.0.0")
+    admitted_scores = {
+        reference: admitted_port_values(
+            port_type=score_port_type,
+            multiplicity="one",
+            values=(collection,),
+            candidate_data_port_types=port_types,
+        ).value
+        for reference, collection in score_collection_inputs.items()
+    }
+    resolved = tuple(
+        resolve_selection_objective_facts(objective, catalog)
+        for objective in objectives
+    )
+    candidate_reference = resolved[0].objective.candidate_input
+    admitted_candidate_input = admitted_candidates[candidate_reference]
+    profile = resolve_candidate_utilities_from_facts(
+        candidate_inputs={
+            reference: admitted.value
+            for reference, admitted in admitted_candidates.items()
+        },
+        score_collection_inputs=admitted_scores,
+        objectives=resolved,
+        candidate_data_references={
+            reference.candidate_id: reference
+            for reference in admitted_candidate_input.candidate_data
+        },
+    )
+    ranked = rank_candidates_by_weighted_utility(profile)
+    return SelectionResult(
+        CandidateCollection(
+            collection_id=f"{profile.candidates.collection_id}.selected",
+            item_type=profile.candidates.item_type,
+            items=ranked[:limit],
+        ),
+        profile.provenance,
+    )
 
 
 def _reference(value: Mapping[str, Any]) -> ExactContractReference:
@@ -101,10 +170,11 @@ def operation_call(
     inputs: Mapping[str, Any] | None = None,
     node_parameters: Mapping[str, Any] | None = None,
     binding_parameters: Mapping[str, Any] | None = None,
+    effective_randomness: Mapping[str, Any] | None = None,
 ) -> OperationCall:
     """Construct the exact immutable call admitted by the runtime boundary."""
     supplied_inputs = {} if inputs is None else inputs
-    admitted_digests: dict[str, InputContentDigests] = {}
+    admitted_inputs = {}
     if supplied_inputs:
         if catalog is None or binding_id is None:
             raise AssertionError(
@@ -125,6 +195,10 @@ def operation_call(
             declaration["name"]: declaration
             for declaration in node_type.descriptor.get("inputs", ())
         }
+        candidate_data_port_types = {
+            definition.type_id: definition
+            for definition in catalog.port_types
+        }
         for port_name, supplied in supplied_inputs.items():
             declaration = declarations[port_name]
             port_reference = declaration["port_type"]
@@ -137,56 +211,70 @@ def operation_call(
                 if declaration["multiplicity"] == "many"
                 else (supplied,)
             )
-            candidate_digests: list[CandidateDataReference] = []
-            for value in values:
-                if type(value) is Candidate:
-                    candidates = (value,)
-                elif type(value) is CandidateCollection:
-                    candidates = tuple(value.items)
-                else:
-                    candidates = ()
-                for candidate in candidates:
-                    data_type_id = {
-                        ProteinSequence: "protein.sequence",
-                        ProteinStructure: "protein.structure",
-                    }.get(type(candidate.data))
-                    if data_type_id is None:
-                        raise AssertionError(
-                            "Candidate data has no active test content identity"
-                        )
-                    data_types = tuple(
-                        candidate_data_type
-                        for candidate_data_type in catalog.port_types
-                        if candidate_data_type.type_id == data_type_id
-                    )
-                    if len(data_types) != 1:
-                        raise AssertionError(
-                            f"active Port Type {data_type_id!r} did not "
-                            "resolve exactly once"
-                        )
-                    candidate_digests.append(
-                        CandidateDataReference(
-                            candidate_id=candidate.candidate_id,
-                            data_type_id=data_type_id,
-                            content_digest=data_types[0].content_digest(
-                                candidate.data
-                            ),
-                        )
-                    )
-            admitted_digests[port_name] = InputContentDigests(
-                port_type_id=port_type.type_id,
-                value_content_digests=tuple(
-                    port_type.content_digest(value) for value in values
-                ),
-                candidate_data=tuple(candidate_digests),
+
+            admitted_inputs[port_name] = admitted_port_values(
+                port_type=port_type,
+                multiplicity=declaration["multiplicity"],
+                values=values,
+                candidate_data_port_types=candidate_data_port_types,
             )
     return OperationCall(
-        inputs=supplied_inputs,
+        inputs=admitted_inputs,
         node_parameters={} if node_parameters is None else node_parameters,
         binding_parameters=(
             {} if binding_parameters is None else binding_parameters
         ),
-        input_content_digests=admitted_digests,
+        effective_randomness=(
+            {} if effective_randomness is None else effective_randomness
+        ),
+    )
+
+
+def admitted_port_fixture(
+    value: Any,
+    *,
+    port_type_id: str,
+    value_content_digests: tuple[str, ...],
+    candidate_data: tuple[CandidateDataReference, ...] = (),
+    scientific_axes: tuple[ResidueAxisReference, ...] = (),
+    observation_methods: tuple[ExactContractReference, ...] = (),
+    multiplicity: str = "one",
+) -> AdmittedPort:
+    """Build an explicitly pre-admitted record for operation boundary tests."""
+    values = tuple(value) if multiplicity == "many" else (value,)
+    if len(values) != len(value_content_digests):
+        raise AssertionError(
+            "pre-admitted fixture values and content digests must align"
+        )
+    admitted_values = tuple(
+        AdmittedValue(
+            value=item,
+            canonical_bytes=("fixture:" + digest).encode("ascii"),
+            content_digest=digest,
+            candidate_data=candidate_data if index == 0 else (),
+            scientific_axes=scientific_axes if index == 0 else (),
+            observation_methods=(
+                observation_methods if index == 0 else ()
+            ),
+        )
+        for index, (item, digest) in enumerate(
+            zip(values, value_content_digests, strict=True)
+        )
+    )
+    return AdmittedPort(
+        port_type={
+            "contract_kind": "port_type",
+            "contract_id": port_type_id,
+            "contract_version": "fixture",
+            "contract_digest": "sha256:" + ("0" * 64),
+        },
+        multiplicity=multiplicity,
+        values=admitted_values,
+        content_digest=(
+            admitted_values[0].content_digest
+            if len(admitted_values) == 1
+            else "sha256:" + ("f" * 64)
+        ),
     )
 
 

@@ -253,7 +253,7 @@ def _large_esm3_response(sequence: str, pae: object) -> object:
 
     from tests.fixtures.esm3_generation import (
         ProviderResponse,
-        three_residue_pdb,
+        three_residue_provider_pdb,
     )
 
     length = len(sequence)
@@ -263,7 +263,7 @@ def _large_esm3_response(sequence: str, pae: object) -> object:
         ptm=torch.tensor(0.75, dtype=torch.float32),
         plddt=torch.linspace(0.5, 0.9, length, dtype=torch.float32),
         pae=pae,
-        pdb_string=three_residue_pdb(sequence),
+        pdb_string=three_residue_provider_pdb(sequence),
     )
 
 
@@ -437,7 +437,6 @@ def test_declared_hundred_samples_do_not_expand_ledger_transaction(
                             "2.000   3.000   4.000  1.00 20.00           C  \n"
                             "ATOM      3  CA  ASP A   3       "
                             "3.000   4.000   5.000  1.00 20.00           C  \n"
-                            "TER\nEND\n"
                         ),
                     ),
                 ]

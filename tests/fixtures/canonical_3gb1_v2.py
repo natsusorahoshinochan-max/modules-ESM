@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import math
 from typing import Any
@@ -21,8 +20,9 @@ from datatypes import ProteinSequence
 
 
 VERSION = "2.1.0"
-REMOTE_BINDING_VERSION = "7.0.0"
-PROTEINMPNN_BINDING_VERSION = "10.0.0"
+ESM3_REMOTE_BINDING_VERSION = "8.0.0"
+FOLDING_REMOTE_BINDING_VERSION = "9.0.0"
+PROTEINMPNN_BINDING_VERSION = "11.0.0"
 CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
     "sha256:af6fb4017077a24d67882151d39beb7790b118b02c155a986a48907e1a569ab8"
 )
@@ -153,7 +153,7 @@ class ControlledESM3Client:
             pdb_string=pdb_for_sequence(
                 protein.sequence,
                 bend=bend,
-            ),
+            ).removesuffix("TER\nEND\n"),
         )
 
 
@@ -270,8 +270,8 @@ def controlled_catalog() -> Any:
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
 
-    def ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-        return ReadinessResult(isinstance(check_input.values, Mapping))
+    def ready(_check_input: ReadinessCheckInput) -> ReadinessResult:
+        return ReadinessResult(True)
 
     registrations: list[ModulePackageRegistration] = []
     for registration in discover_module_packages():
@@ -307,7 +307,7 @@ def controlled_environment(
     return {
         (
             "esm3.generate_paired.biohub_medium",
-            REMOTE_BINDING_VERSION,
+            ESM3_REMOTE_BINDING_VERSION,
         ): {
             "values": {
                 "endpoint_id": "biohub",
@@ -315,7 +315,10 @@ def controlled_environment(
                 "provider_client": esm3,
             },
         },
-        ("folding.fold.esmfold2_remote", REMOTE_BINDING_VERSION): {
+        (
+            "folding.fold.esmfold2_remote",
+            FOLDING_REMOTE_BINDING_VERSION,
+        ): {
             "values": {
                 "endpoint_id": "biohub",
                 "credential_handle": object(),

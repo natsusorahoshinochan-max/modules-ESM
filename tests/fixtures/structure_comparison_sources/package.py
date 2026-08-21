@@ -45,7 +45,7 @@ from modules.structure_prediction.port_types import (
 )
 
 
-_VERSION = "4.0.0"
+_VERSION = "5.0.0"
 _RESIDUE_NAMES = {
     "A": "ALA",
     "G": "GLY",
@@ -378,13 +378,13 @@ class _ConfidenceSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError("confidence source accepts no parameters")
-        structures = call.inputs["structures"]
-        facts = call.inputs["confidence_facts"]
+        structures = call.inputs["structures"].value
+        facts = call.inputs["confidence_facts"].value
         assert type(structures) is CandidateCollection
         assert type(facts) is ConfidenceFactCollection
         if len(structures.items) != 1 or len(facts.entries) != 1:
             raise ValueError("confidence source requires one structure and fact")
-        structure_reference = call.input_content_digests[
+        structure_reference = call.inputs[
             "structures"
         ].candidate_data[0]
         fact = facts.entries[0]
@@ -417,13 +417,13 @@ class _PerResidueConfidenceSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError("per-residue confidence source accepts no parameters")
-        structures = call.inputs["structures"]
-        facts = call.inputs["confidence_facts"]
+        structures = call.inputs["structures"].value
+        facts = call.inputs["confidence_facts"].value
         assert type(structures) is CandidateCollection
         assert type(facts) is ConfidenceFactCollection
         if len(structures.items) != 1 or len(facts.entries) != 1:
             raise ValueError("per-residue confidence source requires one prediction")
-        subject = call.input_content_digests["structures"].candidate_data[0]
+        subject = call.inputs["structures"].candidate_data[0]
         fact = facts.entries[0]
         if fact.structure_content_digest != subject.content_digest:
             raise ValueError("confidence fact does not identify the structure")
@@ -456,13 +456,13 @@ class _ConfidenceFactSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.binding_parameters:
             raise ValueError("confidence-fact source accepts no Binding parameters")
-        structures = call.inputs["structures"]
-        prediction_axis = call.inputs["prediction_axis"]
+        structures = call.inputs["structures"].value
+        prediction_axis = call.inputs["prediction_axis"].value
         assert type(structures) is CandidateCollection
         assert type(prediction_axis) is PredictionResidueAxis
         if len(structures.items) != 1:
             raise ValueError("confidence-fact source requires one structure")
-        structure_reference = call.input_content_digests[
+        structure_reference = call.inputs[
             "structures"
         ].candidate_data[0]
         axis_digest = PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
@@ -502,7 +502,7 @@ class _PredictionAxisSource:
     def execute(self, call: OperationCall) -> dict[str, object]:
         if call.node_parameters or call.binding_parameters:
             raise ValueError("prediction-axis source accepts no parameters")
-        sequences = call.inputs["sequence_parents"]
+        sequences = call.inputs["sequence_parents"].value
         assert type(sequences) is CandidateCollection
         if len(sequences.items) != 1:
             raise ValueError("prediction-axis source requires one sequence")
@@ -511,7 +511,7 @@ class _PredictionAxisSource:
         residue_ids = tuple(candidate.data.residue_ids or ())
         if len(residue_ids) != len(candidate.data):
             raise ValueError("prediction-axis source requires exact residue identities")
-        reference = call.input_content_digests[
+        reference = call.inputs[
             "sequence_parents"
         ].candidate_data[0]
         with self._resources.engine_invocation():
@@ -571,6 +571,7 @@ def _fixture_binding(
     binding_id: str,
     node_type_id: str,
     method_id: str,
+    method_version: str = _VERSION,
     factory_name: str,
     build,
     produced_observations: tuple[ProducedObservationDefinition, ...] = (),
@@ -579,7 +580,7 @@ def _fixture_binding(
         binding_id=binding_id,
         version=_VERSION,
         node_type=ContractIdentity("node_type", node_type_id, _VERSION),
-        method=ContractIdentity("method", method_id, "4.0.0"),
+        method=ContractIdentity("method", method_id, method_version),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
@@ -716,6 +717,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.inserted_loop_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
+            method_version="4.0.0",
             factory_name="contract_test.inserted_loop_confidence_source/factory",
             build=_build_inserted_loop_confidence_source,
             produced_observations=(
@@ -740,6 +742,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.esmfold2_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
+            method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_source/factory",
             build=_build_esmfold2_confidence_source,
             produced_observations=(
@@ -764,6 +767,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.simplefold_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.simplefold_100m_c7a5570",
+            method_version="5.0.0",
             factory_name="contract_test.simplefold_confidence_source/factory",
             build=_build_simplefold_confidence_source,
             produced_observations=(
@@ -788,6 +792,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.esmfold2_confidence_fact_source.fixture",
             node_type_id="contract_test.prediction_confidence_fact_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
+            method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_fact_source/factory",
             build=_build_confidence_fact_source,
         ),
@@ -795,6 +800,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.simplefold_confidence_fact_source.fixture",
             node_type_id="contract_test.prediction_confidence_fact_source",
             method_id="folding.fold.simplefold_100m_c7a5570",
+            method_version="5.0.0",
             factory_name="contract_test.simplefold_confidence_fact_source/factory",
             build=_build_confidence_fact_source,
         ),

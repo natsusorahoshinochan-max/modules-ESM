@@ -1,10 +1,10 @@
 # 模块化蛋白质设计与评价工作台：当前架构
 
-- **文档版本**：0.6
-- **日期**：2026-08-18
+- **文档版本**：1.2
+- **日期**：2026-08-20
 - **使用场景**：可信、单用户、仅本机使用
 - **规范词汇**：以 [`CONTEXT.md`](../CONTEXT.md) 为准
-- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038、ADR-0039、ADR-0040
+- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038、ADR-0039、ADR-0040、ADR-0041、ADR-0042、ADR-0043、ADR-0044、ADR-0045
 
 ## 1. 目标与优先级
 
@@ -160,18 +160,27 @@ Derived Run 只能复用 source Run record 保留的同一个 in-memory `Executi
 
 ### 4.4 Scientific operation call
 
-在进入 scientific operation seam 前，runtime 将 wire values 接纳为 provider-independent immutable values，并形成内部 operation call。它只包含执行当前科学操作需要的事实，例如：
+在进入 scientific operation seam 前，runtime 将 wire values 接纳为
+provider-independent immutable values，并为每个输入形成一个 complete admitted input
+record。record 将 canonical value、canonical bytes、content digest、Candidate Data
+References、axis projections 与 Method-specific projections 作为同一次 Port admission 的
+结果一起携带；runtime 不建立随后需要重新 join 的 value、digest、reference 或 projection
+平行 map。内部 operation call 只包含执行当前科学操作需要的事实，例如：
 
 ```text
-admitted typed inputs
-normalized scientific parameters
-resolved Binding parameters
-configured base seed and canonical input content digests
+complete admitted input records
+Plan-normalized scientific and Binding parameters
+resolved effective randomness
 cancel and Artifact facilities
 Engine Invocation evidence recorder
 ```
 
-它不包含 `FrozenCatalog`，也不要求 scientific operation 查询 Node、Port、Binding 或 public contract version。Node Instance ID、Run ID 和公共事件投影属于 runtime/evidence context，不得影响科学随机抽样。
+operation 信任 Plan-normalized 参数及 admitted input record，不重新检查 generic
+key/type/range、重新编码 value、重新计算 digest，或重新解析 Candidate Data Reference。
+Method implementation 仍拥有自己的科学前置与后置条件。operation call 不包含
+`FrozenCatalog`，也不要求 scientific operation 查询 Node、Port、Binding 或 public
+contract version。Node Instance ID、Run ID 和公共事件投影属于 runtime/evidence context，
+不得影响科学随机抽样。
 
 ### 4.5 Run 因果顺序
 
@@ -188,6 +197,28 @@ Engine Invocation evidence recorder
    Ledger transaction 原子发布 Node outcome；
 8. 从 Run Evidence Ledger 投影事件和 bounded output descriptors，再在成功后发布可选的
    Cache v4 replay index。
+
+Run scheduling 只负责按 Execution Plan 串行调度、required-input blocking、调度前取消、
+已提交 Typed Outputs 的下游传播、Selection conclusion 与 Run Closure。一个
+Run-scoped deep runtime module 负责可调度 Node Instance 的准备和完整 Node Execution
+Attempt lifecycle。input admission、Project Input resolution 与 effective randomness
+resolution 在 attempt evidence 开始前发生；本地 contract invariant 在这里 fail fast，
+不虚构 Node Execution Attempt、Operation Attempt 或 Engine Invocation。
+
+该 module 用一个 closed internal attempt state 承载 preparation、Cache、Readiness、
+Operation、cleanup 与 Node Outcome Publication 所需事实。它取代跨 service/finalizer 传递的
+宽 finalization intents、内部 enum/type dispatch、production asserts，以及重复的取消与错误
+终结路径；外部只观察 committed disposition。
+
+该 deep module 在第一次 exact Adapter-route Binding 的 Cache miss 或 bypass 时检查一次
+Readiness，并在同一 Run 内复用结论。Node Execution Attempt 仅在 Node Outcome
+Publication 的 Ledger transaction 原子提交后结束；成功后写入的 Cache replay index
+不是 outcome authority。Run Evidence Ledger 仍是 fact schema、因果验证、durable
+persistence、reduction 与公共投影的唯一 owner。详见 ADR-0041 与 ADR-0042。
+
+Readiness 只把 closure admission 或明确 Environment/Provider prerequisite failure 映射为
+failing conclusion。编程错误与本地 invariant violation 直接 fail fast；Readiness 不使用
+broad catch 把这些错误改写成 Provider 不可用。
 
 Availability 与 Readiness 只服务 Adapter route 的实际 Provider entry，不阻止 Workflow
 commit、direct operation 或 Cache replay。Cache replay 是 Node Execution Attempt，但不是
@@ -245,9 +276,51 @@ Invocation provenance 也不把静态配置伪装成逐次观察。
 
 Provider-native chain positions、tensor、token、payload、response object、临时 FASTA/PDB/JSONL 和工作目录不得越过 Adapter seam。
 
+Adapter 在 authoritative Provider translation boundary 一次接纳 provider-native
+observation，例如实际 device、native confidence scale、mask、length 与 PDB tail，并据此构造
+canonical output 和 Invocation provenance。进入 Workbench 后，下游信任这些 admitted
+values；不再用 generic runtime checks 重复检查相同 Provider predicate。
+
 Biohub 的官方规范是权威。对符合请求的响应按规范翻译，不猜 schema、不修复响应、不交叉校验 Provider、不尝试备用 endpoint，也不为假想异常增加 catch-and-continue。操作性错误仅按官方结果或本地明确失败事实记录。
 
 科学转换不属于 Adapter。单位换算、ResidueIdentity 设计、Candidate lineage、Metric 选择、mask 解释和随机 seed 规则必须在 canonical scientific value 或 operation 中具有单一 owner。
+
+### 6.1 SimpleFold Provider Asset Closure
+
+`modules/folding` 内一个 package-private deep module 拥有两个 SimpleFold Adapter
+共享的 Provider Asset Closure grammar、exact file/source admission 与隔离暂存。每个
+Execution Binding 仍各自拥有一个 immutable closure declaration；module 只集中实现
+declaration，不合并 Folding 与 existing-structure confidence 的 Method、Operation 或
+Adapter。
+
+Folding closure 精确包含 `simplefold_100M.ckpt`、`simplefold_1.6B.ckpt`、
+`plddt.ckpt`、`ccd.pkl`、ESM2 主 checkpoint 与 contact-regression checkpoint，以及
+exact SimpleFold source revision、ESM2 revision 和 reviewed runtime source tree。
+Confidence closure 只包含 `simplefold_1.6B.ckpt`、`plddt.ckpt`、`ccd.pkl`、ESM2 主
+checkpoint 与相同的 exact source identities；它明确排除 100M、360M、ESM2 contact
+regression 和 `boltz1_conf.ckpt`。配置目录中的其他文件不是 closure，不被拒绝、接纳、
+hash 或 stage。
+
+closure file entry 固定角色、runtime filename 与 SHA-256；source entry 固定 revision 和
+必要的 reviewed source-tree digest。Environment Configuration 只提供路径。byte count 与
+CDN ETag 只保留为 installation/acquisition metadata，不进入 Method、Binding 或 Readiness
+content identity。Binding-owned declaration 同时投影到 Method/Binding descriptor、
+Readiness prerequisites、staging selection 与测试，不存在 Adapter-owned 的平行清单。
+
+每个 exact Binding 在同一 Run 第一次 Cache miss 或 bypass 时独立 admission 一次，不跨
+Folding/Confidence Binding memoize。file SHA-256 与 ESM2 exact HEAD、declaration-owned
+reviewed file set/tree digest 只在这里证明一次；configured root 只是 closure location，不是
+identity。随后 staging 直接使用同一 declaration 和 Environment Configuration，不重新
+hash、执行 Git query 或搜索 source tree。每次 Adapter call 在 Engine Invocation 开始前把
+该 Binding 的 exact closure 复制到 fresh private staging root；不搜索其他目录、不下载、
+不联网、不使用 shared model cache 或 fallback。
+
+admission 失败是 Readiness failure，并产生没有 Operation Attempt 或 Engine Invocation 的
+Binding Failure。已接纳资产的 staging 失败发生在 Operation preparation，且不虚构 Provider
+entry；Provider import、model load 与 execution 才进入 Engine Invocation。Adapter 继续拥有
+不同的 loading、namespace、deserialization、provider-native translation 与 canonical output
+translation；closure module 不处理 Candidate、Prediction Key、Axis、Confidence Fact、Metric
+或 publication。详见 ADR-0045。
 
 ## 7. Scientific values 与信任模型
 
@@ -285,20 +358,31 @@ active Catalog 解析，不形成第二个历史 codec registry。
 
 ### 7.2 验证位置
 
-只在拥有事实的 seam 验证：
+统一规则是 **one invariant, one owner, one proof lifetime**。每个 predicate 只由拥有该事实的
+contract boundary 证明一次；证明在下表规定的 lifetime 内有效。下游消费已经 admitted 的
+record，不因为进入另一个内部函数而重复同一 predicate。
 
-| Seam | 验证内容 |
-| --- | --- |
-| Project Input / public protocol | schema、exact nominal Port identity、用户提供的科学字段 |
-| Scientific value construction | residue identity、layout、shape、unit、mask、lineage 等 canonical invariants |
-| Prediction confidence Port | Prediction Key、structure digest、prediction axis、pLDDT/PAE shape、exact provider Method |
-| Explicit scientific transformation | 该变换声明的科学前置和后置条件 |
-| Confidence materialization | admitted Candidate references 与 subjectless facts 的完整一一闭合 |
-| Provider Adapter | 按权威规范完成翻译并构造 canonical output 与 provenance |
-| Persistence admission | schema namespace、digest、exact Contract references |
-| Durable write | 路径归属、原子发布、冲突和意外数据损失 |
+| Owner seam | 一次性验证 | Proof lifetime |
+| --- | --- | --- |
+| Project Input / public protocol | wire schema、exact nominal Port identity、用户提供的科学字段 | 该 immutable Project Input 或 request admission |
+| Scientific value construction | residue identity、layout、shape、unit、mask、lineage 等 value-intrinsic invariants | 该 immutable value |
+| Port admission | canonical value/bytes、content digest、exact Candidate Data References、axis 与 Method projections，以及该 Port 声明的 cross-field closure | 该 complete admitted input record |
+| Execution Plan | Node/Binding 参数 schema、type、range、normalization 与 randomness resolution contract | 该 immutable Plan；run-scoped effective randomness 由 attempt resolution 固定 |
+| Scientific Operation | 该 Method 特有且只有在完整 admitted inputs 上才能判定的科学前置、后置与集合 closure | 该 Operation Attempt 的 admitted inputs/outputs |
+| Provider Adapter | 按权威规范翻译并接纳 provider-native observation，构造 canonical output 与 Invocation provenance | 该 Adapter result / Engine Invocation record |
+| Binding Readiness | exact route 的 Environment prerequisites 与 Provider Asset Closure | 该 Binding 在该 Run 的 Readiness conclusion |
+| Run Evidence Ledger durable write | closed fact/public schema、因果、transaction、顺序、redaction、size、durable acknowledgement 与 Invocation provenance semantics | committed durable transaction；restart 时重新接纳 durable prefix |
+| Persistence read / restart | current schema、object digest、exact Contract references 与 durable prefix | 本次恢复得到的 admitted immutable state |
+| Durable object publication | 路径归属、原子发布、冲突和意外数据损失 | 已确认的 immutable object publication |
 
-内部 invariant 失败立即抛出明确错误。不要加入 broad catches、silent coercion、猜测默认值、未记录 retry 或 fallback。
+Scientific value construction 只拥有 value-intrinsic predicates；它不复制 Port、Method 或
+集合 closure。Port admission 一次产生 complete admitted record，之后不得再次调用同一
+validator、encode/decode value、重算 digest，或把 value/CDR/axis map 重新 join。把 persisted
+bytes、Cache entry 或 durable Ledger prefix 恢复为内存对象是一次新的 admission seam，因而
+需要验证其 durable contract；这不是在同一 proof lifetime 内重复检查。
+
+内部 invariant 失败立即抛出明确错误。不要加入 broad catches、silent coercion、猜测默认值、
+silent `min`/clamp、未记录 retry 或 fallback，也不要用 Readiness 捕获编程错误。
 
 ### 7.3 本地可信部署
 
@@ -425,29 +509,29 @@ TM-score、RMSD、DSSP、confidence 和 solubility 不能退化为自由字符�
 
 ### 10.1 结构预测置信度的两阶段 seam
 
-`structure_prediction@1.0.0` Module Package 拥有共享的
-`structure_prediction.prediction_residue_axis@1.0.0`、
-`structure_prediction.confidence_facts@1.0.0` 与
-`structure_prediction.materialize_confidence@1.0.0`。materializer 的输入是
-`structure_candidates: candidate.collection@3.0.0` 和
-`confidence_facts: structure_prediction.confidence_facts@1.0.0`，输出是
-`observations: score.collection@4.0.0`。它通过
-`structure_prediction.materialize_confidence.direct@1.0.0` Binding 绑定
-`structure_prediction.materialize_confidence.exact_reference_join@1.0.0`
+`structure_prediction@2.0.0` Module Package 拥有共享的
+`structure_prediction.prediction_residue_axis@2.0.0`、
+`structure_prediction.confidence_facts@2.0.0` 与
+`structure_prediction.materialize_confidence@2.0.0`。materializer 的输入是
+`structure_candidates: candidate.collection@4.0.0` 和
+`confidence_facts: structure_prediction.confidence_facts@2.0.0`，输出是
+`observations: score.collection@5.0.0`。它通过
+`structure_prediction.materialize_confidence.direct@2.0.0` Binding 绑定
+`structure_prediction.materialize_confidence.exact_reference_join@2.0.0`
 Method，且没有科学或部署参数。
 
-`folding.fold@6.0.0`、`esm3.generate_sequence@7.0.0`、
-`esm3.generate_structure@7.0.0` 和 `esm3.generate_paired@7.0.0` 不在产生 Candidate
-的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `7.0.0`、
-remote ESMFold2 `7.0.0` 或 local ESMFold2 `8.0.0`；ESM3 generation Bindings 为
-`7.0.0`。其 exact provider Methods 也依 route 固定：SimpleFold 与 remote ESMFold2 为
+`folding.fold@8.0.0`、`esm3.generate_sequence@8.0.0`、
+`esm3.generate_structure@8.0.0` 和 `esm3.generate_paired@8.0.0` 不在产生 Candidate
+的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `10.0.0`、
+remote ESMFold2 `9.0.0` 或 local ESMFold2 `10.0.0`；ESM3 generation Bindings 为
+`8.0.0`。其 exact provider Methods 也依 route 固定：SimpleFold 与 remote ESMFold2 为
 `4.0.0`、local ESMFold2 为 `6.0.0`、ESM3 generation 为 `5.0.0`。每个
 confidence-bearing structure 或 coordinate-conditioned reconstruction output 同时产生：
 
-1. `candidate.collection@3.0.0`，其中 Candidate metadata 携带 content-derived
+1. `candidate.collection@4.0.0`，其中 Candidate metadata 携带 content-derived
    Prediction Key；
-2. `structure_prediction.confidence_facts@1.0.0`，其中 subjectless fact 携带同一 key、
-   exact structure digest、`structure_prediction.prediction_residue_axis@1.0.0`、provider
+2. `structure_prediction.confidence_facts@2.0.0`，其中 subjectless fact 携带同一 key、
+   exact structure digest、`structure_prediction.prediction_residue_axis@2.0.0`、provider
    Method 与 canonical confidence values。
 
 纯 sequence output 没有 structure-confidence fact 或 Prediction Key。PAE 与 pTM 位于同一
@@ -458,27 +542,64 @@ flowchart LR
     GEN["Folding or ESM generation"] --> CAND["Unadmitted structure Candidates"]
     GEN --> FACTS["Subjectless confidence facts"]
     CAND --> ADMIT["Candidate output admission"]
-    ADMIT --> MAT["structure_prediction.materialize_confidence@1.0.0"]
+    ADMIT --> MAT["structure_prediction.materialize_confidence@2.0.0"]
     FACTS --> MAT
-    MAT --> SCORE["score.collection@4.0.0"]
+    MAT --> SCORE["score.collection@5.0.0"]
 ```
 
-producer 自己根据 exact output role/slot、structure content digest 和 prediction-axis digest
+producer 根据 exact output role/slot、structure content digest 和 prediction-axis digest
 生成 Prediction Key，并把它写入 Candidate metadata 与 fact；该 key 不包含 future Candidate
-ID。Candidate admission 不猜测跨 Port 关联。后续 materializer 从自身 admitted input facts
-取得完整 `CandidateDataReference`，按 key 和 structure digest 验证两个集合 exact full-set
-closure，之后才创建 Candidate-associated Score Observations。这使 generation 与
-materialization 之间不存在 future CDR。
+ID。Folding producers 通过同一个 package-private deep module 完成这一步，ESM generation
+仍按自身不同的 ProteinPrompt source、output roles、reconstruction 与 pairing semantics
+构造 outputs。Candidate admission 不猜测跨 Port 关联。后续 materializer 从自身 admitted
+input facts 取得完整 `CandidateDataReference`，按 key 和 structure digest 验证两个集合
+exact full-set closure，之后才创建 Candidate-associated Score Observations。这使 generation
+与 materialization 之间不存在 future CDR。
 
 Confidence-facts Port 的 `scientific_axis_projection` 动态提供 prediction-axis references，
 `observation_method_projection` 动态提供 exact provider Method。materializer Binding 的
 Produced Observation Interface 将这两个 Port projection 声明为 axis 与 Method source；因此
-`structure_prediction.materialize_confidence.exact_reference_join@1.0.0` 只代表确定性的
+`structure_prediction.materialize_confidence.exact_reference_join@2.0.0` 只代表确定性的
 关联/物化算法，不能冒充 folding/ESM provider Method。
 
 per-residue pLDDT 的长度精确等于 prediction axis，null 位置显式保留；mean-residue pLDDT 是
 同一 population 上 valid protein-residue values 的等权算术平均，且仍携带该 axis；PAE 是
 同一 axis × axis 的方阵。pTM 是 candidate-global scalar，不附 residue axis。
+
+### 10.2 Folding output construction
+
+`modules/folding` 内一个 package-private deep module 唯一拥有所有 `folding.fold` Methods
+共享的 provider-independent output construction。它在 Provider entry 前接纳非空的 admitted
+sequence Candidate Collection、exact parent `CandidateDataReference`、canonical protein
+alphabet 与单链 identity-complete layout；在调用完成后一次性接纳 closed completed-sample
+records。它不暴露 axis、digest、key 或 fact 的独立 helper。
+
+每个 completed sample 只携带 parent slot、sample slot、canonical `ProteinStructure`、canonical
+pLDDT、可选 pTM/PAE 与实际 sampling facts。module 要求每个 parent 恰有 `num_samples` 个
+结果并关闭 `(parent slot, sample slot)` 的 missing、duplicate 与 extra cases，再按
+parent-major/sample-minor 规范顺序构造 provisional Candidates、exact parent lineage、
+Prediction Residue Axes、structure digests、Prediction Keys、Confidence Facts 和两个匹配的
+collections。Axis 只从 admitted parent sequence、exact parent reference 与实际 prediction
+sequence 构造，不解析 output PDB。
+
+Candidate metadata 使用 module-owned closed grammar：parent slot、sample slot、Prediction Key
+和实际 sampling facts。exact-seed route 可以记录 applied call seed，SimpleFold 可以记录实际
+`num_steps`；configured base seed 留在 Node parameters 与 Result Identity，Provider、model、
+checkpoint 等静态身份留在 Method、Binding 与 Run Evidence。Method implementation 与 Adapter
+不得构造 Candidate、Prediction Key 或 Confidence Fact，也不得传入任意 metadata dictionary。
+
+ESMFold2 与 SimpleFold 继续拥有各自的 parameters、call-seed derivation、batch shape、Adapter
+invocation 和 Provider-specific confidence translation。Adapter 只接收 admitted
+provider-independent values，执行 documented translation 和调用，返回 canonical structure、
+confidence 与实际 randomness，并记录 Engine Invocation provenance。不存在 generic folding
+runner；ESM-3 generation、SimpleFold existing-structure confidence 与后续 Confidence
+Materialization 不进入该 module。
+
+Folding output construction 属于科学 Operation，不是 durable Node Outcome Publication。任一
+Adapter 调用或 output-construction invariant 失败都使 Operation 失败且不返回 partial
+outputs；已经完成的 Engine Invocations 保持真实 evidence。immutable-object persistence、
+Ledger transaction、公开可见性与 Cache publication 仍由 core 的 Node Execution Attempt
+lifecycle 和 Run Evidence Ledger 拥有。详见 ADR-0044。
 
 评分和选择分离。Selection Objective 显式选择 Observation，固定 Utility Transform、weight 和 missing-value policy；改变排序策略不重新执行评分 Method。每个 Objective 或 Selector
 必须由声明该 consumption contract 的显式 Node 消费；不存在 Run 结束时的隐式 weighted
@@ -570,6 +691,20 @@ Cache miss 执行当前 Binding。Cache publication 发生在 Ledger success 之
 ### 13.3 Run Evidence Ledger
 
 Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invocation、Cache replay、Artifact 和 terminal outcome 的唯一有序 durable source。公共 manifest 和 lifecycle event stream 只能由 Ledger 投影，不存在独立 provider-evidence writer。
+
+Ledger 的 interface 接受完整的合法因果 transition。调用者决定实际发生的领域结论，但不
+提供 fact-type 字符串、任意 payload dictionary、logical-fact 顺序、sequence、cursor 或
+transaction grouping。Ledger 自己构造 exact logical facts，并集中拥有 closed schema、
+causal prerequisites、terminal rules、atomic transaction membership、reducer change 与
+public projection。现有 17 类 logical facts 保持各自的科学含义，不压成 generic event。
+
+Ledger 在 durable-write seam 一次性验证 fact/public schema、因果一致性、transaction
+完整性和顺序、monotonic identity、public redaction、size bound 与 durable
+acknowledgement。Invocation provenance 的 closed grammar、chain/order 与 residue mapping
+semantics 也只在这里验证；Engine Invocation recorder 与 `RunResources` 只冻结和传递 typed
+provenance，不重复该 grammar。Ledger 不重新验证已 admitted 的科学值，也不处理
+adversarial caller、Provider payload repair、coercion、fallback 或 retry policy。
+caller-facing raw append/commit 不作为 escape hatch 保留。详见 ADR-0042。
 
 一次 Node outcome publication 使用一个物理 Ledger transaction，保留 Operation terminal、
 output descriptors、Artifact descriptors、Node terminal 与 disposition 等独立 logical facts。
@@ -680,6 +815,11 @@ modules/<package>/
   cohesive Node Types, Methods and canonical scientific operations
   Provider translation only in concrete Adapters
 
+modules/folding/
+  distinct ESMFold2 and SimpleFold scientific operations and Adapters
+  one shared provider-independent folding output-construction module
+  one shared SimpleFold Provider Asset Closure admission and staging module
+
 modules/structure_prediction/
   provider-independent prediction axis and confidence facts
   shared deterministic confidence materialization
@@ -706,12 +846,35 @@ examples/v2/
 1. Catalog tests 证明每个 logical Contract 只有一个 active exact version、引用闭包完整、descriptor digest 稳定。
 2. Port Type tests 证明 canonical wire roundtrip、content identity 和 golden bytes，防止 codec 在 descriptor 不变时漂移。
 3. Contract Test Kit 从一个 production `ModulePackageRegistration` 构建 Catalog、commit Workflow、执行 normal interface、解码 typed outputs，并检查 Result Identity、lineage、provenance、evidence 和 Artifact。
-4. Scientific operation tests 直接使用 admitted canonical values，验证 units、shape、residue mapping、mask、seed 和 Method semantics。
+4. Scientific operation tests 直接使用 complete admitted fixtures，验证 units、shape、residue mapping、mask、seed 和 Method semantics。
 5. Adapter tests 只验证官方/pinned upstream 翻译、exact provider identity 和 Engine Invocation facts。
-6. deterministic acceptance 使用当前 canonical 3GB1 Workflow，通过真实 compiler、runtime、Cache、Ledger 和 public routes。
-7. real-provider acceptance 不能由 mock、readiness-only、historical manifest、skip 或 Cache replay 代替。
-8. installed-package parity 证明 source 与 installed artifact 的 current protocol bundle 和 active Catalog identity 完全一致。
-9. unsupported-generation tests 证明旧 Workflow、Cache 和 Run fail closed，且 runtime 不包含 migrator 或 legacy execution path。
+6. SimpleFold Provider Asset Closure tests 通过共享 module interface 证明两个 exact closure、明确排除项、SHA/source-tree admission、acquisition metadata exclusion、staged layout、trust-after-admission 与正确的因果失败位置。
+7. deterministic acceptance 使用当前 canonical 3GB1 Workflow，通过真实 compiler、runtime、Cache、Ledger 和 public routes。
+8. real-provider acceptance 不能由 mock、readiness-only、historical manifest、skip 或 Cache replay 代替。
+9. installed-package parity 证明 source 与 installed artifact 的 current protocol bundle 和 active Catalog identity 完全一致。
+10. unsupported-generation tests 证明旧 Workflow、Cache 和 Run fail closed，且 runtime 不包含 migrator 或 legacy execution path。
+
+invalid-case test 只进入拥有该 invariant 的 public/module interface。下游 Operation、Adapter、
+Ledger 与 projection tests 使用 admitted fixtures，不保留 malformed private-call tests 来要求
+第二次防御性校验。
+
+Acceptance Campaign module 拥有唯一、不可变的 canonical tier plan。该 plan 按规范顺序
+完整定义 15 个 tier 的身份、selector、timeout、零 skip、required run labels、lifecycle
+receipt 与 Environment Configuration requirements；source-bound tier 还固定 exact input、
+input digest 与 Workflow path。Repository verification matrix 不属于该 plan。
+
+Campaign 以一个 clean revision 构建一次 wheel 与 sdist，并将 candidate、revision、plan 和
+一个 private Execution Profile 绑定到一次执行。它逐 tier 投影精确环境，严格串行且每个 tier
+恰好运行一次；不支持重排、并行、retry、resume 或局部补跑，首个失败立即终止。child
+execution 通过结构化 outcome 交付 retained location 和完成事实。retained result/JUnit
+format 只 admission 一次，summary 与 redacted diagnostics 从同一个 admitted outcome 投影。
+stdout、literal warning match 与 interpreter executable digest 只用于诊断，不能授权或否定
+Acceptance Result。
+
+Acceptance Result 只在 tier 自己的科学断言通过且 plan 声明的结构完成契约满足后成立。
+Campaign 集中验证 tier identity、source revision、required run labels、lifecycle receipt 与
+retained location，但不解释或重复科学断言。`passed` 当且仅当全部 15 个 tier 按顺序产生
+完整 Acceptance Result；失败或 interrupted diagnostic output 不计入完成度。详见 ADR-0043。
 
 完整命令和 tier 定义见 [`backend-verification.md`](backend-verification.md)。
 
@@ -727,17 +890,47 @@ flowchart LR
     ESMSTRUCT --> MPNN["ProteinMPNN Design"]
     MPNN --> SF["SimpleFold"]
     MPNN --> EF["ESMFold2"]
-    SF --> CONF["Materialize Prediction Confidence"]
-    EF --> CONF
-    ESMSTRUCT --> CONF
-    SF --> CMP["Structure Metrics"]
-    EF --> CMP
-    ESMSTRUCT --> CMP
-    CONF --> SELECT
-    CMP --> SELECT["Explicit Selection Objectives"]
+
+    ESMSTRUCT -- structure_candidates --> CONF_ESM["Materialize ESM-3 Confidence"]
+    ESMSTRUCT -- confidence_facts --> CONF_ESM
+    SF -- structure_candidates --> CONF_SF["Materialize SimpleFold Confidence"]
+    SF -- confidence_facts --> CONF_SF
+    EF -- structure_candidates --> CONF_EF["Materialize ESMFold2 Confidence"]
+    EF -- confidence_facts --> CONF_EF
+
+    ESMSTRUCT -- counterpart + resolved axis --> CMP_SF["Role-labelled SF Comparison Subgraph"]
+    SF -- subjects + resolved axes --> CMP_SF
+    ESMSTRUCT -- counterpart + resolved axis --> CMP_EF["Role-labelled EF Comparison Subgraph"]
+    EF -- subjects + resolved axes --> CMP_EF
+
+    CONF_ESM --> MERGE["Explicit Score Merge Chain"]
+    CONF_SF --> MERGE
+    CONF_EF --> MERGE
+    CMP_SF --> MERGE
+    CMP_EF --> MERGE
+    MERGE --> SELECT["Explicit Selection Objectives"]
 ```
 
-每条 edge 传递 exact nominal typed values；每个 Candidate 保留 parent lineage；每个 observation 固定 Metric Definition、Method 和 Observation Context；每个 Provider invocation 进入同一 Run Evidence Ledger。
+该图是 active Node/Port Interface 的科学数据流概览；comparison subgraph、residue-axis
+resolution 和 score merge chain 可以折叠多个 active Nodes，因此该图本身不是可提交的
+Workflow。它仍保留以下不可省略的科学关联：
+
+- 每个 confidence-bearing producer 同时发布匹配的 `structure_candidates` 和
+  `confidence_facts`；每个 materializer 只接收一个 producer output pair；
+- materializer 按 Prediction Key、structure content digest、exact Method 和 prediction
+  residue axis 完成 full-set closure，不按数组位置建立关联；
+- 只有 materialization 后的 Candidate-associated Score Observations 才能与其他
+  Observations merge；
+- 结构比较 subgraph 接收 Candidate-associated resolved residue axes，使用显式 participant
+  role 和确定性 Structure Alignment Evidence，不把多路结构汇入一个没有
+  subject/counterpart 含义的 comparison；
+- 每条 edge 传递 exact nominal typed values；每个 Candidate 保留 parent lineage；每个
+  Observation 固定 Metric Definition、Method 和 Observation Context；每个 Provider
+  invocation 进入同一 Run Evidence Ledger。
+
+精确当前实例由可编译的
+[`examples/v2/canonical-3gb1.workflow.json`](../examples/v2/canonical-3gb1.workflow.json)
+拥有。架构图不能建立该 Workflow、active Catalog 或 compiler 不拥有的第二套连接合同。
 
 ## 19. 明确拒绝的设计
 
@@ -750,9 +943,20 @@ flowchart LR
 - dict-based universal model runner 或万能输入对象；
 - 根据环境自动选择 Binding、fallback Provider 或隐式 retry；
 - 在每条内部 edge 重复 encode/decode/validate；
+- 将 admitted value、digest、Candidate Data Reference 与 axis projection 分散成需要下游重新 join 的平行 map；
+- 在 Operation 中重新验证 Plan-normalized 参数，或以 silent clamp/`min` 改变参数；
 - free-form score、隐式 unit conversion 或集合顺序对应；
 - 在 generation 操作中预造 future Candidate Data Reference 或直接输出 Candidate-associated confidence Score；
 - 从 output PDB 重建 Prediction Residue Axis，或把 materializer Method 冒充为 provider observation Method；
+- 让各 folding Method 分别构造 Candidate lineage、Prediction Key 与 Confidence Fact，或以任意 metadata dictionary 穿过共享 interface；
+- 用 generic folding runner 合并 ESMFold2、SimpleFold 与 ESM-3 不同的 Method、randomness、batch 和 output semantics；
+- 把 SimpleFold folding 与 confidence 的 Provider Asset Closure 取并集，或让两个 Adapter 分别维护 hash、source admission 与 staging grammar；
+- 把 byte count 或 ETag 提升为 SimpleFold Method/Binding identity 或 Readiness content proof；
+- 在 staging 时重复 Readiness proof、执行新的 Git/source-tree discovery、跨 Binding memoize closure、把静态 asset identity 写入 Invocation provenance，或把 staging failure 伪装成 Provider entry；
+- 用 broad Readiness catch 把 programming error 或 local invariant violation 改写成 Provider 不可用；
+- 让 stdout、warning literal 或 interpreter executable digest 决定 Acceptance Result；
+- 在下游 private call tests 注入 malformed values，以此要求重复 owner 已完成的验证；
+- 在尚无第二个 Module Package 证明同一 seam 时建立 generic all-Provider asset framework；
 - 与本地可信使用无关的认证、权限、沙箱和公共服务 hardening。
 
 ## 20. 架构结论

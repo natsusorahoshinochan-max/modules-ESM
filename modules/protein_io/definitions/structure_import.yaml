@@ -1,6 +1,6 @@
 schema_version: "2.1.0"
 node_type_id: protein_io.import_structure
-version: "5.0.0"
+version: "6.0.0"
 title: Import protein structure
 summary: Parses one trusted Project-scoped structure input.
 category: protein_io
@@ -14,7 +14,7 @@ outputs:
     scientific_meaning: Canonically validated imported PDB structure.
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "3.0.0"
+    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Singleton exact Candidate collection for reference-scoped collection operations.

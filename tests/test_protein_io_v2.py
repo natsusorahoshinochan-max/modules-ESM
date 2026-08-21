@@ -31,6 +31,7 @@ from core import (
     discover_module_packages,
     verify_module_package_contract,
 )
+from tests.fixtures.scientific_operation import admitted_port_fixture
 from core.parameter_contract import (
     ParameterContractDefinitionError,
     validate_parameter_declarations,
@@ -71,9 +72,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-sequence",
         node_type_id="protein_io.import_sequence",
-        node_type_version="5.0.0",
+        node_type_version="6.0.0",
         binding_id="protein_io.import_sequence.direct",
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={"project_input_ref": "sequence-input"},
         binding_parameters={},
         environment_values={},
@@ -82,9 +83,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-structure",
         node_type_id="protein_io.import_structure",
-        node_type_version="5.0.0",
+        node_type_version="6.0.0",
         binding_id="protein_io.import_structure.direct",
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={"project_input_ref": "structure-input"},
         binding_parameters={},
         environment_values={},
@@ -122,9 +123,9 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-export-structure",
         node_type_id="protein_io.export_structure",
-        node_type_version="5.0.0",
+        node_type_version="6.0.0",
         binding_id="protein_io.export_structure.direct",
-        binding_version="5.0.0",
+        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -212,10 +213,16 @@ def test_candidate_artifact_filenames_are_deterministic_ordinal_components(
     )
     operation = StructureExportImplementation(Resources())  # type: ignore[arg-type]
     call = OperationCall(
-        inputs={"structures": candidates},
+        inputs={
+            "structures": admitted_port_fixture(
+                candidates,
+                port_type_id="candidate.collection",
+                value_content_digests=("sha256:" + ("a" * 64),),
+            )
+        },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={},
+        effective_randomness={},
     )
 
     first = operation.execute(call)["candidate_artifacts"]
@@ -260,16 +267,25 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
         and "protein_io" in catalog.owners[(kind, contract_id, version)]
     }
     assert owned_nodes == {
-        ("protein_io.import_sequence", "5.0.0"),
-        ("protein_io.import_structure", "5.0.0"),
+        ("protein_io.import_sequence", "6.0.0"),
+        ("protein_io.import_structure", "6.0.0"),
         ("protein_io.export_sequence", "3.0.0"),
-        ("protein_io.export_structure", "5.0.0"),
+        ("protein_io.export_structure", "6.0.0"),
     }
     generations = {
-        "import_sequence": ("5.0.0", ("2.1.0", "3.0.0", "4.0.0")),
-        "import_structure": ("5.0.0", ("2.1.0", "3.0.0", "4.0.0")),
+        "import_sequence": (
+            "6.0.0",
+            ("2.1.0", "3.0.0", "4.0.0", "5.0.0"),
+        ),
+        "import_structure": (
+            "6.0.0",
+            ("2.1.0", "3.0.0", "4.0.0", "5.0.0"),
+        ),
         "export_sequence": ("3.0.0", ("2.1.0",)),
-        "export_structure": ("5.0.0", ("2.1.0", "3.0.0", "4.0.0")),
+        "export_structure": (
+            "6.0.0",
+            ("2.1.0", "3.0.0", "4.0.0", "5.0.0"),
+        ),
     }
     for operation, (active_version, inactive_versions) in generations.items():
         for kind, contract_id in (
@@ -401,9 +417,9 @@ def test_structure_export_xor_is_rejected_during_commit(
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="5.0.0",
+                node_type_version="6.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="5.0.0",
+                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -461,17 +477,17 @@ def _run_single_node(
                 node_id="protein-io",
                 node_type_id=f"protein_io.{operation}",
                 node_type_version={
-                    "import_sequence": "5.0.0",
-                    "import_structure": "5.0.0",
+                    "import_sequence": "6.0.0",
+                    "import_structure": "6.0.0",
                     "export_sequence": "3.0.0",
-                    "export_structure": "5.0.0",
+                    "export_structure": "6.0.0",
                 }[operation],
                 binding_id=f"protein_io.{operation}.direct",
                 binding_version={
-                    "import_sequence": "5.0.0",
-                    "import_structure": "5.0.0",
+                    "import_sequence": "6.0.0",
+                    "import_structure": "6.0.0",
                     "export_sequence": "3.0.0",
-                    "export_structure": "5.0.0",
+                    "export_structure": "6.0.0",
                 }[operation],
                 node_parameters=node_parameters,
                 binding_parameters={},

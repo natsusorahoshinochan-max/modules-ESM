@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -28,7 +27,6 @@ from core import (
     OperationContext,
     PortTypeDefinition,
     PortValueError,
-    PreScheduleTermination,
     ProjectManager,
     ReadinessCheckInput,
     ReadinessResult,
@@ -54,6 +52,7 @@ from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    ExactContractReference,
     ProteinSequence,
 )
 from protein_workbench_public import (
@@ -67,6 +66,7 @@ from tests.fixtures.public_v2 import (
     wait_for_testclient_run_terminal,
 )
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
+from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 def _transaction_has_fact(payload: bytes, fact_type: str) -> bool:
@@ -74,6 +74,11 @@ def _transaction_has_fact(payload: bytes, fact_type: str) -> bool:
     return any(
         fact["fact_type"] == fact_type for fact in transaction["facts"]
     )
+
+
+def test_readiness_check_input_rejects_non_mapping_values() -> None:
+    with pytest.raises(TypeError, match="Readiness values must be a Mapping"):
+        ReadinessCheckInput(object())  # type: ignore[arg-type]
 
 
 def _durable_facts(root) -> list[dict[str, Any]]:
@@ -118,217 +123,6 @@ def _contract(
             **descriptor,
         },
     )
-
-
-def test_engine_invocation_provenance_is_validated_and_frozen_before_recording(
-    tmp_path,
-) -> None:
-    recorded: list[dict[str, Any]] = []
-
-    class Recorder:
-        @contextmanager
-        def invoke(self, **kwargs: Any):
-            recorded.append(kwargs)
-            yield "invocation-1"
-
-    resources = RunResources(
-        project_id="project-1",
-        run_id="run-1",
-        node_id="node-1",
-        _projects=ProjectManager(tmp_path / "projects"),
-        _invocation_recorder=Recorder(),
-    )
-    projection = {
-        "position_semantics": "one_based_chain_local",
-        "workbench_chain_order": ["X", "Y"],
-        "provider_structure_chain_order": ["A", "B"],
-        "provider_chain_order": ["B", "A"],
-        "entries": [
-            {
-                "residue_id": "X:6",
-                "segment_index": 0,
-                "provider_chain_id": "A",
-                "provider_position": 1,
-            },
-            {
-                "residue_id": "Y:20",
-                "segment_index": 1,
-                "provider_chain_id": "B",
-                "provider_position": 1,
-            },
-        ],
-    }
-    provenance = {"provider_residue_projection": projection}
-
-    with resources.engine_invocation(invocation_provenance=provenance):
-        projection["entries"][0]["provider_position"] = 7
-
-    frozen = recorded[0]["invocation_provenance"]
-    frozen_projection = frozen["provider_residue_projection"]
-    assert frozen_projection["entries"][0]["provider_position"] == 1
-    assert frozen_projection["workbench_chain_order"] == ("X", "Y")
-    with pytest.raises(TypeError):
-        frozen_projection["entries"][0]["provider_position"] = 9
-
-    malformed_projections = (
-        {**projection, "provider_chain_order": ["A", "C"]},
-        {
-            **projection,
-            "entries": [
-                projection["entries"][0],
-                {
-                    "residue_id": "X:7",
-                    "segment_index": 0,
-                    "provider_chain_id": "A",
-                    "provider_position": 7,
-                },
-            ],
-        },
-    )
-    for invalid_projection in malformed_projections:
-        recorded_count = len(recorded)
-        with pytest.raises(ValueError, match="invocation provenance"):
-            with resources.engine_invocation(
-                invocation_provenance={
-                    "provider_residue_projection": invalid_projection,
-                }
-            ):
-                pass
-        assert len(recorded) == recorded_count
-    for invalid_provenance in ({}, {**provenance, "unexpected": True}):
-        with pytest.raises(ValueError, match="invocation provenance"):
-            with resources.engine_invocation(
-                invocation_provenance=invalid_provenance
-            ):
-                pass
-
-
-def test_engine_invocation_provenance_admits_exact_one_to_many_segments() -> None:
-    projection = {
-        "position_semantics": "one_based_chain_local",
-        "workbench_chain_order": ["A"],
-        "provider_structure_chain_order": ["A", "B"],
-        "provider_chain_order": ["B", "A"],
-        "entries": [
-            {
-                "residue_id": "A:1",
-                "segment_index": 0,
-                "provider_chain_id": "A",
-                "provider_position": 1,
-            },
-            {
-                "residue_id": "A:2",
-                "segment_index": 0,
-                "provider_chain_id": "A",
-                "provider_position": 2,
-            },
-            {
-                "residue_id": "A:8",
-                "segment_index": 1,
-                "provider_chain_id": "B",
-                "provider_position": 1,
-            },
-        ],
-    }
-
-    frozen = run_execution_v2._freeze_invocation_provenance(
-        {"provider_residue_projection": projection}
-    )["provider_residue_projection"]
-
-    assert frozen["workbench_chain_order"] == ("A",)
-    assert frozen["provider_structure_chain_order"] == ("A", "B")
-    assert frozen["provider_chain_order"] == ("B", "A")
-    assert frozen["entries"][2]["segment_index"] == 1
-    for malformed in (
-        {
-            **projection,
-            "entries": [
-                *projection["entries"][:2],
-                {**projection["entries"][2], "provider_position": 2},
-            ],
-        },
-        {
-            **projection,
-            "entries": [
-                projection["entries"][0],
-                {**projection["entries"][1], "segment_index": 1},
-                projection["entries"][2],
-            ],
-        },
-    ):
-        with pytest.raises(ValueError, match="invocation provenance"):
-            run_execution_v2._freeze_invocation_provenance(
-                {"provider_residue_projection": malformed}
-            )
-
-
-def test_engine_invocation_randomness_provenance_is_validated_and_frozen(
-    tmp_path,
-) -> None:
-    recorded: list[dict[str, Any]] = []
-
-    class Recorder:
-        @contextmanager
-        def invoke(self, **kwargs: Any):
-            recorded.append(kwargs)
-            yield "invocation-1"
-
-    resources = RunResources(
-        project_id="project-1",
-        run_id="run-1",
-        node_id="node-1",
-        _projects=ProjectManager(tmp_path / "projects"),
-        _invocation_recorder=Recorder(),
-    )
-
-    with resources.engine_invocation(
-        invocation_provenance={
-            "effective_randomness": {
-                "control": "exact_seed",
-                "effective_seed": 17,
-            }
-        }
-    ):
-        pass
-    with resources.engine_invocation(
-        invocation_provenance={
-            "effective_randomness": {
-                "control": "provider_uncontrolled",
-            }
-        }
-    ):
-        pass
-
-    assert dict(recorded[0]["invocation_provenance"]) == {
-        "effective_randomness": {
-            "control": "exact_seed",
-            "effective_seed": 17,
-        }
-    }
-    assert dict(recorded[1]["invocation_provenance"]) == {
-        "effective_randomness": {
-            "control": "provider_uncontrolled",
-        }
-    }
-    for malformed in (
-        {
-            "effective_randomness": {
-                "control": "provider_uncontrolled",
-                "effective_seed": 17,
-            }
-        },
-        {
-            "effective_randomness": {
-                "control": "exact_seed",
-                "effective_seed": 9_007_199_254_740_992,
-            }
-        },
-    ):
-        with pytest.raises(ValueError, match="invocation provenance"):
-            with resources.engine_invocation(
-                invocation_provenance=malformed
-            ):
-                pass
 
 
 def test_operation_cannot_override_plan_owned_engine_identity(tmp_path) -> None:
@@ -380,9 +174,9 @@ def _direct_catalog(
     node_title: str = "Deterministic direct test Node",
     effective_randomness_parameters: tuple[str, ...] = (),
     effective_randomness_resolver: EffectiveRandomnessResolver | None = None,
+    output_method_projection: Literal["binding", "other"] | None = None,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    text = builtin.require_port_type("text", "2.1.0")
     method = _contract(
         "method",
         "test.direct.method",
@@ -399,6 +193,49 @@ def _direct_catalog(
             "scale_contract": {"kind": "identity"},
         },
     )
+    text = builtin.require_port_type("text", "2.1.0")
+    catalog_port_types = builtin.port_types
+    if output_method_projection is not None:
+        producing_method = ExactContractReference(**method.reference())
+        projected_method = (
+            producing_method
+            if output_method_projection == "binding"
+            else replace(
+                producing_method,
+                contract_id="test.other.method",
+            )
+        )
+        text = PortTypeDefinition(
+            type_id="test.method_observation",
+            version="2.1.0",
+            validator=BehaviorReference(
+                "test.method_observation/validate",
+                "2.1.0",
+                {},
+            ),
+            codec=BehaviorReference(
+                "test.method_observation/codec",
+                "2.1.0",
+                {},
+            ),
+            content_identity=BehaviorReference(
+                "test.method_observation/content",
+                "2.1.0",
+                {},
+            ),
+            runtime_validator=lambda value: None,
+            runtime_to_wire=lambda value: value,
+            runtime_from_wire=lambda value: value,
+            observation_method_projection=BehaviorReference(
+                "test.method_observation/method_projection",
+                "2.1.0",
+                {},
+            ),
+            runtime_observation_method_projection=lambda _: (
+                projected_method,
+            ),
+        )
+        catalog_port_types = (*builtin.port_types, text)
     node_type = _contract(
         "node_type",
         "test.direct",
@@ -515,7 +352,6 @@ def _direct_catalog(
 
             def execute(self, call: OperationCall) -> dict[str, Any]:
                 assert call.inputs == {}
-                assert call.input_content_digests == {}
                 if node_parameter_declarations is None:
                     assert call.node_parameters == {}
                 else:
@@ -523,6 +359,13 @@ def _direct_catalog(
                         f"parameters:{dict(call.node_parameters)!r}"
                     )
                 assert call.binding_parameters == {}
+                if effective_randomness_parameters:
+                    calls.append(
+                        "randomness:"
+                        f"{dict(call.effective_randomness)!r}"
+                    )
+                else:
+                    assert call.effective_randomness == {}
                 if invocation_count == 0:
                     calls.append(f"execute:{self._binding_id}")
                 else:
@@ -614,7 +457,7 @@ def _direct_catalog(
 
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
-        builtin.port_types,
+        catalog_port_types,
         contracts=(method, node_type, *bindings),
         availability=tuple(
             (
@@ -726,7 +569,6 @@ def _pipeline_catalog(
     invalid_source_output: bool = False,
     failing_source_node_id: str | None = None,
     terminating_source_nodes: Mapping[str, str] | None = None,
-    pre_schedule_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
     cacheable: bool = False,
     unresolved_port_identity: bool = False,
@@ -740,7 +582,7 @@ def _pipeline_catalog(
     builtin = builtin_frozen_catalog()
     candidate_collection_type = builtin.require_port_type(
         "candidate.collection",
-        "3.0.0",
+        "4.0.0",
     )
     candidate_data_type = builtin.require_port_type(
         "protein.sequence",
@@ -896,7 +738,6 @@ def _pipeline_catalog(
 
         def execute(self, call: OperationCall) -> dict[str, Any]:
             assert call.inputs == {}
-            assert call.input_content_digests == {}
             with self._resources.engine_invocation():
                 calls.append(f"execute:{self._node_id}")
                 if (
@@ -943,14 +784,16 @@ def _pipeline_catalog(
             self._resources = resources
 
         def execute(self, call: OperationCall) -> dict[str, Any]:
-            digest = call.input_content_digests.get("text")
-            if "text" in call.inputs:
-                assert digest is not None
-                assert digest.port_type_id == "test.canonical_text"
-                assert len(digest.value_content_digests) == 1
+            text_record = call.inputs.get("text")
+            if text_record is not None:
+                assert (
+                    text_record.port_type["contract_id"]
+                    == "test.canonical_text"
+                )
+                assert len(text_record.value_content_digests) == 1
             if include_candidate_data:
-                candidates = call.inputs["candidates"]
-                candidate_digests = call.input_content_digests["candidates"]
+                candidate_record = call.inputs["candidates"]
+                candidates = candidate_record.value
                 candidate_values = (
                     tuple(
                         candidate
@@ -960,30 +803,40 @@ def _pipeline_catalog(
                     if candidate_conflict_probe
                     else tuple(candidates.items)
                 )
-                assert candidate_digests.port_type_id == "candidate.collection"
-                assert len(candidate_digests.value_content_digests) == (
+                assert (
+                    candidate_record.port_type["contract_id"]
+                    == "candidate.collection"
+                )
+                assert len(candidate_record.value_content_digests) == (
                     2 if candidate_conflict_probe else 1
                 )
                 assert all(
                     type(item) is CandidateDataReference
-                    for item in candidate_digests.candidate_data
+                    for item in candidate_record.candidate_data
                 )
                 assert [
-                    item.candidate_id for item in candidate_digests.candidate_data
+                    item.candidate_id for item in candidate_record.candidate_data
                 ] == [candidate.candidate_id for candidate in candidate_values]
                 assert [
-                    item.data_type_id for item in candidate_digests.candidate_data
+                    item.data_type_id for item in candidate_record.candidate_data
                 ] == ["protein.sequence"] * len(candidate_values)
                 assert [
-                    item.content_digest for item in candidate_digests.candidate_data
+                    item.content_digest for item in candidate_record.candidate_data
                 ] == [
                     candidate_data_type.content_digest(candidate.data)
                     for candidate in candidate_values
                 ]
                 calls.append("candidate-digests:verified")
             with self._resources.engine_invocation():
-                calls.append(f"sink-input:{call.inputs.get('text')}")
-                return {"text": call.inputs.get("text", "OPTIONAL")}
+                text_value = (
+                    text_record.value
+                    if text_record is not None
+                    else "OPTIONAL"
+                )
+                calls.append(
+                    f"sink-input:{text_record.value if text_record else None}"
+                )
+                return {"text": text_value}
 
     for binding_id, node_type, implementation in (
         ("test.pipeline.source.direct", source, SourceImplementation),
@@ -1038,13 +891,6 @@ def _pipeline_catalog(
                 calls.append(f"factory:{context.resources.node_id}")
             if implementation is SourceImplementation:
                 node_id = context.resources.node_id
-                if (
-                    pre_schedule_source_nodes is not None
-                    and node_id in pre_schedule_source_nodes
-                ):
-                    raise PreScheduleTermination(
-                        pre_schedule_source_nodes[node_id]
-                    )
                 return implementation(node_id, context.resources)
             return implementation(context.resources)
 
@@ -1086,80 +932,6 @@ def _pipeline_catalog(
         factories=factories,
         readiness_declarations=readiness,
     )
-
-
-def test_runtime_rejects_multiple_admitted_values_for_one_input(
-    tmp_path,
-) -> None:
-    catalog = _pipeline_catalog([])
-    projects = ProjectManager(tmp_path / "projects")
-    authoring = WorkflowAuthoringService(projects, catalog)
-    service = run_execution_v2.V2RunService(
-        projects,
-        catalog,
-        authoring,
-        run_execution_v2.EnvironmentConfiguration({}),
-    )
-    workflow = parse_workflow_document(
-        {
-            "schema_version": "2.1.0",
-            "workflow_id": "workflow-multiplicity-backstop",
-            "nodes": [
-                {
-                    "node_id": "source",
-                    "node_type_id": "test.pipeline.source",
-                    "node_type_version": "2.1.0",
-                    "binding_id": "test.pipeline.source.direct",
-                    "binding_version": "2.1.0",
-                    "node_parameters": {},
-                    "binding_parameters": {},
-                },
-                {
-                    "node_id": "sink",
-                    "node_type_id": "test.pipeline.sink",
-                    "node_type_version": "2.1.0",
-                    "binding_id": "test.pipeline.sink.direct",
-                    "binding_version": "2.1.0",
-                    "node_parameters": {},
-                    "binding_parameters": {},
-                },
-            ],
-            "edges": [
-                {
-                    "source_node_id": "source",
-                    "source_port": "text",
-                    "target_node_id": "sink",
-                    "target_port": "text",
-                }
-            ],
-            "contract_lock": [],
-        }
-    )
-    plan = compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    ).execution_plan
-    target = next(node for node in plan.nodes if node.node_id == "sink")
-    text = catalog.require_port_type("test.canonical_text", "2.1.0")
-    admitted = admitted_port_values(
-        port_type=text,
-        multiplicity="many",
-        values=("FIRST", "SECOND"),
-        candidate_data=lambda _value: (),
-    )
-
-    try:
-        with pytest.raises(
-            RuntimeError,
-            match="one-valued input Port 'text'.*2 admitted values",
-        ):
-            service._inputs_for(  # noqa: SLF001 - corruption backstop seam
-                target,
-                {("source", "text"): admitted},
-            )
-    finally:
-        service.shutdown()
 
 
 def _artifact_catalog(
@@ -1285,7 +1057,6 @@ def _artifact_catalog(
 
         def execute(self, call: OperationCall) -> dict[str, Any]:
             assert call.inputs == {}
-            assert call.input_content_digests == {}
             with self._resources.engine_invocation():
                 pass
             with self._resources.temporary_directory(
@@ -1716,60 +1487,7 @@ def test_started_engine_terminal_statuses_are_causally_closed(
     ) == 3
 
 
-@pytest.mark.parametrize("outcome", ("cancelled", "interrupted"))
-def test_pre_schedule_termination_has_disposition_without_false_attempt(
-    tmp_path,
-    monkeypatch,
-    outcome: str,
-) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
-        frozen_catalog_override=_pipeline_catalog(
-            [],
-            pre_schedule_source_nodes={"source": outcome},
-        )
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_pipeline(client)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": f"pre-schedule-{outcome}",
-            },
-        )
-        assert started.status_code == 202
-        run_id = started.json()["run_id"]
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id=project_id,
-            run_id=run_id,
-        )
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
-
-    assert projection["status"] == outcome
-    assert [
-        (item["node_id"], item["outcome"], item["blocked_by"])
-        for item in projection["node_dispositions"]
-    ] == [
-        ("source", outcome, []),
-        ("sink", "blocked", ["source"]),
-    ]
-    assert not any(
-        event["event"]["type"]
-        in {
-            "node_attempt_started",
-            "operation_attempt_started",
-            "engine_invocation_started",
-        }
-        for event in events
-    )
-
-
-def test_invalid_scientific_operation_factory_fails_before_any_attempt(
+def test_invalid_scientific_operation_factory_fails_after_attempt_start(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1801,15 +1519,13 @@ def test_invalid_scientific_operation_factory_fails_before_any_attempt(
     assert started.status_code == 500
     validate_error(started.json(), status=500)
     assert started.json()["error"]["code"] == "internal_error"
-    assert not any(
-        fact["fact_type"]
-        in {
-            "node_attempt_started",
-            "operation_attempt_started",
-            "engine_invocation_started",
-        }
-        for fact in _durable_facts(tmp_path / "runs")
-    )
+    fact_types = [
+        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
+    assert "node_attempt_terminal" not in fact_types
 
 
 def test_cache_replay_closes_only_the_scheduled_node_attempt(
@@ -2082,6 +1798,66 @@ def test_adapter_preoperation_error_precedes_provider_readiness(
     assert calls == ["randomness"]
 
 
+def test_readiness_programming_error_fails_after_attempt_start(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    def invalid_readiness(
+        _check_input: ReadinessCheckInput,
+    ) -> ReadinessResult:
+        calls.append("readiness")
+        raise RuntimeError("fixture Readiness invariant failure")
+
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            readiness_checks={"test.direct.local": invalid_readiness},
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "invalid-readiness",
+            },
+        )
+
+    assert started.status_code == 500
+    validate_error(started.json(), status=500)
+    assert started.json()["error"]["code"] == "internal_error"
+    assert calls == ["readiness"]
+    fact_types = [
+        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert "readiness_attested" not in fact_types
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
+    assert "node_attempt_terminal" not in fact_types
+
+
 def test_result_replay_hit_requires_admitted_output_snapshots() -> None:
     with pytest.raises(TypeError, match="admitted_outputs"):
         ResultReplayHit(
@@ -2147,6 +1923,12 @@ def test_cache_invariant_failure_fails_fast_without_executing_provider(
         assert started.json()["error"]["code"] == "internal_error"
 
     assert calls == ["cache-lookup"]
+    fact_types = [
+        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
 
 
 def test_public_terminal_wait_helper_never_returns_a_running_projection(
@@ -2386,6 +2168,240 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
     ]
 
 
+def test_node_execution_attempt_interface_returns_only_committed_outcome(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(calls),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        service = app.state.run_execution_v2
+        compiled = service._authoring.require_compiled(
+            project_id,
+            workflow_commit_id=committed["workflow_commit_id"],
+        )
+        plan = compiled.execution_plan
+        node = plan.nodes[0]
+        run_id = "run-attempt-interface"
+        contract_roots = tuple(
+            run_execution_v2._execution_plan_contract_roots(plan)
+        )
+        ledger = run_execution_v2._RunEvidenceLedger(
+            service._projects,
+            project_id,
+            run_id,
+            service._plan_evidence(plan),
+            service._ledger_transaction_store,
+            expected_resolved_contracts=tuple(
+                entry.to_public() for entry in plan.resolved_contracts
+            ),
+            expected_contract_roots=contract_roots,
+        )
+        ledger.record(
+            run_execution_v2.RunScopeBinding(
+                workflow_commit_id=committed["workflow_commit_id"],
+                workflow_commit_revision=plan.workflow_commit_revision,
+                workflow_digest=plan.workflow_digest,
+                contract_lock_digest=plan.contract_lock_digest,
+                execution_plan_digest=plan.execution_plan_digest,
+                catalog_contract_digest=plan.catalog_contract_digest,
+                resolved_contracts=tuple(
+                    entry.to_public() for entry in plan.resolved_contracts
+                ),
+                resolved_contract_roots=contract_roots,
+            )
+        )
+        availability = service._availability(node)
+        ledger.record(
+            run_execution_v2.AvailabilityBinding(
+                binding=node.binding.to_public(),
+                catalog_observed_at=availability["observed_at"],
+                available=availability["available"],
+            )
+        )
+        ledger.record(
+            run_execution_v2.RunAdmission(
+                workflow_commit_id=committed["workflow_commit_id"],
+                workflow_commit_revision=plan.workflow_commit_revision,
+            )
+        )
+        ledger.record(
+            run_execution_v2.RunStart(
+                started_at="2026-08-21T00:00:00Z",
+            )
+        )
+        record = run_execution_v2._RunRecord(
+            compiled=compiled,
+            ledger=ledger,
+        )
+        attempts = run_execution_v2._NodeExecutionAttemptModule(
+            projects=service._projects,
+            environment=service._environment,
+            result_replay_source=service._result_replay_source,
+            object_store=service._object_store,
+            project_id=project_id,
+            run_id=run_id,
+            execution_plan=plan,
+            ledger=ledger,
+            run_record=record,
+            availability_by_binding={
+                (
+                    node.binding.contract_id,
+                    node.binding.contract_version,
+                ): availability,
+            },
+        )
+
+        outcome = attempts.execute(
+            node,
+            committed_values={},
+            committed_artifacts=(),
+            cache_bypassed=False,
+        )
+
+    assert outcome.disposition == "succeeded"
+    assert outcome.artifacts == ()
+    assert outcome.admitted_outputs[("direct", "text")].value == "READY"
+    assert [
+        event["event"]["type"] for event in ledger.public_events()[-3:]
+    ] == [
+        "operation_attempt_terminal",
+        "node_attempt_terminal",
+        "node_disposition",
+    ]
+
+
+def test_run_accepts_output_method_projected_by_its_binding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            output_method_projection="binding",
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "matching-output-method",
+            },
+        )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=started.json()["run_id"],
+        )
+
+    assert projection["status"] == "succeeded"
+    assert projection["node_dispositions"][0]["outcome"] == "succeeded"
+
+
+def test_run_rejects_output_method_not_owned_by_its_binding(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            output_method_projection="other",
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "mismatched-output-method",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id=project_id,
+            run_id=run_id,
+        )
+        events = app.state.run_execution_v2.public_events(project_id, run_id)
+
+    assert projection["status"] == "failed"
+    assert projection["node_dispositions"][0]["outcome"] == "failed"
+    operation_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "operation_attempt_terminal"
+    )
+    node_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+    )
+    assert operation_terminal["status"] == "failed"
+    assert node_terminal["failure_origin"] == "operation"
+
+
 def test_run_executes_only_the_resolved_plan_after_compilation(
     tmp_path,
     monkeypatch,
@@ -2394,7 +2410,12 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
     randomness_calls: list[dict[str, Any]] = []
 
     def resolve_randomness(**kwargs: Any) -> Mapping[str, Any]:
-        randomness_calls.append(deepcopy(kwargs))
+        randomness_calls.append(
+            {
+                **kwargs,
+                "node_parameters": dict(kwargs["node_parameters"]),
+            }
+        )
         return {"seed": 17}
 
     resolver = EffectiveRandomnessResolver(
@@ -2470,6 +2491,7 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
         "readiness:test.direct.local",
         "factory:test.direct.local",
         "parameters:{'seed': 17}",
+        "randomness:{'seed': 17}",
         "execute:test.direct.local",
     ]
 
@@ -2509,25 +2531,74 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
     assert captured.value.code == "contract_digest_mismatch"
 
 
-def test_cache_misses_attest_each_binding_once_before_its_first_factory(
+def test_simplefold_bindings_receive_independent_run_scoped_readiness(
     tmp_path,
     monkeypatch,
 ) -> None:
+    import modules.folding.simplefold_adapter as folding_adapter
+    import modules.folding.simplefold_confidence_adapter as confidence_adapter
+    from modules.folding.simplefold_asset_closure import (
+        SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+        SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        SimpleFoldProviderAssetClosure,
+    )
+
     calls: list[str] = []
+    admissions: list[SimpleFoldProviderAssetClosure] = []
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    bindings = ("test.direct.local", "test.other.local")
+    bindings = (
+        "folding.fold.simplefold_local",
+        "folding.simplefold_confidence.simplefold_local",
+    )
     environment = {
         (binding_id, "2.1.0"): {
-            "values": {"credential": "credential-value"},
+                "values": {
+                    "credential": "credential-value",
+                    "device": "cpu",
+                },
         }
         for binding_id in bindings
     }
+
+    def record_admission(
+        closure: SimpleFoldProviderAssetClosure,
+        _environment: Mapping[str, Any],
+    ) -> None:
+        admissions.append(closure)
+
+    monkeypatch.setattr(
+        folding_adapter,
+        "admit_simplefold_provider_asset_closure",
+        record_admission,
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "admit_simplefold_provider_asset_closure",
+        record_admission,
+    )
+
+    production_readiness = {
+        bindings[0]: folding_adapter.simplefold_readiness,
+        bindings[1]: confidence_adapter.simplefold_confidence_readiness,
+    }
+
+    def readiness_for(binding_id: str):
+        def readiness(check_input: ReadinessCheckInput) -> ReadinessResult:
+            calls.append(f"readiness:{binding_id}")
+            return production_readiness[binding_id](check_input.values)
+
+        return readiness
+
     app = create_app(
         frozen_catalog_override=_direct_catalog(
             calls,
             binding_ids=bindings,
+            readiness_checks={
+                binding_id: readiness_for(binding_id)
+                for binding_id in bindings
+            },
         ),
         v2_environment_configuration=environment,
     )
@@ -2536,9 +2607,9 @@ def test_cache_misses_attest_each_binding_once_before_its_first_factory(
         project_id, compiled = _commit_independent_nodes(
             client,
             (
-                "test.direct.local",
-                "test.direct.local",
-                "test.other.local",
+                "folding.fold.simplefold_local",
+                "folding.fold.simplefold_local",
+                "folding.simplefold_confidence.simplefold_local",
             ),
         )
         response = client.post(
@@ -2550,15 +2621,19 @@ def test_cache_misses_attest_each_binding_once_before_its_first_factory(
         )
 
     assert response.status_code == 202
+    assert admissions == [
+        SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+        SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+    ]
     assert calls == [
-        "readiness:test.direct.local",
-        "factory:test.direct.local",
-        "execute:test.direct.local",
-        "factory:test.direct.local",
-        "execute:test.direct.local",
-        "readiness:test.other.local",
-        "factory:test.other.local",
-        "execute:test.other.local",
+        "readiness:folding.fold.simplefold_local",
+        "factory:folding.fold.simplefold_local",
+        "execute:folding.fold.simplefold_local",
+        "factory:folding.fold.simplefold_local",
+        "execute:folding.fold.simplefold_local",
+        "readiness:folding.simplefold_confidence.simplefold_local",
+        "factory:folding.simplefold_confidence.simplefold_local",
+        "execute:folding.simplefold_confidence.simplefold_local",
     ]
 
 
@@ -2902,13 +2977,19 @@ def test_operation_call_reuses_admitted_scientific_values_without_copy() -> None
     )
 
     call = OperationCall(
-        inputs={"candidate": candidate},
+        inputs={
+            "candidate": admitted_port_fixture(
+                candidate,
+                port_type_id="candidate",
+                value_content_digests=("sha256:" + ("a" * 64),),
+            )
+        },
         node_parameters={},
         binding_parameters={},
-        input_content_digests={},
+        effective_randomness={},
     )
 
-    assert call.inputs["candidate"] is candidate
+    assert call.inputs["candidate"].value is candidate
     with pytest.raises(TypeError):
         call.inputs["other"] = candidate
 

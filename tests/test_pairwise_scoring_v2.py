@@ -31,11 +31,10 @@ from core import (
     compile_workflow,
     relock_workflow,
     builtin_frozen_catalog,
-    select_candidates,
     validate_produced_score_collection,
 )
 from core.port_types import PortValueError
-from core.run_execution_v2 import V2RunService
+from core.value_admission import normalize_scientific_outputs
 from core.workflow_v2 import WorkflowEdge as V2WorkflowEdge
 from datatypes import (
     Candidate,
@@ -55,13 +54,16 @@ from protein_workbench_public import (
     ProtocolValidationError,
     validate_schema,
 )
+from tests.fixtures.scientific_operation import select_admitted_candidates
 
 
 CONTRACT_VERSION = "2.1.0"
-PORT_VERSION = "3.0.0"
-SCORE_PORT_VERSION = "4.0.0"
-NODE_BINDING_VERSION = "3.0.0"
-SELECTION_NODE_BINDING_VERSION = "4.0.0"
+PORT_VERSION = "4.0.0"
+SCORE_PORT_VERSION = "5.0.0"
+CANDIDATE_COLLECTION_PORT_TYPE_VERSION = "4.0.0"
+CANDIDATE_PAIRING_PORT_TYPE_VERSION = "4.0.0"
+NODE_BINDING_VERSION = "4.0.0"
+SELECTION_NODE_BINDING_VERSION = "5.0.0"
 
 
 def _reference(kind: str, contract_id: str) -> ExactContractReference:
@@ -110,8 +112,44 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         "node_type",
         "score.test.pairwise",
         {
-            "inputs": [],
-            "outputs": [],
+            "inputs": [
+                {
+                    "name": name,
+                    "port_type": builtin.require_port_type(
+                        "candidate.pairing"
+                        if name == "pairings"
+                        else "score.collection"
+                        if name in {"left", "right", "source"}
+                        else "candidate.collection",
+                        CANDIDATE_PAIRING_PORT_TYPE_VERSION
+                        if name == "pairings"
+                        else SCORE_PORT_VERSION
+                        if name in {"left", "right", "source"}
+                        else CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
+                    ).reference(),
+                    "required": False,
+                    "multiplicity": "one",
+                }
+                for name in (
+                    "subjects",
+                    "counterparts",
+                    "pairings",
+                    "left",
+                    "right",
+                    "source",
+                )
+            ],
+            "outputs": [
+                {
+                    "name": "scores",
+                    "port_type": builtin.require_port_type(
+                        "score.collection",
+                        SCORE_PORT_VERSION,
+                    ).reference(),
+                    "required": True,
+                    "multiplicity": "one",
+                }
+            ],
             "node_parameters": {},
         },
     )
@@ -506,7 +544,7 @@ def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
         SelectionInput("scorer", "scores"): scores,
     }
 
-    fixed = select_candidates(
+    fixed = select_admitted_candidates(
         candidate_inputs=inputs,
         score_collection_inputs=score_inputs,
         objectives=(
@@ -521,7 +559,7 @@ def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
         catalog=catalog,
         limit=1,
     )
-    paired = select_candidates(
+    paired = select_admitted_candidates(
         candidate_inputs=inputs,
         score_collection_inputs=score_inputs,
         objectives=(
@@ -571,7 +609,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
     score_input = SelectionInput("scorer", "scores")
 
     with pytest.raises(SelectionError, match="missing observation"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs=inputs,
             score_collection_inputs={
                 score_input: ScoreCollection(
@@ -595,7 +633,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
         )
 
     with pytest.raises(SelectionError, match="exactly one"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs=inputs,
             score_collection_inputs={
                 score_input: ScoreCollection(
@@ -739,7 +777,7 @@ def test_per_subject_pairing_rejects_one_global_implicit_reference() -> None:
         ],
     )
 
-    with pytest.raises(PortValueError, match="distinct exact counterpart"):
+    with pytest.raises(PortValueError, match="reuses one counterpart"):
         validate_produced_score_collection(
             catalog=catalog,
             binding=_pairwise_binding(contracts),
@@ -1396,17 +1434,6 @@ def test_compiler_rejects_unknown_partition_before_any_provider_invocation() -> 
 
 def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
     catalog, contracts = _compiler_catalog()
-    workflow = _compiler_workflow(contracts)
-    compiled = compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    node = next(
-        item
-        for item in compiled.execution_plan.nodes
-        if item.node_id == "producer"
-    )
     subject = Candidate("raw-subject", ProteinSequence("AA"))
     reference = Candidate("raw-reference", ProteinSequence("AT"))
     fixed = _pairwise_observation(
@@ -1448,34 +1475,22 @@ def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
         ),
         "scores": ScoreCollection("raw-scores", [fixed, paired]),
     }
-    service = object.__new__(V2RunService)
-    service._catalog = catalog
-
     with pytest.raises(
         PortValueError,
         match="cannot reference a same-operation output Candidate",
     ):
-        service._normalize_candidate_outputs(
-            plan=compiled.execution_plan,
-            node=node,
+        normalize_scientific_outputs(
+            node_id="producer",
             result_identity="sha256:" + "a" * 64,
             inputs={},
             outputs=outputs,
+            candidate_content_digest=lambda _candidate: (
+                "sha256:" + "b" * 64
+            ),
         )
 
 
 def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
-    catalog, contracts = _compiler_catalog()
-    compiled = compile_workflow(
-        relock_workflow(_compiler_workflow(contracts), catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    node = next(
-        item
-        for item in compiled.execution_plan.nodes
-        if item.node_id == "producer"
-    )
     shared = Candidate("raw-shared", ProteinSequence("AA"))
     outputs = {
         "candidates": CandidateCollection(
@@ -1489,19 +1504,18 @@ def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
             [shared],
         ),
     }
-    service = object.__new__(V2RunService)
-    service._catalog = catalog
-
     with pytest.raises(
         PortValueError,
         match="reuses one producer identity",
     ):
-        service._normalize_candidate_outputs(
-            plan=compiled.execution_plan,
-            node=node,
+        normalize_scientific_outputs(
+            node_id="producer",
             result_identity="sha256:" + "a" * 64,
             inputs={},
             outputs=outputs,
+            candidate_content_digest=lambda _candidate: (
+                "sha256:" + "b" * 64
+            ),
         )
 
     assert shared.candidate_id == "raw-shared"
