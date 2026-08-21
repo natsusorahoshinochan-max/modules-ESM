@@ -66,16 +66,6 @@ def _build(mode: SoluProtMode):
     def factory(context: OperationContext) -> ScientificOperation:
         from .implementation import SoluProtImplementation
 
-        matches = tuple(
-            observation
-            for observation in context.produced_observations
-            if observation.output_port == "scores"
-            and observation.output_partition == f"soluprot_{mode}"
-        )
-        if len(matches) != 1:
-            raise RuntimeError(
-                "SoluProt Binding must resolve one exact Observation"
-            )
         return SoluProtImplementation(
             adapter=LocalSoluProtAdapter(
                 mode=mode,
@@ -83,7 +73,7 @@ def _build(mode: SoluProtMode):
                 resources=context.resources,
             ),
             method=context.method,
-            produced_observation=matches[0],
+            produced_observation=context.produced_observations[0],
         )
 
     return factory

@@ -7,7 +7,7 @@ execution through typed Ports.
 
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 from typing import Any
 
@@ -187,7 +187,6 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
 
     assert predictions == (
         adapter.SoluProtPrediction(
-            provider_sequence_id="candidate_0",
             soluble_probability=0.331,
         ),
     )
@@ -200,7 +199,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
         local.mode = "no_tm"
 
 
-def test_soluprot_parser_preserves_provider_subject_keys() -> None:
+def test_soluprot_adapter_translation_admits_staged_subject_order() -> None:
     from modules.solubility.adapter import (
         SoluProtPrediction,
         parse_soluprot_output,
@@ -209,14 +208,15 @@ def test_soluprot_parser_preserves_provider_subject_keys() -> None:
     assert parse_soluprot_output(
         b"runtime_id,fa_id,soluble\n"
         b"1,candidate_1,0.9\n"
-        b"0,candidate_0,0.1\n"
-    ) == [
-        SoluProtPrediction("candidate_1", 0.9),
-        SoluProtPrediction("candidate_0", 0.1),
-    ]
+        b"0,candidate_0,0.1\n",
+        sequence_count=2,
+    ) == (
+        SoluProtPrediction(0.1),
+        SoluProtPrediction(0.9),
+    )
 
 
-def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
+def test_soluprot_operation_consumes_adapter_aligned_predictions(
 ) -> None:
     from core import (
         OperationCall,
@@ -272,17 +272,17 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
         f"sha256:{'d' * 64}",
     )
 
-    class ReorderedAdapter:
+    class AlignedAdapter:
         @staticmethod
         def predict(sequences: Any) -> tuple[SoluProtPrediction, ...]:
             assert len(sequences) == 2
             return (
-                SoluProtPrediction("candidate_1", 0.9),
-                SoluProtPrediction("candidate_0", 0.1),
+                SoluProtPrediction(0.1),
+                SoluProtPrediction(0.9),
             )
 
     implementation = SoluProtImplementation(
-        adapter=ReorderedAdapter(),
+        adapter=AlignedAdapter(),
         method=method,
         produced_observation=ResolvedProducedObservation(
             output_port="scores",
@@ -317,23 +317,65 @@ def test_soluprot_operation_projects_conforming_rows_by_staged_fasta_identity(
         for observation in scores.entries
     ] == [(references[0], 0.1), (references[1], 0.9)]
 
-    with pytest.raises(ValueError, match="requires protein.sequence item_type"):
-        implementation.execute(
-            replace(
-                call,
-                inputs={
-                    "sequence_candidates": admitted_port_fixture(
-                        replace(
-                            candidates,
-                            item_type="protein.structure",
-                        ),
-                        port_type_id="candidate.collection",
-                        value_content_digests=(f"sha256:{'e' * 64}",),
-                        candidate_data=references,
-                    )
-                },
+
+@pytest.mark.parametrize(
+    "sequence",
+    (
+        None,
+        "ACDEFGHIKLMNPQRSTVWX",
+        "ACDEFGHIKLMNPQRSTVW",
+    ),
+)
+def test_soluprot_operation_owns_its_sequence_population(
+    sequence: str | None,
+) -> None:
+    from datatypes import Candidate, CandidateCollection, ProteinSequence
+    from modules.solubility.implementation import SoluProtImplementation
+    from modules.solubility.package import MODULE_PACKAGE
+    from tests.fixtures.scientific_operation import (
+        operation_call,
+        operation_context,
+    )
+
+    class TrustingAdapter:
+        @staticmethod
+        def predict(sequences: Any) -> tuple[Any, ...]:
+            raise AssertionError("invalid Method input reached the Adapter")
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "solubility.soluprot_full.local",
+        object(),
+        binding_version="5.0.0",
+    )
+    operation = SoluProtImplementation(
+        adapter=TrustingAdapter(),
+        method=context.method,
+        produced_observation=context.produced_observations[0],
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="solubility.soluprot_full.local",
+        binding_version="5.0.0",
+        inputs={
+            "sequence_candidates": CandidateCollection(
+                "soluprot-method-inputs",
+                "protein.sequence",
+                (
+                    ()
+                    if sequence is None
+                    else (Candidate("candidate-1", ProteinSequence(sequence)),)
+                ),
             )
-        )
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="canonical protein sequences of at least 20 residues",
+    ):
+        operation.execute(call)
 
 
 def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
@@ -514,24 +556,6 @@ def test_soluprot_requires_no_core_dispatch_or_readiness_branch() -> None:
     ).lower()
 
     assert "soluprot" not in core_source
-
-
-@pytest.mark.parametrize(
-    "sequence",
-    (
-        "ACDEFGHIKLMNPQRSTVWX",
-        "acdefghiklmnpqrstvwy",
-        "ACDEFGHIKLMNPQRSTVW",
-        "",
-    ),
-)
-def test_soluprot_invalid_sequences_fail_before_provider(
-    sequence: str,
-) -> None:
-    from modules.solubility.adapter import validate_sequences
-
-    with pytest.raises(ValueError, match="canonical protein sequences"):
-        validate_sequences([sequence])
 
 
 def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(

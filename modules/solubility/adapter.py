@@ -84,7 +84,6 @@ SOLUPROT_TMHMM_SHA256 = {
         "90d0db4ca8f5dc33deac2e945a1cf904f31a97f7982a1c64214c91d49827983c"
     ),
 }
-_CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
 PROTEIN_SOL_RELEASE = "2017-10"
 PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL = (
     "https://protein-sol.manchester.ac.uk/cgi-bin/utilities/"
@@ -139,17 +138,15 @@ PROTEIN_SOL_SOURCE_SHA256 = {
 
 @dataclass(frozen=True, slots=True)
 class SoluProtPrediction:
-    """One SoluProt value with its documented staged FASTA identity."""
+    """One SoluProt value aligned to its admitted input subject."""
 
-    provider_sequence_id: str
     soluble_probability: float
 
 
 @dataclass(frozen=True, slots=True)
 class ProteinSolPrediction:
-    """Provider values translated without owning Observation Context."""
+    """One aligned Provider result without owning Observation Context."""
 
-    provider_sequence_id: str
     percent_soluble_fraction: float
     scaled_soluble_fraction: float
     isoelectric_point: float
@@ -226,8 +223,7 @@ def _require_digest(
         raise RuntimeError(
             f"configured {provider_name} asset identity changed"
         )
-    assert isinstance(path, Path)
-    return path
+    return cast(Path, path)
 
 
 def _validate_python_runtime(
@@ -235,16 +231,11 @@ def _validate_python_runtime(
     *,
     site_packages_root: Path,
 ) -> Path:
-    if (
-        not isinstance(path, Path)
-        or not path.is_file()
-        or not os.access(path, os.X_OK)
-    ):
-        raise FileNotFoundError("configured SoluProt Python is unavailable")
-    if _regular_file_sha256(path.resolve(), executable=True) != (
-        SOLUPROT_PYTHON_SHA256
-    ):
-        raise RuntimeError("configured SoluProt Python identity changed")
+    python_path = _require_digest(
+        path,
+        SOLUPROT_PYTHON_SHA256,
+        executable=True,
+    )
     distribution_names = tuple(SOLUPROT_RUNTIME_VERSIONS)
     probe = f"""
 import importlib.metadata as metadata
@@ -264,7 +255,7 @@ print(json.dumps({{
 """
     try:
         completed = subprocess.run(
-            [str(path), "-I", "-c", probe],
+            [str(python_path), "-I", "-c", probe],
             check=True,
             capture_output=True,
             text=True,
@@ -296,7 +287,7 @@ print(json.dumps({{
         or identity["distributions"] != SOLUPROT_RUNTIME_VERSIONS
     ):
         raise RuntimeError("configured SoluProt Python identity changed")
-    return path
+    return python_path
 
 
 def _validate_perl_runtime(path: object) -> Path:
@@ -304,17 +295,16 @@ def _validate_perl_runtime(path: object) -> Path:
     if (
         not isinstance(path, Path)
         or path.resolve() != Path("/usr/bin/perl").resolve()
-        or not path.is_file()
-        or not os.access(path, os.X_OK)
     ):
         raise FileNotFoundError("configured SoluProt Perl is unavailable")
-    if _regular_file_sha256(path.resolve(), executable=True) != (
-        SOLUPROT_PERL_SHA256
-    ):
-        raise RuntimeError("configured SoluProt Perl identity changed")
+    perl_path = _require_digest(
+        path,
+        SOLUPROT_PERL_SHA256,
+        executable=True,
+    )
     try:
         completed = subprocess.run(
-            [str(path), "-e", "print $^V"],
+            [str(perl_path), "-e", "print $^V"],
             check=True,
             capture_output=True,
             text=True,
@@ -336,7 +326,7 @@ def _validate_perl_runtime(path: object) -> Path:
         ) from error
     if completed.stdout != SOLUPROT_PERL_VERSION:
         raise RuntimeError("configured SoluProt Perl identity changed")
-    return path
+    return perl_path
 
 
 def _site_asset_paths(
@@ -361,10 +351,8 @@ def validate_soluprot_environment(
     environment: Mapping[str, Any],
     *,
     mode: SoluProtMode,
-) -> dict[str, Any]:
+) -> None:
     """Validate one Binding's exact assets without importing/loading a model."""
-    if mode not in {"full", "no_tm"}:
-        raise ValueError("unknown SoluProt mode")
     python_executable = environment.get("python_executable")
     wheel_path = environment.get("wheel_path")
     site_packages_root = environment.get("site_packages_root")
@@ -374,7 +362,7 @@ def validate_soluprot_environment(
         or not site_packages_root.is_dir()
     ):
         raise FileNotFoundError("configured SoluProt package root is unavailable")
-    python_path = _validate_python_runtime(
+    _validate_python_runtime(
         python_executable,
         site_packages_root=site_packages_root,
     )
@@ -385,13 +373,11 @@ def validate_soluprot_environment(
     _require_digest(assets["model_json"], SOLUPROT_MODEL_SHA256[mode])
     _require_digest(assets["model_arrays"], SOLUPROT_MODEL_TREES_SHA256[mode])
     _require_digest(assets["reference_database"], SOLUPROT_DATABASE_SHA256)
-    usearch = _require_digest(
+    _require_digest(
         usearch_executable,
         SOLUPROT_USEARCH_SHA256,
         executable=True,
     )
-    tmhmm_executable: Path | None = None
-    perl_executable: Path | None = None
     if mode == "full":
         tmhmm_root = environment.get("tmhmm_root")
         if (
@@ -409,20 +395,7 @@ def validate_soluprot_environment(
                     "bin/tmhmmformat.pl",
                 },
             )
-        tmhmm_executable = tmhmm_root / "bin" / "tmhmm"
-        perl_executable = _validate_perl_runtime(
-            environment.get("perl_executable")
-        )
-    return {
-        "python_executable": python_path,
-        "site_packages_root": site_packages_root,
-        "model_json": assets["model_json"],
-        "reference_database": assets["reference_database"],
-        "usearch_executable": usearch,
-        "tmhmm_executable": tmhmm_executable,
-        "perl_executable": perl_executable,
-        "runtime_distributions": SOLUPROT_RUNTIME_VERSIONS,
-    }
+        _validate_perl_runtime(environment.get("perl_executable"))
 
 
 def soluprot_readiness(
@@ -433,7 +406,7 @@ def soluprot_readiness(
     """Independently attest one mode without loading either model."""
     try:
         validate_soluprot_environment(environment, mode=mode)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+    except (FileNotFoundError, OSError, RuntimeError):
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -485,22 +458,7 @@ def _trusted_soluprot_environment(
     )
 
 
-def validate_sequences(sequences: Sequence[str]) -> None:
-    """Fail closed on every provider-invalid sequence before invocation."""
-    if not sequences:
-        raise ValueError("SoluProt requires at least one sequence")
-    for sequence in sequences:
-        if (
-            not isinstance(sequence, str)
-            or len(sequence) < 20
-            or not set(sequence) <= _CANONICAL_AMINO_ACIDS
-        ):
-            raise ValueError(
-                "SoluProt requires canonical protein sequences of at least 20 residues"
-            )
-
-
-def provider_sequence_id(index: int) -> str:
+def _provider_sequence_id(index: int) -> str:
     """Return the exact staged FASTA identity shared with Provider output."""
     return f"candidate_{index}"
 
@@ -508,7 +466,7 @@ def provider_sequence_id(index: int) -> str:
 def _write_fasta(path: Path, sequences: Sequence[str]) -> None:
     with path.open("x", encoding="ascii", newline="\n") as handle:
         for index, sequence in enumerate(sequences):
-            handle.write(f">{provider_sequence_id(index)}\n{sequence}\n")
+            handle.write(f">{_provider_sequence_id(index)}\n{sequence}\n")
 
 
 def _read_provider_output(path: Path) -> bytes:
@@ -605,18 +563,27 @@ def invoke_soluprot(
         )
 
 
-def parse_soluprot_output(payload: bytes) -> list[SoluProtPrediction]:
-    """Translate the documented SoluProt CSV values in provider order."""
+def parse_soluprot_output(
+    payload: bytes,
+    *,
+    sequence_count: int,
+) -> tuple[SoluProtPrediction, ...]:
+    """Admit documented SoluProt rows in staged input-subject order."""
     reader = csv.DictReader(
         io.StringIO(payload.decode("utf-8"), newline="")
     )
-    return [
-        SoluProtPrediction(
-            provider_sequence_id=row["fa_id"],
-            soluble_probability=float(row["soluble"]),
-        )
+    probabilities_by_provider_id = {
+        row["fa_id"]: float(row["soluble"])
         for row in reader
-    ]
+    }
+    return tuple(
+        SoluProtPrediction(
+            soluble_probability=probabilities_by_provider_id[
+                _provider_sequence_id(index)
+            ],
+        )
+        for index in range(sequence_count)
+    )
 
 
 def _validate_executable_runtime(
@@ -631,21 +598,19 @@ def _validate_executable_runtime(
     if (
         not isinstance(path, Path)
         or path.resolve() != expected_path.resolve()
-        or not path.is_file()
-        or not os.access(path, os.X_OK)
     ):
         raise FileNotFoundError(
             f"configured Protein-Sol {runtime_name} is unavailable"
         )
-    _require_digest(
-        path.resolve(),
+    runtime_path = _require_digest(
+        path,
         expected_sha256,
         executable=True,
         provider_name="Protein-Sol",
     )
     try:
         completed = subprocess.run(
-            [str(path), *version_command],
+            [str(runtime_path), *version_command],
             check=True,
             capture_output=True,
             text=True,
@@ -670,12 +635,12 @@ def _validate_executable_runtime(
         raise RuntimeError(
             f"configured Protein-Sol {runtime_name} identity changed"
         )
-    return path
+    return runtime_path
 
 
 def validate_protein_sol_environment(
     environment: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> None:
     """Attest the exact upstream dependency tree without executing it."""
     source_root = environment.get("source_root")
     if (
@@ -685,14 +650,13 @@ def validate_protein_sol_environment(
         raise FileNotFoundError(
             "configured Protein-Sol source root is unavailable"
         )
-    sources: dict[str, Path] = {}
     for relative, expected in PROTEIN_SOL_SOURCE_SHA256.items():
-        sources[relative] = _require_digest(
+        _require_digest(
             source_root / relative,
             expected,
             provider_name="Protein-Sol",
         )
-    bash = _validate_executable_runtime(
+    _validate_executable_runtime(
         environment.get("bash_executable"),
         expected_path=Path("/bin/bash"),
         expected_sha256=PROTEIN_SOL_BASH_SHA256,
@@ -700,7 +664,7 @@ def validate_protein_sol_environment(
         expected_version=PROTEIN_SOL_BASH_VERSION,
         runtime_name="Bash",
     )
-    perl = _validate_executable_runtime(
+    _validate_executable_runtime(
         environment.get("perl_executable"),
         expected_path=Path("/usr/bin/perl"),
         expected_sha256=PROTEIN_SOL_PERL_SHA256,
@@ -708,11 +672,6 @@ def validate_protein_sol_environment(
         expected_version=PROTEIN_SOL_PERL_VERSION,
         runtime_name="Perl",
     )
-    return {
-        "source_files": sources,
-        "bash_executable": bash,
-        "perl_executable": perl,
-    }
 
 
 def protein_sol_readiness(
@@ -721,7 +680,7 @@ def protein_sol_readiness(
     """Observe exact source and interpreter prerequisites for one Run."""
     try:
         validate_protein_sol_environment(environment)
-    except (FileNotFoundError, OSError, RuntimeError, ValueError):
+    except (FileNotFoundError, OSError, RuntimeError):
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -752,22 +711,6 @@ def _trusted_protein_sol_environment(
         bash_executable=cast(Path, environment["bash_executable"]),
         perl_executable=cast(Path, environment["perl_executable"]),
     )
-
-
-def validate_protein_sol_sequences(sequences: Sequence[str]) -> None:
-    """Reject non-canonical input before crossing the upstream seam."""
-    if not sequences:
-        raise ValueError("Protein-Sol requires at least one sequence")
-    for sequence in sequences:
-        if (
-            not isinstance(sequence, str)
-            or len(sequence) < 21
-            or not set(sequence) <= _CANONICAL_AMINO_ACIDS
-        ):
-            raise ValueError(
-                "Protein-Sol requires canonical protein sequences of at least "
-                "21 residues"
-            )
 
 
 def _copy_exact_protein_sol_source(
@@ -848,23 +791,30 @@ def invoke_protein_sol(
         )
 
 
-def parse_protein_sol_output(payload: bytes) -> list[ProteinSolPrediction]:
-    """Translate documented Protein-Sol predictions in provider order."""
+def parse_protein_sol_output(
+    payload: bytes,
+    *,
+    sequence_count: int,
+) -> tuple[ProteinSolPrediction, ...]:
+    """Admit documented Protein-Sol rows in staged input-subject order."""
     rows = csv.reader(io.StringIO(payload.decode("utf-8"), newline=""))
-    parsed: list[ProteinSolPrediction] = []
+    values_by_provider_id: dict[str, tuple[float, float, float]] = {}
     for row in rows:
         if not row or row[0] != "SEQUENCE PREDICTIONS":
             continue
         _, _candidate_label, percent, scaled, _population, pi = row
-        parsed.append(
-            ProteinSolPrediction(
-                provider_sequence_id=_candidate_label.removeprefix(">"),
-                percent_soluble_fraction=float(percent),
-                scaled_soluble_fraction=float(scaled),
-                isoelectric_point=float(pi),
-            )
+        provider_id = _candidate_label.removeprefix(">")
+        values_by_provider_id[provider_id] = (
+            float(percent),
+            float(scaled),
+            float(pi),
         )
-    return parsed
+    return tuple(
+        ProteinSolPrediction(
+            *values_by_provider_id[_provider_sequence_id(index)]
+        )
+        for index in range(sequence_count)
+    )
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -875,25 +825,12 @@ class LocalSoluProtAdapter:
     environment: Mapping[str, Any] = field(repr=False, compare=False)
     resources: RunResources = field(repr=False, compare=False)
 
-    def __post_init__(self) -> None:
-        if self.mode not in {"full", "no_tm"}:
-            raise ValueError("unknown SoluProt mode")
-
     def predict(
         self,
         sequences: Sequence[ProteinSequence],
     ) -> tuple[SoluProtPrediction, ...]:
         """Run one exact mode and admit ordered scientific predictions."""
-        provider_sequences = tuple(
-            sequence.sequence
-            for sequence in sequences
-            if type(sequence) is ProteinSequence
-        )
-        if len(provider_sequences) != len(sequences):
-            raise ValueError(
-                "SoluProt requires complete ProteinSequence values"
-            )
-        validate_sequences(provider_sequences)
+        provider_sequences = tuple(sequence.sequence for sequence in sequences)
         resolved = _trusted_soluprot_environment(
             self.environment,
             mode=self.mode,
@@ -921,8 +858,11 @@ class LocalSoluProtAdapter:
                 raise SoluProtProviderOutputUnavailable(
                     "SoluProt provider produced no readable output"
                 ) from error
-            values = parse_soluprot_output(raw_output)
-        return tuple(values)
+            values = parse_soluprot_output(
+                raw_output,
+                sequence_count=len(provider_sequences),
+            )
+        return values
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -937,16 +877,7 @@ class LocalProteinSolAdapter:
         sequences: Sequence[ProteinSequence],
     ) -> tuple[ProteinSolPrediction, ...]:
         """Run and translate ordered Protein-Sol prediction values."""
-        provider_sequences = tuple(
-            sequence.sequence
-            for sequence in sequences
-            if type(sequence) is ProteinSequence
-        )
-        if len(provider_sequences) != len(sequences):
-            raise ValueError(
-                "Protein-Sol requires complete ProteinSequence values"
-            )
-        validate_protein_sol_sequences(provider_sequences)
+        provider_sequences = tuple(sequence.sequence for sequence in sequences)
         resolved = _trusted_protein_sol_environment(self.environment)
         with self.resources.temporary_directory(
             prefix="protein-sol-"
@@ -970,5 +901,8 @@ class LocalProteinSolAdapter:
                 raise ProteinSolProviderOutputUnavailable(
                     "Protein-Sol provider produced no readable output"
                 ) from error
-            results = parse_protein_sol_output(raw_output)
-        return tuple(results)
+            results = parse_protein_sol_output(
+                raw_output,
+                sequence_count=len(provider_sequences),
+            )
+        return results

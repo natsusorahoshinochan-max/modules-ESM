@@ -142,11 +142,11 @@ def test_local_protein_sol_golden_multiple_metrics(
                     node_type_id=(
                         "contract_test.folding_sequence_batch_source"
                     ),
-                    node_type_version="3.0.0",
+                    node_type_version="4.0.0",
                     binding_id=(
                         "contract_test.folding_sequence_batch_source.direct"
                     ),
-                    binding_version="3.0.0",
+                    binding_version="4.0.0",
                     node_parameters={"sequences": list(SEQUENCES)},
                     binding_parameters={},
                 ),
@@ -232,15 +232,17 @@ def test_local_protein_sol_golden_multiple_metrics(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)
     )
-    assert adapter.parse_protein_sol_output(recorded[0]["raw_output"]) == [
+    assert adapter.parse_protein_sol_output(
+        recorded[0]["raw_output"],
+        sequence_count=len(SEQUENCES),
+    ) == tuple(
         adapter.ProteinSolPrediction(
-            provider_sequence_id=f"candidate_{index}",
             percent_soluble_fraction=expected["percent-sol"],
             scaled_soluble_fraction=expected["scaled-sol"],
             isoelectric_point=expected["pI"],
         )
-        for index, expected in enumerate(EXPECTED)
-    ]
+        for expected in EXPECTED
+    )
     assert [entry.candidate_id for entry in scores.entries] == [
         candidate_id
         for candidate_id in candidate_ids
@@ -335,7 +337,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "solubility.protein_sol.local"
-        and event["event"]["binding"]["contract_version"] == "4.0.0"
+        and event["event"]["binding"]["contract_version"] == "5.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

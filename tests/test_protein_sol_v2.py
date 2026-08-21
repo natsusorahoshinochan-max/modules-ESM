@@ -158,7 +158,6 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
 
     assert predictions == (
         adapter.ProteinSolPrediction(
-            provider_sequence_id="candidate_0",
             percent_soluble_fraction=32.419,
             scaled_soluble_fraction=0.252,
             isoelectric_point=7.13,
@@ -311,7 +310,7 @@ def test_protein_sol_requires_no_core_provider_special_case() -> None:
     assert "protein-sol" not in core_source
 
 
-def test_protein_sol_parser_translates_the_three_published_metrics() -> None:
+def test_protein_sol_adapter_translation_admits_staged_subject_order() -> None:
     from modules.solubility.adapter import (
         ProteinSolPrediction,
         parse_protein_sol_output,
@@ -324,22 +323,21 @@ def test_protein_sol_parser_translates_the_three_published_metrics() -> None:
             b"SEQUENCE PREDICTIONS,>candidate_0,32.419, 0.252, 0.446, 7.130\n"
             b"SEQUENCE PREDICTIONS,>candidate_1,80.162, 0.694, 0.446,11.910\n"
         ),
+        sequence_count=2,
     )
 
-    assert parsed == [
+    assert parsed == (
         ProteinSolPrediction(
-            provider_sequence_id="candidate_0",
             percent_soluble_fraction=32.419,
             scaled_soluble_fraction=0.252,
             isoelectric_point=7.13,
         ),
         ProteinSolPrediction(
-            provider_sequence_id="candidate_1",
             percent_soluble_fraction=80.162,
             scaled_soluble_fraction=0.694,
             isoelectric_point=11.91,
         ),
-    ]
+    )
 
 
 def test_calibration_context_is_typed_and_round_trips_with_observation() -> None:
@@ -404,6 +402,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         SelectionObjective,
         resolve_objective_observations,
     )
+    from core.value_admission import admitted_port_values
     from datatypes import (
         CalibrationObservationContext,
         Candidate,
@@ -456,18 +455,6 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         objective.context_selector.to_public(),
     )
 
-    observation = ScoreObservation(
-        subject=CandidateDataReference(
-            candidate_id="candidate-1",
-            data_type_id="protein.sequence",
-            content_digest=f"sha256:{'1' * 64}",
-        ),
-        metric=objective.metric,
-        method=objective.method,
-        context=objective.context_selector,
-        value=0.252,
-        source_partition=objective.source_partition,
-    )
     candidates = CandidateCollection(
         collection_id="protein-sol-candidates",
         item_type="protein.sequence",
@@ -475,15 +462,40 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
             Candidate(
                 candidate_id="candidate-1",
                 data=ProteinSequence(
-                    sequence="ACDE",
-                    residue_ids=["A:1", "A:2", "A:3", "A:4"],
+                    sequence="ACDEFGHIKLMNPQRSTVWYA",
                 ),
             )
         ],
     )
+    from modules.solubility.package import MODULE_PACKAGE
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    port_types = {
+        definition.type_id: definition for definition in catalog.port_types
+    }
+    admitted_candidates = admitted_port_values(
+        port_type=catalog.require_port_type("candidate.collection", "4.0.0"),
+        multiplicity="one",
+        values=(candidates,),
+        candidate_data_port_types=port_types,
+    )
+    observation = ScoreObservation(
+        subject=admitted_candidates.candidate_data[0],
+        metric=objective.metric,
+        method=objective.method,
+        context=objective.context_selector,
+        value=0.252,
+        source_partition=objective.source_partition,
+    )
+    admitted_scores = admitted_port_values(
+        port_type=catalog.require_port_type("score.collection", "5.0.0"),
+        multiplicity="one",
+        values=(ScoreCollection("protein-sol", [observation]),),
+        candidate_data_port_types=port_types,
+    )
     resolved = resolve_objective_observations(
-        candidates=candidates,
-        collection=ScoreCollection("protein-sol", [observation]),
+        candidates=admitted_candidates.value,
+        collection=admitted_scores.value,
         objective=objective,
         out_of_scope_policy="ignore",
         duplicate_policy="deduplicate_identical",
@@ -771,6 +783,66 @@ def test_protein_sol_rejects_twenty_residues_before_provider_invocation(
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    "sequence",
+    (
+        None,
+        "ACDEFGHIKLMNPQRSTVWX",
+        "ACDEFGHIKLMNPQRSTVWY",
+    ),
+)
+def test_protein_sol_operation_owns_its_sequence_population(
+    sequence: str | None,
+) -> None:
+    from datatypes import Candidate, CandidateCollection, ProteinSequence
+    from modules.solubility.implementation import ProteinSolImplementation
+    from modules.solubility.package import MODULE_PACKAGE
+    from tests.fixtures.scientific_operation import (
+        operation_call,
+        operation_context,
+    )
+
+    class TrustingAdapter:
+        @staticmethod
+        def predict(sequences: Any) -> tuple[Any, ...]:
+            raise AssertionError("invalid Method input reached the Adapter")
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    context = operation_context(
+        catalog,
+        "solubility.protein_sol.local",
+        object(),
+        binding_version="5.0.0",
+    )
+    operation = ProteinSolImplementation(
+        adapter=TrustingAdapter(),
+        method=context.method,
+        produced_observations=context.produced_observations,
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="solubility.protein_sol.local",
+        binding_version="5.0.0",
+        inputs={
+            "sequence_candidates": CandidateCollection(
+                "protein-sol-method-inputs",
+                "protein.sequence",
+                (
+                    ()
+                    if sequence is None
+                    else (Candidate("candidate-1", ProteinSequence(sequence)),)
+                ),
+            )
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="canonical protein sequences of at least 21 residues",
+    ):
+        operation.execute(call)
+
+
 def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_inference(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -806,16 +878,6 @@ def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_infe
     assert {
         item["resolution"] for item in replayed["node_dispositions"]
     } == {"cache_replayed"}
-
-
-def test_protein_sol_invalid_sequence_fails_before_engine_invocation() -> None:
-    from modules.solubility.adapter import validate_protein_sol_sequences
-
-    with pytest.raises(
-        ValueError,
-        match="at least 21 residues",
-    ):
-        validate_protein_sol_sequences(["ACDEFGHIKLMNPQRSTVWX"])
 
 
 def test_protein_sol_readiness_requires_the_exact_scientific_sources(
