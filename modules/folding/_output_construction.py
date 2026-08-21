@@ -140,7 +140,7 @@ class FoldingOutputConstruction:
         observation_method: ExactContractReference,
     ) -> None:
         collection = parent_record.value
-        if not collection.items:
+        if collection.item_type != "protein.sequence" or not collection.items:
             raise ValueError(
                 "folding requires non-empty protein sequence Candidates"
             )

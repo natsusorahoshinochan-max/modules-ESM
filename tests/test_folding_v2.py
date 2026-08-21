@@ -136,6 +136,7 @@ def _run_fold(
     environment_overrides: dict[str, Any] | None = None,
     result_replay_source: ResultReplaySource | None = None,
     source_sequence: str = "AG",
+    num_samples: int = 1,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
@@ -163,7 +164,10 @@ def _run_fold(
         node_type_version=_FOLD_NODE_VERSION,
         binding_id=f"folding.fold.esmfold2_{route}",
         binding_version=_esmfold2_binding_version(route),
-        node_parameters={"effective_seed": 1603, "num_samples": 1},
+        node_parameters={
+            "effective_seed": 1603,
+            "num_samples": num_samples,
+        },
         binding_parameters={},
     )
     materialize = WorkflowNodeInstance(
@@ -748,6 +752,97 @@ def test_remote_provider_official_error_union_is_an_operational_failure() -> Non
             ESMProteinError(error_code=503, error_msg="provider unavailable"),
             ProteinSequence("AG", ["A:1", "A:2"]),
         )
+
+
+def test_folding_operation_failure_publishes_no_partial_samples(
+    tmp_path: Path,
+) -> None:
+    from esm.sdk.api import ESMProteinError
+
+    class RemoteResult(_RemoteResultRenderer):
+        sequence = "AG"
+        plddt = torch.tensor([0.70, 0.80])
+        ptm = torch.tensor(0.625)
+        pae = torch.tensor(((0.0, 1.0), (1.0, 0.0)))
+
+    class Client:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def fold(self, **_kwargs: Any) -> object:
+            self.calls += 1
+            if self.calls == 1:
+                return RemoteResult()
+            return ESMProteinError(
+                error_code=503,
+                error_msg="provider unavailable",
+            )
+
+    client = Client()
+    _, _, projection, events = _run_fold(
+        tmp_path,
+        route="remote",
+        client=client,
+        num_samples=2,
+    )
+
+    assert client.calls == 2
+    assert projection["status"] == "failed"
+    assert all(
+        output["node_id"] != "fold"
+        or output["output_port"]
+        not in {"structure_candidates", "confidence_facts"}
+        for output in projection["outputs"]
+    )
+    assert all(
+        event["event"]["type"] != "outputs_published"
+        or event["event"]["node_id"] != "fold"
+        for event in events
+    )
+
+    started = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith("fold_parent_")
+    ]
+    assert [event["engine_role"] for event in started] == [
+        "fold_parent_0_sample_0",
+        "fold_parent_0_sample_1",
+    ]
+    terminals_by_invocation = {
+        event["event"]["invocation_id"]: event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+    }
+    assert [
+        terminals_by_invocation[event["invocation_id"]]["status"]
+        for event in started
+    ] == ["succeeded", "succeeded"]
+
+    operation_attempt_id = started[0]["operation_attempt_id"]
+    operation_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "operation_attempt_terminal"
+        and event["event"]["operation_attempt_id"] == operation_attempt_id
+    )
+    assert operation_terminal["status"] == "failed"
+    fold_attempt = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_started"
+        and event["event"]["node_id"] == "fold"
+    )
+    fold_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+        and event["event"]["node_attempt_id"]
+        == fold_attempt["node_attempt_id"]
+    )
+    assert fold_terminal["status"] == "failed"
+    assert fold_terminal["failure_origin"] == "operation"
 
 
 def test_local_provider_native_result_translates_to_canonical_confidence() -> None:

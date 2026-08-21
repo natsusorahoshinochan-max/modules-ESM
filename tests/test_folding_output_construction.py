@@ -17,7 +17,10 @@ from modules.folding._output_construction import (
     CompletedFoldingSampleBatch,
     FoldingOutputConstruction,
 )
-from tests.fixtures.scientific_operation import admitted_port_fixture
+from tests.fixtures.scientific_operation import (
+    admitted_port_fixture,
+    operation_call,
+)
 
 
 _METHOD = ExactContractReference(
@@ -206,6 +209,52 @@ def test_shared_parent_intake_rejects_an_empty_collection() -> None:
                 value_content_digests=("sha256:" + ("e" * 64),),
                 candidate_data=references,
             ),
+            sample_count=1,
+            observation_method=_METHOD,
+        )
+
+
+def test_shared_parent_intake_rejects_an_admitted_structure_collection(
+) -> None:
+    from core import build_frozen_catalog
+    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    from modules.structure_prediction.package import (
+        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
+    )
+    from modules.structure_transform.package import (
+        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog(
+        (
+            FOLDING_PACKAGE,
+            STRUCTURE_PREDICTION_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        )
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="folding.fold.esmfold2_remote",
+        binding_version="9.0.0",
+        inputs={
+            "sequence_candidates": CandidateCollection(
+                "structure-parents",
+                "protein.structure",
+                (Candidate("structure-parent", _structure()),),
+            )
+        },
+        node_parameters={"effective_seed": 1603, "num_samples": 1},
+    )
+    parent_record = call.inputs["sequence_candidates"]
+    assert parent_record.value.item_type == "protein.structure"
+    assert parent_record.candidate_data[0].data_type_id == "protein.structure"
+
+    with pytest.raises(
+        ValueError,
+        match="folding requires non-empty protein sequence Candidates",
+    ):
+        FoldingOutputConstruction(
+            parent_record=parent_record,
             sample_count=1,
             observation_method=_METHOD,
         )
