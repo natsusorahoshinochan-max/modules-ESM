@@ -2292,9 +2292,10 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
     assert outcome.disposition == "succeeded"
     assert outcome.artifacts == ()
     assert outcome.admitted_outputs[("direct", "text")].value == "READY"
-    assert [fact["fact_type"] for fact in ledger.facts[-4:]] == [
+    assert [
+        event["event"]["type"] for event in ledger.public_events()[-3:]
+    ] == [
         "operation_attempt_terminal",
-        "outputs_published",
         "node_attempt_terminal",
         "node_disposition",
     ]

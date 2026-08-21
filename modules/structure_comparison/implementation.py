@@ -140,10 +140,9 @@ class StructureComparisonImplementation:
         raise ValueError("Binding selected an unknown alignment Method")
 
     def _align(self, call: OperationCall) -> dict[str, Any]:
-        pin_matching_chain_ids = call.node_parameters.get(
-            "pin_matching_chain_ids",
-            False,
-        )
+        pin_matching_chain_ids = call.node_parameters[
+            "pin_matching_chain_ids"
+        ]
 
         subjects = _candidate_references(call, port_name="subjects")
         references = _candidate_references(call, port_name="references")

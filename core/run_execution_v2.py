@@ -1866,6 +1866,39 @@ class _RunEvidenceLedger:
             return self._state.run_admitted
 
     @property
+    def run_scope(self) -> RunScopeBinding | None:
+        """Project the admitted immutable Run scope as its typed value."""
+        with self._condition:
+            if not self._state.facts:
+                return None
+            payload = self._state.facts[0]["payload"]
+            return RunScopeBinding(
+                workflow_commit_id=payload["workflow_commit_id"],
+                workflow_commit_revision=payload[
+                    "workflow_commit_revision"
+                ],
+                workflow_digest=payload["workflow_digest"],
+                contract_lock_digest=payload["contract_lock_digest"],
+                execution_plan_digest=payload["execution_plan_digest"],
+                catalog_contract_digest=payload[
+                    "catalog_contract_digest"
+                ],
+                resolved_contracts=tuple(
+                    deepcopy(dict(reference))
+                    for reference in payload["resolved_contracts"]
+                ),
+                resolved_contract_roots=tuple(
+                    deepcopy(dict(reference))
+                    for reference in payload["resolved_contract_roots"]
+                ),
+                derived_from=(
+                    deepcopy(dict(payload["derived_from"]))
+                    if "derived_from" in payload
+                    else None
+                ),
+            )
+
+    @property
     def cancellation_requested(self) -> bool:
         with self._condition:
             return self._state.cancellation_sequence is not None
@@ -5825,15 +5858,17 @@ def _run_catalog_digest(
     catalog: FrozenCatalog,
 ) -> str:
     """Classify one admitted Ledger against the active Catalog generation."""
-    scope = ledger.facts[0]["payload"]
-    persisted_catalog_digest = scope["catalog_contract_digest"]
+    scope = ledger.run_scope
+    if scope is None:
+        raise RuntimeError("Run Ledger has no admitted scope")
+    persisted_catalog_digest = scope.catalog_contract_digest
     if persisted_catalog_digest != catalog.contract_digest:
         return persisted_catalog_digest
     expected_contracts = _reachable_contract_evidence(
         catalog,
-        scope["resolved_contract_roots"],
+        [dict(reference) for reference in scope.resolved_contract_roots],
     )
-    if scope["resolved_contracts"] != expected_contracts:
+    if list(scope.resolved_contracts) != expected_contracts:
         raise RuntimeError("Run scope resolved Contracts are invalid")
     return persisted_catalog_digest
 
@@ -7315,20 +7350,22 @@ class V2RunService:
                 },
             )
         plan = compiled.execution_plan
-        source_scope = source.ledger.facts[0]["payload"]
+        source_scope = source.ledger.run_scope
+        if source_scope is None:
+            raise RuntimeError("Source Run Ledger has no admitted scope")
         if (
             plan.workflow_commit_revision
             != source_projection["workflow_commit_revision"]
             or plan.workflow_digest
             != source_projection["workflow_digest"]
-            or source_scope["workflow_commit_id"]
+            or source_scope.workflow_commit_id
             != source_projection["workflow_commit_id"]
             or plan.contract_lock_digest
-            != source_scope["contract_lock_digest"]
+            != source_scope.contract_lock_digest
             or plan.execution_plan_digest
-            != source_scope["execution_plan_digest"]
+            != source_scope.execution_plan_digest
             or plan.catalog_contract_digest
-            != source_scope["catalog_contract_digest"]
+            != source_scope.catalog_contract_digest
         ):
             raise V2RunError(
                 "contract_digest_mismatch",
