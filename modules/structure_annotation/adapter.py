@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from typing import Any
+from typing import Any, cast
 
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
@@ -202,9 +202,10 @@ def _parse_dssp_output(
     layout = residue_axis.layout
     rows = _parse_dssp_rows(parsed)
     authored_by_label = _authored_residue_ids(parsed, rows)
+    residue_ids = cast(tuple[str, ...], layout.residue_ids)
     layout_index_by_residue_id = {
         residue_id: index
-        for index, residue_id in enumerate(layout.residue_ids or ())
+        for index, residue_id in enumerate(residue_ids)
     }
     secondary = ["_"] * layout.length
     sasa: list[float | None] = [None] * layout.length
@@ -267,12 +268,6 @@ class MkdsspAdapter:
         self._environment = environment
         self._resources = resources
 
-    def _binary(self) -> str:
-        binary = self._environment.get("dssp_binary")
-        if not isinstance(binary, str) or not binary:
-            raise RuntimeError("the ready mkdssp binary is unavailable")
-        return binary
-
     def _timeout(self) -> int:
         timeout = self._environment.get("dssp_timeout_seconds", 30)
         if type(timeout) is not int or not 1 <= timeout <= 300:
@@ -288,7 +283,7 @@ class MkdsspAdapter:
         subject: CandidateDataReference,
     ) -> DSSPAnnotation:
         """Run mkdssp and return only its admitted canonical annotation."""
-        binary = self._binary()
+        binary = self._environment["dssp_binary"]
         timeout = self._timeout()
         with self._resources.temporary_directory(
             prefix="structure-annotation-dssp-"

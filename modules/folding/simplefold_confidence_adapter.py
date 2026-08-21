@@ -180,8 +180,7 @@ def _provider_chain_ids(
 def _segment_sequences(
     residue_axis: ResolvedStructureResidueAxis,
 ) -> tuple[str, ...]:
-    residue_ids = residue_axis.layout.residue_ids
-    assert residue_ids is not None
+    residue_ids = cast(tuple[str, ...], residue_axis.layout.residue_ids)
     sequence_by_residue = dict(
         zip(residue_ids, residue_axis.sequence, strict=True)
     )
@@ -223,8 +222,7 @@ def _native_existing_structure_confidence(
 
     @_restore_process_cwd
     def run() -> _SimpleFoldConfidenceNativeResult:
-        residue_ids = residue_axis.layout.residue_ids
-        assert residue_ids is not None
+        residue_ids = cast(tuple[str, ...], residue_axis.layout.residue_ids)
         input_coordinates = _coordinates_by_residue(residue_axis)
         model_dir = staged_closure.group_root("simplefold_models")
         esm2_model_dir = staged_closure.group_root("esm2_models")

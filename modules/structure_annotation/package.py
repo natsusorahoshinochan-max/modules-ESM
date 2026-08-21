@@ -186,7 +186,6 @@ def _validate_annotation(value: object) -> None:
 
 def _annotation_to_wire(value: object) -> object:
     assert type(value) is DSSPAnnotation
-    _validate_annotation(value)
     return {
         "subject": value.subject.to_public(),
         "layout": _wire_value(_LAYOUT_CODEC, value.layout),
@@ -211,7 +210,6 @@ def _annotation_from_wire(value: object) -> object:
         secondary_structure=tuple(value["secondary_structure"]),
         sasa=_validate_sasa(tuple(value["sasa"]), length=layout.length),
     )
-    _validate_annotation(annotation)
     return annotation
 
 
@@ -233,10 +231,6 @@ def _validate_sasa_track(value: object) -> None:
 
 def _track_to_wire(kind: str):
     def encode(value: object) -> object:
-        if kind == "secondary_structure":
-            _validate_secondary_track(value)
-        else:
-            _validate_sasa_track(value)
         assert type(value) is StructureAnnotationTrack
         return {
             "subject": value.subject.to_public(),
@@ -269,10 +263,6 @@ def _track_from_wire(kind: str):
             layout=layout,
             values=values,
         )
-        if kind == "secondary_structure":
-            _validate_secondary_track(annotation_track)
-        else:
-            _validate_sasa_track(annotation_track)
         return annotation_track
 
     return decode

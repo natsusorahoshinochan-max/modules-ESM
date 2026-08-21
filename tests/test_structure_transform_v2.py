@@ -515,43 +515,6 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
                 complete_backbone_mask=(False,),
             )
         )
-    residue_coordinates = _RESOLVED_AXIS.residue_coordinates[0]
-    tampered_atoms = (
-        replace(
-            residue_coordinates.atom_coordinates[0],
-            coordinate=(999.0, 999.0, 999.0),
-        ),
-        *residue_coordinates.atom_coordinates[1:],
-    )
-    with pytest.raises(PortValueError, match="embedded structure"):
-        port_type.encode(
-            replace(
-                _RESOLVED_AXIS,
-                residue_coordinates=(
-                    replace(
-                        residue_coordinates,
-                        atom_coordinates=tampered_atoms,
-                    ),
-                ),
-            )
-        )
-    with pytest.raises(PortValueError, match="embedded structure"):
-        port_type.encode(
-            replace(
-                _RESOLVED_AXIS,
-                sequence="X",
-                residue_names=("UNK",),
-                component_dispositions=(
-                    replace(
-                        _RESOLVED_AXIS.component_dispositions[0],
-                        component_id="UNK",
-                        parent_sequence="X",
-                    ),
-                ),
-            )
-        )
-
-
 def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
     port_type = build_frozen_catalog((MODULE_PACKAGE,)).require_port_type(
         "structure_transform.modified_residue_normalizations",

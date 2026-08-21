@@ -311,14 +311,18 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         structure_content_digest=structure_digest,
         prediction_axis_content_digest=trusted_axis_digest,
     )
-    method = ExactContractReference(
+    embedded_method = ExactContractReference(
         "method",
         "folding.example.method",
         "1.0.0",
         "sha256:" + "8" * 64,
     )
+    trusted_method = replace(
+        embedded_method,
+        contract_digest="sha256:" + "9" * 64,
+    )
     facts = ConfidenceFactCollection(
-        observation_method=method,
+        observation_method=embedded_method,
         entries=(
             ConfidenceFact(
                 prediction_key=key,
@@ -399,6 +403,7 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
                     CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),
                 ),
                 scientific_axes=(trusted_axis,),
+                observation_methods=(trusted_method,),
             ),
         },
         node_parameters={},
@@ -417,7 +422,7 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         "structure.pae",
     }
     assert all(entry.subject == subject for entry in observations)
-    assert all(entry.method == method for entry in observations)
+    assert all(entry.method == trusted_method for entry in observations)
     assert all(
         entry.source_partition == "prediction_confidence"
         for entry in observations

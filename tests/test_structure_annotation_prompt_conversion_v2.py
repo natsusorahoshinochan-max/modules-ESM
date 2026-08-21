@@ -186,17 +186,6 @@ def test_apply_secondary_structure_to_prompt_maps_exact_ss8_semantics() -> None:
                 binding_parameters={},
             )
         )
-    with pytest.raises(ValueError, match="do not accept parameters"):
-        ApplySecondaryStructureToPromptOperation(_RunResources()).execute(
-            _operation_call(
-                inputs={
-                    "protein_prompt": prompt,
-                    "secondary_structure_track": source,
-                },
-                node_parameters={"direction": "forward"},
-                binding_parameters={},
-            )
-        )
 
 
 def test_apply_sasa_to_prompt_preserves_angstrom_squared_values() -> None:
@@ -249,14 +238,6 @@ def test_apply_sasa_to_prompt_preserves_angstrom_squared_values() -> None:
                 inputs={"protein_prompt": prompt, "sasa_track": mismatched},
                 node_parameters={},
                 binding_parameters={},
-            )
-        )
-    with pytest.raises(ValueError, match="do not accept parameters"):
-        ApplySASAToPromptOperation(_RunResources()).execute(
-            _operation_call(
-                inputs={"protein_prompt": prompt, "sasa_track": source},
-                node_parameters={},
-                binding_parameters={"scale": 1.0},
             )
         )
 
@@ -318,40 +299,6 @@ def test_expected_secondary_structure_from_prompt_restores_annotation_symbols() 
                 candidate_data={"references": (reference,)},
             )
         )
-    with pytest.raises(ValueError, match="do not accept parameters"):
-        ExpectedSecondaryStructureFromPromptOperation(_RunResources()).execute(
-            _operation_call(
-                inputs={
-                    "protein_prompt": prompt,
-                    "references": references,
-                },
-                node_parameters={"role": "expected"},
-                binding_parameters={},
-                candidate_data={"references": (reference,)},
-            )
-        )
-
-
-def test_expected_secondary_structure_requires_reference_before_engine() -> None:
-    resources = _InvocationRecorder()
-    prompt = ProteinPrompt(
-        target_layout=ResidueLayout(
-            chain_id="A",
-            length=1,
-            residue_ids=["A:1"],
-        ),
-        secondary_structure_track=ResidueTrack(["H"], None),
-    )
-
-    with pytest.raises(ValueError, match="Prompt and one reference"):
-        ExpectedSecondaryStructureFromPromptOperation(resources).execute(
-            _operation_call(
-                inputs={"protein_prompt": prompt},
-                node_parameters={},
-                binding_parameters={},
-            )
-        )
-    assert resources.invocations == 0
 
 
 def test_apply_secondary_structure_to_prompt_is_an_exact_direct_node() -> None:

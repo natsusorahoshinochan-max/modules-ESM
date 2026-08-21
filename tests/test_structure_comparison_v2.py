@@ -336,17 +336,6 @@ def test_affine_alignment_handles_protein_scale_axes_without_recursion() -> None
     assert len(alignment.correspondence) == residue_count
 
 
-def test_axis_alignment_rejects_noncanonical_segment_indices() -> None:
-    axis = _axis("A", "A", ((0.0, 0.0, 0.0),))
-    invalid = replace(
-        axis,
-        segments=(replace(axis.segments[0], segment_index=1),),
-    )
-
-    with pytest.raises(ValueError, match="segment_index"):
-        align_resolved_axes(invalid, axis)
-
-
 def test_segment_assignment_ignores_chain_ids_unless_explicitly_pinned() -> None:
     subject_axis = resolve_residue_axis(
         _multi_segment_structure(

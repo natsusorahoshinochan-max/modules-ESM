@@ -6,7 +6,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 import math
 import re
-from typing import Any, ClassVar, Mapping
+from typing import Any, cast, ClassVar, Mapping
 
 from core import OperationCall, RunResources, builtin_frozen_catalog
 from datatypes import (
@@ -495,17 +495,15 @@ def resolve_residue_axis(
     normalizations: object | None = None,
 ) -> ResolvedStructureResidueAxis:
     """Resolve one structure into the sole admitted protein residue axis."""
-    if type(structure) is not ProteinStructure:
-        raise ValueError("residue-axis resolution requires a ProteinStructure")
-    if normalizations is None:
-        supplied_normalizations = ModifiedResidueNormalizationCollection()
-    elif type(normalizations) is ModifiedResidueNormalizationCollection:
-        supplied_normalizations = normalizations
-    else:
-        raise ValueError("modified-residue normalizations have the wrong type")
+    admitted_structure = cast(ProteinStructure, structure)
+    supplied_normalizations = (
+        ModifiedResidueNormalizationCollection()
+        if normalizations is None
+        else cast(ModifiedResidueNormalizationCollection, normalizations)
+    )
 
-    modres, seqres = _pdb_polymer_declarations(structure)
-    components = _coordinate_components(structure)
+    modres, seqres = _pdb_polymer_declarations(admitted_structure)
+    components = _coordinate_components(admitted_structure)
     seqres_consistent_mse = _seqres_consistent_mse_identities(
         components,
         modres,
@@ -1025,22 +1023,12 @@ def select_chains(
     chain_ids: object,
 ) -> ProteinStructure:
     """Select exact chain identities and emit them in request order."""
-    if (
-        not isinstance(chain_ids, (list, tuple))
-        or not chain_ids
-        or any(
-            type(chain_id) is not str
-            or len(chain_id) != 1
-            or not chain_id.isascii()
-            or not chain_id.isalnum()
-            for chain_id in chain_ids
-        )
-        or len(set(chain_ids)) != len(chain_ids)
-    ):
-        raise ValueError("chain_ids must be an ordered nonempty unique list")
+    admitted_chain_ids = cast(tuple[str, ...], chain_ids)
     segments = _coordinate_segments(_single_model_records(structure))
     available = {segment[0].chain_id for segment in segments}
-    missing = [chain_id for chain_id in chain_ids if chain_id not in available]
+    missing = [
+        chain_id for chain_id in admitted_chain_ids if chain_id not in available
+    ]
     if missing:
         raise ValueError(
             "requested chains are absent: " + ", ".join(missing)
@@ -1057,11 +1045,11 @@ def select_chains(
             declaration_lines[line[16]].append(line)
     output_lines = [
         line
-        for chain_id in chain_ids
+        for chain_id in admitted_chain_ids
         for line in declaration_lines.get(chain_id, ())
     ]
     serial = 1
-    for chain_id in chain_ids:
+    for chain_id in admitted_chain_ids:
         for segment in segments:
             if segment[0].chain_id != chain_id:
                 continue
@@ -1125,10 +1113,6 @@ def extract_backbone(
     residue_axis: ResolvedStructureResidueAxis,
 ) -> ProteinStructure:
     """Project canonical N/CA/C/O records from one resolved residue axis."""
-    if type(residue_axis) is not ResolvedStructureResidueAxis:
-        raise ValueError(
-            "backbone extraction requires a ResolvedStructureResidueAxis"
-        )
     incomplete = tuple(
         residue_id
         for residue_id, is_complete in zip(
@@ -1172,7 +1156,6 @@ def extract_backbone(
     backbone = ProteinStructure(
         pdb_string="\n".join(output_lines) + "\n",
     )
-    validate_backbone_structure(backbone)
     return backbone
 
 
@@ -1180,10 +1163,6 @@ def extract_sequence(
     residue_axis: ResolvedStructureResidueAxis,
 ) -> ProteinSequence:
     """Project the exact parent sequence and identities from a resolved axis."""
-    if type(residue_axis) is not ResolvedStructureResidueAxis:
-        raise ValueError(
-            "sequence extraction requires a ResolvedStructureResidueAxis"
-        )
     return ProteinSequence(
         sequence=residue_axis.sequence,
         residue_ids=residue_axis.layout.residue_ids,
@@ -1191,60 +1170,25 @@ def extract_sequence(
 
 
 def _structure_candidate_parents(value: object) -> list[Candidate]:
-    if (
-        type(value) is not CandidateCollection
-        or value.item_type != "protein.structure"
-        or not value.items
-    ):
+    collection = cast(CandidateCollection, value)
+    if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(
             "Candidate-aware structure transformation requires non-empty "
             "protein structure Candidates"
         )
-    parents: list[Candidate] = []
-    parent_ids: set[str] = set()
-    for parent in value.items:
-        if (
-            type(parent) is not Candidate
-            or type(parent.data) is not ProteinStructure
-            or not parent.candidate_id
-            or parent.candidate_id in parent_ids
-        ):
-            raise ValueError(
-                "structure Candidates contain incomplete or duplicate parents"
-            )
-        parent_ids.add(parent.candidate_id)
-        parents.append(parent)
-    return parents
+    return list(collection.items)
 
 
 def _candidate_structures_and_references(
     call: OperationCall,
 ) -> tuple[tuple[Candidate, CandidateDataReference], ...]:
-    admitted = call.inputs.get("structure_candidates")
-    collection = None if admitted is None else admitted.value
-    if (
-        type(collection) is not CandidateCollection
-        or collection.item_type != "protein.structure"
-        or not collection.items
-    ):
+    admitted = call.inputs["structure_candidates"]
+    collection = cast(CandidateCollection, admitted.value)
+    if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(
             "structure_candidates must be a nonempty protein.structure "
             "CandidateCollection"
         )
-    candidates_by_id: dict[str, Candidate] = {}
-    for candidate in collection.items:
-        if (
-            type(candidate) is not Candidate
-            or type(candidate.data) is not ProteinStructure
-            or not candidate.candidate_id
-            or candidate.candidate_id in candidates_by_id
-        ):
-            raise ValueError(
-                "Candidate structure association requires complete exact "
-                "Candidate references"
-            )
-        candidates_by_id[candidate.candidate_id] = candidate
-
     references_by_id = {
         reference.candidate_id: reference
         for reference in admitted.candidate_data
@@ -1261,25 +1205,12 @@ def _candidate_normalizations_by_id(
     value: object,
     references_by_id: Mapping[str, CandidateDataReference],
 ) -> dict[str, ModifiedResidueNormalizationCollection]:
-    if type(value) is not CandidateModifiedResidueNormalizationAssociations:
-        raise ValueError(
-            "Candidate residue-axis resolution requires complete exact "
-            "Candidate references for modified-residue normalizations"
-        )
+    associations = cast(CandidateModifiedResidueNormalizationAssociations, value)
     entries_by_id: dict[
         str,
         CandidateModifiedResidueNormalizationAssociation,
     ] = {}
-    for entry in value.entries:
-        if (
-            type(entry)
-            is not CandidateModifiedResidueNormalizationAssociation
-            or entry.subject.candidate_id in entries_by_id
-        ):
-            raise ValueError(
-                "Candidate residue-axis resolution requires complete exact "
-                "Candidate references for modified-residue normalizations"
-            )
+    for entry in associations.entries:
         entries_by_id[entry.subject.candidate_id] = entry
     if set(entries_by_id) != set(references_by_id) or any(
         entries_by_id[candidate_id].subject != reference
@@ -1397,16 +1328,7 @@ class StructureTransformImplementation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
         node_parameters = call.node_parameters
-        binding_parameters = call.binding_parameters
         if self._operation == "normalize_csh_parent_span_candidates":
-            if (
-                binding_parameters
-                or node_parameters
-                or set(inputs) != {"structure_candidates"}
-            ):
-                raise ValueError(
-                    "Candidate CSH normalization inputs are invalid"
-                )
             candidates_and_references = _candidate_structures_and_references(call)
             normalized_candidates = []
             facts = []
@@ -1468,21 +1390,8 @@ class StructureTransformImplementation:
             }
             return result
         if self._operation == "materialize_candidate_normalizations":
-            if (
-                binding_parameters
-                or node_parameters
-                or set(inputs)
-                != {"structure_candidates", "normalization_facts"}
-            ):
-                raise ValueError(
-                    "Candidate normalization materialization inputs are invalid"
-                )
             candidates_and_references = _candidate_structures_and_references(call)
             facts = inputs["normalization_facts"].value
-            if type(facts) is not CandidateNormalizationFactCollection:
-                raise ValueError(
-                    "normalization_facts must be an exact admitted collection"
-                )
             facts_by_key = {
                 fact.normalization_key: fact for fact in facts.entries
             }
@@ -1504,7 +1413,6 @@ class StructureTransformImplementation:
                     candidates_and_references
                 ):
                     key = candidate.metadata["normalization_key"]
-                    assert type(key) is str
                     fact = facts_by_key[key]
                     output_port = candidate.metadata.get("output_port")
                     sample_slot = candidate.metadata.get("sample_slot")
@@ -1549,17 +1457,10 @@ class StructureTransformImplementation:
                 )
             }
         if self._operation == "project_single_residue_axis":
-            if (
-                binding_parameters
-                or node_parameters
-                or set(inputs) != {"structure_candidates", "residue_axes"}
-            ):
-                raise ValueError("single residue-axis projection inputs are invalid")
             candidates_and_references = _candidate_structures_and_references(call)
             axes = inputs["residue_axes"].value
             if (
                 len(candidates_and_references) != 1
-                or type(axes) is not CandidateResolvedResidueAxisAssociations
                 or len(axes.entries) != 1
                 or axes.entries[0].subject != candidates_and_references[0][1]
             ):
@@ -1569,26 +1470,10 @@ class StructureTransformImplementation:
             with self._run_resources.engine_invocation():
                 return {"residue_axis": axes.entries[0].residue_axis}
         if self._operation == "extract_sequence_candidates":
-            if (
-                binding_parameters
-                or node_parameters
-                or set(inputs) != {"structure_candidates", "residue_axes"}
-            ):
-                raise ValueError(
-                    "Candidate sequence extraction inputs are invalid"
-                )
             candidates_and_references = _candidate_structures_and_references(
                 call
             )
             residue_axes = inputs["residue_axes"].value
-            if (
-                type(residue_axes)
-                is not CandidateResolvedResidueAxisAssociations
-            ):
-                raise ValueError(
-                    "Candidate sequence extraction requires exact-reference "
-                    "resolved residue-axis associations"
-                )
             axes_by_id = {
                 entry.subject.candidate_id: entry
                 for entry in residue_axes.entries
@@ -1634,21 +1519,6 @@ class StructureTransformImplementation:
                     )
                 }
         if self._operation == "resolve_candidate_residue_axes":
-            if (
-                binding_parameters
-                or node_parameters
-                or set(inputs)
-                not in (
-                    {"structure_candidates"},
-                    {
-                        "structure_candidates",
-                        "modified_residue_normalizations",
-                    },
-                )
-            ):
-                raise ValueError(
-                    "Candidate residue-axis resolution inputs are invalid"
-                )
             candidates_and_references = _candidate_structures_and_references(
                 call
             )
@@ -1683,18 +1553,6 @@ class StructureTransformImplementation:
                     )
                 }
         if self._operation == "resolve_residue_axis":
-            if (
-                binding_parameters
-                or node_parameters
-                or set(inputs)
-                not in (
-                    {"structure"},
-                    {"structure", "modified_residue_normalizations"},
-                )
-            ):
-                raise ValueError(
-                    "residue-axis resolution inputs are invalid"
-                )
             with self._run_resources.engine_invocation():
                 return {
                     "residue_axis": resolve_residue_axis(
@@ -1714,21 +1572,7 @@ class StructureTransformImplementation:
             expected_input = "residue_axis"
         else:
             expected_input = "structure"
-        if binding_parameters or set(inputs) != {expected_input}:
-            raise ValueError(
-                "structure transform requires exactly one declared input"
-            )
         structure = inputs[expected_input].value
-        expected_parameters = (
-            {"chain_ids"}
-            if self._operation in {
-                "select_chains",
-                "select_candidate_chains",
-            }
-            else set()
-        )
-        if set(node_parameters) != expected_parameters:
-            raise ValueError("structure transform parameters are invalid")
         with self._run_resources.engine_invocation():
             if self._operation == "select_chains":
                 return {
@@ -1782,10 +1626,6 @@ class StructureTransformImplementation:
                     )
                 }
             if self._operation == "backbone_to_structure":
-                if type(structure) is not ProteinStructure:
-                    raise ValueError(
-                        "backbone bridge requires a ProteinStructure"
-                    )
                 return {
                     "structure": ProteinStructure(
                         pdb_string=structure.pdb_string,

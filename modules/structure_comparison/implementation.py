@@ -44,8 +44,8 @@ def _candidate_references(
     *,
     port_name: str,
 ) -> tuple[CandidateDataReference, ...]:
-    admitted = call.inputs.get(port_name)
-    collection = None if admitted is None else admitted.value
+    admitted = call.inputs[port_name]
+    collection = admitted.value
     if collection.item_type != "protein.structure" or not collection.items:
         raise ValueError(
             f"{port_name} must carry non-empty exact structure Candidates"
@@ -126,8 +126,6 @@ class StructureComparisonImplementation:
         self._pairing_mode = pairing_mode
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        if call.binding_parameters:
-            raise ValueError("structure comparison Bindings accept no parameters")
         if self._operation in {"align_single", "align_pairwise"}:
             return self._align(call)
         if self._operation in {"rmsd", "tm_score"}:
@@ -142,26 +140,10 @@ class StructureComparisonImplementation:
         raise ValueError("Binding selected an unknown alignment Method")
 
     def _align(self, call: OperationCall) -> dict[str, Any]:
-        expected_inputs = {
-            "subjects",
-            "subject_residue_axes",
-            "references",
-            "reference_residue_axes",
-        }
-        if self._operation == "align_pairwise" and self._pairing_mode == (
-            "per_subject_counterpart"
-        ):
-            expected_inputs.add("pairing")
-        if set(call.inputs) != expected_inputs or set(call.node_parameters) - {
-            "pin_matching_chain_ids"
-        }:
-            raise ValueError("structure alignment inputs are unresolved")
         pin_matching_chain_ids = call.node_parameters.get(
             "pin_matching_chain_ids",
             False,
         )
-        if type(pin_matching_chain_ids) is not bool:
-            raise ValueError("pin_matching_chain_ids must be boolean")
 
         subjects = _candidate_references(call, port_name="subjects")
         references = _candidate_references(call, port_name="references")
@@ -246,22 +228,8 @@ class StructureComparisonImplementation:
         return self._produced_observations[0]
 
     def _observe(self, call: OperationCall) -> dict[str, Any]:
-        expected_inputs = {"alignments", "subjects", "references"}
-        if self._pairing_mode == "per_subject_counterpart":
-            expected_inputs.add("pairing")
-        if (
-            set(call.inputs) != expected_inputs
-            or call.node_parameters
-            or self._pairing_mode
-            not in {"fixed_reference", "per_subject_counterpart"}
-        ):
-            raise ValueError("structure metric inputs are unresolved")
-        admitted_alignments = call.inputs.get("alignments")
-        alignments = (
-            None
-            if admitted_alignments is None
-            else admitted_alignments.value
-        )
+        admitted_alignments = call.inputs["alignments"]
+        alignments = admitted_alignments.value
         if not alignments:
             raise ValueError("structure metrics require alignment evidence")
         subjects = [alignment.subject for alignment in alignments]

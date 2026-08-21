@@ -1,6 +1,7 @@
 """Sequence-aware CA alignment owned by structure comparison."""
 
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 from Bio.Align import substitution_matrices
@@ -285,24 +286,11 @@ def _segment_sequence(
 ) -> tuple[str, tuple[str, ...]]:
     segment = axis.segments[segment_index]
     residue_ids = tuple(segment.residue_ids)
-    assert axis.layout.residue_ids is not None
+    layout_residue_ids = cast(tuple[str, ...], axis.layout.residue_ids)
     sequence_by_id = dict(
-        zip(axis.layout.residue_ids, axis.sequence, strict=True)
+        zip(layout_residue_ids, axis.sequence, strict=True)
     )
     return "".join(sequence_by_id[item] for item in residue_ids), residue_ids
-
-
-def _validate_segment_indices(
-    axis: ResolvedStructureResidueAxis,
-    *,
-    role: str,
-) -> None:
-    actual = tuple(segment.segment_index for segment in axis.segments)
-    expected = tuple(range(len(axis.segments)))
-    if actual != expected:
-        raise ValueError(
-            f"{role} axis segment_index values must equal tuple positions"
-        )
 
 
 def _assignment_score(
@@ -457,12 +445,16 @@ def _align_resolved_axes_tm_align(
 ) -> ResolvedAxisAlignment:
     if len(subject_axis.segments) != 1 or len(reference_axis.segments) != 1:
         raise ValueError("structure-first tm_align requires one segment per axis")
-    assert subject_axis.layout.residue_ids is not None
-    assert reference_axis.layout.residue_ids is not None
+    subject_residue_ids = cast(
+        tuple[str, ...], subject_axis.layout.residue_ids
+    )
+    reference_residue_ids = cast(
+        tuple[str, ...], reference_axis.layout.residue_ids
+    )
     subject_entries = tuple(
         (residue_id, amino_acid, subject_axis.coordinate_for(residue_id, "CA"))
         for residue_id, amino_acid, has_ca in zip(
-            subject_axis.layout.residue_ids,
+            subject_residue_ids,
             subject_axis.sequence,
             subject_axis.ca_coordinate_mask,
             strict=True,
@@ -476,7 +468,7 @@ def _align_resolved_axes_tm_align(
             reference_axis.coordinate_for(residue_id, "CA"),
         )
         for residue_id, amino_acid, has_ca in zip(
-            reference_axis.layout.residue_ids,
+            reference_residue_ids,
             reference_axis.sequence,
             reference_axis.ca_coordinate_mask,
             strict=True,
@@ -621,15 +613,6 @@ def align_resolved_axes(
 ) -> ResolvedAxisAlignment:
     """Align two resolved scalar axes by sequence before one global SVD."""
 
-    if (
-        type(subject_axis) is not ResolvedStructureResidueAxis
-        or type(reference_axis) is not ResolvedStructureResidueAxis
-    ):
-        raise ValueError("alignment requires two resolved structure residue axes")
-    if not subject_axis.segments or not reference_axis.segments:
-        raise ValueError("alignment requires non-empty segment topology")
-    _validate_segment_indices(subject_axis, role="subject")
-    _validate_segment_indices(reference_axis, role="reference")
     if correspondence_method == "structure_first_tm_align":
         return _align_resolved_axes_tm_align(
             subject_axis,
@@ -684,16 +667,22 @@ def align_resolved_axes(
         )
         for subject_index, reference_index in assigned_segments
     )
+    subject_residue_ids = cast(
+        tuple[str, ...], subject_axis.layout.residue_ids
+    )
+    reference_residue_ids = cast(
+        tuple[str, ...], reference_axis.layout.residue_ids
+    )
     subject_mask = dict(
         zip(
-            subject_axis.layout.residue_ids or (),
+            subject_residue_ids,
             subject_axis.ca_coordinate_mask,
             strict=True,
         )
     )
     reference_mask = dict(
         zip(
-            reference_axis.layout.residue_ids or (),
+            reference_residue_ids,
             reference_axis.ca_coordinate_mask,
             strict=True,
         )

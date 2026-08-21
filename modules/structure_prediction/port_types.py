@@ -400,7 +400,6 @@ def prediction_axis_reference(
     axis: PredictionResidueAxis,
 ) -> ResidueAxisReference:
     """Project one scalar prediction axis into its exact Score reference."""
-    _validate_prediction_residue_axis(axis)
     return ResidueAxisReference(
         axis_kind="prediction_input",
         axis_contract=ExactContractReference(
@@ -417,10 +416,9 @@ def prediction_axis_reference(
 def _confidence_axis_references(
     value: object,
 ) -> tuple[ResidueAxisReference, ...]:
-    _validate_confidence_facts(value)
-    assert type(value) is ConfidenceFactCollection
+    admitted = cast(ConfidenceFactCollection, value)
     references: list[ResidueAxisReference] = []
-    for entry in value.entries:
+    for entry in admitted.entries:
         reference = prediction_axis_reference(entry.prediction_axis)
         if reference not in references:
             references.append(reference)
@@ -430,9 +428,8 @@ def _confidence_axis_references(
 def _confidence_method_references(
     value: object,
 ) -> tuple[ExactContractReference, ...]:
-    _validate_confidence_facts(value)
-    assert type(value) is ConfidenceFactCollection
-    return (value.observation_method,)
+    admitted = cast(ConfidenceFactCollection, value)
+    return (admitted.observation_method,)
 
 
 CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(

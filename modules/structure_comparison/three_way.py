@@ -204,8 +204,6 @@ class ThreeWayConsistencyImplementation:
         self._classification_method = classification_method
 
     def execute(self, call: OperationCall) -> Mapping[str, object]:
-        if call.node_parameters or call.binding_parameters:
-            raise ValueError("three-way consistency accepts no parameters")
         input_candidate, input_reference = _candidate_scope(
             call,
             "input_structures",

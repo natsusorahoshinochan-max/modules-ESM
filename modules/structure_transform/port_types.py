@@ -578,41 +578,6 @@ def validate_resolved_axis(value: object) -> None:
                 "modified-residue normalization lacks a matching disposition"
             )
 
-    explicit_normalization_identities = {
-        _normalization_identity(
-            disposition.component_id,
-            disposition.observed_residue_id,
-            disposition.parent_residue_ids,
-            disposition.parent_sequence,
-        )
-        for disposition in value.component_dispositions
-        if disposition.normalization_source == "explicit_mapping"
-    }
-    explicit_normalizations = ModifiedResidueNormalizationCollection(
-        entries=tuple(
-            normalization
-            for normalization in value.modified_residue_normalizations.entries
-            if _normalization_identity(
-                normalization.component_id,
-                normalization.observed_residue_id,
-                normalization.parent_residue_ids,
-                normalization.parent_sequence,
-            )
-            in explicit_normalization_identities
-        )
-    )
-    from .implementation import resolve_residue_axis
-
-    canonical = resolve_residue_axis(
-        value.structure,
-        explicit_normalizations,
-    )
-    if canonical != value:
-        raise ValueError(
-            "resolved residue axis does not match its embedded structure"
-        )
-
-
 def _axis_to_wire(value: object) -> object:
     assert type(value) is ResolvedStructureResidueAxis
     return {
@@ -1039,17 +1004,14 @@ def _candidate_axes_from_wire(value: object) -> object:
                 residue_axis=residue_axis,
             )
         )
-    result = CandidateResolvedResidueAxisAssociations(entries=tuple(entries))
-    validate_candidate_resolved_axis_associations(result)
-    return result
+    return CandidateResolvedResidueAxisAssociations(entries=tuple(entries))
 
 
 def _candidate_axis_references(
     value: object,
 ) -> tuple[ResidueAxisReference, ...]:
     """Project independently identified scalar axes from one association set."""
-    validate_candidate_resolved_axis_associations(value)
-    assert type(value) is CandidateResolvedResidueAxisAssociations
+    admitted = cast(CandidateResolvedResidueAxisAssociations, value)
     reference = RESOLVED_AXIS_PORT_TYPE.reference()
     axis_contract = ExactContractReference(
         contract_kind=reference["contract_kind"],
@@ -1067,7 +1029,7 @@ def _candidate_axis_references(
             source=entry.subject,
             layout=entry.residue_axis.layout,
         )
-        for entry in value.entries
+        for entry in admitted.entries
     )
 
 
