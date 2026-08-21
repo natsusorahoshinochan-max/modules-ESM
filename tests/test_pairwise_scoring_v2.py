@@ -34,7 +34,7 @@ from core import (
     validate_produced_score_collection,
 )
 from core.port_types import PortValueError
-from core.run_execution_v2 import V2RunService
+from core.run_execution_v2 import _NodeExecutionAttemptModule
 from core.workflow_v2 import WorkflowEdge as V2WorkflowEdge
 from datatypes import (
     Candidate,
@@ -1486,14 +1486,13 @@ def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
         ),
         "scores": ScoreCollection("raw-scores", [fixed, paired]),
     }
-    service = object.__new__(V2RunService)
-    service._catalog = catalog
+    attempts = object.__new__(_NodeExecutionAttemptModule)
 
     with pytest.raises(
         PortValueError,
         match="cannot reference a same-operation output Candidate",
     ):
-        service._normalize_candidate_outputs(
+        attempts._normalize_candidate_outputs(
             plan=compiled.execution_plan,
             node=node,
             result_identity="sha256:" + "a" * 64,
@@ -1527,14 +1526,13 @@ def test_one_raw_candidate_cannot_claim_two_output_slots() -> None:
             [shared],
         ),
     }
-    service = object.__new__(V2RunService)
-    service._catalog = catalog
+    attempts = object.__new__(_NodeExecutionAttemptModule)
 
     with pytest.raises(
         PortValueError,
         match="reuses one producer identity",
     ):
-        service._normalize_candidate_outputs(
+        attempts._normalize_candidate_outputs(
             plan=compiled.execution_plan,
             node=node,
             result_identity="sha256:" + "a" * 64,

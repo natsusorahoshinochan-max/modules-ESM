@@ -1000,9 +1000,9 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
                 )
             ]
             assert bound_nodes
-            assert message["sequence"] < min(
+            assert min(
                 attempt_sequences[node_id] for node_id in bound_nodes
-            )
+            ) < message["sequence"]
         proteinmpnn_readiness = next(
             message["event"]
             for message in first_events

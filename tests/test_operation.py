@@ -21,7 +21,7 @@ from core.scoring_v2 import (
     validate_produced_score_collection_from_facts,
 )
 from core.value_admission import admitted_port_values, normalize_scientific_outputs
-from core.run_execution_v2 import V2RunService
+from core.run_execution_v2 import _NodeExecutionAttemptModule
 from datatypes import (
     Candidate,
     CandidateCollection,
@@ -322,8 +322,8 @@ def test_output_admission_rejects_a_method_not_owned_by_the_binding(
         PortValueError,
         match="does not equal the producing Binding Method",
     ):
-        V2RunService._admit_outputs(
-            object.__new__(V2RunService),
+        _NodeExecutionAttemptModule._admit_outputs(
+            object.__new__(_NodeExecutionAttemptModule),
             plan,
             node,
             {"confidence_facts": "facts"},
@@ -374,8 +374,8 @@ def test_output_admission_accepts_the_exact_binding_method_projection() -> None:
         _runtime=SimpleNamespace(candidate_data_port_types={})
     )
 
-    _, admitted = V2RunService._admit_outputs(
-        object.__new__(V2RunService),
+    _, admitted = _NodeExecutionAttemptModule._admit_outputs(
+        object.__new__(_NodeExecutionAttemptModule),
         plan,
         node,
         {"confidence_facts": "facts"},

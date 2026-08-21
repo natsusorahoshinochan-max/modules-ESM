@@ -894,93 +894,6 @@ def _pipeline_catalog(
     )
 
 
-def test_runtime_rejects_multiple_admitted_values_for_one_input(
-    tmp_path,
-) -> None:
-    catalog = _pipeline_catalog([])
-    projects = ProjectManager(tmp_path / "projects")
-    authoring = WorkflowAuthoringService(projects, catalog)
-    service = run_execution_v2.V2RunService(
-        projects,
-        catalog,
-        authoring,
-        run_execution_v2.EnvironmentConfiguration({}),
-    )
-    workflow = parse_workflow_document(
-        {
-            "schema_version": "2.1.0",
-            "workflow_id": "workflow-multiplicity-backstop",
-            "nodes": [
-                {
-                    "node_id": "source",
-                    "node_type_id": "test.pipeline.source",
-                    "node_type_version": "2.1.0",
-                    "binding_id": "test.pipeline.source.direct",
-                    "binding_version": "2.1.0",
-                    "node_parameters": {},
-                    "binding_parameters": {},
-                },
-                {
-                    "node_id": "sink",
-                    "node_type_id": "test.pipeline.sink",
-                    "node_type_version": "2.1.0",
-                    "binding_id": "test.pipeline.sink.direct",
-                    "binding_version": "2.1.0",
-                    "node_parameters": {},
-                    "binding_parameters": {},
-                },
-            ],
-            "edges": [
-                {
-                    "source_node_id": "source",
-                    "source_port": "text",
-                    "target_node_id": "sink",
-                    "target_port": "text",
-                }
-            ],
-            "contract_lock": [],
-        }
-    )
-    plan = compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    ).execution_plan
-    target = next(node for node in plan.nodes if node.node_id == "sink")
-    text = catalog.require_port_type("test.canonical_text", "2.1.0")
-    single = admitted_port_values(
-        port_type=text,
-        multiplicity="many",
-        values=("FIRST",),
-        candidate_data_port_types={},
-    )
-    admitted = admitted_port_values(
-        port_type=text,
-        multiplicity="many",
-        values=("FIRST", "SECOND"),
-        candidate_data_port_types={},
-    )
-
-    try:
-        inputs = service._inputs_for(  # noqa: SLF001 - contract seam
-            target,
-            {("source", "text"): single},
-        )
-        assert inputs["text"].value == "first"
-        assert inputs["text"].values[0] is single.values[0]
-
-        with pytest.raises(
-            RuntimeError,
-            match="one-valued input Port 'text'.*2 admitted values",
-        ):
-            service._inputs_for(  # noqa: SLF001 - corruption backstop seam
-                target,
-                {("source", "text"): admitted},
-            )
-    finally:
-        service.shutdown()
-
-
 def _artifact_catalog(
     calls: list[str],
     *,
@@ -1535,7 +1448,7 @@ def test_started_engine_terminal_statuses_are_causally_closed(
 
 
 @pytest.mark.parametrize("outcome", ("cancelled", "interrupted"))
-def test_pre_schedule_termination_has_disposition_without_false_attempt(
+def test_factory_termination_closes_node_attempt_without_operation(
     tmp_path,
     monkeypatch,
     outcome: str,
@@ -1576,18 +1489,14 @@ def test_pre_schedule_termination_has_disposition_without_false_attempt(
         ("source", outcome, []),
         ("sink", "blocked", ["source"]),
     ]
-    assert not any(
-        event["event"]["type"]
-        in {
-            "node_attempt_started",
-            "operation_attempt_started",
-            "engine_invocation_started",
-        }
-        for event in events
-    )
+    event_types = [event["event"]["type"] for event in events]
+    assert event_types.count("node_attempt_started") == 1
+    assert event_types.count("node_attempt_terminal") == 1
+    assert "operation_attempt_started" not in event_types
+    assert "engine_invocation_started" not in event_types
 
 
-def test_invalid_scientific_operation_factory_fails_before_any_attempt(
+def test_invalid_scientific_operation_factory_fails_after_attempt_start(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1619,15 +1528,13 @@ def test_invalid_scientific_operation_factory_fails_before_any_attempt(
     assert started.status_code == 500
     validate_error(started.json(), status=500)
     assert started.json()["error"]["code"] == "internal_error"
-    assert not any(
-        fact["fact_type"]
-        in {
-            "node_attempt_started",
-            "operation_attempt_started",
-            "engine_invocation_started",
-        }
-        for fact in _durable_facts(tmp_path / "runs")
-    )
+    fact_types = [
+        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
+    assert "node_attempt_terminal" not in fact_types
 
 
 def test_cache_replay_closes_only_the_scheduled_node_attempt(
@@ -1900,6 +1807,66 @@ def test_adapter_preoperation_error_precedes_provider_readiness(
     assert calls == ["randomness"]
 
 
+def test_readiness_programming_error_fails_after_attempt_start(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    def invalid_readiness(
+        _check_input: ReadinessCheckInput,
+    ) -> ReadinessResult:
+        calls.append("readiness")
+        raise RuntimeError("fixture Readiness invariant failure")
+
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            readiness_checks={"test.direct.local": invalid_readiness},
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "invalid-readiness",
+            },
+        )
+
+    assert started.status_code == 500
+    validate_error(started.json(), status=500)
+    assert started.json()["error"]["code"] == "internal_error"
+    assert calls == ["readiness"]
+    fact_types = [
+        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert "readiness_attested" not in fact_types
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
+    assert "node_attempt_terminal" not in fact_types
+
+
 def test_result_replay_hit_requires_admitted_output_snapshots() -> None:
     with pytest.raises(TypeError, match="admitted_outputs"):
         ResultReplayHit(
@@ -1965,6 +1932,12 @@ def test_cache_invariant_failure_fails_fast_without_executing_provider(
         assert started.json()["error"]["code"] == "internal_error"
 
     assert calls == ["cache-lookup"]
+    fact_types = [
+        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
+    ]
+    assert fact_types.count("node_attempt_started") == 1
+    assert "operation_attempt_started" not in fact_types
+    assert "engine_invocation_started" not in fact_types
 
 
 def test_public_terminal_wait_helper_never_returns_a_running_projection(
@@ -2201,6 +2174,129 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
         "readiness:test.direct.local",
         "factory:test.direct.local",
         "execute:test.direct.local",
+    ]
+
+
+def test_node_execution_attempt_interface_returns_only_committed_outcome(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_app(
+        frozen_catalog_override=_direct_catalog(calls),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, committed = _commit_one_node(client)
+        service = app.state.run_execution_v2
+        compiled = service._authoring.require_compiled(
+            project_id,
+            workflow_commit_id=committed["workflow_commit_id"],
+        )
+        plan = compiled.execution_plan
+        node = plan.nodes[0]
+        run_id = "run-attempt-interface"
+        contract_roots = tuple(
+            run_execution_v2._execution_plan_contract_roots(plan)
+        )
+        ledger = run_execution_v2._RunEvidenceLedger(
+            service._projects,
+            project_id,
+            run_id,
+            service._plan_evidence(plan),
+            service._ledger_transaction_store,
+            expected_resolved_contracts=tuple(
+                entry.to_public() for entry in plan.resolved_contracts
+            ),
+            expected_contract_roots=contract_roots,
+        )
+        ledger.record(
+            run_execution_v2.RunScopeBinding(
+                workflow_commit_id=committed["workflow_commit_id"],
+                workflow_commit_revision=plan.workflow_commit_revision,
+                workflow_digest=plan.workflow_digest,
+                contract_lock_digest=plan.contract_lock_digest,
+                execution_plan_digest=plan.execution_plan_digest,
+                catalog_contract_digest=plan.catalog_contract_digest,
+                resolved_contracts=tuple(
+                    entry.to_public() for entry in plan.resolved_contracts
+                ),
+                resolved_contract_roots=contract_roots,
+            )
+        )
+        availability = service._availability(node)
+        ledger.record(
+            run_execution_v2.AvailabilityBinding(
+                binding=node.binding.to_public(),
+                catalog_observed_at=availability["observed_at"],
+                available=availability["available"],
+            )
+        )
+        ledger.record(
+            run_execution_v2.RunAdmission(
+                workflow_commit_id=committed["workflow_commit_id"],
+                workflow_commit_revision=plan.workflow_commit_revision,
+            )
+        )
+        ledger.record(
+            run_execution_v2.RunStart(
+                started_at="2026-08-21T00:00:00Z",
+            )
+        )
+        record = run_execution_v2._RunRecord(
+            compiled=compiled,
+            ledger=ledger,
+        )
+        attempts = run_execution_v2._NodeExecutionAttemptModule(
+            projects=service._projects,
+            environment=service._environment,
+            result_replay_source=service._result_replay_source,
+            object_store=service._object_store,
+            project_id=project_id,
+            run_id=run_id,
+            execution_plan=plan,
+            ledger=ledger,
+            run_record=record,
+            availability_by_binding={
+                (
+                    node.binding.contract_id,
+                    node.binding.contract_version,
+                ): availability,
+            },
+        )
+
+        outcome = attempts.execute(
+            node,
+            committed_values={},
+            committed_artifacts=(),
+            cache_bypassed=False,
+        )
+
+    assert outcome.disposition == "succeeded"
+    assert outcome.artifacts == ()
+    assert outcome.admitted_outputs[("direct", "text")].value == "READY"
+    assert [fact["fact_type"] for fact in ledger.facts[-4:]] == [
+        "operation_attempt_terminal",
+        "outputs_published",
+        "node_attempt_terminal",
+        "node_disposition",
     ]
 
 
