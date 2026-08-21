@@ -230,23 +230,11 @@ class SecondaryStructureAgreementOperation:
         *,
         resources: RunResources,
         method: ExactContractReference,
-        produced_observations: tuple[ResolvedProducedObservation, ...],
+        produced_observation: ResolvedProducedObservation,
     ) -> None:
         self._resources = resources
         self._method = method
-        self._produced_observations = produced_observations
-
-    def _produced_observation(self) -> ResolvedProducedObservation:
-        matches = tuple(
-            observation
-            for observation in self._produced_observations
-            if observation.output_port == "scores"
-        )
-        if len(matches) != 1:
-            raise RuntimeError(
-                "agreement Binding must resolve one exact Observation"
-            )
-        return matches[0]
+        self._produced_observation = produced_observation
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
@@ -306,7 +294,7 @@ class SecondaryStructureAgreementOperation:
                 expected_value == observed_value
                 for expected_value, observed_value in compared
             ) / len(compared)
-            produced = self._produced_observation()
+            produced = self._produced_observation
             profile = produced.context_profile
             observation = ScoreObservation(
                 subject=subject_reference,

@@ -131,13 +131,13 @@ class ProteinSolImplementation:
         produced: ResolvedProducedObservation,
     ) -> IntrinsicObservationContext | CalibrationObservationContext:
         profile = produced.context_profile
-        if produced.output_partition == "protein_sol_pi":
+        if profile["kind"] == "intrinsic":
             return IntrinsicObservationContext()
         return CalibrationObservationContext(
-            calibration_metric=str(profile["calibration_metric"]),
-            calibration_value=float(profile["calibration_value"]),
-            calibration_unit=str(profile["calibration_unit"]),
-            population_id=str(profile["population_id"]),
+            calibration_metric=cast(str, profile["calibration_metric"]),
+            calibration_value=cast(float, profile["calibration_value"]),
+            calibration_unit=cast(str, profile["calibration_unit"]),
+            population_id=cast(str, profile["population_id"]),
         )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:

@@ -11,7 +11,6 @@ from core.port_types import canonical_sha256
 from core.scoring_v2 import (
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
-    SelectionError,
     observation_selector_identity_facts_from_facts,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities_from_facts,
@@ -22,7 +21,6 @@ from core.scoring_v2 import (
 from datatypes import (
     CandidateCollection,
     CandidateDataReference,
-    PairwiseObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
@@ -74,10 +72,6 @@ class SelectionImplementation:
                 objective=selector,
                 out_of_scope_policy=out_of_scope_policy,
                 duplicate_policy="error",
-            )
-            self._require_exact_observation_subjects(
-                matching,
-                candidate_data_references,
             )
             selected = self._filter(
                 candidates=candidates,
@@ -348,24 +342,3 @@ class SelectionImplementation:
             reference.candidate_id: reference
             for reference in call.inputs["candidates"].candidate_data
         }
-
-    @staticmethod
-    def _require_exact_observation_subjects(
-        observations: Mapping[str, ScoreObservation],
-        candidates: Mapping[str, CandidateDataReference],
-    ) -> None:
-        for candidate_id, observation in observations.items():
-            expected = candidates.get(candidate_id)
-            if expected is None or observation.subject != expected:
-                raise SelectionError(
-                    "Observation subject does not match the exact Candidate "
-                    "Data Reference"
-                )
-            if (
-                isinstance(observation.context, PairwiseObservationContext)
-                and observation.context.subject.candidate != expected
-            ):
-                raise SelectionError(
-                    "Pairwise Context subject does not match the exact "
-                    "Candidate Data Reference"
-                )

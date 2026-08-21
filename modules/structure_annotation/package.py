@@ -298,7 +298,7 @@ def _build(operation: str):
             return SecondaryStructureAgreementOperation(
                 resources=context.resources,
                 method=context.method,
-                produced_observations=context.produced_observations,
+                produced_observation=context.produced_observations[0],
             )
         if operation == "apply_secondary_structure_to_prompt":
             return ApplySecondaryStructureToPromptOperation(context.resources)

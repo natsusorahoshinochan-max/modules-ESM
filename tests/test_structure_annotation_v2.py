@@ -47,7 +47,6 @@ from modules.structure_annotation import (
 from modules.structure_annotation.implementation import (
     DSSPComputeOperation,
     SASAComputeOperation,
-    SecondaryStructureAgreementOperation,
     SecondaryStructureExtractOperation,
 )
 from modules.structure_annotation.package import (
@@ -149,6 +148,18 @@ def _prompt_authoring_packages():
     )
 
     return (PROMPT_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
+
+
+def _agreement_operation(resources: _InvocationRecorder) -> Any:
+    catalog = build_frozen_catalog(
+        (STRUCTURE_ANNOTATION_PACKAGE, *_prompt_authoring_packages())
+    )
+    return build_operation(
+        catalog,
+        "structure_annotation.secondary_structure_agreement.direct",
+        resources,
+        binding_version="6.0.0",
+    )
 
 
 def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
@@ -835,18 +846,7 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
     track_role: str,
 ) -> None:
     resources = _InvocationRecorder()
-    operation = SecondaryStructureAgreementOperation(
-        resources=resources,
-        method=ExactContractReference(
-            contract_kind="method",
-            contract_id=(
-                "structure_annotation.secondary_structure_agreement.method"
-            ),
-            contract_version="3.0.0",
-            contract_digest="sha256:" + ("d" * 64),
-        ),
-        produced_observations=(),
-    )
+    operation = _agreement_operation(resources)
     layout = ResidueLayout(
         chain_id="A",
         length=1,
@@ -941,18 +941,7 @@ def test_agreement_rejects_track_candidate_mismatch_before_engine(
 
 def test_agreement_checks_layout_after_exact_participant_binding() -> None:
     resources = _InvocationRecorder()
-    operation = SecondaryStructureAgreementOperation(
-        resources=resources,
-        method=ExactContractReference(
-            contract_kind="method",
-            contract_id=(
-                "structure_annotation.secondary_structure_agreement.method"
-            ),
-            contract_version="3.0.0",
-            contract_digest="sha256:" + ("d" * 64),
-        ),
-        produced_observations=(),
-    )
+    operation = _agreement_operation(resources)
     subject = _candidate_reference("subject-1")
     reference = _candidate_reference("reference-1", digest_symbol="c")
     structure = ProteinStructure(
@@ -1010,18 +999,7 @@ def test_agreement_checks_layout_after_exact_participant_binding() -> None:
 
 def test_agreement_requires_exact_subject_axis_join_before_engine() -> None:
     resources = _InvocationRecorder()
-    operation = SecondaryStructureAgreementOperation(
-        resources=resources,
-        method=ExactContractReference(
-            contract_kind="method",
-            contract_id=(
-                "structure_annotation.secondary_structure_agreement.method"
-            ),
-            contract_version="3.0.0",
-            contract_digest="sha256:" + ("d" * 64),
-        ),
-        produced_observations=(),
-    )
+    operation = _agreement_operation(resources)
     subject = _candidate_reference("subject-1")
     reference = _candidate_reference("reference-1", digest_symbol="c")
     wrong_subject = _candidate_reference(

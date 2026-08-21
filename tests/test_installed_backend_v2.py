@@ -447,7 +447,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                             "binding_id": (
                                 "protein_io.export_structure.direct"
                             ),
-                            "binding_version": "5.0.0",
+                            "binding_version": "6.0.0",
                             "node_parameters": {},
                             "binding_parameters": {},
                         }

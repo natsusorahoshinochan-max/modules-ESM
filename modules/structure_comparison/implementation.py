@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core import OperationCall, OperationContext, ResolvedProducedObservation
+from core import OperationCall, OperationContext
 from datatypes import (
     CandidateDataReference,
     PairwiseCandidateMapping,
@@ -222,11 +222,6 @@ class StructureComparisonImplementation:
             )
         return {"alignments": tuple(alignments)}
 
-    def _produced_observation(self) -> ResolvedProducedObservation:
-        if len(self._produced_observations) != 1:
-            raise ValueError("metric Binding lacks one produced Observation")
-        return self._produced_observations[0]
-
     def _observe(self, call: OperationCall) -> dict[str, Any]:
         admitted_alignments = call.inputs["alignments"]
         alignments = admitted_alignments.value
@@ -259,7 +254,7 @@ class StructureComparisonImplementation:
                 "alignment evidence contradicts exact Candidate scope"
             )
 
-        produced = self._produced_observation()
+        produced = self._produced_observations[0]
         entries: list[ScoreObservation] = []
         with self._run_resources.engine_invocation(
             engine_role=f"evidence_{self._operation}",

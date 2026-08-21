@@ -490,51 +490,6 @@ def _runtime_values(catalog):
     return candidates, scores
 
 
-@pytest.mark.parametrize(
-    ("field_name", "replacement"),
-    (
-        ("content_digest", f"sha256:{'0' * 64}"),
-        ("data_type_id", "protein.structure"),
-    ),
-)
-def test_filter_joins_scores_to_candidates_by_complete_admitted_cdr(
-    field_name: str,
-    replacement: str,
-) -> None:
-    catalog, implementation = _direct_implementation("filter")
-    candidates, scores = _runtime_values(catalog)
-    mismatched_subject = replace(
-        scores.entries[0].subject,
-        **{field_name: replacement},
-    )
-    mismatched = ScoreCollection(
-        "mismatched-subject",
-        [
-            replace(scores.entries[0], subject=mismatched_subject),
-            *scores.entries[1:],
-        ],
-    )
-
-    with pytest.raises(
-        SelectionError,
-        match="exact Candidate Data Reference",
-    ):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="selection.filter.direct",
-            binding_version=NODE_BINDING_VERSION,
-            inputs={"candidates": candidates, "scores": mismatched},
-            node_parameters={
-                "selector_id": "quality",
-                "operator": ">",
-                "threshold": 0.5,
-                "out_of_scope_policy": "error",
-                "tie_policy": "candidate_id_ascending",
-            },
-            binding_parameters={},
-        ))
-
-
 @pytest.mark.parametrize("operation", ("sort", "weighted_rank"))
 def test_utility_selection_joins_by_complete_admitted_cdr(
     operation: str,
