@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import cast
+from typing import TypedDict
 
 from datatypes import (
     FunctionAnnotation,
@@ -14,14 +14,25 @@ from datatypes import (
     ResidueTrack,
 )
 
-from .domain import build_residue_map, residue_chain
+from .domain import (
+    build_residue_map,
+    ResidueEditDeclaration,
+    residue_chain,
+)
+
+
+class InsertionDeclaration(TypedDict):
+    """One Plan-admitted masked-residue insertion."""
+
+    after_residue_id: str
+    before_residue_id: str
+    inserted_residue_ids: Sequence[str]
 
 
 def _insertions_by_boundary(
     source_ids: tuple[str, ...],
-    insertions: object,
+    insertions: Sequence[InsertionDeclaration],
 ) -> dict[int, tuple[str, ...]]:
-    admitted_insertions = cast(Sequence[Mapping[str, object]], insertions)
     source_index = {
         residue_id: index for index, residue_id in enumerate(source_ids)
     }
@@ -29,10 +40,10 @@ def _insertions_by_boundary(
     inserted_set: set[str] = set()
     boundaries: dict[int, tuple[str, ...]] = {}
     previous_boundary = -1
-    for index, specification in enumerate(admitted_insertions):
-        after = cast(str, specification["after_residue_id"])
-        before = cast(str, specification["before_residue_id"])
-        inserted = cast(Sequence[str], specification["inserted_residue_ids"])
+    for index, specification in enumerate(insertions):
+        after = specification["after_residue_id"]
+        before = specification["before_residue_id"]
+        inserted = specification["inserted_residue_ids"]
         if after not in source_index or before not in source_index:
             raise ValueError(
                 f"insertions[{index}] boundary contains an unknown residue"
@@ -116,11 +127,11 @@ def _remap_annotations(
 
 
 def insert_masked_residues(
-    prompt: object,
-    insertions: object,
+    prompt: ProteinPrompt,
+    insertions: Sequence[InsertionDeclaration],
 ) -> tuple[ProteinPrompt, ResidueMap]:
     """Insert explicit identities at exact adjacent source boundaries."""
-    source = cast(ProteinPrompt, prompt)
+    source = prompt
     source_layout = source.target_layout
     assert source_layout is not None
     source_ids = tuple(source_layout.residue_ids or ())
@@ -138,7 +149,7 @@ def insert_masked_residues(
         length=len(target_ids),
         residue_ids=target_ids,
     )
-    edits = [
+    edits: list[ResidueEditDeclaration] = [
         {
             "operation": "insert",
             "chain_id": residue_chain(residue_id),

@@ -33,6 +33,8 @@ from datatypes import (
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ProteinSequence,
+    ScoreCollection,
+    ScoreObservation,
 )
 from modules.collection_ops.package import MODULE_PACKAGE
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
@@ -119,6 +121,54 @@ def test_candidate_intersection_and_child_selection_preserve_exact_candidates() 
     )["candidates"]
     assert intersection.item_type == "protein.sequence"
     assert intersection.items == ()
+
+
+def test_score_merge_preserves_exact_i_json_value_types() -> None:
+    from tests.fixtures.collection_ops_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
+    metric = ExactContractReference(
+        **catalog.require_contract(
+            "metric",
+            "contract_test.collection_ops_value",
+            VERSION,
+        ).reference()
+    )
+    method = ExactContractReference(
+        **catalog.require_contract(
+            "method",
+            "contract_test.collection_ops_scorer.method",
+            VERSION,
+        ).reference()
+    )
+    observation = ScoreObservation(
+        subject=CandidateDataReference(
+            "candidate-a",
+            "protein.sequence",
+            "sha256:" + "a" * 64,
+        ),
+        metric=metric,
+        method=method,
+        context=IntrinsicObservationContext(),
+        value={"nested": [True]},
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="collection_ops.merge_scores.direct",
+        binding_version=SCORE_NODE_VERSION,
+        inputs={
+            "scores_a": ScoreCollection("scores-a", (observation,)),
+            "scores_b": ScoreCollection(
+                "scores-b",
+                (replace(observation, value={"nested": [1]}),),
+            ),
+        },
+    )
+
+    with pytest.raises(ValueError, match="conflicting values"):
+        CollectionOpsImplementation("merge_scores").execute(call)
 
 
 def _assert_workflow_commit_owner(

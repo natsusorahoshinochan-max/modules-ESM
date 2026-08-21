@@ -13,6 +13,7 @@ from core import (
     OperationCall,
     OperationContext,
     ResolvedProducedObservation,
+    SelectionInput,
     SelectionObjective,
 )
 from core.value_admission import admitted_port_values
@@ -28,13 +29,14 @@ from datatypes import (
     CandidateDataReference,
     ExactContractReference,
     ResidueAxisReference,
+    ScoreCollection,
 )
 
 
 def select_admitted_candidates(
     *,
-    candidate_inputs: Mapping[Any, CandidateCollection],
-    score_collection_inputs: Mapping[Any, Any],
+    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
+    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
     objectives: Sequence[SelectionObjective],
     catalog: FrozenCatalog,
     limit: int,

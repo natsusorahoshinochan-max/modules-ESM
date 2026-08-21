@@ -84,32 +84,29 @@ def require_function_annotation_layout(
 
 
 def add_function_annotation(
-    layout: object,
-    existing: object | None,
-    annotation: object,
+    layout: ResidueLayout,
+    existing: FunctionAnnotations | None,
+    annotation: Mapping[str, str],
     *,
-    overlap_policy: object,
+    overlap_policy: str,
 ) -> FunctionAnnotations:
     """Add one chain-qualified annotation and canonicalize its ordering."""
-    target = cast(ResidueLayout, layout)
-    admitted_policy = cast(str, overlap_policy)
     if existing is None:
         current = FunctionAnnotations()
     else:
         current = require_function_annotation_layout(
-            cast(FunctionAnnotations, existing),
-            target,
-            overlap_policy=admitted_policy,
+            existing,
+            layout,
+            overlap_policy=overlap_policy,
         )
-    admitted_annotation = cast(Mapping[str, str], annotation)
-    residue_ids = tuple(target.residue_ids or ())
+    residue_ids = tuple(layout.residue_ids or ())
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
-    start_residue_id = admitted_annotation["start_residue_id"]
-    end_residue_id = admitted_annotation["end_residue_id"]
+    start_residue_id = annotation["start_residue_id"]
+    end_residue_id = annotation["end_residue_id"]
     candidate = FunctionAnnotation(
-        label=admitted_annotation["label"],
+        label=annotation["label"],
         start=(
             residue_index[start_residue_id] + 1
             if isinstance(start_residue_id, str)
@@ -122,10 +119,10 @@ def add_function_annotation(
             and end_residue_id in residue_index
             else -1
         ),
-        chain_id=admitted_annotation["chain_id"],
+        chain_id=annotation["chain_id"],
         start_residue_id=start_residue_id,
         end_residue_id=end_residue_id,
-        overlap_policy=admitted_policy,
+        overlap_policy=overlap_policy,
     )
     appended = FunctionAnnotations(
         sorted(
@@ -142,6 +139,6 @@ def add_function_annotation(
     )
     return require_function_annotation_layout(
         appended,
-        target,
-        overlap_policy=admitted_policy,
+        layout,
+        overlap_policy=overlap_policy,
     )

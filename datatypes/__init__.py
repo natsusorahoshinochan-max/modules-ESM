@@ -34,7 +34,7 @@ from datatypes.function_annotations import (
     FunctionAnnotation,
     validate_canonical_function_annotations,
 )
-from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.i_json import freeze_i_json, i_json_values_equal, thaw_i_json
 from datatypes.structure_axis import (
     ResolvedStructureResidueAxis,
     StructureAtomCoordinate,
@@ -80,5 +80,6 @@ __all__ = [
     "validate_canonical_function_annotations",
     "validate_canonical_identifier",
     "freeze_i_json",
+    "i_json_values_equal",
     "thaw_i_json",
 ]

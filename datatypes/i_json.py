@@ -73,3 +73,19 @@ def thaw_i_json(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [thaw_i_json(item) for item in value]
     return value
+
+
+def i_json_values_equal(left: object, right: object) -> bool:
+    """Compare admitted I-JSON values without conflating JSON scalar types."""
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, Mapping) and isinstance(right, Mapping):
+        return set(left) == set(right) and all(
+            i_json_values_equal(left[key], right[key]) for key in left
+        )
+    if isinstance(left, FrozenList) and isinstance(right, FrozenList):
+        return len(left) == len(right) and all(
+            i_json_values_equal(left_item, right_item)
+            for left_item, right_item in zip(left, right, strict=True)
+        )
+    return left == right

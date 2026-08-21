@@ -16,6 +16,7 @@ from datatypes import (
 
 from .annotations import add_function_annotation
 from .domain import (
+    AlignedResidueTrack,
     build_layout,
     build_residue_map,
     map_track,
@@ -70,7 +71,7 @@ class EditResidueLayoutImplementation(_Implementation):
 
 def _selected_track(
     inputs: Mapping[str, AdmittedPort],
-) -> tuple[str, TrackKind, object]:
+) -> tuple[str, TrackKind, AlignedResidueTrack]:
     return next(
         (port, kind, inputs[port].value)
         for port, kind in _TRACK_PORTS.items()
@@ -81,12 +82,11 @@ def _selected_track(
 class MapResidueTrackImplementation(_Implementation):
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
-        port, kind, track = _selected_track(inputs)
+        port, _kind, track = _selected_track(inputs)
         with self._invocation():
             converted = map_track(
                 track,
                 inputs["residue_map"].value,
-                kind=kind,
             )
         return {port: converted}
 

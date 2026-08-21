@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 import math
 import re
-from typing import Any, cast
+from typing import Any, Literal, NotRequired, TypedDict
 
 from datatypes import ResidueLayout, ResidueMap
 from datatypes.protein import (
@@ -39,6 +39,29 @@ class AlignedResidueTrack:
     values: tuple[Any, ...]
 
 
+class ChainDeclaration(TypedDict):
+    """One Plan-admitted chain declaration."""
+
+    chain_id: str
+    length: int
+
+
+class ResidueEditDeclaration(TypedDict):
+    """One Plan-admitted identity-addressed residue edit."""
+
+    operation: Literal["insert", "delete"]
+    chain_id: str
+    residue_id: str
+
+
+class TrackOverrideDeclaration(TypedDict):
+    """One Plan-admitted identity-addressed track override."""
+
+    action: Literal["clear", "preserve", "replace"]
+    residue_id: str
+    value: NotRequired[object]
+
+
 def residue_chain(residue_id: str) -> str:
     """Return the chain encoded by one canonical residue identity."""
     return residue_identity_chain(residue_id)
@@ -52,12 +75,11 @@ def validate_layout(layout: object, *, subject: str) -> ResidueLayout:
     return admitted
 
 
-def build_layout(chains: object) -> ResidueLayout:
+def build_layout(chains: Sequence[ChainDeclaration]) -> ResidueLayout:
     """Construct a canonical layout from ordered chain lengths."""
-    admitted_chains = cast(Sequence[Mapping[str, Any]], chains)
     chain_ids: list[str] = []
     residue_ids: list[str] = []
-    for raw_chain in admitted_chains:
+    for raw_chain in chains:
         chain_id = raw_chain["chain_id"]
         length = raw_chain["length"]
         if chain_id in chain_ids:
@@ -77,17 +99,13 @@ def build_layout(chains: object) -> ResidueLayout:
 
 
 def build_residue_map(
-    source_layout: object,
-    target_layout: object,
-    edits: object,
+    source_layout: ResidueLayout,
+    target_layout: ResidueLayout,
+    edits: Sequence[ResidueEditDeclaration],
 ) -> ResidueMap:
     """Reconcile explicit insert/delete declarations into one residue map."""
-    source = cast(ResidueLayout, source_layout)
-    target = cast(ResidueLayout, target_layout)
-    admitted_edits = cast(Sequence[Mapping[str, Any]], edits)
-
-    source_ids = tuple(source.residue_ids or ())
-    target_ids = tuple(target.residue_ids or ())
+    source_ids = tuple(source_layout.residue_ids or ())
+    target_ids = tuple(target_layout.residue_ids or ())
     source_set = set(source_ids)
     target_set = set(target_ids)
     common = source_set & target_set
@@ -99,7 +117,7 @@ def build_residue_map(
     declared_insertions: set[str] = set()
     declared_deletions: set[str] = set()
     touched: set[str] = set()
-    for raw_edit in admitted_edits:
+    for raw_edit in edits:
         operation = raw_edit["operation"]
         chain_id = raw_edit["chain_id"]
         residue_id = raw_edit["residue_id"]
@@ -132,10 +150,10 @@ def build_residue_map(
     if declared_deletions != expected_deletions:
         raise ValueError("edits do not declare the complete source deletions")
     if (
-        source.length
+        source_layout.length
         + len(declared_insertions)
         - len(declared_deletions)
-        != target.length
+        != target_layout.length
     ):
         raise ValueError("residue edits produce target length drift")
 
@@ -159,8 +177,8 @@ def build_residue_map(
         if residue_id not in target_index
     )
     return ResidueMap(
-        source_layout=source,
-        target_layout=target,
+        source_layout=source_layout,
+        target_layout=target_layout,
         mappings=mappings,
     )
 
@@ -269,50 +287,43 @@ def _validate_structure_value(value: object, *, subject: str) -> None:
 
 
 def map_track(
-    track: object,
-    residue_map: object,
-    *,
-    kind: TrackKind,
+    track: AlignedResidueTrack,
+    residue_map: ResidueMap,
 ) -> AlignedResidueTrack:
     """Explicitly convert one track through one validated residue map."""
-    mapping = cast(ResidueMap, residue_map)
-    source = cast(AlignedResidueTrack, track)
-    if source.layout != mapping.source_layout:
+    if track.layout != residue_map.source_layout:
         raise ValueError(
             "source track residue identities do not match the residue map"
         )
-    values: list[Any] = [None] * mapping.target_layout.length
-    for source_index, target_index, operation in mapping.mappings:
+    values: list[Any] = [None] * residue_map.target_layout.length
+    for source_index, target_index, operation in residue_map.mappings:
         if operation == "match":
-            values[target_index] = source.values[source_index]
+            values[target_index] = track.values[source_index]
     return AlignedResidueTrack(
-        layout=mapping.target_layout,
+        layout=residue_map.target_layout,
         values=tuple(values),
     )
 
 
 def override_track(
-    track: object,
-    layout: object,
-    overrides: object,
+    track: AlignedResidueTrack,
+    layout: ResidueLayout,
+    overrides: Sequence[TrackOverrideDeclaration],
     *,
     kind: TrackKind,
 ) -> AlignedResidueTrack:
     """Apply identity-addressed clear/preserve/replace operations."""
-    target_layout = cast(ResidueLayout, layout)
-    source = cast(AlignedResidueTrack, track)
-    admitted_overrides = cast(Sequence[Mapping[str, Any]], overrides)
-    if source.layout != target_layout:
+    if track.layout != layout:
         raise ValueError(
             "input track residue identities do not match target_layout"
         )
     residue_index = {
         residue_id: index
-        for index, residue_id in enumerate(target_layout.residue_ids or ())
+        for index, residue_id in enumerate(layout.residue_ids or ())
     }
     touched: set[str] = set()
-    values = list(source.values)
-    for raw_override in admitted_overrides:
+    values = list(track.values)
+    for raw_override in overrides:
         action = raw_override["action"]
         residue_id = raw_override["residue_id"]
         if residue_id not in residue_index:
@@ -332,7 +343,7 @@ def override_track(
                 kind=kind,
             )
     return AlignedResidueTrack(
-        layout=target_layout,
+        layout=layout,
         values=tuple(values),
     )
 

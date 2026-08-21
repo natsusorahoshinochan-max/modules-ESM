@@ -10,6 +10,7 @@ from datatypes import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+    i_json_values_equal,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ScoreCollection,
@@ -349,7 +350,7 @@ class CollectionOpsImplementation:
                     raise ValueError(
                         "Observation identity has a source partition collision"
                     )
-                if existing.value != entry.value:
+                if not i_json_values_equal(existing.value, entry.value):
                     raise ValueError(
                         "Observation identity has conflicting values"
                     )

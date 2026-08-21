@@ -33,7 +33,7 @@ from datatypes import (
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.i_json import freeze_i_json, i_json_values_equal, thaw_i_json
 from datatypes.protein import validate_residue_layout
 
 if TYPE_CHECKING:
@@ -942,7 +942,7 @@ def resolve_objective_observations(
                 )
             continue
         if entry.identity in seen:
-            if seen[entry.identity] != entry.value:
+            if not i_json_values_equal(seen[entry.identity], entry.value):
                 raise SelectionError(
                     "selection has a conflicting observation identity"
                 )
@@ -1148,22 +1148,6 @@ def _validate_propagated_score_collection(
     return True
 
 
-def _resolve_objective_contracts(
-    objectives: Sequence[SelectionObjective],
-    catalog: FrozenCatalog,
-) -> tuple[
-    tuple[SelectionObjective, ...],
-    float,
-    tuple[ResolvedSelectionObjective, ...],
-    tuple[dict[str, Any], ...],
-]:
-    resolved = tuple(
-        resolve_selection_objective_facts(objective, catalog)
-        for objective in objectives
-    )
-    return _resolved_objective_contracts(resolved)
-
-
 def _resolved_objective_contracts(
     resolved: Sequence[ResolvedSelectionObjective],
 ) -> tuple[
@@ -1216,18 +1200,6 @@ def _resolved_objective_contracts(
         resolved_tuple,
         tuple(provenance),
     )
-
-
-def selection_objective_provenance(
-    objectives: Sequence[SelectionObjective],
-    catalog: FrozenCatalog,
-) -> dict[str, Any]:
-    """Resolve exact objective contracts and normalized effective weights."""
-    resolved = tuple(
-        resolve_selection_objective_facts(objective, catalog)
-        for objective in objectives
-    )
-    return selection_objective_provenance_from_facts(resolved)
 
 
 def selection_objective_provenance_from_facts(
