@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from datatypes import (
     FunctionAnnotation,
@@ -13,19 +14,14 @@ from datatypes import (
     ResidueTrack,
 )
 
-from .domain import build_residue_map, residue_chain, validate_layout
-from .prompts import validate_protein_prompt
+from .domain import build_residue_map, residue_chain
 
 
 def _insertions_by_boundary(
     source_ids: tuple[str, ...],
     insertions: object,
 ) -> dict[int, tuple[str, ...]]:
-    if not isinstance(insertions, Sequence) or isinstance(
-        insertions,
-        (str, bytes, bytearray),
-    ):
-        raise ValueError("insertions must be an ordered array")
+    admitted_insertions = cast(Sequence[Mapping[str, object]], insertions)
     source_index = {
         residue_id: index for index, residue_id in enumerate(source_ids)
     }
@@ -33,24 +29,11 @@ def _insertions_by_boundary(
     inserted_set: set[str] = set()
     boundaries: dict[int, tuple[str, ...]] = {}
     previous_boundary = -1
-    for index, specification in enumerate(insertions):
-        if not isinstance(specification, Mapping) or set(specification) != {
-            "after_residue_id",
-            "before_residue_id",
-            "inserted_residue_ids",
-        }:
-            raise ValueError(
-                f"insertions[{index}] must contain exact boundary and identities"
-            )
-        after = specification["after_residue_id"]
-        before = specification["before_residue_id"]
-        inserted = specification["inserted_residue_ids"]
-        if (
-            not isinstance(after, str)
-            or not isinstance(before, str)
-            or after not in source_index
-            or before not in source_index
-        ):
+    for index, specification in enumerate(admitted_insertions):
+        after = cast(str, specification["after_residue_id"])
+        before = cast(str, specification["before_residue_id"])
+        inserted = cast(Sequence[str], specification["inserted_residue_ids"])
+        if after not in source_index or before not in source_index:
             raise ValueError(
                 f"insertions[{index}] boundary contains an unknown residue"
             )
@@ -69,15 +52,6 @@ def _insertions_by_boundary(
                 "insertions must use unique boundaries in source order"
             )
         previous_boundary = after_index
-        if (
-            not isinstance(inserted, Sequence)
-            or isinstance(inserted, (str, bytes, bytearray))
-            or not inserted
-            or any(not isinstance(item, str) for item in inserted)
-        ):
-            raise ValueError(
-                f"insertions[{index}].inserted_residue_ids must be nonempty"
-            )
         inserted_ids = tuple(inserted)
         if (
             len(set(inserted_ids)) != len(inserted_ids)
@@ -146,7 +120,7 @@ def insert_masked_residues(
     insertions: object,
 ) -> tuple[ProteinPrompt, ResidueMap]:
     """Insert explicit identities at exact adjacent source boundaries."""
-    source = validate_protein_prompt(prompt)
+    source = cast(ProteinPrompt, prompt)
     source_layout = source.target_layout
     assert source_layout is not None
     source_ids = tuple(source_layout.residue_ids or ())
@@ -159,13 +133,10 @@ def insert_masked_residues(
     for source_index, residue_id in enumerate(source_ids):
         target_ids.append(residue_id)
         target_ids.extend(boundaries.get(source_index, ()))
-    target_layout = validate_layout(
-        ResidueLayout(
-            chain_id=source_layout.chain_id,
-            length=len(target_ids),
-            residue_ids=target_ids,
-        ),
-        subject="inserted prompt layout",
+    target_layout = ResidueLayout(
+        chain_id=source_layout.chain_id,
+        length=len(target_ids),
+        residue_ids=target_ids,
     )
     edits = [
         {
@@ -195,4 +166,4 @@ def insert_masked_residues(
             tuple(target_ids),
         ),
     )
-    return validate_protein_prompt(result), residue_map
+    return result, residue_map

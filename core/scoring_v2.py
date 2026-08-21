@@ -29,8 +29,6 @@ from datatypes import (
     IntrinsicObservationContext,
     PairwiseObservationContext,
     PairwiseCandidateMapping,
-    ProteinSequence,
-    ProteinStructure,
     ResidueAxisReference,
     ScoreCollection,
     ScoreObservation,
@@ -916,27 +914,17 @@ def resolve_objective_observations(
     candidates: CandidateCollection,
     collection: ScoreCollection,
     objective: SelectionObjective | ObservationSelector,
-    out_of_scope_policy: str = "ignore",
-    duplicate_policy: str = "deduplicate_identical",
+    out_of_scope_policy: str,
+    duplicate_policy: str,
 ) -> Mapping[str, ScoreObservation]:
     """Resolve one exact runtime Observation per Candidate or fail closed."""
-    if out_of_scope_policy not in {"error", "ignore"}:
-        raise SelectionError("selection out-of-scope policy is unsupported")
-    if duplicate_policy not in {"error", "deduplicate_identical"}:
-        raise SelectionError("selection duplicate policy is unsupported")
     candidate_ids = [candidate.candidate_id for candidate in candidates.items]
-    if len(candidate_ids) != len(set(candidate_ids)):
-        raise SelectionError(
-            "Selection Candidate input has duplicate identities"
-        )
     candidate_set = set(candidate_ids)
-    seen: dict[tuple[object, ...], bytes] = {}
+    seen: dict[tuple[object, ...], object] = {}
     matched: dict[str, list[ScoreObservation]] = {
         candidate_id: [] for candidate_id in candidate_ids
     }
     for entry in collection.entries:
-        if type(entry) is not ScoreObservation:
-            raise SelectionError("Score Collection contains an unknown entry")
         in_scope = (
             entry.candidate_id in candidate_set
             and entry.source_partition == objective.source_partition
@@ -953,15 +941,8 @@ def resolve_objective_observations(
                     "selection received an out-of-scope observation"
                 )
             continue
-        try:
-            encoded = canonical_json_bytes(entry.value)
-        except CatalogBuildError as error:
-            raise SelectionError(
-                "Observation value must be canonical I-JSON"
-            ) from error
-        previous = seen.get(entry.identity)
-        if previous is not None:
-            if previous != encoded:
+        if entry.identity in seen:
+            if seen[entry.identity] != entry.value:
                 raise SelectionError(
                     "selection has a conflicting observation identity"
                 )
@@ -970,7 +951,7 @@ def resolve_objective_observations(
                     "selection has a duplicate observation identity"
                 )
             continue
-        seen[entry.identity] = encoded
+        seen[entry.identity] = entry.value
         matched[entry.candidate_id].append(entry)
     resolved: dict[str, ScoreObservation] = {}
     selection_id = getattr(
@@ -1008,53 +989,6 @@ def _context_profile(context: object) -> dict[str, Any]:
             "normalization": context.normalization,
         }
     raise SelectionError("Observation uses an unknown Context type")
-
-
-def _candidate_content_digest(
-    catalog: FrozenCatalog,
-    candidate: Any,
-) -> str:
-    type_id = _candidate_data_type_id(candidate.data)
-    if type_id is None:
-        raise SelectionError(
-            "Candidate subject must carry a canonical scientific value"
-        )
-    matches = tuple(
-        port_type
-        for port_type in catalog.port_types
-        if port_type.type_id == type_id
-    )
-    if len(matches) != 1:
-        raise SelectionError(
-            f"Active Port Type {type_id!r} does not resolve exactly once"
-        )
-    return matches[0].content_digest(candidate.data)
-
-
-def _candidate_data_type_id(value: object) -> str | None:
-    return {
-        ProteinSequence: "protein.sequence",
-        ProteinStructure: "protein.structure",
-    }.get(type(value))
-
-
-def _candidate_data_reference(
-    candidate: Any,
-    content_digest: str,
-) -> CandidateDataReference:
-    type_id = _candidate_data_type_id(candidate.data)
-    if type_id is None:
-        raise SelectionError(
-            "Candidate subject has no canonical data type identity"
-        )
-    try:
-        return CandidateDataReference(
-            candidate_id=candidate.candidate_id,
-            data_type_id=type_id,
-            content_digest=content_digest,
-        )
-    except (TypeError, ValueError) as error:
-        raise SelectionError(str(error)) from error
 
 
 def _candidate_values(value: object) -> tuple[Any, ...]:
@@ -1240,11 +1174,6 @@ def _resolved_objective_contracts(
 ]:
     resolved_tuple = tuple(resolved)
     objective_tuple = tuple(item.objective for item in resolved_tuple)
-    if not objective_tuple:
-        raise SelectionError("Selection requires at least one objective")
-    objective_ids = [objective.objective_id for objective in objective_tuple]
-    if len(objective_ids) != len(set(objective_ids)):
-        raise SelectionError("Selection Objective IDs must be unique")
     try:
         declared_total = math.fsum(
             float(objective.weight) for objective in objective_tuple
@@ -1370,47 +1299,6 @@ def observation_selector_identity_facts_from_facts(
     )
 
 
-def resolve_candidate_utilities(
-    *,
-    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
-    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
-    objectives: Sequence[SelectionObjective],
-    catalog: FrozenCatalog,
-) -> CandidateUtilityProfile:
-    """Resolve exact dimensionless Utility vectors without scale inference."""
-    resolved = tuple(
-        resolve_selection_objective_facts(objective, catalog)
-        for objective in objectives
-    )
-    candidate_references = {
-        item.objective.candidate_input for item in resolved
-    }
-    if len(candidate_references) != 1:
-        raise SelectionError(
-            "Weighted objectives must use one exact Candidate input"
-        )
-    candidate_reference = next(iter(candidate_references))
-    try:
-        selected_candidates = candidate_inputs[candidate_reference]
-    except KeyError as error:
-        raise SelectionError(
-            "Selection Candidate input is missing"
-        ) from error
-    candidate_data_references = {
-        candidate.candidate_id: _candidate_data_reference(
-            candidate,
-            _candidate_content_digest(catalog, candidate),
-        )
-        for candidate in selected_candidates.items
-    }
-    return resolve_candidate_utilities_from_facts(
-        candidate_inputs=candidate_inputs,
-        score_collection_inputs=score_collection_inputs,
-        objectives=resolved,
-        candidate_data_references=candidate_data_references,
-    )
-
-
 def resolve_candidate_utilities_from_facts(
     *,
     candidate_inputs: Mapping[SelectionInput, CandidateCollection],
@@ -1425,43 +1313,20 @@ def resolve_candidate_utilities_from_facts(
         resolved,
         provenance,
     ) = _resolved_objective_contracts(objectives)
-    candidate_references = {
-        objective.candidate_input for objective in objective_tuple
-    }
-    if len(candidate_references) != 1:
-        raise SelectionError(
-            "Weighted objectives must use one exact Candidate input"
-        )
-    candidate_reference = next(iter(candidate_references))
-    try:
-        candidates = candidate_inputs[candidate_reference]
-    except KeyError as error:
-        raise SelectionError("Selection Candidate input is missing") from error
+    candidates = candidate_inputs[objective_tuple[0].candidate_input]
     candidate_ids = [candidate.candidate_id for candidate in candidates.items]
-    if len(candidate_ids) != len(set(candidate_ids)):
-        raise SelectionError("Selection Candidate input has duplicate identities")
     utility_values = {
         candidate_id: [] for candidate_id in candidate_ids
     }
     for item in resolved:
         objective = item.objective
-        try:
-            collection = score_collection_inputs[
-                objective.score_collection_input
-            ]
-        except KeyError as error:
-            raise SelectionError(
-                f"Objective {objective.objective_id!r} Score Collection "
-                "input is missing"
-            ) from error
-        normalized_collection = ScoreCollection(
-            collection_id=collection.collection_id,
-            entries=list(_deduplicated_observations(collection)),
-        )
+        collection = score_collection_inputs[objective.score_collection_input]
         observations = resolve_objective_observations(
             candidates=candidates,
-            collection=normalized_collection,
+            collection=collection,
             objective=objective,
+            out_of_scope_policy="ignore",
+            duplicate_policy="deduplicate_identical",
         )
         for candidate_id in candidate_ids:
             observation = observations[candidate_id]
@@ -1561,42 +1426,6 @@ def rank_candidates_by_weighted_utility(
                 candidate.candidate_id,
             ),
         )
-    )
-
-
-def select_candidates(
-    *,
-    candidate_inputs: Mapping[SelectionInput, CandidateCollection],
-    score_collection_inputs: Mapping[SelectionInput, ScoreCollection],
-    objectives: Sequence[SelectionObjective],
-    catalog: FrozenCatalog,
-    limit: int,
-) -> SelectionResult:
-    """Rank Candidates using only exact registered dimensionless Utilities."""
-    if type(limit) is not int or limit < 1:
-        raise SelectionError("Selection limit must be a positive integer")
-    profile = resolve_candidate_utilities(
-        candidate_inputs=candidate_inputs,
-        score_collection_inputs=score_collection_inputs,
-        objectives=objectives,
-        catalog=catalog,
-    )
-    return _selection_result(profile, limit)
-
-
-def _selection_result(
-    profile: CandidateUtilityProfile,
-    limit: int,
-) -> SelectionResult:
-    ranked = rank_candidates_by_weighted_utility(profile)
-    selected = ranked[: min(limit, len(ranked))]
-    return SelectionResult(
-        CandidateCollection(
-            collection_id=f"{profile.candidates.collection_id}.selected",
-            item_type=profile.candidates.item_type,
-            items=list(selected),
-        ),
-        profile.provenance,
     )
 
 

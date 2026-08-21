@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 
 from datatypes import (
     FunctionAnnotation,
@@ -22,14 +23,28 @@ def validate_function_annotations(
 ) -> FunctionAnnotations:
     """Validate canonical annotations against one effective residue layout."""
     target = validate_layout(layout, subject="annotation layout")
-    annotations = validate_canonical_function_annotations(value)
+    validate_canonical_function_annotations(value)
     if overlap_policy is not None and overlap_policy not in {"allow", "reject"}:
         raise ValueError("overlap_policy must be allow or reject")
-    residue_ids = tuple(target.residue_ids or ())
+    return require_function_annotation_layout(
+        cast(FunctionAnnotations, value),
+        target,
+        overlap_policy=overlap_policy,
+    )
+
+
+def require_function_annotation_layout(
+    annotations: FunctionAnnotations,
+    layout: ResidueLayout,
+    *,
+    overlap_policy: str | None = None,
+) -> FunctionAnnotations:
+    """Require only the cross-value annotation-to-layout relationship."""
+    residue_ids = tuple(layout.residue_ids or ())
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
-    for index, annotation in enumerate(annotations):
+    for index, annotation in enumerate(annotations.annotations):
         subject = f"function_annotations[{index}]"
         if (
             annotation.start_residue_id not in residue_index
@@ -65,8 +80,7 @@ def validate_function_annotations(
             raise ValueError(
                 "function_annotations overlap policy does not match"
             )
-    assert isinstance(value, FunctionAnnotations)
-    return value
+    return annotations
 
 
 def add_function_annotation(
@@ -77,34 +91,25 @@ def add_function_annotation(
     overlap_policy: object,
 ) -> FunctionAnnotations:
     """Add one chain-qualified annotation and canonicalize its ordering."""
-    target = validate_layout(layout, subject="annotation layout")
-    if overlap_policy not in {"allow", "reject"}:
-        raise ValueError("overlap_policy must be allow or reject")
+    target = cast(ResidueLayout, layout)
+    admitted_policy = cast(str, overlap_policy)
     if existing is None:
         current = FunctionAnnotations()
     else:
-        current = validate_function_annotations(
-            existing,
+        current = require_function_annotation_layout(
+            cast(FunctionAnnotations, existing),
             target,
-            overlap_policy=overlap_policy,
+            overlap_policy=admitted_policy,
         )
-    if not isinstance(annotation, Mapping) or set(annotation) != {
-        "label",
-        "chain_id",
-        "start_residue_id",
-        "end_residue_id",
-    }:
-        raise ValueError(
-            "annotation must contain only label, chain_id, and residue endpoints"
-        )
+    admitted_annotation = cast(Mapping[str, str], annotation)
     residue_ids = tuple(target.residue_ids or ())
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
-    start_residue_id = annotation["start_residue_id"]
-    end_residue_id = annotation["end_residue_id"]
+    start_residue_id = admitted_annotation["start_residue_id"]
+    end_residue_id = admitted_annotation["end_residue_id"]
     candidate = FunctionAnnotation(
-        label=annotation["label"],
+        label=admitted_annotation["label"],
         start=(
             residue_index[start_residue_id] + 1
             if isinstance(start_residue_id, str)
@@ -117,13 +122,10 @@ def add_function_annotation(
             and end_residue_id in residue_index
             else -1
         ),
-        chain_id=annotation["chain_id"],
+        chain_id=admitted_annotation["chain_id"],
         start_residue_id=start_residue_id,
         end_residue_id=end_residue_id,
-        overlap_policy=overlap_policy,
-    )
-    validate_canonical_function_annotations(
-        FunctionAnnotations([candidate])
+        overlap_policy=admitted_policy,
     )
     appended = FunctionAnnotations(
         sorted(
@@ -138,8 +140,8 @@ def add_function_annotation(
             ),
         )
     )
-    return validate_function_annotations(
+    return require_function_annotation_layout(
         appended,
         target,
-        overlap_policy=overlap_policy,
+        overlap_policy=admitted_policy,
     )

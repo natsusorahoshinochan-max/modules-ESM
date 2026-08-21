@@ -17,14 +17,82 @@ from core import (
 )
 from core.value_admission import admitted_port_values
 from core.scoring_v2 import (
+    rank_candidates_by_weighted_utility,
+    resolve_candidate_utilities_from_facts,
     resolve_observation_selector_facts,
     resolve_selection_objective_facts,
+    SelectionResult,
 )
 from datatypes import (
+    CandidateCollection,
     CandidateDataReference,
     ExactContractReference,
     ResidueAxisReference,
 )
+
+
+def select_admitted_candidates(
+    *,
+    candidate_inputs: Mapping[Any, CandidateCollection],
+    score_collection_inputs: Mapping[Any, Any],
+    objectives: Sequence[SelectionObjective],
+    catalog: FrozenCatalog,
+    limit: int,
+) -> SelectionResult:
+    """Exercise Utility selection from Port-admitted facts in focused tests."""
+    port_types = {
+        definition.type_id: definition for definition in catalog.port_types
+    }
+    candidate_port_type = catalog.require_port_type(
+        "candidate.collection",
+        "4.0.0",
+    )
+    admitted_candidates = {
+        reference: admitted_port_values(
+            port_type=candidate_port_type,
+            multiplicity="one",
+            values=(collection,),
+            candidate_data_port_types=port_types,
+        )
+        for reference, collection in candidate_inputs.items()
+    }
+    score_port_type = catalog.require_port_type("score.collection", "5.0.0")
+    admitted_scores = {
+        reference: admitted_port_values(
+            port_type=score_port_type,
+            multiplicity="one",
+            values=(collection,),
+            candidate_data_port_types=port_types,
+        ).value
+        for reference, collection in score_collection_inputs.items()
+    }
+    resolved = tuple(
+        resolve_selection_objective_facts(objective, catalog)
+        for objective in objectives
+    )
+    candidate_reference = resolved[0].objective.candidate_input
+    admitted_candidate_input = admitted_candidates[candidate_reference]
+    profile = resolve_candidate_utilities_from_facts(
+        candidate_inputs={
+            reference: admitted.value
+            for reference, admitted in admitted_candidates.items()
+        },
+        score_collection_inputs=admitted_scores,
+        objectives=resolved,
+        candidate_data_references={
+            reference.candidate_id: reference
+            for reference in admitted_candidate_input.candidate_data
+        },
+    )
+    ranked = rank_candidates_by_weighted_utility(profile)
+    return SelectionResult(
+        CandidateCollection(
+            collection_id=f"{profile.candidates.collection_id}.selected",
+            item_type=profile.candidates.item_type,
+            items=ranked[:limit],
+        ),
+        profile.provenance,
+    )
 
 
 def _reference(value: Mapping[str, Any]) -> ExactContractReference:

@@ -31,7 +31,6 @@ from core import (
     compile_workflow,
     relock_workflow,
     builtin_frozen_catalog,
-    select_candidates,
     validate_produced_score_collection,
 )
 from core.port_types import PortValueError
@@ -55,6 +54,7 @@ from protein_workbench_public import (
     ProtocolValidationError,
     validate_schema,
 )
+from tests.fixtures.scientific_operation import select_admitted_candidates
 
 
 CONTRACT_VERSION = "2.1.0"
@@ -544,7 +544,7 @@ def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
         SelectionInput("scorer", "scores"): scores,
     }
 
-    fixed = select_candidates(
+    fixed = select_admitted_candidates(
         candidate_inputs=inputs,
         score_collection_inputs=score_inputs,
         objectives=(
@@ -559,7 +559,7 @@ def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
         catalog=catalog,
         limit=1,
     )
-    paired = select_candidates(
+    paired = select_admitted_candidates(
         candidate_inputs=inputs,
         score_collection_inputs=score_inputs,
         objectives=(
@@ -609,7 +609,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
     score_input = SelectionInput("scorer", "scores")
 
     with pytest.raises(SelectionError, match="missing observation"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs=inputs,
             score_collection_inputs={
                 score_input: ScoreCollection(
@@ -633,7 +633,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
         )
 
     with pytest.raises(SelectionError, match="exactly one"):
-        select_candidates(
+        select_admitted_candidates(
             candidate_inputs=inputs,
             score_collection_inputs={
                 score_input: ScoreCollection(

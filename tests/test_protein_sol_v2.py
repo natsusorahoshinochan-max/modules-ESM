@@ -485,6 +485,8 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         candidates=candidates,
         collection=ScoreCollection("protein-sol", [observation]),
         objective=objective,
+        out_of_scope_policy="ignore",
+        duplicate_policy="deduplicate_identical",
     )
 
     assert resolved == {"candidate-1": observation}

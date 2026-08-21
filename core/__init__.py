@@ -83,7 +83,6 @@ from core.scoring_v2 import (
     resolve_objective_observations,
     resolve_observation_selector,
     resolve_selection_objective,
-    select_candidates,
     validate_produced_score_collection,
 )
 from core.workflow_authoring_v2 import (
@@ -187,7 +186,6 @@ __all__ = [
     "build_frozen_catalog",
     "canonical_json_bytes",
     "canonical_sha256",
-    "select_candidates",
     "validate_produced_score_collection",
     "verify_module_package_contract",
     "ScientificOperation",

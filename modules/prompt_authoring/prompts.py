@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import cast
 
 from datatypes import (
     FunctionAnnotations,
     ProteinPrompt,
     ProteinSequence,
+    ResidueLayout,
     ResidueTrack,
 )
 
-from .annotations import validate_function_annotations
+from .annotations import (
+    require_function_annotation_layout,
+    validate_function_annotations,
+)
 from .domain import (
     AlignedResidueTrack,
     TrackKind,
@@ -55,24 +60,24 @@ def assemble_protein_prompt(
     function_annotations: object | None,
 ) -> ProteinPrompt:
     """Assemble only explicit aligned values into one validated Prompt."""
-    target = validate_layout(layout, subject="prompt layout")
-    if not set(tracks) <= set(_TRACK_KINDS):
-        raise ValueError("prompt assembly received an undeclared track")
+    target = cast(ResidueLayout, layout)
     normalized: dict[str, ResidueTrack | None] = {
         name: None for name in _TRACK_KINDS
     }
     for name, track in tracks.items():
-        aligned = validate_track(
-            track,
-            kind=_TRACK_KINDS[name],
-            subject=name,
-            expected_layout=target,
-        )
+        aligned = cast(AlignedResidueTrack, track)
+        if aligned.layout != target:
+            raise ValueError(
+                f"{name} residue identities do not match the prompt layout"
+            )
         normalized[name] = ResidueTrack(list(aligned.values), None)
     annotations = (
         FunctionAnnotations()
         if function_annotations is None
-        else validate_function_annotations(function_annotations, target)
+        else require_function_annotation_layout(
+            cast(FunctionAnnotations, function_annotations),
+            target,
+        )
     )
     return ProteinPrompt(
         target_layout=target,
@@ -134,32 +139,25 @@ def update_prompt_sequence(
     sequence: object,
 ) -> ProteinPrompt:
     """Replace only sequence assignments on one canonical Prompt layout."""
-    source = validate_protein_prompt(prompt)
-    if type(sequence) is not ProteinSequence:
-        raise ValueError("sequence input is required")
+    source = cast(ProteinPrompt, prompt)
+    admitted_sequence = cast(ProteinSequence, sequence)
     target = source.target_layout
     assert target is not None
-    if len(sequence.sequence) != target.length:
+    if len(admitted_sequence.sequence) != target.length:
         raise ValueError(
             "sequence length must equal the protein_prompt target layout"
         )
     if (
-        sequence.residue_ids is not None
-        and tuple(sequence.residue_ids) != tuple(target.residue_ids or ())
+        admitted_sequence.residue_ids is not None
+        and tuple(admitted_sequence.residue_ids)
+        != tuple(target.residue_ids or ())
     ):
         raise ValueError(
             "sequence residue identities must equal the protein_prompt layout"
         )
-    replacement = validate_track(
-        AlignedResidueTrack(target, tuple(sequence.sequence)),
-        kind=TrackKind.SEQUENCE,
-        subject="replacement sequence",
-        expected_layout=target,
-    )
-
     updated = ProteinPrompt(
         target_layout=target,
-        sequence_track=ResidueTrack(list(replacement.values), None),
+        sequence_track=ResidueTrack(list(admitted_sequence.sequence), None),
         structure_track=_copy_track(source.structure_track),
         structure_visibility_track=_copy_track(
             source.structure_visibility_track
@@ -172,7 +170,7 @@ def update_prompt_sequence(
             list(source.function_annotations.annotations)
         ),
     )
-    return validate_protein_prompt(updated)
+    return updated
 
 
 def override_protein_prompt_track(
@@ -182,9 +180,7 @@ def override_protein_prompt_track(
     overrides: object,
 ) -> ProteinPrompt:
     """Override one declared Prompt track and preserve every other track."""
-    source = validate_protein_prompt(prompt)
-    if track not in _PROMPT_TRACK_ATTRIBUTES:
-        raise ValueError("track must identify one declared ProteinPrompt track")
+    source = cast(ProteinPrompt, prompt)
     attribute, kind = _PROMPT_TRACK_ATTRIBUTES[track]
     selected = getattr(source, attribute)
     if selected is None:
@@ -210,7 +206,7 @@ def override_protein_prompt_track(
         "sasa_track": _copy_track(source.sasa_track),
     }
     tracks[attribute] = ResidueTrack(list(changed.values), None)
-    return validate_protein_prompt(ProteinPrompt(
+    return ProteinPrompt(
         target_layout=layout,
         sequence_track=tracks["sequence_track"],
         structure_track=tracks["structure_track"],
@@ -220,4 +216,4 @@ def override_protein_prompt_track(
         function_annotations=FunctionAnnotations(
             list(source.function_annotations.annotations)
         ),
-    ))
+    )
