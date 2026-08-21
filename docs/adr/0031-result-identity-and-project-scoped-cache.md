@@ -1,5 +1,5 @@
 ---
-status: accepted; refined by ADR-0039
+status: accepted
 ---
 
 # Result Identity is a scientific cache key
@@ -13,7 +13,6 @@ The physical Cache remains Project-scoped. A hit replays the retained result;
 a miss executes the Binding. Failed, cancelled, interrupted, uncontrolled
 stochastic, and insufficiently identified results are not cached.
 
-ADR-0039 supersedes the former conflict-authority and copied-value design. The
-trusted current runtime treats Result Identity as a cache key, not as a second
+The trusted runtime treats Result Identity as a Cache key, not as a second
 cross-Run consistency authority. It does not compare a deterministic Binding
-against old internal Cache bytes or expose a Result Identity conflict error.
+against unrelated Cache bytes or expose a Result Identity conflict error.

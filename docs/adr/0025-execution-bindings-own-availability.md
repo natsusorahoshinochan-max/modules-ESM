@@ -17,8 +17,8 @@ a Cache miss enters the Provider.
 
 Module Package registration contributes these bindings explicitly. Malformed or
 conflicting binding contracts fail startup atomically, whereas valid but
-unavailable bindings remain registered with structured reasons. This refines
-ADR-0018. ADR-0026 defines explicit Workflow binding selection, and ADR-0027
+unavailable bindings remain registered with structured reasons. ADR-0026
+defines explicit Workflow binding selection, and ADR-0027
 assigns parameters according to their scientific meaning and execution scope.
 
 Availability is only the startup snapshot of a Binding's basic prerequisites

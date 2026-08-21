@@ -16,7 +16,7 @@ Port owner. Every admitted Candidate can therefore be represented by a
 Candidate Data Reference and every public Candidate fact can represent the
 same identity. Package-local values that embed Candidate Data References move
 atomically when that identity contract changes; they do not keep a decoder for
-the prior shape.
+another shape.
 
 Structure residue axes, modified-residue normalizations, DSSP annotations,
 secondary-structure tracks, SASA tracks, and Structure Alignment evidence carry
@@ -24,11 +24,10 @@ an exact Candidate Data Reference for each subject. Collection-valued
 associations have a canonical order for content identity, but consumers join
 them by complete reference equality and require exact set closure. A missing,
 duplicate, extra, wrong-data-type, wrong-content-digest, or embedded-structure
-association fails before a scientific engine starts. A producer whose own
-Candidate IDs will be normalized during output admission cannot manufacture
-derived values with those future identities in the same operation; a later
-operation consumes the admitted Candidates and creates their associated
-values.
+association fails before a scientific engine starts. A producer whose Candidate
+IDs are established during output admission cannot manufacture derived values
+with those identities in the same operation; a separate operation consumes the
+admitted Candidates and creates their associated values.
 
 Structure prediction follows that rule through an explicit generation and
 materialization sequence. A generation operation emits structure Candidates
@@ -65,8 +64,9 @@ retains the provider Method that observed the confidence. The materializer's
 Method identifies only the deterministic association and population operation;
 it must never be substituted for the provider Method in a Score.
 
-Folding and ESM generation therefore no longer emit Candidate-associated
-confidence Scores in the generation operation. Each confidence-bearing
+Folding and ESM generation emit structure Candidates and subjectless confidence
+facts rather than Candidate-associated confidence Scores in the generation
+operation. Each confidence-bearing
 structure or coordinate-conditioned reconstruction Candidate Collection has a
 separate matching Confidence Fact Collection. Sequence-only Candidates have no
 structure-confidence fact or Prediction Key. Mean-residue pLDDT is populated
@@ -131,15 +131,4 @@ sequence correspondence, translates the documented correspondence and
 subject-to-reference transform, and recomputes residual evidence from the
 returned transform. Its current contract accepts one CA-bearing segment per
 axis because the library interface has no declared multimer chain-break
-semantics. A future multimer structure-first algorithm requires a distinct
-Method and decision.
-
-The rejected alternatives are positional association, output-time guesses of
-future Candidate IDs, raw `ATOM`/`HETATM` or CA reparsing in comparison,
-Biopython-first or threshold-dependent tie selection, coordinate-based sequence
-tie-breaking, exponential chain-map enumeration, implicit same-name chain
-pinning, direct same-operation Candidate confidence Scores, constructing a
-prediction axis by reparsing output PDB, attributing provider observations to
-the materializer Method, and hidden TM-align fallback. This decision introduces
-the Candidate Collection association contract anticipated by ADR-0035 and
-supersedes its statement that the collection contract is only future work.
+semantics. Multimer structure-first alignment is outside this Method contract.

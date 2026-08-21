@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Frontend technology stack
 
 The node-based graphical UI is built with React, TypeScript, Vite, and React Flow.
@@ -29,10 +33,6 @@ Purpose-built for node-based editors. Provides:
 - Edge creation and deletion with type-checking hooks
 - Built-in zoom, pan, and viewport management
 
-Alternatives considered: building a custom canvas from scratch (reinventing
-React Flow's decade of edge cases), using Cytoscape.js (graph visualization,
-not a node editor), Rete.js (less mature React support).
-
 ### Parameter form generation
 
 Parameter forms are derived from current Catalog Node Type and Binding
@@ -44,8 +44,8 @@ descriptors. The frontend maps the declared value contract to widgets:
 - array/object → JSON editor that applies a typed value only after successful
   local parsing and root-shape validation
 
-There is no legacy custom `ProteinPromptEditor`: prompt authoring is expressed
-through the same current Node Type contracts as every other Workflow operation.
+Prompt authoring is expressed through the same current Node Type contracts as
+every other Workflow operation.
 
 ### Project structure
 
@@ -75,4 +75,4 @@ directory that FastAPI serves directly, yielding a single-process deployment.
   No pip-installable JS bundling.
 - The core Python engine has zero knowledge of the UI; the frontend uses only
   the versioned `protein-workbench-public/v2` REST and run-scoped WebSocket
-  contracts. Historical unversioned routes from ADR-0017 are not implemented.
+  contracts.

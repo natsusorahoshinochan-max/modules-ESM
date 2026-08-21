@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # PDB string as the unified structure exchange format
 
 ProteinStructure carries a pdb_string field (canonical PDB text) rather than

@@ -65,23 +65,11 @@ cross this same interface and assert scientific outcomes and durable causal
 evidence rather than private intermediate records.
 
 One closed internal attempt state carries preparation, Cache, Readiness,
-Operation, cleanup, and publication facts. It replaces wide intent objects,
-internal enum/type dispatch, production assertions, and
-duplicate cancellation or error-finalization paths rather than wrapping them.
+Operation, cleanup, and publication facts. Callers do not exchange wide
+finalization intents, dispatch internal lifecycle enums, or select cancellation
+and error-finalization paths.
 
-The runtime remains serial and trusted. It adds no concurrency coordination,
+The runtime is serial and trusted. It has no concurrency coordination,
 retries, fallbacks, compatibility paths, adversarial Provider handling, or
-hypothetical seams. Existing real seams and Adapters remain in use. The
-superseded shallow finalization interface and duplicate cancellation and error
-paths are replaced rather than retained beside the deep module.
-
-The rejected alternatives are keeping lifecycle preparation and execution in
-Run scheduling while passing wide finalization intents across a shallow seam,
-checking Readiness independently per Node Execution Attempt, exposing a
-Run-scoped Readiness map to callers, treating blocked Nodes or local invariant
-failures as executions, making Cache indexing part of outcome authority,
-creating a second evidence writer, and adding defensive recovery for behavior
-outside the trusted project contract.
-
-This decision refines ADR-0015, ADR-0029, ADR-0030, and ADR-0039. It preserves
-ADR-0034's exact Execution Plan and scientific-operation ownership.
+hypothetical seams. It uses only the declared scientific operations, Adapters,
+Readiness boundary, and Run Evidence Ledger.

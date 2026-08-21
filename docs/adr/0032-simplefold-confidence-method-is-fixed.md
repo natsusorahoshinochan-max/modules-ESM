@@ -4,8 +4,8 @@ status: accepted
 
 # SimpleFold confidence evaluation fixes its actual Method
 
-SimpleFold evaluation remains a separate confidence Node Type from folding, but
-it no longer exposes mutable `model_name`. Its Method is the actual confidence
+SimpleFold evaluation is a separate confidence Node Type from folding and does
+not expose mutable `model_name`. Its Method is the actual confidence
 pipeline: the exact `simplefold_1.6B.ckpt` latent checkpoint,
 `plddt_module_1.6B.ckpt` output head, `esm2_t36_3B_UR50D.pt` encoder
 checkpoint, structure featurization contract, upstream scientific source
@@ -22,5 +22,4 @@ prerequisite, and does not appear in Method or invocation provenance.
 
 Changing any checkpoint, head, encoder, featurization, relevant source
 implementation, or scale contract creates a new Method and Execution Binding;
-it is not a parameter change within the existing Binding. This decision
-supersedes ADR-0013 and refines ADR-0020 and ADR-0027.
+it is not a parameter change within the Binding.

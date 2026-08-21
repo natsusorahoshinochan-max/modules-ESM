@@ -45,22 +45,21 @@ or WebSocket projection is refreshed. Failure to acknowledge the required
 transaction produces evidence_unavailable and prevents success publication.
 Failure to refresh a projection after durable acknowledgement cannot alter the
 outcome. Every projection is rebuilt only from the Ledger; Cache entries,
-immutable-object presence, and prior projections are not alternative evidence
+immutable-object presence, and projection files are not alternative evidence
 sources.
 
 On restart, the runtime validates the current-generation durable transaction
 prefix and rebuilds reducer state and projections from it. An unfinished Run
 receives only one honest interrupted Run terminal. Missing Engine Invocation,
 Operation Attempt, Node Execution Attempt, or Selection terminals are not
-reconstructed, inferred, or compensated. An unreadable current-generation
-Ledger fails closed without migration or automatic repair.
+reconstructed, inferred, or compensated. An unreadable Ledger fails closed.
 
 The Ledger owns visibility references, not scientific bytes. Project-scoped
 immutable objects may exist before a publication transaction, but Typed
 Outputs and Artifacts become visible only through committed Ledger facts.
 Unreferenced objects have no published meaning and remain collectible.
 
-The existing transaction-store seam remains because durable acknowledgement,
+The transaction-store seam exists because durable acknowledgement,
 acknowledgement failure, acknowledged-but-unreadable state, and controlled
 ordering require distinct production and test Adapters. Fact construction,
 schema validation, reduction, and projection receive no hypothetical seams.
@@ -68,19 +67,5 @@ Tests cross the Ledger interface through complete transitions and assert
 durable facts, causal order, atomicity, projection, cursors, replay, restart,
 and exact failure semantics. They do not build raw facts or mutate private
 reducer state. Invalid provenance and causal cases enter only through the
-Ledger interface; downstream projection tests use admitted transitions.
-
-The caller-facing raw append and commit paths are removed rather than retained
-as an escape hatch. All current callers and tests move together; no legacy
-generic interface, alias, dual path, or durable-schema version change is added
-for this internal deepening.
-
-The rejected alternatives are letting callers assemble raw facts and ordering,
-collapsing the typed grammar into generic events, merging the Ledger with the
-Node Execution Attempt module, making projections or Cache entries competing
-authorities, revalidating scientific values at the evidence seam, introducing
-seams with one real Adapter, and repairing or guessing missing durable
-evidence.
-
-This decision refines ADR-0030 and ADR-0039 and fixes the Ledger side of the
-module ownership established by ADR-0041.
+Ledger interface; downstream projection tests use admitted transitions. The
+Ledger exposes no raw append, generic commit, alias, or dual publication path.

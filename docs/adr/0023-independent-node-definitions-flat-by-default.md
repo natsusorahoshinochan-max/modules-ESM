@@ -18,15 +18,10 @@ Definition resource, binds each Node Definition to its Execution Bindings, and
 loads each resource once. Resource globs, recursive scanning, and helper-driven
 automatic enumeration are forbidden. Unknown schema fields fail startup.
 Contract tests are parameterized over the package's Definitions instead of
-requiring repeated per-Node scaffolding. A package-wide YAML that duplicates
-Node contracts and mandatory one-directory-per-Node layouts were rejected:
-they add parallel sources of truth and recreate the repository's current
-boilerplate without serving v2's repository-owned extension scope.
+requiring repeated per-Node scaffolding. One independent Definition per Node
+Type and one explicit registration list prevent parallel sources of truth.
 
-This decision supersedes ADR-0009's fixed `definition.yaml`-per-module layout
-while retaining YAML as the only public Node contract. The external precedents
-and trade-offs are recorded in
-[`2026-07-27-module-package-layout-prior-art.md`](../research/2026-07-27-module-package-layout-prior-art.md).
+YAML is the only public Node contract format.
 ADR-0018 fixes the production registration entry as
 `modules/<package_name>/package.py:MODULE_PACKAGE`. Node Definition YAML owns
 only Node identity, display metadata, Ports and groups, and cross-Binding

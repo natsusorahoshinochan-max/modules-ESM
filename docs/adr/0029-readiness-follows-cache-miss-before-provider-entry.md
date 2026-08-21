@@ -25,6 +25,3 @@ The Provider owner checks the result-affecting commit, model, checkpoint, and
 required assets once at this boundary. After admission, internal components
 trust those values. Observed Availability and Readiness conclusions do not
 enter a stable scientific contract digest.
-
-This decision refines ADR-0025 and ADR-0026 and supersedes the former
-Readiness-before-Cache and reusable-proof design.
