@@ -12,6 +12,7 @@ import yaml
 from .declarations import (
     CatalogDefinition,
     ContractIdentity,
+    MethodDefinition,
     MetricDefinition,
     ModulePackageRegistration,
     NodePortDefinition,
@@ -103,6 +104,20 @@ _UniqueKeySafeLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
     _construct_unique_mapping,
 )
+
+
+def load_method_definitions(
+    package_module: str,
+    resource: str,
+) -> tuple[MethodDefinition, ...]:
+    """Load repository-owned Method declarations from one package resource."""
+    content = resources.files(package_module).joinpath(resource).read_text(
+        encoding="utf-8"
+    )
+    return tuple(
+        MethodDefinition(**item)
+        for item in yaml.load(content, Loader=_UniqueKeySafeLoader)
+    )
 
 
 def _closed_object(

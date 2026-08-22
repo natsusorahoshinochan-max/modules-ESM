@@ -32,9 +32,9 @@ from core.operation import (
 
 from .contracts import (
     ALIGNMENT_METHODS,
-    METRIC_METHODS,
     RMSD_FROM_EVIDENCE_METHOD,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
+    STATIC_METHODS,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
     INSERTED_LOOP_EVALUATION_METHOD,
     THREE_WAY_CONSISTENCY_METHOD,
@@ -378,12 +378,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/rmsd_metric.yaml"),
         DefinitionResource("definitions/tm_score_metric.yaml"),
     ),
-    methods=(
-        *ALIGNMENT_METHODS,
-        *METRIC_METHODS,
-        THREE_WAY_CONSISTENCY_METHOD,
-        INSERTED_LOOP_EVALUATION_METHOD,
-    ),
+    methods=(*ALIGNMENT_METHODS, *STATIC_METHODS),
     utility_transforms=(
         _tm_score_utility("fixed_reference"),
         _tm_score_utility("per_subject_counterpart"),

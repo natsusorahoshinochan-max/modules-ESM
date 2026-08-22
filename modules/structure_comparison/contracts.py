@@ -5,6 +5,7 @@ from __future__ import annotations
 from importlib.metadata import version
 
 from core.catalog.declarations import MethodDefinition
+from core.catalog.definition_resource import load_method_definitions
 from core.catalog.port_contract import canonical_sha256
 from datatypes.exact_reference import ExactContractReference
 
@@ -31,17 +32,6 @@ REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = ExactContractReference(
         "27b5cf4c17bd0bfc2143b25bf669bee8"
     ),
 )
-
-
-def _reference_descriptor(
-    reference: ExactContractReference,
-) -> dict[str, str]:
-    return {
-        "contract_kind": reference.contract_kind,
-        "contract_id": reference.contract_id,
-        "contract_version": reference.contract_version,
-        "contract_digest": reference.contract_digest,
-    }
 
 
 SEQUENCE_PRIMARY_AFFINE_METHOD = MethodDefinition(
@@ -163,195 +153,31 @@ STRUCTURE_FIRST_TM_ALIGN_METHOD = MethodDefinition(
 )
 
 
-RMSD_FROM_EVIDENCE_METHOD = MethodDefinition(
-    method_id="structure_comparison.rmsd.from_alignment_evidence.method",
-    version="4.0.0",
-    algorithm_identity={
-        "name": "alignment-evidence-rmsd-projection",
-        "source": "StructureAlignmentEvidence.rmsd",
-        "validation_formula": (
-            "sqrt(fsum(residual_distance^2)/aligned_atom_count)"
-        ),
-        "recomputes_alignment": False,
-    },
-    model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
-    featurization_identity={
-        "input": "structure_comparison.alignment_evidence@5.0.0",
-        "atom_selection": "evidence-correspondence-CA",
-    },
-    source_identity={"kind": "repository-owned"},
-    scale_contract={
-        "unit": "angstrom",
-        "normalization": "aligned-CA-mean-square-distance",
-    },
+STATIC_METHODS = load_method_definitions(
+    __package__,
+    "definitions/methods.yaml",
 )
-
-
-TM_SCORE_FROM_EVIDENCE_METHOD = MethodDefinition(
-    method_id=(
-        "structure_comparison.tm_score.reference_axis_normalized.method"
-    ),
-    version="4.0.0",
-    algorithm_identity={
-        "name": "alignment-evidence-reference-axis-normalized-tm-score",
-        "source": "StructureAlignmentEvidence.residual_distance",
-        "formula": (
-            "sum(1/(1+(residual_distance/d0)^2))/"
-            "reference_axis_residue_count"
-        ),
-        "d0": (
-            "0.5 when reference_axis_residue_count<=15; otherwise "
-            "max(0.5,1.24*(reference_axis_residue_count-15)^(1/3)-1.8)"
-        ),
-        "recomputes_alignment": False,
-        "optimization_engine": None,
-    },
-    model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
-    featurization_identity={
-        "input": "structure_comparison.alignment_evidence@5.0.0",
-        "atom_selection": "evidence-correspondence-CA",
-    },
-    source_identity={"kind": "repository-owned"},
-    scale_contract={
-        "unit": "dimensionless",
-        "canonical_range": [0, 1],
-        "normalization": "exact-reference-axis-residue-count",
-    },
-)
-
-
-THREE_WAY_CONSISTENCY_METHOD = MethodDefinition(
-    method_id="structure_comparison.three_way_consistency.threshold_graph",
-    version="2.0.0",
-    algorithm_identity={
-        "name": "input-esmfold2-simplefold-threshold-graph",
-        "confidence_eligibility": {
-            "metric": "structure.plddt.mean_residue@3.0.0",
-            "minimum": 70.0,
-            "methods": [
-                "folding.fold.esmfold2_fast_biohub_2026_05@4.0.0",
-                "folding.fold.simplefold_100m_c7a5570@5.0.0",
-            ],
-        },
-        "close": {
-            "reference_normalized_tm_score_minimum": 0.8,
-            "ca_rmsd_angstrom_maximum": 2.5,
-        },
-        "edge_roles": [
-            "input_esmfold2",
-            "input_simplefold",
-            "esmfold2_simplefold",
-        ],
-        "classifications": [
-            "three_way_consistent",
-            "method_disagreement",
-            "input_disagreement",
-            "all_disagree",
-            "insufficient_evidence",
-        ],
-        "two_close_edge_subreason": "threshold_boundary_nontransitive",
-        "input_b_factor": "uninterpreted-coordinate-field",
-    },
-    model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
-    featurization_identity={
-        "candidate_association": "exact-CandidateDataReference",
-        "pairing": "explicit-common-parent-sibling-pairing",
-        "comparison": "exact-alignment-evidence-provenanced-scores",
-    },
-    source_identity={"kind": "repository-owned"},
-    scale_contract={
-        "plddt": "zero-to-100",
-        "tm_score": "dimensionless-reference-axis-normalized",
-        "rmsd": "angstrom",
-    },
-)
-
-
-INSERTED_LOOP_EVALUATION_METHOD = MethodDefinition(
-    method_id="structure_comparison.inserted_loop.exact_evidence_gate",
-    version="2.0.0",
-    algorithm_identity={
-        "name": "inserted-loop-exact-evidence-gate",
-        "subject_mapping": {
-            "prediction_axis": "folding-confidence-prediction-input-axis",
-            "structure_axis": "exact-subject-resolved-structure-axis",
-            "correspondence": "one-to-one-residue-order",
-            "collection_join": "CandidateDataReference",
-        },
-        "resolved_core": {
-            "identity_source": "declared-chain-qualified-residue-identities",
-            "comparison": "exact-fixed-reference-alignment-evidence",
-            "plddt": (
-                "require-all-scoped-values;fsum(scoped-values)/"
-                "scoped-residue-count"
-            ),
-        },
-        "inserted_loop": {
-            "identity_source": "declared-chain-qualified-residue-identities",
-            "plddt": (
-                "require-all-scoped-values;fsum(scoped-values)/"
-                "scoped-residue-count"
-            ),
-        },
-        "junctions": {
-            "left": "left-flank-C-to-first-loop-N",
-            "right": "last-loop-C-to-right-flank-N",
-            "distance": "Euclidean",
-        },
-        "loop_core_clash": {
-            "atom_population": "resolved-axis-non-hydrogen-named-atoms",
-            "distance": "minimum-Euclidean-loop-to-resolved-core",
-            "excluded_pairs": "two-direct-junction-peptide-C-N-bonds",
-        },
-        "counterpart": "exact-per-subject-CandidateDataReference-pairing",
-        "confidence_method": _reference_descriptor(
-            REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE
-        ),
-        "missing_scoped_evidence": "fail",
-        "acceptance": "logical-and-of-five-declared-gates",
-    },
-    model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
-    featurization_identity={
-        "candidate_association": "exact-CandidateDataReference",
-        "prediction_axis": (
-            "structure_prediction.prediction_residue_axis@2.0.0"
-        ),
-        "structure_axis": "structure_transform.resolved_residue_axis@4.0.0",
-        "alignment_evidence": (
-            "structure_comparison.alignment_evidence@5.0.0"
-        ),
-        "confidence": {
-            "metric": "structure.plddt.per_residue@3.0.0",
-            "method": _reference_descriptor(
-                REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE
-            ),
-        },
-    },
-    source_identity={"kind": "repository-owned"},
-    scale_contract={
-        "tm_score": "dimensionless-reference-axis-normalized",
-        "rmsd": "angstrom",
-        "plddt": "zero-to-100",
-        "junction_distance": "angstrom",
-        "nonbonded_distance": "angstrom",
-    },
-)
-
+_STATIC_METHOD_BY_ID = {
+    method.method_id: method
+    for method in STATIC_METHODS
+}
+RMSD_FROM_EVIDENCE_METHOD = _STATIC_METHOD_BY_ID[
+    "structure_comparison.rmsd.from_alignment_evidence.method"
+]
+TM_SCORE_FROM_EVIDENCE_METHOD = _STATIC_METHOD_BY_ID[
+    "structure_comparison.tm_score.reference_axis_normalized.method"
+]
+THREE_WAY_CONSISTENCY_METHOD = _STATIC_METHOD_BY_ID[
+    "structure_comparison.three_way_consistency.threshold_graph"
+]
+INSERTED_LOOP_EVALUATION_METHOD = _STATIC_METHOD_BY_ID[
+    "structure_comparison.inserted_loop.exact_evidence_gate"
+]
 
 ALIGNMENT_METHODS = (
     SEQUENCE_PRIMARY_AFFINE_METHOD,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
 )
-
-METRIC_METHODS = (
-    RMSD_FROM_EVIDENCE_METHOD,
-    TM_SCORE_FROM_EVIDENCE_METHOD,
-)
-
 
 SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE = method_reference(
     SEQUENCE_PRIMARY_AFFINE_METHOD
