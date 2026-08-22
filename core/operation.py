@@ -362,17 +362,10 @@ class AdmittedValue:
 class AdmittedPort:
     """Complete admitted record for one exact input or output Port."""
 
-    port_type: Mapping[str, Any]
+    port_type: ExactContractReference
     multiplicity: PortMultiplicity
     values: tuple[AdmittedValue, ...]
     content_digest: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "port_type",
-            MappingProxyType(dict(self.port_type)),
-        )
 
     @property
     def value(self) -> Any:

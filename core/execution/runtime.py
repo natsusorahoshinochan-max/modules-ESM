@@ -191,7 +191,9 @@ class V2RunService:
         for port_name, admitted in admitted_inputs.items():
             declaration = node._runtime.input_ports[port_name]
             inputs[port_name] = combine_admitted_port(
-                port_type=declaration.reference.canonical_projection(),
+                port_type=_exact_contract_reference(
+                    declaration.reference
+                ),
                 multiplicity=declaration.multiplicity,
                 values=tuple(admitted),
             )

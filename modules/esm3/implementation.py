@@ -175,12 +175,7 @@ class ESM3GenerationOperation:
     ) -> ExactPortValueReference:
         port_type = admitted_prompt.port_type
         return ExactPortValueReference(
-            port_type=ExactContractReference(
-                contract_kind=port_type["contract_kind"],
-                contract_id=port_type["contract_id"],
-                contract_version=port_type["contract_version"],
-                contract_digest=port_type["contract_digest"],
-            ),
+            port_type=port_type,
             content_digest=admitted_prompt.content_digest,
         )
 

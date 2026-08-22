@@ -138,7 +138,7 @@ class ResultStore:
                 raise ResultStoreWriteError("typed_value_object")
             values.append(stored)
         manifest = _PortValueManifest(
-            port_type=_exact_reference(admitted.port_type),
+            port_type=admitted.port_type,
             multiplicity=admitted.multiplicity,
             content_digest=admitted.content_digest,
             values=tuple(values),

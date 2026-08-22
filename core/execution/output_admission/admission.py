@@ -85,23 +85,8 @@ class AdmittedOutputDescriptor:
 
     node_id: str
     output_port: str
-    port_type: Mapping[str, Any]
+    port_type: ExactContractReference
     content_digest: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "port_type",
-            MappingProxyType(dict(self.port_type)),
-        )
-
-    def to_mapping(self) -> dict[str, Any]:
-        return {
-            "node_id": self.node_id,
-            "output_port": self.output_port,
-            "port_type": dict(self.port_type),
-            "content_digest": self.content_digest,
-        }
 
 
 @dataclass(frozen=True, slots=True)

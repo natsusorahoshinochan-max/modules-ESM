@@ -805,7 +805,7 @@ def _pipeline_catalog(
             text_record = call.inputs.get("text")
             if text_record is not None:
                 assert (
-                    text_record.port_type["contract_id"]
+                    text_record.port_type.contract_id
                     == "test.canonical_text"
                 )
                 assert len(text_record.value_content_digests) == 1
@@ -814,7 +814,7 @@ def _pipeline_catalog(
                 candidates = candidate_record.value
                 candidate_values = tuple(candidates.items)
                 assert (
-                    candidate_record.port_type["contract_id"]
+                    candidate_record.port_type.contract_id
                     == "candidate.collection"
                 )
                 assert len(candidate_record.value_content_digests) == 1

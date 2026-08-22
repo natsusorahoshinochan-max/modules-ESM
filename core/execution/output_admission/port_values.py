@@ -7,10 +7,15 @@ from dataclasses import dataclass
 import hashlib
 from typing import Any
 
-from core.catalog.port_contract import PortValueError, canonical_sha256
+from core.catalog.port_contract import (
+    PortValueError,
+    _exact_contract_reference_to_canonical,
+    canonical_sha256,
+)
+from core.execution.output_admission.identity import _exact_port_type
 from core.operation import AdmittedPort, AdmittedValue, PortMultiplicity
 from datatypes.candidate import CandidateDataReference
-from datatypes.exact_reference import ResidueAxisReference
+from datatypes.exact_reference import ExactContractReference, ResidueAxisReference
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +88,7 @@ def _admitted_value(
 
 def _snapshot(
     *,
-    port_type: Mapping[str, Any],
+    port_type: ExactContractReference,
     multiplicity: PortMultiplicity,
     values: tuple[AdmittedValue, ...],
 ) -> AdmittedPort:
@@ -94,7 +99,9 @@ def _snapshot(
         if len(values) == 1
         else canonical_sha256(
             {
-                "port_type": dict(port_type),
+                "port_type": _exact_contract_reference_to_canonical(
+                    port_type
+                ),
                 "value_content_digests": [
                     value.content_digest for value in values
                 ],
@@ -134,7 +141,7 @@ def _admit_fresh_port(
         for value, projection in zip(values, value_projections, strict=True)
     )
     return _snapshot(
-        port_type=port_type.reference(),
+        port_type=_exact_port_type(port_type),
         multiplicity=multiplicity,
         values=admitted,
     )
@@ -158,7 +165,7 @@ def restore_admitted_port(
         for canonical_value in canonical_values
     )
     return _snapshot(
-        port_type=port_type.reference(),
+        port_type=_exact_port_type(port_type),
         multiplicity=multiplicity,
         values=admitted,
     )
@@ -166,7 +173,7 @@ def restore_admitted_port(
 
 def combine_admitted_port(
     *,
-    port_type: Mapping[str, Any],
+    port_type: ExactContractReference,
     multiplicity: PortMultiplicity,
     values: tuple[AdmittedValue, ...],
 ) -> AdmittedPort:

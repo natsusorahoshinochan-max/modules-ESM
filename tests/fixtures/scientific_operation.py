@@ -334,12 +334,12 @@ def admitted_port_fixture(
         )
     )
     return AdmittedPort(
-        port_type={
-            "contract_kind": "port_type",
-            "contract_id": port_type_id,
-            "contract_version": "fixture",
-            "contract_digest": "sha256:" + ("0" * 64),
-        },
+        port_type=ExactContractReference(
+            "port_type",
+            port_type_id,
+            "fixture",
+            "sha256:" + ("0" * 64),
+        ),
         multiplicity=multiplicity,
         values=admitted_values,
         content_digest=(
