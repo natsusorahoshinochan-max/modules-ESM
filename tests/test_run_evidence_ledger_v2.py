@@ -12,39 +12,38 @@ import pytest
 
 from core.catalog.port_contract import canonical_json_bytes, canonical_sha256
 from core.execution.ledger import (
-    AvailabilityBinding,
+    AvailabilityBound,
     ContextSelectorEvidence,
-    EngineInvocationConclusion,
-    EngineInvocationStart,
+    EngineInvocationStarted,
+    EngineInvocationTerminal,
     Fact,
     FilesystemLedgerStore,
     ImmutableObjectReference,
     InMemoryLedgerStore,
     Ledger,
     LedgerStore,
-    NodeAttemptStart,
+    NodeAttemptStarted,
+    NodeDisposition,
     NodeFailurePublication,
     NodeSuccessPublication,
     NodeTerminationPublication,
     ObservationSelectorEvidence,
-    OperationAttemptStart,
+    OperationAttemptStarted,
     PlanNodeEvidence,
     PlanRequiredInputEvidence,
     PlanValueSourceEvidence,
     ReadinessAttestation,
     ReadinessAttested,
-    RunAdmission,
+    RunAdmitted,
     RunClosure,
     RunCursor,
     RunScopeBinding,
     RunScopeBound,
-    RunStart,
+    RunStarted,
     SelectionObjectiveEvidence,
     SelectionResult,
-    SelectionSuccess,
     SelectionTerminal,
     StructuredError,
-    UnstartedNodeConclusion,
     V2RunError,
 )
 from core.execution.ledger.codec import (
@@ -217,27 +216,29 @@ def _admitted_ledger(
     )
     for binding in _scope_references(retained_nodes):
         ledger.record(
-            AvailabilityBinding(
+            AvailabilityBound(
                 binding=binding,
                 catalog_observed_at=_OBSERVED_AT,
                 available=True,
             )
         )
     ledger.record(
-        RunAdmission(
+        RunAdmitted(
             workflow_commit_id="workflow-commit-" + "0" * 64,
             workflow_commit_revision=1,
         )
     )
-    ledger.record(RunStart(started_at=_STARTED_AT))
+    ledger.record(RunStarted(started_at=_STARTED_AT))
     return ledger, projects, retained_store
 
 
 def _publish_success(ledger: Ledger, *, node_id: str = "node-1") -> None:
     node_attempt_id = f"attempt-{node_id}"
     operation_attempt_id = f"operation-{node_id}"
-    ledger.record(NodeAttemptStart(node_id, node_attempt_id))
-    ledger.record(OperationAttemptStart(node_attempt_id, operation_attempt_id))
+    ledger.record(NodeAttemptStarted(node_id, node_attempt_id))
+    ledger.record(
+        OperationAttemptStarted(operation_attempt_id, node_attempt_id)
+    )
     ledger.record(
         NodeSuccessPublication(
             node_id=node_id,
@@ -325,8 +326,10 @@ def test_success_publication_is_one_atomic_typed_transition(tmp_path: Path) -> N
 
     node_attempt_id = "attempt-node-1"
     operation_attempt_id = "operation-node-1"
-    ledger.record(NodeAttemptStart("node-1", node_attempt_id))
-    ledger.record(OperationAttemptStart(node_attempt_id, operation_attempt_id))
+    ledger.record(NodeAttemptStarted("node-1", node_attempt_id))
+    ledger.record(
+        OperationAttemptStarted(operation_attempt_id, node_attempt_id)
+    )
     acknowledgement = ledger.record(
         NodeSuccessPublication(
             node_id="node-1",
@@ -355,7 +358,7 @@ def test_attempt_failure_closes_without_fictitious_operation(
     tmp_path: Path,
 ) -> None:
     ledger, _, _ = _admitted_ledger(tmp_path)
-    ledger.record(NodeAttemptStart("node-1", "attempt-1"))
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
     error = StructuredError(
         code="node_execution_failed",
         message="Node execution failed safely",
@@ -433,7 +436,10 @@ def test_cancellation_decision_is_idempotent_and_orders_writers(
     assert requested.outcome == "cancellation_requested"
     assert repeated.outcome == "already_requested"
     assert repeated.cursor == requested.cursor
-    assert ledger.record_if_active(NodeAttemptStart("node-1", "attempt-1")) is None
+    assert (
+        ledger.record_if_active(NodeAttemptStarted("node-1", "attempt-1"))
+        is None
+    )
 
 
 def test_unstarted_cancelled_requires_durable_cancellation_evidence(
@@ -444,9 +450,10 @@ def test_unstarted_cancelled_requires_durable_cancellation_evidence(
 
     with pytest.raises(V2RunError, match="causal validation"):
         missing.record(
-            UnstartedNodeConclusion(
+            NodeDisposition(
                 node_id="node-1",
                 outcome="cancelled",
+                blocked_by=(),
             )
         )
 
@@ -454,9 +461,10 @@ def test_unstarted_cancelled_requires_durable_cancellation_evidence(
 
     interrupted, _, _ = _admitted_ledger(tmp_path / "interrupted")
     interrupted.record(
-        UnstartedNodeConclusion(
+        NodeDisposition(
             node_id="node-1",
             outcome="interrupted",
+            blocked_by=(),
         )
     )
     assert (
@@ -467,9 +475,10 @@ def test_unstarted_cancelled_requires_durable_cancellation_evidence(
     cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
     cancelled.request_cancellation(None)
     cancelled.record(
-        UnstartedNodeConclusion(
+        NodeDisposition(
             node_id="node-1",
             outcome="cancelled",
+            blocked_by=(),
         )
     )
     assert cancelled.projection().node_dispositions[0].outcome == "cancelled"
@@ -479,8 +488,8 @@ def test_active_cancelled_requires_durable_cancellation_evidence(
     tmp_path: Path,
 ) -> None:
     missing, _, _ = _admitted_ledger(tmp_path / "missing")
-    missing.record(NodeAttemptStart("node-1", "attempt-1"))
-    missing.record(OperationAttemptStart("attempt-1", "operation-1"))
+    missing.record(NodeAttemptStarted("node-1", "attempt-1"))
+    missing.record(OperationAttemptStarted("operation-1", "attempt-1"))
     durable_cursor = missing.cursor
 
     with pytest.raises(V2RunError, match="causal validation"):
@@ -497,8 +506,8 @@ def test_active_cancelled_requires_durable_cancellation_evidence(
     assert missing.cursor == durable_cursor
 
     cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
-    cancelled.record(NodeAttemptStart("node-1", "attempt-1"))
-    cancelled.record(OperationAttemptStart("attempt-1", "operation-1"))
+    cancelled.record(NodeAttemptStarted("node-1", "attempt-1"))
+    cancelled.record(OperationAttemptStarted("operation-1", "attempt-1"))
     cancellation = cancelled.request_cancellation(None)
     acknowledgement = cancelled.record(
         NodeTerminationPublication(
@@ -518,10 +527,10 @@ def test_engine_invocation_cancelled_requires_durable_cancellation_evidence(
     tmp_path: Path,
 ) -> None:
     missing, _, _ = _admitted_ledger(tmp_path / "missing")
-    missing.record(NodeAttemptStart("node-1", "attempt-1"))
-    missing.record(OperationAttemptStart("attempt-1", "operation-1"))
+    missing.record(NodeAttemptStarted("node-1", "attempt-1"))
+    missing.record(OperationAttemptStarted("operation-1", "attempt-1"))
     missing.record(
-        EngineInvocationStart(
+        EngineInvocationStarted(
             invocation_id="invocation-1",
             operation_attempt_id="operation-1",
             engine_role="predictor",
@@ -532,7 +541,7 @@ def test_engine_invocation_cancelled_requires_durable_cancellation_evidence(
 
     with pytest.raises(V2RunError, match="causal validation"):
         missing.record(
-            EngineInvocationConclusion(
+            EngineInvocationTerminal(
                 invocation_id="invocation-1",
                 status="cancelled",
             )
@@ -541,10 +550,10 @@ def test_engine_invocation_cancelled_requires_durable_cancellation_evidence(
     assert missing.cursor == durable_cursor
 
     cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
-    cancelled.record(NodeAttemptStart("node-1", "attempt-1"))
-    cancelled.record(OperationAttemptStart("attempt-1", "operation-1"))
+    cancelled.record(NodeAttemptStarted("node-1", "attempt-1"))
+    cancelled.record(OperationAttemptStarted("operation-1", "attempt-1"))
     cancelled.record(
-        EngineInvocationStart(
+        EngineInvocationStarted(
             invocation_id="invocation-1",
             operation_attempt_id="operation-1",
             engine_role="predictor",
@@ -553,7 +562,7 @@ def test_engine_invocation_cancelled_requires_durable_cancellation_evidence(
     )
     cancellation = cancelled.request_cancellation(None)
     acknowledgement = cancelled.record(
-        EngineInvocationConclusion(
+        EngineInvocationTerminal(
             invocation_id="invocation-1",
             status="cancelled",
         )
@@ -569,8 +578,8 @@ def test_active_non_cancel_termination_does_not_require_cancellation(
     status: Literal["interrupted", "outcome_unknown"],
 ) -> None:
     ledger, _, _ = _admitted_ledger(tmp_path / status)
-    ledger.record(NodeAttemptStart("node-1", "attempt-1"))
-    ledger.record(OperationAttemptStart("attempt-1", "operation-1"))
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
 
     ledger.record(
         NodeTerminationPublication(
@@ -594,9 +603,9 @@ def test_provider_operation_requires_typed_readiness_evidence(
         tmp_path / "missing",
         plan_nodes=(provider_node,),
     )
-    missing.record(NodeAttemptStart("node-1", "attempt-1"))
+    missing.record(NodeAttemptStarted("node-1", "attempt-1"))
     with pytest.raises(V2RunError):
-        missing.record(OperationAttemptStart("attempt-1", "operation-1"))
+        missing.record(OperationAttemptStarted("operation-1", "attempt-1"))
 
     passing, _, _ = _admitted_ledger(
         tmp_path / "passing",
@@ -611,8 +620,8 @@ def test_provider_operation_requires_typed_readiness_evidence(
             proof_source="direct-observation",
         )
     )
-    passing.record(NodeAttemptStart("node-1", "attempt-1"))
-    passing.record(OperationAttemptStart("attempt-1", "operation-1"))
+    passing.record(NodeAttemptStarted("node-1", "attempt-1"))
+    passing.record(OperationAttemptStarted("operation-1", "attempt-1"))
 
     readiness = next(
         fact.payload
@@ -627,8 +636,8 @@ def test_engine_invocation_keeps_typed_scientific_provenance(
     tmp_path: Path,
 ) -> None:
     ledger, _, _ = _admitted_ledger(tmp_path)
-    ledger.record(NodeAttemptStart("node-1", "attempt-1"))
-    ledger.record(OperationAttemptStart("attempt-1", "operation-1"))
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
     workbench_chain_order = ["A"]
     provider_structure_chain_order = ["X"]
     provider_chain_order = ["X"]
@@ -666,7 +675,7 @@ def test_engine_invocation_keeps_typed_scientific_provenance(
     )
 
     acknowledgement = ledger.record(
-        EngineInvocationStart(
+        EngineInvocationStarted(
             invocation_id="invocation-1",
             operation_attempt_id="operation-1",
             engine_role="predictor",
@@ -713,7 +722,7 @@ def test_required_input_evidence_produces_exact_blocker(tmp_path: Path) -> None:
     _publish_success(ledger, node_id="upstream")
 
     ledger.record(
-        UnstartedNodeConclusion(
+        NodeDisposition(
             node_id="downstream",
             outcome="blocked",
             blocked_by=("upstream",),
@@ -739,8 +748,8 @@ def test_failed_durable_ack_does_not_install_staged_facts(tmp_path: Path) -> Non
 
     store = ControlledStore()
     ledger, _, _ = _admitted_ledger(tmp_path, store=store)
-    ledger.record(NodeAttemptStart("node-1", "attempt-1"))
-    ledger.record(OperationAttemptStart("attempt-1", "operation-1"))
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
     durable_facts = ledger.facts
     store.fail = True
 
@@ -906,7 +915,12 @@ def test_restart_rejects_invalid_persisted_selection_grammar(
     _publish_success(ledger)
     ledger.record(
         RunClosure(
-            selections=(SelectionSuccess(_selection_result()),),
+            selections=(
+                SelectionTerminal(
+                    status="succeeded",
+                    result=_selection_result(),
+                ),
+            ),
         )
     )
 

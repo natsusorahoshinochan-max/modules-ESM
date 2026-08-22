@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from core.operation import EngineInvocationProvenance
 from datatypes.exact_reference import ExactContractReference
 
 if TYPE_CHECKING:
@@ -14,7 +13,7 @@ if TYPE_CHECKING:
         ImmutableObjectReference,
         PublishedArtifact,
         PublishedOutput,
-        SelectionResult,
+        SelectionTerminal,
         StructuredError,
     )
     from core.execution.ledger.projections import RunCursor
@@ -70,30 +69,6 @@ class RunScopeBinding:
 
 
 @dataclass(frozen=True, slots=True)
-class AvailabilityBinding:
-    """One exact Binding Availability snapshot selected for this Run."""
-
-    binding: ExactContractReference
-    catalog_observed_at: str
-    available: bool
-
-
-@dataclass(frozen=True, slots=True)
-class RunAdmission:
-    """The exact Workflow Commit admitted into one bound Run scope."""
-
-    workflow_commit_id: str
-    workflow_commit_revision: int
-
-
-@dataclass(frozen=True, slots=True)
-class RunStart:
-    """The execution start of one admitted Run."""
-
-    started_at: str
-
-
-@dataclass(frozen=True, slots=True)
 class ReadinessAttestation:
     """One complete run-scoped Readiness conclusion for an exact Binding."""
 
@@ -102,49 +77,6 @@ class ReadinessAttestation:
     observed_at: str
     conclusion: Literal["passing", "failing"]
     proof_source: str
-
-
-@dataclass(frozen=True, slots=True)
-class EngineInvocationStart:
-    """One complete typed entry into a declared scientific engine seam."""
-
-    invocation_id: str
-    operation_attempt_id: str
-    engine_role: str
-    engine_identity: str
-    parent_invocation_id: str | None = None
-    provenance: EngineInvocationProvenance | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NodeAttemptStart:
-    """One scheduled Node Execution Attempt start."""
-
-    node_id: str
-    node_attempt_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class OperationAttemptStart:
-    """One Operation Attempt start under a Node Execution Attempt."""
-
-    node_attempt_id: str
-    operation_attempt_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class EngineInvocationConclusion:
-    """One complete terminal conclusion for a started Engine Invocation."""
-
-    invocation_id: str
-    status: Literal[
-        "succeeded",
-        "failed",
-        "cancelled",
-        "interrupted",
-        "outcome_unknown",
-    ]
-    error: StructuredError | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,54 +129,10 @@ class NodeTerminationPublication:
 
 
 @dataclass(frozen=True, slots=True)
-class UnstartedNodeConclusion:
-    """One complete disposition for a Node with no Execution Attempt."""
-
-    node_id: str
-    outcome: Literal["blocked", "cancelled", "interrupted"]
-    blocked_by: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class SelectionSuccess:
-    """One successful Selection conclusion chosen for Run Closure."""
-
-    result: SelectionResult
-
-
-@dataclass(frozen=True, slots=True)
-class SelectionFailure:
-    """One failed Selection conclusion chosen for Run Closure."""
-
-    error: StructuredError
-
-
-SelectionConclusion = SelectionSuccess | SelectionFailure
-
-
-@dataclass(frozen=True, slots=True)
 class RunClosure:
     """The complete normal Selection and Run Closure conclusion."""
 
-    selections: tuple[SelectionConclusion, ...] = ()
-
-
-LedgerTransition = (
-    RunScopeBinding
-    | AvailabilityBinding
-    | RunAdmission
-    | RunStart
-    | ReadinessAttestation
-    | NodeAttemptStart
-    | OperationAttemptStart
-    | EngineInvocationStart
-    | EngineInvocationConclusion
-    | NodeSuccessPublication
-    | NodeFailurePublication
-    | NodeTerminationPublication
-    | UnstartedNodeConclusion
-    | RunClosure
-)
+    selections: tuple[SelectionTerminal, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

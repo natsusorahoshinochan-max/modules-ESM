@@ -9,8 +9,8 @@ import uuid
 from core.execution._node_attempt_errors import _execution_error
 from core.execution._node_attempt_models import ExecutionTermination
 from core.execution.ledger import (
-    EngineInvocationConclusion,
-    EngineInvocationStart,
+    EngineInvocationStarted,
+    EngineInvocationTerminal,
     Ledger,
 )
 from core.operation import EngineInvocationProvenance
@@ -32,7 +32,7 @@ class _OperationInvocationRecorder:
     ):
         invocation_id = f"invocation-{uuid.uuid4().hex}"
         acknowledged = self.ledger.record_if_active(
-            EngineInvocationStart(
+            EngineInvocationStarted(
                 invocation_id=invocation_id,
                 operation_attempt_id=self.operation_attempt_id,
                 engine_role=engine_role,
@@ -52,7 +52,7 @@ class _OperationInvocationRecorder:
                 else "failed"
             )
             self.ledger.record(
-                EngineInvocationConclusion(
+                EngineInvocationTerminal(
                     invocation_id=invocation_id,
                     status=terminal_status,
                     error=_execution_error(error),
@@ -61,7 +61,7 @@ class _OperationInvocationRecorder:
             raise
         else:
             self.ledger.record(
-                EngineInvocationConclusion(
+                EngineInvocationTerminal(
                     invocation_id=invocation_id,
                     status="succeeded",
                 )

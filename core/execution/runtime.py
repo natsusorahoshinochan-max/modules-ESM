@@ -24,22 +24,21 @@ from core.execution._run_runtime_selection import (
     selection_consumer_result,
 )
 from core.execution.ledger import (
-    AvailabilityBinding,
+    AvailabilityBound,
     CancellationDecision,
     DerivedRunReference,
     Fact,
     Ledger,
     LedgerStore,
+    NodeDisposition,
     ReplayWindow,
     RunCursor,
-    RunAdmission,
+    RunAdmitted,
     RunClosure,
     RunProjection,
     RunScopeBinding,
-    RunStart,
-    SelectionFailure,
-    SelectionSuccess,
-    UnstartedNodeConclusion,
+    RunStarted,
+    SelectionTerminal,
     V2RunError,
     run_cursor,
     run_timestamp,
@@ -348,7 +347,7 @@ class V2RunService:
             )
             availability_by_binding[binding_key] = availability
             ledger.record(
-                AvailabilityBinding(
+                AvailabilityBound(
                     binding=availability.binding,
                     catalog_observed_at=run_timestamp(
                         availability.observed_at
@@ -357,12 +356,12 @@ class V2RunService:
                 )
             )
         admitted = ledger.record(
-            RunAdmission(
+            RunAdmitted(
                 workflow_commit_id=workflow_commit_id,
                 workflow_commit_revision=workflow_commit_revision,
             )
         )
-        ledger.record(RunStart(started_at=run_timestamp()))
+        ledger.record(RunStarted(started_at=run_timestamp()))
 
         committed_artifact_count = 0
         committed_artifact_bytes = 0
@@ -402,7 +401,7 @@ class V2RunService:
             )
             if blocked_by:
                 acknowledged = ledger.record_if_active(
-                    UnstartedNodeConclusion(
+                    NodeDisposition(
                         node_id=node.node_id,
                         outcome="blocked",
                         blocked_by=tuple(blocked_by),
@@ -410,17 +409,19 @@ class V2RunService:
                 )
                 if acknowledged is None:
                     ledger.record(
-                        UnstartedNodeConclusion(
+                        NodeDisposition(
                             node_id=node.node_id,
                             outcome=cancellation_outcome,
+                            blocked_by=(),
                         )
                     )
                 concluded_before_scheduling = True
             elif ledger.cancellation_requested:
                 ledger.record(
-                    UnstartedNodeConclusion(
+                    NodeDisposition(
                         node_id=node.node_id,
                         outcome=cancellation_outcome,
+                        blocked_by=(),
                     )
                 )
                 concluded_before_scheduling = True
@@ -452,27 +453,26 @@ class V2RunService:
                 committed_artifact_bytes += (
                     committed.published_artifact_bytes
                 )
-        selection_conclusions: tuple[
-            SelectionSuccess | SelectionFailure,
-            ...,
-        ] = ()
+        selection_conclusions: tuple[SelectionTerminal, ...] = ()
         if ledger.selection_consumer_ids and ledger.all_dispositions_succeeded:
             selection_consumers = {
                 node.node_id: node for node in plan.nodes
             }
             try:
                 selection_conclusions = tuple(
-                    SelectionSuccess(
+                    SelectionTerminal(
+                        status="succeeded",
                         result=selection_consumer_result(
                             selection_consumers[node_id],
                             committed_values,
-                        )
+                        ),
                     )
                     for node_id in ledger.selection_consumer_ids
                 )
             except SelectionError as error:
                 selection_conclusions = (
-                    SelectionFailure(
+                    SelectionTerminal(
+                        status="failed",
                         error=_selection_error(error),
                     ),
                 )

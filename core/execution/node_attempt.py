@@ -41,8 +41,8 @@ from core.execution._node_attempt_publication import _AttemptPublication
 from core.execution.environment import EnvironmentConfiguration
 from core.execution.ledger import (
     Ledger,
-    NodeAttemptStart,
-    OperationAttemptStart,
+    NodeAttemptStarted,
+    OperationAttemptStarted,
     ReadinessAttestation,
     V2RunError,
     run_timestamp,
@@ -113,7 +113,7 @@ class _NodeAttempt:
         state: _NodeExecutionAttemptState,
     ) -> Literal["cancelled", "interrupted"] | None:
         acknowledged = self._ledger.record_if_active(
-            NodeAttemptStart(
+            NodeAttemptStarted(
                 node_id=state.node.node_id,
                 node_attempt_id=state.node_attempt_id,
             )
@@ -574,7 +574,7 @@ class _NodeAttempt:
         state: _NodeExecutionAttemptState,
     ) -> Literal["cancelled", "interrupted"] | None:
         acknowledged = self._ledger.record_if_active(
-            OperationAttemptStart(
+            OperationAttemptStarted(
                 operation_attempt_id=state.operation_attempt_id,
                 node_attempt_id=state.node_attempt_id,
             )

@@ -18,12 +18,12 @@ from core.execution.ledger import (
     ImmutableObjectReference,
     Ledger,
     NodeFailurePublication,
+    NodeDisposition,
     NodeSuccessPublication,
     NodeTerminationPublication,
     PublishedArtifact,
     PublishedOutput,
     StructuredError,
-    UnstartedNodeConclusion,
 )
 from core.execution.results import (
     ResultStore,
@@ -167,9 +167,10 @@ class _AttemptPublication:
         outcome: Literal["cancelled", "interrupted"],
     ) -> AttemptOutcome:
         self._ledger.record(
-            UnstartedNodeConclusion(
+            NodeDisposition(
                 node_id=node_id,
                 outcome=outcome,
+                blocked_by=(),
             )
         )
         return AttemptOutcome(disposition=outcome)

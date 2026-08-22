@@ -25,15 +25,15 @@ from core.execution._run_runtime_evidence import (
     plan_evidence,
 )
 from core.execution.ledger import (
-    AvailabilityBinding,
+    AvailabilityBound,
     FilesystemLedgerStore,
     Ledger,
     NodeAttemptTerminal,
     NodeDisposition,
     OperationAttemptTerminal,
-    RunAdmission,
+    RunAdmitted,
     RunScopeBinding,
-    RunStart,
+    RunStarted,
     V2RunError,
     run_timestamp,
 )
@@ -2154,7 +2154,7 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
             _exact_contract_reference(node.binding)
         )
         ledger.record(
-            AvailabilityBinding(
+            AvailabilityBound(
                 binding=_exact_contract_reference(
                     node.binding
                 ),
@@ -2163,13 +2163,13 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
             )
         )
         ledger.record(
-            RunAdmission(
+            RunAdmitted(
                 workflow_commit_id=committed["workflow_commit_id"],
                 workflow_commit_revision=plan.workflow_commit_revision,
             )
         )
         ledger.record(
-            RunStart(
+            RunStarted(
                 started_at="2026-08-21T00:00:00Z",
             )
         )

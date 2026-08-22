@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 import threading
-from typing import Any, Literal
+from typing import Any, Literal, TypeAlias
 
 from core.catalog.port_contract import canonical_sha256
 from core.execution.ledger.codec import (
@@ -56,27 +56,16 @@ from core.execution.ledger.projections import (
 )
 from core.execution.ledger.store import FilesystemLedgerStore, LedgerStore
 from core.execution.ledger.transitions import (
-    AvailabilityBinding,
-    EngineInvocationConclusion,
-    EngineInvocationStart,
     LedgerAcknowledgement,
-    LedgerTransition,
-    NodeAttemptStart,
     NodeFailurePublication,
     NodeSuccessPublication,
     NodeTerminationPublication,
-    OperationAttemptStart,
     PlanNodeEvidence,
     PlanRequiredInputEvidence,
     PlanValueSourceEvidence,
     ReadinessAttestation,
-    RunAdmission,
     RunClosure,
     RunScopeBinding,
-    RunStart,
-    SelectionFailure,
-    SelectionSuccess,
-    UnstartedNodeConclusion,
 )
 from core.project.manager import ProjectManager
 from core.project.storage import (
@@ -88,6 +77,23 @@ from datatypes.exact_reference import ExactContractReference
 
 READINESS_ATTESTATION_NAMESPACE = "protein-workbench-readiness-attestation/v2"
 MAX_LEDGER_TRANSACTION_BYTES = 4 * 1024 * 1024
+
+_LedgerTransition: TypeAlias = (
+    RunScopeBinding
+    | ReadinessAttestation
+    | AvailabilityBound
+    | RunAdmitted
+    | RunStarted
+    | NodeAttemptStarted
+    | OperationAttemptStarted
+    | EngineInvocationStarted
+    | EngineInvocationTerminal
+    | NodeDisposition
+    | NodeSuccessPublication
+    | NodeFailurePublication
+    | NodeTerminationPublication
+    | RunClosure
+)
 
 
 class V2RunError(RuntimeError):
@@ -448,42 +454,40 @@ class Ledger:
 
     def record(
         self,
-        transition: LedgerTransition,
+        transition: _LedgerTransition,
     ) -> LedgerAcknowledgement:
         """Validate and durably acknowledge one complete legal transition."""
         if isinstance(transition, RunScopeBinding):
             return self._record_run_scope(transition)
-        if isinstance(transition, AvailabilityBinding):
-            return self._record_availability(transition)
-        if isinstance(transition, RunAdmission):
-            return self._record_run_admission(transition)
-        if isinstance(transition, RunStart):
-            return self._record_run_start(transition)
         if isinstance(transition, ReadinessAttestation):
             return self._record_readiness(transition)
-        if isinstance(transition, NodeAttemptStart):
-            return self._record_node_attempt_start(transition)
-        if isinstance(transition, OperationAttemptStart):
-            return self._record_operation_attempt_start(transition)
-        if isinstance(transition, EngineInvocationStart):
-            return self._record_engine_invocation_start(transition)
-        if isinstance(transition, EngineInvocationConclusion):
-            return self._record_engine_invocation_conclusion(transition)
+        if isinstance(
+            transition,
+            (
+                AvailabilityBound,
+                RunAdmitted,
+                RunStarted,
+                NodeAttemptStarted,
+                OperationAttemptStarted,
+                EngineInvocationStarted,
+                EngineInvocationTerminal,
+                NodeDisposition,
+            ),
+        ):
+            return self._commit((transition,))
         if isinstance(transition, NodeSuccessPublication):
             return self._record_node_success(transition)
         if isinstance(transition, NodeFailurePublication):
             return self._record_node_failure(transition)
         if isinstance(transition, NodeTerminationPublication):
             return self._record_node_termination(transition)
-        if isinstance(transition, UnstartedNodeConclusion):
-            return self._record_unstarted_node(transition)
         if isinstance(transition, RunClosure):
             return self._record_run_closure(transition)
         raise TypeError("Run Evidence Ledger transition is not current")
 
     def record_if_active(
         self,
-        transition: LedgerTransition,
+        transition: _LedgerTransition,
     ) -> LedgerAcknowledgement | None:
         """Atomically reject a transition when cancellation already won."""
         with self._condition:
@@ -516,39 +520,6 @@ class Ledger:
             )
         )
 
-    def _record_availability(
-        self,
-        availability: AvailabilityBinding,
-    ) -> LedgerAcknowledgement:
-        return self._commit(
-            (
-                AvailabilityBound(
-                    binding=availability.binding,
-                    catalog_observed_at=availability.catalog_observed_at,
-                    available=availability.available,
-                ),
-            )
-        )
-
-    def _record_run_admission(
-        self,
-        admission: RunAdmission,
-    ) -> LedgerAcknowledgement:
-        return self._commit(
-            (
-                RunAdmitted(
-                    admission.workflow_commit_id,
-                    admission.workflow_commit_revision,
-                ),
-            )
-        )
-
-    def _record_run_start(
-        self,
-        transition: RunStart,
-    ) -> LedgerAcknowledgement:
-        return self._commit((RunStarted(transition.started_at),))
-
     def _record_readiness(
         self,
         attestation: ReadinessAttestation,
@@ -572,63 +543,6 @@ class Ledger:
                         conclusion=attestation.conclusion,
                         proof_source=attestation.proof_source,
                     ),
-                ),
-            )
-        )
-
-    def _record_node_attempt_start(
-        self,
-        transition: NodeAttemptStart,
-    ) -> LedgerAcknowledgement:
-        return self._commit(
-            (
-                NodeAttemptStarted(
-                    transition.node_id,
-                    transition.node_attempt_id,
-                ),
-            )
-        )
-
-    def _record_operation_attempt_start(
-        self,
-        transition: OperationAttemptStart,
-    ) -> LedgerAcknowledgement:
-        return self._commit(
-            (
-                OperationAttemptStarted(
-                    transition.operation_attempt_id,
-                    transition.node_attempt_id,
-                ),
-            )
-        )
-
-    def _record_engine_invocation_start(
-        self,
-        transition: EngineInvocationStart,
-    ) -> LedgerAcknowledgement:
-        return self._commit(
-            (
-                EngineInvocationStarted(
-                    invocation_id=transition.invocation_id,
-                    operation_attempt_id=transition.operation_attempt_id,
-                    engine_role=transition.engine_role,
-                    engine_identity=transition.engine_identity,
-                    parent_invocation_id=transition.parent_invocation_id,
-                    provenance=transition.provenance,
-                ),
-            )
-        )
-
-    def _record_engine_invocation_conclusion(
-        self,
-        conclusion: EngineInvocationConclusion,
-    ) -> LedgerAcknowledgement:
-        return self._commit(
-            (
-                EngineInvocationTerminal(
-                    invocation_id=conclusion.invocation_id,
-                    status=conclusion.status,
-                    error=conclusion.error,
                 ),
             )
         )
@@ -750,38 +664,11 @@ class Ledger:
         )
         return self._commit(tuple(facts))
 
-    def _record_unstarted_node(
-        self,
-        conclusion: UnstartedNodeConclusion,
-    ) -> LedgerAcknowledgement:
-        return self._commit(
-            (
-                NodeDisposition(
-                    conclusion.node_id,
-                    conclusion.outcome,
-                    conclusion.blocked_by,
-                ),
-            )
-        )
-
     def _record_run_closure(
         self,
         closure: RunClosure,
     ) -> LedgerAcknowledgement:
-        selections = tuple(
-            (
-                SelectionTerminal(
-                    status="succeeded",
-                    result=selection.result,
-                )
-                if isinstance(selection, SelectionSuccess)
-                else SelectionTerminal(
-                    status="failed",
-                    error=selection.error,
-                )
-            )
-            for selection in closure.selections
-        )
+        selections = closure.selections
         run_status = _typed_run_terminal_status(
             self._state.dispositions.values(),
             selections,
