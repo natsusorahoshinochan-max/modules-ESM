@@ -61,7 +61,7 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     import sys
     from types import ModuleType
 
-    from modules.folding import simplefold_runtime
+    import modules.folding.simplefold_runtime as simplefold_runtime
 
     class StopAfterInferenceConstruction(Exception):
         pass
@@ -1037,8 +1037,9 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
                     [parent],
                 )
             },
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             binding_parameters={"num_steps": 10},
+            effective_randomness={"effective_seed": 1603},
         )
     )
 
@@ -1146,8 +1147,9 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
                         [parent],
                     )
                 },
-                node_parameters={"effective_seed": 1603, "num_samples": 1},
+                node_parameters={"num_samples": 1},
                 binding_parameters={"num_steps": 10},
+                effective_randomness={"effective_seed": 1603},
             )
         )
         return adapter.seeds[0]

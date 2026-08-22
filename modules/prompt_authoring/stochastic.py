@@ -4,14 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 from core.operation import AdmittedPort
-from core.port_types import canonical_json_bytes
-from datatypes import (
+from core.catalog.port_contract import (
+    canonical_json_bytes,
+)
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueMap,
     ResidueTrack,
@@ -92,49 +96,6 @@ def _copy_prompt(
     )
 
 
-def _resolved_mask_parameters(
-    prompt: ProteinPrompt,
-    *,
-    effective_seed: int,
-    count: int,
-    track: str,
-    eligible_residue_ids: tuple[str, ...],
-) -> tuple[
-    ProteinPrompt,
-    int,
-    int,
-    str,
-    tuple[str, ...],
-]:
-    target_layout = prompt.target_layout
-    assert target_layout is not None
-    residue_ids = tuple(target_layout.residue_ids or ())
-    residue_index = {
-        residue_id: index for index, residue_id in enumerate(residue_ids)
-    }
-    if set(eligible_residue_ids) - set(residue_index):
-        raise ValueError("eligible_residue_ids contains an unknown residue")
-    attribute = _TRACK_ATTRIBUTE[track]
-    selected_track = getattr(prompt, attribute)
-    if selected_track is None:
-        raise ValueError(f"protein_prompt has no {track} track to mask")
-    allowed = eligible_residue_ids or residue_ids
-    effective_eligibility = tuple(sorted(
-        residue_id
-        for residue_id in allowed
-        if selected_track.values[residue_index[residue_id]] is not None
-    ))
-    if count > len(effective_eligibility):
-        raise ValueError("count exceeds assigned eligible track positions")
-    return (
-        prompt,
-        effective_seed,
-        count,
-        track,
-        effective_eligibility,
-    )
-
-
 def resolve_random_mask_effective_randomness(
     *,
     inputs: Mapping[str, AdmittedPort],
@@ -142,6 +103,7 @@ def resolve_random_mask_effective_randomness(
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Resolve the canonical effective random-mask set before Cache lookup."""
+    del binding_parameters
     source: ProteinPrompt = inputs["protein_prompt"].value
     seed = node_parameters["effective_seed"]
     count = node_parameters["count"]
@@ -149,28 +111,23 @@ def resolve_random_mask_effective_randomness(
     declared_eligibility: tuple[str, ...] = node_parameters[
         "eligible_residue_ids"
     ]
-    target_layout = source.target_layout
-    assert target_layout is not None
+    target_layout = cast(ResidueLayout, source.target_layout)
     residue_ids = tuple(target_layout.residue_ids or ())
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
-    selected_track = (
-        getattr(source, _TRACK_ATTRIBUTE[track])
-        if track in _TRACK_ATTRIBUTE
-        else None
-    )
-    if (
-        selected_track is None
-        or set(declared_eligibility) - set(residue_index)
-    ):
-        eligibility = tuple(sorted(declared_eligibility))
-    else:
-        eligibility = tuple(sorted(
-            residue_id
-            for residue_id in (declared_eligibility or residue_ids)
-            if selected_track.values[residue_index[residue_id]] is not None
-        ))
+    if set(declared_eligibility) - set(residue_index):
+        raise ValueError("eligible_residue_ids contains an unknown residue")
+    selected_track = getattr(source, _TRACK_ATTRIBUTE[track])
+    if selected_track is None:
+        raise ValueError(f"protein_prompt has no {track} track to mask")
+    eligibility = tuple(sorted(
+        residue_id
+        for residue_id in (declared_eligibility or residue_ids)
+        if selected_track.values[residue_index[residue_id]] is not None
+    ))
+    if count > len(eligibility):
+        raise ValueError("count exceeds assigned eligible track positions")
     return {
         "effective_seed": seed,
         "count": count,
@@ -188,31 +145,17 @@ def random_mask_prompt(
     eligible_residue_ids: tuple[str, ...],
 ) -> ProteinPrompt:
     """Clear exactly ``count`` seeded assigned values on one declared track."""
-    (
-        source,
-        effective_seed,
-        count,
-        track,
-        effective_eligibility,
-    ) = _resolved_mask_parameters(
-        prompt,
-        effective_seed=effective_seed,
-        count=count,
-        track=track,
-        eligible_residue_ids=eligible_residue_ids,
-    )
-    target_layout = source.target_layout
-    assert target_layout is not None
+    source = prompt
+    target_layout = cast(ResidueLayout, source.target_layout)
     residue_ids = tuple(target_layout.residue_ids or ())
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
     attribute = _TRACK_ATTRIBUTE[track]
-    selected_track = getattr(source, attribute)
-    assert selected_track is not None
+    selected_track = cast(ResidueTrack, getattr(source, attribute))
     candidates = [
         residue_index[residue_id]
-        for residue_id in effective_eligibility
+        for residue_id in eligible_residue_ids
     ]
 
     chosen = set(
@@ -240,33 +183,6 @@ def random_mask_prompt(
     return result
 
 
-def _resolved_insert_parameters(
-    prompt: ProteinPrompt,
-    *,
-    effective_seed: int,
-    count: int,
-    eligible_chain_ids: tuple[str, ...],
-) -> tuple[ProteinPrompt, int, int, tuple[str, ...]]:
-    source_layout = prompt.target_layout
-    assert source_layout is not None
-    if source_layout.length + count > 2_000_000:
-        raise ValueError("inserted layout exceeds the supported residue bound")
-    chain_order = tuple(source_layout.chain_id.split(","))
-    if set(eligible_chain_ids) - set(chain_order):
-        raise ValueError("eligible_chain_ids contains an unknown chain")
-    effective_eligibility = tuple(sorted(
-        eligible_chain_ids or chain_order
-    ))
-    if count and not effective_eligibility:
-        raise ValueError("no eligible chain-local insertion boundary exists")
-    return (
-        prompt,
-        effective_seed,
-        count,
-        effective_eligibility,
-    )
-
-
 def resolve_random_insert_effective_randomness(
     *,
     inputs: Mapping[str, AdmittedPort],
@@ -274,22 +190,28 @@ def resolve_random_insert_effective_randomness(
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Resolve the canonical effective insertion set before Cache lookup."""
+    del binding_parameters
     source: ProteinPrompt = inputs["protein_prompt"].value
     seed = node_parameters["effective_seed"]
     count = node_parameters["count"]
     declared_eligibility: tuple[str, ...] = node_parameters[
         "eligible_chain_ids"
     ]
-    source_layout = source.target_layout
-    assert source_layout is not None
+    source_layout = cast(ResidueLayout, source.target_layout)
+    if source_layout.length + count > 2_000_000:
+        raise ValueError("inserted layout exceeds the supported residue bound")
     chain_order = tuple(source_layout.chain_id.split(","))
-    eligibility = tuple(sorted(
-        (
-            declared_eligibility
-            if set(declared_eligibility) - set(chain_order)
-            else (declared_eligibility or chain_order)
-        )
-    ))
+    if set(declared_eligibility) - set(chain_order):
+        raise ValueError("eligible_chain_ids contains an unknown chain")
+    eligibility = tuple(sorted(declared_eligibility or chain_order))
+    if count and not eligibility:
+        raise ValueError("no eligible chain-local insertion boundary exists")
+    populated_chains = {
+        residue_chain(residue_id)
+        for residue_id in source_layout.residue_ids or ()
+    }
+    if any(chain_id not in populated_chains for chain_id in eligibility):
+        raise ValueError("eligible chain has no residue boundary")
     return {
         "effective_seed": seed,
         "count": count,
@@ -305,16 +227,9 @@ def random_insert_masked(
     eligible_chain_ids: tuple[str, ...],
 ) -> tuple[ProteinPrompt, ResidueMap]:
     """Insert seeded chain-local nullable residues across every present track."""
-    source, effective_seed, count, selected_chains = (
-        _resolved_insert_parameters(
-            prompt,
-            effective_seed=effective_seed,
-            count=count,
-            eligible_chain_ids=eligible_chain_ids,
-        )
-    )
-    source_layout = source.target_layout
-    assert source_layout is not None
+    source = prompt
+    selected_chains = eligible_chain_ids
+    source_layout = cast(ResidueLayout, source.target_layout)
     source_ids = tuple(source_layout.residue_ids or ())
     chain_order = tuple(source_layout.chain_id.split(","))
 
@@ -328,14 +243,10 @@ def random_insert_masked(
         if chain_id not in selected_chains:
             continue
         chain_positions = positions_by_chain[chain_id]
-        if not chain_positions:
-            raise ValueError("eligible chain has no residue boundary")
         boundaries.extend(
             [(chain_id, chain_positions[0])]
             + [(chain_id, position + 1) for position in chain_positions]
         )
-    if count and not boundaries:
-        raise ValueError("no eligible insertion boundary exists")
 
     boundary_set_digest = (
         "sha256:"

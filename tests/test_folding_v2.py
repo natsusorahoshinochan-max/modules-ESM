@@ -1027,10 +1027,19 @@ def test_all_folding_axes_validate_before_any_provider_invocation() -> None:
                         binding_version=binding_version,
                         inputs={"sequence_candidates": parents},
                         node_parameters={
-                            "effective_seed": 1603,
                             "num_samples": 1,
+                            **(
+                                {"effective_seed": 1603}
+                                if binding_id.endswith("_remote")
+                                else {}
+                            ),
                         },
                         binding_parameters=binding_parameters,
+                        effective_randomness=(
+                            {}
+                            if binding_id.endswith("_remote")
+                            else {"effective_seed": 1603}
+                        ),
                     )
                 )
             assert adapter.calls == 0
@@ -1055,13 +1064,13 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
 
     class Adapter:
         def __init__(self) -> None:
-            self.calls: list[tuple[ProteinSequence, int, str]] = []
+            self.calls: list[tuple[ProteinSequence, int | None, str]] = []
 
         def fold(
             self,
             *,
             sequence: ProteinSequence,
-            derived_call_seed: int,
+            derived_call_seed: int | None,
             engine_role: str,
         ) -> ESMFold2AdapterResult:
             self.calls.append((sequence, derived_call_seed, engine_role))
@@ -1074,7 +1083,7 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
                     ptm=0.625,
                     pae=((0.0, 1.0), (1.0, 0.0)),
                 ),
-                effective_call_seed=derived_call_seed,
+                effective_call_seed=None,
             )
 
     catalog = build_frozen_catalog(
@@ -1131,9 +1140,8 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
         "checkpoint",
         "seed_control",
     }.isdisjoint(structures.items[0].metadata)
-    assert structures.items[0].metadata["effective_call_seed"] == (
-        adapter.calls[0][1]
-    )
+    assert "effective_call_seed" not in structures.items[0].metadata
+    assert adapter.calls[0][1] is None
     assert adapter.calls[0][0] == parent.data
     assert adapter.calls[0][2] == "fold_parent_0_sample_0"
     facts = outputs["confidence_facts"]
@@ -1232,8 +1240,9 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
                         [parent],
                     )
                 },
-                node_parameters={"effective_seed": 1603, "num_samples": 1},
+                node_parameters={"num_samples": 1},
                 binding_parameters={},
+                effective_randomness={"effective_seed": 1603},
             )
         )
         return adapter.seeds[0]

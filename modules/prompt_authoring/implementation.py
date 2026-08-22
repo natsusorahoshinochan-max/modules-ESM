@@ -5,14 +5,20 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core import AdmittedPort, OperationCall, RunResources
-from datatypes import (
+from core.operation import (
+    OperationResources,
+    AdmittedPort,
+    OperationCall,
+)
+from datatypes.prompt import (
     FunctionAnnotations,
     ProteinPrompt,
-    ResolvedStructureResidueAxis,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueTrack,
 )
+from datatypes.structure import ResolvedStructureResidueAxis
 
 from .annotations import add_function_annotation
 from .domain import (
@@ -42,7 +48,7 @@ _TRACK_PORTS = {
 
 
 class _Implementation:
-    def __init__(self, run_resources: RunResources) -> None:
+    def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
 
     def _invocation(self):
@@ -216,14 +222,14 @@ class UpdatePromptSequenceImplementation(_Implementation):
 class RandomMaskImplementation(_Implementation):
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
-        node_parameters = call.node_parameters
+        randomness = call.effective_randomness
         with self._invocation():
             prompt = random_mask_prompt(
                 inputs["protein_prompt"].value,
-                effective_seed=node_parameters["effective_seed"],
-                count=node_parameters["count"],
-                track=node_parameters["track"],
-                eligible_residue_ids=node_parameters["eligible_residue_ids"],
+                effective_seed=randomness["effective_seed"],
+                count=randomness["count"],
+                track=randomness["track"],
+                eligible_residue_ids=randomness["eligible_residue_ids"],
             )
         return {"protein_prompt": prompt}
 
@@ -231,13 +237,13 @@ class RandomMaskImplementation(_Implementation):
 class RandomInsertMaskedImplementation(_Implementation):
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
-        node_parameters = call.node_parameters
+        randomness = call.effective_randomness
         with self._invocation():
             prompt, residue_map = random_insert_masked(
                 inputs["protein_prompt"].value,
-                effective_seed=node_parameters["effective_seed"],
-                count=node_parameters["count"],
-                eligible_chain_ids=node_parameters["eligible_chain_ids"],
+                effective_seed=randomness["effective_seed"],
+                count=randomness["count"],
+                eligible_chain_ids=randomness["eligible_chain_ids"],
             )
         return {
             "protein_prompt": prompt,

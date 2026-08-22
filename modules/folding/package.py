@@ -191,36 +191,8 @@ def _resolve_effective_randomness(
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    del inputs
-    if binding_parameters:
-        raise ValueError("folding Bindings accept no route parameters")
-    seed = node_parameters.get("effective_seed")
-    if (
-        type(seed) is not int
-        or seed < 0
-        or seed > 9_007_199_254_740_991
-    ):
-        raise ValueError("effective_seed must be one resolved I-JSON integer")
-    return {"effective_seed": seed}
-
-
-def _resolve_simplefold_effective_randomness(
-    *,
-    inputs: Mapping[str, AdmittedPort],
-    node_parameters: Mapping[str, Any],
-    binding_parameters: Mapping[str, Any],
-) -> dict[str, Any]:
-    del inputs
-    if set(binding_parameters) != {"num_steps"}:
-        raise ValueError("SimpleFold Binding parameters are not resolved")
-    seed = node_parameters.get("effective_seed")
-    if (
-        type(seed) is not int
-        or seed < 0
-        or seed > 9_007_199_254_740_991
-    ):
-        raise ValueError("effective_seed must be one resolved I-JSON integer")
-    return {"effective_seed": seed}
+    del inputs, binding_parameters
+    return {"effective_seed": node_parameters["effective_seed"]}
 
 
 def _build_remote(context: OperationContext) -> ScientificOperation:
@@ -610,7 +582,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                     "sample_order": "parent-then-zero-based-sample",
                 },
             ),
-            resolve=_resolve_simplefold_effective_randomness,
+            resolve=_resolve_effective_randomness,
         ),
     )
 
