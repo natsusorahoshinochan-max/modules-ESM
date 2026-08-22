@@ -21,10 +21,7 @@ from core.execution.resources import CancellationControl, RunResources
 import core.execution.node_attempt as node_attempt
 from core.execution._run_runtime_evidence import (
     _exact_contract_reference,
-    _exact_reference_from_catalog,
     _execution_plan_contract_roots,
-    _reachable_contract_evidence,
-    _run_catalog_digest,
     plan_evidence,
 )
 from core.execution.ledger import (
@@ -74,6 +71,7 @@ import core.execution.runtime as run_runtime
 from core.execution.environment import admit_environment_configuration
 from tests.support.output_admission import admit_fixture_port
 from tests.support.result_store import result_store
+from tests.support.catalog import resolved_dependencies
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
@@ -160,6 +158,7 @@ def _contract(
             "contract_version": "2.1.0",
             **descriptor,
         },
+        dependencies=resolved_dependencies(descriptor),
         parameter_contract=(
             None
             if parameter_field is None
@@ -3661,7 +3660,7 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     assert len(resumed_facts) == len(expected_sequences)
 
 
-def test_restart_rebuilds_output_identity_source_contract_closure() -> None:
+def test_catalog_resolves_output_identity_source_contract_closure() -> None:
     source_port = builtin_frozen_catalog().require_port_type("text", "2.1.0")
     materializer = BehaviorReference(
         "test.restart-identity/materialize",
@@ -3701,16 +3700,12 @@ def test_restart_rebuilds_output_identity_source_contract_closure() -> None:
     )
     catalog = FrozenCatalog((source_port, identity_port))
     roots = (
-        _exact_reference_from_catalog(
-            identity_port.reference()
-        ),
+        ExactContractReference(**identity_port.reference()),
     )
     expected_contracts = tuple(
         sorted(
             (
-                _exact_reference_from_catalog(
-                    source_port.reference()
-                ),
+                ExactContractReference(**source_port.reference()),
                 roots[0],
             ),
             key=lambda reference: (
@@ -3721,25 +3716,7 @@ def test_restart_rebuilds_output_identity_source_contract_closure() -> None:
         )
     )
 
-    class RestartLedger:
-        run_scope = RunScopeBinding(
-            workflow_commit_id="workflow-commit-1",
-            workflow_commit_revision=1,
-            workflow_digest="sha256:" + "1" * 64,
-            contract_lock_digest="sha256:" + "2" * 64,
-            execution_plan_digest="sha256:" + "3" * 64,
-            catalog_contract_digest=catalog.contract_digest,
-            resolved_contracts=expected_contracts,
-            resolved_contract_roots=roots,
-        )
-
-    rebuilt = _reachable_contract_evidence(catalog, roots)
-
-    assert rebuilt == expected_contracts
-    assert (
-        _run_catalog_digest(RestartLedger(), catalog)
-        == catalog.contract_digest
-    )
+    assert catalog.resolve_contract_closure(roots) == expected_contracts
 
 
 def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger(

@@ -66,6 +66,7 @@ from core.workflow.document import (
 )
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import IntrinsicObservationContext
+from tests.support.catalog import resolved_dependencies
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from protein_workbench_public import validate_error
 from tests.fixtures.zero_core_packages.synthetic_echo.package import (
@@ -108,6 +109,7 @@ def _contract(
             "contract_version": "2.1.0",
             **descriptor,
         },
+        dependencies=resolved_dependencies(descriptor),
         parameter_contract=parameter_contract,
     )
 

@@ -21,6 +21,7 @@ def method_reference(method: MethodDefinition) -> ExactContractReference:
         contract_id=method.method_id,
         contract_version=method.version,
         descriptor=method.descriptor_template(),
+        dependencies=(),
     ).contract_digest
     return ExactContractReference(
         contract_kind="method",

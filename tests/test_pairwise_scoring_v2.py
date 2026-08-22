@@ -59,6 +59,7 @@ from core.catalog.port_contract import (
     PortValueError,
 )
 from tests.support.output_admission import normalize_fixture_outputs
+from tests.support.catalog import resolved_dependencies
 from core.workflow.document import WorkflowEdge as V2WorkflowEdge
 from datatypes.candidate import (
     Candidate,
@@ -127,6 +128,7 @@ def _contract(
             "contract_version": version,
             **descriptor,
         },
+        dependencies=resolved_dependencies(descriptor),
         parameter_contract=(
             None
             if parameter_field is None

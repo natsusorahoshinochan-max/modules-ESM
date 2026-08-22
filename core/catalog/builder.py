@@ -36,6 +36,7 @@ from .port_contract import (
     _require_single_active_contract_version,
     canonical_json_bytes,
 )
+from datatypes.exact_reference import ExactContractReference
 
 
 def _template_json(value: Any) -> Any:
@@ -785,6 +786,10 @@ def build_frozen_catalog(
                 f"cyclic contract reference graph: {rendered}"
             )
         resolving.append(key)
+        dependencies: dict[
+            tuple[str, str, str],
+            ExactContractReference,
+        ] = {}
 
         def resolve_value(value: Any) -> Any:
             if isinstance(value, ContractIdentity):
@@ -799,15 +804,17 @@ def build_frozen_catalog(
                         "contract_digest": target.contract_digest,
                     }
                 )
+                exact_reference = ExactContractReference(**reference)
                 if (
                     value.expected_digest is not None
-                    and reference["contract_digest"] != value.expected_digest
+                    and exact_reference.contract_digest != value.expected_digest
                 ):
                     raise CatalogBuildError(
                         "contract digest conflict for "
                         f"{value.contract_kind}:{value.contract_id}@"
                         f"{value.contract_version}"
                     )
+                dependencies[exact_reference.key] = exact_reference
                 return reference
             if isinstance(value, Mapping):
                 return {
@@ -836,6 +843,10 @@ def build_frozen_catalog(
             contract_id=key[1],
             contract_version=key[2],
             descriptor=descriptor,
+            dependencies=tuple(
+                dependencies[identity]
+                for identity in sorted(dependencies)
+            ),
             parameter_contract=parameter_contract,
             environment_fields=(
                 definition.environment_fields

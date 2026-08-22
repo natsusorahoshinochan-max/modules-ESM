@@ -14,6 +14,7 @@ from core.catalog.model import (
     FrozenCatalog,
 )
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
+from tests.support.catalog import resolved_dependencies
 from protein_workbench_public.catalog_codec import encode_catalog_projection
 
 
@@ -53,22 +54,24 @@ def _catalog() -> FrozenCatalog:
         runtime_to_wire=lambda value: value,
         runtime_from_wire=lambda value: value,
     )
+    binding_descriptor = {
+        "schema_namespace": "protein-workbench-contract/v2",
+        "contract_kind": "binding",
+        "contract_id": "fixture.catalog.direct",
+        "contract_version": "1.0.0",
+        "node_type": {
+            "contract_kind": "node_type",
+            "contract_id": "fixture.catalog",
+            "contract_version": "1.0.0",
+            "contract_digest": "sha256:" + "1" * 64,
+        },
+    }
     binding = CatalogContract(
         contract_kind="binding",
         contract_id="fixture.catalog.direct",
         contract_version="1.0.0",
-        descriptor={
-            "schema_namespace": "protein-workbench-contract/v2",
-            "contract_kind": "binding",
-            "contract_id": "fixture.catalog.direct",
-            "contract_version": "1.0.0",
-            "node_type": {
-                "contract_kind": "node_type",
-                "contract_id": "fixture.catalog",
-                "contract_version": "1.0.0",
-                "contract_digest": "sha256:" + "1" * 64,
-            },
-        },
+        descriptor=binding_descriptor,
+        dependencies=resolved_dependencies(binding_descriptor),
     )
     return FrozenCatalog(
         (port_type,),

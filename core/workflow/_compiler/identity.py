@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from core.catalog.model import FrozenCatalog
+from core.catalog.port_contract import ContractResolutionError
 from core.scoring.selection import (
     ObservationSelector,
     ResolvedObservationSelector,
@@ -15,7 +17,6 @@ from core.scoring.selection import (
     selection_objective_identity_canonical,
     selection_objective_identity_facts_from_facts,
 )
-from core.workflow._compiler.locking import _reference_from_value
 from core.workflow._compiler.observation import _contract_descriptor
 from core.workflow.compiler import WorkflowCompileError
 from core.workflow.plan import ResultIdentityPlanFacts
@@ -26,20 +27,6 @@ _PRESENTATION_CONTRACT_FIELDS = {
     "metric": frozenset({"title", "description"}),
 }
 
-
-def _nested_contract_keys(value: Any) -> set[tuple[str, str, str]]:
-    keys: set[tuple[str, str, str]] = set()
-    pending = [value]
-    while pending:
-        current = pending.pop()
-        reference = _reference_from_value(current)
-        if reference is not None:
-            keys.add(reference.key)
-        elif isinstance(current, Mapping):
-            pending.extend(current.values())
-        elif isinstance(current, (list, tuple)):
-            pending.extend(current)
-    return keys
 
 def _identity_without_digest(reference: Mapping[str, Any]) -> dict[str, str]:
     return {
@@ -95,6 +82,7 @@ def _result_contracts_for_node(
     binding_contract: Any,
     selected_objectives: tuple[SelectionObjective, ...],
     selected_selectors: tuple[ObservationSelector, ...],
+    catalog: FrozenCatalog,
     resolved_by_key: Mapping[tuple[str, str, str], Any],
 ) -> tuple[Any, ...]:
     keys = {
@@ -156,28 +144,16 @@ def _result_contracts_for_node(
             )
             for reference in (selector.metric, selector.method)
         )
-    pending = list(keys)
-    while pending:
-        key = pending.pop()
-        try:
-            contract = resolved_by_key[key]
-        except KeyError as error:
-            raise WorkflowCompileError(
-                "contract_lock_mismatch",
-                "Execution Plan result contract is outside the exact Lock",
-            ) from error
-        for nested_key in _nested_contract_keys(
-            _contract_descriptor(contract)
-        ):
-            if nested_key not in keys:
-                if nested_key not in resolved_by_key:
-                    raise WorkflowCompileError(
-                        "contract_lock_mismatch",
-                        "Execution Plan nested contract is outside the exact Lock",
-                    )
-                keys.add(nested_key)
-                pending.append(nested_key)
-    return tuple(resolved_by_key[key] for key in sorted(keys))
+    try:
+        references = catalog.resolve_contract_closure(
+            tuple(catalog.require_reference(*key) for key in sorted(keys))
+        )
+        return tuple(resolved_by_key[reference.key] for reference in references)
+    except (ContractResolutionError, KeyError) as error:
+        raise WorkflowCompileError(
+            "contract_lock_mismatch",
+            "Execution Plan result contract is outside the exact Lock",
+        ) from error
 
 def _result_identity_plan_facts(
     *,

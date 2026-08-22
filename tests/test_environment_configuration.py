@@ -23,6 +23,7 @@ def _catalog() -> FrozenCatalog:
                 contract_id="test.binding",
                 contract_version="1.0.0",
                 descriptor={"contract_kind": "binding"},
+                dependencies=(),
                 environment_fields=(
                     EnvironmentFieldDeclaration("device", "json_value"),
                     EnvironmentFieldDeclaration(

@@ -16,6 +16,7 @@ from .declarations import AvailabilityResult, CatalogContract
 from .port_contract import (
     CATALOG_NAMESPACE,
     CatalogBuildError,
+    ContractResolutionError,
     InactiveContractGenerationError,
     PortTypeDefinition,
     UnknownContractError,
@@ -372,6 +373,80 @@ class FrozenCatalog:
                 active_version,
             )
         return contract
+
+    @staticmethod
+    def _exact_reference(
+        contract: PortTypeDefinition | CatalogContract,
+    ) -> ExactContractReference:
+        if isinstance(contract, PortTypeDefinition):
+            return ExactContractReference(
+                "port_type",
+                contract.type_id,
+                contract.version,
+                contract.contract_digest,
+            )
+        return ExactContractReference(
+            contract.contract_kind,
+            contract.contract_id,
+            contract.contract_version,
+            contract.contract_digest,
+        )
+
+    @staticmethod
+    def _dependencies(
+        contract: PortTypeDefinition | CatalogContract,
+    ) -> tuple[ExactContractReference, ...]:
+        if isinstance(contract, PortTypeDefinition):
+            return tuple(
+                ExactContractReference(
+                    "port_type",
+                    dependency.type_id,
+                    dependency.version,
+                    dependency.contract_digest,
+                )
+                for dependency in (
+                    contract.output_identity_source_port_types.values()
+                )
+            )
+        return contract.dependencies
+
+    def resolve_contract_closure(
+        self,
+        roots: tuple[ExactContractReference, ...],
+    ) -> tuple[ExactContractReference, ...]:
+        """Resolve one admitted exact dependency closure without descriptors."""
+        pending = list(roots)
+        reachable: dict[
+            tuple[str, str, str],
+            ExactContractReference,
+        ] = {}
+        while pending:
+            requested = pending.pop()
+            contract = self.require_contract(*requested.key)
+            current = self._exact_reference(contract)
+            if requested != current:
+                raise ContractResolutionError(
+                    "exact contract digest is not active"
+                )
+            if current.key in reachable:
+                continue
+            reachable[current.key] = current
+            pending.extend(self._dependencies(contract))
+        return tuple(reachable[key] for key in sorted(reachable))
+
+    def require_reference(
+        self,
+        contract_kind: str,
+        contract_id: str,
+        contract_version: str,
+    ) -> ExactContractReference:
+        return self._exact_reference(
+            self.require_contract(
+                contract_kind,
+                contract_id,
+                contract_version,
+            )
+        )
 
     def require_factory(
         self,

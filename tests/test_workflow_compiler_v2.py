@@ -23,6 +23,7 @@ from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
 )
+from tests.support.catalog import resolved_dependencies
 from core.operation import (
     OperationContext,
     ReadinessResult,
@@ -91,6 +92,7 @@ def _catalog_contract(
             "contract_version": "2.1.0",
             **descriptor,
         },
+        dependencies=resolved_dependencies(descriptor),
         parameter_contract=parameter_contract,
     )
 

@@ -90,6 +90,7 @@ from datatypes.observation import (
 from datatypes.residue import ResidueLayout
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
+from tests.support.catalog import resolved_dependencies
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     select_admitted_candidates,
@@ -126,6 +127,7 @@ def _contract(
             "contract_version": "2.1.0",
             **descriptor,
         },
+        dependencies=resolved_dependencies(descriptor),
         parameter_contract=(
             None
             if parameter_field is None

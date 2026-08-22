@@ -22,7 +22,10 @@ from core.parameters.contract import (
     admit_declarations,
 )
 from core.parameters.model import ParameterContract
-from datatypes.exact_reference import validate_canonical_identifier
+from datatypes.exact_reference import (
+    ExactContractReference,
+    validate_canonical_identifier,
+)
 
 from .port_contract import (
     CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
@@ -1114,6 +1117,7 @@ class CatalogContract:
     contract_id: str
     contract_version: str
     descriptor: Mapping[str, Any]
+    dependencies: tuple[ExactContractReference, ...] = field(repr=False)
     parameter_contract: ParameterContract | None = field(
         default=None,
         repr=False,
@@ -1129,6 +1133,7 @@ class CatalogContract:
             "descriptor",
             _freeze_declaration(self.descriptor),
         )
+        object.__setattr__(self, "dependencies", tuple(self.dependencies))
         object.__setattr__(
             self,
             "environment_fields",

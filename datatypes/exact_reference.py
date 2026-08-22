@@ -37,6 +37,14 @@ class ExactContractReference:
     contract_version: str
     contract_digest: str
 
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (
+            self.contract_kind,
+            self.contract_id,
+            self.contract_version,
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ExactPortValueReference:

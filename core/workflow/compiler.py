@@ -477,6 +477,7 @@ def compile(
             binding_contract=binding,
             selected_objectives=selected_objectives,
             selected_selectors=selected_selectors,
+            catalog=catalog,
             resolved_by_key=resolved_by_key,
         )
         result_identity_plan_facts = _result_identity_plan_facts(

@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
-
 from core.catalog.model import FrozenCatalog
-from core.catalog.port_contract import PortTypeDefinition
+from core.catalog.port_contract import ContractResolutionError
 from core.execution.ledger import (
     ArtifactOutputEvidence,
     Ledger,
@@ -19,16 +16,6 @@ from core.workflow.plan import ExecutionPlan
 from datatypes.exact_reference import ExactContractReference
 
 
-_RESOLVED_CONTRACT_FIELDS = frozenset(
-    {
-        "contract_kind",
-        "contract_id",
-        "contract_version",
-        "contract_digest",
-    }
-)
-
-
 def _exact_contract_reference(
     entry: ContractLockEntry,
 ) -> ExactContractReference:
@@ -37,17 +24,6 @@ def _exact_contract_reference(
         contract_id=entry.contract_id,
         contract_version=entry.contract_version,
         contract_digest=entry.contract_digest,
-    )
-
-
-def _exact_reference_from_catalog(
-    reference: Mapping[str, Any],
-) -> ExactContractReference:
-    return ExactContractReference(
-        contract_kind=reference["contract_kind"],
-        contract_id=reference["contract_id"],
-        contract_version=reference["contract_version"],
-        contract_digest=reference["contract_digest"],
     )
 
 
@@ -109,45 +85,10 @@ def _reachable_contract_evidence(
     roots: tuple[ExactContractReference, ...],
 ) -> tuple[ExactContractReference, ...]:
     """Rebuild the exact active Catalog closure from durable Plan roots."""
-    pending = list(roots)
-    reachable: dict[
-        tuple[str, str, str],
-        ExactContractReference,
-    ] = {}
-    while pending:
-        reference = pending.pop()
-        identity = (
-            reference.contract_kind,
-            reference.contract_id,
-            reference.contract_version,
-        )
-        contract = catalog.require_contract(*identity)
-        current_reference = _exact_reference_from_catalog(
-            contract.reference()
-        )
-        if reference != current_reference:
-            raise RuntimeError("Run scope Contract root is not active")
-        if identity in reachable:
-            continue
-        reachable[identity] = current_reference
-        descriptor = (
-            contract.descriptor()
-            if type(contract) is PortTypeDefinition
-            else contract.descriptor
-        )
-        nested_values: list[Any] = [descriptor]
-        while nested_values:
-            value = nested_values.pop()
-            if (
-                isinstance(value, Mapping)
-                and set(value) == _RESOLVED_CONTRACT_FIELDS
-            ):
-                pending.append(_exact_reference_from_catalog(value))
-            elif isinstance(value, Mapping):
-                nested_values.extend(value.values())
-            elif isinstance(value, (list, tuple)):
-                nested_values.extend(value)
-    return tuple(reachable[identity] for identity in sorted(reachable))
+    try:
+        return catalog.resolve_contract_closure(roots)
+    except ContractResolutionError as error:
+        raise RuntimeError("Run scope Contract root is not active") from error
 
 
 def _run_catalog_digest(

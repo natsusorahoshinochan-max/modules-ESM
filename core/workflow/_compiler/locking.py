@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections import deque
-from collections.abc import Mapping
 from typing import Any
 
 from core.catalog.model import FrozenCatalog
@@ -11,7 +9,6 @@ from core.catalog.port_contract import (
     CatalogBuildError,
     ContractResolutionError,
     InactiveContractGenerationError,
-    PortTypeDefinition,
     UnknownContractError,
 )
 from core.scoring.selection import SelectionObjective
@@ -120,24 +117,11 @@ def _workflow_contract_references(
                 )
     return tuple(references)
 
-def _reference_from_value(value: Any) -> ContractLockEntry | None:
-    if not isinstance(value, Mapping):
-        return None
-    required = {
-        "contract_kind",
-        "contract_id",
-        "contract_version",
-        "contract_digest",
-    }
-    if set(value) != required:
-        return None
-    return ContractLockEntry.from_canonical(value)
-
 def _reachable_contract_lock(
     workflow: WorkflowDocument,
     catalog: FrozenCatalog,
 ) -> tuple[ContractLockEntry, ...]:
-    pending: deque[ContractLockEntry] = deque()
+    roots: list[ExactContractReference] = []
     for index, node in enumerate(workflow.nodes):
         for kind, contract_id, version, field_prefix in (
             (
@@ -162,8 +146,8 @@ def _reachable_contract_lock(
                 version_path=("nodes", index, f"{field_prefix}_version"),
                 node_id=node.node_id,
             )
-            pending.append(
-                ContractLockEntry.from_canonical(contract.reference())
+            roots.append(
+                catalog.require_reference(kind, contract_id, version)
             )
     for kind, reference, identity_path, version_path in (
         _workflow_contract_references(workflow)
@@ -185,36 +169,22 @@ def _reachable_contract_lock(
                 ),
                 field_path=(*version_path[:-1], "contract_digest"),
             )
-        pending.append(
-            ContractLockEntry.from_canonical(contract.reference())
+        roots.append(
+            catalog.require_reference(
+                kind,
+                reference.contract_id,
+                reference.contract_version,
+            )
         )
-
-    reachable: dict[tuple[str, str, str], ContractLockEntry] = {}
-    while pending:
-        reference = pending.popleft()
-        if reference.key in reachable:
-            continue
-        contract = catalog.require_contract(*reference.key)
-        observed = ContractLockEntry.from_canonical(contract.reference())
-        reachable[observed.key] = observed
-        descriptor = (
-            contract.descriptor()
-            if type(contract) is PortTypeDefinition
-            else contract.descriptor
+    return tuple(
+        ContractLockEntry(
+            reference.contract_kind,
+            reference.contract_id,
+            reference.contract_version,
+            reference.contract_digest,
         )
-        nested: deque[Any] = deque([descriptor])
-        while nested:
-            value = nested.popleft()
-            nested_reference = _reference_from_value(value)
-            if nested_reference is not None:
-                pending.append(nested_reference)
-            elif isinstance(value, Mapping):
-                nested.extend(value.values())
-            elif isinstance(value, tuple):
-                nested.extend(value)
-            elif isinstance(value, list):
-                nested.extend(value)
-    return tuple(sorted(reachable.values()))
+        for reference in catalog.resolve_contract_closure(tuple(roots))
+    )
 
 def _require_matching_lock(
     workflow: WorkflowDocument,

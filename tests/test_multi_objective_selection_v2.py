@@ -60,6 +60,7 @@ from datatypes.observation import (
     PairwiseCandidateMatch,
     ScoreCollection,
 )
+from tests.support.catalog import resolved_dependencies
 from modules.selection.package import MODULE_PACKAGE
 from modules.structure_comparison.package import (
     MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
@@ -123,6 +124,7 @@ def _catalog_with_default_selection_parameter(
         contract_id=node_id,
         contract_version=NODE_BINDING_VERSION,
         descriptor=node_descriptor,
+        dependencies=resolved_dependencies(node_descriptor),
         parameter_contract=admit_declarations(
             node_descriptor["node_parameters"],
             path=f"test:node_type:{node_id}.node_parameters",
@@ -142,6 +144,7 @@ def _catalog_with_default_selection_parameter(
         contract_id=binding_id,
         contract_version=NODE_BINDING_VERSION,
         descriptor=binding_descriptor,
+        dependencies=resolved_dependencies(binding_descriptor),
         parameter_contract=admit_declarations(
             binding_descriptor.get("binding_parameters", {}),
             path=f"test:binding:{binding_id}.binding_parameters",
