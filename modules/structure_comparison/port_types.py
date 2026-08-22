@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, cast
+from typing import cast
 
 from core.catalog.port_contract import (
     BehaviorReference,
@@ -418,173 +418,54 @@ def alignment_evidence_to_wire(value: object) -> object:
     }
 
 
-def _closed(value: object, fields: set[str], *, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != fields:
-        raise ValueError(f"{name} wire value is not closed")
-    return value
-
-
-def _tuple3(value: object, *, name: str) -> tuple[float, float, float]:
-    if not isinstance(value, list) or len(value) != 3:
-        raise ValueError(f"{name} wire value is invalid")
-    return tuple(value)  # type: ignore[return-value]
-
-
 def alignment_evidence_from_wire(value: object) -> StructureAlignmentEvidence:
     """Decode only the exact closed v4 evidence wire shape."""
-    raw = _closed(
-        value,
-        {
-            "schema_version",
-            "subject",
-            "reference",
-            "subject_axis_content_digest",
-            "reference_axis_content_digest",
-            "segment_map",
-            "policy",
-            "correspondence",
-            "transform",
-            "normalization",
-            "rmsd",
-            "coverage",
-            "method",
-        },
-        name="alignment evidence",
-    )
-    if raw["schema_version"] != EVIDENCE_VERSION:
+    if value["schema_version"] != EVIDENCE_VERSION:
         raise ValueError("alignment evidence schema version is not active")
-    subject = _closed(
-        raw["subject"],
-        {"candidate_id", "data_type_id", "content_digest"},
-        name="subject",
-    )
-    reference = _closed(
-        raw["reference"],
-        {"candidate_id", "data_type_id", "content_digest"},
-        name="reference",
-    )
-    policy = _closed(
-        raw["policy"],
-        {"kind", "pin_matching_chain_ids"},
-        name="policy",
-    )
-    transform = _closed(
-        raw["transform"],
-        {
-            "maps_from_role",
-            "maps_to_role",
-            "row_vector_rotation",
-            "translation",
-        },
-        name="transform",
-    )
-    normalization = _closed(
-        raw["normalization"],
-        {
-            "subject_axis_residue_count",
-            "reference_axis_residue_count",
-            "subject_ca_count",
-            "reference_ca_count",
-            "aligned_atom_count",
-        },
-        name="normalization",
-    )
-    method = _closed(
-        raw["method"],
-        {
-            "contract_kind",
-            "contract_id",
-            "contract_version",
-            "contract_digest",
-        },
-        name="method",
-    )
-    if (
-        not isinstance(raw["segment_map"], list)
-        or not isinstance(raw["correspondence"], list)
-        or not isinstance(transform["row_vector_rotation"], list)
-        or len(transform["row_vector_rotation"]) != 3
-    ):
-        raise ValueError("alignment evidence wire arrays are invalid")
-    segment_map = tuple(
-        AlignmentSegmentMapEntry(
-            **_closed(
-                entry,
-                {
-                    "subject_segment_index",
-                    "reference_segment_index",
-                    "subject_chain_id",
-                    "reference_chain_id",
-                    "sequence_score",
-                    "paired_residue_count",
-                    "cigar",
-                },
-                name="segment map entry",
-            )
-        )
-        for entry in raw["segment_map"]
-    )
-    correspondence = tuple(
-        AlignmentAtomCorrespondence(
-            subject_residue_id=entry["subject_residue_id"],
-            subject_atom_name=entry["subject_atom_name"],
-            subject_coordinate=_tuple3(
-                entry["subject_coordinate"],
-                name="subject coordinate",
+    raw = {key: item for key, item in value.items() if key != "schema_version"}
+    transform = value["transform"]
+    return StructureAlignmentEvidence(
+        **{
+            **raw,
+            "subject": _candidate_data_reference_from_canonical(value["subject"]),
+            "reference": _candidate_data_reference_from_canonical(
+                value["reference"]
             ),
-            reference_residue_id=entry["reference_residue_id"],
-            reference_atom_name=entry["reference_atom_name"],
-            reference_coordinate=_tuple3(
-                entry["reference_coordinate"],
-                name="reference coordinate",
+            "segment_map": tuple(
+                AlignmentSegmentMapEntry(**entry)
+                for entry in value["segment_map"]
             ),
-            transformed_subject_coordinate=_tuple3(
-                entry["transformed_subject_coordinate"],
-                name="transformed subject coordinate",
+            "policy": AlignmentCorrespondencePolicy(**value["policy"]),
+            "correspondence": tuple(
+                AlignmentAtomCorrespondence(
+                    **{
+                        **entry,
+                        "subject_coordinate": tuple(entry["subject_coordinate"]),
+                        "reference_coordinate": tuple(
+                            entry["reference_coordinate"]
+                        ),
+                        "transformed_subject_coordinate": tuple(
+                            entry["transformed_subject_coordinate"]
+                        ),
+                    }
+                )
+                for entry in value["correspondence"]
             ),
-            residual_distance=entry["residual_distance"],
-        )
-        for raw_entry in raw["correspondence"]
-        for entry in (
-            _closed(
-                raw_entry,
-                {
-                    "subject_residue_id",
-                    "subject_atom_name",
-                    "subject_coordinate",
-                    "reference_residue_id",
-                    "reference_atom_name",
-                    "reference_coordinate",
-                    "transformed_subject_coordinate",
-                    "residual_distance",
-                },
-                name="correspondence entry",
+            "transform": StructureAlignmentTransform(
+                **{
+                    **transform,
+                    "row_vector_rotation": tuple(
+                        tuple(row) for row in transform["row_vector_rotation"]
+                    ),
+                    "translation": tuple(transform["translation"]),
+                }
             ),
-        )
+            "normalization": StructureAlignmentNormalization(
+                **value["normalization"]
+            ),
+            "method": ExactContractReference(**value["method"]),
+        }
     )
-    evidence = StructureAlignmentEvidence(
-        subject=_candidate_data_reference_from_canonical(subject),
-        reference=_candidate_data_reference_from_canonical(reference),
-        subject_axis_content_digest=raw["subject_axis_content_digest"],
-        reference_axis_content_digest=raw["reference_axis_content_digest"],
-        segment_map=segment_map,
-        policy=AlignmentCorrespondencePolicy(**policy),
-        correspondence=correspondence,
-        transform=StructureAlignmentTransform(
-            maps_from_role=transform["maps_from_role"],
-            maps_to_role=transform["maps_to_role"],
-            row_vector_rotation=tuple(
-                _tuple3(row, name="rotation row")
-                for row in transform["row_vector_rotation"]
-            ),
-            translation=_tuple3(transform["translation"], name="translation"),
-        ),
-        normalization=StructureAlignmentNormalization(**normalization),
-        rmsd=raw["rmsd"],
-        coverage=raw["coverage"],
-        method=ExactContractReference(**method),
-    )
-    return evidence
 
 
 def _candidate_data_references(

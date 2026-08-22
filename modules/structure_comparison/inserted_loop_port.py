@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, cast
+from typing import cast
 
 from core.catalog.port_contract import (
     BehaviorReference,
@@ -370,163 +370,67 @@ def inserted_loop_evaluation_to_wire(value: object) -> object:
     }
 
 
-def _closed(value: object, fields: set[str], *, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != fields:
-        raise ValueError(f"{name} wire value is not closed")
-    return value
-
-
 def _method_from_wire(value: object) -> ExactContractReference:
-    return ExactContractReference(
-        **_closed(
-            value,
-            {"contract_kind", "contract_id", "contract_version", "contract_digest"},
-            name="Method reference",
-        )
-    )
+    return ExactContractReference(**value)
 
 
 def _atom_from_wire(value: object) -> AtomPairDistanceEvidence:
-    raw = _closed(
-        value,
-        {
-            "left_prediction_residue_id",
-            "left_structure_residue_id",
-            "left_atom_name",
-            "left_coordinate",
-            "right_prediction_residue_id",
-            "right_structure_residue_id",
-            "right_atom_name",
-            "right_coordinate",
-            "distance_angstrom",
-        },
-        name="atom pair distance",
-    )
-    if not isinstance(raw["left_coordinate"], list) or not isinstance(
-        raw["right_coordinate"], list
-    ):
-        raise ValueError("atom pair coordinates must be arrays")
     return AtomPairDistanceEvidence(
         **{
-            **raw,
-            "left_coordinate": tuple(raw["left_coordinate"]),
-            "right_coordinate": tuple(raw["right_coordinate"]),
+            **value,
+            "left_coordinate": tuple(value["left_coordinate"]),
+            "right_coordinate": tuple(value["right_coordinate"]),
         }
     )
 
 
 def _entry_from_wire(value: object) -> InsertedLoopCandidateEvidence:
-    fields = {
-        "subject",
-        "reference",
-        "counterpart",
-        "prediction_axis_content_digest",
-        "structure_axis_content_digest",
-        "prediction_to_structure_correspondence",
-        "resolved_core_residue_ids",
-        "loop_residue_ids",
-        "resolved_core_alignment_content_digest",
-        "counterpart_alignment_content_digest",
-        "resolved_core_tm_score",
-        "resolved_core_rmsd_angstrom",
-        "counterpart_tm_score",
-        "counterpart_rmsd_angstrom",
-        "confidence_collection_content_digest",
-        "confidence_method",
-        "resolved_core_mean_plddt",
-        "loop_mean_plddt",
-        "left_junction",
-        "right_junction",
-        "minimum_loop_core_nonbonded_distance",
-        "thresholds",
-        "resolved_core_passed",
-        "counterpart_passed",
-        "confidence_passed",
-        "junctions_passed",
-        "clash_passed",
-        "accepted",
-        "method",
-    }
-    raw = _closed(value, fields, name="inserted-loop evidence entry")
-    if (
-        not isinstance(raw["prediction_to_structure_correspondence"], list)
-        or not isinstance(raw["resolved_core_residue_ids"], list)
-        or not isinstance(raw["loop_residue_ids"], list)
-    ):
-        raise ValueError("inserted-loop evidence arrays are invalid")
-    correspondence = tuple(
-        ResidueIdentityCorrespondence(
-            **_closed(
-                item,
-                {"prediction_residue_id", "structure_residue_id"},
-                name="residue correspondence",
-            )
-        )
-        for item in raw["prediction_to_structure_correspondence"]
-    )
-    threshold_fields = {
-        "resolved_core_tm_score_minimum",
-        "resolved_core_rmsd_angstrom_maximum",
-        "counterpart_tm_score_minimum",
-        "counterpart_rmsd_angstrom_maximum",
-        "resolved_core_mean_plddt_minimum",
-        "junction_cn_distance_angstrom_minimum",
-        "junction_cn_distance_angstrom_maximum",
-        "loop_core_nonbonded_distance_angstrom_minimum",
-    }
     return InsertedLoopCandidateEvidence(
-        subject=_candidate_data_reference_from_canonical(raw["subject"]),
-        reference=_candidate_data_reference_from_canonical(raw["reference"]),
-        counterpart=_candidate_data_reference_from_canonical(raw["counterpart"]),
-        prediction_axis_content_digest=raw["prediction_axis_content_digest"],
-        structure_axis_content_digest=raw["structure_axis_content_digest"],
-        prediction_to_structure_correspondence=correspondence,
-        resolved_core_residue_ids=tuple(raw["resolved_core_residue_ids"]),
-        loop_residue_ids=tuple(raw["loop_residue_ids"]),
-        resolved_core_alignment_content_digest=(
-            raw["resolved_core_alignment_content_digest"]
-        ),
-        counterpart_alignment_content_digest=(
-            raw["counterpart_alignment_content_digest"]
-        ),
-        resolved_core_tm_score=raw["resolved_core_tm_score"],
-        resolved_core_rmsd_angstrom=raw["resolved_core_rmsd_angstrom"],
-        counterpart_tm_score=raw["counterpart_tm_score"],
-        counterpart_rmsd_angstrom=raw["counterpart_rmsd_angstrom"],
-        confidence_collection_content_digest=(
-            raw["confidence_collection_content_digest"]
-        ),
-        confidence_method=_method_from_wire(raw["confidence_method"]),
-        resolved_core_mean_plddt=raw["resolved_core_mean_plddt"],
-        loop_mean_plddt=raw["loop_mean_plddt"],
-        left_junction=_atom_from_wire(raw["left_junction"]),
-        right_junction=_atom_from_wire(raw["right_junction"]),
-        minimum_loop_core_nonbonded_distance=_atom_from_wire(
-            raw["minimum_loop_core_nonbonded_distance"]
-        ),
-        thresholds=InsertedLoopThresholds(
-            **_closed(
-                raw["thresholds"], threshold_fields, name="inserted-loop thresholds"
-            )
-        ),
-        resolved_core_passed=raw["resolved_core_passed"],
-        counterpart_passed=raw["counterpart_passed"],
-        confidence_passed=raw["confidence_passed"],
-        junctions_passed=raw["junctions_passed"],
-        clash_passed=raw["clash_passed"],
-        accepted=raw["accepted"],
-        method=_method_from_wire(raw["method"]),
+        **{
+            **value,
+            "subject": _candidate_data_reference_from_canonical(value["subject"]),
+            "reference": _candidate_data_reference_from_canonical(
+                value["reference"]
+            ),
+            "counterpart": _candidate_data_reference_from_canonical(
+                value["counterpart"]
+            ),
+            "prediction_to_structure_correspondence": tuple(
+                ResidueIdentityCorrespondence(**item)
+                for item in value["prediction_to_structure_correspondence"]
+            ),
+            "resolved_core_residue_ids": tuple(
+                value["resolved_core_residue_ids"]
+            ),
+            "loop_residue_ids": tuple(value["loop_residue_ids"]),
+            "confidence_method": _method_from_wire(value["confidence_method"]),
+            "left_junction": _atom_from_wire(value["left_junction"]),
+            "right_junction": _atom_from_wire(value["right_junction"]),
+            "minimum_loop_core_nonbonded_distance": _atom_from_wire(
+                value["minimum_loop_core_nonbonded_distance"]
+            ),
+            "thresholds": InsertedLoopThresholds(**value["thresholds"]),
+            "method": _method_from_wire(value["method"]),
+        }
     )
 
 
 def inserted_loop_evaluation_from_wire(
     value: object,
 ) -> InsertedLoopEvaluationCollection:
-    raw = _closed(value, {"schema_version", "entries"}, name="inserted-loop evidence")
-    if raw["schema_version"] != VERSION or not isinstance(raw["entries"], list):
+    if value["schema_version"] != VERSION:
         raise ValueError("inserted-loop evidence schema is not current")
     return InsertedLoopEvaluationCollection(
-        tuple(_entry_from_wire(item) for item in raw["entries"])
+        **{
+            **{
+                key: item
+                for key, item in value.items()
+                if key != "schema_version"
+            },
+            "entries": tuple(
+                _entry_from_wire(item) for item in value["entries"]
+            ),
+        }
     )
 
 
