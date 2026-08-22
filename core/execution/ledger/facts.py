@@ -405,18 +405,12 @@ class EngineInvocationTerminal:
 
 
 @dataclass(frozen=True, slots=True)
-class ArtifactPublished:
-    artifact: PublishedArtifact
-
-
-@dataclass(frozen=True, slots=True)
 class OutputsPublished:
     node_id: str
     result_identity: str
     node_result_manifest: ImmutableObjectReference
     outputs: tuple[PublishedOutput, ...]
     artifacts: tuple[PublishedArtifact, ...]
-    nonempty_output_ports: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -477,7 +471,6 @@ FactPayload: TypeAlias = (
     | OperationAttemptStarted
     | EngineInvocationStarted
     | EngineInvocationTerminal
-    | ArtifactPublished
     | OutputsPublished
     | OperationAttemptTerminal
     | NodeAttemptTerminal
@@ -935,9 +928,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             raise ValueError("Engine Invocation conclusion is invalid")
         _validate_error(payload.error)
         return
-    if isinstance(payload, ArtifactPublished):
-        _validate_artifact(payload.artifact)
-        return
     if isinstance(payload, OutputsPublished):
         if (
             not _valid_identifier(payload.node_id)
@@ -949,8 +939,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             or payload.node_result_manifest.size < 0
             or type(payload.outputs) is not tuple
             or type(payload.artifacts) is not tuple
-            or payload.nonempty_output_ports
-            != tuple(sorted(set(payload.nonempty_output_ports)))
         ):
             raise ValueError("Typed Output publication is invalid")
         for output in payload.outputs:
@@ -964,13 +952,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             _validate_artifact(artifact)
             if artifact.node_id != payload.node_id:
                 raise ValueError("Artifact publication is inconsistent")
-        expected_nonempty = {
-            output.output_port
-            for output in payload.outputs
-            if output.value_count > 0
-        } | {artifact.output_port for artifact in payload.artifacts}
-        if set(payload.nonempty_output_ports) != expected_nonempty:
-            raise ValueError("Typed Output publication is inconsistent")
         return
     if isinstance(payload, OperationAttemptTerminal):
         if (

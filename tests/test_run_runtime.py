@@ -3236,7 +3236,7 @@ def test_artifact_object_write_failure_publishes_no_node_values(
         },
     }
     assert not any(
-        fact["fact_type"] in {"artifact_published", "outputs_published"}
+        fact["fact_type"] == "outputs_published"
         for fact in _durable_facts(tmp_path / "runs")
     )
     assert not list(output_root.rglob("published/*"))
@@ -3373,7 +3373,7 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     assert count_projection["status"] == "failed"
     assert count_projection["artifact_index"] == []
     assert not any(
-        fact["fact_type"] == "artifact_published"
+        fact["fact_type"] == "outputs_published"
         for fact in _durable_facts(tmp_path / "runs")
     )
     assert next(
@@ -3411,7 +3411,7 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     assert aggregate_projection["status"] == "failed"
     assert aggregate_projection["artifact_index"] == []
     assert sum(
-        fact["fact_type"] == "artifact_published"
+        fact["fact_type"] == "outputs_published"
         for fact in _durable_facts(aggregate_root)
     ) == 0
     unreferenced_objects = list(
@@ -3527,8 +3527,8 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
     ] == list(range(1, len(transactions) + 1))
     assert all(
         transaction["schema_namespace"]
-        == "protein-workbench-run-ledger-transaction/v4"
-        and transaction["schema_version"] == "4.0.0"
+        == "protein-workbench-run-ledger-transaction/v5"
+        and transaction["schema_version"] == "5.0.0"
         for transaction in transactions
     )
     assert [fact["sequence"] for fact in facts] == list(
@@ -3551,7 +3551,6 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
     ] == [
         "operation_attempt_terminal",
         "outputs_published",
-        "artifact_published",
         "node_attempt_terminal",
         "node_disposition",
     ]

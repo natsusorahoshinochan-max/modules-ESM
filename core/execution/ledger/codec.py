@@ -13,7 +13,6 @@ from typing import Any, cast
 
 from core.catalog.port_contract import canonical_json_bytes, canonical_sha256
 from core.execution.ledger.facts import (
-    ArtifactPublished,
     AvailabilityBound,
     CancellationRequested,
     ContextSelectorEvidence,
@@ -66,8 +65,8 @@ from datatypes.exact_reference import (
 from datatypes.i_json import freeze_i_json, thaw_i_json
 
 
-TRANSACTION_NAMESPACE = "protein-workbench-run-ledger-transaction/v4"
-TRANSACTION_SCHEMA_VERSION = "4.0.0"
+TRANSACTION_NAMESPACE = "protein-workbench-run-ledger-transaction/v5"
+TRANSACTION_SCHEMA_VERSION = "5.0.0"
 CURSOR_NAMESPACE = "protein-workbench-run-cursor/v2"
 RUN_SCOPE_NAMESPACE = "protein-workbench-run-scope/v2"
 CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
@@ -753,7 +752,6 @@ _FACT_TYPE_BY_PAYLOAD = {
     OperationAttemptStarted: "operation_attempt_started",
     EngineInvocationStarted: "engine_invocation_started",
     EngineInvocationTerminal: "engine_invocation_terminal",
-    ArtifactPublished: "artifact_published",
     OutputsPublished: "outputs_published",
     OperationAttemptTerminal: "operation_attempt_terminal",
     NodeAttemptTerminal: "node_attempt_terminal",
@@ -813,9 +811,8 @@ def payload_to_canonical(payload: FactPayload) -> dict[str, Any]:
         result = {"invocation_id": payload.invocation_id, "status": payload.status}
         if payload.error is not None: result["error"] = _error_to_canonical(payload.error)
         return result
-    if isinstance(payload, ArtifactPublished): return {"artifact": _artifact_to_canonical(payload.artifact)}
     if isinstance(payload, OutputsPublished):
-        return {"node_id": payload.node_id, "result_identity": payload.result_identity, "node_result_manifest": _object_to_canonical(payload.node_result_manifest), "outputs": [_output_to_canonical(item) for item in payload.outputs], "artifacts": [_artifact_to_canonical(item) for item in payload.artifacts], "nonempty_output_ports": list(payload.nonempty_output_ports)}
+        return {"node_id": payload.node_id, "result_identity": payload.result_identity, "node_result_manifest": _object_to_canonical(payload.node_result_manifest), "outputs": [_output_to_canonical(item) for item in payload.outputs], "artifacts": [_artifact_to_canonical(item) for item in payload.artifacts]}
     if isinstance(payload, OperationAttemptTerminal):
         result = {"operation_attempt_id": payload.operation_attempt_id, "status": payload.status}
         if payload.error is not None: result["error"] = _error_to_canonical(payload.error)
@@ -857,8 +854,7 @@ def _payload_from_canonical(kind: str, value: object) -> FactPayload:
     if kind == "operation_attempt_started": return OperationAttemptStarted(v["operation_attempt_id"], v["node_attempt_id"])
     if kind == "engine_invocation_started": return EngineInvocationStarted(v["invocation_id"], v["operation_attempt_id"], v["engine_role"], v["engine_identity"], v.get("parent_invocation_id"), _provenance_from_canonical(v["invocation_provenance"]) if "invocation_provenance" in v else None)
     if kind == "engine_invocation_terminal": return EngineInvocationTerminal(v["invocation_id"], v["status"], _error_from_canonical(v["error"]) if "error" in v else None)
-    if kind == "artifact_published": return ArtifactPublished(_artifact_from_canonical(v["artifact"]))
-    if kind == "outputs_published": return OutputsPublished(v["node_id"], v["result_identity"], _object_from_canonical(v["node_result_manifest"]), tuple(_output_from_canonical(item) for item in v["outputs"]), tuple(_artifact_from_canonical(item) for item in v["artifacts"]), tuple(v["nonempty_output_ports"]))
+    if kind == "outputs_published": return OutputsPublished(v["node_id"], v["result_identity"], _object_from_canonical(v["node_result_manifest"]), tuple(_output_from_canonical(item) for item in v["outputs"]), tuple(_artifact_from_canonical(item) for item in v["artifacts"]))
     if kind == "operation_attempt_terminal": return OperationAttemptTerminal(v["operation_attempt_id"], v["status"], _error_from_canonical(v["error"]) if "error" in v else None)
     if kind == "node_attempt_terminal": return NodeAttemptTerminal(v["node_attempt_id"], v["status"], v["resolution"], _error_from_canonical(v["error"]) if "error" in v else None, v.get("failure_origin"))
     if kind == "node_disposition": return NodeDisposition(v["node_id"], v["outcome"], tuple(v["blocked_by"]), v.get("resolution"))

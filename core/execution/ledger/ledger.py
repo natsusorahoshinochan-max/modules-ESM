@@ -19,7 +19,6 @@ from core.execution.ledger.codec import (
     readiness_attestation_digest,
 )
 from core.execution.ledger.facts import (
-    ArtifactPublished,
     AvailabilityBound,
     CancellationRequested,
     CommittedFactRange,
@@ -90,8 +89,6 @@ from datatypes.exact_reference import ExactContractReference
 
 
 READINESS_ATTESTATION_NAMESPACE = "protein-workbench-readiness-attestation/v2"
-RUN_LEDGER_TRANSACTION_NAMESPACE = "protein-workbench-run-ledger-transaction/v4"
-RUN_LEDGER_SCHEMA_VERSION = "4.0.0"
 MAX_LEDGER_TRANSACTION_BYTES = 4 * 1024 * 1024
 
 
@@ -708,13 +705,8 @@ class Ledger:
                     node_result_manifest=publication.node_result_manifest,
                     outputs=outputs,
                     artifacts=artifacts,
-                    nonempty_output_ports=publication.nonempty_output_ports,
                 )
             )
-        )
-        facts.extend(
-            ProposedFact(ArtifactPublished(artifact))
-            for artifact in artifacts
         )
         facts.extend(
             (
@@ -1150,12 +1142,8 @@ class Ledger:
             ):
                 raise self._causal_error()
             return
-        if isinstance(payload, (ArtifactPublished, OutputsPublished)):
-            node_id = (
-                payload.artifact.node_id
-                if isinstance(payload, ArtifactPublished)
-                else payload.node_id
-            )
+        if isinstance(payload, OutputsPublished):
+            node_id = payload.node_id
             attempt_id = self._state.node_attempt_by_node.get(node_id)
             attempt = (
                 self._state.node_attempts.get(attempt_id)
@@ -1167,10 +1155,7 @@ class Ledger:
                 or attempt is None
                 or attempt.terminal is not None
                 or node_id in self._state.dispositions
-                or (
-                    isinstance(payload, OutputsPublished)
-                    and node_id in self._state.outputs_published
-                )
+                or node_id in self._state.outputs_published
             ):
                 raise self._causal_error()
             child_operations = [
@@ -1178,19 +1163,11 @@ class Ledger:
                 for operation_id, operation in self._state.operations.items()
                 if operation.node_attempt_id == attempt_id
             ]
-            if child_operations:
-                if isinstance(payload, OutputsPublished) and any(
-                    self._state.operations[operation_id].terminal
-                    != "succeeded"
-                    for operation_id in child_operations
-                ):
-                    raise self._causal_error()
-                if isinstance(payload, ArtifactPublished) and any(
-                    invocation.operation_attempt_id in child_operations
-                    and invocation.terminal != "succeeded"
-                    for invocation in self._state.invocations.values()
-                ):
-                    raise self._causal_error()
+            if child_operations and any(
+                self._state.operations[operation_id].terminal != "succeeded"
+                for operation_id in child_operations
+            ):
+                raise self._causal_error()
             return
         if isinstance(payload, NodeAttemptTerminal):
             attempt_id = payload.node_attempt_id
@@ -1505,9 +1482,11 @@ class Ledger:
             attempt.resolution = payload.resolution
         elif isinstance(payload, OutputsPublished):
             self._state.outputs_published.add(payload.node_id)
-            self._state.nonempty_output_ports[payload.node_id] = set(
-                payload.nonempty_output_ports
-            )
+            self._state.nonempty_output_ports[payload.node_id] = {
+                output.output_port
+                for output in payload.outputs
+                if output.value_count > 0
+            } | {artifact.output_port for artifact in payload.artifacts}
         elif isinstance(payload, NodeDisposition):
             self._state.dispositions[payload.node_id] = payload
         elif isinstance(payload, SelectionTerminal):
@@ -1567,17 +1546,17 @@ class Ledger:
             for fact in facts
             if isinstance(fact.payload, NodeAttemptTerminal)
         ]
-        publications = [
+        output_publications = [
             fact
             for fact in facts
-            if isinstance(fact.payload, (ArtifactPublished, OutputsPublished))
+            if isinstance(fact.payload, OutputsPublished)
         ]
         dispositions = [
             fact
             for fact in facts
             if isinstance(fact.payload, NodeDisposition)
         ]
-        if not (operation_terminals or node_terminals or publications):
+        if not (operation_terminals or node_terminals or output_publications):
             return
         if (
             len(operation_terminals) > 1
@@ -1598,35 +1577,15 @@ class Ledger:
         ):
             raise self._causal_error()
         terminal_succeeded = node_terminal.status == "succeeded"
-        output_publications = [
-            fact
-            for fact in publications
-            if isinstance(fact.payload, OutputsPublished)
-        ]
         publication_node_ids = {
-            (
-                fact.payload.node_id
-                if isinstance(fact.payload, OutputsPublished)
-                else fact.payload.artifact.node_id
-            )
-            for fact in publications
+            fact.payload.node_id for fact in output_publications
         }
         if (
             terminal_succeeded != (len(output_publications) == 1)
-            or (not terminal_succeeded and publications)
+            or (not terminal_succeeded and output_publications)
             or publication_node_ids - {attempt.node_id}
         ):
             raise self._causal_error()
-        artifact_publications = [
-            fact.payload.artifact
-            for fact in publications
-            if isinstance(fact.payload, ArtifactPublished)
-        ]
-        if output_publications:
-            output_publication = output_publications[0].payload
-            assert isinstance(output_publication, OutputsPublished)
-            if output_publication.artifacts != tuple(artifact_publications):
-                raise self._causal_error()
         open_operations = [
             operation_id
             for operation_id, operation in self._state.operations.items()
@@ -1655,7 +1614,6 @@ class Ledger:
                 else ()
             ),
             *((OutputsPublished,) if terminal_succeeded else ()),
-            *(ArtifactPublished for _ in artifact_publications),
             NodeAttemptTerminal,
             NodeDisposition,
         ]

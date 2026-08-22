@@ -159,7 +159,6 @@ class NodeSuccessPublication:
     node_result_manifest: ImmutableObjectReference
     outputs: tuple[PublishedOutput, ...]
     artifacts: tuple[PublishedArtifact, ...]
-    nonempty_output_ports: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

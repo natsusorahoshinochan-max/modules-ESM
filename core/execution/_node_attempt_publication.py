@@ -262,15 +262,6 @@ class _AttemptPublication:
             ),
             outputs=published_outputs,
             artifacts=published_artifacts,
-            nonempty_output_ports=tuple(
-                sorted(
-                    output_port
-                    for (node_id, output_port), admitted in (
-                        state.admitted_outputs.items()
-                    )
-                    if node_id == state.node.node_id and admitted
-                )
-            ),
         )
         acknowledged = (
             self._ledger.record_if_active(transition)

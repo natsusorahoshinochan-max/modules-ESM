@@ -1,7 +1,6 @@
 """The single caller-facing interface of the Run Evidence Ledger."""
 
 from core.execution.ledger.facts import (
-    ArtifactPublished,
     AvailabilityBound,
     CancellationRequested,
     ContextSelectorEvidence,
@@ -69,7 +68,6 @@ from core.execution.ledger.transitions import (
 
 __all__ = [
     "ArtifactOutputEvidence",
-    "ArtifactPublished",
     "AvailabilityBinding",
     "AvailabilityBound",
     "CancellationDecision",
