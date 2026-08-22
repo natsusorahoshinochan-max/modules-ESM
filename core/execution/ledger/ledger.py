@@ -42,7 +42,6 @@ from core.execution.ledger.facts import (
     RunTerminal,
     SelectionTerminal,
     validate_fact_payload,
-    validate_plan_evidence,
 )
 from core.execution.ledger.reducer import (
     InvocationState,
@@ -179,7 +178,6 @@ class Ledger:
         expected_resolved_contracts: tuple[ExactContractReference, ...],
         expected_contract_roots: tuple[ExactContractReference, ...],
     ) -> None:
-        validate_plan_evidence(plan_nodes)
         run_dir = projects.run_storage_directory(project_id, run_id)
         self._root = run_dir.parent
         self._project_id = project_id
@@ -312,7 +310,8 @@ class Ledger:
                 expected_resolved_contracts=scope.resolved_contracts,
                 expected_contract_roots=scope.resolved_contract_roots,
             )
-            for encoded in encoded_transactions:
+            ledger._install_loaded_transaction(first)
+            for encoded in encoded_transactions[1:]:
                 ledger._load_transaction(encoded)
         except (KeyError, TypeError, ValueError) as error:
             raise RuntimeError("Run Ledger transaction is invalid") from error
@@ -1531,10 +1530,6 @@ class Ledger:
         try:
             for fact in facts:
                 payload = fact.payload
-                try:
-                    validate_fact_payload(payload)
-                except (TypeError, ValueError) as error:
-                    raise self._causal_error() from error
                 self._validate_causality(payload)
                 self._state.facts.append(fact)
                 self._apply(payload)
@@ -1686,7 +1681,11 @@ class Ledger:
                 for offset, proposed in enumerate(logical_facts)
             )
             try:
+                for fact in facts:
+                    validate_fact_payload(fact.payload)
                 staged_state = self._stage_facts(facts)
+            except (TypeError, ValueError) as error:
+                raise self._causal_error() from error
             except V2RunError as error:
                 if error.code == "evidence_unavailable":
                     self._mark_evidence_unavailable(error)
@@ -1738,6 +1737,15 @@ class Ledger:
                 facts=facts,
             )
 
+    def _install_loaded_transaction(
+        self,
+        transaction: LedgerTransaction,
+    ) -> None:
+        staged_state = self._stage_facts(transaction.facts)
+        self._install_reducer_state(staged_state)
+        self._transaction_count = transaction.transaction_sequence
+        self._committed_fact_count = transaction.last_fact_sequence
+
     def _load_transaction(self, encoded: bytes) -> None:
         with self._condition:
             try:
@@ -1748,17 +1756,9 @@ class Ledger:
                     expected_transaction_sequence=self._transaction_count + 1,
                     expected_first_fact_sequence=len(self._state.facts) + 1,
                 )
-            except ValueError as error:
+            except (KeyError, TypeError, ValueError) as error:
                 raise self._causal_error() from error
-            if (
-                transaction.last_fact_sequence
-                != transaction.first_fact_sequence + len(transaction.facts) - 1
-            ):
-                raise self._causal_error()
-            staged_state = self._stage_facts(transaction.facts)
-            self._install_reducer_state(staged_state)
-            self._transaction_count = transaction.transaction_sequence
-            self._committed_fact_count = transaction.last_fact_sequence
+            self._install_loaded_transaction(transaction)
 
     def projection(self) -> RunProjection:
         """Return the current typed domain projection of admitted facts."""

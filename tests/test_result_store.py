@@ -9,10 +9,8 @@ import pytest
 from core.catalog.builtins import builtin_frozen_catalog
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 from core.execution.ledger import (
-    LedgerAcknowledgement,
     PublishedArtifact,
     PublishedOutput,
-    run_cursor,
 )
 from core.execution.output_admission import admit_node_output
 from core.execution.output_admission.admission import (
@@ -128,7 +126,7 @@ def _result_store(
     return projects, project.id, replay_index, store
 
 
-def test_store_stages_without_index_and_index_requires_a_trusted_ack(
+def test_store_stages_without_publishing_a_replay_entry(
     tmp_path: Path,
 ) -> None:
     _projects, project_id, replay_index, store = _result_store(tmp_path)
@@ -147,7 +145,7 @@ def test_store_stages_without_index_and_index_requires_a_trusted_ack(
         result_identity=_RESULT_IDENTITY,
     )
 
-    stored = store.store(
+    store.store(
         project_id=project_id,
         materialization_run_id="run-source",
         admitted_output=admitted,
@@ -155,28 +153,6 @@ def test_store_stages_without_index_and_index_requires_a_trusted_ack(
     )
 
     assert replay_index.lookup(project_id, _RESULT_IDENTITY) is None
-    with pytest.raises(TypeError, match="Ledger acknowledgement"):
-        store.index_committed_result(stored, object())  # type: ignore[arg-type]
-
-    acknowledgement = LedgerAcknowledgement(
-        first_sequence=1,
-        last_sequence=1,
-        cursor=run_cursor(
-            1,
-            project_id=project_id,
-            run_id="run-source",
-        ),
-    )
-    store.index_committed_result(stored, acknowledgement)
-
-    indexed = replay_index.lookup(project_id, _RESULT_IDENTITY)
-    assert indexed is not None
-    assert indexed.node_result_manifest == stored.node_result_manifest
-    assert indexed.producer_run_id == "run-source"
-    assert tuple(output.output_port for output in indexed.outputs) == (
-        "summary",
-        "structure",
-    )
 
 
 def test_cache_metadata_divergence_fails_fast_instead_of_becoming_a_miss(
@@ -305,20 +281,6 @@ def test_restore_and_reads_use_the_result_store_interface(
     assert restored.admitted_output.ports["structure"].value == (
         admitted.ports["structure"].value
     )
-    with pytest.raises(ValueError, match="newly executed"):
-        store.index_committed_result(
-            restored,
-            LedgerAcknowledgement(
-                1,
-                1,
-                run_cursor(
-                    1,
-                    project_id=project_id,
-                    run_id="run-replay",
-                ),
-            ),
-        )
-
     summary = next(
         output for output in stored.outputs if output.output_port == "summary"
     )

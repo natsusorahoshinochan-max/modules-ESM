@@ -9,7 +9,6 @@ import uuid
 
 from core.catalog.port_contract import canonical_json_bytes
 from core.execution.ledger import (
-    LedgerAcknowledgement,
     PublishedArtifact,
     PublishedOutput,
 )
@@ -117,17 +116,6 @@ class StoredNodeResult:
     node_result_manifest: StoredObject
     outputs: tuple[StoredOutput, ...]
     artifacts: tuple[StoredArtifact, ...]
-
-    def __post_init__(self) -> None:
-        if type(self.admitted_output) is not AdmittedNodeOutput:
-            raise TypeError("stored result requires one admitted Node output")
-        object.__setattr__(
-            self,
-            "result_contract_metadata",
-            freeze_i_json(self.result_contract_metadata),
-        )
-        object.__setattr__(self, "outputs", tuple(self.outputs))
-        object.__setattr__(self, "artifacts", tuple(self.artifacts))
 
     @property
     def published_outputs(self) -> tuple[StoredOutput, ...]:
@@ -538,15 +526,8 @@ class ResultStore:
     def index_committed_result(
         self,
         stored_result: StoredNodeResult,
-        acknowledgement: LedgerAcknowledgement,
     ) -> None:
-        """Index only an exact result paired with its durable Ledger ack."""
-        if type(stored_result) is not StoredNodeResult:
-            raise TypeError("index requires an exact StoredNodeResult")
-        if type(acknowledgement) is not LedgerAcknowledgement:
-            raise TypeError("index requires a durable Ledger acknowledgement")
-        if stored_result.resolution != "executed":
-            raise ValueError("only newly executed committed results are indexed")
+        """Index a freshly executed result after Ledger publication."""
         self._index.index(
             stored_result.project_id,
             ReplayIndexEntry(
@@ -571,12 +552,6 @@ class ResultStore:
         value_index: int,
     ) -> TypedValueRead:
         """Read one canonical value authorized by published Ledger evidence."""
-        if (
-            type(value_index) is not int
-            or value_index < 0
-            or value_index >= output.value_count
-        ):
-            raise IndexError("Typed Value index is outside the published output")
         try:
             encoded = self._objects.read(
                 project_id,

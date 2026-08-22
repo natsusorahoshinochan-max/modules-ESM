@@ -76,10 +76,6 @@ class IndexedOutput:
     output_port: str
     value_manifest: StoredObject
 
-    def __post_init__(self) -> None:
-        _require_canonical_identifier(self.output_port, "output_port")
-        _require_stored_object(self.value_manifest, "value_manifest")
-
 
 @dataclass(frozen=True, slots=True)
 class ReplayIndexEntry:
@@ -92,41 +88,8 @@ class ReplayIndexEntry:
     node_result_manifest: StoredObject
     outputs: tuple[IndexedOutput, ...]
 
-    def __post_init__(self) -> None:
-        _require_result_identity(self.result_identity)
-        _require_storage_identifier(self.producer_run_id, "producer_run_id")
-        _require_storage_identifier(self.producer_node_id, "producer_node_id")
-        _require_stored_object(
-            self.node_result_manifest,
-            "node_result_manifest",
-        )
-        if not isinstance(self.result_contract_metadata, Mapping):
-            raise ResultIndexError(
-                "Replay index result contract metadata is invalid"
-            )
-        try:
-            metadata = freeze_i_json(self.result_contract_metadata)
-            canonical_json_bytes(metadata)
-        except (TypeError, ValueError) as error:
-            raise ResultIndexError(
-                "Replay index result contract metadata is invalid"
-            ) from error
-        object.__setattr__(self, "result_contract_metadata", metadata)
-
-        try:
-            outputs = tuple(self.outputs)
-        except TypeError as error:
-            raise ResultIndexError("Replay index outputs are invalid") from error
-        if any(type(output) is not IndexedOutput for output in outputs):
-            raise ResultIndexError("Replay index outputs are invalid")
-        output_ports = tuple(output.output_port for output in outputs)
-        if len(set(output_ports)) != len(output_ports):
-            raise ResultIndexError("Replay index output ports are not unique")
-        object.__setattr__(self, "outputs", outputs)
-
 
 def _stored_object_to_canonical(value: StoredObject) -> dict[str, Any]:
-    _require_stored_object(value, "stored_object")
     return {
         "content_digest": value.content_digest,
         "size": value.size,
@@ -147,8 +110,6 @@ def _stored_object_from_canonical(
 
 
 def _entry_to_canonical(entry: ReplayIndexEntry) -> dict[str, Any]:
-    if type(entry) is not ReplayIndexEntry:
-        raise ResultIndexError("Replay index entry is invalid")
     return {
         "schema_namespace": RESULT_CACHE_ENTRY_NAMESPACE,
         "result_identity": entry.result_identity,
@@ -200,16 +161,39 @@ def _entry_from_canonical(
     ):
         raise ResultIndexError("Replay index entry is invalid")
 
+    try:
+        metadata = freeze_i_json(value["result_contract_metadata"])
+        _require_result_identity(value["result_identity"])
+        producer = value["producer"]
+        producer_run_id = _require_storage_identifier(
+            producer["producer_run_id"],
+            "producer_run_id",
+        )
+        producer_node_id = _require_storage_identifier(
+            producer["producer_node_id"],
+            "producer_node_id",
+        )
+    except (TypeError, ValueError) as error:
+        raise ResultIndexError("Replay index entry is invalid") from error
+
     outputs: list[IndexedOutput] = []
+    output_ports: set[str] = set()
     for raw_output in value["outputs"]:
         if (
             type(raw_output) is not dict
             or set(raw_output) != {"output_port", "value_manifest"}
         ):
             raise ResultIndexError("Replay index output is invalid")
+        output_port = _require_canonical_identifier(
+            raw_output["output_port"],
+            "output_port",
+        )
+        if output_port in output_ports:
+            raise ResultIndexError("Replay index output ports are not unique")
+        output_ports.add(output_port)
         outputs.append(
             IndexedOutput(
-                output_port=raw_output["output_port"],
+                output_port=output_port,
                 value_manifest=_stored_object_from_canonical(
                     raw_output["value_manifest"],
                     "value_manifest",
@@ -217,12 +201,11 @@ def _entry_from_canonical(
             )
         )
 
-    producer = value["producer"]
     return ReplayIndexEntry(
         result_identity=value["result_identity"],
-        result_contract_metadata=value["result_contract_metadata"],
-        producer_run_id=producer["producer_run_id"],
-        producer_node_id=producer["producer_node_id"],
+        result_contract_metadata=metadata,
+        producer_run_id=producer_run_id,
+        producer_node_id=producer_node_id,
         node_result_manifest=_stored_object_from_canonical(
             value["node_result_manifest"],
             "node_result_manifest",
@@ -232,10 +215,7 @@ def _entry_from_canonical(
 
 
 def _encode_entry(entry: ReplayIndexEntry) -> bytes:
-    try:
-        encoded = canonical_json_bytes(_entry_to_canonical(entry))
-    except (TypeError, ValueError) as error:
-        raise ResultIndexError("Replay index entry is invalid") from error
+    encoded = canonical_json_bytes(_entry_to_canonical(entry))
     if len(encoded) > MAX_RESULT_CACHE_ENTRY_BYTES:
         raise ResultIndexError("Replay index entry exceeds its size contract")
     return encoded
@@ -256,8 +236,6 @@ def _decode_entry(
             raw,
             requested_result_identity=requested_result_identity,
         )
-        if canonical_json_bytes(_entry_to_canonical(entry)) != encoded:
-            raise ResultIndexError("Replay index entry is not canonical JSON")
         return entry
     except ResultIndexError:
         raise
@@ -273,8 +251,11 @@ class ProjectReplayIndex:
 
     @staticmethod
     def _relative_parts(result_identity: str) -> tuple[str, ...]:
-        identity = _require_result_identity(result_identity)
-        return ("v4", "results", f"{identity.removeprefix('sha256:')}.json")
+        return (
+            "v4",
+            "results",
+            f"{result_identity.removeprefix('sha256:')}.json",
+        )
 
     @staticmethod
     def _read(path: Path) -> bytes:

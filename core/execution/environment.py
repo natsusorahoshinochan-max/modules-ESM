@@ -24,21 +24,6 @@ class EnvironmentConfiguration:
 
     _entries: Mapping[tuple[str, str], BindingEnvironment]
 
-    def __post_init__(self) -> None:
-        if any(
-            type(environment) is not BindingEnvironment
-            for environment in self._entries.values()
-        ):
-            raise TypeError(
-                "EnvironmentConfiguration requires admitted "
-                "BindingEnvironment values"
-            )
-        object.__setattr__(
-            self,
-            "_entries",
-            MappingProxyType(dict(self._entries)),
-        )
-
     def for_binding(
         self,
         binding_id: str,
@@ -145,4 +130,4 @@ def admit_environment_configuration(
             for name, value in values.items()
         }
         admitted[identity] = BindingEnvironment(admitted_values)
-    return EnvironmentConfiguration(admitted)
+    return EnvironmentConfiguration(MappingProxyType(admitted))

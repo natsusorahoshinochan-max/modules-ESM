@@ -281,13 +281,6 @@ def admit_node_output(
         if output_port not in normalized.values:
             continue
         supplied = normalized.values[output_port]
-        if declaration.multiplicity == "many" and not isinstance(
-            supplied,
-            (list, tuple),
-        ):
-            raise PortValueError(
-                f"Output Port {output_port!r} requires many values"
-            )
         values = (
             tuple(supplied)
             if declaration.multiplicity == "many"

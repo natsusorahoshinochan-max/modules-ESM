@@ -17,7 +17,6 @@ from core.execution._node_attempt_models import (
 from core.execution.ledger import (
     ImmutableObjectReference,
     Ledger,
-    LedgerAcknowledgement,
     NodeFailurePublication,
     NodeSuccessPublication,
     NodeTerminationPublication,
@@ -203,7 +202,7 @@ class _AttemptPublication:
         *,
         stored_result: StoredNodeResult,
         only_if_active: bool = False,
-    ) -> tuple[AttemptOutcome, LedgerAcknowledgement] | None:
+    ) -> AttemptOutcome | None:
         if state.result_identity is None:
             raise RuntimeError(
                 "Node Execution Attempt success lacks a Result Identity"
@@ -280,16 +279,13 @@ class _AttemptPublication:
         )
         if acknowledged is None:
             return None
-        return (
-            AttemptOutcome(
-                disposition="succeeded",
-                admitted_outputs=state.admitted_outputs,
-                published_artifact_count=len(stored_result.artifacts),
-                published_artifact_bytes=sum(
-                    artifact.body.size for artifact in stored_result.artifacts
-                ),
+        return AttemptOutcome(
+            disposition="succeeded",
+            admitted_outputs=state.admitted_outputs,
+            published_artifact_count=len(stored_result.artifacts),
+            published_artifact_bytes=sum(
+                artifact.body.size for artifact in stored_result.artifacts
             ),
-            acknowledged,
         )
 
     def _record_committed_cancellation(
@@ -365,17 +361,14 @@ class _AttemptPublication:
                     "Node outcome lost its cancellation ordering decision"
                 )
             return cancelled
-        committed, acknowledgement = recorded
+        committed = recorded
         if (
             committed.disposition == "succeeded"
             and state.resolution == "executed"
             and state.cache_eligible
         ):
             try:
-                self._result_store.index_committed_result(
-                    stored_result,
-                    acknowledgement,
-                )
+                self._result_store.index_committed_result(stored_result)
             except OSError:
                 _LOGGER.warning(
                     "Committed Result replay index publication is unavailable"

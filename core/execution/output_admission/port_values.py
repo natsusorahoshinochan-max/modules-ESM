@@ -127,10 +127,6 @@ def _admit_fresh_port(
         if projections is not None
         else tuple(None for _value in values)
     )
-    if len(value_projections) != len(values):
-        raise PortValueError(
-            "Fresh output projection count does not match its values"
-        )
     admitted = tuple(
         _admitted_value(
             port_type=port_type,
