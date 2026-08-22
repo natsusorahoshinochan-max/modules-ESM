@@ -6,6 +6,7 @@ Evaluate: structure -> pLDDT scores (larger model, no re-folding).
 
 from __future__ import annotations
 
+import gc
 import importlib
 import os
 import shutil
@@ -184,15 +185,13 @@ def fold_sequence(
         ccd_path=cache / "ccd.pkl",
     )
 
-    # Initialize model
+    # Establish the provider-selected device without loading model weights.
     model_wrapper = ModelWrapper(
         simplefold_model=model_name,
         plddt=True,
         ckpt_dir=str(model_dir),
         backend="torch",
     )
-    model = model_wrapper.from_pretrained_folding_model()
-    plddt_models = model_wrapper.from_pretrained_plddt_model()
     device = model_wrapper.device
     if str(device) != required_device:
         raise RuntimeError(
@@ -210,28 +209,40 @@ def fold_sequence(
         backend="torch",
     )
 
-    structures: list[ProteinStructure] = []
-    confidence_results: list[dict[str, Any]] = []
-
-    # Process each structure file
     struct_files = list(output_dir.glob("structures/*.npz"))
     if not struct_files:
         raise ValueError("No structure files generated from FASTA processing")
 
+    prepared_inputs: list[tuple[Any, Any, Any]] = []
     for struct_file in struct_files:
         record_file = output_dir / "records" / f"{struct_file.stem}.json"
-
-        batch, structure, record = process_one_inference_structure(
-            struct_file,
-            record_file,
-            inf_wrapper.tokenizer,
-            inf_wrapper.featurizer,
-            inf_wrapper.processor,
-            inf_wrapper.esm_model,
-            inf_wrapper.esm_dict,
-            inf_wrapper.af2_to_esm,
+        prepared_inputs.append(
+            process_one_inference_structure(
+                struct_file,
+                record_file,
+                inf_wrapper.tokenizer,
+                inf_wrapper.featurizer,
+                inf_wrapper.processor,
+                inf_wrapper.esm_model,
+                inf_wrapper.esm_dict,
+                inf_wrapper.af2_to_esm,
+            )
         )
 
+    # ESM2 is only needed to materialize the detached language-model features.
+    # Release its 3B parameters before loading folding and pLDDT weights.
+    inf_wrapper.esm_model = None
+    inf_wrapper.esm_dict = None
+    inf_wrapper.af2_to_esm = None
+    gc.collect()
+
+    model = model_wrapper.from_pretrained_folding_model()
+    plddt_models = model_wrapper.from_pretrained_plddt_model()
+
+    structures: list[ProteinStructure] = []
+    confidence_results: list[dict[str, Any]] = []
+
+    for batch, structure, record in prepared_inputs:
         # Run inference
         if (
             type(effective_seed) is not int

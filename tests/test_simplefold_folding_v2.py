@@ -145,6 +145,117 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     assert captured == {"num_steps": 75}
 
 
+def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import sys
+    from types import ModuleType
+
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    class StopAfterStagedModelLoad(Exception):
+        pass
+
+    lifecycle: dict[str, bool] = {}
+
+    class LanguageModel:
+        def __del__(self) -> None:
+            lifecycle["language_model_released"] = True
+
+    class ModelWrapper:
+        device = "cpu"
+
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def from_pretrained_folding_model(self) -> object:
+            assert lifecycle["features_prepared"] is True
+            assert lifecycle["language_model_released"] is True
+            raise StopAfterStagedModelLoad
+
+        def from_pretrained_plddt_model(self) -> object:
+            raise AssertionError("folding model load must happen first")
+
+    class InferenceWrapper:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.tokenizer = object()
+            self.featurizer = object()
+            self.processor = object()
+            self.esm_model = LanguageModel()
+            self.esm_dict = object()
+            self.af2_to_esm = object()
+
+    def process_fastas(*, out_dir: Path, **_kwargs: Any) -> None:
+        structures = Path(out_dir) / "structures"
+        records = Path(out_dir) / "records"
+        structures.mkdir(parents=True)
+        records.mkdir(parents=True)
+        (structures / "input.npz").touch()
+        (records / "input.json").write_text("{}")
+
+    def process_one_inference_structure(
+        *_args: Any,
+    ) -> tuple[object, object, object]:
+        lifecycle["features_prepared"] = True
+        return object(), object(), object()
+
+    modules = {
+        "simplefold": ModuleType("simplefold"),
+        "simplefold.utils": ModuleType("simplefold.utils"),
+        "simplefold.wrapper": ModuleType("simplefold.wrapper"),
+        "simplefold.utils.boltz_utils": ModuleType(
+            "simplefold.utils.boltz_utils"
+        ),
+        "simplefold.utils.fasta_utils": ModuleType(
+            "simplefold.utils.fasta_utils"
+        ),
+        "simplefold.utils.datamodule_utils": ModuleType(
+            "simplefold.utils.datamodule_utils"
+        ),
+        "utils.esm_utils": ModuleType("utils.esm_utils"),
+    }
+    modules["simplefold.wrapper"].ModelWrapper = ModelWrapper
+    modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.utils.boltz_utils"].process_structure = object()
+    modules["simplefold.utils.boltz_utils"].to_pdb = object()
+    modules["simplefold.utils.fasta_utils"].process_fastas = process_fastas
+    modules[
+        "simplefold.utils.datamodule_utils"
+    ].process_one_inference_structure = process_one_inference_structure
+    modules["utils.esm_utils"].esm_registry = {}
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "_setup_simplefold_imports",
+        os.getcwd,
+    )
+    model_root = tmp_path / "model"
+    esm2_source_root = tmp_path / "esm2-source"
+    esm2_model_root = tmp_path / "esm2-model"
+    for root in (model_root, esm2_source_root, esm2_model_root):
+        root.mkdir()
+    (model_root / "ccd.pkl").write_bytes(b"reviewed-ccd")
+
+    with pytest.raises(StopAfterStagedModelLoad):
+        simplefold_runtime.fold_sequence(
+            ProteinSequence("AG", ("A:1", "A:2")),
+            model_name="simplefold_100M",
+            num_steps=50,
+            num_samples=1,
+            project_dir=str(tmp_path / "project"),
+            effective_seed=1603,
+            staged_model_root=model_root,
+            staged_esm2_source_root=esm2_source_root,
+            staged_esm2_model_root=esm2_model_root,
+            required_device="cpu",
+            record_evidence=False,
+        )
+
+
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
     registrations = {
         registration.package_id: registration
