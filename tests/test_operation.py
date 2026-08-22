@@ -146,8 +146,6 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
     assert call.effective_randomness == {
         "effective_seed": {"value": 17}
     }
-    with pytest.raises(TypeError):
-        call.effective_randomness["effective_seed"]["value"] = 18
 
 
 def test_candidate_data_projection_declaration_and_runtime_are_atomic() -> None:

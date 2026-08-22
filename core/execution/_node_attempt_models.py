@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Literal
 
 from core.execution.resources import CancellationControl, RunResources
@@ -37,13 +36,6 @@ class AttemptOutcome:
         AdmittedPort,
     ] = field(default_factory=dict)
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "admitted_outputs",
-            MappingProxyType(dict(self.admitted_outputs)),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class AttemptSpec:
@@ -56,18 +48,6 @@ class AttemptSpec:
     admitted_inputs: Mapping[str, AdmittedPort]
     cancellation: CancellationControl
     cache_bypassed: bool
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "candidate_data_port_types",
-            MappingProxyType(dict(self.candidate_data_port_types)),
-        )
-        object.__setattr__(
-            self,
-            "admitted_inputs",
-            MappingProxyType(dict(self.admitted_inputs)),
-        )
 
 
 @dataclass(slots=True)

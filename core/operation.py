@@ -475,23 +475,6 @@ class OperationContext:
     environment: BindingEnvironment
     resources: OperationResources
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "produced_observations",
-            tuple(self.produced_observations),
-        )
-        object.__setattr__(
-            self,
-            "selection_objectives",
-            tuple(self.selection_objectives),
-        )
-        object.__setattr__(
-            self,
-            "observation_selectors",
-            tuple(self.observation_selectors),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class OperationCall:
@@ -501,28 +484,6 @@ class OperationCall:
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
     effective_randomness: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "inputs",
-            MappingProxyType(dict(self.inputs)),
-        )
-        object.__setattr__(
-            self,
-            "node_parameters",
-            _freeze_container(self.node_parameters),
-        )
-        object.__setattr__(
-            self,
-            "binding_parameters",
-            _freeze_container(self.binding_parameters),
-        )
-        object.__setattr__(
-            self,
-            "effective_randomness",
-            _freeze_container(self.effective_randomness),
-        )
 
 
 class ScientificOperation(Protocol):

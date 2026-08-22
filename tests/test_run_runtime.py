@@ -2854,8 +2854,6 @@ def test_operation_call_reuses_admitted_scientific_values_without_copy() -> None
     )
 
     assert call.inputs["candidate"].value is candidate
-    with pytest.raises(TypeError):
-        call.inputs["other"] = candidate
 
 
 def test_operation_call_exposes_ordered_candidate_data_content_digests(
