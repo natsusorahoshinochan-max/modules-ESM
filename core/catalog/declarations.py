@@ -1108,7 +1108,7 @@ class ModulePackageRegistration:
 
 @dataclass(frozen=True, slots=True)
 class CatalogContract:
-    """One resolved immutable public Catalog contract."""
+    """One resolved immutable scientific Catalog contract."""
 
     contract_kind: ContractKind
     contract_id: str
@@ -1151,10 +1151,4 @@ class CatalogContract:
             "contract_id": self.contract_id,
             "contract_version": self.contract_version,
             "contract_digest": self.contract_digest,
-        }
-
-    def public_contract(self) -> dict[str, Any]:
-        return {
-            "reference": self.reference(),
-            "descriptor": _thaw_declaration(self.descriptor),
         }

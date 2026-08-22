@@ -81,6 +81,7 @@ from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
 )
+from datatypes.i_json import thaw_i_json
 from datatypes.observation import (
     IntrinsicObservationContext,
     ScoreCollection,
@@ -1102,9 +1103,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         runtime_to_wire=lambda value: value,
         runtime_from_wire=lambda value: value,
     )
-    original_node = contracts["score.intrinsic"].public_contract()[
-        "descriptor"
-    ]
+    original_node = thaw_i_json(contracts["score.intrinsic"].descriptor)
     residue_node = _contract(
         "node_type",
         "score.residue",
@@ -1133,9 +1132,9 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             ]
         },
     )
-    original = contracts["score.intrinsic.direct"].public_contract()[
-        "descriptor"
-    ]
+    original = thaw_i_json(
+        contracts["score.intrinsic.direct"].descriptor
+    )
     residue_binding = _contract(
         "binding",
         "score.residue.direct",
@@ -2450,7 +2449,7 @@ def test_compiler_rejects_unsatisfied_objective_before_provider(
 def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
     catalog, contracts = _scoring_catalog()
     original = contracts["score.intrinsic.direct"]
-    original_descriptor = original.public_contract()["descriptor"]
+    original_descriptor = thaw_i_json(original.descriptor)
     limited_binding = _contract(
         "binding",
         original.contract_id,

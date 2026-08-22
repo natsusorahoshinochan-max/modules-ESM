@@ -374,6 +374,20 @@ def canonical_json_bytes(value: Any) -> bytes:
         raise CatalogBuildError("value cannot be canonicalized with RFC 8785") from error
 
 
+def _freeze_validated_i_json(value: Any) -> Any:
+    """Copy already-admitted I-JSON into immutable containers."""
+    if isinstance(value, Mapping):
+        return MappingProxyType(
+            {
+                key: _freeze_validated_i_json(item)
+                for key, item in value.items()
+            }
+        )
+    if isinstance(value, (list, tuple)):
+        return FrozenList(_freeze_validated_i_json(item) for item in value)
+    return value
+
+
 def canonical_sha256(value: Any) -> str:
     """Return the public digest of canonical I-JSON bytes."""
     return f"sha256:{hashlib.sha256(canonical_json_bytes(value)).hexdigest()}"
@@ -1271,6 +1285,11 @@ class PortTypeDefinition:
         repr=False,
         compare=False,
     )
+    _canonical_descriptor: Mapping[str, Any] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
 
     def __post_init__(self) -> None:
         _validate_identifier(self.type_id, "type_id")
@@ -1296,10 +1315,15 @@ class PortTypeDefinition:
                 "observation_method_projection declaration and runtime must "
                 "be provided together"
             )
-        canonical_json_bytes(self.descriptor())
+        descriptor = self._build_descriptor()
+        canonical_json_bytes(descriptor)
+        object.__setattr__(
+            self,
+            "_canonical_descriptor",
+            _freeze_validated_i_json(descriptor),
+        )
 
-    def descriptor(self) -> dict[str, Any]:
-        """Return the canonical closed descriptor used for contract identity."""
+    def _build_descriptor(self) -> dict[str, Any]:
         descriptor = {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "port_type",
@@ -1322,6 +1346,15 @@ class PortTypeDefinition:
                 self.observation_method_projection.descriptor()
             )
         return descriptor
+
+    @property
+    def canonical_descriptor(self) -> Mapping[str, Any]:
+        """Return the immutable scientific descriptor owned by Catalog."""
+        return self._canonical_descriptor
+
+    def descriptor(self) -> dict[str, Any]:
+        """Copy the canonical scientific descriptor into JSON containers."""
+        return cast(dict[str, Any], thaw_i_json(self._canonical_descriptor))
 
     @property
     def artifact_media_types(self) -> tuple[str, ...] | None:
@@ -1355,7 +1388,7 @@ class PortTypeDefinition:
     @property
     def descriptor_bytes(self) -> bytes:
         """RFC 8785 canonical UTF-8 descriptor bytes."""
-        return canonical_json_bytes(self.descriptor())
+        return canonical_json_bytes(self._canonical_descriptor)
 
     @property
     def contract_digest(self) -> str:
@@ -1369,13 +1402,6 @@ class PortTypeDefinition:
             "contract_id": self.type_id,
             "contract_version": self.version,
             "contract_digest": self.contract_digest,
-        }
-
-    def public_contract(self) -> dict[str, Any]:
-        """Return the public protocol representation."""
-        return {
-            "reference": self.reference(),
-            "descriptor": self.descriptor(),
         }
 
     def scientific_axis_references(

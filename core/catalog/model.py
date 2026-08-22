@@ -9,6 +9,7 @@ import hashlib
 from types import MappingProxyType
 from typing import Any
 
+from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json, thaw_i_json
 
 from .declarations import AvailabilityResult, CatalogContract
@@ -28,9 +29,17 @@ from .port_contract import (
 class CatalogAvailabilityProjection:
     """Typed observation for one exact Binding contract."""
 
-    binding: CatalogContract
+    binding: ExactContractReference
     observed_at: datetime
     result: AvailabilityResult
+
+
+@dataclass(frozen=True, slots=True)
+class CatalogContractProjection:
+    """Provider-independent identity and canonical scientific descriptor."""
+
+    reference: ExactContractReference
+    descriptor: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +47,20 @@ class CatalogProjection:
     """Typed stable contracts and observed Binding availability."""
 
     catalog_contract_digest: str
-    port_types: tuple[PortTypeDefinition, ...]
-    contracts: tuple[CatalogContract, ...]
+    contracts: tuple[CatalogContractProjection, ...]
     availability_observed_at: datetime
     availability: tuple[CatalogAvailabilityProjection, ...]
+
+
+def _canonical_reference(
+    reference: ExactContractReference,
+) -> dict[str, str]:
+    return {
+        "contract_kind": reference.contract_kind,
+        "contract_id": reference.contract_id,
+        "contract_version": reference.contract_version,
+        "contract_digest": reference.contract_digest,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,31 +234,59 @@ class FrozenCatalog:
             MappingProxyType(dict(self.owners)),
         )
 
-    def catalog_descriptor(self) -> dict[str, Any]:
+    def _contract_projections(self) -> tuple[CatalogContractProjection, ...]:
+        projected = [
+            CatalogContractProjection(
+                reference=ExactContractReference(
+                    contract_kind="port_type",
+                    contract_id=definition.type_id,
+                    contract_version=definition.version,
+                    contract_digest=definition.contract_digest,
+                ),
+                descriptor=definition.canonical_descriptor,
+            )
+            for definition in self.port_types
+        ]
+        projected.extend(
+            CatalogContractProjection(
+                reference=ExactContractReference(
+                    contract_kind=contract.contract_kind,
+                    contract_id=contract.contract_id,
+                    contract_version=contract.contract_version,
+                    contract_digest=contract.contract_digest,
+                ),
+                descriptor=contract.descriptor,
+            )
+            for contract in self.contracts
+        )
+        return tuple(
+            sorted(
+                projected,
+                key=lambda item: (
+                    item.reference.contract_kind,
+                    item.reference.contract_id,
+                    item.reference.contract_version,
+                ),
+            )
+        )
+
+    def _catalog_descriptor(self) -> dict[str, Any]:
         """Return the stable Catalog identity, excluding observed availability."""
         return {
             "schema_namespace": CATALOG_NAMESPACE,
-            "contracts": sorted(
-                [
-                    definition.public_contract()
-                    for definition in self.port_types
-                ]
-                + [
-                    contract.public_contract()
-                    for contract in self.contracts
-                ],
-                key=lambda item: (
-                    item["reference"]["contract_kind"],
-                    item["reference"]["contract_id"],
-                    item["reference"]["contract_version"],
-                ),
-            ),
+            "contracts": [
+                {
+                    "reference": _canonical_reference(contract.reference),
+                    "descriptor": thaw_i_json(contract.descriptor),
+                }
+                for contract in self._contract_projections()
+            ],
         }
 
     @property
     def catalog_descriptor_bytes(self) -> bytes:
         """RFC 8785 canonical stable Catalog descriptor bytes."""
-        return canonical_json_bytes(self.catalog_descriptor())
+        return canonical_json_bytes(self._catalog_descriptor())
 
     @property
     def contract_digest(self) -> str:
@@ -392,13 +439,24 @@ class FrozenCatalog:
                 "Catalog projection observation time must be timezone-aware"
             )
         timestamp = timestamp.astimezone(timezone.utc)
+        contracts = self._contract_projections()
+        references_by_identity = {
+            (
+                contract.reference.contract_kind,
+                contract.reference.contract_id,
+                contract.reference.contract_version,
+            ): contract.reference
+            for contract in contracts
+        }
         availability = tuple(
             CatalogAvailabilityProjection(
-                binding=self.require_contract(
-                    "binding",
-                    snapshot["binding"]["contract_id"],
-                    snapshot["binding"]["contract_version"],
-                ),
+                binding=references_by_identity[
+                    (
+                        "binding",
+                        snapshot["binding"]["contract_id"],
+                        snapshot["binding"]["contract_version"],
+                    )
+                ],
                 observed_at=(
                     timestamp
                     if observed_at is not None
@@ -420,8 +478,7 @@ class FrozenCatalog:
         )
         return CatalogProjection(
             catalog_contract_digest=self.contract_digest,
-            port_types=self.port_types,
-            contracts=self.contracts,
+            contracts=contracts,
             availability_observed_at=timestamp,
             availability=availability,
         )
