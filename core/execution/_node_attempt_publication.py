@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Literal, cast
 
 from core.execution._node_attempt_errors import (
     _execution_error,
@@ -23,6 +23,7 @@ from core.execution.ledger import (
     NodeTerminationPublication,
     StructuredError,
 )
+from core.execution.output_admission import AdmittedNodeOutput
 from core.execution.results import (
     ResultStore,
     ResultStoreWriteError,
@@ -97,14 +98,14 @@ class _AttemptPublication:
             "publication",
         ],
     ) -> AttemptOutcome:
-        committed = self._record_failure(
-            state,
-            public_error=public_error,
-            failure_origin=failure_origin,
+        return cast(
+            AttemptOutcome,
+            self._record_failure(
+                state,
+                public_error=public_error,
+                failure_origin=failure_origin,
+            ),
         )
-        if committed is None:
-            raise RuntimeError("Required Node failure was not acknowledged")
-        return committed
 
     def _record_termination(
         self,
@@ -173,39 +174,13 @@ class _AttemptPublication:
         )
         return AttemptOutcome(disposition=outcome)
 
-    def _stage_success(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> StoredNodeResult:
-        if state.stored_result is not None:
-            return state.stored_result
-        if (
-            state.result_identity is None
-            or state.admitted_node_output is None
-        ):
-            raise RuntimeError(
-                "Node Execution Attempt success lacks a complete admitted result"
-            )
-        stored = self._result_store.store(
-            project_id=state.project_id,
-            materialization_run_id=state.run_id,
-            admitted_output=state.admitted_node_output,
-            result_contract_metadata=result_contract_metadata(state.node),
-        )
-        state.stored_result = stored
-        return stored
-
     def _record_success(
         self,
         state: _NodeExecutionAttemptState,
         *,
+        admitted_output: AdmittedNodeOutput,
         stored_result: StoredNodeResult,
-        only_if_active: bool = False,
     ) -> AttemptOutcome | None:
-        if state.result_identity is None:
-            raise RuntimeError(
-                "Node Execution Attempt success lacks a Result Identity"
-            )
         transition = NodeSuccessPublication(
             node_id=state.node.node_id,
             node_attempt_id=state.node_attempt_id,
@@ -215,7 +190,7 @@ class _AttemptPublication:
                 else None
             ),
             resolution=state.resolution,
-            result_identity=state.result_identity,
+            result_identity=admitted_output.result_identity,
             node_result_manifest=ImmutableObjectReference(
                 content_digest=(
                     stored_result.node_result_manifest.content_digest
@@ -225,28 +200,18 @@ class _AttemptPublication:
             outputs=stored_result.outputs,
             artifacts=stored_result.artifacts,
         )
-        acknowledged = (
-            self._ledger.record_if_active(transition)
-            if only_if_active
-            else self._ledger.record(transition)
-        )
+        acknowledged = self._ledger.record_if_active(transition)
         if acknowledged is None:
             return None
         return AttemptOutcome(
             disposition="succeeded",
-            admitted_outputs=state.admitted_outputs,
+            admitted_outputs=admitted_output.runtime_ports,
         )
 
     def _record_committed_cancellation(
         self,
         state: _NodeExecutionAttemptState,
-    ) -> AttemptOutcome | None:
-        if not self._ledger.cancellation_requested:
-            return None
-        if state.resources is None:
-            raise RuntimeError(
-                "Started Node Execution Attempt lacks owned Run resources"
-            )
+    ) -> AttemptOutcome:
         state.cancellation.wait_for_cleanup()
         if state.cancellation.cleanup_error is not None:
             if not state.operation_started:
@@ -257,7 +222,7 @@ class _AttemptPublication:
                         state.cancellation.cleanup_error
                     ),
                 )
-            return self._record_failure(
+            return self.commit_failure(
                 state,
                 public_error=_execution_error(
                     state.cancellation.cleanup_error
@@ -276,9 +241,20 @@ class _AttemptPublication:
     def commit_success(
         self,
         state: _NodeExecutionAttemptState,
+        *,
+        admitted_output: AdmittedNodeOutput,
+        stored_result: StoredNodeResult | None = None,
     ) -> AttemptOutcome:
         try:
-            stored_result = self._stage_success(state)
+            if stored_result is None:
+                stored_result = self._result_store.store(
+                    project_id=state.project_id,
+                    materialization_run_id=state.run_id,
+                    admitted_output=admitted_output,
+                    result_contract_metadata=result_contract_metadata(
+                        state.node
+                    ),
+                )
         except ResultStoreWriteError as error:
             failed = self._record_failure(
                 state,
@@ -291,35 +267,20 @@ class _AttemptPublication:
             )
             if failed is not None:
                 return failed
-            cancelled = self._record_committed_cancellation(state)
-            if cancelled is None:
-                raise RuntimeError(
-                    "Node outcome lost its cancellation ordering decision"
-                )
-            return cancelled
+            return self._record_committed_cancellation(state)
 
         recorded = self._record_success(
             state,
+            admitted_output=admitted_output,
             stored_result=stored_result,
-            only_if_active=True,
         )
         if recorded is None:
-            cancelled = self._record_committed_cancellation(state)
-            if cancelled is None:
-                raise RuntimeError(
-                    "Node outcome lost its cancellation ordering decision"
-                )
-            return cancelled
-        committed = recorded
-        if (
-            committed.disposition == "succeeded"
-            and state.resolution == "executed"
-            and state.cache_eligible
-        ):
+            return self._record_committed_cancellation(state)
+        if state.resolution == "executed" and state.cache_eligible:
             try:
                 self._result_store.index_committed_result(stored_result)
             except OSError:
                 _LOGGER.warning(
                     "Committed Result replay index publication is unavailable"
                 )
-        return committed
+        return recorded

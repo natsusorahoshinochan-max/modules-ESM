@@ -7,15 +7,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Literal
 
-from core.execution.output_admission import AdmittedNodeOutput
-from core.execution.output_admission.artifacts import (
-    AdmittedArtifactPublicationPlan,
-)
-from core.execution._node_attempt_identity import (
-    _EffectiveRandomnessSnapshot,
-)
 from core.execution.resources import CancellationControl, RunResources
-from core.execution.results import StoredNodeResult
 from core.operation import AdmittedPort
 from core.project.manager import ProjectInputDescriptor
 from core.workflow.plan import ExecutionPlanNode
@@ -92,21 +84,10 @@ class _NodeExecutionAttemptState:
     inputs: Mapping[str, AdmittedPort]
     project_inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]]
     resource_identities: tuple[Mapping[str, Any], ...]
-    effective_randomness: _EffectiveRandomnessSnapshot | None
-    result_identity: str | None
     cache_eligible: bool = False
     resolution: Literal["executed", "cache_replayed"] = "executed"
     resources: RunResources | None = None
     operation_started: bool = False
-    admitted_node_output: AdmittedNodeOutput | None = None
-    stored_result: StoredNodeResult | None = None
-    admitted_outputs: Mapping[
-        tuple[str, str],
-        AdmittedPort,
-    ] = field(default_factory=dict)
-    artifact_publication_plan: AdmittedArtifactPublicationPlan = field(
-        default_factory=lambda: AdmittedArtifactPublicationPlan((), ())
-    )
 
 
 __all__ = ["AttemptOutcome", "AttemptSpec", "ExecutionTermination"]
