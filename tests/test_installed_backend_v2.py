@@ -320,6 +320,7 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
     assert not any(
         name.startswith("tests/")
         or "zero_core_packages" in name
+        or "verification-results" in Path(name).parts
         or {"fixture", "fixtures", "test", "tests"}.intersection(
             Path(name).parts
         )
@@ -328,6 +329,7 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
     assert not any(
         name.startswith("tests/")
         or "zero_core_packages" in name
+        or "verification-results" in Path(name).parts
         or {"fixture", "fixtures", "test", "tests"}.intersection(
             Path(name).parts
         )

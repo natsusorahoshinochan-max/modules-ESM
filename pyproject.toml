@@ -46,8 +46,10 @@ include = [
     "modules*",
     "pdbs*",
     "protein_workbench_public*",
-    "verification*",
+    "verification",
+    "verification.*",
 ]
+exclude = ["verification-results", "verification-results.*"]
 
 [tool.setuptools.package-data]
 examples = ["*.json", "v2/*.json", "v2/*.md"]
