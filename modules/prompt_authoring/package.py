@@ -8,13 +8,13 @@ from core.catalog.declarations import (
     ContractIdentity,
     EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
+    load_method_definitions,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
@@ -102,94 +102,6 @@ def _build(operation: str):
         return implementation(context.resources)
 
     return factory
-
-
-def _method(operation: str) -> MethodDefinition:
-    algorithm_identity = {
-        "add_function_annotation": {
-            "name": "chain-qualified-function-interval-authoring",
-            "interval_indexing": "one-based-inclusive-provider-axis",
-            "ordering": "global-start-global-end-label-and-provenance",
-            "overlap_policy": "explicit-workflow-choice",
-        },
-        "assemble_protein_prompt": {
-            "name": "validated-residue-aligned-protein-prompt-assembly",
-            "track_layout": "exact-effective-residue-layout",
-            "optional_tracks": "absent-or-explicitly-nullable",
-        },
-        "build_residue_layout": {
-            "name": "canonical-residue-layout-construction",
-            "residue_identity": "<chain>:<one-based-generated-label>",
-            "chain_boundary": "ordered-contiguous-chain-blocks",
-        },
-        "edit_residue_layout": {
-            "name": "explicit-residue-identity-reconciliation",
-            "mapping_operations": ["delete", "insert", "match"],
-            "mapping_indexing": "zero-based-with-negative-unmapped-sentinel",
-        },
-        "insert_masked_residues": {
-            "name": "deterministic-identity-addressed-masked-insertion",
-            "boundary": "adjacent-source-residue-identities",
-            "ordering": "declared-source-boundary-order",
-            "preservation": "all-source-identities-and-present-track-values",
-            "inserted_values": "explicit-null-on-every-present-track",
-            "residue_map": "complete-match-and-insert-only",
-        },
-        "map_residue_track": {
-            "name": "explicit-residue-map-conversion",
-            "nullable_semantics": "JSON null means unmapped or unspecified",
-            "mapping_indexing": "zero-based",
-        },
-        "override_residue_track": {
-            "name": "identity-addressed-track-override",
-            "actions": ["clear", "preserve", "replace"],
-            "nullable_semantics": "JSON null means unspecified",
-        },
-        "override_protein_prompt_track": {
-            "name": "identity-addressed-protein-prompt-track-override",
-            "actions": ["clear", "preserve", "replace"],
-            "unaffected_tracks": "byte-equivalent-canonical-values",
-        },
-        "prompt_from_structure": {
-            "name": "canonical-resolved-axis-to-protein-prompt",
-            "residue_identity": "resolved-axis-layout-order",
-            "coordinates": "resolved-axis-selected-named-atoms",
-            "visibility": "resolved-axis-coordinate-bearing-residues",
-            "component_policy": "consume-resolver-admitted-polymer-axis",
-        },
-        "random_insert_masked": {
-            "name": "seeded-chain-local-masked-residue-insertion",
-            "sampling": "sha256-boundary-set-digest-counter-modulo-v1",
-            "replacement": "with-replacement-across-eligible-boundaries",
-            "eligibility": "canonical-unordered-effective-chain-set-v1",
-            "inserted_values": "explicit-null-on-every-present-track",
-        },
-        "random_mask": {
-            "name": "seeded-assigned-residue-masking",
-            "sampling": "sha256-residue-ranking-v1",
-            "replacement": "without-replacement",
-            "eligibility": "canonical-unordered-assigned-residue-set-v1",
-            "masked_value": "explicit-null",
-        },
-        "update_prompt_sequence": {
-            "name": "generic-protein-prompt-sequence-replacement",
-            "preservation": "layout-and-all-unaffected-tracks",
-            "residue_identity": "exact-layout-order",
-        },
-    }[operation]
-    return MethodDefinition(
-        method_id=f"prompt_authoring.{operation}.method",
-        version=_METHOD_VERSIONS.get(operation, _DEFAULT_METHOD_VERSION),
-        algorithm_identity=algorithm_identity,
-        model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
-        featurization_identity={
-            "residue_identity": "<chain>:<label>",
-            "chain_boundary": "contiguous",
-        },
-        source_identity={"kind": "repository-owned"},
-        scale_contract={"kind": "identity"},
-    )
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
@@ -298,7 +210,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/random_mask.yaml"),
         DefinitionResource("definitions/update_prompt_sequence.yaml"),
     ),
-    methods=tuple(_method(operation) for operation in _OPERATIONS),
+    methods=load_method_definitions(
+        __package__,
+        "definitions/methods.yaml",
+    ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(*ALIGNED_TRACK_PORT_TYPES, *PROMPT_PORT_TYPES),
 )

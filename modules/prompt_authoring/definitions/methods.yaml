@@ -1,0 +1,223 @@
+- method_id: prompt_authoring.add_function_annotation.method
+  version: 2.1.0
+  algorithm_identity:
+    name: chain-qualified-function-interval-authoring
+    interval_indexing: one-based-inclusive-provider-axis
+    ordering: global-start-global-end-label-and-provenance
+    overlap_policy: explicit-workflow-choice
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.assemble_protein_prompt.method
+  version: 2.1.0
+  algorithm_identity:
+    name: validated-residue-aligned-protein-prompt-assembly
+    track_layout: exact-effective-residue-layout
+    optional_tracks: absent-or-explicitly-nullable
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.build_residue_layout.method
+  version: 2.1.0
+  algorithm_identity:
+    name: canonical-residue-layout-construction
+    residue_identity: <chain>:<one-based-generated-label>
+    chain_boundary: ordered-contiguous-chain-blocks
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.edit_residue_layout.method
+  version: 2.1.0
+  algorithm_identity:
+    name: explicit-residue-identity-reconciliation
+    mapping_operations:
+    - delete
+    - insert
+    - match
+    mapping_indexing: zero-based-with-negative-unmapped-sentinel
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.insert_masked_residues.method
+  version: 2.1.0
+  algorithm_identity:
+    name: deterministic-identity-addressed-masked-insertion
+    boundary: adjacent-source-residue-identities
+    ordering: declared-source-boundary-order
+    preservation: all-source-identities-and-present-track-values
+    inserted_values: explicit-null-on-every-present-track
+    residue_map: complete-match-and-insert-only
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.map_residue_track.method
+  version: 2.1.0
+  algorithm_identity:
+    name: explicit-residue-map-conversion
+    nullable_semantics: JSON null means unmapped or unspecified
+    mapping_indexing: zero-based
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.override_protein_prompt_track.method
+  version: 2.1.0
+  algorithm_identity:
+    name: identity-addressed-protein-prompt-track-override
+    actions:
+    - clear
+    - preserve
+    - replace
+    unaffected_tracks: byte-equivalent-canonical-values
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.override_residue_track.method
+  version: 2.1.0
+  algorithm_identity:
+    name: identity-addressed-track-override
+    actions:
+    - clear
+    - preserve
+    - replace
+    nullable_semantics: JSON null means unspecified
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.prompt_from_structure.method
+  version: 3.0.0
+  algorithm_identity:
+    name: canonical-resolved-axis-to-protein-prompt
+    residue_identity: resolved-axis-layout-order
+    coordinates: resolved-axis-selected-named-atoms
+    visibility: resolved-axis-coordinate-bearing-residues
+    component_policy: consume-resolver-admitted-polymer-axis
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.random_insert_masked.method
+  version: 2.1.0
+  algorithm_identity:
+    name: seeded-chain-local-masked-residue-insertion
+    sampling: sha256-boundary-set-digest-counter-modulo-v1
+    replacement: with-replacement-across-eligible-boundaries
+    eligibility: canonical-unordered-effective-chain-set-v1
+    inserted_values: explicit-null-on-every-present-track
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.random_mask.method
+  version: 2.1.0
+  algorithm_identity:
+    name: seeded-assigned-residue-masking
+    sampling: sha256-residue-ranking-v1
+    replacement: without-replacement
+    eligibility: canonical-unordered-assigned-residue-set-v1
+    masked_value: explicit-null
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.update_prompt_sequence.method
+  version: 2.1.0
+  algorithm_identity:
+    name: generic-protein-prompt-sequence-replacement
+    preservation: layout-and-all-unaffected-tracks
+    residue_identity: exact-layout-order
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity

@@ -7,13 +7,13 @@ from core.catalog.declarations import (
     AvailabilityResult,
     ContractIdentity,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
+    load_method_definitions,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
@@ -200,141 +200,6 @@ _OPERATION_FACTORIES = {
 }
 
 
-def _method(operation: str) -> MethodDefinition:
-    algorithm_identity = {
-        "select_chains": {
-            "name": "ordered-exact-pdb-chain-selection",
-            "chain_identity": "one-alphanumeric-PDB-chain-ID",
-            "ordering": "workflow-request-order",
-            "multi_model": "reject",
-            "coordinate_records": ["ATOM", "HETATM"],
-            "polymer_declarations": ["MODRES", "SEQRES"],
-            "declaration_selection": "exact-chain-identity",
-            "chain_breaks": "canonical-TER-per-retained-segment",
-        },
-        "select_candidate_chains": {
-            "name": "candidate-aware-ordered-pdb-chain-selection",
-            "selection": "ordered-exact-pdb-chain-selection",
-            "cardinality": "one-child-per-input-parent",
-            "lineage": "structure-parent-to-structure-child",
-            "ordering": "input-candidate-order",
-        },
-        "extract_backbone": {
-            "name": "resolved-axis-canonical-backbone-projection",
-            "input_population": "resolved-structure-residue-axis",
-            "retained_atoms": ["N", "CA", "C", "O"],
-            "retained_residues": "every-axis-residue",
-            "parent_names": "axis-parent-residue-names",
-            "coordinates": "axis-selected-named-atom-coordinates",
-            "missing_atoms": "axis-complete-backbone-mask-fail-fast",
-            "chain_breaks": "canonical-TER-per-axis-segment",
-            "serialization": "PDB-v3.3-ATOM-occupancy-1-temperature-0",
-        },
-        "extract_sequence": {
-            "name": "resolved-axis-parent-sequence-projection",
-            "input_population": "resolved-structure-residue-axis",
-            "sequence": "exact-axis-parent-sequence",
-            "residue_correspondence": "exact-axis-residue-identities",
-            "raw_PDB_reparse": "forbidden",
-        },
-        "extract_sequence_candidates": {
-            "name": "exact-reference-associated-axis-sequence-projection",
-            "extraction": "resolved-axis-parent-sequence-projection",
-            "cardinality": "one-child-per-input-Candidate",
-            "lineage": "association-subject-to-sequence-child",
-            "association": "exact-CandidateDataReference",
-            "association_join": "complete-exact-reference-bijection",
-            "collection_position": "not-scientific-correspondence",
-        },
-        "normalize_csh_parent_span": {
-            "name": "explicit-CSH-to-SHG-parent-span-normalization",
-            "component": "CSH",
-            "parent_residues": ["SER", "HIS", "GLY"],
-            "parent_numbering": ["observed-1", "observed", "observed+1"],
-            "atom_mapping": "closed-exact-19-atom-map",
-            "provenance": "typed-normalization-output",
-            "missing_or_extra_atoms": "reject",
-            "identity_collision": "reject",
-            "input_TER_at_exact_parent_span": "remove-as-noncovalent-artifact",
-            "output_segment_topology": "continuous-through-expanded-parents",
-            "non_CSH_polymer_declarations": "preserve-exact-record-bytes",
-            "CSH_MODRES_at_normalized_identity": "remove",
-            "CSH_SEQRES": (
-                "require-exact-per-chain-component-count-and-expand-to-SER-HIS-GLY"
-            ),
-            "rewritten_SEQRES": "PDB-v3.3-80-column-13-components-per-record",
-        },
-        "normalize_csh_parent_span_candidates": {
-            "name": "candidate-aware-explicit-CSH-parent-span-normalization",
-            "scalar_normalization": "normalize_csh_parent_span.method@4.0.0",
-            "cardinality": "one-normalized-child-per-input-Candidate",
-            "lineage": "exact-input-structure-parent",
-            "normalization_evidence": "subjectless-output-slot-keyed-facts",
-            "collection_position": "not-scientific-correspondence",
-        },
-        "materialize_candidate_normalizations": {
-            "name": "exact-normalization-fact-Candidate-materialization",
-            "join": "normalization-key-and-admitted-content-digest",
-            "candidate_coverage": "complete-bijection",
-            "association": "exact-CandidateDataReference",
-        },
-        "project_single_residue_axis": {
-            "name": "singleton-exact-reference-residue-axis-projection",
-            "cardinality": "exactly-one-Candidate-and-one-association",
-            "join": "exact-CandidateDataReference",
-        },
-        "resolve_residue_axis": {
-            "name": "resolved-protein-residue-axis",
-            "source_structure": "preserve-exact-PDB-content",
-            "component_classification": "PDB-v3.3-MODRES-SEQRES-and-coordinates",
-            "standard_polymer": (
-                "include-20-parent-residues-independent-of-record-type"
-            ),
-            "unknown_ATOM_polymer": "reject-without-parent-contract",
-            "MSE": "exact-MODRES-MSE-to-MET-at-same-identity",
-            "MSE_SEQRES": "unique-ordered-chain-correspondence",
-            "ordinary_nonpolymer": "exclude-and-record-disposition",
-            "unknown_modified_polymer": "reject",
-            "alternate_locations": "blank-then-A-otherwise-reject",
-            "segment_topology": "explicit-TER-and-chain-boundaries",
-            "coordinate_access": "identity-associated-selected-atoms",
-            "coordinate_masks": ["CA", "complete-N-CA-C-O"],
-            "normalization_provenance": "embedded-typed-records",
-        },
-        "resolve_candidate_residue_axes": {
-            "name": "exact-reference-associated-resolved-residue-axes",
-            "scalar_resolution": "resolved-protein-residue-axis",
-            "association_key": "exact-CandidateDataReference",
-            "collection_position": "not-scientific-correspondence",
-            "candidate_coverage": "complete-no-missing-duplicate-or-extra",
-            "normalization_join": "exact-reference-only",
-            "structure_binding": "candidate-content-digest",
-        },
-        "backbone_to_structure": {
-            "name": "explicit-backbone-to-generic-structure-conversion",
-            "input_contract": (
-                "structure_transform.backbone_structure@4.0.0"
-            ),
-            "output_contract": "protein.structure@4.0.0",
-            "pdb_bytes": "preserved",
-            "atom_generation": "none",
-        },
-    }[operation]
-    return MethodDefinition(
-        method_id=f"structure_transform.{operation}.method",
-        version=_METHOD_VERSIONS.get(operation, _VERSION),
-        algorithm_identity=algorithm_identity,
-        model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
-        featurization_identity={
-            "format": "PDB-v3.3-fixed-columns",
-            "coordinates": "provider-native-decimal-text",
-        },
-        source_identity={"kind": "repository-owned"},
-        scale_contract={"kind": "identity"},
-    )
-
-
 def _binding(operation: str) -> ExecutionBindingDefinition:
     binding_version = _NODE_BINDING_VERSIONS.get(operation, _VERSION)
     return ExecutionBindingDefinition(
@@ -421,7 +286,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/resolve_candidate_residue_axes.yaml"),
         DefinitionResource("definitions/backbone_to_structure.yaml"),
     ),
-    methods=tuple(_method(operation) for operation in _OPERATIONS),
+    methods=load_method_definitions(
+        __package__,
+        "definitions/methods.yaml",
+    ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(
         PortTypeDefinition(

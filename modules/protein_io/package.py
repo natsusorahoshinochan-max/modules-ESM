@@ -10,13 +10,13 @@ from core.catalog.declarations import (
     AvailabilityResult,
     ContractIdentity,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
+    load_method_definitions,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
@@ -120,20 +120,6 @@ def _build(operation: str):
     return factory
 
 
-def _method(operation: str) -> MethodDefinition:
-    version = _METHOD_VERSIONS[operation]
-    return MethodDefinition(
-        method_id=f"protein_io.{operation}.method",
-        version=version,
-        algorithm_identity={"name": operation, "format_contract": version},
-        model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
-        featurization_identity={"kind": "canonical-protein-io"},
-        source_identity={"kind": "repository-owned"},
-        scale_contract={"kind": "identity"},
-    )
-
-
 def _binding(operation: str) -> ExecutionBindingDefinition:
     version = _OPERATION_VERSIONS[operation]
     return ExecutionBindingDefinition(
@@ -205,7 +191,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/sequence_export.yaml"),
         DefinitionResource("definitions/structure_export.yaml"),
     ),
-    methods=tuple(_method(operation) for operation in _OPERATIONS),
+    methods=load_method_definitions(
+        __package__,
+        "definitions/methods.yaml",
+    ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(
         PortTypeDefinition(

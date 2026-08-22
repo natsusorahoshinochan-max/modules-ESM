@@ -7,7 +7,6 @@ from core.catalog.declarations import (
     AvailabilityResult,
     ContractIdentity,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
     ObservationSelectorConsumptionDefinition,
     ReadinessDeclaration,
@@ -16,6 +15,7 @@ from core.catalog.declarations import (
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
+    load_method_definitions,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
@@ -63,68 +63,6 @@ def _factory(operation: str):
         )
 
     return build
-
-
-def _method(operation: str) -> MethodDefinition:
-    if operation == "weighted_rank":
-        algorithm_identity = {
-            "name": "normalized-weighted-utility-ranking",
-            "candidate_score_join": "exact-candidate-data-reference",
-            "weight_policy": "finite-non-negative-positive-total",
-            "normalization": "divide-by-declared-weight-sum",
-            "ranking": "descending-weighted-utility",
-            "tie_policy": "candidate_id_ascending",
-        }
-    elif operation == "pareto":
-        algorithm_identity = {
-            "name": "dimensionless-utility-pareto-frontier",
-            "candidate_score_join": "exact-candidate-data-reference",
-            "dominance": "greater-or-equal-all-and-greater-any",
-            "final_order": "candidate_id_ascending",
-        }
-    elif operation == "diversity":
-        algorithm_identity = {
-            "name": "weighted-max-min-euclidean-utility-diversity",
-            "candidate_score_join": "exact-candidate-data-reference",
-            "seed": "maximum-normalized-weighted-utility",
-            "distance": "sqrt-sum-effective-weight-times-squared-delta",
-            "iteration": "maximum-minimum-distance",
-            "tie_policy": "candidate_id_ascending",
-        }
-    else:
-        algorithm_identity = {
-            "name": f"deterministic-candidate-{operation}",
-            "candidate_score_join": "exact-candidate-data-reference",
-            "objective_scope": "workflow-owned-exact-source",
-            "match_cardinality": "exactly_one",
-            "missing_policy": "error",
-            "out_of_scope_default": "error",
-            "tie_policy": "candidate_id_ascending",
-            "ranking_scale": (
-                "exact-utility-transform"
-                if operation in {"sort", "top_k"}
-                else "canonical-metric-value"
-            ),
-        }
-    return MethodDefinition(
-        method_id=f"selection.{operation}.method",
-        version=METHOD_VERSION,
-        algorithm_identity=algorithm_identity,
-        model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
-        featurization_identity={"kind": "identity"},
-        source_identity={"kind": "repository-owned"},
-        scale_contract={
-            "kind": (
-                "dimensionless-utility-vector"
-                if operation in MULTI_OBJECTIVE_OPERATIONS
-                else
-                "workflow-objective-utility"
-                if operation in {"sort", "top_k"}
-                else "exact-metric-canonical-scale"
-            )
-        },
-    )
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
@@ -212,6 +150,9 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource(f"definitions/{operation}.yaml")
         for operation in OPERATIONS
     ),
-    methods=tuple(_method(operation) for operation in OPERATIONS),
+    methods=load_method_definitions(
+        __package__,
+        "definitions/methods.yaml",
+    ),
     bindings=tuple(_binding(operation) for operation in OPERATIONS),
 )

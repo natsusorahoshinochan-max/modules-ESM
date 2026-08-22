@@ -1,0 +1,60 @@
+- method_id: protein_io.import_sequence.method
+  version: 4.0.0
+  algorithm_identity:
+    name: import_sequence
+    format_contract: 4.0.0
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: canonical-protein-io
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: protein_io.import_structure.method
+  version: 2.1.0
+  algorithm_identity:
+    name: import_structure
+    format_contract: 2.1.0
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: canonical-protein-io
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: protein_io.export_sequence.method
+  version: 2.1.0
+  algorithm_identity:
+    name: export_sequence
+    format_contract: 2.1.0
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: canonical-protein-io
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
+- method_id: protein_io.export_structure.method
+  version: 2.1.0
+  algorithm_identity:
+    name: export_structure
+    format_contract: 2.1.0
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: canonical-protein-io
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: identity
