@@ -50,7 +50,6 @@ from core.execution.ledger.transitions import (
     PlanRequiredInputEvidence,
     PlanValueSourceEvidence,
 )
-from core.project.storage import validate_identifier
 from core.operation import (
     EngineInvocationProvenance,
     InvocationRandomness,
@@ -194,8 +193,8 @@ def _plan_source_to_canonical(
 def _plan_source_from_canonical(value: object) -> PlanValueSourceEvidence:
     raw = _mapping(value, {"node_id", "output_port"})
     return PlanValueSourceEvidence(
-        node_id=validate_identifier(raw["node_id"], "node_id"),
-        output_port=validate_identifier(raw["output_port"], "output_port"),
+        node_id=raw["node_id"],
+        output_port=raw["output_port"],
     )
 
 
@@ -222,7 +221,7 @@ def _required_input_from_canonical(
     ):
         raise ValueError("Run plan required input sources are not canonical")
     return PlanRequiredInputEvidence(
-        input_port=validate_identifier(raw["input_port"], "input_port"),
+        input_port=raw["input_port"],
         sources=sources,
     )
 
@@ -274,7 +273,7 @@ def _artifact_output_from_canonical(value: object) -> ArtifactOutputEvidence:
     ):
         raise ValueError("Run plan Artifact output is invalid")
     return ArtifactOutputEvidence(
-        output_port=validate_identifier(raw["output_port"], "output_port"),
+        output_port=raw["output_port"],
         artifact_kind=cast(Any, raw["artifact_kind"]),
         artifact_media_type=cast(str | None, artifact_media_type),
         port_type=reference,
@@ -371,7 +370,7 @@ def _plan_node_from_canonical(value: object) -> PlanNodeEvidence:
     ):
         raise ValueError("Run plan node is invalid")
     return PlanNodeEvidence(
-        node_id=validate_identifier(value["node_id"], "node_id"),
+        node_id=value["node_id"],
         dependencies=tuple(dependencies),
         required_input_sources=parsed_required,
         result_identity_plan_facts_digest=value[

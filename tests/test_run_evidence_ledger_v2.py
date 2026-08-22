@@ -130,6 +130,31 @@ def _plan_node(
     )
 
 
+def test_run_scope_codec_accepts_semantic_node_identifiers() -> None:
+    binding = _reference()
+    node = _plan_node(node_id="source:node/1+")
+    scope = RunScopeBound(
+        project_id="project-1",
+        run_id="run-1",
+        workflow_commit_id="workflow-commit-" + "0" * 64,
+        workflow_commit_revision=1,
+        workflow_digest="sha256:" + "3" * 64,
+        contract_lock_digest="sha256:" + "4" * 64,
+        execution_plan_digest="sha256:" + "5" * 64,
+        catalog_contract_digest="sha256:" + "6" * 64,
+        resolved_contracts=(binding,),
+        resolved_contract_roots=(binding,),
+        plan_nodes=(node,),
+        selection_required=False,
+        selection_terminal_keys=(),
+    )
+
+    assert payload_from_canonical(
+        "run_scope_bound",
+        payload_to_canonical(scope),
+    ) == scope
+
+
 def _scope_references(
     plan_nodes: tuple[PlanNodeEvidence, ...],
 ) -> tuple[ExactContractReference, ...]:
