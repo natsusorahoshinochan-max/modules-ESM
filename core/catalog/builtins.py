@@ -6,11 +6,9 @@ from collections.abc import Mapping
 from functools import lru_cache
 from typing import Any
 
-from datatypes.candidate import CandidateCollection, CandidateDataReference
+from datatypes.candidate import CandidateDataReference
 from datatypes.observation import (
-    PairwiseCandidateMapping,
     PairwiseObservationContext,
-    ScoreCollection,
 )
 
 from .model import FrozenCatalog
@@ -46,10 +44,6 @@ def _candidate_collection_data_references(
     value: Any,
     candidate_data_port_types: Mapping[str, PortTypeDefinition],
 ) -> tuple[CandidateDataReference, ...]:
-    if type(value) is not CandidateCollection:
-        raise PortValueError(
-            "candidate.collection projection requires a CandidateCollection"
-        )
     try:
         data_port_type = candidate_data_port_types[value.item_type]
     except KeyError as error:
@@ -71,10 +65,6 @@ def _candidate_pairing_data_references(
     value: Any,
     _candidate_data_port_types: Mapping[str, PortTypeDefinition],
 ) -> tuple[CandidateDataReference, ...]:
-    if type(value) is not PairwiseCandidateMapping:
-        raise PortValueError(
-            "candidate.pairing projection requires a PairwiseCandidateMapping"
-        )
     return tuple(
         reference
         for entry in value.entries
@@ -86,10 +76,6 @@ def _score_collection_data_references(
     value: Any,
     _candidate_data_port_types: Mapping[str, PortTypeDefinition],
 ) -> tuple[CandidateDataReference, ...]:
-    if type(value) is not ScoreCollection:
-        raise PortValueError(
-            "score.collection projection requires a ScoreCollection"
-        )
     references: list[CandidateDataReference] = []
     for observation in value.entries:
         references.append(observation.subject)

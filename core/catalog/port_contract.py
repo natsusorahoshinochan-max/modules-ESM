@@ -1283,22 +1283,11 @@ class PortTypeDefinition:
         value: Any,
     ) -> tuple[ResidueAxisReference, ...]:
         """Project nested scalar axes using the nominal Port owner's codec."""
-        projector = self.runtime_scientific_axis_projection
-        if projector is None:
-            raise PortValueError(
-                f"Port Type {self.type_id}@{self.version} does not own a "
-                "scientific-axis projection"
-            )
-        references = tuple(projector(value))
-        if any(type(item) is not ResidueAxisReference for item in references):
-            raise PortValueError(
-                "scientific-axis projection returned a non-axis reference"
-            )
-        if len(references) != len(set(references)):
-            raise PortValueError(
-                "scientific-axis projection returned duplicate exact axes"
-            )
-        return references
+        projector = cast(
+            Callable[[Any], tuple[ResidueAxisReference, ...]],
+            self.runtime_scientific_axis_projection,
+        )
+        return tuple(projector(value))
 
     def candidate_data_references(
         self,
@@ -1306,53 +1295,25 @@ class PortTypeDefinition:
         candidate_data_port_types: Mapping[str, "PortTypeDefinition"],
     ) -> tuple[CandidateDataReference, ...]:
         """Project exact Candidate data identities using the nominal owner."""
-        projector = self.runtime_candidate_data_projection
-        if projector is None:
-            raise PortValueError(
-                f"Port Type {self.type_id}@{self.version} does not own a "
-                "Candidate Data Reference projection"
-            )
-        references = tuple(projector(value, candidate_data_port_types))
-        if any(type(item) is not CandidateDataReference for item in references):
-            raise PortValueError(
-                "Candidate Data Reference projection returned a non-reference"
-            )
-        by_candidate: dict[str, CandidateDataReference] = {}
-        for reference in references:
-            known = by_candidate.get(reference.candidate_id)
-            if known is not None and known != reference:
-                raise PortValueError(
-                    "Candidate Data Reference projection returned conflicting "
-                    "exact references for one Candidate"
-                )
-            by_candidate[reference.candidate_id] = reference
-        return tuple(by_candidate.values())
+        projector = cast(
+            Callable[
+                [Any, Mapping[str, "PortTypeDefinition"]],
+                tuple[CandidateDataReference, ...],
+            ],
+            self.runtime_candidate_data_projection,
+        )
+        return tuple(projector(value, candidate_data_port_types))
 
     def observation_method_references(
         self,
         value: Any,
     ) -> tuple[ExactContractReference, ...]:
         """Project exact provider Methods using the nominal Port owner."""
-        projector = self.runtime_observation_method_projection
-        if projector is None:
-            raise PortValueError(
-                f"Port Type {self.type_id}@{self.version} does not own an "
-                "Observation Method projection"
-            )
-        references = tuple(projector(value))
-        if any(
-            type(item) is not ExactContractReference
-            or item.contract_kind != "method"
-            for item in references
-        ):
-            raise PortValueError(
-                "Observation Method projection returned a non-Method reference"
-            )
-        if len(references) != len(set(references)):
-            raise PortValueError(
-                "Observation Method projection returned duplicate exact Methods"
-            )
-        return references
+        projector = cast(
+            Callable[[Any], tuple[ExactContractReference, ...]],
+            self.runtime_observation_method_projection,
+        )
+        return tuple(projector(value))
 
     def materialize_output_identity(
         self,
@@ -1366,12 +1327,7 @@ class PortTypeDefinition:
                 f"Port Type {self.type_id}@{self.version} does not own output "
                 "identity materialization"
             )
-        resolved = materializer(relation, identities)
-        if type(resolved) is not ResolvedOutputIdentity:
-            raise TypeError(
-                "output identity materializer returned an unsupported value"
-            )
-        return resolved
+        return materializer(relation, identities)
 
     @property
     def value_kind(self) -> str:
