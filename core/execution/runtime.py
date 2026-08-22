@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 import threading
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 import uuid
 
 from core.catalog.model import CatalogAvailabilityProjection, FrozenCatalog
@@ -477,21 +477,27 @@ class V2RunService:
     ) -> dict[str, Any]:
         """Admit synchronously, then execute without blocking event delivery."""
         admitted = threading.Event()
-        state: dict[str, Any] = {}
+        receipt: dict[str, Any] | None = None
+        record: _RunRecord | None = None
+        error: BaseException | None = None
+        execution_slot_acquired = False
 
         def on_admitted(
-            receipt: dict[str, Any],
-            record: _RunRecord,
+            admitted_receipt: dict[str, Any],
+            admitted_record: _RunRecord,
         ) -> None:
-            state["receipt"] = receipt
-            state["record"] = record
+            nonlocal receipt, record
+            receipt = admitted_receipt
+            record = admitted_record
             admitted.set()
 
         def execute() -> None:
+            nonlocal error, execution_slot_acquired
             try:
                 def acquire_execution_slot() -> None:
+                    nonlocal execution_slot_acquired
                     self._execution_lock.acquire()
-                    state["execution_slot_acquired"] = True
+                    execution_slot_acquired = True
 
                 self._execute_run(
                     project_id,
@@ -503,20 +509,19 @@ class V2RunService:
                     _cache_bypass_nodes=_cache_bypass_nodes,
                     _retained_compiled=_retained_compiled,
                 )
-            except BaseException as error:
-                state["error"] = error
-                record = state.get("record")
-                if isinstance(record, _RunRecord):
-                    record.execution_error = error
+            except BaseException as caught:
+                error = caught
+                if record is not None:
+                    record.execution_error = caught
                     if (
-                        isinstance(error, V2RunError)
-                        and error.code == "evidence_unavailable"
+                        isinstance(caught, V2RunError)
+                        and caught.code == "evidence_unavailable"
                     ):
-                        record.evidence_unavailable = error
+                        record.evidence_unavailable = caught
                     record.finished.set()
                     record.ledger.notify_waiters()
             finally:
-                if state.get("execution_slot_acquired") is True:
+                if execution_slot_acquired:
                     self._execution_lock.release()
                 self._release_project(
                     project_id,
@@ -531,22 +536,16 @@ class V2RunService:
         )
         self._reserve_project(project_id, worker=worker)
         admitted.wait()
-        error = state.get("error")
-        if "receipt" not in state:
-            if isinstance(error, BaseException):
-                raise error
-            raise RuntimeError(
-                "Background Run admission ended without a receipt or error"
-            )
-        record = state.get("record")
-        if not isinstance(record, _RunRecord):
-            raise RuntimeError(
-                "Background Run admission did not retain its Run record"
-            )
-        record.finished.wait(FAST_RUN_COMPLETION_GRACE_SECONDS)
-        if record.finished.is_set() and record.execution_error is not None:
-            raise record.execution_error
-        return state["receipt"]
+        if receipt is None:
+            raise cast(BaseException, error)
+        admitted_record = cast(_RunRecord, record)
+        admitted_record.finished.wait(FAST_RUN_COMPLETION_GRACE_SECONDS)
+        if (
+            admitted_record.finished.is_set()
+            and admitted_record.execution_error is not None
+        ):
+            raise admitted_record.execution_error
+        return receipt
 
     def start_derived_background(
         self,

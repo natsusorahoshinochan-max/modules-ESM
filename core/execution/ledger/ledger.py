@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import datetime, timezone
 import threading
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 from core.catalog.port_contract import canonical_sha256
 from core.execution.ledger.codec import (
@@ -355,9 +355,7 @@ class Ledger:
         with self._condition:
             if not self._state.facts:
                 return None
-            payload = self._state.facts[0].payload
-            if not isinstance(payload, RunScopeBound):
-                raise self._causal_error()
+            payload = cast(RunScopeBound, self._state.facts[0].payload)
             return RunScopeBinding(
                 workflow_commit_id=payload.workflow_commit_id,
                 workflow_commit_revision=payload.workflow_commit_revision,
@@ -761,12 +759,9 @@ class Ledger:
             ):
                 raise self._causal_error()
             return
-        if (
-            not self._state.facts
-            or not isinstance(self._state.facts[0].payload, RunScopeBound)
-        ):
+        if not self._state.facts:
             raise self._causal_error()
-        scope = self._state.facts[0].payload
+        scope = cast(RunScopeBound, self._state.facts[0].payload)
         if isinstance(payload, AvailabilityBound):
             binding_key = _typed_reference_key(payload.binding)
             if (
@@ -1350,13 +1345,11 @@ class Ledger:
             or len(dispositions) != 1
         ):
             raise self._causal_error()
-        node_terminal = node_terminals[0].payload
-        assert isinstance(node_terminal, NodeAttemptTerminal)
+        node_terminal = cast(NodeAttemptTerminal, node_terminals[0].payload)
         attempt = self._state.node_attempts.get(
             node_terminal.node_attempt_id
         )
-        disposition = dispositions[0].payload
-        assert isinstance(disposition, NodeDisposition)
+        disposition = cast(NodeDisposition, dispositions[0].payload)
         if (
             attempt is None
             or disposition.node_id != attempt.node_id
@@ -1384,11 +1377,10 @@ class Ledger:
             bool(open_operations) != bool(operation_terminals)
             or (
                 operation_terminals
-                and isinstance(
-                    operation_terminals[0].payload,
+                and cast(
                     OperationAttemptTerminal,
-                )
-                and operation_terminals[0].payload.operation_attempt_id
+                    operation_terminals[0].payload,
+                ).operation_attempt_id
                 not in open_operations
             )
         ):
