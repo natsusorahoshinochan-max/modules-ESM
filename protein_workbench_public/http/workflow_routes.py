@@ -13,6 +13,7 @@ from core.workflow.authoring import (
 )
 from core.workflow.document import (
     WorkflowDocumentError,
+    workflow_document_from_canonical,
 )
 from protein_workbench_public.http.errors import (
     authoring_error_response,
@@ -26,7 +27,6 @@ from protein_workbench_public.protocol import (
     decode_rest_request,
 )
 from protein_workbench_public.workflow_codec import (
-    decode_admitted_workflow_document,
     encode_workflow_commit_receipt,
     encode_workflow_draft,
 )
@@ -85,9 +85,7 @@ def register_workflow_routes(
                 json_body=json_body,
             )
             workflow_payload = admitted["workflow"]
-            workflow = decode_admitted_workflow_document(
-                workflow_payload
-            )
+            workflow = workflow_document_from_canonical(workflow_payload)
             snapshot = encode_workflow_draft(
                 authoring.save_draft(
                     admitted["project_id"],
@@ -152,9 +150,7 @@ def register_workflow_routes(
                 json_body=json_body,
             )
             workflow_payload = admitted["workflow"]
-            workflow = decode_admitted_workflow_document(
-                workflow_payload
-            )
+            workflow = workflow_document_from_canonical(workflow_payload)
             receipt = encode_workflow_commit_receipt(
                 authoring.commit(
                     admitted["project_id"],

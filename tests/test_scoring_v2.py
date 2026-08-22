@@ -52,6 +52,8 @@ from core.scoring.selection import (
     SelectionObjective,
     SelectionResult,
     SelectionProvenance,
+    selection_input_canonical,
+    selection_provenance_canonical,
 )
 from core.catalog.port_contract import (
     PortValueError,
@@ -64,10 +66,6 @@ from protein_workbench_public import (
     validate_event,
     validate_response,
     validate_schema,
-)
-from protein_workbench_public.selection_codec import (
-    selection_input_to_public,
-    selection_provenance_to_public,
 )
 from datatypes.candidate import (
     Candidate,
@@ -1462,13 +1460,13 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
         "candidate-1",
         "candidate-2",
     ]
-    assert selection_provenance_to_public(result.provenance)["objectives"] == [
-            {
-                "objective_id": "quality-objective",
-                "candidate_input": selection_input_to_public(candidate_input),
-                "score_collection_input": selection_input_to_public(score_input),
-                "source_partition": "default",
-                "metric": contracts["quality"].reference(),
+    assert selection_provenance_canonical(result.provenance)["objectives"] == [
+        {
+            "objective_id": "quality-objective",
+            "candidate_input": selection_input_canonical(candidate_input),
+            "score_collection_input": selection_input_canonical(score_input),
+            "source_partition": "default",
+            "metric": contracts["quality"].reference(),
             "method": contracts["method.a"].reference(),
             "context_selector": {"kind": "intrinsic"},
             "utility_transform": contracts["quality.linear"].reference(),
@@ -1478,12 +1476,12 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
             "match_cardinality": "exactly_one",
             "missing_policy": "error",
         },
-            {
-                "objective_id": "novelty-objective",
-                "candidate_input": selection_input_to_public(candidate_input),
-                "score_collection_input": selection_input_to_public(score_input),
-                "source_partition": "default",
-                "metric": contracts["novelty"].reference(),
+        {
+            "objective_id": "novelty-objective",
+            "candidate_input": selection_input_canonical(candidate_input),
+            "score_collection_input": selection_input_canonical(score_input),
+            "source_partition": "default",
+            "metric": contracts["novelty"].reference(),
             "method": contracts["method.a"].reference(),
             "context_selector": {"kind": "intrinsic"},
             "utility_transform": contracts["novelty.linear"].reference(),

@@ -31,6 +31,7 @@ from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
+    workflow_document_from_canonical,
 )
 from core.workflow.document import WorkflowEdge
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
@@ -499,14 +500,17 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         missing_policy="error",
     )
 
-    from protein_workbench_public.selection_codec import (
-        selection_objective_from_public,
-        selection_objective_to_public,
+    workflow = WorkflowDocument(
+        schema_version="2.1.0",
+        workflow_id="protein-sol-selection",
+        nodes=(),
+        edges=(),
+        contract_lock=(),
+        selection_objectives=(objective,),
     )
-
-    assert selection_objective_from_public(
-        selection_objective_to_public(objective)
-    ) == objective
+    assert workflow_document_from_canonical(
+        workflow.canonical_projection()
+    ).selection_objectives == (objective,)
 
     from protein_workbench_public import validate_schema
 

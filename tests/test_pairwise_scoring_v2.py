@@ -53,8 +53,8 @@ from core.scoring.selection import (
     SelectionError,
     SelectionInput,
     SelectionObjective,
+    context_selector_canonical,
 )
-from protein_workbench_public.selection_codec import context_selector_to_public
 from core.catalog.port_contract import (
     PortValueError,
 )
@@ -197,7 +197,7 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "node_parameters": {},
         },
     )
-    selector_profile = context_selector_to_public(
+    selector_profile = context_selector_canonical(
         PairwiseContextSelector(
             pairing_mode="fixed_reference",
             normalization="tm-score/reference-length",
@@ -222,7 +222,7 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "compatible_input_contract": {
                 "metric": metric.reference(),
                 "method": method.reference(),
-                "context_profile": context_selector_to_public(
+                "context_profile": context_selector_canonical(
                     PairwiseContextSelector(
                         pairing_mode="per_subject_counterpart",
                         normalization="tm-score/reference-length",
@@ -728,7 +728,7 @@ def _pairwise_binding(
                     "output_port": "scores",
                     "output_partition": "per-subject",
                     "metric": contracts["structure.tm_score"].reference(),
-                    "context_profile": context_selector_to_public(
+                    "context_profile": context_selector_canonical(
                         PairwiseContextSelector(
                             pairing_mode="per_subject_counterpart",
                             normalization="tm-score/reference-length",
@@ -1260,7 +1260,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "output_port": "scores",
                     "output_partition": "fixed-reference",
                     "metric": scoring["structure.tm_score"].reference(),
-                    "context_profile": context_selector_to_public(
+                    "context_profile": context_selector_canonical(
                         PairwiseContextSelector(
                             pairing_mode="fixed_reference",
                             normalization="tm-score/reference-length",
@@ -1278,7 +1278,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "output_port": "scores",
                     "output_partition": "per-subject",
                     "metric": scoring["structure.tm_score"].reference(),
-                    "context_profile": context_selector_to_public(
+                    "context_profile": context_selector_canonical(
                         PairwiseContextSelector(
                             pairing_mode="per_subject_counterpart",
                             normalization="tm-score/reference-length",
