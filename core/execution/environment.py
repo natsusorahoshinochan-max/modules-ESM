@@ -71,7 +71,7 @@ def _admit_field_value(
             raise EnvironmentConfigurationError(
                 f"{path} must be a filesystem path"
             )
-        return value
+        return Path(value)
     if type(value) is not str or not value:
         raise EnvironmentConfigurationError(
             f"{path} must be a credential handle"

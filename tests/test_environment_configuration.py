@@ -62,6 +62,24 @@ def test_environment_configuration_is_admitted_once_per_exact_binding() -> None:
     assert not configuration.for_binding("other.binding", "1.0.0")
 
 
+def test_environment_configuration_normalizes_string_filesystem_paths() -> None:
+    configuration = admit_environment_configuration(
+        _catalog(),
+        {
+            ("test.binding", "1.0.0"): {
+                "values": {
+                    "device": "cpu",
+                    "provider_root": "provider",
+                }
+            }
+        },
+    )
+
+    environment = configuration.for_binding("test.binding", "1.0.0")
+    assert environment["provider_root"] == Path("provider")
+    assert isinstance(environment["provider_root"], Path)
+
+
 @pytest.mark.parametrize(
     "values, message",
     (
