@@ -134,8 +134,6 @@ class ResultStore:
                 value.canonical_bytes,
                 stage="typed_value_object",
             )
-            if stored.content_digest != value.content_digest:
-                raise ResultStoreWriteError("typed_value_object")
             values.append(stored)
         manifest = _PortValueManifest(
             port_type=admitted.port_type,
