@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from typing import Any
+from typing import Any, cast
+
+from core.catalog.declarations import (
+    ExecutionBindingDefinition,
+    NodePortDefinition,
+    NodeTypeDefinition,
+    UtilityTransformDefinition,
+)
 
 from core.parameters.contract import (
     ParameterValueAdmissionError,
@@ -253,17 +260,25 @@ def compile(
         binding_contract = resolved_by_key[
             ("binding", node.binding_id, node.binding_version)
         ]
+        node_definition = cast(
+            NodeTypeDefinition,
+            node_type_contract.definition,
+        )
+        binding_definition = cast(
+            ExecutionBindingDefinition,
+            binding_contract.definition,
+        )
         admitted_parameters[node.node_id] = (
             _admit_parameter_values(
                 node.node_parameters,
-                node_type_contract.parameter_contract,
+                node_definition.parameter_contract,
                 node_id=node.node_id,
                 field_name="node_parameters",
                 field_path=("nodes", index, "node_parameters"),
             ),
             _admit_parameter_values(
                 node.binding_parameters,
-                binding_contract.parameter_contract,
+                binding_definition.parameter_contract,
                 node_id=node.node_id,
                 field_name="binding_parameters",
                 field_path=("nodes", index, "binding_parameters"),
@@ -272,13 +287,16 @@ def compile(
     admitted_objective_parameters = tuple(
         _admit_parameter_values(
             objective.utility_parameters,
-            resolved_by_key[
-                (
-                    objective.utility_transform.contract_kind,
-                    objective.utility_transform.contract_id,
-                    objective.utility_transform.contract_version,
-                )
-            ].parameter_contract,
+            cast(
+                UtilityTransformDefinition,
+                resolved_by_key[
+                    (
+                        objective.utility_transform.contract_kind,
+                        objective.utility_transform.contract_id,
+                        objective.utility_transform.contract_version,
+                    )
+                ].definition,
+            ).parameter_contract,
             field_name="utility_parameters",
             field_path=("selection_objectives", index, "utility_parameters"),
         )
@@ -306,7 +324,6 @@ def compile(
             objective,
             admitted_objective_parameters[index],
             resolved_by_key=resolved_by_key,
-            catalog=catalog,
             objective_index=index,
         )
         for index, objective in enumerate(workflow.selection_objectives)
@@ -335,24 +352,25 @@ def compile(
         binding = resolved_by_key[
             ("binding", node.binding_id, node.binding_version)
         ]
-        method_reference = ContractLockEntry.from_canonical(
-            binding.descriptor["method"]
+        node_definition = cast(NodeTypeDefinition, node_type_contract.definition)
+        binding_definition = cast(
+            ExecutionBindingDefinition,
+            binding.definition,
         )
-        method_contract = resolved_by_key[method_reference.key]
+        method_key = binding_definition.method.key
+        method_contract = resolved_by_key[method_key]
         normalized_node_parameters, normalized_binding_parameters = (
             admitted_parameters[node.node_id]
         )
         selected_objectives = _selected_objectives(
             workflow,
-            node_id=node.node_id,
             node_parameters=normalized_node_parameters,
-            binding_contract=binding,
+            binding_definition=binding_definition,
         )
         selected_selectors = _selected_observation_selectors(
             workflow,
-            node_id=node.node_id,
             node_parameters=normalized_node_parameters,
-            binding_contract=binding,
+            binding_definition=binding_definition,
         )
         resolved_selected_objectives = tuple(
             resolved_objectives_by_id[item.objective_id]
@@ -363,39 +381,25 @@ def compile(
             for item in selected_selectors
         )
 
-        def resolved_ports(direction: str) -> dict[str, _ExecutionPlanPort]:
+        def resolved_ports(
+            declarations: tuple[NodePortDefinition, ...],
+        ) -> dict[str, _ExecutionPlanPort]:
             ports: dict[str, _ExecutionPlanPort] = {}
-            for declaration in node_type_contract.descriptor.get(
-                direction,
-                (),
-            ):
-                reference = declaration["port_type"]
-                key = (
-                    reference["contract_kind"],
-                    reference["contract_id"],
-                    reference["contract_version"],
-                )
+            for declaration in declarations:
+                key = declaration.port_type.key
                 port_type = resolved_by_key[key]
-                if port_type.contract_digest != reference["contract_digest"]:
-                    raise WorkflowCompileError(
-                        "contract_digest_mismatch",
-                        "Port Type runtime does not match its exact declaration",
-                        node_id=node.node_id,
-                    )
-                ports[declaration["name"]] = _ExecutionPlanPort(
-                    reference=ContractLockEntry.from_canonical(reference),
-                    multiplicity=declaration["multiplicity"],
-                    required=declaration.get("required") is True,
-                    artifact_kind=declaration.get("artifact_kind"),
-                    artifact_media_type=declaration.get(
-                        "artifact_media_type"
-                    ),
+                ports[declaration.name] = _ExecutionPlanPort(
+                    reference=lock_by_key[key],
+                    multiplicity=declaration.multiplicity,
+                    required=declaration.required,
+                    artifact_kind=declaration.artifact_kind,
+                    artifact_media_type=declaration.artifact_media_type,
                     port_type=port_type,
                 )
             return ports
 
-        input_ports = resolved_ports("inputs")
-        output_ports = resolved_ports("outputs")
+        input_ports = resolved_ports(node_definition.inputs)
+        output_ports = resolved_ports(node_definition.outputs)
         input_sources: dict[
             str,
             list[_ExecutionPlanValueSource],
@@ -418,16 +422,12 @@ def compile(
             for name, port in input_ports.items()
             if port.required
         }
-        for constraint in node_type_contract.descriptor.get(
-            "input_constraints",
-            (),
-        ):
-            if constraint.get("kind") == "exactly_one":
-                required_port_names.update(
-                    port_name
-                    for port_name in constraint["ports"]
-                    if port_name in frozen_input_sources
-                )
+        for constraint in node_definition.input_constraints:
+            required_port_names.update(
+                port_name
+                for port_name in constraint
+                if port_name in frozen_input_sources
+            )
         required_input_sources = {
             port_name: frozen_input_sources[port_name]
             for port_name in sorted(required_port_names)
@@ -436,40 +436,30 @@ def compile(
         produced_observation_plan = _resolved_produced_observation_plan(
             binding,
             resolved_by_key=resolved_by_key,
-            node_id=node.node_id,
         )
         artifact_outputs: list[ArtifactOutputPlan] = []
         for port_name, port in output_ports.items():
             artifact_kind = port.artifact_kind
             if artifact_kind is None:
                 continue
-            accepted_media_types = port.port_type.artifact_media_types
-            if accepted_media_types is None:
-                raise WorkflowCompileError(
-                    "invalid_artifact_contract",
-                    "Artifact Port lacks a publication media contract",
-                    node_id=node.node_id,
-                )
             artifact_outputs.append(
                 ArtifactOutputPlan(
                     output_port=port_name,
                     artifact_kind=artifact_kind,
                     artifact_media_type=port.artifact_media_type,
                     port_type=port.reference,
-                    accepted_media_types=tuple(accepted_media_types),
+                    accepted_media_types=tuple(
+                        cast(tuple[str, ...], port.port_type.artifact_media_types)
+                    ),
                 )
             )
-        objective_consumption = binding.descriptor.get(
-            "selection_objective_consumption"
-        )
-        selector_consumption = binding.descriptor.get(
-            "observation_selector_consumption"
-        )
+        objective_consumption = binding_definition.selection_objective_consumption
+        selector_consumption = binding_definition.observation_selector_consumption
         selection_consumption = (
             selector_consumption
-            if isinstance(selector_consumption, Mapping)
+            if selector_consumption is not None
             else objective_consumption
-            if isinstance(objective_consumption, Mapping)
+            if objective_consumption is not None
             else None
         )
         result_contracts = _result_contracts_for_node(
@@ -489,28 +479,16 @@ def compile(
             selected_selectors=resolved_selected_selectors,
         )
         runtime = _ExecutionPlanNodeRuntime(
-            factory=catalog.require_factory(
-                node.binding_id,
-                node.binding_version,
-            ),
-            readiness_declaration=catalog.require_readiness_declaration(
-                node.binding_id,
-                node.binding_version,
-            ),
+            factory=binding_definition.factory,
+            readiness_declaration=binding_definition.readiness,
             effective_randomness_resolver=(
-                catalog.get_effective_randomness_resolver(
-                    node.binding_id,
-                    node.binding_version,
-                )
+                binding_definition.effective_randomness_resolver
             ),
-            execution_route=binding.descriptor["execution_route"],
-            cacheable=binding.descriptor.get("cacheable") is True,
-            deterministic=binding.descriptor.get("deterministic") is True,
-            effective_randomness_parameters=tuple(
-                binding.descriptor.get(
-                    "effective_randomness_parameters",
-                    (),
-                )
+            execution_route=binding_definition.execution_route,
+            cacheable=binding_definition.cacheable,
+            deterministic=binding_definition.deterministic,
+            effective_randomness_parameters=(
+                binding_definition.effective_randomness_parameters
             ),
             input_ports=input_ports,
             output_ports=output_ports,
@@ -527,15 +505,15 @@ def compile(
             ),
             project_input_parameters=tuple(
                 declaration.name
-                for declaration in node_type_contract.parameter_contract.entries
+                for declaration in node_definition.parameter_contract.entries
                 if declaration.resource_kind == "project_input"
             ),
             produced_observation_plan=produced_observation_plan,
             selection_objectives=resolved_selected_objectives,
             observation_selectors=resolved_selected_selectors,
             selection_candidate_output_port=(
-                selection_consumption.get("candidate_output_port")
-                if isinstance(selection_consumption, Mapping)
+                selection_consumption.candidate_output_port
+                if selection_consumption is not None
                 else None
             ),
             artifact_outputs=tuple(artifact_outputs),
@@ -549,7 +527,7 @@ def compile(
                 binding=lock_by_key[
                     ("binding", node.binding_id, node.binding_version)
                 ],
-                method=lock_by_key[method_reference.key],
+                method=lock_by_key[method_key],
                 node_parameters=normalized_node_parameters,
                 binding_parameters=normalized_binding_parameters,
                 result_identity_plan_facts=result_identity_plan_facts,

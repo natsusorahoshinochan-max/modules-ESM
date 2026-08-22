@@ -19,11 +19,11 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.declarations import (
-    CatalogContract,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.model import (
+    CatalogContract,
     FrozenCatalog,
 )
 from core.catalog.port_contract import (
@@ -66,7 +66,11 @@ from core.workflow.document import (
 )
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import IntrinsicObservationContext
-from tests.support.catalog import binding_availability, resolved_dependencies
+from tests.support.catalog import (
+    binding_availability,
+    catalog_contract,
+    install_runtime,
+)
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from protein_workbench_public import validate_error
 from tests.fixtures.zero_core_packages.synthetic_echo.package import (
@@ -83,34 +87,17 @@ def _contract(
     contract_id: str,
     descriptor: dict,
 ) -> CatalogContract:
-    parameter_field = {
-        "node_type": "node_parameters",
-        "binding": "binding_parameters",
-        "utility_transform": "parameters",
-    }.get(contract_kind)
-    parameter_contract = (
-        None
-        if parameter_field is None
-        else admit_declarations(
-            descriptor.get(parameter_field, {}),
-            path=(
-                f"{contract_kind}:{contract_id}@2.1.0.{parameter_field}"
-            ),
-        )
-    )
-    return CatalogContract(
-        contract_kind=contract_kind,
-        contract_id=contract_id,
-        contract_version="2.1.0",
-        descriptor={
+    return catalog_contract(
+        contract_kind,
+        contract_id,
+        "2.1.0",
+        {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": contract_kind,
             "contract_id": contract_id,
             "contract_version": "2.1.0",
             **descriptor,
         },
-        dependencies=resolved_dependencies(descriptor),
-        parameter_contract=parameter_contract,
     )
 
 
@@ -164,13 +151,13 @@ def _catalog(*, algorithm_name: str = "source") -> FrozenCatalog:
     observed_at = datetime(2026, 8, 3, tzinfo=timezone.utc)
     return FrozenCatalog(
         builtin.port_types,
-        contracts=(method, node, binding),
+        contracts=install_runtime(
+            (method, node, binding),
+            factories={(binding.contract_id, "2.1.0"): factory},
+            readiness={(binding.contract_id, "2.1.0"): readiness},
+        ),
         availability=(binding_availability(binding, observed_at),),
         availability_observed_at=observed_at,
-        factories={(binding.contract_id, "2.1.0"): factory},
-        readiness_declarations={
-            (binding.contract_id, "2.1.0"): readiness,
-        },
     )
 
 

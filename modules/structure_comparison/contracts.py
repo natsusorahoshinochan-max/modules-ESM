@@ -4,10 +4,8 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
-from core.catalog.declarations import (
-    CatalogContract,
-    MethodDefinition,
-)
+from core.catalog.declarations import MethodDefinition
+from core.catalog.port_contract import canonical_sha256
 from datatypes.exact_reference import ExactContractReference
 
 
@@ -16,18 +14,11 @@ VERSION = "3.0.0"
 
 def method_reference(method: MethodDefinition) -> ExactContractReference:
     """Return the exact reference carried by scientific evidence."""
-    digest = CatalogContract(
-        contract_kind="method",
-        contract_id=method.method_id,
-        contract_version=method.version,
-        descriptor=method.descriptor_template(),
-        dependencies=(),
-    ).contract_digest
     return ExactContractReference(
         contract_kind="method",
         contract_id=method.method_id,
         contract_version=method.version,
-        contract_digest=digest,
+        contract_digest=canonical_sha256(method.descriptor_template()),
     )
 
 

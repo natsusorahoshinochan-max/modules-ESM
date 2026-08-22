@@ -166,6 +166,130 @@ class ContractIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class NodePortDefinition:
+    """One admitted Node input or output Port."""
+
+    name: str
+    port_type: ContractIdentity
+    required: bool
+    multiplicity: Literal["one", "many"]
+    scientific_meaning: str
+    artifact_kind: Literal["standalone", "candidate"] | None = None
+    artifact_media_type: str | None = None
+
+    def descriptor_template(self) -> dict[str, Any]:
+        descriptor = {
+            "name": self.name,
+            "port_type": self.port_type,
+            "required": self.required,
+            "multiplicity": self.multiplicity,
+            "scientific_meaning": self.scientific_meaning,
+        }
+        if self.artifact_kind is not None:
+            descriptor["artifact_kind"] = self.artifact_kind
+        if self.artifact_media_type is not None:
+            descriptor["artifact_media_type"] = self.artifact_media_type
+        return descriptor
+
+
+@dataclass(frozen=True, slots=True)
+class NodeTypeDefinition:
+    """One admitted Node Type definition resource."""
+
+    node_type_id: str
+    version: str
+    title: str
+    summary: str
+    category: str
+    inputs: tuple[NodePortDefinition, ...]
+    outputs: tuple[NodePortDefinition, ...]
+    input_constraints: tuple[tuple[str, ...], ...]
+    parameter_groups: tuple[Any, ...]
+    node_parameters: Mapping[str, Any]
+    parameter_contract: ParameterContract
+
+    @property
+    def identity(self) -> ContractIdentity:
+        return ContractIdentity("node_type", self.node_type_id, self.version)
+
+    def descriptor_template(self) -> dict[str, Any]:
+        descriptor = {
+            "schema_namespace": CONTRACT_NAMESPACE,
+            "contract_kind": "node_type",
+            "contract_id": self.node_type_id,
+            "contract_version": self.version,
+            "title": self.title,
+            "summary": self.summary,
+            "category": self.category,
+            "inputs": [port.descriptor_template() for port in self.inputs],
+            "outputs": [port.descriptor_template() for port in self.outputs],
+            "parameter_groups": self.parameter_groups,
+            "node_parameters": self.node_parameters,
+        }
+        if self.input_constraints:
+            descriptor["input_constraints"] = [
+                {"kind": "exactly_one", "ports": ports}
+                for ports in self.input_constraints
+            ]
+        return descriptor
+
+
+@dataclass(frozen=True, slots=True)
+class MetricDefinition:
+    """One admitted Metric definition resource."""
+
+    metric_id: str
+    version: str
+    title: str
+    description: str
+    value_shape: str
+    unit: str
+    direction: str
+    canonical_range: Mapping[str, Any]
+    granularity: str
+    aggregation_semantics: Mapping[str, Any]
+    observation_context_schema: Mapping[str, Any]
+    validation_contract: Mapping[str, Any]
+
+    @property
+    def identity(self) -> ContractIdentity:
+        return ContractIdentity("metric", self.metric_id, self.version)
+
+    def descriptor_template(self) -> dict[str, Any]:
+        return {
+            "schema_namespace": CONTRACT_NAMESPACE,
+            "contract_kind": "metric",
+            "contract_id": self.metric_id,
+            "contract_version": self.version,
+            "title": self.title,
+            "description": self.description,
+            "value_shape": self.value_shape,
+            "unit": self.unit,
+            "direction": self.direction,
+            "canonical_range": self.canonical_range,
+            "granularity": self.granularity,
+            "aggregation_semantics": self.aggregation_semantics,
+            "observation_context_schema": self.observation_context_schema,
+            "validation_contract": self.validation_contract,
+        }
+
+    @property
+    def requires_residue_axis(self) -> bool:
+        if self.value_shape in {
+            "per_residue",
+            "residue_vector",
+            "residue_pair_matrix",
+        }:
+            return True
+        return (
+            self.value_shape == "scalar"
+            and self.aggregation_semantics.get("kind") not in (None, "none")
+            and type(self.aggregation_semantics.get("source_metric")) is str
+            and bool(self.aggregation_semantics.get("source_metric"))
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class MethodDefinition:
     """Stable scientific Method declaration supplied by one package."""
 
@@ -358,21 +482,6 @@ class AvailabilityResult:
         retryable: bool,
     ) -> AvailabilityResult:
         return cls(False, code=code, message=message, retryable=retryable)
-
-
-class ExpectedOptionalDependencyMissing(ModuleNotFoundError):
-    """One checker-declared absent optional dependency."""
-
-    def __init__(self, dependency_id: str) -> None:
-        _require_identifier(
-            dependency_id,
-            "Optional dependency identifier",
-        )
-        self.dependency_id = dependency_id
-        super().__init__(
-            f"Optional dependency {dependency_id} is not installed",
-            name=dependency_id,
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1062,6 +1171,15 @@ class ExecutionBindingDefinition:
         return descriptor
 
 
+CatalogDefinition = (
+    NodeTypeDefinition
+    | MetricDefinition
+    | MethodDefinition
+    | UtilityTransformDefinition
+    | ExecutionBindingDefinition
+)
+
+
 @dataclass(frozen=True, slots=True)
 class ModulePackageRegistration:
     """The one immutable production registration exported by a package."""
@@ -1098,53 +1216,3 @@ class ModulePackageRegistration:
             "utility_transforms",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
-
-
-@dataclass(frozen=True, slots=True)
-class CatalogContract:
-    """One resolved immutable scientific Catalog contract."""
-
-    contract_kind: ContractKind
-    contract_id: str
-    contract_version: str
-    descriptor: Mapping[str, Any]
-    dependencies: tuple[ExactContractReference, ...] = field(repr=False)
-    parameter_contract: ParameterContract | None = field(
-        default=None,
-        repr=False,
-    )
-    environment_fields: tuple[EnvironmentFieldDeclaration, ...] = field(
-        default=(),
-        repr=False,
-    )
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "descriptor",
-            _freeze_declaration(self.descriptor),
-        )
-        object.__setattr__(self, "dependencies", tuple(self.dependencies))
-        object.__setattr__(
-            self,
-            "environment_fields",
-            tuple(self.environment_fields),
-        )
-
-    @property
-    def descriptor_bytes(self) -> bytes:
-        return canonical_json_bytes(_thaw_declaration(self.descriptor))
-
-    @property
-    def contract_digest(self) -> str:
-        import hashlib
-
-        return f"sha256:{hashlib.sha256(self.descriptor_bytes).hexdigest()}"
-
-    def reference(self) -> dict[str, Any]:
-        return {
-            "contract_kind": self.contract_kind,
-            "contract_id": self.contract_id,
-            "contract_version": self.contract_version,
-            "contract_digest": self.contract_digest,
-        }

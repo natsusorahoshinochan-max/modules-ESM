@@ -88,12 +88,10 @@ def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None
 
     catalog = build_frozen_catalog(module_registrations())
     assert {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "prompt_authoring" in catalog.owners[
-            (kind, contract_id, version)
-        ]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("prompt_authoring.")
     } == {
         ("prompt_authoring.add_function_annotation", VERSION),
         ("prompt_authoring.assemble_protein_prompt", VERSION),

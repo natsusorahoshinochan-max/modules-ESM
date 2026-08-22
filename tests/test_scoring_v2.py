@@ -16,11 +16,11 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.declarations import (
-    CatalogContract,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.model import (
+    CatalogContract,
     FrozenCatalog,
 )
 from core.catalog.port_contract import (
@@ -88,7 +88,11 @@ from datatypes.observation import (
 from datatypes.residue import ResidueLayout
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
-from tests.support.catalog import binding_availability, resolved_dependencies
+from tests.support.catalog import (
+    binding_availability,
+    catalog_contract,
+    install_runtime,
+)
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     select_admitted_candidates,
@@ -109,31 +113,17 @@ def _contract(
     contract_id: str,
     descriptor: dict,
 ) -> CatalogContract:
-    parameter_field = {
-        "node_type": "node_parameters",
-        "binding": "binding_parameters",
-        "utility_transform": "parameters",
-    }.get(kind)
-    return CatalogContract(
-        contract_kind=kind,  # type: ignore[arg-type]
-        contract_id=contract_id,
-        contract_version="2.1.0",
-        descriptor={
+    return catalog_contract(
+        kind,
+        contract_id,
+        "2.1.0",
+        {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": kind,
             "contract_id": contract_id,
             "contract_version": "2.1.0",
             **descriptor,
         },
-        dependencies=resolved_dependencies(descriptor),
-        parameter_contract=(
-            None
-            if parameter_field is None
-            else admit_declarations(
-                descriptor.get(parameter_field, {}),
-                path=f"test:{kind}:{contract_id}.{parameter_field}",
-            )
-        ),
     )
 
 
@@ -522,9 +512,41 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     observed_at = datetime(2026, 7, 29, 6, tzinfo=timezone.utc)
     catalog = FrozenCatalog(
         builtin.port_types,
-        contracts=(
-            *contracts.values(),
-            *selection_catalog.contracts,
+        contracts=install_runtime(
+            (
+                *contracts.values(),
+                *selection_catalog.contracts,
+            ),
+            utility_transforms={
+                ("quality.linear", "2.1.0"): linear,
+                ("novelty.linear", "2.1.0"): linear,
+            },
+            factories={
+                ("candidate.source.direct", "2.1.0"): (
+                    ScientificOperationFactory(
+                        behavior=source_factory_behavior,
+                        build=lambda _: CandidateSourceImplementation(),
+                    )
+                ),
+                ("score.intrinsic.direct", "2.1.0"): (
+                    ScientificOperationFactory(
+                        behavior=factory_behavior,
+                        build=lambda _: ScoringImplementation(),
+                    )
+                ),
+            },
+            readiness={
+                ("candidate.source.direct", "2.1.0"): ReadinessDeclaration(
+                    behavior=source_readiness_behavior,
+                    prerequisites={},
+                    check=lambda _: ReadinessResult(True),
+                ),
+                ("score.intrinsic.direct", "2.1.0"): ReadinessDeclaration(
+                    behavior=readiness_behavior,
+                    prerequisites={},
+                    check=lambda _: ReadinessResult(True),
+                ),
+            },
         ),
         availability=(
             binding_availability(source_binding, observed_at),
@@ -532,38 +554,6 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             *selection_catalog.availability,
         ),
         availability_observed_at=observed_at,
-        utility_transforms={
-            ("quality.linear", "2.1.0"): linear,
-            ("novelty.linear", "2.1.0"): linear,
-        },
-        factories={
-            **dict(selection_catalog.factories),
-            ("candidate.source.direct", "2.1.0"): (
-                ScientificOperationFactory(
-                    behavior=source_factory_behavior,
-                    build=lambda _: CandidateSourceImplementation(),
-                )
-            ),
-            ("score.intrinsic.direct", "2.1.0"): (
-                ScientificOperationFactory(
-                    behavior=factory_behavior,
-                    build=lambda _: ScoringImplementation(),
-                )
-            )
-        },
-        readiness_declarations={
-            **dict(selection_catalog.readiness_declarations),
-            ("candidate.source.direct", "2.1.0"): ReadinessDeclaration(
-                behavior=source_readiness_behavior,
-                prerequisites={},
-                check=lambda _: ReadinessResult(True),
-            ),
-            ("score.intrinsic.direct", "2.1.0"): ReadinessDeclaration(
-                behavior=readiness_behavior,
-                prerequisites={},
-                check=lambda _: ReadinessResult(True),
-            )
-        },
     )
     return catalog, contracts
 
@@ -774,7 +764,25 @@ def _dynamic_observation_method_catalog(
             PREDICTION_RESIDUE_AXIS_PORT_TYPE,
             facts_type,
         ),
-        contracts=(*catalog.contracts, *added_contracts),
+        contracts=install_runtime(
+            (*catalog.contracts, *added_contracts),
+            factories={
+                (generation_binding.contract_id, "2.1.0"): (
+                    compile_only_factory(generation_binding)
+                ),
+                (materializer_binding.contract_id, "2.1.0"): (
+                    compile_only_factory(materializer_binding)
+                ),
+            },
+            readiness={
+                (generation_binding.contract_id, "2.1.0"): (
+                    compile_only_readiness(generation_binding)
+                ),
+                (materializer_binding.contract_id, "2.1.0"): (
+                    compile_only_readiness(materializer_binding)
+                ),
+            },
+        ),
         availability=(
             *catalog.availability,
             *(
@@ -785,24 +793,6 @@ def _dynamic_observation_method_catalog(
                 for binding in (generation_binding, materializer_binding)
             ),
         ),
-        factories={
-            **dict(catalog.factories),
-            (generation_binding.contract_id, "2.1.0"): (
-                compile_only_factory(generation_binding)
-            ),
-            (materializer_binding.contract_id, "2.1.0"): (
-                compile_only_factory(materializer_binding)
-            ),
-        },
-        readiness_declarations={
-            **dict(catalog.readiness_declarations),
-            (generation_binding.contract_id, "2.1.0"): (
-                compile_only_readiness(generation_binding)
-            ),
-            (materializer_binding.contract_id, "2.1.0"): (
-                compile_only_readiness(materializer_binding)
-            ),
-        },
     )
     return catalog, contracts
 
@@ -1711,10 +1701,14 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         )
     unsafe_catalog = replace(
         catalog,
-        utility_transforms={
-            **dict(catalog.utility_transforms),
-            ("quality.linear", "2.1.0"): lambda value, parameters: 1.01,
-        },
+        contracts=install_runtime(
+            catalog.contracts,
+            utility_transforms={
+                ("quality.linear", "2.1.0"): (
+                    lambda value, parameters: 1.01
+                ),
+            },
+        ),
     )
     with pytest.raises(SelectionError, match=r"within \[0, 1\]"):
         select_admitted_candidates(
@@ -2300,10 +2294,14 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
     catalog, contracts = _scoring_catalog()
     unsafe_catalog = replace(
         catalog,
-        utility_transforms={
-            **dict(catalog.utility_transforms),
-            ("quality.linear", "2.1.0"): lambda value, parameters: 1.01,
-        },
+        contracts=install_runtime(
+            catalog.contracts,
+            utility_transforms={
+                ("quality.linear", "2.1.0"): (
+                    lambda value, parameters: 1.01
+                ),
+            },
+        ),
     )
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",

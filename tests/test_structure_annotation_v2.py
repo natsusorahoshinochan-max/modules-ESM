@@ -205,11 +205,10 @@ def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
 
     catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "structure_annotation"
-        in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("structure_annotation.")
     }
     assert owned_nodes == {
         ("structure_annotation.dssp_compute", "7.0.0"),

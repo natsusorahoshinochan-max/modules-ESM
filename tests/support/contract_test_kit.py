@@ -277,20 +277,13 @@ def _verify_execution_case_coverage(
     registration: ModulePackageRegistration,
     cases: Sequence[ModulePackageContractCase],
 ) -> None:
-    owned_keys = {
-        key
-        for key, owners in catalog.owners.items()
-        if registration.package_id in owners
-    }
     expected_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in owned_keys
-        if kind == "node_type"
+        (binding.node_type.contract_id, binding.node_type.contract_version)
+        for binding in registration.bindings
     }
     expected_bindings = {
-        (contract_id, version)
-        for kind, contract_id, version in owned_keys
-        if kind == "binding"
+        (binding.binding_id, binding.version)
+        for binding in registration.bindings
     }
     covered_nodes = {
         (case.node_type_id, case.node_type_version)

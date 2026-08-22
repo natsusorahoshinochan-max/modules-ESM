@@ -279,10 +279,10 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
 
     catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "protein_io" in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("protein_io.")
     }
     assert owned_nodes == {
         ("protein_io.import_sequence", "6.0.0"),

@@ -102,7 +102,7 @@ def compiled_observation_plan_for_test(
             )
         metric_facts[observation.metric] = resolve_metric_facts(
             observation.metric,
-            metric.descriptor,
+            metric.definition,
         )
     return ProducedObservationPlan(
         binding_method=ExactContractReference(**binding.descriptor["method"]),

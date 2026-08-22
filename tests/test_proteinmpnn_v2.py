@@ -267,10 +267,10 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
 
     catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "proteinmpnn" in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("proteinmpnn.")
     }
     assert owned_nodes == {
         ("proteinmpnn.constraints", "4.0.0"),

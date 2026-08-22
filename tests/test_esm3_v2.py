@@ -105,10 +105,10 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
 
     catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "esm3" in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("esm3.")
     }
     assert owned_nodes == {
         ("esm3.generate_sequence", "8.0.0"),

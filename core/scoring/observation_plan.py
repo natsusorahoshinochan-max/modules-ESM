@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from datatypes.exact_reference import ExactContractReference
 
@@ -295,95 +295,39 @@ class ProducedObservationPlan:
         )
 
 
+class MetricDefinitionFacts(Protocol):
+    value_shape: str
+    canonical_range: Mapping[str, Any]
+    aggregation_semantics: Mapping[str, Any]
+    validation_contract: Mapping[str, Any]
+    requires_residue_axis: bool
+
+
 def resolve_metric_facts(
     reference: ExactContractReference,
-    descriptor: Mapping[str, Any],
+    definition: MetricDefinitionFacts,
 ) -> ResolvedMetricFacts:
-    """Convert one compiler-resolved Metric descriptor to typed facts."""
-    if reference.contract_kind != "metric":
-        raise ObservationPlanError("Expected an exact Metric reference")
-    value_shape = descriptor.get("value_shape")
-    if value_shape not in {
-        "scalar",
-        "per_residue",
-        "residue_vector",
-        "residue_pair_matrix",
-    }:
-        raise ObservationPlanError(
-            f"Produced Observation does not support Metric shape {value_shape!r}"
-        )
-    canonical_range = descriptor.get("canonical_range")
-    if not isinstance(canonical_range, Mapping):
-        raise ObservationPlanError("Metric canonical range is malformed")
-    minimum = canonical_range.get("minimum")
-    maximum = canonical_range.get("maximum")
-    if (
-        not isinstance(minimum, (int, float))
-        or isinstance(minimum, bool)
-        or not isinstance(maximum, (int, float))
-        or isinstance(maximum, bool)
-    ):
-        raise ObservationPlanError("Metric canonical range is malformed")
-    validation = descriptor.get("validation_contract")
-    if not isinstance(validation, Mapping):
-        raise ObservationPlanError("Metric validation contract is malformed")
+    """Translate one Builder-admitted Metric into Scoring plan facts."""
+    value_shape = definition.value_shape
+    minimum = definition.canonical_range["minimum"]
+    maximum = definition.canonical_range["maximum"]
+    validation = definition.validation_contract
     alignment = validation.get("structure_alignment_evidence")
-    required_context_fields = (
-        "evidence_content_digest",
-        "evidence_method",
-        "subject_axis_content_digest",
-        "reference_axis_content_digest",
-        "normalization_length",
-        "aligned_atom_count",
-    )
-    if alignment is not None and (
-        not isinstance(alignment, Mapping)
-        or set(alignment)
-        != {
-            "source_direction",
-            "source_port",
-            "normalization_length_source",
-            "required_context_fields",
-        }
-        or alignment.get("source_direction") != "input"
-        or not isinstance(alignment.get("source_port"), str)
-        or not alignment.get("source_port")
-        or alignment.get("normalization_length_source")
-        not in {"aligned_atom_count", "reference_axis_residue_count"}
-        or tuple(alignment.get("required_context_fields", ()))
-        != required_context_fields
-    ):
-        raise ObservationPlanError(
-            "Metric structure-alignment evidence contract is malformed"
-        )
     masking = validation.get("masking")
-    aggregation = descriptor.get("aggregation_semantics")
-    aggregated_residue_population = (
-        value_shape == "scalar"
-        and isinstance(aggregation, Mapping)
-        and aggregation.get("kind") not in (None, "none")
-        and type(aggregation.get("source_metric")) is str
-        and bool(aggregation.get("source_metric"))
-    )
     return ResolvedMetricFacts(
         reference=reference,
         value_shape=value_shape,
         minimum=minimum,
         maximum=maximum,
         allow_null=(
-            isinstance(masking, Mapping)
-            and masking.get("allow_null") is True
+            masking is not None and masking.get("allow_null") is True
         ),
         require_finite=validation.get("finite") is True,
         exact_binary32=(
             validation.get("numeric_format") == "binary32"
             and validation.get("exact_round_trip") is True
         ),
-        requires_residue_axis=(
-            value_shape
-            in {"per_residue", "residue_vector", "residue_pair_matrix"}
-            or aggregated_residue_population
-        ),
+        requires_residue_axis=definition.requires_residue_axis,
         structure_alignment_evidence=(
             None
             if alignment is None

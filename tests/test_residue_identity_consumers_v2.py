@@ -179,7 +179,7 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             "node_type",
             workflow.nodes[0].node_type_id,
             workflow.nodes[0].node_type_version,
-        ).parameter_contract,
+        ).definition.parameter_contract,
         workflow.nodes[0].node_parameters,
     )
     admit_values(
@@ -187,7 +187,7 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             "node_type",
             workflow.nodes[1].node_type_id,
             workflow.nodes[1].node_type_version,
-        ).parameter_contract,
+        ).definition.parameter_contract,
         workflow.nodes[1].node_parameters,
     )
 
@@ -222,6 +222,6 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
                 "node_type",
                 invalid.nodes[0].node_type_id,
                 invalid.nodes[0].node_type_version,
-            ).parameter_contract,
+            ).definition.parameter_contract,
             invalid.nodes[0].node_parameters,
         )

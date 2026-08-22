@@ -42,13 +42,13 @@ from core.catalog.builtins import (
 )
 from core.catalog.declarations import (
     AvailabilityResult,
-    CatalogContract,
     EffectiveRandomnessResolver,
     EnvironmentFieldDeclaration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.model import (
+    CatalogContract,
     FrozenCatalog,
 )
 from core.catalog.port_contract import (
@@ -72,7 +72,11 @@ import core.execution.runtime as run_runtime
 from core.execution.environment import admit_environment_configuration
 from tests.support.output_admission import admit_fixture_port
 from tests.support.result_store import result_store
-from tests.support.catalog import binding_availability, resolved_dependencies
+from tests.support.catalog import (
+    binding_availability,
+    catalog_contract,
+    install_runtime,
+)
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
@@ -143,41 +147,22 @@ def _contract(
     *,
     environment_fields: tuple[EnvironmentFieldDeclaration, ...] | None = None,
 ) -> CatalogContract:
-    parameter_field = {
-        "node_type": "node_parameters",
-        "binding": "binding_parameters",
-        "utility_transform": "parameters",
-    }.get(contract_kind)
-    return CatalogContract(
-        contract_kind=contract_kind,
-        contract_id=contract_id,
-        contract_version="2.1.0",
-        descriptor={
+    return catalog_contract(
+        contract_kind,
+        contract_id,
+        "2.1.0",
+        {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": contract_kind,
             "contract_id": contract_id,
             "contract_version": "2.1.0",
             **descriptor,
         },
-        dependencies=resolved_dependencies(descriptor),
-        parameter_contract=(
-            None
-            if parameter_field is None
-            else admit_declarations(
-                descriptor.get(parameter_field, {}),
-                path=f"test:{contract_kind}:{contract_id}.{parameter_field}",
-            )
-        ),
         environment_fields=(
             environment_fields
             if environment_fields is not None
             else (
-                (
-                    EnvironmentFieldDeclaration(
-                        "credential",
-                        "credential_handle",
-                    ),
-                )
+                (EnvironmentFieldDeclaration("credential", "credential_handle"),)
                 if contract_kind == "binding"
                 else ()
             )
@@ -529,7 +514,19 @@ def _direct_catalog(
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
         catalog_port_types,
-        contracts=(method, node_type, *bindings),
+        contracts=install_runtime(
+            (method, node_type, *bindings),
+            factories=factories,
+            readiness=readiness_declarations,
+            randomness=(
+                {
+                    (binding_id, "2.1.0"): effective_randomness_resolver
+                    for binding_id in binding_ids
+                }
+                if effective_randomness_resolver is not None
+                else {}
+            ),
+        ),
         availability=tuple(
             (
                 binding_availability(
@@ -547,16 +544,6 @@ def _direct_catalog(
             for binding in bindings
         ),
         availability_observed_at=observed_at,
-        factories=factories,
-        readiness_declarations=readiness_declarations,
-        effective_randomness_resolvers=(
-            {
-                (binding_id, "2.1.0"): effective_randomness_resolver
-                for binding_id in binding_ids
-            }
-            if effective_randomness_resolver is not None
-            else {}
-        ),
     )
 
 
@@ -953,11 +940,13 @@ def _pipeline_catalog(
                 else ()
             ),
         ),
-        contracts=tuple(contracts),
+        contracts=install_runtime(
+            tuple(contracts),
+            factories=factories,
+            readiness=readiness,
+        ),
         availability=tuple(availability),
         availability_observed_at=observed_at,
-        factories=factories,
-        readiness_declarations=readiness,
     )
 
 
@@ -1114,22 +1103,24 @@ def _artifact_catalog(
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
         (*builtin.port_types, artifact_port_type),
-        contracts=(method, node, binding),
+        contracts=install_runtime(
+            (method, node, binding),
+            factories={
+                ("test.artifact.direct", "2.1.0"): ScientificOperationFactory(
+                    behavior=factory_behavior,
+                    build=factory,
+                )
+            },
+            readiness={
+                ("test.artifact.direct", "2.1.0"): ReadinessDeclaration(
+                    behavior=readiness_behavior,
+                    prerequisites={},
+                    check=lambda check_input: ReadinessResult(True),
+                )
+            },
+        ),
         availability=(binding_availability(binding, observed_at),),
         availability_observed_at=observed_at,
-        factories={
-            ("test.artifact.direct", "2.1.0"): ScientificOperationFactory(
-                behavior=factory_behavior,
-                build=factory,
-            )
-        },
-        readiness_declarations={
-            ("test.artifact.direct", "2.1.0"): ReadinessDeclaration(
-                behavior=readiness_behavior,
-                prerequisites={},
-                check=lambda check_input: ReadinessResult(True),
-            )
-        },
     )
 
 
@@ -2391,12 +2382,11 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
 
         for method_name in (
             "get_contract",
-            "get_effective_randomness_resolver",
+            "get_port_type",
             "require_contract",
-            "require_factory",
             "require_port_type",
-            "require_readiness_declaration",
-            "require_utility_transform",
+            "require_reference",
+            "resolve_contract_closure",
         ):
             monkeypatch.setattr(
                 FrozenCatalog,

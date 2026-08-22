@@ -13,18 +13,22 @@ from core.catalog.builtins import (
 )
 from core.catalog.declarations import (
     AvailabilityResult,
-    CatalogContract,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.model import (
+    CatalogContract,
     FrozenCatalog,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
 )
-from tests.support.catalog import binding_availability, resolved_dependencies
+from tests.support.catalog import (
+    binding_availability,
+    catalog_contract,
+    install_runtime,
+)
 from core.operation import (
     OperationContext,
     ReadinessResult,
@@ -63,39 +67,22 @@ def _catalog_contract(
     contract_id: str,
     descriptor: dict,
 ) -> CatalogContract:
-    parameter_field = {
-        "node_type": "node_parameters",
-        "binding": "binding_parameters",
-        "utility_transform": "parameters",
-    }.get(contract_kind)
-    try:
-        parameter_contract = (
-            None
-            if parameter_field is None
-            else admit_declarations(
-                descriptor.get(parameter_field, {}),
-                path=(
-                    f"{contract_kind}:{contract_id}@2.1.0."
-                    f"{parameter_field}"
-                ),
-            )
-        )
-    except ParameterContractDefinitionError as error:
-        raise CatalogBuildError(str(error)) from error
-    return CatalogContract(
-        contract_kind=contract_kind,
-        contract_id=contract_id,
-        contract_version="2.1.0",
-        descriptor={
+    resolved = {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": contract_kind,
             "contract_id": contract_id,
             "contract_version": "2.1.0",
             **descriptor,
-        },
-        dependencies=resolved_dependencies(descriptor),
-        parameter_contract=parameter_contract,
-    )
+    }
+    try:
+        return catalog_contract(
+            contract_kind,
+            contract_id,
+            "2.1.0",
+            resolved,
+        )
+    except ParameterContractDefinitionError as error:
+        raise CatalogBuildError(str(error)) from error
 
 
 def _workflow_catalog(
@@ -260,7 +247,11 @@ def _workflow_catalog(
                     "source_role": "subject",
                     "subject_direction": "output",
                     "subject_port": "text",
-                    "guaranteed_multiplicity": source_output_multiplicity,
+                    "guaranteed_multiplicity": (
+                        "one"
+                        if source_output_multiplicity == "one"
+                        else "one_or_more"
+                    ),
                 }
             ],
         },
@@ -355,11 +346,13 @@ def _workflow_catalog(
     )
     return FrozenCatalog(
         builtin.port_types,
-        contracts=tuple(contracts),
+        contracts=install_runtime(
+            tuple(contracts),
+            factories=factories,
+            readiness=readiness_declarations,
+        ),
         availability=availability,
         availability_observed_at=observed_at,
-        factories=factories,
-        readiness_declarations=readiness_declarations,
     )
 
 
@@ -787,16 +780,18 @@ def test_execution_plan_identity_excludes_runtime_handles() -> None:
                  second_catalog,
              )
 
-    assert first_catalog.factories[
-        ("synthetic.source.direct", "2.1.0")
-    ] is not second_catalog.factories[
-        ("synthetic.source.direct", "2.1.0")
-    ]
-    assert first_catalog.readiness_declarations[
-        ("synthetic.source.direct", "2.1.0")
-    ] is not second_catalog.readiness_declarations[
-        ("synthetic.source.direct", "2.1.0")
-    ]
+    first_binding = first_catalog.require_contract(
+        "binding",
+        "synthetic.source.direct",
+        "2.1.0",
+    ).definition
+    second_binding = second_catalog.require_contract(
+        "binding",
+        "synthetic.source.direct",
+        "2.1.0",
+    ).definition
+    assert first_binding.factory is not second_binding.factory
+    assert first_binding.readiness is not second_binding.readiness
     assert first == second
     assert (
         first.execution_plan_digest

@@ -19,7 +19,6 @@ from core.catalog.declarations import (
     AvailabilityResult,
     ContractIdentity,
     ExecutionBindingDefinition,
-    ExpectedOptionalDependencyMissing,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
@@ -428,7 +427,10 @@ def test_production_bindings_publish_exact_typed_environment_closures() -> None:
                 binding.binding_id,
                 binding.version,
             )
-            assert resolved.environment_fields == binding.environment_fields
+            assert (
+                resolved.definition.environment_fields
+                == binding.environment_fields
+            )
 
 
 def test_package_owned_port_type_has_one_independent_exact_reference(
@@ -517,10 +519,12 @@ def test_package_owned_utility_runtime_is_resolved_by_exact_identity(
 ) -> None:
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
-    assert catalog.require_utility_transform(
+    utility = catalog.require_contract(
+        "utility_transform",
         "synthetic.identity",
         "2.1.0",
-    )(0.75, {}) == 0.75
+    ).definition
+    assert utility.transform(0.75, {}) == 0.75
 
 
 def test_binding_keeps_its_factory_lazy_during_catalog_build(
@@ -529,10 +533,12 @@ def test_binding_keeps_its_factory_lazy_during_catalog_build(
 ) -> None:
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
-    assert catalog.require_factory(
+    binding = catalog.require_contract(
+        "binding",
         "synthetic.echo.direct",
         "3.0.0",
-    ).behavior.behavior_id == "synthetic.echo/factory"
+    ).definition
+    assert binding.factory.behavior.behavior_id == "synthetic.echo/factory"
 
 
 def test_binding_availability_is_published_with_the_catalog_observation(
@@ -925,9 +931,18 @@ MODULE_PACKAGE = ModulePackageRegistration(
     finally:
         _forget_package(root_name)
 
-    assert catalog.owners[("metric", "synthetic.identity", "2.1.0")] == (
-        frozenset({"synthetic", "shared_metric"})
-    )
+    assert [
+        contract.reference()
+        for contract in catalog.contracts
+        if contract.contract_kind == "metric"
+        and contract.contract_id == "synthetic.identity"
+    ] == [
+        catalog.require_contract(
+            "metric",
+            "synthetic.identity",
+            "2.1.0",
+        ).reference()
+    ]
 
 
 def test_version_conflict_is_rejected_before_binding_availability_probe(
@@ -1111,8 +1126,10 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
         available_binding = registration.bindings[0]
 
         def missing_optional_dependency() -> AvailabilityResult:
-            raise ExpectedOptionalDependencyMissing(
-                "synthetic_optional_provider",
+            return AvailabilityResult.unavailable(
+                "optional_dependency_missing",
+                "Optional dependency synthetic_optional_provider is not installed",
+                retryable=False,
             )
 
         unavailable_binding = replace(
@@ -1278,10 +1295,12 @@ def test_lazy_factory_does_not_reload_definition_resources(
     (package_root / "metric.yaml").unlink()
     monkeypatch.setenv("SYNTHETIC_FACTORY_ALLOWED", "1")
 
-    assert catalog.require_factory(
+    binding = catalog.require_contract(
+        "binding",
         "synthetic.echo.direct",
         "3.0.0",
-    ).build(None) == {"implementation": "synthetic.echo"}
+    ).definition
+    assert binding.factory.build(None) == {"implementation": "synthetic.echo"}
 
 
 def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
@@ -1355,14 +1374,19 @@ def test_frozen_contract_descriptor_is_immutable(
         ).descriptor["title"] = "mutated"
 
 
-def test_frozen_runtime_factory_view_is_immutable(
+def test_binding_definition_is_immutable(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
-    with pytest.raises(TypeError):
-        catalog.factories[("synthetic.echo.direct", "3.0.0")] = object()
+    binding = catalog.require_contract(
+        "binding",
+        "synthetic.echo.direct",
+        "3.0.0",
+    ).definition
+    with pytest.raises(FrozenInstanceError):
+        binding.factory = object()
 
 
 def test_observed_availability_never_changes_stable_contract_identity(

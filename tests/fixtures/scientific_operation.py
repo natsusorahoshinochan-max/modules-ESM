@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
+from core.catalog.declarations import ExecutionBindingDefinition
 from core.catalog.model import (
     FrozenCatalog,
 )
@@ -60,13 +61,10 @@ def _resolved_objective(
         utility=ResolvedUtilityTransform(
             reference=objective.utility_transform,
             parameters=admit_values(
-                utility_contract.parameter_contract,
+                utility_contract.definition.parameter_contract,
                 objective.utility_parameters,
             ),
-            apply=catalog.require_utility_transform(
-                objective.utility_transform.contract_id,
-                objective.utility_transform.contract_version,
-            ),
+                apply=utility_contract.definition.transform,
         ),
         weight=objective.weight,
         match_cardinality=objective.match_cardinality,
@@ -347,7 +345,7 @@ def build_operation(
     selection_objectives: Sequence[SelectionObjective] = (),
     observation_selectors: Sequence[ObservationSelector] = (),
 ) -> Any:
-    """Build an operation through the Catalog's public factory Interface."""
+    """Build an operation from the admitted Binding definition."""
     context = operation_context(
         catalog,
         binding_id,
@@ -357,4 +355,10 @@ def build_operation(
         selection_objectives=selection_objectives,
         observation_selectors=observation_selectors,
     )
-    return catalog.require_factory(binding_id, binding_version).build(context)
+    binding = catalog.require_contract(
+        "binding",
+        binding_id,
+        binding_version,
+    )
+    definition = cast(ExecutionBindingDefinition, binding.definition)
+    return definition.factory.build(context)

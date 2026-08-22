@@ -14,7 +14,6 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.declarations import (
-    CatalogContract,
     ObservationPropagationDefinition,
     ContractIdentity,
     ProducedObservationDefinition,
@@ -22,6 +21,7 @@ from core.catalog.declarations import (
     ScientificOperationFactory,
 )
 from core.catalog.model import (
+    CatalogContract,
     FrozenCatalog,
 )
 from core.catalog.port_contract import (
@@ -57,7 +57,11 @@ from core.catalog.port_contract import (
     PortValueError,
 )
 from tests.support.output_admission import normalize_fixture_outputs
-from tests.support.catalog import binding_availability, resolved_dependencies
+from tests.support.catalog import (
+    binding_availability,
+    catalog_contract,
+    install_runtime,
+)
 from core.workflow.document import WorkflowEdge as V2WorkflowEdge
 from datatypes.candidate import (
     Candidate,
@@ -110,31 +114,17 @@ def _contract(
     *,
     version: str = CONTRACT_VERSION,
 ) -> CatalogContract:
-    parameter_field = {
-        "node_type": "node_parameters",
-        "binding": "binding_parameters",
-        "utility_transform": "parameters",
-    }.get(kind)
-    return CatalogContract(
-        contract_kind=kind,  # type: ignore[arg-type]
-        contract_id=contract_id,
-        contract_version=version,
-        descriptor={
+    return catalog_contract(
+        kind,
+        contract_id,
+        version,
+        {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": kind,
             "contract_id": contract_id,
             "contract_version": version,
             **descriptor,
         },
-        dependencies=resolved_dependencies(descriptor),
-        parameter_contract=(
-            None
-            if parameter_field is None
-            else admit_declarations(
-                descriptor.get(parameter_field, {}),
-                path=f"test:{kind}:{contract_id}.{parameter_field}",
-            )
-        ),
     )
 
 
@@ -243,17 +233,23 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     return (
         FrozenCatalog(
             builtin.port_types,
-            contracts=tuple(contracts.values()),
+            contracts=install_runtime(
+                tuple(contracts.values()),
+                utility_transforms={
+                    ("tm-score.fixed", "2.1.0"): (
+                        lambda value, _: float(value)
+                    ),
+                    ("tm-score.paired", "2.1.0"): (
+                        lambda value, _: float(value)
+                    ),
+                },
+            ),
             availability_observed_at=datetime(
                 2026,
                 7,
                 29,
                 tzinfo=timezone.utc,
             ),
-            utility_transforms={
-                ("tm-score.fixed", "2.1.0"): lambda value, _: float(value),
-                ("tm-score.paired", "2.1.0"): lambda value, _: float(value),
-            },
         ),
         contracts,
     )
@@ -1364,23 +1360,18 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     return (
         replace(
             base,
-            contracts=(
-                *contracts.values(),
-                *selection_catalog.contracts,
+            contracts=install_runtime(
+                (
+                    *contracts.values(),
+                    *selection_catalog.contracts,
+                ),
+                factories=factories,
+                readiness=readiness,
             ),
             availability=(
                 *availability,
                 *selection_catalog.availability,
             ),
-            factories={
-                **selection_catalog.factories,
-                **factories,
-            },
-            readiness_declarations={
-                **selection_catalog.readiness_declarations,
-                **readiness,
-            },
-            owners=selection_catalog.owners,
         ),
         contracts,
     )

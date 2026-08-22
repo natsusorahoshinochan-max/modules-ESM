@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
-from core.catalog.model import FrozenCatalog
+from core.catalog.declarations import (
+    ExecutionBindingDefinition,
+    UtilityTransformDefinition,
+)
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
     ObservationSelector,
@@ -23,70 +26,40 @@ from datatypes.exact_reference import ExactContractReference
 def _selected_objectives(
     workflow: WorkflowDocument,
     *,
-    node_id: str,
     node_parameters: Mapping[str, Any],
-    binding_contract: Any,
+    binding_definition: ExecutionBindingDefinition,
 ) -> tuple[SelectionObjective, ...]:
-    consumption = binding_contract.descriptor.get(
-        "selection_objective_consumption"
-    )
-    if not isinstance(consumption, Mapping):
+    consumption = binding_definition.selection_objective_consumption
+    if consumption is None:
         return ()
-    scalar_parameter = consumption.get("objective_id_parameter")
-    ordered_parameter = consumption.get("objective_ids_parameter")
-    if isinstance(scalar_parameter, str):
-        objective_ids = (node_parameters.get(scalar_parameter),)
-    elif isinstance(ordered_parameter, str):
-        raw_ids = node_parameters.get(ordered_parameter)
+    if consumption.objective_id_parameter is not None:
         objective_ids = (
-            tuple(raw_ids) if isinstance(raw_ids, (list, tuple)) else ()
+            node_parameters[consumption.objective_id_parameter],
         )
     else:
-        objective_ids = ()
+        objective_ids = tuple(
+            node_parameters[consumption.objective_ids_parameter]
+        )
     objectives = {
         objective.objective_id: objective
         for objective in workflow.selection_objectives
     }
-    if (
-        not objective_ids
-        or any(not isinstance(item, str) for item in objective_ids)
-        or any(item not in objectives for item in objective_ids)
-    ):
-        raise WorkflowCompileError(
-            "invalid_selection_objective_consumer",
-            "Selection Objective consumption did not resolve during compilation",
-            node_id=node_id,
-        )
     return tuple(objectives[item] for item in objective_ids)
 
 def _selected_observation_selectors(
     workflow: WorkflowDocument,
     *,
-    node_id: str,
     node_parameters: Mapping[str, Any],
-    binding_contract: Any,
+    binding_definition: ExecutionBindingDefinition,
 ) -> tuple[ObservationSelector, ...]:
-    consumption = binding_contract.descriptor.get(
-        "observation_selector_consumption"
-    )
-    if not isinstance(consumption, Mapping):
+    consumption = binding_definition.observation_selector_consumption
+    if consumption is None:
         return ()
-    parameter = consumption.get("selector_id_parameter")
-    selector_id = (
-        node_parameters.get(parameter)
-        if isinstance(parameter, str)
-        else None
-    )
+    selector_id = node_parameters[consumption.selector_id_parameter]
     selectors = {
         selector.selector_id: selector
         for selector in workflow.observation_selectors
     }
-    if not isinstance(selector_id, str) or selector_id not in selectors:
-        raise WorkflowCompileError(
-            "invalid_observation_selector_consumer",
-            "Observation Selector consumption did not resolve during compilation",
-            node_id=node_id,
-        )
     return (selectors[selector_id],)
 
 def _resolved_reference(contract: Any) -> ExactContractReference:
@@ -97,7 +70,6 @@ def _compile_selection_objective(
     utility_parameters: AdmittedParameterValues,
     *,
     resolved_by_key: Mapping[tuple[str, str, str], Any],
-    catalog: FrozenCatalog,
     objective_index: int,
 ) -> ResolvedSelectionObjective:
     metric = resolved_by_key[
@@ -121,15 +93,17 @@ def _compile_selection_objective(
             objective.utility_transform.contract_version,
         )
     ]
-    compatible = utility.descriptor["compatible_input_contract"]
-    expected = {
-        "metric": metric.reference(),
-        "method": method.reference(),
-        "context_profile": context_selector_canonical(
-            objective.context_selector
-        ),
-    }
-    if any(compatible[name] != value for name, value in expected.items()):
+    utility_definition = cast(
+        UtilityTransformDefinition,
+        utility.definition,
+    )
+    compatible = utility_definition.compatible_input_contract
+    if (
+        compatible["metric"].key != objective.metric.key
+        or compatible["method"].key != objective.method.key
+        or compatible["context_profile"]
+        != context_selector_canonical(objective.context_selector)
+    ):
         raise WorkflowCompileError(
             "invalid_selection_objective",
             "Utility Transform is incompatible with the exact Metric, "
@@ -147,10 +121,7 @@ def _compile_selection_objective(
         utility=ResolvedUtilityTransform(
             reference=_resolved_reference(utility),
             parameters=utility_parameters,
-            apply=catalog.require_utility_transform(
-                utility.contract_id,
-                utility.contract_version,
-            ),
+            apply=utility_definition.transform,
         ),
         weight=objective.weight,
         match_cardinality=objective.match_cardinality,

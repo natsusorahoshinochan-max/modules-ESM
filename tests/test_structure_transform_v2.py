@@ -598,16 +598,15 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         "definitions/backbone_to_structure.yaml",
     }
     catalog = build_frozen_catalog(module_registrations())
-    assert (
-        "port_type",
+    assert catalog.get_port_type(
         "structure_transform.backbone_structure",
         "3.0.0",
-    ) not in catalog.owners
-    assert (
+    ) is None
+    assert catalog.get_contract(
         "method",
         "structure_transform.backbone_to_structure.method",
         "3.0.0",
-    ) not in catalog.owners
+    ) is None
     assert catalog.require_contract(
         "method",
         "structure_transform.backbone_to_structure.method",
@@ -616,11 +615,10 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         f"structure_transform.backbone_structure@{BACKBONE_VERSION}"
     )
     assert {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "structure_transform"
-        in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("structure_transform.")
     } == {
         ("structure_transform.select_chains", STRUCTURE_VERSION),
         (

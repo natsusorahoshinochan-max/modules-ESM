@@ -1,13 +1,13 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from core.catalog.declarations import (
     CatalogBuildError,
-    CatalogContract,
     EnvironmentFieldDeclaration,
 )
-from core.catalog.model import FrozenCatalog
+from core.catalog.model import CatalogContract, FrozenCatalog
 from core.execution.environment import (
     EnvironmentConfigurationError,
     admit_environment_configuration,
@@ -24,17 +24,19 @@ def _catalog() -> FrozenCatalog:
                 contract_version="1.0.0",
                 descriptor={"contract_kind": "binding"},
                 dependencies=(),
-                environment_fields=(
-                    EnvironmentFieldDeclaration("device", "json_value"),
-                    EnvironmentFieldDeclaration(
-                        "provider_root",
-                        "filesystem_path",
-                    ),
-                    EnvironmentFieldDeclaration(
-                        "credential_handle",
-                        "credential_handle",
-                        required=False,
-                    ),
+                definition=SimpleNamespace(
+                    environment_fields=(
+                        EnvironmentFieldDeclaration("device", "json_value"),
+                        EnvironmentFieldDeclaration(
+                            "provider_root",
+                            "filesystem_path",
+                        ),
+                        EnvironmentFieldDeclaration(
+                            "credential_handle",
+                            "credential_handle",
+                            required=False,
+                        ),
+                    )
                 ),
             ),
         ),

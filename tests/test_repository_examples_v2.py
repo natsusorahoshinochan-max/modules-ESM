@@ -213,7 +213,8 @@ def test_capability_inventory_locks_every_canonical_contract_identity() -> None:
 
 
 def test_examples_and_ctk_fixtures_cover_every_node_and_binding() -> None:
-    catalog = build_frozen_catalog(module_registrations())
+    registrations = module_registrations()
+    catalog = build_frozen_catalog(registrations)
     payloads = [
         *(_load(path) for path in PRODUCTION_WORKFLOW_PATHS),
         *(_load(path) for path in CTK_WORKFLOW_PATHS),
@@ -240,19 +241,18 @@ def test_examples_and_ctk_fixtures_cover_every_node_and_binding() -> None:
         for node in payload["nodes"]
         if node["node_type_id"] in production_node_types
     }
-    covered_owners = {
-        owner
-        for key, owners in catalog.owners.items()
-        if (
-            key[0] == "binding" and key[1] in covered_bindings
-            or key[0] == "node_type" and key[1] in covered_node_types
+    covered_packages = {
+        registration.package_id
+        for registration in registrations
+        if any(
+            binding.binding_id in covered_bindings
+            for binding in registration.bindings
         )
-        for owner in owners
     }
 
     assert covered_bindings == production_bindings
     assert covered_node_types == production_node_types
-    assert covered_owners == EXPECTED_PACKAGES
+    assert covered_packages == EXPECTED_PACKAGES
 
 
 def test_prediction_confidence_is_materialized_by_explicit_nodes() -> None:

@@ -2,39 +2,46 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import PurePosixPath
-from types import MappingProxyType
 from typing import Any, Literal
 
 import yaml
 
-from core.parameters.model import ParameterContract
-
 from .declarations import (
+    CatalogDefinition,
     ContractIdentity,
-    ExecutionBindingDefinition,
-    MethodDefinition,
+    MetricDefinition,
     ModulePackageRegistration,
-    UtilityTransformDefinition,
+    NodePortDefinition,
+    NodeTypeDefinition,
     _admit_parameter_declarations,
     _freeze_declaration,
     _require_identifier,
     _require_schema_version,
     _require_version,
 )
-from .port_contract import (
-    CONTRACT_NAMESPACE,
-    CatalogBuildError,
-    is_valid_artifact_media_type,
-)
+from .port_contract import CatalogBuildError, is_valid_artifact_media_type
 
 
 _DEFINITION_RESOURCE_SUFFIXES = frozenset({".yaml", ".yml"})
 _NON_PRODUCTION_RESOURCE_PARTS = frozenset(
     {"fixture", "fixtures", "test", "tests"}
+)
+_METRIC_VALUE_SHAPES = {
+    "scalar",
+    "per_residue",
+    "residue_vector",
+    "residue_pair_matrix",
+}
+_ALIGNMENT_CONTEXT_FIELDS = (
+    "evidence_content_digest",
+    "evidence_method",
+    "subject_axis_content_digest",
+    "reference_axis_content_digest",
+    "normalization_length",
+    "aligned_atom_count",
 )
 
 
@@ -61,106 +68,6 @@ class DefinitionResource:
                 "package-local tests and fixtures cannot enter production "
                 "registration"
             )
-
-
-@dataclass(frozen=True, slots=True)
-class _NodeDefinition:
-    node_type_id: str
-    version: str
-    title: str
-    summary: str
-    category: str
-    inputs: tuple[Mapping[str, Any], ...]
-    outputs: tuple[Mapping[str, Any], ...]
-    input_constraints: tuple[Mapping[str, Any], ...]
-    parameter_groups: tuple[Any, ...]
-    node_parameters: Mapping[str, Any]
-    parameter_contract: ParameterContract
-
-    @property
-    def identity(self) -> ContractIdentity:
-        return ContractIdentity("node_type", self.node_type_id, self.version)
-
-    def descriptor_template(self) -> dict[str, Any]:
-        descriptor = {
-            "schema_namespace": CONTRACT_NAMESPACE,
-            "contract_kind": "node_type",
-            "contract_id": self.node_type_id,
-            "contract_version": self.version,
-            "title": self.title,
-            "summary": self.summary,
-            "category": self.category,
-            "inputs": self.inputs,
-            "outputs": self.outputs,
-            "parameter_groups": self.parameter_groups,
-            "node_parameters": self.node_parameters,
-        }
-        if self.input_constraints:
-            descriptor["input_constraints"] = self.input_constraints
-        return descriptor
-
-
-@dataclass(frozen=True, slots=True)
-class _MetricDefinition:
-    metric_id: str
-    version: str
-    title: str
-    description: str
-    value_shape: str
-    unit: str
-    direction: str
-    canonical_range: Mapping[str, Any]
-    granularity: str
-    aggregation_semantics: Mapping[str, Any]
-    observation_context_schema: Mapping[str, Any]
-    validation_contract: Mapping[str, Any]
-
-    @property
-    def identity(self) -> ContractIdentity:
-        return ContractIdentity("metric", self.metric_id, self.version)
-
-    def descriptor_template(self) -> dict[str, Any]:
-        return {
-            "schema_namespace": CONTRACT_NAMESPACE,
-            "contract_kind": "metric",
-            "contract_id": self.metric_id,
-            "contract_version": self.version,
-            "title": self.title,
-            "description": self.description,
-            "value_shape": self.value_shape,
-            "unit": self.unit,
-            "direction": self.direction,
-            "canonical_range": self.canonical_range,
-            "granularity": self.granularity,
-            "aggregation_semantics": self.aggregation_semantics,
-            "observation_context_schema": self.observation_context_schema,
-            "validation_contract": self.validation_contract,
-        }
-
-    @property
-    def requires_residue_axis(self) -> bool:
-        if self.value_shape in {
-            "per_residue",
-            "residue_vector",
-            "residue_pair_matrix",
-        }:
-            return True
-        return (
-            self.value_shape == "scalar"
-            and self.aggregation_semantics.get("kind") not in (None, "none")
-            and type(self.aggregation_semantics.get("source_metric")) is str
-            and bool(self.aggregation_semantics.get("source_metric"))
-        )
-
-
-DeclarativeDefinition = (
-    _NodeDefinition
-    | _MetricDefinition
-    | MethodDefinition
-    | UtilityTransformDefinition
-    | ExecutionBindingDefinition
-)
-
 
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
@@ -225,7 +132,7 @@ def _parse_port(
     *,
     resource_name: str,
     allow_artifact_publication: bool = False,
-) -> Mapping[str, Any]:
+) -> NodePortDefinition:
     port = _closed_object(
         raw,
         resource_name=resource_name,
@@ -283,21 +190,18 @@ def _parse_port(
         raise CatalogBuildError(
             f"{resource_name}.artifact_media_type is invalid"
         )
-    descriptor = {
-        "name": port["name"],
-        "port_type": reference,
-        "required": port["required"],
-        "multiplicity": port["multiplicity"],
-        "scientific_meaning": meaning,
-    }
-    if artifact_kind is not None:
-        descriptor["artifact_kind"] = artifact_kind
-    if artifact_media_type is not None:
-        descriptor["artifact_media_type"] = artifact_media_type
-    return MappingProxyType(descriptor)
+    return NodePortDefinition(
+        name=port["name"],
+        port_type=reference,
+        required=port["required"],
+        multiplicity=port["multiplicity"],
+        scientific_meaning=meaning,
+        artifact_kind=artifact_kind,
+        artifact_media_type=artifact_media_type,
+    )
 
 
-def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
+def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
     required = {
         "schema_version",
         "node_type_id",
@@ -344,14 +248,14 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
         for index, item in enumerate(node["outputs"])
     )
     for label, ports in (("input", inputs), ("output", outputs)):
-        names = [port["name"] for port in ports]
+        names = [port.name for port in ports]
         if len(set(names)) != len(names):
             raise CatalogBuildError(f"duplicate Node {label} Port name")
-    input_names = {port["name"] for port in inputs}
+    input_names = {port.name for port in inputs}
     raw_input_constraints = node.get("input_constraints", [])
     if not isinstance(raw_input_constraints, list):
         raise CatalogBuildError("input_constraints must be an array")
-    input_constraints: list[Mapping[str, Any]] = []
+    input_constraints: list[tuple[str, ...]] = []
     constrained_ports: set[str] = set()
     for index, raw_constraint in enumerate(raw_input_constraints):
         constraint = _closed_object(
@@ -375,14 +279,7 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
                 "groups of declared input Ports"
             )
         constrained_ports.update(ports)
-        input_constraints.append(
-            MappingProxyType(
-                {
-                    "kind": "exactly_one",
-                    "ports": tuple(ports),
-                }
-            )
-        )
+        input_constraints.append(tuple(ports))
     if not isinstance(node["parameter_groups"], list):
         raise CatalogBuildError("parameter_groups must be an array")
     if not all(
@@ -398,7 +295,7 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
         node["node_parameters"],
         path=f"node_type:{node['node_type_id']}@{node['version']}.node_parameters",
     )
-    return _NodeDefinition(
+    return NodeTypeDefinition(
         node_type_id=node["node_type_id"],
         version=node["version"],
         title=node["title"],
@@ -413,7 +310,7 @@ def _parse_node_definition(raw: Any, resource_name: str) -> _NodeDefinition:
     )
 
 
-def _parse_metric_definition(raw: Any, resource_name: str) -> _MetricDefinition:
+def _parse_metric_definition(raw: Any, resource_name: str) -> MetricDefinition:
     required = {
         "schema_version",
         "metric_id",
@@ -468,7 +365,46 @@ def _parse_metric_definition(raw: Any, resource_name: str) -> _MetricDefinition:
             raise CatalogBuildError(
                 f"Metric Definition {field_name} must be an object"
             )
-    return _MetricDefinition(
+    if metric["value_shape"] not in _METRIC_VALUE_SHAPES:
+        raise CatalogBuildError("Metric Definition value_shape is unsupported")
+    canonical_range = metric["canonical_range"]
+    if any(
+        type(canonical_range.get(bound)) not in {int, float}
+        for bound in ("minimum", "maximum")
+    ):
+        raise CatalogBuildError("Metric canonical_range requires numeric bounds")
+    validation = metric["validation_contract"]
+    alignment = validation.get("structure_alignment_evidence")
+    if alignment is not None and (
+        not isinstance(alignment, dict)
+        or set(alignment)
+        != {
+            "source_direction",
+            "source_port",
+            "normalization_length_source",
+            "required_context_fields",
+        }
+        or alignment["source_direction"] != "input"
+        or type(alignment["source_port"]) is not str
+        or not alignment["source_port"]
+        or alignment["normalization_length_source"]
+        not in {"aligned_atom_count", "reference_axis_residue_count"}
+        or not isinstance(
+            alignment["required_context_fields"],
+            (list, tuple),
+        )
+        or tuple(alignment["required_context_fields"])
+        != _ALIGNMENT_CONTEXT_FIELDS
+    ):
+        raise CatalogBuildError(
+            "Metric structure_alignment_evidence contract is invalid"
+        )
+    if validation.get("masking") is not None and not isinstance(
+        validation["masking"],
+        dict,
+    ):
+        raise CatalogBuildError("Metric masking contract must be an object")
+    return MetricDefinition(
         metric_id=metric["metric_id"],
         version=metric["version"],
         title=metric["title"],
@@ -495,7 +431,7 @@ def _load_definition_resource(
     resource_reference: DefinitionResource,
     *,
     kind: Literal["metric", "node_type"],
-) -> DeclarativeDefinition:
+) -> CatalogDefinition:
     try:
         package_root = resources.files(registration.package_module)
         target = package_root.joinpath(resource_reference.resource)

@@ -10,7 +10,7 @@ from contextlib import ExitStack
 from pathlib import Path
 import hashlib
 import json
-from typing import Any
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -20,6 +20,7 @@ from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
 )
+from core.catalog.declarations import ExecutionBindingDefinition
 from core.catalog.port_contract import canonical_sha256
 from core.execution.node_attempt import result_identity_descriptor
 from core.operation import (
@@ -323,6 +324,8 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         "folding.fold.esmfold2_local",
         _LOCAL_FOLD_BINDING_VERSION,
     )
+    remote_definition = cast(ExecutionBindingDefinition, remote.definition)
+    local_definition = cast(ExecutionBindingDefinition, local.definition)
     assert remote.descriptor["node_type"] == local.descriptor["node_type"]
     assert remote.descriptor["produced_observations"] == ()
     assert local.descriptor["produced_observations"] == ()
@@ -335,17 +338,11 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert remote.descriptor["cacheable"] is False
     assert local.descriptor["cacheable"] is False
     assert "effective_randomness_parameters" not in remote.descriptor
-    assert catalog.get_effective_randomness_resolver(
-        "folding.fold.esmfold2_remote",
-        _REMOTE_FOLD_BINDING_VERSION,
-    ) is None
+    assert remote_definition.effective_randomness_resolver is None
     assert tuple(local.descriptor["effective_randomness_parameters"]) == (
         "effective_seed",
     )
-    assert catalog.get_effective_randomness_resolver(
-        "folding.fold.esmfold2_local",
-        _LOCAL_FOLD_BINDING_VERSION,
-    ) is not None
+    assert local_definition.effective_randomness_resolver is not None
     assert remote.descriptor["implementation_identity"]["model"] == (
         "esmfold2-fast-2026-05"
     )

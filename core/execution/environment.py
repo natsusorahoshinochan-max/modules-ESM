@@ -6,9 +6,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
-from core.catalog.declarations import EnvironmentFieldDeclaration
+from core.catalog.declarations import (
+    EnvironmentFieldDeclaration,
+    ExecutionBindingDefinition,
+)
 from core.catalog.model import FrozenCatalog
 from core.operation import BindingEnvironment
 from datatypes.i_json import freeze_i_json
@@ -101,9 +104,10 @@ def admit_environment_configuration(
             raise EnvironmentConfigurationError(
                 "Environment Configuration values must be an object"
             )
+        binding = cast(ExecutionBindingDefinition, contract.definition)
         declarations = {
             declaration.name: declaration
-            for declaration in contract.environment_fields
+            for declaration in binding.environment_fields
         }
         submitted_fields = set(values)
         required_fields = {

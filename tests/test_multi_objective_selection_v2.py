@@ -15,10 +15,8 @@ from fastapi.testclient import TestClient
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.catalog.declarations import (
-    CatalogContract,
-)
 from core.catalog.model import (
+    CatalogContract,
     FrozenCatalog,
 )
 from core.catalog.port_contract import (
@@ -60,7 +58,7 @@ from datatypes.observation import (
     PairwiseCandidateMatch,
     ScoreCollection,
 )
-from tests.support.catalog import resolved_dependencies
+from tests.support.catalog import catalog_contract, install_runtime
 from modules.selection.package import MODULE_PACKAGE
 from modules.structure_comparison.package import (
     MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
@@ -119,16 +117,11 @@ def _catalog_with_default_selection_parameter(
     parameter = node_descriptor["node_parameters"][parameter_name]
     parameter.pop("required", None)
     parameter["default"] = default
-    node = CatalogContract(
-        contract_kind="node_type",
-        contract_id=node_id,
-        contract_version=NODE_BINDING_VERSION,
-        descriptor=node_descriptor,
-        dependencies=resolved_dependencies(node_descriptor),
-        parameter_contract=admit_declarations(
-            node_descriptor["node_parameters"],
-            path=f"test:node_type:{node_id}.node_parameters",
-        ),
+    node = catalog_contract(
+        "node_type",
+        node_id,
+        NODE_BINDING_VERSION,
+        node_descriptor,
     )
     original_binding = base.require_contract(
         "binding",
@@ -139,16 +132,11 @@ def _catalog_with_default_selection_parameter(
         canonical_json_bytes(original_binding.descriptor)
     )
     binding_descriptor["node_type"] = node.reference()
-    binding = CatalogContract(
-        contract_kind="binding",
-        contract_id=binding_id,
-        contract_version=NODE_BINDING_VERSION,
-        descriptor=binding_descriptor,
-        dependencies=resolved_dependencies(binding_descriptor),
-        parameter_contract=admit_declarations(
-            binding_descriptor.get("binding_parameters", {}),
-            path=f"test:binding:{binding_id}.binding_parameters",
-        ),
+    binding = catalog_contract(
+        "binding",
+        binding_id,
+        NODE_BINDING_VERSION,
+        binding_descriptor,
     )
     contracts = tuple(
         node
@@ -175,14 +163,31 @@ def _catalog_with_default_selection_parameter(
     )
     return FrozenCatalog(
         base.port_types,
-        contracts=contracts,
+        contracts=install_runtime(
+            contracts,
+            factories={
+                (binding_id, NODE_BINDING_VERSION): (
+                    original_binding.definition.factory
+                )
+            },
+            readiness={
+                (binding_id, NODE_BINDING_VERSION): (
+                    original_binding.definition.readiness
+                )
+            },
+            randomness=(
+                {
+                    (binding_id, NODE_BINDING_VERSION): (
+                        original_binding.definition.effective_randomness_resolver
+                    )
+                }
+                if original_binding.definition.effective_randomness_resolver
+                is not None
+                else {}
+            ),
+        ),
         availability=availability,
         availability_observed_at=base.availability_observed_at,
-        factories=base.factories,
-        readiness_declarations=base.readiness_declarations,
-        effective_randomness_resolvers=base.effective_randomness_resolvers,
-        utility_transforms=base.utility_transforms,
-        owners=base.owners,
     )
 
 
@@ -1767,12 +1772,11 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
 
         for method_name in (
             "get_contract",
-            "get_effective_randomness_resolver",
+            "get_port_type",
             "require_contract",
-            "require_factory",
             "require_port_type",
-            "require_readiness_declaration",
-            "require_utility_transform",
+            "require_reference",
+            "resolve_contract_closure",
         ):
             monkeypatch.setattr(
                 FrozenCatalog,

@@ -2,31 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
 from .builtins import builtin_port_types as repository_builtin_port_types
 from .declarations import (
     AvailabilityResult,
-    CatalogContract,
+    CatalogDefinition,
     ContractIdentity,
-    EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
-    ExpectedOptionalDependencyMissing,
+    MetricDefinition,
+    NodeTypeDefinition,
     ModulePackageRegistration,
-    ReadinessDeclaration,
-    ScientificOperationFactory,
     UtilityTransformDefinition,
     _SCIENTIFIC_COLLECTION_PORT_TYPE_VERSIONS,
 )
 from .definition_resource import (
-    DeclarativeDefinition,
-    _MetricDefinition,
-    _NodeDefinition,
     _load_definition_resource,
 )
-from .model import CatalogAvailabilityProjection, FrozenCatalog
+from .model import CatalogAvailabilityProjection, CatalogContract, FrozenCatalog
 from .port_contract import (
     CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
     CANDIDATE_PAIRING_PORT_TYPE_VERSION,
@@ -57,7 +52,7 @@ def _template_json(value: Any) -> Any:
 
 
 def _definition_identity(
-    definition: DeclarativeDefinition,
+    definition: CatalogDefinition,
 ) -> ContractIdentity:
     return definition.identity
 
@@ -174,17 +169,12 @@ def build_frozen_catalog(
         ("protein-workbench.core", definition)
         for definition in port_types
     ]
-    definitions: list[tuple[str, DeclarativeDefinition]] = []
+    definitions: list[tuple[str, CatalogDefinition]] = []
     loaded_resources: set[tuple[str, str]] = set()
     bindings_by_key: dict[
         tuple[str, str, str],
         tuple[str, ExecutionBindingDefinition],
     ] = {}
-    utility_runtime: dict[
-        tuple[str, str],
-        Callable[[Any, Mapping[str, Any]], float],
-    ] = {}
-
     for registration in registration_tuple:
         for kind, resource_references in (
             ("node_type", registration.node_definitions),
@@ -226,18 +216,10 @@ def build_frozen_catalog(
             (registration.package_id, definition)
             for definition in registration.port_types
         )
-        utility_runtime.update(
-            {
-                (definition.transform_id, definition.version): (
-                    definition.transform
-                )
-                for definition in registration.utility_transforms
-            }
-        )
 
     entry_by_key: dict[
         tuple[str, str, str],
-        tuple[set[str], PortTypeDefinition | DeclarativeDefinition],
+        tuple[set[str], PortTypeDefinition | CatalogDefinition],
     ] = {}
     template_by_key: dict[tuple[str, str, str], bytes] = {}
     for owner, port_type in port_type_entries:
@@ -286,22 +268,22 @@ def build_frozen_catalog(
     _require_single_active_contract_version(sorted(entry_by_key))
 
     for _, definition in definitions:
-        if not isinstance(definition, _NodeDefinition):
+        if not isinstance(definition, NodeTypeDefinition):
             continue
         for output in definition.outputs:
-            reference = output["port_type"]
+            reference = output.port_type
             port_entry = entry_by_key.get(reference.key)
             port_type = port_entry[1] if port_entry is not None else None
             if (
                 isinstance(port_type, PortTypeDefinition)
                 and port_type.artifact_media_types is not None
-                and output.get("artifact_kind") is None
+                and output.artifact_kind is None
             ):
                 raise CatalogBuildError(
                     f"Node {definition.node_type_id} artifact-capable output "
-                    f"{output['name']!r} requires explicit publication intent"
+                    f"{output.name!r} requires explicit publication intent"
                 )
-            if output.get("artifact_kind") is None:
+            if output.artifact_kind is None:
                 continue
             if (
                 not isinstance(port_type, PortTypeDefinition)
@@ -309,10 +291,10 @@ def build_frozen_catalog(
             ):
                 raise CatalogBuildError(
                     f"Node {definition.node_type_id} artifact output "
-                    f"{output['name']!r} requires a Port Type with an exact "
+                    f"{output.name!r} requires a Port Type with an exact "
                     "generic artifact publication contract"
                 )
-            artifact_media_type = output.get("artifact_media_type")
+            artifact_media_type = output.artifact_media_type
             if (
                 not isinstance(artifact_media_type, str)
                 or artifact_media_type
@@ -320,7 +302,7 @@ def build_frozen_catalog(
             ):
                 raise CatalogBuildError(
                     f"Node {definition.node_type_id} artifact output "
-                    f"{output['name']!r} requires one exact media type "
+                    f"{output.name!r} requires one exact media type "
                     "accepted by its nominal Port Type"
                 )
 
@@ -342,7 +324,7 @@ def build_frozen_catalog(
                     f"owned by package {registration.package_id}"
                 )
             _, node_definition = entry_by_key[binding.node_type.key]
-            if not isinstance(node_definition, _NodeDefinition):
+            if not isinstance(node_definition, NodeTypeDefinition):
                 raise CatalogBuildError(
                     f"Binding {binding.binding_id} does not reference a "
                     "Node Definition"
@@ -370,20 +352,14 @@ def build_frozen_catalog(
                     f"Binding {binding.binding_id} effective randomness must "
                     "resolve from exactly one parameter scope"
                 )
-            output_names = {
-                output["name"]
-                for output in node_definition.outputs
-            }
-            input_names = {
-                input_port["name"]
-                for input_port in node_definition.inputs
-            }
+            output_names = {output.name for output in node_definition.outputs}
+            input_names = {input_port.name for input_port in node_definition.inputs}
             outputs_by_name = {
-                output["name"]: output
+                output.name: output
                 for output in node_definition.outputs
             }
             inputs_by_name = {
-                input_port["name"]: input_port
+                input_port.name: input_port
                 for input_port in node_definition.inputs
             }
             consumption = binding.selection_objective_consumption
@@ -433,11 +409,7 @@ def build_frozen_catalog(
                     ),
                 ):
                     port = inputs_by_name.get(port_name)
-                    reference = (
-                        port.get("port_type")
-                        if isinstance(port, Mapping)
-                        else None
-                    )
+                    reference = port.port_type if port is not None else None
                     if (
                         not isinstance(reference, ContractIdentity)
                         or reference.key
@@ -448,8 +420,8 @@ def build_frozen_catalog(
                                 expected_type
                             ],
                         )
-                        or port.get("multiplicity") != "one"
-                        or port.get("required") is not True
+                        or port.multiplicity != "one"
+                        or port.required is not True
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} {field_name} must "
@@ -458,11 +430,7 @@ def build_frozen_catalog(
                 output = outputs_by_name.get(
                     consumption.candidate_output_port
                 )
-                output_reference = (
-                    output.get("port_type")
-                    if isinstance(output, Mapping)
-                    else None
-                )
+                output_reference = output.port_type if output is not None else None
                 if (
                     not isinstance(output_reference, ContractIdentity)
                     or output_reference.key
@@ -471,8 +439,8 @@ def build_frozen_catalog(
                         "candidate.collection",
                         CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
                     )
-                    or output.get("multiplicity") != "one"
-                    or output.get("required") is not True
+                    or output.multiplicity != "one"
+                    or output.required is not True
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} "
@@ -493,7 +461,7 @@ def build_frozen_catalog(
                     )
                 output_reference = outputs_by_name[
                     observation.output_port
-                ]["port_type"]
+                ].port_type
                 if (
                     not isinstance(output_reference, ContractIdentity)
                     or output_reference.key
@@ -524,7 +492,7 @@ def build_frozen_catalog(
                     if observation.subject_direction == "input"
                     else outputs_by_name
                 )[observation.subject_port]
-                subject_reference = subject_declaration["port_type"]
+                subject_reference = subject_declaration.port_type
                 if (
                     observation.subject_grain != "candidate"
                     or observation.source_role != "subject"
@@ -546,7 +514,7 @@ def build_frozen_catalog(
                 if metric_entry is None:
                     continue
                 _, metric_definition = metric_entry
-                if not isinstance(metric_definition, _MetricDefinition):
+                if not isinstance(metric_definition, MetricDefinition):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
                         "does not reference a Metric Definition"
@@ -576,8 +544,8 @@ def build_frozen_catalog(
                     )
                     axis_declaration = axis_ports.get(observation.axis_port)
                     axis_type = (
-                        axis_declaration.get("port_type")
-                        if isinstance(axis_declaration, Mapping)
+                        axis_declaration.port_type
+                        if axis_declaration is not None
                         else None
                     )
                     axis_entry = (
@@ -610,8 +578,8 @@ def build_frozen_catalog(
                         observation.method_port
                     )
                     method_type = (
-                        method_declaration.get("port_type")
-                        if isinstance(method_declaration, Mapping)
+                        method_declaration.port_type
+                        if method_declaration is not None
                         else None
                     )
                     method_entry = (
@@ -648,8 +616,8 @@ def build_frozen_catalog(
                         observation.reference_port
                     )
                     reference_type = (
-                        reference_declaration.get("port_type")
-                        if isinstance(reference_declaration, Mapping)
+                        reference_declaration.port_type
+                        if reference_declaration is not None
                         else None
                     )
                     if (
@@ -677,8 +645,8 @@ def build_frozen_catalog(
                         observation.pairing_port
                     )
                     pairing_type = (
-                        pairing_declaration.get("port_type")
-                        if isinstance(pairing_declaration, Mapping)
+                        pairing_declaration.port_type
+                        if pairing_declaration is not None
                         else None
                     )
                     if (
@@ -702,8 +670,8 @@ def build_frozen_catalog(
                     propagation.output_port
                 )
                 output_type = (
-                    output_declaration.get("port_type")
-                    if isinstance(output_declaration, Mapping)
+                    output_declaration.port_type
+                    if output_declaration is not None
                     else None
                 )
                 if (
@@ -721,7 +689,7 @@ def build_frozen_catalog(
                         "score.collection@"
                         f"{SCORE_COLLECTION_PORT_TYPE_VERSION}"
                     )
-                if output_declaration.get("multiplicity") != "one":
+                if output_declaration.multiplicity != "one":
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Observation "
                         "propagation output must use multiplicity one"
@@ -729,8 +697,8 @@ def build_frozen_catalog(
                 for input_port in propagation.input_ports:
                     input_declaration = inputs_by_name.get(input_port)
                     input_type = (
-                        input_declaration.get("port_type")
-                        if isinstance(input_declaration, Mapping)
+                        input_declaration.port_type
+                        if input_declaration is not None
                         else None
                     )
                     if (
@@ -748,14 +716,14 @@ def build_frozen_catalog(
                             "score.collection@"
                             f"{SCORE_COLLECTION_PORT_TYPE_VERSION}"
                         )
-                    if input_declaration.get("multiplicity") != "one":
+                    if input_declaration.multiplicity != "one":
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Observation "
                             "propagation inputs must use multiplicity one"
                         )
                     if (
                         propagation.absent_input_policy == "ignore"
-                        and input_declaration.get("required") is not False
+                        and input_declaration.required is not False
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Observation "
@@ -827,18 +795,6 @@ def build_frozen_catalog(
             return value
 
         descriptor = resolve_value(definition.descriptor_template())
-        parameter_contract = (
-            definition.parameter_contract
-            if isinstance(
-                definition,
-                (
-                    _NodeDefinition,
-                    ExecutionBindingDefinition,
-                    UtilityTransformDefinition,
-                ),
-            )
-            else None
-        )
         contract = CatalogContract(
             contract_kind=key[0],  # type: ignore[arg-type]
             contract_id=key[1],
@@ -848,12 +804,7 @@ def build_frozen_catalog(
                 dependencies[identity]
                 for identity in sorted(dependencies)
             ),
-            parameter_contract=parameter_contract,
-            environment_fields=(
-                definition.environment_fields
-                if isinstance(definition, ExecutionBindingDefinition)
-                else ()
-            ),
+            definition=definition,
         )
         resolving.pop()
         resolved[key] = contract
@@ -866,32 +817,10 @@ def build_frozen_catalog(
         observed_at or datetime.now(timezone.utc)
     )
     availability_snapshots: list[CatalogAvailabilityProjection] = []
-    factories: dict[
-        tuple[str, str],
-        ScientificOperationFactory,
-    ] = {}
-    readiness: dict[
-        tuple[str, str],
-        ReadinessDeclaration,
-    ] = {}
-    effective_randomness_resolvers: dict[
-        tuple[str, str],
-        EffectiveRandomnessResolver,
-    ] = {}
     for key in sorted(bindings_by_key):
         _, binding = bindings_by_key[key]
         contract = resolved[key]
-        try:
-            availability = binding.availability.check()
-        except ExpectedOptionalDependencyMissing as error:
-            availability = AvailabilityResult.unavailable(
-                "optional_dependency_missing",
-                (
-                    f"Optional dependency {error.dependency_id} "
-                    "is not installed"
-                ),
-                retryable=False,
-            )
+        availability = binding.availability.check()
         if not isinstance(availability, AvailabilityResult):
             raise CatalogBuildError(
                 f"Availability checker for {binding.binding_id} returned "
@@ -909,18 +838,6 @@ def build_frozen_catalog(
                 result=availability,
             )
         )
-        runtime_key = (binding.binding_id, binding.version)
-        factories[runtime_key] = binding.factory
-        readiness[runtime_key] = binding.readiness
-        if binding.effective_randomness_resolver is not None:
-            effective_randomness_resolvers[runtime_key] = (
-                binding.effective_randomness_resolver
-            )
-
-    owners = {
-        key: frozenset(owner_set)
-        for key, (owner_set, _) in entry_by_key.items()
-    }
     return FrozenCatalog(
         tuple(
             entry
@@ -929,9 +846,4 @@ def build_frozen_catalog(
         contracts=tuple(resolved[key] for key in sorted(resolved)),
         availability=tuple(availability_snapshots),
         availability_observed_at=observation_time,
-        factories=factories,
-        readiness_declarations=readiness,
-        effective_randomness_resolvers=effective_randomness_resolvers,
-        utility_transforms=utility_runtime,
-        owners=owners,
     )

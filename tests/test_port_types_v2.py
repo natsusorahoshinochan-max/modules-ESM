@@ -1084,42 +1084,6 @@ def test_behavior_declaration_parameters_are_deeply_immutable() -> None:
         behavior.parameters["schema"]["new_field"] = True
 
 
-def test_direct_connections_require_exact_known_nominal_identity() -> None:
-    catalog = builtin_frozen_catalog()
-
-    assert catalog.directly_compatible(
-        "protein.sequence",
-        "3.0.0",
-        "protein.sequence",
-        "3.0.0",
-    )
-    assert not catalog.directly_compatible(
-        "residue.track",
-        "2.1.0",
-        "residue.track.secondary_structure",
-        "2.1.0",
-    )
-    assert not catalog.directly_compatible(
-        "protein.sequence",
-        "3.0.0",
-        "text",
-        "2.1.0",
-    ), "scientific conversion must be represented by an explicit Node Type"
-
-    for unknown_id, unknown_version in (
-        ("unknown.type", "2.1.0"),
-        ("protein.sequence", "1.0.0"),
-        ("protein.sequence", ">=2"),
-    ):
-        with pytest.raises(UnknownPortTypeError):
-            catalog.directly_compatible(
-                unknown_id,
-                unknown_version,
-                "protein.sequence",
-                "3.0.0",
-            )
-
-
 def test_rfc8785_and_sha256_match_the_published_golden_vector() -> None:
     vector = {
         "literals": [None, True, False],

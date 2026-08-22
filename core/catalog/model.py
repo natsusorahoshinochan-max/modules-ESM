@@ -12,7 +12,13 @@ from typing import Any
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import thaw_i_json
 
-from .declarations import AvailabilityResult, CatalogContract
+from .declarations import (
+    AvailabilityResult,
+    CatalogDefinition,
+    ContractKind,
+    _freeze_declaration,
+    _thaw_declaration,
+)
 from .port_contract import (
     CATALOG_NAMESPACE,
     CatalogBuildError,
@@ -23,6 +29,30 @@ from .port_contract import (
     UnknownPortTypeError,
     canonical_json_bytes,
 )
+
+
+_PRESENTATION_CONTRACT_FIELDS = {
+    "node_type": frozenset({"title", "summary", "category"}),
+    "metric": frozenset({"title", "description"}),
+}
+
+
+def _result_identity_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        is_reference = set(value) == {
+            "contract_kind",
+            "contract_id",
+            "contract_version",
+            "contract_digest",
+        }
+        return {
+            key: _result_identity_value(item)
+            for key, item in value.items()
+            if not (is_reference and key == "contract_digest")
+        }
+    if isinstance(value, tuple):
+        return [_result_identity_value(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +82,86 @@ class CatalogProjection:
     availability: tuple[CatalogAvailabilityProjection, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class CatalogContract:
+    """One resolved contract and its Builder-admitted typed definition."""
+
+    contract_kind: ContractKind
+    contract_id: str
+    contract_version: str
+    descriptor: Mapping[str, Any]
+    dependencies: tuple[ExactContractReference, ...] = field(repr=False)
+    definition: CatalogDefinition = field(repr=False)
+    result_identity_descriptor: Mapping[str, Any] = field(
+        init=False,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "descriptor",
+            _freeze_declaration(self.descriptor),
+        )
+        object.__setattr__(self, "dependencies", tuple(self.dependencies))
+        object.__setattr__(
+            self,
+            "result_identity_descriptor",
+            _freeze_declaration(
+                {
+                    "contract_kind": self.contract_kind,
+                    "contract_id": self.contract_id,
+                    "contract_version": self.contract_version,
+                    "descriptor": _result_identity_value(
+                        {
+                            key: value
+                            for key, value in self.descriptor.items()
+                            if key
+                            not in _PRESENTATION_CONTRACT_FIELDS.get(
+                                self.contract_kind,
+                                (),
+                            )
+                        }
+                    ),
+                }
+            ),
+        )
+
+    @property
+    def descriptor_bytes(self) -> bytes:
+        return canonical_json_bytes(_thaw_declaration(self.descriptor))
+
+    @property
+    def contract_digest(self) -> str:
+        return f"sha256:{hashlib.sha256(self.descriptor_bytes).hexdigest()}"
+
+    def reference(self) -> dict[str, Any]:
+        return {
+            "contract_kind": self.contract_kind,
+            "contract_id": self.contract_id,
+            "contract_version": self.contract_version,
+            "contract_digest": self.contract_digest,
+        }
+
+
+def result_identity_contract(
+    contract: PortTypeDefinition | CatalogContract,
+) -> Mapping[str, Any]:
+    """Return Catalog-owned identity facts without presentation or digests."""
+    if isinstance(contract, CatalogContract):
+        return contract.result_identity_descriptor
+    return _freeze_declaration(
+        {
+            "contract_kind": "port_type",
+            "contract_id": contract.type_id,
+            "contract_version": contract.version,
+            "descriptor": _result_identity_value(
+                contract.canonical_descriptor
+            ),
+        }
+    )
+
+
 def _canonical_reference(
     reference: ExactContractReference,
 ) -> dict[str, str]:
@@ -72,31 +182,6 @@ class FrozenCatalog:
     availability: tuple[CatalogAvailabilityProjection, ...] = ()
     availability_observed_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc),
-    )
-    factories: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    readiness_declarations: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    effective_randomness_resolvers: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    utility_transforms: Mapping[tuple[str, str], Any] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    owners: Mapping[tuple[str, str, str], frozenset[str]] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
     )
     _by_identity: Mapping[tuple[str, str], PortTypeDefinition] = field(
         init=False,
@@ -168,31 +253,6 @@ class FrozenCatalog:
             MappingProxyType(active_contract_versions),
         )
         object.__setattr__(self, "availability", tuple(self.availability))
-        object.__setattr__(
-            self,
-            "factories",
-            MappingProxyType(dict(self.factories)),
-        )
-        object.__setattr__(
-            self,
-            "readiness_declarations",
-            MappingProxyType(dict(self.readiness_declarations)),
-        )
-        object.__setattr__(
-            self,
-            "effective_randomness_resolvers",
-            MappingProxyType(dict(self.effective_randomness_resolvers)),
-        )
-        object.__setattr__(
-            self,
-            "utility_transforms",
-            MappingProxyType(dict(self.utility_transforms)),
-        )
-        object.__setattr__(
-            self,
-            "owners",
-            MappingProxyType(dict(self.owners)),
-        )
 
     def _contract_projections(self) -> tuple[CatalogContractProjection, ...]:
         projected = [
@@ -274,21 +334,6 @@ class FrozenCatalog:
         if definition is None:
             raise UnknownPortTypeError(f"Unknown Port Type {type_id}@{version}")
         return definition
-
-    def directly_compatible(
-        self,
-        source_type_id: str,
-        source_version: str,
-        target_type_id: str,
-        target_version: str,
-    ) -> bool:
-        """Accept a direct connection only between known exact identities."""
-        source = self.require_port_type(source_type_id, source_version)
-        target = self.require_port_type(target_type_id, target_version)
-        return (source.type_id, source.version) == (
-            target.type_id,
-            target.version,
-        )
 
     def get_contract(
         self,
@@ -407,34 +452,6 @@ class FrozenCatalog:
             )
         )
 
-    def require_factory(
-        self,
-        binding_id: str,
-        binding_version: str,
-    ) -> Any:
-        """Return the lazy factory owned by one exact Binding."""
-        try:
-            return self.factories[(binding_id, binding_version)]
-        except KeyError as error:
-            raise CatalogBuildError(
-                f"Unknown Binding factory {binding_id}@{binding_version}"
-            ) from error
-
-    def require_readiness_declaration(
-        self,
-        binding_id: str,
-        binding_version: str,
-    ) -> Any:
-        """Return the run-scoped Readiness declaration for one Binding."""
-        try:
-            return self.readiness_declarations[
-                (binding_id, binding_version)
-            ]
-        except KeyError as error:
-            raise CatalogBuildError(
-                f"Unknown Binding readiness {binding_id}@{binding_version}"
-            ) from error
-
     def require_availability(
         self,
         binding: ExactContractReference,
@@ -448,31 +465,6 @@ class FrozenCatalog:
             f"{binding.contract_id}@{binding.contract_version}"
         )
 
-    def get_effective_randomness_resolver(
-        self,
-        binding_id: str,
-        binding_version: str,
-    ) -> Any | None:
-        """Return a Binding's optional pre-Cache randomness resolver."""
-        return self.effective_randomness_resolvers.get(
-            (binding_id, binding_version)
-        )
-
-    def require_utility_transform(
-        self,
-        transform_id: str,
-        transform_version: str,
-    ) -> Any:
-        """Return one private Utility Transform runtime."""
-        try:
-            return self.utility_transforms[
-                (transform_id, transform_version)
-            ]
-        except KeyError as error:
-            raise CatalogBuildError(
-                f"Unknown Utility Transform "
-                f"{transform_id}@{transform_version}"
-            ) from error
 
     def projection(self) -> CatalogProjection:
         """Return typed stable contracts and startup Binding observations."""

@@ -7,13 +7,20 @@ from datetime import datetime, timezone
 
 import pytest
 
-from core.catalog.declarations import AvailabilityResult, CatalogContract
+from core.catalog.declarations import AvailabilityResult
 from core.catalog.model import (
     CatalogAvailabilityProjection,
+    CatalogContract,
     CatalogContractProjection,
     FrozenCatalog,
+    result_identity_contract,
 )
-from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+    canonical_sha256,
+)
+from datatypes.i_json import thaw_i_json
 from tests.support.catalog import binding_availability, resolved_dependencies
 from protein_workbench_public.catalog_codec import encode_catalog_projection
 
@@ -28,6 +35,12 @@ PORT_TYPE_DIGEST = (
 )
 CATALOG_DIGEST = (
     "sha256:ae9ff74663ad394f3ce43fd1ba787b5706889d7e2bca7f8995c13d58b3f033e0"
+)
+PORT_TYPE_RESULT_CONTRACT_DIGEST = (
+    "sha256:db116bfdd70742b020c5b33c7d46d7ad9b18c5c74b162a15f6d8ed3fc8809e47"
+)
+NODE_RESULT_CONTRACT_DIGEST = (
+    "sha256:03ce889fcc94c4bfe7e0761fa571d8f709dea0632d40cb38886504d3219e54e3"
 )
 
 
@@ -72,6 +85,7 @@ def _catalog() -> FrozenCatalog:
         contract_version="1.0.0",
         descriptor=binding_descriptor,
         dependencies=resolved_dependencies(binding_descriptor),
+        definition=object(),  # type: ignore[arg-type]
     )
     return FrozenCatalog(
         (port_type,),
@@ -122,6 +136,60 @@ def test_catalog_resolves_exact_typed_binding_availability() -> None:
     assert observation.binding == binding
     assert observation.observed_at == OBSERVED_AT
     assert observation.result.is_available is True
+
+
+def test_result_contract_projection_has_fixed_node_and_port_identities() -> None:
+    node_descriptor = {
+        "schema_namespace": "protein-workbench-contract/v2",
+        "contract_kind": "node_type",
+        "contract_id": "fixture.identity.node",
+        "contract_version": "1.0.0",
+        "title": "Presentation title",
+        "summary": "Presentation summary",
+        "category": "presentation-category",
+        "inputs": [
+            {
+                "name": "value",
+                "port_type": {
+                    "contract_kind": "port_type",
+                    "contract_id": "fixture.catalog.text",
+                    "contract_version": "1.0.0",
+                    "contract_digest": PORT_TYPE_DIGEST,
+                },
+                "required": True,
+                "multiplicity": "one",
+                "scientific_meaning": "fixture value",
+            }
+        ],
+        "outputs": [],
+        "parameter_groups": [],
+        "node_parameters": {},
+    }
+    node = CatalogContract(
+        contract_kind="node_type",
+        contract_id="fixture.identity.node",
+        contract_version="1.0.0",
+        descriptor=node_descriptor,
+        dependencies=resolved_dependencies(node_descriptor),
+        definition=object(),  # type: ignore[arg-type]
+    )
+    node_projection = thaw_i_json(result_identity_contract(node))
+    port_projection = result_identity_contract(_catalog().port_types[0])
+
+    assert not {
+        "title",
+        "summary",
+        "category",
+    } & node_projection["descriptor"].keys()
+    assert node_projection["descriptor"]["inputs"][0]["port_type"] == {
+        "contract_kind": "port_type",
+        "contract_id": "fixture.catalog.text",
+        "contract_version": "1.0.0",
+    }
+    assert canonical_sha256(node_projection) == NODE_RESULT_CONTRACT_DIGEST
+    assert canonical_sha256(port_projection) == (
+        PORT_TYPE_RESULT_CONTRACT_DIGEST
+    )
 
 
 def test_public_codec_assembles_the_exact_catalog_wire() -> None:

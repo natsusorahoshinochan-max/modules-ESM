@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Mapping
+from dataclasses import dataclass
 import math
-from typing import Any
+from typing import Any, cast
 
+from core.catalog.declarations import (
+    ContractIdentity,
+    ExecutionBindingDefinition,
+    NodePortDefinition,
+    NodeTypeDefinition,
+    ProducedObservationDefinition,
+)
 from core.catalog.model import FrozenCatalog
 from core.catalog.port_contract import canonical_json_bytes
 from core.parameters.model import AdmittedParameterValues
@@ -19,15 +27,30 @@ from core.workflow.compiler import WorkflowCompileError
 from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
-    _thaw_json,
 )
+from datatypes.exact_reference import ExactContractReference
 
 
-def _port_map(contract: Any, direction: str) -> dict[str, Mapping[str, Any]]:
-    return {
-        port["name"]: port
-        for port in contract.descriptor.get(direction, ())
-    }
+def _port_map(
+    definition: NodeTypeDefinition,
+    direction: str,
+) -> dict[str, NodePortDefinition]:
+    ports = definition.inputs if direction == "inputs" else definition.outputs
+    return {port.name: port for port in ports}
+
+
+@dataclass(frozen=True, slots=True)
+class _ObservationCapability:
+    source_partition: str
+    metric: ExactContractReference
+    method: ExactContractReference | None
+    context_profile: Mapping[str, Any]
+    subject_grain: str
+    source_role: str
+    guaranteed_multiplicity: str
+    subject_source: SelectionInput | None
+    reference_source: SelectionInput | None
+    pairing_source: SelectionInput | None
 
 def _validate_static_semantics(
     workflow: WorkflowDocument,
@@ -57,20 +80,26 @@ def _validate_static_semantics(
                 "Workflow Edge references a Node outside the Workflow",
                 field_path=("edges", index),
             )
-        source_contract = catalog.require_contract(
+        source_definition = cast(
+            NodeTypeDefinition,
+            catalog.require_contract(
             "node_type",
             source.node_type_id,
             source.node_type_version,
+            ).definition,
         )
-        target_contract = catalog.require_contract(
+        target_definition = cast(
+            NodeTypeDefinition,
+            catalog.require_contract(
             "node_type",
             target.node_type_id,
             target.node_type_version,
+            ).definition,
         )
-        source_port = _port_map(source_contract, "outputs").get(
+        source_port = _port_map(source_definition, "outputs").get(
             edge.source_port
         )
-        target_port = _port_map(target_contract, "inputs").get(
+        target_port = _port_map(target_definition, "inputs").get(
             edge.target_port
         )
         if source_port is None:
@@ -87,7 +116,7 @@ def _validate_static_semantics(
                 node_id=target.node_id,
                 field_path=("edges", index, "target_port"),
             )
-        if source_port["port_type"] != target_port["port_type"]:
+        if source_port.port_type.key != target_port.port_type.key:
             raise WorkflowCompileError(
                 "port_type_mismatch",
                 "Connected Ports do not share one exact nominal Port Type",
@@ -95,8 +124,8 @@ def _validate_static_semantics(
                 field_path=("edges", index),
             )
         if (
-            source_port["multiplicity"] == "many"
-            and target_port["multiplicity"] == "one"
+            source_port.multiplicity == "many"
+            and target_port.multiplicity == "one"
         ):
             raise WorkflowCompileError(
                 "port_multiplicity_mismatch",
@@ -111,7 +140,7 @@ def _validate_static_semantics(
         incoming[incoming_key] = incoming.get(incoming_key, 0) + 1
         if (
             incoming[incoming_key] > 1
-            and target_port.get("multiplicity") != "many"
+            and target_port.multiplicity != "many"
         ):
             raise WorkflowCompileError(
                 "duplicate_input_connection",
@@ -122,50 +151,49 @@ def _validate_static_semantics(
         adjacency[source.node_id].append(target.node_id)
         indegree[target.node_id] += 1
 
-    plan_nodes: dict[str, tuple[Any, Any]] = {}
+    plan_nodes: dict[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ] = {}
     for index, node in enumerate(workflow.nodes):
-        node_contract = catalog.require_contract(
+        node_definition = cast(
+            NodeTypeDefinition,
+            catalog.require_contract(
             "node_type",
             node.node_type_id,
             node.node_type_version,
+            ).definition,
         )
-        binding = catalog.require_contract(
+        binding = cast(
+            ExecutionBindingDefinition,
+            catalog.require_contract(
             "binding",
             node.binding_id,
             node.binding_version,
+            ).definition,
         )
-        if binding.descriptor.get("node_type") != node_contract.reference():
+        if binding.node_type.key != node_definition.identity.key:
             raise WorkflowCompileError(
                 "binding_ownership_mismatch",
                 "Selected Binding does not belong to the selected Node Type",
                 node_id=node.node_id,
                 field_path=("nodes", index, "binding_id"),
             )
-        for port in node_contract.descriptor.get("inputs", ()):
+        for port in node_definition.inputs:
             if (
-                port.get("required") is True
-                and incoming.get((node.node_id, port["name"]), 0) == 0
+                port.required
+                and incoming.get((node.node_id, port.name), 0) == 0
             ):
                 raise WorkflowCompileError(
                     "required_input_missing",
-                    f"Required input Port {port['name']!r} is not connected",
+                    f"Required input Port {port.name!r} is not connected",
                     node_id=node.node_id,
                     field_path=("nodes", index),
                 )
-        for constraint in node_contract.descriptor.get(
-            "input_constraints",
-            (),
-        ):
-            if constraint.get("kind") != "exactly_one":
-                raise WorkflowCompileError(
-                    "invalid_input_constraint",
-                    "Node Type contains an unsupported input constraint",
-                    node_id=node.node_id,
-                    field_path=("nodes", index),
-                )
+        for constraint in node_definition.input_constraints:
             connected = sum(
                 incoming.get((node.node_id, port_name), 0)
-                for port_name in constraint["ports"]
+                for port_name in constraint
             )
             if connected != 1:
                 raise WorkflowCompileError(
@@ -174,7 +202,7 @@ def _validate_static_semantics(
                     node_id=node.node_id,
                     field_path=("nodes", index),
                 )
-        plan_nodes[node.node_id] = (node_contract, binding)
+        plan_nodes[node.node_id] = (node_definition, binding)
 
     queue = deque(
         node.node_id for node in workflow.nodes if indegree[node.node_id] == 0
@@ -194,17 +222,23 @@ def _validate_static_semantics(
             field_path=("edges",),
         )
 
+    capabilities = _derive_observation_capabilities(
+        workflow,
+        catalog=catalog,
+        plan_nodes=plan_nodes,
+        node_order=tuple(order),
+    )
     _validate_selection_objectives(
         workflow,
         nodes_by_id=nodes_by_id,
         plan_nodes=plan_nodes,
-        node_order=tuple(order),
+        capabilities=capabilities,
     )
     _validate_observation_selectors(
         workflow,
         nodes_by_id=nodes_by_id,
         plan_nodes=plan_nodes,
-        node_order=tuple(order),
+        capabilities=capabilities,
     )
     _validate_selection_objective_consumers(
         workflow,
@@ -218,8 +252,14 @@ def _validate_selection_objectives(
     workflow: WorkflowDocument,
     *,
     nodes_by_id: Mapping[str, WorkflowNodeInstance],
-    plan_nodes: Mapping[str, tuple[Any, Any]],
-    node_order: tuple[str, ...],
+    plan_nodes: Mapping[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ],
+    capabilities: Mapping[
+        tuple[str, str],
+        tuple[_ObservationCapability, ...],
+    ],
 ) -> None:
     objectives = workflow.selection_objectives
     objective_ids = [objective.objective_id for objective in objectives]
@@ -253,14 +293,8 @@ def _validate_selection_objectives(
             "Weighted Selection Objectives must use one exact Candidate input",
             field_path=("selection_objectives",),
         )
-    capabilities = _derive_observation_capabilities(
-        workflow,
-        plan_nodes=plan_nodes,
-        node_order=node_order,
-    )
     for index, objective in enumerate(objectives):
         objective_path = ("selection_objectives", index)
-        input_contracts: dict[str, Any] = {}
         for field_name, input_reference, expected_type in (
             (
                 "candidate_input",
@@ -280,15 +314,14 @@ def _validate_selection_objectives(
                     f"{field_name} references a Node outside the Workflow",
                     field_path=(*objective_path, field_name, "node_id"),
                 )
-            node_contract, binding = plan_nodes[node.node_id]
-            output = _port_map(node_contract, "outputs").get(
+            node_definition, _ = plan_nodes[node.node_id]
+            output = _port_map(node_definition, "outputs").get(
                 input_reference.output_port
             )
             if (
                 output is None
-                or output.get("port_type", {}).get("contract_id")
-                != expected_type
-                or output.get("multiplicity") != "one"
+                or output.port_type.contract_id != expected_type
+                or output.multiplicity != "one"
             ):
                 raise WorkflowCompileError(
                     "invalid_selection_objective",
@@ -297,20 +330,9 @@ def _validate_selection_objectives(
                     node_id=node.node_id,
                     field_path=(*objective_path, field_name, "output_port"),
                 )
-            input_contracts[field_name] = (node_contract, binding, output)
-
-        requested_method = {
-            "contract_kind": "method",
-            "contract_id": objective.method.contract_id,
-            "contract_version": objective.method.contract_version,
-            "contract_digest": objective.method.contract_digest,
-        }
-        requested_metric = {
-            "contract_kind": "metric",
-            "contract_id": objective.metric.contract_id,
-            "contract_version": objective.metric.contract_version,
-            "contract_digest": objective.metric.contract_digest,
-        }
+        requested_context = context_selector_canonical(
+            objective.context_selector
+        )
         output_capabilities = capabilities.get(
             (
                 objective.score_collection_input.node_id,
@@ -321,46 +343,31 @@ def _validate_selection_objectives(
         produced = [
             capability
             for capability in output_capabilities
-            if capability.get("source_partition")
-            == objective.source_partition
-            and capability.get("metric") == requested_metric
-            and capability.get("method") == requested_method
-            and capability.get("context_profile")
-            == context_selector_canonical(
-                objective.context_selector
-            )
-            and capability.get("subject_grain") == "candidate"
-            and capability.get("source_role") == "subject"
-            and capability.get("guaranteed_multiplicity") == "one"
-            and capability.get("subject_source")
-            == selection_input_canonical(objective.candidate_input)
+            if capability.source_partition == objective.source_partition
+            and capability.metric == objective.metric
+            and capability.method == objective.method
+            and capability.context_profile == requested_context
+            and capability.subject_grain == "candidate"
+            and capability.source_role == "subject"
+            and capability.guaranteed_multiplicity == "one"
+            and capability.subject_source == objective.candidate_input
             and (
-                context_selector_canonical(
-                    objective.context_selector
-                ).get("kind")
-                != "pairwise"
-                or capability.get("reference_source") is not None
+                requested_context.get("kind") != "pairwise"
+                or capability.reference_source is not None
             )
             and (
-                context_selector_canonical(
-                    objective.context_selector
-                ).get("pairing_mode")
+                requested_context.get("pairing_mode")
                 != "per_subject_counterpart"
-                or capability.get("pairing_source") is not None
+                or capability.pairing_source is not None
             )
         ]
         if len(produced) != 1:
             if any(
-                capability.get("source_partition")
-                == objective.source_partition
-                and capability.get("metric") == requested_metric
-                and capability.get("context_profile")
-                == context_selector_canonical(
-                    objective.context_selector
-                )
-                and capability.get("subject_source")
-                == selection_input_canonical(objective.candidate_input)
-                and capability.get("method") != requested_method
+                capability.source_partition == objective.source_partition
+                and capability.metric == objective.metric
+                and capability.context_profile == requested_context
+                and capability.subject_source == objective.candidate_input
+                and capability.method != objective.method
                 for capability in output_capabilities
             ):
                 raise WorkflowCompileError(
@@ -382,8 +389,14 @@ def _validate_observation_selectors(
     workflow: WorkflowDocument,
     *,
     nodes_by_id: Mapping[str, WorkflowNodeInstance],
-    plan_nodes: Mapping[str, tuple[Any, Any]],
-    node_order: tuple[str, ...],
+    plan_nodes: Mapping[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ],
+    capabilities: Mapping[
+        tuple[str, str],
+        tuple[_ObservationCapability, ...],
+    ],
 ) -> None:
     selectors = workflow.observation_selectors
     selector_ids = [selector.selector_id for selector in selectors]
@@ -393,11 +406,6 @@ def _validate_observation_selectors(
             "Observation Selector IDs must be unique",
             field_path=("observation_selectors",),
         )
-    capabilities = _derive_observation_capabilities(
-        workflow,
-        plan_nodes=plan_nodes,
-        node_order=node_order,
-    )
     for index, selector in enumerate(selectors):
         selector_path = ("observation_selectors", index)
         for field_name, input_reference, expected_type in (
@@ -419,15 +427,14 @@ def _validate_observation_selectors(
                     f"{field_name} references a Node outside the Workflow",
                     field_path=(*selector_path, field_name, "node_id"),
                 )
-            node_contract, _ = plan_nodes[node.node_id]
-            output = _port_map(node_contract, "outputs").get(
+            node_definition, _ = plan_nodes[node.node_id]
+            output = _port_map(node_definition, "outputs").get(
                 input_reference.output_port
             )
             if (
                 output is None
-                or output.get("port_type", {}).get("contract_id")
-                != expected_type
-                or output.get("multiplicity") != "one"
+                or output.port_type.contract_id != expected_type
+                or output.multiplicity != "one"
             ):
                 raise WorkflowCompileError(
                     "invalid_observation_selector",
@@ -436,18 +443,9 @@ def _validate_observation_selectors(
                     node_id=node.node_id,
                     field_path=(*selector_path, field_name, "output_port"),
                 )
-        requested_method = {
-            "contract_kind": "method",
-            "contract_id": selector.method.contract_id,
-            "contract_version": selector.method.contract_version,
-            "contract_digest": selector.method.contract_digest,
-        }
-        requested_metric = {
-            "contract_kind": "metric",
-            "contract_id": selector.metric.contract_id,
-            "contract_version": selector.metric.contract_version,
-            "contract_digest": selector.metric.contract_digest,
-        }
+        requested_context = context_selector_canonical(
+            selector.context_selector
+        )
         output_capabilities = capabilities.get(
             (
                 selector.score_collection_input.node_id,
@@ -458,35 +456,25 @@ def _validate_observation_selectors(
         produced = [
             capability
             for capability in output_capabilities
-            if capability.get("source_partition")
-            == selector.source_partition
-            and capability.get("metric") == requested_metric
-            and capability.get("method") == requested_method
-            and capability.get("context_profile")
-            == context_selector_canonical(
-                selector.context_selector
-            )
-            and capability.get("subject_grain") == "candidate"
-            and capability.get("source_role") == "subject"
-            and capability.get("guaranteed_multiplicity") == "one"
-            and capability.get("subject_source")
-            == selection_input_canonical(selector.candidate_input)
+            if capability.source_partition == selector.source_partition
+            and capability.metric == selector.metric
+            and capability.method == selector.method
+            and capability.context_profile == requested_context
+            and capability.subject_grain == "candidate"
+            and capability.source_role == "subject"
+            and capability.guaranteed_multiplicity == "one"
+            and capability.subject_source == selector.candidate_input
         ]
         if len(produced) != 1:
             if any(
-                capability.get("source_partition")
-                == selector.source_partition
-                and capability.get("metric") == requested_metric
-                and capability.get("context_profile")
-                == context_selector_canonical(
-                    selector.context_selector
-                )
-                and capability.get("subject_grain") == "candidate"
-                and capability.get("source_role") == "subject"
-                and capability.get("guaranteed_multiplicity") == "one"
-                and capability.get("subject_source")
-                == selection_input_canonical(selector.candidate_input)
-                and capability.get("method") != requested_method
+                capability.source_partition == selector.source_partition
+                and capability.metric == selector.metric
+                and capability.context_profile == requested_context
+                and capability.subject_grain == "candidate"
+                and capability.source_role == "subject"
+                and capability.guaranteed_multiplicity == "one"
+                and capability.subject_source == selector.candidate_input
+                and capability.method != selector.method
                 for capability in output_capabilities
             ):
                 raise WorkflowCompileError(
@@ -539,7 +527,10 @@ def _connected_source_field_path(
 def _validate_selection_objective_consumers(
     workflow: WorkflowDocument,
     *,
-    plan_nodes: Mapping[str, tuple[Any, Any]],
+    plan_nodes: Mapping[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ],
     admitted_node_parameters: Mapping[str, AdmittedParameterValues],
 ) -> None:
     """Bind generic declared selection consumers to exact Workflow sources."""
@@ -562,19 +553,11 @@ def _validate_selection_objective_consumers(
     }
     for node_id, (_, binding) in plan_nodes.items():
         node_index = node_indexes[node_id]
-        selector_consumption = binding.descriptor.get(
-            "observation_selector_consumption"
-        )
-        if isinstance(selector_consumption, Mapping):
+        selector_consumption = binding.observation_selector_consumption
+        if selector_consumption is not None:
             parameters = admitted_node_parameters[node_id]
-            parameter_name = selector_consumption.get(
-                "selector_id_parameter"
-            )
-            selector_id = (
-                parameters.get(parameter_name)
-                if isinstance(parameter_name, str)
-                else None
-            )
+            parameter_name = selector_consumption.selector_id_parameter
+            selector_id = parameters[parameter_name]
             selector = selectors.get(selector_id)
             if selector is None:
                 raise WorkflowCompileError(
@@ -592,25 +575,19 @@ def _validate_selection_objective_consumers(
             for label, port_name, reference in (
                 (
                     "Candidate",
-                    selector_consumption.get("candidate_input_port"),
+                    selector_consumption.candidate_input_port,
                     selector.candidate_input,
                 ),
                 (
                     "Score Collection",
-                    selector_consumption.get(
-                        "score_collection_input_port"
-                    ),
+                    selector_consumption.score_collection_input_port,
                     selector.score_collection_input,
                 ),
             ):
-                connected = (
-                    _connected_source(
-                        workflow,
-                        node_id=node_id,
-                        input_port=port_name,
-                    )
-                    if isinstance(port_name, str)
-                    else None
+                connected = _connected_source(
+                    workflow,
+                    node_id=node_id,
+                    input_port=port_name,
                 )
                 if connected != reference:
                     raise WorkflowCompileError(
@@ -627,33 +604,20 @@ def _validate_selection_objective_consumers(
                     )
             selector_consumers[selector.selector_id].append(node_id)
             continue
-        consumption = binding.descriptor.get(
-            "selection_objective_consumption"
-        )
-        if not isinstance(consumption, Mapping):
+        consumption = binding.selection_objective_consumption
+        if consumption is None:
             continue
         parameters = admitted_node_parameters[node_id]
-        scalar_parameter = consumption.get("objective_id_parameter")
-        ordered_parameter = consumption.get("objective_ids_parameter")
-        if isinstance(scalar_parameter, str):
-            parameter_name = scalar_parameter
-            raw_objective_ids = (parameters.get(parameter_name),)
-        elif isinstance(ordered_parameter, str):
-            parameter_name = ordered_parameter
-            selected = parameters.get(parameter_name)
-            raw_objective_ids = (
-                tuple(selected)
-                if isinstance(selected, (list, tuple))
-                else ()
-            )
+        if consumption.objective_id_parameter is not None:
+            parameter_name = consumption.objective_id_parameter
+            raw_objective_ids = (parameters[parameter_name],)
         else:
-            parameter_name = "objective_id"
-            raw_objective_ids = ()
+            parameter_name = consumption.objective_ids_parameter
+            raw_objective_ids = tuple(parameters[parameter_name])
         selected_objectives = tuple(
             objectives[objective_id]
             for objective_id in raw_objective_ids
-            if isinstance(objective_id, str)
-            and objective_id in objectives
+            if objective_id in objectives
         )
         if (
             not raw_objective_ids
@@ -672,21 +636,21 @@ def _validate_selection_objective_consumers(
                 ),
             )
         for label, port_name, reference_name in (
-            ("Candidate", consumption.get("candidate_input_port"), "candidate_input"),
+            (
+                "Candidate",
+                consumption.candidate_input_port,
+                "candidate_input",
+            ),
             (
                 "Score Collection",
-                consumption.get("score_collection_input_port"),
+                consumption.score_collection_input_port,
                 "score_collection_input",
             ),
         ):
-            connected = (
-                _connected_source(
-                    workflow,
-                    node_id=node_id,
-                    input_port=port_name,
-                )
-                if isinstance(port_name, str)
-                else None
+            connected = _connected_source(
+                workflow,
+                node_id=node_id,
+                input_port=port_name,
             )
             expected_sources = {
                 (
@@ -766,139 +730,163 @@ def _capability_source(
     workflow: WorkflowDocument,
     *,
     node_id: str,
-    direction: object,
-    port: object,
-) -> dict[str, str] | None:
-    if not isinstance(port, str):
+    direction: str | None,
+    port: str | None,
+) -> SelectionInput | None:
+    if port is None:
         return None
     if direction == "output":
-        return {"node_id": node_id, "output_port": port}
-    if direction == "input":
-        source = _connected_source(
-            workflow,
-            node_id=node_id,
-            input_port=port,
-        )
-        return None if source is None else selection_input_canonical(source)
-    return None
+        return SelectionInput(node_id, port)
+    return _connected_source(
+        workflow,
+        node_id=node_id,
+        input_port=port,
+    )
 
 def _capability_matches_filter(
-    capability: Mapping[str, Any],
+    capability: _ObservationCapability,
     filter_descriptor: Mapping[str, Any],
+    catalog: FrozenCatalog,
 ) -> bool:
-    for name in (
-        "source_partition",
-        "metric",
-        "method",
-        "context_profile",
-    ):
-        expected = filter_descriptor.get(name)
-        if expected is not None and capability.get(name) != expected:
-            return False
-    return True
+    source_partition = filter_descriptor.get("source_partition")
+    metric = filter_descriptor.get("metric")
+    method = filter_descriptor.get("method")
+    context_profile = filter_descriptor.get("context_profile")
+    return (
+        (source_partition is None or capability.source_partition == source_partition)
+        and (
+            metric is None
+            or capability.metric == catalog.require_reference(*metric.key)
+        )
+        and (
+            method is None
+            or capability.method == catalog.require_reference(*method.key)
+        )
+        and (
+            context_profile is None
+            or capability.context_profile == context_profile
+        )
+    )
 
 def _produced_observation_method(
     workflow: WorkflowDocument,
     *,
     node_id: str,
-    declaration: Mapping[str, Any],
-    binding_method: object,
-    plan_nodes: Mapping[str, tuple[Any, Any]],
-) -> object:
-    direction = declaration.get("method_direction")
-    port = declaration.get("method_port")
-    if direction != "input" or not isinstance(port, str):
+    declaration: ProducedObservationDefinition,
+    binding_method: ContractIdentity,
+    plan_nodes: Mapping[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ],
+) -> ContractIdentity | None:
+    if declaration.method_direction != "input":
         return binding_method
     source = _connected_source(
         workflow,
         node_id=node_id,
-        input_port=port,
+        input_port=declaration.method_port,
     )
     if source is None:
         return None
     source_plan = plan_nodes.get(source.node_id)
     if source_plan is None:
         return None
-    _, source_binding = source_plan
-    return source_binding.descriptor.get("method")
+    return source_plan[1].method
+
+
+def _capability_canonical(
+    capability: _ObservationCapability,
+) -> dict[str, Any]:
+    def reference(value: ExactContractReference | None) -> Any:
+        if value is None:
+            return None
+        return {
+            "contract_kind": value.contract_kind,
+            "contract_id": value.contract_id,
+            "contract_version": value.contract_version,
+            "contract_digest": value.contract_digest,
+        }
+
+    def source(value: SelectionInput | None) -> Any:
+        return None if value is None else selection_input_canonical(value)
+
+    return {
+        "source_partition": capability.source_partition,
+        "metric": reference(capability.metric),
+        "method": reference(capability.method),
+        "context_profile": capability.context_profile,
+        "subject_grain": capability.subject_grain,
+        "source_role": capability.source_role,
+        "guaranteed_multiplicity": capability.guaranteed_multiplicity,
+        "subject_source": source(capability.subject_source),
+        "reference_source": source(capability.reference_source),
+        "pairing_source": source(capability.pairing_source),
+    }
 
 def _derive_observation_capabilities(
     workflow: WorkflowDocument,
     *,
-    plan_nodes: Mapping[str, tuple[Any, Any]],
+    catalog: FrozenCatalog,
+    plan_nodes: Mapping[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ],
     node_order: tuple[str, ...],
-) -> dict[tuple[str, str], tuple[Mapping[str, Any], ...]]:
+) -> dict[tuple[str, str], tuple[_ObservationCapability, ...]]:
     """Derive exact output capabilities from closed fixed/propagation contracts."""
     capabilities: dict[
         tuple[str, str],
-        tuple[Mapping[str, Any], ...],
+        tuple[_ObservationCapability, ...],
     ] = {}
     for node_id in node_order:
         _, binding = plan_nodes[node_id]
-        method = binding.descriptor.get("method")
-        for declaration in binding.descriptor.get(
-            "produced_observations",
-            (),
-        ):
-            output_port = declaration.get("output_port")
-            if not isinstance(output_port, str):
-                continue
+        for declaration in binding.produced_observations:
             observation_method = _produced_observation_method(
                 workflow,
                 node_id=node_id,
                 declaration=declaration,
-                binding_method=method,
+                binding_method=binding.method,
                 plan_nodes=plan_nodes,
             )
-            capability = {
-                "source_partition": declaration["output_partition"],
-                "metric": declaration.get("metric"),
-                "method": observation_method,
-                "context_profile": declaration.get("context_profile"),
-                "subject_grain": declaration.get("subject_grain"),
-                "source_role": declaration.get("source_role"),
-                "guaranteed_multiplicity": declaration.get(
-                    "guaranteed_multiplicity"
+            capability = _ObservationCapability(
+                source_partition=declaration.output_partition,
+                metric=catalog.require_reference(*declaration.metric.key),
+                method=(
+                    catalog.require_reference(*observation_method.key)
+                    if observation_method is not None
+                    else None
                 ),
-                "subject_source": _capability_source(
+                context_profile=declaration.context_profile,
+                subject_grain=declaration.subject_grain,
+                source_role=declaration.source_role,
+                guaranteed_multiplicity=declaration.guaranteed_multiplicity,
+                subject_source=_capability_source(
                     workflow,
                     node_id=node_id,
-                    direction=declaration.get("subject_direction"),
-                    port=declaration.get("subject_port"),
+                    direction=declaration.subject_direction,
+                    port=declaration.subject_port,
                 ),
-                "reference_source": _capability_source(
+                reference_source=_capability_source(
                     workflow,
                     node_id=node_id,
-                    direction=declaration.get("reference_direction"),
-                    port=declaration.get("reference_port"),
+                    direction=declaration.reference_direction,
+                    port=declaration.reference_port,
                 ),
-                "pairing_source": _capability_source(
+                pairing_source=_capability_source(
                     workflow,
                     node_id=node_id,
-                    direction=declaration.get("pairing_direction"),
-                    port=declaration.get("pairing_port"),
+                    direction=declaration.pairing_direction,
+                    port=declaration.pairing_port,
                 ),
-            }
-            key = (node_id, output_port)
+            )
+            key = (node_id, declaration.output_port)
             capabilities[key] = (*capabilities.get(key, ()), capability)
 
-        propagation = binding.descriptor.get("observation_propagation")
-        if not isinstance(propagation, Mapping):
+        propagation = binding.observation_propagation
+        if propagation is None:
             continue
-        output_port = propagation.get("output_port")
-        input_ports = propagation.get("input_ports")
-        mode = propagation.get("mode")
-        if (
-            not isinstance(output_port, str)
-            or not isinstance(input_ports, (list, tuple))
-            or propagation.get("schema_version") != "2.1.0"
-            or mode not in {"pass_through", "union", "filter"}
-        ):
-            continue
-        propagated: list[Mapping[str, Any]] = []
-        for input_port in input_ports:
-            if not isinstance(input_port, str):
-                continue
+        propagated: list[_ObservationCapability] = []
+        for input_port in propagation.input_ports:
             sources = [
                 edge
                 for edge in workflow.edges
@@ -912,21 +900,22 @@ def _derive_observation_capabilities(
                         (),
                     )
                 )
-        if mode == "filter":
-            filter_descriptor = propagation.get("filter")
-            if not isinstance(filter_descriptor, Mapping):
-                propagated = []
-            else:
-                propagated = [
-                    capability
-                    for capability in propagated
-                    if _capability_matches_filter(
-                        capability,
-                        filter_descriptor,
-                    )
-                ]
-        unique: dict[bytes, Mapping[str, Any]] = {}
+        if propagation.mode == "filter":
+            propagated = [
+                capability
+                for capability in propagated
+                if _capability_matches_filter(
+                    capability,
+                    propagation.filter,
+                    catalog,
+                )
+            ]
+        unique: dict[bytes, _ObservationCapability] = {}
         for capability in propagated:
-            unique[canonical_json_bytes(_thaw_json(capability))] = capability
-        capabilities[(node_id, output_port)] = tuple(unique.values())
+            unique[canonical_json_bytes(_capability_canonical(capability))] = (
+                capability
+            )
+        capabilities[(node_id, propagation.output_port)] = tuple(
+            unique.values()
+        )
     return capabilities
