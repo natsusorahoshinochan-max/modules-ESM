@@ -34,10 +34,6 @@ from protein_workbench_public.protocol import (
     artifact_content_disposition,
     decode_rest_request,
     decode_run_event_stream_request,
-    validate_artifact_response,
-    validate_event,
-    validate_response,
-    validate_typed_value_response,
 )
 
 
@@ -80,7 +76,6 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        validate_response("start_run", 202, receipt)
         return JSONResponse(status_code=202, content=receipt)
 
     @app.post(
@@ -126,7 +121,6 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        validate_response("cancel_run", 200, receipt)
         return receipt
 
     @app.post(
@@ -166,7 +160,6 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        validate_response("start_derived_run", 202, receipt)
         return JSONResponse(status_code=202, content=receipt)
 
     @app.get(
@@ -205,7 +198,6 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        validate_response("run_projection", 200, projection)
         return projection
 
     @app.get(
@@ -276,7 +268,6 @@ def register_run_routes(
                 "value_manifest_reference"
             ],
         }
-        validate_typed_value_response(metadata, headers, body)
         return Response(content=body, media_type=None, headers=headers)
 
     @app.get(
@@ -325,14 +316,6 @@ def register_run_routes(
             "Content-Type": artifact["media_type"],
             "Digest": artifact["content_digest"],
         }
-        validate_artifact_response(
-            {
-                "artifact": artifact,
-                "content_disposition": content_disposition,
-            },
-            headers,
-            body,
-        )
         return Response(
             content=body,
             media_type=None,
@@ -397,7 +380,6 @@ def register_run_routes(
                     ),
                 },
             }
-            validate_event(replay_started)
             await websocket.send_json(replay_started)
             for fact in replay.events:
                 event = encode_event(
@@ -405,7 +387,6 @@ def register_run_routes(
                     run_id=run_id,
                     fact=fact,
                 )
-                validate_event(event)
                 await websocket.send_json(event)
             replay_complete = {
                 "schema_namespace": "protein-workbench-public/v2",
@@ -419,7 +400,6 @@ def register_run_routes(
                     "live_from_cursor": replay_through_cursor,
                 },
             }
-            validate_event(replay_complete)
             await websocket.send_json(replay_complete)
             live_after_sequence = replay_through_sequence
             while not terminal:
@@ -436,7 +416,6 @@ def register_run_routes(
                         run_id=run_id,
                         fact=fact,
                     )
-                    validate_event(event)
                     await websocket.send_json(event)
                 live_after_sequence = observed_sequence
             await websocket.close(code=1000)

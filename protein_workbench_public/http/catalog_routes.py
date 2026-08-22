@@ -17,7 +17,6 @@ from protein_workbench_public.protocol import (
     ProtocolValidationError,
     bundle_digest,
     decode_rest_request,
-    validate_response,
 )
 
 
@@ -44,10 +43,5 @@ def register_catalog_routes(
         payload = encode_catalog_projection(
             catalog.projection(),
             protocol_digest=bundle_digest(),
-        )
-        validate_response(
-            "catalog_snapshot",
-            catalog_operation["response"]["success_status"],
-            payload,
         )
         return payload

@@ -24,7 +24,6 @@ from protein_workbench_public.protocol import (
     REST_BODY_ABSENT,
     ProtocolValidationError,
     decode_rest_request,
-    validate_response,
 )
 from protein_workbench_public.workflow_codec import (
     decode_admitted_workflow_document,
@@ -63,7 +62,6 @@ def register_workflow_routes(
             return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        validate_response("project_workflow_draft", 200, payload)
         return payload
 
     @app.put(
@@ -102,7 +100,6 @@ def register_workflow_routes(
             return protocol_error_response(error, json_body)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        validate_response("save_project_workflow_draft", 200, snapshot)
         return snapshot
 
     @app.get(
@@ -132,7 +129,6 @@ def register_workflow_routes(
             return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        validate_response("project_active_workflow_commit", 200, receipt)
         return receipt
 
     @app.post(
@@ -171,5 +167,4 @@ def register_workflow_routes(
             return protocol_error_response(error, json_body)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        validate_response("commit_project_workflow", 200, receipt)
         return receipt

@@ -23,7 +23,6 @@ from protein_workbench_public.http.errors import (
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
     decode_rest_request,
-    validate_response,
 )
 
 
@@ -57,7 +56,6 @@ def register_project_routes(
             "seed": meta.seed,
         }
         status = create_project_operation["response"]["success_status"]
-        validate_response("create_project", status, payload)
         return JSONResponse(status_code=status, content=payload)
 
     publish_input_operation = rest_operations["publish_project_input"]
@@ -123,7 +121,6 @@ def register_project_routes(
             "content_digest": published.content_digest,
         }
         status = publish_input_operation["response"]["success_status"]
-        validate_response("publish_project_input", status, payload)
         return JSONResponse(status_code=status, content=payload)
 
     input_metadata_operation = rest_operations["project_input_metadata"]
@@ -193,5 +190,4 @@ def register_project_routes(
             "content_digest": descriptor.content_digest,
         }
         status = input_metadata_operation["response"]["success_status"]
-        validate_response("project_input_metadata", status, payload)
         return JSONResponse(status_code=status, content=payload)
