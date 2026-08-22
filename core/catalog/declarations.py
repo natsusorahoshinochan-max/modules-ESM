@@ -12,8 +12,8 @@ if TYPE_CHECKING:
     from .definition_resource import DefinitionResource
 
 from core.operation import (
+    BindingEnvironment,
     OperationContext,
-    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
 )
@@ -445,7 +445,7 @@ class ReadinessDeclaration:
 
     behavior: BehaviorReference
     prerequisites: Mapping[str, Any]
-    check: Callable[["ReadinessCheckInput"], "ReadinessResult"] = field(
+    check: Callable[["BindingEnvironment"], "ReadinessResult"] = field(
         repr=False,
         compare=False,
     )

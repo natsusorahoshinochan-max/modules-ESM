@@ -28,8 +28,8 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     AdmittedPort,
+    BindingEnvironment,
     OperationContext,
-    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
 )
@@ -233,7 +233,7 @@ def _model_available() -> AvailabilityResult:
     )
 
 
-def _model_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _model_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return proteinmpnn_readiness(check_input.values)
 
 

@@ -25,8 +25,8 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     AdmittedPort,
+    BindingEnvironment,
     OperationContext,
-    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
 )
@@ -123,22 +123,22 @@ _METRIC_VERSIONS = {
 }
 
 
-def _remote_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _remote_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return ReadinessResult(remote_readiness(check_input.values))
 
 
-def _local_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _local_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return local_readiness(check_input.values)
 
 
 def _simplefold_ready(
-    check_input: ReadinessCheckInput,
+    check_input: BindingEnvironment,
 ) -> ReadinessResult:
     return simplefold_readiness(check_input.values)
 
 
 def _simplefold_confidence_ready(
-    check_input: ReadinessCheckInput,
+    check_input: BindingEnvironment,
 ) -> ReadinessResult:
     return simplefold_confidence_readiness(check_input.values)
 

@@ -20,8 +20,8 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.operation import (
+    BindingEnvironment,
     OperationCall,
-    ReadinessCheckInput,
 )
 from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
@@ -1220,7 +1220,7 @@ def test_readiness_has_no_implicit_process_credential_fallback(
     credential_file.write_text("must-not-be-read\n", encoding="utf-8")
 
     assert not _ready(
-        ReadinessCheckInput(
+        BindingEnvironment(
             {
                 "endpoint_id": "biohub",
                 "credential_file": credential_file,
@@ -1252,7 +1252,7 @@ def test_provider_identity_is_checked_once_at_each_readiness_boundary(
         "endpoint_id": "biohub",
         "credential_handle": "test-credential",
     }
-    check_input = ReadinessCheckInput(environment)
+    check_input = BindingEnvironment(environment)
     assert package._ready(check_input).passing
     assert package._ready(check_input).passing
     assert validations == [

@@ -48,7 +48,6 @@ from core.execution.results import ResultStore
 from core.operation import (
     OperationCall,
     OperationContext,
-    ReadinessCheckInput,
 )
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 from core.workflow.plan import ExecutionPlanNode
@@ -136,7 +135,7 @@ class _NodeAttempt:
             binding_version,
         )
         observed_at = _utc_now()
-        result = declaration.check(ReadinessCheckInput(environment.values))
+        result = declaration.check(environment)
         readiness_digest = canonical_sha256(
             {
                 "schema_namespace": "protein-workbench-readiness/v2",

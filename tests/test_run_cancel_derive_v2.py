@@ -15,7 +15,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from core.operation import (
-    ReadinessCheckInput,
+    BindingEnvironment,
     ReadinessResult,
 )
 from core.execution.results import ProjectReplayIndex, ReplayIndexEntry
@@ -534,7 +534,7 @@ def test_cancel_during_readiness_closes_only_the_node_attempt(
     entered = threading.Event()
     release = threading.Event()
 
-    def hold_readiness(_check_input: ReadinessCheckInput) -> ReadinessResult:
+    def hold_readiness(_check_input: BindingEnvironment) -> ReadinessResult:
         entered.set()
         assert release.wait(timeout=2)
         return ReadinessResult(True)

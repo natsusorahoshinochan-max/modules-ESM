@@ -19,7 +19,7 @@ from core.catalog.declarations import (
     ModulePackageRegistration,
 )
 from core.operation import (
-    ReadinessCheckInput,
+    BindingEnvironment,
     ReadinessResult,
 )
 from datatypes.sequence import ProteinSequence
@@ -276,7 +276,7 @@ def controlled_catalog() -> Any:
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
 
-    def ready(_check_input: ReadinessCheckInput) -> ReadinessResult:
+    def ready(_check_input: BindingEnvironment) -> ReadinessResult:
         return ReadinessResult(True)
 
     registrations: list[ModulePackageRegistration] = []

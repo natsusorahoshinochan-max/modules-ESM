@@ -27,8 +27,8 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     AdmittedPort,
+    BindingEnvironment,
     OperationContext,
-    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
 )
@@ -130,7 +130,7 @@ def _provider_runtime_structurally_available() -> bool:
     return importlib.util.find_spec("esm") is not None
 
 
-def _esmc_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _esmc_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return ReadinessResult(
         esmc_environment_ready(check_input.values)
         and _provider_installation_is_exact()
@@ -401,7 +401,7 @@ def _local_available() -> AvailabilityResult:
     )
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _ready(check_input: BindingEnvironment) -> ReadinessResult:
     environment = check_input.values
     return ReadinessResult(
         environment.get("endpoint_id") == "biohub"
@@ -410,7 +410,7 @@ def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     )
 
 
-def _local_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _local_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return local_readiness(check_input.values)
 
 

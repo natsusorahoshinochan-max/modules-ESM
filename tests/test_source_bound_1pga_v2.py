@@ -27,7 +27,7 @@ from core.catalog.declarations import (
     ModulePackageRegistration,
 )
 from core.operation import (
-    ReadinessCheckInput,
+    BindingEnvironment,
     ReadinessResult,
 )
 from core.workflow.compiler import (
@@ -94,7 +94,7 @@ def _provider_free_catalog() -> Any:
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
 
-    def ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    def ready(check_input: BindingEnvironment) -> ReadinessResult:
         return ReadinessResult(bool(check_input.values))
 
     opened = {

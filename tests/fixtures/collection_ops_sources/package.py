@@ -24,11 +24,11 @@ from core.catalog.port_contract import (
     BehaviorReference,
 )
 from core.operation import (
+    BindingEnvironment,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
     OperationCall,
     OperationContext,
-    ReadinessCheckInput,
     ReadinessResult,
 )
 from datatypes.candidate import (
@@ -159,17 +159,19 @@ class _LineageSource:
                 item_type="protein.sequence",
                 items=subjects,
             ),
-            "parent_pairing": CandidatePairingIntent([
-                CandidatePairingIntentEntry(
-                    subject_candidate_id=parent.candidate_id,
-                    reference_candidate_id=reference.candidate_id,
+            "parent_pairing": CandidatePairingIntent(
+                tuple(
+                    CandidatePairingIntentEntry(
+                        subject_candidate_id=parent.candidate_id,
+                        reference_candidate_id=reference.candidate_id,
+                    )
+                    for parent, reference in zip(
+                        parents,
+                        references,
+                        strict=True,
+                    )
                 )
-                for parent, reference in zip(
-                    parents,
-                    references,
-                    strict=True,
-                )
-            ]),
+            ),
         }
 
 
@@ -246,7 +248,7 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _ready(check_input: BindingEnvironment) -> ReadinessResult:
     del check_input
     return ReadinessResult(True)
 

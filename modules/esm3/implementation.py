@@ -530,7 +530,7 @@ class ESM3GenerationOperation:
                 "protein.structure",
                 structure_candidates,
             ),
-            "counterpart_pairs": CandidatePairingIntent(pairing_entries),
+            "counterpart_pairs": CandidatePairingIntent(tuple(pairing_entries)),
             "confidence_facts": confidence_output_identity_intent(
                 observation_method=self._method,
                 pending_facts=tuple(confidence_facts),

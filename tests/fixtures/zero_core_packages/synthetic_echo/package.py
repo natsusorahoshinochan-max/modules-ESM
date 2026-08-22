@@ -28,7 +28,7 @@ from core.catalog.port_contract import (
 from core.operation import (
     ArtifactPayload,
     OperationContext,
-    ReadinessCheckInput,
+    BindingEnvironment,
     ReadinessResult,
 )
 
@@ -110,13 +110,13 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _ready(check_input: BindingEnvironment) -> ReadinessResult:
     return ReadinessResult(
         check_input.values.get("fixture_ready") is True
     )
 
 
-def _source_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _source_ready(check_input: BindingEnvironment) -> ReadinessResult:
     del check_input
     return ReadinessResult(True)
 

@@ -31,8 +31,8 @@ from core.catalog.port_contract import (
     PortTypeDefinition,
 )
 from core.operation import (
+    BindingEnvironment,
     OperationContext,
-    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
 )
@@ -292,7 +292,7 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _dssp_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _dssp_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return mkdssp_readiness(check_input.values)
 
 

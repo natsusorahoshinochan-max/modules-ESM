@@ -60,7 +60,7 @@ from core.operation import (
     ArtifactPayload,
     OperationCall,
     OperationContext,
-    ReadinessCheckInput,
+    BindingEnvironment,
     ReadinessResult,
     ResolvedOutputIdentity,
 )
@@ -442,7 +442,7 @@ def _direct_catalog(
 
         def make_readiness(exact_binding_id: str):
             def readiness(
-                check_input: ReadinessCheckInput,
+                check_input: BindingEnvironment,
             ) -> ReadinessResult:
                 if (
                     readiness_checks is not None
@@ -1606,7 +1606,7 @@ def test_adapter_preoperation_error_precedes_provider_readiness(
         calls.append("randomness")
         raise RuntimeError("fixture randomness resolution failed")
 
-    def fail_readiness(_check_input: ReadinessCheckInput) -> ReadinessResult:
+    def fail_readiness(_check_input: BindingEnvironment) -> ReadinessResult:
         calls.append("readiness")
         return ReadinessResult(False)
 
@@ -1693,7 +1693,7 @@ def test_readiness_programming_error_fails_after_attempt_start(
     calls: list[str] = []
 
     def invalid_readiness(
-        _check_input: ReadinessCheckInput,
+        _check_input: BindingEnvironment,
     ) -> ReadinessResult:
         calls.append("readiness")
         raise RuntimeError("fixture Readiness invariant failure")
@@ -2389,7 +2389,7 @@ def test_simplefold_bindings_receive_independent_run_scoped_readiness(
     }
 
     def readiness_for(binding_id: str):
-        def readiness(check_input: ReadinessCheckInput) -> ReadinessResult:
+        def readiness(check_input: BindingEnvironment) -> ReadinessResult:
             calls.append(f"readiness:{binding_id}")
             return production_readiness[binding_id](check_input.values)
 

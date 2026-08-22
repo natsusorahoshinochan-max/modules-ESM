@@ -83,11 +83,9 @@ class EncodedOutputIdentities:
     )
 
     def __post_init__(self) -> None:
-        entries = tuple(self.entries)
-        by_id = {entry.identity_id: entry for entry in entries}
-        if len(by_id) != len(entries):
+        by_id = {entry.identity_id: entry for entry in self.entries}
+        if len(by_id) != len(self.entries):
             raise ValueError("encoded output identities contain a duplicate ID")
-        object.__setattr__(self, "entries", entries)
         object.__setattr__(self, "_by_id", MappingProxyType(by_id))
 
     def require(self, identity_id: str) -> EncodedOutputIdentity:
@@ -116,16 +114,6 @@ class ResolvedOutputIdentity:
     candidate_metadata: tuple[CandidateMetadataIdentity, ...] = ()
     scientific_axes: tuple[ResidueAxisReference, ...] | None = None
 
-    def __post_init__(self) -> None:
-        candidate_metadata = tuple(self.candidate_metadata)
-        object.__setattr__(self, "candidate_metadata", candidate_metadata)
-        if self.scientific_axes is not None:
-            object.__setattr__(
-                self,
-                "scientific_axes",
-                tuple(self.scientific_axes),
-            )
-
 
 @dataclass(frozen=True, slots=True)
 class OutputIdentityIntent:
@@ -133,10 +121,6 @@ class OutputIdentityIntent:
 
     identity_sources: tuple[OutputIdentitySource, ...]
     relation: object
-
-    def __post_init__(self) -> None:
-        sources = tuple(self.identity_sources)
-        object.__setattr__(self, "identity_sources", sources)
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,16 +284,6 @@ class BindingEnvironment(Mapping[str, Any]):
 
 
 @dataclass(frozen=True, slots=True)
-class ReadinessCheckInput:
-    """Closed private checker input for one selected Binding."""
-
-    values: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
-
-
-@dataclass(frozen=True, slots=True)
 class ReadinessResult:
     """One direct readiness conclusion at an operation boundary."""
 
@@ -382,12 +356,6 @@ class AdmittedValue:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "value", _freeze_container(self.value))
-        object.__setattr__(self, "canonical_bytes", bytes(self.canonical_bytes))
-        object.__setattr__(self, "candidate_data", tuple(self.candidate_data))
-        object.__setattr__(self, "scientific_axes", tuple(self.scientific_axes))
-        object.__setattr__(
-            self, "observation_methods", tuple(self.observation_methods)
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,7 +373,6 @@ class AdmittedPort:
             "port_type",
             MappingProxyType(dict(self.port_type)),
         )
-        object.__setattr__(self, "values", tuple(self.values))
 
     @property
     def value(self) -> Any:
@@ -459,9 +426,6 @@ class CandidatePairingIntent:
     """Pre-admission pairing projected after Candidate identity normalization."""
 
     entries: tuple[CandidatePairingIntentEntry, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "entries", tuple(self.entries))
 
 
 @dataclass(frozen=True, slots=True)

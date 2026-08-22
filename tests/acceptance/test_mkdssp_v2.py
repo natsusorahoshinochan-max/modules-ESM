@@ -14,7 +14,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.operation import (
-    ReadinessCheckInput,
+    BindingEnvironment,
 )
 from datatypes.candidate import (
     Candidate,
@@ -64,7 +64,7 @@ def test_mkdssp_4_6_1_publishes_complete_3gb1_sasa_and_coil(
     pdb_3gb1: Any,
 ) -> None:
     conclusion = _dssp_ready(
-        ReadinessCheckInput({"dssp_binary": _MKDSSP})
+        BindingEnvironment({"dssp_binary": _MKDSSP})
     )
     assert conclusion.passing
 
