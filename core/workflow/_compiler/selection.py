@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any, cast
 
 from core.catalog.declarations import (
@@ -68,6 +69,7 @@ def _resolved_reference(contract: Any) -> ExactContractReference:
 def _compile_selection_objective(
     objective: SelectionObjective,
     utility_parameters: AdmittedParameterValues,
+    effective_weight: float,
     *,
     resolved_by_key: Mapping[tuple[str, str, str], Any],
     objective_index: int,
@@ -123,9 +125,44 @@ def _compile_selection_objective(
             parameters=utility_parameters,
             apply=utility_definition.transform,
         ),
-        weight=objective.weight,
+        declared_weight=objective.weight,
+        effective_weight=effective_weight,
         match_cardinality=objective.match_cardinality,
         missing_policy=objective.missing_policy,
+    )
+
+
+def _compile_selection_objectives(
+    objectives: tuple[SelectionObjective, ...],
+    *,
+    compilation_by_id: Mapping[
+        str,
+        tuple[int, AdmittedParameterValues],
+    ],
+    resolved_by_key: Mapping[tuple[str, str, str], Any],
+) -> tuple[ResolvedSelectionObjective, ...]:
+    if not objectives:
+        return ()
+    try:
+        declared_total = math.fsum(item.weight for item in objectives)
+    except OverflowError:
+        declared_total = math.inf
+    if not math.isfinite(declared_total) or declared_total <= 0:
+        raise WorkflowCompileError(
+            "invalid_selection_objective",
+            "Selected Selection Objectives require a finite positive total "
+            "weight",
+            field_path=("selection_objectives",),
+        )
+    return tuple(
+        _compile_selection_objective(
+            objective,
+            compilation_by_id[objective.objective_id][1],
+            objective.weight / declared_total,
+            resolved_by_key=resolved_by_key,
+            objective_index=compilation_by_id[objective.objective_id][0],
+        )
+        for objective in objectives
     )
 
 def _compile_observation_selector(

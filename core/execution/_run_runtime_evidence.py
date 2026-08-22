@@ -36,7 +36,11 @@ def _execution_plan_contract_roots(
         for node in plan.nodes
         for reference in (node.node_type, node.binding)
     }
-    for resolved_selector in plan._runtime.observation_selectors:
+    for resolved_selector in (
+        selector
+        for node in plan.nodes
+        for selector in node._runtime.observation_selectors
+    ):
         root_identities.update(
             {
                 (
@@ -51,7 +55,11 @@ def _execution_plan_contract_roots(
                 ),
             }
         )
-    for resolved_objective in plan._runtime.selection_objectives:
+    for resolved_objective in (
+        objective
+        for node in plan.nodes
+        for objective in node._runtime.selection_objectives
+    ):
         root_identities.update(
             {
                 (

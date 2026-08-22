@@ -251,30 +251,12 @@ class _ExecutionPlanRuntime:
         repr=False,
         compare=False,
     )
-    selection_objectives: tuple[ResolvedSelectionObjective, ...] = field(
-        repr=False,
-        compare=False,
-    )
-    observation_selectors: tuple[ResolvedObservationSelector, ...] = field(
-        repr=False,
-        compare=False,
-    )
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self,
             "candidate_data_port_types",
             MappingProxyType(dict(self.candidate_data_port_types)),
-        )
-        object.__setattr__(
-            self,
-            "selection_objectives",
-            tuple(self.selection_objectives),
-        )
-        object.__setattr__(
-            self,
-            "observation_selectors",
-            tuple(self.observation_selectors),
         )
 
 @dataclass(frozen=True, slots=True)

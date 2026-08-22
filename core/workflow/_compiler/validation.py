@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
-import math
 from typing import Any, cast
 
 from core.catalog.declarations import (
@@ -267,21 +266,6 @@ def _validate_selection_objectives(
         raise WorkflowCompileError(
             "duplicate_selection_objective",
             "Selection Objective IDs must be unique",
-            field_path=("selection_objectives",),
-        )
-    try:
-        objective_weight_total = math.fsum(
-            float(objective.weight) for objective in objectives
-        )
-    except (OverflowError, ValueError):
-        objective_weight_total = math.inf
-    if objectives and (
-        not math.isfinite(objective_weight_total)
-        or objective_weight_total <= 0
-    ):
-        raise WorkflowCompileError(
-            "invalid_selection_objective",
-            "Selection Objectives require a finite positive total weight",
             field_path=("selection_objectives",),
         )
     candidate_inputs = {

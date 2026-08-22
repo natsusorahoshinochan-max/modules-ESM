@@ -568,7 +568,8 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
             parameters=AdmittedParameterValues({}),
             apply=lambda value, _parameters: value,
         ),
-        weight=objective.weight,
+        declared_weight=objective.weight,
+        effective_weight=1.0,
         match_cardinality=objective.match_cardinality,
         missing_policy=objective.missing_policy,
     )

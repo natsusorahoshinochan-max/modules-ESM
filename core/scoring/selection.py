@@ -173,7 +173,8 @@ class ResolvedSelectionObjective:
     method: ExactContractReference
     context_selector: ContextSelector
     utility: ResolvedUtilityTransform
-    weight: float
+    declared_weight: float
+    effective_weight: float
     match_cardinality: str
     missing_policy: str
 
@@ -531,49 +532,30 @@ def resolve_objective_observations(
     return MappingProxyType(resolved)
 
 
-def _resolved_objective_contracts(
-    objectives: Sequence[ResolvedSelectionObjective],
-) -> tuple[
-    tuple[ResolvedSelectionObjective, ...],
-    float,
-    tuple[SelectionObjectiveProvenance, ...],
-]:
-    resolved = tuple(objectives)
-    try:
-        declared_total = math.fsum(float(item.weight) for item in resolved)
-    except OverflowError:
-        declared_total = math.inf
-    if not math.isfinite(declared_total) or declared_total <= 0:
-        raise SelectionError(
-            "Selection requires a finite positive total objective weight"
-        )
-    provenance = tuple(
-        SelectionObjectiveProvenance(
-            objective_id=item.objective_id,
-            candidate_input=item.candidate_input,
-            score_collection_input=item.score_collection_input,
-            source_partition=item.source_partition,
-            metric=item.metric,
-            method=item.method,
-            context_selector=item.context_selector,
-            utility_transform=item.utility.reference,
-            utility_parameters=item.utility.parameters,
-            declared_weight=item.weight,
-            effective_weight=float(item.weight) / declared_total,
-            match_cardinality=item.match_cardinality,
-            missing_policy=item.missing_policy,
-        )
-        for item in resolved
-    )
-    return resolved, declared_total, provenance
-
-
 def selection_objective_provenance_from_facts(
     objectives: Sequence[ResolvedSelectionObjective],
 ) -> SelectionProvenance:
     """Return typed provenance from compile-resolved objectives."""
-    _, _, provenance = _resolved_objective_contracts(objectives)
-    return SelectionProvenance(provenance)
+    return SelectionProvenance(
+        tuple(
+            SelectionObjectiveProvenance(
+                objective_id=item.objective_id,
+                candidate_input=item.candidate_input,
+                score_collection_input=item.score_collection_input,
+                source_partition=item.source_partition,
+                metric=item.metric,
+                method=item.method,
+                context_selector=item.context_selector,
+                utility_transform=item.utility.reference,
+                utility_parameters=item.utility.parameters,
+                declared_weight=item.declared_weight,
+                effective_weight=item.effective_weight,
+                match_cardinality=item.match_cardinality,
+                missing_policy=item.missing_policy,
+            )
+            for item in objectives
+        )
+    )
 
 
 def observation_selector_provenance_from_facts(
@@ -603,7 +585,6 @@ def selection_objective_identity_facts_from_facts(
     score_collection_input_port: str,
 ) -> tuple[SelectionObjectiveIdentityFacts, ...]:
     """Project locator-free scientific facts for Result/output identity."""
-    resolved, _, provenance = _resolved_objective_contracts(objectives)
     return tuple(
         SelectionObjectiveIdentityFacts(
             candidate_input_port=candidate_input_port,
@@ -613,13 +594,13 @@ def selection_objective_identity_facts_from_facts(
             method=item.method,
             context_selector=item.context_selector,
             utility_transform=item.utility.reference,
-            utility_parameters=fact.utility_parameters,
-            declared_weight=fact.declared_weight,
-            effective_weight=fact.effective_weight,
+            utility_parameters=item.utility.parameters,
+            declared_weight=item.declared_weight,
+            effective_weight=item.effective_weight,
             match_cardinality=item.match_cardinality,
             missing_policy=item.missing_policy,
         )
-        for item, fact in zip(resolved, provenance, strict=True)
+        for item in objectives
     )
 
 
@@ -653,9 +634,8 @@ def resolve_candidate_utilities_from_facts(
     candidate_data_references: Mapping[str, CandidateDataReference],
 ) -> CandidateUtilityProfile:
     """Compute Utilities from compiler-resolved scientific facts only."""
-    resolved, declared_total, provenance = _resolved_objective_contracts(
-        objectives
-    )
+    resolved = tuple(objectives)
+    provenance = selection_objective_provenance_from_facts(resolved)
     candidates = candidate_inputs[resolved[0].candidate_input]
     candidate_ids = [candidate.candidate_id for candidate in candidates.items]
     utility_values = {candidate_id: [] for candidate_id in candidate_ids}
@@ -702,10 +682,8 @@ def resolve_candidate_utilities_from_facts(
                 for candidate_id, values in utility_values.items()
             }
         ),
-        effective_weights=tuple(
-            float(item.weight) / declared_total for item in resolved
-        ),
-        provenance=SelectionProvenance(provenance),
+        effective_weights=tuple(item.effective_weight for item in resolved),
+        provenance=provenance,
     )
 
 

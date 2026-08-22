@@ -105,7 +105,7 @@ from core.workflow._compiler.observation import (  # noqa: E402
 )
 from core.workflow._compiler.selection import (  # noqa: E402
     _compile_observation_selector,
-    _compile_selection_objective,
+    _compile_selection_objectives,
     _selected_objectives,
     _selected_observation_selectors,
 )
@@ -284,24 +284,27 @@ def compile(
                 field_path=("nodes", index, "binding_parameters"),
             ),
         )
-    admitted_objective_parameters = tuple(
-        _admit_parameter_values(
-            objective.utility_parameters,
-            cast(
-                UtilityTransformDefinition,
-                resolved_by_key[
-                    (
-                        objective.utility_transform.contract_kind,
-                        objective.utility_transform.contract_id,
-                        objective.utility_transform.contract_version,
-                    )
-                ].definition,
-            ).parameter_contract,
-            field_name="utility_parameters",
-            field_path=("selection_objectives", index, "utility_parameters"),
+    objective_compilation_by_id = {
+        objective.objective_id: (
+            index,
+            _admit_parameter_values(
+                objective.utility_parameters,
+                cast(
+                    UtilityTransformDefinition,
+                    resolved_by_key[
+                        objective.utility_transform.key
+                    ].definition,
+                ).parameter_contract,
+                field_name="utility_parameters",
+                field_path=(
+                    "selection_objectives",
+                    index,
+                    "utility_parameters",
+                ),
+            ),
         )
         for index, objective in enumerate(workflow.selection_objectives)
-    )
+    }
     node_order = _validate_static_semantics(
         workflow,
         catalog,
@@ -318,19 +321,6 @@ def compile(
             "protein.sequence",
             "protein.structure",
         }
-    }
-    resolved_workflow_objectives = tuple(
-        _compile_selection_objective(
-            objective,
-            admitted_objective_parameters[index],
-            resolved_by_key=resolved_by_key,
-            objective_index=index,
-        )
-        for index, objective in enumerate(workflow.selection_objectives)
-    )
-    resolved_objectives_by_id = {
-        item.objective_id: item
-        for item in resolved_workflow_objectives
     }
     resolved_workflow_selectors = tuple(
         _compile_observation_selector(
@@ -372,9 +362,10 @@ def compile(
             node_parameters=normalized_node_parameters,
             binding_definition=binding_definition,
         )
-        resolved_selected_objectives = tuple(
-            resolved_objectives_by_id[item.objective_id]
-            for item in selected_objectives
+        resolved_selected_objectives = _compile_selection_objectives(
+            selected_objectives,
+            compilation_by_id=objective_compilation_by_id,
+            resolved_by_key=resolved_by_key,
         )
         resolved_selected_selectors = tuple(
             resolved_selectors_by_id[item.selector_id]
@@ -585,8 +576,6 @@ def compile(
         resolved_contracts=resolved_contracts,
         _runtime=_ExecutionPlanRuntime(
             candidate_data_port_types=candidate_data_port_types,
-            selection_objectives=resolved_workflow_objectives,
-            observation_selectors=resolved_workflow_selectors,
         ),
         observation_selectors=workflow.observation_selectors,
         selection_objectives=workflow.selection_objectives,

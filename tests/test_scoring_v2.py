@@ -1611,8 +1611,8 @@ def test_objective_rejects_negative_or_non_finite_weight(weight: float) -> None:
         )
 
 
-def test_objective_rejects_non_i_json_integer_and_non_finite_total() -> None:
-    catalog, contracts = _scoring_catalog()
+def test_objective_rejects_non_i_json_integer() -> None:
+    _, contracts = _scoring_catalog()
     arguments = {
         "objective_id": "quality-objective",
         "candidate_input": SelectionInput("producer", "candidates"),
@@ -1626,32 +1626,6 @@ def test_objective_rejects_non_i_json_integer_and_non_finite_total() -> None:
     }
     with pytest.raises(SelectionError, match="finite and strictly positive"):
         SelectionObjective(**arguments, weight=10**400)
-
-    candidates = CandidateCollection(
-        "candidates",
-        "protein.sequence",
-        [Candidate("candidate-1", ProteinSequence("AA"))],
-    )
-    candidate_input = arguments["candidate_input"]
-    score_input = arguments["score_collection_input"]
-    scores = ScoreCollection(
-        "scores",
-        [_observation(contracts, "candidate-1", 90)],
-    )
-    with pytest.raises(SelectionError, match="finite positive total"):
-        select_admitted_candidates(
-            candidate_inputs={candidate_input: candidates},
-            score_collection_inputs={score_input: scores},
-            objectives=(
-                SelectionObjective(**arguments, weight=1e308),
-                SelectionObjective(
-                    **{**arguments, "objective_id": "quality-objective-2"},
-                    weight=1e308,
-                ),
-            ),
-            catalog=catalog,
-            limit=1,
-        )
 
 
 def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import math
 from typing import Any, cast
 
 from core.catalog.declarations import ExecutionBindingDefinition
@@ -44,6 +45,7 @@ from datatypes.observation import ScoreCollection
 def _resolved_objective(
     objective: SelectionObjective,
     catalog: FrozenCatalog,
+    effective_weight: float,
 ) -> ResolvedSelectionObjective:
     utility_contract = catalog.require_contract(
         "utility_transform",
@@ -66,9 +68,25 @@ def _resolved_objective(
             ),
                 apply=utility_contract.definition.transform,
         ),
-        weight=objective.weight,
+        declared_weight=objective.weight,
+        effective_weight=effective_weight,
         match_cardinality=objective.match_cardinality,
         missing_policy=objective.missing_policy,
+    )
+
+
+def _resolved_objectives(
+    objectives: Sequence[SelectionObjective],
+    catalog: FrozenCatalog,
+) -> tuple[ResolvedSelectionObjective, ...]:
+    declared_total = math.fsum(objective.weight for objective in objectives)
+    return tuple(
+        _resolved_objective(
+            objective,
+            catalog,
+            objective.weight / declared_total,
+        )
+        for objective in objectives
     )
 
 
@@ -123,10 +141,7 @@ def select_admitted_candidates(
         ).value
         for reference, collection in score_collection_inputs.items()
     }
-    resolved = tuple(
-        _resolved_objective(objective, catalog)
-        for objective in objectives
-    )
+    resolved = _resolved_objectives(objectives, catalog)
     candidate_reference = resolved[0].candidate_input
     admitted_candidate_input = admitted_candidates[candidate_reference]
     profile = resolve_candidate_utilities_from_facts(
@@ -204,9 +219,9 @@ def operation_context(
     return OperationContext(
         method=_reference(descriptor["method"]),
         produced_observations=produced_observations,
-        selection_objectives=tuple(
-            _resolved_objective(objective, catalog)
-            for objective in selection_objectives
+        selection_objectives=_resolved_objectives(
+            selection_objectives,
+            catalog,
         ),
         observation_selectors=tuple(
             _resolved_selector(selector)
