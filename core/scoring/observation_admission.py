@@ -37,7 +37,7 @@ from datatypes.observation import (
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.i_json import thaw_i_json
 from datatypes.residue import validate_residue_layout
 
 
@@ -74,13 +74,9 @@ class StructureAlignmentEvidenceAdmissionFacts:
     aligned_atom_count: int
 
 
-def _canonical_json_bytes(value: Any) -> bytes:
-    try:
-        return rfc8785.dumps(thaw_i_json(freeze_i_json(value)))
-    except (ValueError, rfc8785.CanonicalizationError, UnicodeError) as error:
-        raise ObservationAdmissionError(
-            "Observation value must be canonical I-JSON"
-        ) from error
+def _canonical_observation_value(value: Any) -> bytes:
+    """Project one admitted I-JSON value for exact propagation comparison."""
+    return rfc8785.dumps(thaw_i_json(value))
 
 
 def _validate_resolved_metric_value(
@@ -186,36 +182,10 @@ def _validate_resolved_metric_value(
 def _deduplicated_observations(
     collection: ScoreCollection,
 ) -> tuple[ScoreObservation, ...]:
+    """Use the first entry after the nominal codec admitted duplicates."""
     observations: dict[tuple[object, ...], ScoreObservation] = {}
-    encoded_values: dict[tuple[object, ...], bytes] = {}
     for entry in collection.entries:
-        if type(entry) is not ScoreObservation:
-            raise ObservationAdmissionError("Score Collection contains an unknown entry")
-        try:
-            encoded = _canonical_json_bytes(entry.value)
-        except ObservationAdmissionError as error:
-            raise ObservationAdmissionError(
-                "Observation value must be canonical I-JSON"
-            ) from error
-        identity = entry.identity
-        existing = encoded_values.get(identity)
-        if existing is not None:
-            if existing != encoded:
-                raise ObservationAdmissionError(
-                    "Score Collection contains conflicting values for one "
-                    "Observation identity"
-                )
-            if (
-                observations[identity].source_partition
-                != entry.source_partition
-            ):
-                raise ObservationAdmissionError(
-                    "Score Collection contains an Observation identity "
-                    "partition collision"
-                )
-            continue
-        encoded_values[identity] = encoded
-        observations[identity] = entry
+        observations.setdefault(entry.identity, entry)
     return tuple(observations.values())
 
 
@@ -259,20 +229,12 @@ def _candidate_values(value: object) -> tuple[Any, ...]:
 def _observation_value_map(
     collection: ScoreCollection,
 ) -> dict[tuple[object, ...], bytes]:
-    try:
-        observations = _deduplicated_observations(collection)
-    except ObservationAdmissionError as error:
-        raise ObservationAdmissionError(str(error)) from error
-    result: dict[tuple[object, ...], bytes] = {}
-    for observation in observations:
-        try:
-            encoded = _canonical_json_bytes(observation.value)
-        except ObservationAdmissionError as error:
-            raise ObservationAdmissionError(str(error)) from error
-        result[
-            (observation.source_partition, *observation.identity)
-        ] = encoded
-    return result
+    return {
+        (observation.source_partition, *observation.identity): (
+            _canonical_observation_value(observation.value)
+        )
+        for observation in _deduplicated_observations(collection)
+    }
 
 
 def _observation_matches_propagation_filter(
