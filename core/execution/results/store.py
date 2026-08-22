@@ -19,7 +19,6 @@ from core.execution.output_admission import (
 )
 from core.execution.output_admission.port_values import restore_admitted_port
 from core.execution.results.cache import (
-    IndexedOutput,
     ProjectReplayIndex,
     ReplayIndexEntry,
 )
@@ -501,27 +500,15 @@ class ResultStore:
         entry = self._index.lookup(project_id, result_identity)
         if entry is None:
             return None
-        expected_metadata = freeze_i_json(result_contract_metadata)
-        if canonical_json_bytes(
-            entry.result_contract_metadata
-        ) != canonical_json_bytes(expected_metadata):
-            raise ResultIntegrityError(entry.node_result_manifest.content_digest)
-        restored = self.restore(
+        return self.restore(
             project_id=project_id,
             materialization_run_id=materialization_run_id,
             producer_run_id=entry.producer_run_id,
             node_plan=node_plan,
             result_identity=result_identity,
-            result_contract_metadata=expected_metadata,
+            result_contract_metadata=result_contract_metadata,
             node_result_manifest=entry.node_result_manifest,
         )
-        indexed_outputs = tuple(
-            IndexedOutput(output.output_port, output.value_manifest)
-            for output in restored.outputs
-        )
-        if indexed_outputs != entry.outputs:
-            raise ResultIntegrityError(entry.node_result_manifest.content_digest)
-        return restored
 
     def index_committed_result(
         self,
@@ -532,16 +519,8 @@ class ResultStore:
             stored_result.project_id,
             ReplayIndexEntry(
                 result_identity=stored_result.result_identity,
-                result_contract_metadata=(
-                    stored_result.result_contract_metadata
-                ),
                 producer_run_id=stored_result.producer_run_id,
-                producer_node_id=stored_result.node_id,
                 node_result_manifest=stored_result.node_result_manifest,
-                outputs=tuple(
-                    IndexedOutput(output.output_port, output.value_manifest)
-                    for output in stored_result.outputs
-                ),
             ),
         )
 

@@ -484,7 +484,7 @@ def test_node_instance_rename_reuses_the_same_scientific_result(
     ]
 
 
-def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
+def test_cache_v5_is_manifest_only_and_ledger_commits_node_result_manifest(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -516,26 +516,17 @@ def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
 
     result_identity = first["outputs"][0]["result_identity"]
     digest = result_identity.removeprefix("sha256:")
-    cache_path = cache_root / project_id / "v4" / "results" / f"{digest}.json"
+    cache_path = (
+        cache_root / project_id / "v5" / "results" / f"{digest}.json"
+    )
     entry = json.loads(cache_path.read_bytes())
     assert entry == {
-        "schema_namespace": "protein-workbench-cache-entry/v4",
+        "schema_namespace": "protein-workbench-cache-entry/v5",
         "result_identity": result_identity,
-        "result_contract_metadata": entry["result_contract_metadata"],
-        "producer": {
-            "producer_run_id": first["run_id"],
-            "producer_node_id": "direct",
-        },
+        "producer_run_id": first["run_id"],
         "node_result_manifest": entry["node_result_manifest"],
-        "outputs": entry["outputs"],
     }
     assert "encoded_values" not in json.dumps(entry)
-    assert entry["outputs"] == [
-        {
-            "output_port": "text",
-            "value_manifest": entry["outputs"][0]["value_manifest"],
-        }
-    ]
 
     publication = next(
         fact
@@ -551,7 +542,7 @@ def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
     ]
 
 
-def test_cache_index_covers_ordinary_and_artifact_output_ports(
+def test_cached_manifest_restores_ordinary_and_artifact_output_ports(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -579,12 +570,6 @@ def test_cache_index_covers_ordinary_and_artifact_output_ports(
         first, _ = _start_run(client, project_id, compiled, "artifact-source")
         replayed, _ = _start_run(client, project_id, compiled, "artifact-replay")
 
-    entry_path = next((cache_root / project_id / "v4").rglob("*.json"))
-    entry = json.loads(entry_path.read_bytes())
-    assert [output["output_port"] for output in entry["outputs"]] == [
-        "summary",
-        "structure",
-    ]
     assert [output["output_port"] for output in first["outputs"]] == [
         "summary"
     ]
@@ -926,11 +911,11 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         "execute:test.direct.local",
     ]
     assert (
-            len(list((cache_root / first_project / "v4").rglob("*.json")))
+        len(list((cache_root / first_project / "v5").rglob("*.json")))
         == 1
     )
     assert (
-            len(list((cache_root / second_project / "v4").rglob("*.json")))
+        len(list((cache_root / second_project / "v5").rglob("*.json")))
         == 1
     )
 
@@ -1079,7 +1064,7 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
         path.name: path.read_bytes()
         for path in sorted(producer_ledger.glob("*.json"))
     }
-    cache_entry = next((cache_root / project_id / "v4").rglob("*.json"))
+    cache_entry = next((cache_root / project_id / "v5").rglob("*.json"))
     cache_entry.unlink()
     cache_entry.parent.rmdir()
     cache_entry.parent.parent.rmdir()
@@ -1296,7 +1281,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     assert second["node_dispositions"][0]["resolution"] == "executed"
     assert "parameters:{'scientific_label': 'alpha'}" in calls
     assert "parameters:{'scientific_label': 'beta'}" in calls
-    assert len(list((cache_root / project_id / "v4").rglob("*.json"))) == 2
+    assert len(list((cache_root / project_id / "v5").rglob("*.json"))) == 2
 
 
 @pytest.mark.parametrize(

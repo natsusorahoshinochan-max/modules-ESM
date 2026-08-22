@@ -21,7 +21,6 @@ from core.execution.output_admission.artifacts import (
     ArtifactOutputDeclaration,
 )
 from core.execution.results import (
-    IndexedOutput,
     ProjectReplayIndex,
     ReplayIndexEntry,
     ResultIntegrityError,
@@ -155,7 +154,7 @@ def test_store_stages_without_publishing_a_replay_entry(
     assert replay_index.lookup(project_id, _RESULT_IDENTITY) is None
 
 
-def test_cache_metadata_divergence_fails_fast_instead_of_becoming_a_miss(
+def test_manifest_metadata_divergence_fails_fast_instead_of_becoming_a_miss(
     tmp_path: Path,
 ) -> None:
     _projects, project_id, replay_index, store = _result_store(tmp_path)
@@ -179,20 +178,7 @@ def test_cache_metadata_divergence_fails_fast_instead_of_becoming_a_miss(
         admitted_output=admitted,
         result_contract_metadata=_METADATA,
     )
-    replay_index.index(
-        project_id,
-        ReplayIndexEntry(
-            result_identity=_RESULT_IDENTITY,
-            result_contract_metadata={"different": True},
-            producer_run_id="run-source",
-            producer_node_id="producer",
-            node_result_manifest=stored.node_result_manifest,
-            outputs=tuple(
-                IndexedOutput(output.output_port, output.value_manifest)
-                for output in stored.outputs
-            ),
-        ),
-    )
+    store.index_committed_result(stored)
 
     with pytest.raises(ResultIntegrityError):
         store.lookup_replay(
@@ -200,7 +186,7 @@ def test_cache_metadata_divergence_fails_fast_instead_of_becoming_a_miss(
             materialization_run_id="run-replay",
             node_plan=plan,
             result_identity=_RESULT_IDENTITY,
-            result_contract_metadata=_METADATA,
+            result_contract_metadata={"different": True},
         )
 
 
@@ -222,18 +208,15 @@ def test_restore_rejects_an_invalid_persisted_manifest_through_the_store(
         )
 
 
-def test_replay_index_accepts_canonical_semantic_output_port_names(
+def test_replay_index_retains_only_the_manifest_locator(
     tmp_path: Path,
 ) -> None:
     _projects, project_id, replay_index, _store = _result_store(tmp_path)
     reference = StoredObject("sha256:" + "3" * 64, 17)
     entry = ReplayIndexEntry(
         result_identity=_RESULT_IDENTITY,
-        result_contract_metadata={},
         producer_run_id="run-source",
-        producer_node_id="producer",
         node_result_manifest=reference,
-        outputs=(IndexedOutput("score:primary", reference),),
     )
 
     replay_index.index(project_id, entry)
