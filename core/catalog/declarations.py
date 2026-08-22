@@ -359,15 +359,6 @@ class AvailabilityResult:
     ) -> AvailabilityResult:
         return cls(False, code=code, message=message, retryable=retryable)
 
-    def reason(self) -> dict[str, Any] | None:
-        if self.is_available:
-            return None
-        return {
-            "code": self.code,
-            "message": self.message,
-            "retryable": self.retryable,
-        }
-
 
 class ExpectedOptionalDependencyMissing(ModuleNotFoundError):
     """One checker-declared absent optional dependency."""

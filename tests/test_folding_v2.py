@@ -551,7 +551,7 @@ def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> Non
 
     catalog = build_frozen_catalog(module_registrations())
     availability = {
-        snapshot["binding"]["contract_id"]: snapshot
+        snapshot.binding.contract_id: snapshot
         for snapshot in catalog.availability
     }
     assert {

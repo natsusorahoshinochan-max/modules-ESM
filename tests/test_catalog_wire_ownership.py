@@ -7,14 +7,14 @@ from datetime import datetime, timezone
 
 import pytest
 
-from core.catalog.declarations import CatalogContract
+from core.catalog.declarations import AvailabilityResult, CatalogContract
 from core.catalog.model import (
     CatalogAvailabilityProjection,
     CatalogContractProjection,
     FrozenCatalog,
 )
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
-from tests.support.catalog import resolved_dependencies
+from tests.support.catalog import binding_availability, resolved_dependencies
 from protein_workbench_public.catalog_codec import encode_catalog_projection
 
 
@@ -76,13 +76,7 @@ def _catalog() -> FrozenCatalog:
     return FrozenCatalog(
         (port_type,),
         contracts=(binding,),
-        availability=(
-            {
-                "binding": binding.reference(),
-                "observed_at": "2026-08-22T01:02:03Z",
-                "available": True,
-            },
-        ),
+        availability=(binding_availability(binding, OBSERVED_AT),),
         availability_observed_at=OBSERVED_AT,
     )
 
@@ -215,16 +209,15 @@ def test_public_codec_assembles_unavailable_reason_fields() -> None:
     unavailable = replace(
         catalog,
         availability=(
-            {
-                "binding": catalog.contracts[0].reference(),
-                "observed_at": "2026-08-22T01:02:03Z",
-                "available": False,
-                "reason": {
-                    "code": "provider_offline",
-                    "message": "Provider is offline",
-                    "retryable": True,
-                },
-            },
+            binding_availability(
+                catalog.contracts[0],
+                OBSERVED_AT,
+                AvailabilityResult.unavailable(
+                    "provider_offline",
+                    "Provider is offline",
+                    retryable=True,
+                ),
+            ),
         ),
     )
 

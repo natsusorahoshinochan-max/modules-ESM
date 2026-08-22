@@ -59,7 +59,7 @@ from core.catalog.port_contract import (
     PortValueError,
 )
 from tests.support.output_admission import normalize_fixture_outputs
-from tests.support.catalog import resolved_dependencies
+from tests.support.catalog import binding_availability, resolved_dependencies
 from core.workflow.document import WorkflowEdge as V2WorkflowEdge
 from datatypes.candidate import (
     Candidate,
@@ -1326,11 +1326,10 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         union_binding.contract_id: union_binding,
     }
     availability = tuple(
-        {
-            "binding": binding.reference(),
-            "observed_at": "2026-07-29T00:00:00Z",
-            "available": True,
-        }
+        binding_availability(
+            binding,
+            datetime(2026, 7, 29, tzinfo=timezone.utc),
+        )
         for binding in (producer_binding, union_binding)
     )
 

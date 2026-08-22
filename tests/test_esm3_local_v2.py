@@ -175,24 +175,20 @@ def test_local_startup_failure_isolated_from_remote_bindings(
     )
     catalog = build_frozen_catalog(module_registrations())
     availability = {
-        snapshot["binding"]["contract_id"]: snapshot
+        snapshot.binding.contract_id: snapshot
         for snapshot in catalog.availability
     }
 
-    assert availability["esm3.generate_sequence.local_open"][
-        "available"
-    ] is False
-    assert availability["esm3.generate_sequence.local_open"]["reason"] == {
-        "code": "local_esm3_runtime_unavailable",
-        "message": (
-            "The exact local ESM SDK and Torch runtime prerequisites are "
-            "unavailable."
-        ),
-        "retryable": False,
-    }
-    assert availability["esm3.generate_sequence.biohub_open"][
-        "available"
-    ] is True
+    local = availability["esm3.generate_sequence.local_open"].result
+    assert local.is_available is False
+    assert local.code == "local_esm3_runtime_unavailable"
+    assert local.message == (
+        "The exact local ESM SDK and Torch runtime prerequisites are unavailable."
+    )
+    assert local.retryable is False
+    assert availability[
+        "esm3.generate_sequence.biohub_open"
+    ].result.is_available is True
 
 
 def test_local_runtime_admits_exact_model_and_runtime_configuration(

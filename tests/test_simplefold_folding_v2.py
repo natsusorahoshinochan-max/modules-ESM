@@ -518,10 +518,10 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         "10.0.0",
     )
     snapshots = {
-        item["binding"]["contract_id"]: item
+        item.binding.contract_id: item
         for item in catalog.availability
     }
-    assert snapshots["folding.fold.simplefold_local"]["available"] is False
+    assert not snapshots["folding.fold.simplefold_local"].result.is_available
     assert {
         "folding.fold.esmfold2_remote",
         "folding.fold.esmfold2_local",

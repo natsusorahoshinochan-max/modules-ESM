@@ -578,7 +578,7 @@ def test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible() -> No
 
     catalog = build_frozen_catalog((MODULE_PACKAGE,))
     availability = {
-        item["binding"]["contract_id"]: item
+        item.binding.contract_id: item
         for item in catalog.availability
     }
 
@@ -590,8 +590,7 @@ def test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible() -> No
         )
         del binding
         snapshot = availability[f"solubility.soluprot_{mode}.local"]
-        assert snapshot["available"] is True
-        assert "reason" not in snapshot
+        assert snapshot.result.is_available is True
 
 
 def test_soluprot_requires_no_core_dispatch_or_readiness_branch() -> None:

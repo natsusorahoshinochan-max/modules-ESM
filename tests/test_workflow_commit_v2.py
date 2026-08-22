@@ -66,7 +66,7 @@ from core.workflow.document import (
 )
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import IntrinsicObservationContext
-from tests.support.catalog import resolved_dependencies
+from tests.support.catalog import binding_availability, resolved_dependencies
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from protein_workbench_public import validate_error
 from tests.fixtures.zero_core_packages.synthetic_echo.package import (
@@ -161,22 +161,12 @@ def _catalog(*, algorithm_name: str = "source") -> FrozenCatalog:
         prerequisites={},
         check=lambda _input: ReadinessResult(True),
     )
+    observed_at = datetime(2026, 8, 3, tzinfo=timezone.utc)
     return FrozenCatalog(
         builtin.port_types,
         contracts=(method, node, binding),
-        availability=(
-            {
-                "binding": binding.reference(),
-                "observed_at": "2026-08-03T00:00:00Z",
-                "available": True,
-            },
-        ),
-        availability_observed_at=datetime(
-            2026,
-            8,
-            3,
-            tzinfo=timezone.utc,
-        ),
+        availability=(binding_availability(binding, observed_at),),
+        availability_observed_at=observed_at,
         factories={(binding.contract_id, "2.1.0"): factory},
         readiness_declarations={
             (binding.contract_id, "2.1.0"): readiness,

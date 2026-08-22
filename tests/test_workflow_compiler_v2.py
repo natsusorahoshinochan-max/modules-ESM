@@ -12,6 +12,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.declarations import (
+    AvailabilityResult,
     CatalogContract,
     ReadinessDeclaration,
     ScientificOperationFactory,
@@ -23,7 +24,7 @@ from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
 )
-from tests.support.catalog import resolved_dependencies
+from tests.support.catalog import binding_availability, resolved_dependencies
 from core.operation import (
     OperationContext,
     ReadinessResult,
@@ -337,27 +338,20 @@ def _workflow_catalog(
     }
     observed_at = datetime(2026, 7, 29, 4, 0, tzinfo=timezone.utc)
     availability = (
-        {
-            "binding": source_binding.reference(),
-            "observed_at": "2026-07-29T04:00:00Z",
-            "available": source_available,
-            **(
-                {}
+        binding_availability(
+            source_binding,
+            observed_at,
+            (
+                AvailabilityResult.available()
                 if source_available
-                else {
-                    "reason": {
-                        "code": "missing_runtime",
-                        "message": "Synthetic runtime is not installed",
-                        "retryable": False,
-                    }
-                }
+                else AvailabilityResult.unavailable(
+                    "missing_runtime",
+                    "Synthetic runtime is not installed",
+                    retryable=False,
+                )
             ),
-        },
-        {
-            "binding": sink_binding.reference(),
-            "observed_at": "2026-07-29T04:00:00Z",
-            "available": True,
-        },
+        ),
+        binding_availability(sink_binding, observed_at),
     )
     return FrozenCatalog(
         builtin.port_types,

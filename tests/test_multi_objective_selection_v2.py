@@ -166,15 +166,11 @@ def _catalog_with_default_selection_parameter(
         else contract
         for contract in base.contracts
     )
+    binding_reference = ExactContractReference(**binding.reference())
     availability = tuple(
-        {
-            **json.loads(canonical_json_bytes(snapshot)),
-            "binding": (
-                binding.reference()
-                if snapshot["binding"]["contract_id"] == binding_id
-                else json.loads(canonical_json_bytes(snapshot["binding"]))
-            ),
-        }
+        replace(snapshot, binding=binding_reference)
+        if snapshot.binding.contract_id == binding_id
+        else snapshot
         for snapshot in base.availability
     )
     return FrozenCatalog(

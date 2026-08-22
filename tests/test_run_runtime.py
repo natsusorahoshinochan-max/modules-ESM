@@ -41,6 +41,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.declarations import (
+    AvailabilityResult,
     CatalogContract,
     EffectiveRandomnessResolver,
     EnvironmentFieldDeclaration,
@@ -71,7 +72,7 @@ import core.execution.runtime as run_runtime
 from core.execution.environment import admit_environment_configuration
 from tests.support.output_admission import admit_fixture_port
 from tests.support.result_store import result_store
-from tests.support.catalog import resolved_dependencies
+from tests.support.catalog import binding_availability, resolved_dependencies
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
@@ -531,22 +532,17 @@ def _direct_catalog(
         contracts=(method, node_type, *bindings),
         availability=tuple(
             (
-                {
-                    "binding": binding.reference(),
-                    "observed_at": observed_at.isoformat(),
-                    "available": False,
-                    "reason": {
-                        "code": "provider_unavailable",
-                        "message": "Provider is unavailable",
-                        "retryable": False,
-                    },
-                }
+                binding_availability(
+                    binding,
+                    observed_at,
+                    result=AvailabilityResult.unavailable(
+                        code="provider_unavailable",
+                        message="Provider is unavailable",
+                        retryable=False,
+                    ),
+                )
                 if binding.contract_id in unavailable_binding_ids
-                else {
-                    "binding": binding.reference(),
-                    "observed_at": observed_at.isoformat(),
-                    "available": True,
-                }
+                else binding_availability(binding, observed_at)
             )
             for binding in bindings
         ),
@@ -783,6 +779,7 @@ def _pipeline_catalog(
     factories = {}
     readiness = {}
     availability = []
+    observed_at = datetime(2026, 7, 29, 8, tzinfo=timezone.utc)
 
     class SourceImplementation:
         def __init__(self, node_id: str, resources) -> None:
@@ -945,11 +942,7 @@ def _pipeline_catalog(
             check=lambda check_input: ReadinessResult(True),
         )
         availability.append(
-            {
-                "binding": binding.reference(),
-                "observed_at": "2026-07-29T08:00:00+00:00",
-                "available": True,
-            }
+            binding_availability(binding, observed_at)
         )
     return FrozenCatalog(
         (
@@ -962,14 +955,7 @@ def _pipeline_catalog(
         ),
         contracts=tuple(contracts),
         availability=tuple(availability),
-        availability_observed_at=datetime(
-            2026,
-            7,
-            29,
-            8,
-            0,
-            tzinfo=timezone.utc,
-        ),
+        availability_observed_at=observed_at,
         factories=factories,
         readiness_declarations=readiness,
     )
@@ -1129,13 +1115,7 @@ def _artifact_catalog(
     return FrozenCatalog(
         (*builtin.port_types, artifact_port_type),
         contracts=(method, node, binding),
-        availability=(
-            {
-                "binding": binding.reference(),
-                "observed_at": observed_at.isoformat(),
-                "available": True,
-            },
-        ),
+        availability=(binding_availability(binding, observed_at),),
         availability_observed_at=observed_at,
         factories={
             ("test.artifact.direct", "2.1.0"): ScientificOperationFactory(

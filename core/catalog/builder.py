@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from .builtins import builtin_frozen_catalog
+from .builtins import builtin_port_types as repository_builtin_port_types
 from .declarations import (
     AvailabilityResult,
     CatalogContract,
@@ -26,7 +26,7 @@ from .definition_resource import (
     _NodeDefinition,
     _load_definition_resource,
 )
-from .model import FrozenCatalog
+from .model import CatalogAvailabilityProjection, FrozenCatalog
 from .port_contract import (
     CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
     CANDIDATE_PAIRING_PORT_TYPE_VERSION,
@@ -62,10 +62,10 @@ def _definition_identity(
     return definition.identity
 
 
-def _utc_timestamp(value: datetime) -> str:
+def _utc_observation_time(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise CatalogBuildError("Catalog observation time must be timezone-aware")
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return value.astimezone(timezone.utc)
 
 
 def _matches_context_constraint(value: Any, constraint: Any) -> bool:
@@ -168,7 +168,7 @@ def build_frozen_catalog(
     port_types = tuple(
         builtin_port_types
         if builtin_port_types is not None
-        else builtin_frozen_catalog().port_types
+        else repository_builtin_port_types()
     )
     port_type_entries: list[tuple[str, PortTypeDefinition]] = [
         ("protein-workbench.core", definition)
@@ -253,6 +253,7 @@ def build_frozen_catalog(
                 "duplicate contract identity "
                 f"port_type:{port_type.type_id}@{port_type.version}"
             )
+        port_type.validate_runtime_contract()
         entry_by_key[key] = ({owner}, port_type)
         template_by_key[key] = fingerprint
 
@@ -861,9 +862,10 @@ def build_frozen_catalog(
     for key in sorted(entry_by_key):
         resolve(key)
 
-    observation_time = observed_at or datetime.now(timezone.utc)
-    observed_at_text = _utc_timestamp(observation_time)
-    availability_snapshots: list[dict[str, Any]] = []
+    observation_time = _utc_observation_time(
+        observed_at or datetime.now(timezone.utc)
+    )
+    availability_snapshots: list[CatalogAvailabilityProjection] = []
     factories: dict[
         tuple[str, str],
         ScientificOperationFactory,
@@ -895,15 +897,18 @@ def build_frozen_catalog(
                 f"Availability checker for {binding.binding_id} returned "
                 "an invalid conclusion"
             )
-        snapshot = {
-            "binding": contract.reference(),
-            "observed_at": observed_at_text,
-            "available": availability.is_available,
-        }
-        reason = availability.reason()
-        if reason is not None:
-            snapshot["reason"] = reason
-        availability_snapshots.append(snapshot)
+        availability_snapshots.append(
+            CatalogAvailabilityProjection(
+                binding=ExactContractReference(
+                    contract.contract_kind,
+                    contract.contract_id,
+                    contract.contract_version,
+                    contract.contract_digest,
+                ),
+                observed_at=observation_time,
+                result=availability,
+            )
+        )
         runtime_key = (binding.binding_id, binding.version)
         factories[runtime_key] = binding.factory
         readiness[runtime_key] = binding.readiness

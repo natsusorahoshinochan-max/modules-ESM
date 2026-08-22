@@ -90,7 +90,7 @@ from datatypes.observation import (
 from datatypes.residue import ResidueLayout
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
-from tests.support.catalog import resolved_dependencies
+from tests.support.catalog import binding_availability, resolved_dependencies
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     select_admitted_candidates,
@@ -521,6 +521,7 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 ),
             }
 
+    observed_at = datetime(2026, 7, 29, 6, tzinfo=timezone.utc)
     catalog = FrozenCatalog(
         builtin.port_types,
         contracts=(
@@ -528,25 +529,11 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             *selection_catalog.contracts,
         ),
         availability=(
-            {
-                "binding": source_binding.reference(),
-                "observed_at": "2026-07-29T06:00:00Z",
-                "available": True,
-            },
-            {
-                "binding": producer_binding.reference(),
-                "observed_at": "2026-07-29T06:00:00Z",
-                "available": True,
-            },
+            binding_availability(source_binding, observed_at),
+            binding_availability(producer_binding, observed_at),
             *selection_catalog.availability,
         ),
-        availability_observed_at=datetime(
-            2026,
-            7,
-            29,
-            6,
-            tzinfo=timezone.utc,
-        ),
+        availability_observed_at=observed_at,
         utility_transforms={
             ("quality.linear", "2.1.0"): linear,
             ("novelty.linear", "2.1.0"): linear,
@@ -793,11 +780,10 @@ def _dynamic_observation_method_catalog(
         availability=(
             *catalog.availability,
             *(
-                {
-                    "binding": binding.reference(),
-                    "observed_at": "2026-08-03T00:00:00Z",
-                    "available": True,
-                }
+                binding_availability(
+                    binding,
+                    datetime(2026, 8, 3, tzinfo=timezone.utc),
+                )
                 for binding in (generation_binding, materializer_binding)
             ),
         ),
@@ -2489,11 +2475,10 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
             for contract in catalog.contracts
         ),
         availability=(
-            {
-                "binding": limited_binding.reference(),
-                "observed_at": "2026-07-29T06:00:00Z",
-                "available": True,
-            },
+            binding_availability(
+                limited_binding,
+                datetime(2026, 7, 29, 6, tzinfo=timezone.utc),
+            ),
         ),
     )
     workflow = decode_workflow_document(

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Any
 
+from core.catalog.declarations import AvailabilityResult, CatalogContract
+from core.catalog.model import CatalogAvailabilityProjection
 from datatypes.exact_reference import ExactContractReference
 
 
@@ -14,6 +17,19 @@ _REFERENCE_FIELDS = {
     "contract_version",
     "contract_digest",
 }
+_AVAILABLE = AvailabilityResult.available()
+
+
+def binding_availability(
+    binding: CatalogContract,
+    observed_at: datetime,
+    result: AvailabilityResult = _AVAILABLE,
+) -> CatalogAvailabilityProjection:
+    return CatalogAvailabilityProjection(
+        ExactContractReference(**binding.reference()),
+        observed_at,
+        result,
+    )
 
 
 def resolved_dependencies(value: Any) -> tuple[ExactContractReference, ...]:

@@ -27,6 +27,7 @@ from core.catalog.declarations import (
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
+from core.catalog.model import CatalogAvailabilityProjection
 from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
@@ -331,13 +332,9 @@ def _build_synthetic_catalog(
         _forget_package(root_name)
 
 
-def _snapshot(
-    catalog,
-    *,
-    observed_at: datetime | None = None,
-) -> dict[str, object]:
+def _snapshot(catalog) -> dict[str, object]:
     return encode_catalog_projection(
-        catalog.projection(observed_at=observed_at),
+        catalog.projection(),
         protocol_digest="sha256:" + ("0" * 64),
     )
 
@@ -555,6 +552,8 @@ def test_binding_availability_is_published_with_the_catalog_observation(
             tzinfo=timezone.utc,
         ),
     )
+    assert type(catalog.availability[0]) is CatalogAvailabilityProjection
+    assert catalog.projection().availability == catalog.availability
     assert _snapshot(catalog)["availability"] == [{
         "binding": {
             "contract_kind": "binding",
@@ -1439,21 +1438,24 @@ def test_observed_availability_never_changes_stable_contract_identity(
     )
 
 
-def test_snapshot_observation_override_updates_every_availability_time(
+def test_catalog_build_normalizes_observation_time_to_utc(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
-    override = datetime(
-        2026,
-        7,
-        29,
-        10,
-        0,
-        tzinfo=timezone(timedelta(hours=8)),
+    catalog = _build_synthetic_catalog(
+        tmp_path,
+        monkeypatch,
+        observed_at=datetime(
+            2026,
+            7,
+            29,
+            10,
+            0,
+            tzinfo=timezone(timedelta(hours=8)),
+        ),
     )
 
-    snapshot = _snapshot(catalog, observed_at=override)
+    snapshot = _snapshot(catalog)
 
     assert {
         snapshot["availability_observed_at"],
@@ -1461,17 +1463,19 @@ def test_snapshot_observation_override_updates_every_availability_time(
     } == {"2026-07-29T02:00:00Z"}
 
 
-def test_snapshot_rejects_a_naive_observation_time(
+def test_catalog_build_rejects_a_naive_observation_time(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
-
     with pytest.raises(
         CatalogBuildError,
         match="observation time must be timezone-aware",
     ):
-        catalog.projection(observed_at=datetime(2026, 7, 29, 2, 0))
+        _build_synthetic_catalog(
+            tmp_path,
+            monkeypatch,
+            observed_at=datetime(2026, 7, 29, 2, 0),
+        )
 
 
 def test_adapter_binding_requires_an_explicit_adapter_behavior(

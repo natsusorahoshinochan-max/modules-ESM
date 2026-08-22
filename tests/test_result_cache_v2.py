@@ -48,6 +48,7 @@ from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,
 )
+from tests.support.catalog import binding_availability
 from tests.test_run_runtime import (
     _artifact_catalog,
     _commit_artifact_node,
@@ -315,13 +316,7 @@ def _candidate_catalog(
     return FrozenCatalog(
         builtin.port_types,
         contracts=(method, node, binding),
-        availability=(
-            {
-                "binding": binding.reference(),
-                "observed_at": observed_at.isoformat(),
-                "available": True,
-            },
-        ),
+        availability=(binding_availability(binding, observed_at),),
         availability_observed_at=observed_at,
         factories={
             ("test.candidate.direct", "2.1.0"): ScientificOperationFactory(

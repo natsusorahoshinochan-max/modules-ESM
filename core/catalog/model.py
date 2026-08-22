@@ -10,7 +10,7 @@ from types import MappingProxyType
 from typing import Any
 
 from datatypes.exact_reference import ExactContractReference
-from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.i_json import thaw_i_json
 
 from .declarations import AvailabilityResult, CatalogContract
 from .port_contract import (
@@ -21,7 +21,6 @@ from .port_contract import (
     PortTypeDefinition,
     UnknownContractError,
     UnknownPortTypeError,
-    _require_single_active_contract_version,
     canonical_json_bytes,
 )
 
@@ -66,11 +65,11 @@ def _canonical_reference(
 
 @dataclass(frozen=True, slots=True)
 class FrozenCatalog:
-    """Immutable, atomically validated v2 Catalog and runtime declarations."""
+    """Immutable indexes over Catalog Builder output."""
 
     port_types: tuple[PortTypeDefinition, ...]
-    contracts: tuple[Any, ...] = ()
-    availability: tuple[Mapping[str, Any], ...] = ()
+    contracts: tuple[CatalogContract, ...] = ()
+    availability: tuple[CatalogAvailabilityProjection, ...] = ()
     availability_observed_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc),
     )
@@ -103,7 +102,9 @@ class FrozenCatalog:
         init=False,
         repr=False,
     )
-    _contracts_by_identity: Mapping[tuple[str, str, str], Any] = field(
+    _contracts_by_identity: Mapping[
+        tuple[str, str, str], CatalogContract
+    ] = field(
         init=False,
         repr=False,
     )
@@ -113,28 +114,21 @@ class FrozenCatalog:
     )
 
     def __post_init__(self) -> None:
-        resolved: dict[tuple[str, str], PortTypeDefinition] = {}
-        for definition in self.port_types:
-            definition.validate_runtime_contract()
-            identity = (definition.type_id, definition.version)
-            if identity in resolved:
-                raise CatalogBuildError(
-                    "duplicate Port Type identity "
-                    f"{definition.type_id}@{definition.version}"
-                )
-            resolved[identity] = definition
         ordered = tuple(
             sorted(
-                resolved.values(),
+                self.port_types,
                 key=lambda item: (item.type_id, item.version),
             )
         )
+        resolved = {
+            (definition.type_id, definition.version): definition
+            for definition in ordered
+        }
         object.__setattr__(self, "port_types", ordered)
         object.__setattr__(self, "_by_identity", MappingProxyType(resolved))
-        contracts_by_identity: dict[tuple[str, str, str], Any] = {}
         ordered_contracts = tuple(
             sorted(
-                tuple(self.contracts),
+                self.contracts,
                 key=lambda item: (
                     item.contract_kind,
                     item.contract_id,
@@ -142,44 +136,14 @@ class FrozenCatalog:
                 ),
             )
         )
-        for contract in ordered_contracts:
-            identity = (
+        contracts_by_identity = {
+            (
                 contract.contract_kind,
                 contract.contract_id,
                 contract.contract_version,
-            )
-            if identity[0] == "port_type":
-                raise CatalogBuildError(
-                    "Port Type contracts must use the Port Type definition view"
-                )
-            if identity in contracts_by_identity:
-                raise CatalogBuildError(
-                    "duplicate contract identity "
-                    f"{identity[0]}:{identity[1]}@{identity[2]}"
-                )
-            contracts_by_identity[identity] = contract
-        _require_single_active_contract_version(
-            (
-                "port_type",
-                definition.type_id,
-                definition.version,
-            )
-            for definition in ordered
-        )
-        _require_single_active_contract_version(contracts_by_identity)
-        observation_time = self.availability_observed_at
-        if (
-            not isinstance(observation_time, datetime)
-            or observation_time.tzinfo is None
-            or observation_time.utcoffset() is None
-        ):
-            raise CatalogBuildError(
-                "Catalog Availability observation time must be timezone-aware"
-            )
-        frozen_availability = tuple(
-            freeze_i_json(thaw_i_json(snapshot))
-            for snapshot in self.availability
-        )
+            ): contract
+            for contract in ordered_contracts
+        }
         object.__setattr__(self, "contracts", ordered_contracts)
         object.__setattr__(
             self,
@@ -203,12 +167,7 @@ class FrozenCatalog:
             "_active_contract_versions",
             MappingProxyType(active_contract_versions),
         )
-        object.__setattr__(self, "availability", frozen_availability)
-        object.__setattr__(
-            self,
-            "availability_observed_at",
-            observation_time.astimezone(timezone.utc),
-        )
+        object.__setattr__(self, "availability", tuple(self.availability))
         object.__setattr__(
             self,
             "factories",
@@ -481,7 +440,7 @@ class FrozenCatalog:
         binding: ExactContractReference,
     ) -> CatalogAvailabilityProjection:
         """Return the typed startup observation for one exact Binding."""
-        for observation in self.projection().availability:
+        for observation in self.availability:
             if observation.binding == binding:
                 return observation
         raise CatalogBuildError(
@@ -515,58 +474,11 @@ class FrozenCatalog:
                 f"{transform_id}@{transform_version}"
             ) from error
 
-    def projection(
-        self,
-        *,
-        observed_at: datetime | None = None,
-    ) -> CatalogProjection:
+    def projection(self) -> CatalogProjection:
         """Return typed stable contracts and startup Binding observations."""
-        timestamp = observed_at or self.availability_observed_at
-        if timestamp.tzinfo is None or timestamp.utcoffset() is None:
-            raise CatalogBuildError(
-                "Catalog projection observation time must be timezone-aware"
-            )
-        timestamp = timestamp.astimezone(timezone.utc)
-        contracts = self._contract_projections()
-        references_by_identity = {
-            (
-                contract.reference.contract_kind,
-                contract.reference.contract_id,
-                contract.reference.contract_version,
-            ): contract.reference
-            for contract in contracts
-        }
-        availability = tuple(
-            CatalogAvailabilityProjection(
-                binding=references_by_identity[
-                    (
-                        "binding",
-                        snapshot["binding"]["contract_id"],
-                        snapshot["binding"]["contract_version"],
-                    )
-                ],
-                observed_at=(
-                    timestamp
-                    if observed_at is not None
-                    else datetime.fromisoformat(
-                        snapshot["observed_at"].replace("Z", "+00:00")
-                    )
-                ),
-                result=(
-                    AvailabilityResult.available()
-                    if snapshot["available"]
-                    else AvailabilityResult.unavailable(
-                        snapshot["reason"]["code"],
-                        snapshot["reason"]["message"],
-                        retryable=snapshot["reason"]["retryable"],
-                    )
-                ),
-            )
-            for snapshot in self.availability
-        )
         return CatalogProjection(
             catalog_contract_digest=self.contract_digest,
-            contracts=contracts,
-            availability_observed_at=timestamp,
-            availability=availability,
+            contracts=self._contract_projections(),
+            availability_observed_at=self.availability_observed_at,
+            availability=self.availability,
         )

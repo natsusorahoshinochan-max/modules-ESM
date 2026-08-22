@@ -12,9 +12,6 @@ import re
 from fastapi.testclient import TestClient
 import pytest
 
-from core.catalog.model import (
-    FrozenCatalog,
-)
 from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
@@ -209,9 +206,9 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
     }
     expected_availability = {
         (
-            snapshot["binding"]["contract_id"],
-            snapshot["binding"]["contract_version"],
-            snapshot["available"],
+            snapshot.binding.contract_id,
+            snapshot.binding.contract_version,
+            snapshot.result.is_available,
         )
         for snapshot in catalog.availability
     }
@@ -1262,8 +1259,14 @@ def test_runtime_callables_never_enter_stable_contract_identity() -> None:
 
     source_definition = build_definition()
     installed_definition = build_definition()
-    source_catalog = FrozenCatalog((source_definition,))
-    installed_catalog = FrozenCatalog((installed_definition,))
+    source_catalog = build_frozen_catalog(
+        (),
+        builtin_port_types=(source_definition,),
+    )
+    installed_catalog = build_frozen_catalog(
+        (),
+        builtin_port_types=(installed_definition,),
+    )
 
     assert source_definition.descriptor_bytes == (
         installed_definition.descriptor_bytes
@@ -1318,8 +1321,11 @@ def test_port_type_catalog_build_is_atomic_on_duplicate_identity() -> None:
     original_digest = published.contract_digest
     duplicate = published.require_port_type("text", "2.1.0")
 
-    with pytest.raises(CatalogBuildError, match="duplicate Port Type identity"):
-        FrozenCatalog((*published.port_types, duplicate))
+    with pytest.raises(CatalogBuildError, match="duplicate contract identity"):
+        build_frozen_catalog(
+            (),
+            builtin_port_types=(*published.port_types, duplicate),
+        )
 
     assert published.contract_digest == original_digest
 
@@ -1333,4 +1339,7 @@ def test_direct_catalog_construction_rejects_multiple_active_port_versions() -> 
         CatalogBuildError,
         match="multiple active versions for contract port_type:text",
     ):
-        FrozenCatalog((current, incompatible))
+        build_frozen_catalog(
+            (),
+            builtin_port_types=(current, incompatible),
+        )

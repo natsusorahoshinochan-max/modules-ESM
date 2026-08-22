@@ -211,18 +211,24 @@ def _builtin_port_type(
 
 
 @lru_cache(maxsize=1)
+def builtin_port_types() -> tuple[PortTypeDefinition, ...]:
+    """Return the repository-owned built-in Port Type declarations."""
+    return tuple(
+        _builtin_port_type(
+            type_id,
+            value_kind,
+            version=_BUILTIN_PORT_TYPE_VERSIONS.get(
+                type_id,
+                PORT_TYPE_VERSION,
+            ),
+        )
+        for type_id, value_kind in _BUILTIN_VALUE_KINDS
+    )
+
+
+@lru_cache(maxsize=1)
 def builtin_frozen_catalog() -> FrozenCatalog:
     """Build and cache the repository-owned built-in Port Type Catalog."""
-    return FrozenCatalog(
-        tuple(
-            _builtin_port_type(
-                type_id,
-                value_kind,
-                version=_BUILTIN_PORT_TYPE_VERSIONS.get(
-                    type_id,
-                    PORT_TYPE_VERSION,
-                ),
-            )
-            for type_id, value_kind in _BUILTIN_VALUE_KINDS
-        )
-    )
+    from .builder import build_frozen_catalog
+
+    return build_frozen_catalog((), builtin_port_types=builtin_port_types())

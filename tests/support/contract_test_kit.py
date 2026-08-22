@@ -316,9 +316,9 @@ def _availability_is_green(
     binding_version: str,
 ) -> bool:
     return any(
-        snapshot["binding"]["contract_id"] == binding_id
-        and snapshot["binding"]["contract_version"] == binding_version
-        and snapshot["available"] is True
+        snapshot.binding.contract_id == binding_id
+        and snapshot.binding.contract_version == binding_version
+        and snapshot.result.is_available
         for snapshot in catalog.availability
     )
 
