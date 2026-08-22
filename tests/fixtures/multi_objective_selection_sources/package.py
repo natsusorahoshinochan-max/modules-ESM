@@ -335,7 +335,6 @@ def _utility(transform_id: str, pairing_mode: str) -> UtilityTransformDefinition
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.multi_objective_selection_sources",
     package_version=PACKAGE_VERSION,
     package_module=__package__,

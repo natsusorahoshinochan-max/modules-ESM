@@ -251,7 +251,6 @@ def _backbone_from_wire(value: object) -> object:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="structure_transform",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,

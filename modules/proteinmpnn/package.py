@@ -665,7 +665,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="proteinmpnn",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,

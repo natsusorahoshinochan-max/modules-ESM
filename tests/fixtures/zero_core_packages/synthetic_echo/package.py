@@ -234,7 +234,6 @@ def _binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.synthetic_echo",
     package_version="2.1.0",
     package_module=__package__,

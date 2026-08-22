@@ -605,7 +605,6 @@ def _port_type(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="structure_annotation",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,

@@ -324,7 +324,6 @@ def _binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="structure_comparison",
     package_version="7.0.0",
     package_module=__package__,

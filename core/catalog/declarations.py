@@ -39,7 +39,7 @@ from .port_contract import (
 )
 
 
-MODULE_PACKAGE_SCHEMA_VERSION = "2.1.0"
+DEFINITION_RESOURCE_SCHEMA_VERSION = "2.1.0"
 ContractKind = Literal[
     "binding",
     "method",
@@ -76,10 +76,10 @@ def _require_version(value: str, field_name: str) -> None:
 
 
 def _require_schema_version(value: str, resource_kind: str) -> None:
-    if value != MODULE_PACKAGE_SCHEMA_VERSION:
+    if value != DEFINITION_RESOURCE_SCHEMA_VERSION:
         raise CatalogBuildError(
             f"unsupported {resource_kind} schema_version {value!r}; "
-            f"expected {MODULE_PACKAGE_SCHEMA_VERSION!r}"
+            f"expected {DEFINITION_RESOURCE_SCHEMA_VERSION!r}"
         )
 
 
@@ -277,8 +277,6 @@ class MethodDefinition:
     scale_contract: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        _require_identifier(self.method_id, "method_id")
-        _require_version(self.version, "method version")
         for field_name in (
             "algorithm_identity",
             "model_identity",
@@ -288,8 +286,6 @@ class MethodDefinition:
             "scale_contract",
         ):
             value = getattr(self, field_name)
-            if not isinstance(value, Mapping):
-                raise CatalogBuildError(f"{field_name} must be an object")
             object.__setattr__(
                 self,
                 field_name,
@@ -771,7 +767,6 @@ CatalogDefinition = (
 class ModulePackageRegistration:
     """The one immutable production registration exported by a package."""
 
-    schema_version: str
     package_id: str
     package_version: str
     package_module: str
@@ -783,17 +778,6 @@ class ModulePackageRegistration:
     utility_transforms: tuple[UtilityTransformDefinition, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_schema_version(self.schema_version, "Module Package")
-        _require_identifier(self.package_id, "package_id")
-        _require_version(self.package_version, "package_version")
-        if (
-            not isinstance(self.package_module, str)
-            or not self.package_module
-            or self.package_module.startswith(".")
-        ):
-            raise CatalogBuildError(
-                "package_module must name the registration's import package"
-            )
         for field_name in (
             "node_definitions",
             "metric_definitions",

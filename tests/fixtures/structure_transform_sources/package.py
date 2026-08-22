@@ -511,7 +511,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.structure_transform_sources",
     package_version="3.0.0",
     package_module=__package__,

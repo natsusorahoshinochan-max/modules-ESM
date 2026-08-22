@@ -574,7 +574,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="solubility",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,

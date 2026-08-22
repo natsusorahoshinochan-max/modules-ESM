@@ -585,7 +585,6 @@ def _utility(partition: str) -> UtilityTransformDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.collection_ops_sources",
     package_version=PACKAGE_VERSION,
     package_module=__package__,

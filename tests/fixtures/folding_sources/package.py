@@ -258,7 +258,6 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.folding_sources",
     package_version="3.0.0",
     package_module=__package__,

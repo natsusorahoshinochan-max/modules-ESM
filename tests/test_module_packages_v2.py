@@ -150,7 +150,6 @@ _METHOD = ContractIdentity("method", "synthetic.echo", "2.1.0")
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="synthetic",
     package_version="2.1.0",
     package_module=__package__,
@@ -362,7 +361,6 @@ def _registration(
     methods=(),
 ) -> ModulePackageRegistration:
     return ModulePackageRegistration(
-        schema_version="2.1.0",
         package_id=package_id,
         package_version="2.1.0",
         package_module=f"unused_{package_id}",
@@ -924,6 +922,28 @@ def test_duplicate_contract_identity_fails_closed() -> None:
         )
 
 
+def test_catalog_builder_owns_method_identity_admission() -> None:
+    method = replace(
+        _method("synthetic.valid"),
+        method_id="not a canonical identifier",
+    )
+
+    with pytest.raises(CatalogBuildError, match="method_id"):
+        build_frozen_catalog(
+            (_registration("method_identity_owner", methods=(method,)),)
+        )
+
+
+def test_catalog_builder_owns_package_identity_admission() -> None:
+    registration = replace(
+        _registration("valid_package"),
+        package_id="not a canonical identifier",
+    )
+
+    with pytest.raises(CatalogBuildError, match="package_id"):
+        build_frozen_catalog((registration,))
+
+
 def test_active_catalog_rejects_multiple_versions_of_one_logical_contract() -> None:
     with pytest.raises(
         CatalogBuildError,
@@ -971,7 +991,6 @@ from core.catalog.declarations import ModulePackageRegistration
 from core.catalog.definition_resource import DefinitionResource
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="shared_metric",
     package_version="2.1.0",
     package_module=__package__,

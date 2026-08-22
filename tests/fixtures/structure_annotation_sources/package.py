@@ -229,7 +229,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.structure_annotation_sources",
     package_version=_VERSION,
     package_module=__package__,

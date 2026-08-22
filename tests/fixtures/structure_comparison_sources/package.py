@@ -631,7 +631,6 @@ def _fixture_binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.structure_comparison_sources",
     package_version=_VERSION,
     package_module=__package__,

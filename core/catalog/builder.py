@@ -19,6 +19,7 @@ from .declarations import (
     UtilityTransformDefinition,
     _SCIENTIFIC_COLLECTION_PORT_TYPE_VERSIONS,
     _require_identifier,
+    _require_version,
 )
 from .definition_resource import (
     _load_definition_resource,
@@ -281,6 +282,8 @@ def build_frozen_catalog(
     registration_tuple = tuple(registrations)
     package_identities: set[tuple[str, str]] = set()
     for registration in registration_tuple:
+        _require_identifier(registration.package_id, "package_id")
+        _require_version(registration.package_version, "package_version")
         package_identity = (
             registration.package_id,
             registration.package_version,
@@ -373,6 +376,14 @@ def build_frozen_catalog(
 
     for owner, definition in definitions:
         identity = _definition_identity(definition)
+        _require_identifier(
+            identity.contract_id,
+            f"{identity.contract_kind}_id",
+        )
+        _require_version(
+            identity.contract_version,
+            f"{identity.contract_kind} version",
+        )
         key = identity.key
         fingerprint = canonical_json_bytes(
             _template_json(definition.descriptor_template())

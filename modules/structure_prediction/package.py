@@ -129,7 +129,6 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="structure_prediction",
     package_version=VERSION,
     package_module=__package__,
