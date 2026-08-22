@@ -9,7 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-import modules.acceptance_campaign as campaign
+from verification import acceptance_campaign as campaign
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -29,7 +29,8 @@ def verify_repository(profile: campaign.ExecutionProfile) -> None:
         subprocess.run(
             [
                 sys.executable,
-                str(PROJECT_ROOT / "scripts" / "verify_backend.py"),
+                "-m",
+                "verification.backend",
                 tier,
             ],
             cwd=PROJECT_ROOT,

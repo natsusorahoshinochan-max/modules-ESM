@@ -8,13 +8,13 @@ it does not verify compatibility with superseded development artifacts.
 Use one public verification command:
 
 ```bash
-.venv/bin/python scripts/verify_backend.py <tier>
+.venv/bin/python -m verification.backend <tier>
 ```
 
 Run the final repository matrix from one explicit Acceptance Execution Profile:
 
 ```bash
-.venv/bin/python scripts/acceptance_campaign.py verify-repository \
+.venv/bin/python -m verification.acceptance_cli verify-repository \
   --profile /absolute/path/to/acceptance-profile.json
 ```
 
@@ -33,27 +33,27 @@ are ordinary local verification output.
 
 | Tier | Command | Contract |
 | --- | --- | --- |
-| Routine backend regression | `.venv/bin/python scripts/verify_backend.py routine` | Runs deterministic current-generation tests and excludes acceptance, installed-package, Provider, slow-model, and scientific-reproduction markers. |
-| Repository v2 examples | `.venv/bin/python scripts/verify_backend.py examples-v2` | Commits and compiles the maintained current-generation Workflow suite and compares its 12-package capability inventory with the active source Catalog. |
-| Deterministic backend acceptance | `.venv/bin/python scripts/verify_backend.py deterministic-acceptance` | Runs the locked canonical v2 3GB1 public-protocol journey and its current failure, readiness, cancellation, isolation, and replay variants. |
-| Scientific reproduction | `.venv/bin/python scripts/verify_backend.py scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
-| Local ESMFold2 source contract | `.venv/bin/python scripts/verify_backend.py local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
-| Installed package | `.venv/bin/python scripts/verify_backend.py installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
-| Installed Biohub ESMC | `.venv/bin/python scripts/verify_backend.py installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
-| Installed Biohub ESM-3 | `.venv/bin/python scripts/verify_backend.py installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and fixes SDK retries to one attempt per call. |
-| Installed Biohub ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run with one SDK attempt. |
-| Installed local ESM-3 | `.venv/bin/python scripts/verify_backend.py installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation and requires complete invocation evidence. |
-| Installed local ESMFold2 | `.venv/bin/python scripts/verify_backend.py installed-local-esmfold2` | Invokes the exact locked ESMFold2 and ESMC snapshots at the declared CPU/FP32 precision through a fresh Run and requires exact-seed Method evidence. |
-| Installed ProteinMPNN | `.venv/bin/python scripts/verify_backend.py installed-proteinmpnn` | Invokes exact design, score, native-score, and sibling-design contracts through four public Runs. Direct Adapter edge cases remain non-authoritative Provider regressions. |
-| Installed mkdssp | `.venv/bin/python scripts/verify_backend.py installed-mkdssp` | Invokes exact mkdssp 4.6.1 through the public Run seam and verifies the canonical DSSP residue layout, secondary-structure track, SASA track, and complete Method evidence. |
-| Installed SimpleFold folding | `.venv/bin/python scripts/verify_backend.py installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model and ESM-2 assets. |
-| Installed SimpleFold confidence | `.venv/bin/python scripts/verify_backend.py installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
-| Installed SoluProt | `.venv/bin/python scripts/verify_backend.py installed-soluprot` | Invokes both full and no-TM locked SoluProt methods and checks their exact observations and terminal evidence. |
-| Installed Protein-Sol | `.venv/bin/python scripts/verify_backend.py installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
-| Fresh source-bound 1PGA | `.venv/bin/python scripts/verify_backend.py fresh-1pga` | Runs the installed 1PGA Workflow and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
-| Fresh source-bound 2EMO | `.venv/bin/python scripts/verify_backend.py fresh-2emo` | Runs the installed 2EMO Workflow and retains exact CSH normalization, ProteinMPNN, ESMFold2, Protein-Sol, four-filter, and public evidence. |
-| Fresh canonical 3GB1 | `.venv/bin/python scripts/verify_backend.py fresh-canonical-3gb1` | Runs the canonical scientific Workflow without historical Cache. Its four Provider stages require exactly 20 ESM-3 paired-generation calls, 10 preliminary folds, 3 ProteinMPNN parent-design calls, and 15 final folds, alongside the Workflow's valid local invocations. It is release evidence rather than a substitute for the smaller exact-Binding gates. |
-| Fresh source-bound 5G53 | `.venv/bin/python scripts/verify_backend.py fresh-5g53` | Runs the installed 5G53 Workflow and retains all six paired candidates, reconstruction, both PAE-bearing confidence collections, loop evidence, retrieval, and artifacts. |
+| Routine backend regression | `.venv/bin/python -m verification.backend routine` | Runs deterministic current-generation tests and excludes acceptance, installed-package, Provider, slow-model, and scientific-reproduction markers. |
+| Repository v2 examples | `.venv/bin/python -m verification.backend examples-v2` | Commits and compiles the maintained current-generation Workflow suite and compares its 12-package capability inventory with the active source Catalog. |
+| Deterministic backend acceptance | `.venv/bin/python -m verification.backend deterministic-acceptance` | Runs the locked canonical v2 3GB1 public-protocol journey and its current failure, readiness, cancellation, isolation, and replay variants. |
+| Scientific reproduction | `.venv/bin/python -m verification.backend scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
+| Local ESMFold2 source contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
+| Installed package | `.venv/bin/python -m verification.backend installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
+| Installed Biohub ESMC | `.venv/bin/python -m verification.backend installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
+| Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and fixes SDK retries to one attempt per call. |
+| Installed Biohub ESMFold2 | `.venv/bin/python -m verification.backend installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run with one SDK attempt. |
+| Installed local ESM-3 | `.venv/bin/python -m verification.backend installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation and requires complete invocation evidence. |
+| Installed local ESMFold2 | `.venv/bin/python -m verification.backend installed-local-esmfold2` | Invokes the exact locked ESMFold2 and ESMC snapshots at the declared CPU/FP32 precision through a fresh Run and requires exact-seed Method evidence. |
+| Installed ProteinMPNN | `.venv/bin/python -m verification.backend installed-proteinmpnn` | Invokes exact design, score, native-score, and sibling-design contracts through four public Runs. Direct Adapter edge cases remain non-authoritative Provider regressions. |
+| Installed mkdssp | `.venv/bin/python -m verification.backend installed-mkdssp` | Invokes exact mkdssp 4.6.1 through the public Run seam and verifies the canonical DSSP residue layout, secondary-structure track, SASA track, and complete Method evidence. |
+| Installed SimpleFold folding | `.venv/bin/python -m verification.backend installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model and ESM-2 assets. |
+| Installed SimpleFold confidence | `.venv/bin/python -m verification.backend installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
+| Installed SoluProt | `.venv/bin/python -m verification.backend installed-soluprot` | Invokes both full and no-TM locked SoluProt methods and checks their exact observations and terminal evidence. |
+| Installed Protein-Sol | `.venv/bin/python -m verification.backend installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
+| Fresh source-bound 1PGA | `.venv/bin/python -m verification.backend fresh-1pga` | Runs the installed 1PGA Workflow and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
+| Fresh source-bound 2EMO | `.venv/bin/python -m verification.backend fresh-2emo` | Runs the installed 2EMO Workflow and retains exact CSH normalization, ProteinMPNN, ESMFold2, Protein-Sol, four-filter, and public evidence. |
+| Fresh canonical 3GB1 | `.venv/bin/python -m verification.backend fresh-canonical-3gb1` | Runs the canonical scientific Workflow without historical Cache. Its four Provider stages require exactly 20 ESM-3 paired-generation calls, 10 preliminary folds, 3 ProteinMPNN parent-design calls, and 15 final folds, alongside the Workflow's valid local invocations. It is release evidence rather than a substitute for the smaller exact-Binding gates. |
+| Fresh source-bound 5G53 | `.venv/bin/python -m verification.backend fresh-5g53` | Runs the installed 5G53 Workflow and retains all six paired candidates, reconstruction, both PAE-bearing confidence collections, loop evidence, retrieval, and artifacts. |
 All fifteen Acceptance Campaign tiers are zero-skip gates: a missing Provider,
 fixture-only collection, missing Engine Invocation,
 or skipped test fails the gate. The copied acceptance harness is outside the
@@ -215,9 +215,10 @@ resources, or synthetic echo package.
 
 ## Installed parity contract
 
-`scripts/build_backend.py` creates byte-reproducible wheel and sdist artifacts.
+`python -m verification.build` creates byte-reproducible wheel and sdist artifacts.
 The installed-package gate creates a fresh virtual environment and launches
-`python -I -m core.server` from a directory outside the checkout. The installed
+`python -I -m protein_workbench_public.cli` from a directory outside the
+checkout. The installed
 protocol bundle bytes and digest, canonical Catalog descriptor bytes and
 digest, and ordered FrozenCatalog contract references must exactly equal the
 source deployment's one active generation. Availability remains a separately
@@ -283,9 +284,9 @@ candidate and run one canonical Campaign:
 ```bash
 CAMPAIGN=verification-results/acceptance-campaign
 PROFILE=/absolute/private/acceptance-profile.json
-.venv/bin/python scripts/acceptance_campaign.py prepare "$CAMPAIGN" --profile "$PROFILE"
-.venv/bin/python scripts/acceptance_campaign.py run "$CAMPAIGN" --profile "$PROFILE"
-.venv/bin/python scripts/acceptance_campaign.py status "$CAMPAIGN"
+.venv/bin/python -m verification.acceptance_cli prepare "$CAMPAIGN" --profile "$PROFILE"
+.venv/bin/python -m verification.acceptance_cli run "$CAMPAIGN" --profile "$PROFILE"
+.venv/bin/python -m verification.acceptance_cli status "$CAMPAIGN"
 ```
 
 `prepare` builds one wheel and sdist. `run` executes all 15 tiers exactly once

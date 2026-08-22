@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 from dataclasses import replace
@@ -11,9 +15,9 @@ import sys
 
 import pytest
 
-import scripts.verify_backend as verify_backend
-from core import build_discovered_frozen_catalog, parse_workflow_document
-from modules.acceptance_campaign import (
+import verification.backend as verify_backend
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from verification.acceptance_campaign import (
     CAMPAIGN_SCHEMA_NAMESPACE,
     CAMPAIGN_DEFINITION_SCHEMA_NAMESPACE,
     CANONICAL_ACCEPTANCE_TIERS,
@@ -172,7 +176,7 @@ def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
 
 def test_source_bound_tiers_fix_current_exact_inputs_and_workflows() -> None:
     project_root = Path(__file__).resolve().parent.parent
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     for tier in CANONICAL_ACCEPTANCE_TIERS:
         source_bound = tier.source_bound
         if source_bound is None:
@@ -182,7 +186,7 @@ def test_source_bound_tiers_fix_current_exact_inputs_and_workflows() -> None:
         assert hashlib.sha256(input_path.read_bytes()).hexdigest() == (
             source_bound.input_sha256
         )
-        workflow = parse_workflow_document(
+        workflow = decode_workflow_document(
             json.loads(workflow_path.read_text(encoding="utf-8"))
         )
         assert workflow.contract_lock
@@ -299,11 +303,33 @@ def test_execution_profile_rejects_relative_configuration_paths(
         ExecutionProfile.load(profile_path)
 
 
+def test_execution_profile_preserves_credential_path_no_follow_semantics(
+    tmp_path: Path,
+) -> None:
+    profile_path = _write_profile(tmp_path)
+    token_path = tmp_path / "biohub-token"
+    token_path.write_text("secret-token\n")
+    token_path.chmod(0o600)
+    link_path = tmp_path / "configured-token"
+    link_path.symlink_to(token_path)
+    document = json.loads(profile_path.read_text(encoding="utf-8"))
+    document["provider_configuration"][
+        "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"
+    ] = str(link_path)
+    profile_path.write_text(json.dumps(document), encoding="utf-8")
+
+    profile = ExecutionProfile.load(profile_path)
+
+    assert profile.provider_configuration[
+        "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"
+    ] == str(link_path)
+
+
 def test_prepare_binds_candidate_plan_revision_and_redacted_profile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -351,7 +377,7 @@ def test_campaign_admits_structured_outcomes_once_in_exact_serial_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -420,7 +446,7 @@ def test_campaign_requires_the_candidate_bound_during_prepare(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -440,7 +466,7 @@ def test_campaign_rejects_candidate_content_changed_after_prepare(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -465,7 +491,7 @@ def test_campaign_rejects_private_profile_changed_after_prepare(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     prepared_profile = ExecutionProfile.load(_write_profile(tmp_path / "first"))
     replacement_profile = ExecutionProfile.load(_write_profile(tmp_path / "second"))
@@ -488,7 +514,7 @@ def test_campaign_stops_at_first_failed_outcome_without_making_it_a_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -527,7 +553,7 @@ def test_passed_child_conclusion_cannot_authorize_incomplete_acceptance_result(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -559,7 +585,7 @@ def test_campaign_interruption_closes_only_finished_tier_executions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -699,7 +725,7 @@ def test_child_return_code_and_stdout_cannot_override_structured_outcome(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -740,7 +766,7 @@ def test_completed_child_without_structured_outcome_fails_campaign(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
@@ -768,7 +794,7 @@ def test_structured_outcome_rejects_noncanonical_retained_locations(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.acceptance_campaign as campaign
+    import verification.acceptance_campaign as campaign
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"

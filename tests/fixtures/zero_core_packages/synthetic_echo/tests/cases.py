@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from core import (
+from core.operation import (
     ArtifactPayload,
+)
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    WorkflowNodeInstance,
 )
-from core.workflow_v2 import WorkflowEdge
+from core.workflow.document import WorkflowNodeInstance
+from core.workflow.document import WorkflowEdge
 
 
 SOURCE_EXECUTION_CASE = ModulePackageContractCase(

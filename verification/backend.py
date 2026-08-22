@@ -24,7 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Mapping
 
-from modules.acceptance_campaign import (
+from core.provider_support import read_private_credential_file
+from verification.acceptance_campaign import (
     CANONICAL_ACCEPTANCE_TIERS,
     TierExecutionOutcome,
     write_tier_execution_outcome,
@@ -373,16 +374,9 @@ def _redacted_diagnostic(
             if name.endswith("_FILE"):
                 credential_path = Path(configured)
                 try:
-                    if (
-                        credential_path.is_file()
-                        and credential_path.stat().st_size <= 1024 * 1024
-                    ):
-                        secret = credential_path.read_text(
-                            encoding="utf-8"
-                        ).strip()
-                        if secret:
-                            credential_values.append(secret)
-                except (OSError, UnicodeError):
+                    secret = read_private_credential_file(credential_path)
+                    credential_values.append(secret)
+                except (OSError, UnicodeError, ValueError):
                     pass
             else:
                 credential_values.append(configured)

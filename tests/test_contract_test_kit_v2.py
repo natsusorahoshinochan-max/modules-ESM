@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import replace
 import importlib
 import json
@@ -13,17 +15,18 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from core import (
-    CatalogBuildError,
-    ModulePackageDiscoveryError,
-    ModulePackageConformanceError,
-    PortTypeDefinition,
-    build_discovered_frozen_catalog,
+from core.catalog.builder import (
     build_frozen_catalog,
-    discover_module_packages,
+)
+from core.catalog.port_contract import (
+    CatalogBuildError,
+    PortTypeDefinition,
+)
+from tests.support.contract_test_kit import (
+    ModulePackageConformanceError,
     verify_module_package_contract,
 )
-from core.server import create_app
+from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import (
     prepare_run_event_stream_request,
     prepare_rest_request,
@@ -45,9 +48,11 @@ from tests.fixtures.zero_core_packages.synthetic_echo.tests.invalid_registration
     FALSE_READINESS_PACKAGE,
     INCOMPLETE_PROVENANCE_PACKAGE,
 )
+from tests.fixtures.zero_core_packages.synthetic_echo.package import (
+    MODULE_PACKAGE as FIXTURE_PACKAGE,
+)
 
 
-FIXTURE_ROOT = "tests.fixtures.zero_core_packages"
 EXECUTION_CASES = (SOURCE_EXECUTION_CASE, EXECUTION_CASE)
 
 
@@ -58,11 +63,11 @@ def _forget_packages(root_name: str) -> None:
     importlib.invalidate_caches()
 
 
-def test_contract_test_kit_executes_the_discovered_production_registration(
+def test_contract_test_kit_executes_the_explicit_fixture_registration(
     tmp_path: Path,
 ) -> None:
-    registration = discover_module_packages(FIXTURE_ROOT)[0]
-    discovered = build_discovered_frozen_catalog(FIXTURE_ROOT)
+    registration = FIXTURE_PACKAGE
+    fixture_catalog = build_frozen_catalog((FIXTURE_PACKAGE,))
 
     report = verify_module_package_contract(
         registration,
@@ -71,7 +76,7 @@ def test_contract_test_kit_executes_the_discovered_production_registration(
         work_root=tmp_path,
     )
 
-    assert report.catalog_contract_digest == discovered.contract_digest
+    assert report.catalog_contract_digest == fixture_catalog.contract_digest
     assert report.package_id == registration.package_id
     case_reports = {
         case_report.case_id: case_report
@@ -112,7 +117,7 @@ def test_contract_test_case_rejects_a_path_like_case_identity() -> None:
 def test_contract_test_kit_requires_cases_for_every_owned_port_type(
     tmp_path: Path,
 ) -> None:
-    registration = discover_module_packages(FIXTURE_ROOT)[0]
+    registration = FIXTURE_PACKAGE
 
     with pytest.raises(
         ModulePackageConformanceError,
@@ -127,7 +132,7 @@ def test_contract_test_kit_requires_cases_for_every_owned_port_type(
 
 
 def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
-    registration = discover_module_packages(FIXTURE_ROOT)[0]
+    registration = FIXTURE_PACKAGE
 
     registered_resources = {
         resource.resource
@@ -149,7 +154,7 @@ def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
         and "fixtures" not in Path(resource).parts
         for resource in registered_resources
     )
-    production = build_discovered_frozen_catalog()
+    production = build_frozen_catalog(module_registrations())
     assert not any(
         contract.contract_id.startswith("contract_test.synthetic")
         for contract in production.contracts
@@ -157,7 +162,7 @@ def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
 
 
 def test_source_and_scorer_publish_distinct_exact_contracts() -> None:
-    catalog = build_discovered_frozen_catalog(FIXTURE_ROOT)
+    catalog = build_frozen_catalog((FIXTURE_PACKAGE,))
     source_node = catalog.require_contract(
         "node_type",
         SOURCE_EXECUTION_CASE.node_type_id,
@@ -209,7 +214,7 @@ def test_source_and_scorer_publish_distinct_exact_contracts() -> None:
     ) is None
 
 
-def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves(
+def test_source_public_journey_compiles_executes_replays_and_retrieves(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -217,8 +222,9 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
         root = tmp_path / name.lower()
         root.mkdir()
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    app = create_app(
-        module_packages_package=FIXTURE_ROOT,
+    app = create_application(
+        frozen_catalog_override=build_frozen_catalog((FIXTURE_PACKAGE,)),
+        _install_canonical_seed=False,
         v2_environment_configuration={
             (case.binding_id, case.binding_version): {
                 "values": dict(case.environment_values),
@@ -250,7 +256,7 @@ def test_source_public_journey_discovers_compiles_executes_replays_and_retrieves
             expected_status=200,
         )
         assert catalog.json()["catalog_contract_digest"] == (
-            build_discovered_frozen_catalog(FIXTURE_ROOT).contract_digest
+            build_frozen_catalog((FIXTURE_PACKAGE,)).contract_digest
         )
         project = client.post(
             "/api/v2/projects",
@@ -430,7 +436,7 @@ def test_contract_test_kit_rejects_a_false_readiness_attestation(
 def test_contract_test_kit_rejects_an_invalid_package_codec(
     tmp_path: Path,
 ) -> None:
-    registration = discover_module_packages(FIXTURE_ROOT)[0]
+    registration = FIXTURE_PACKAGE
     port_type = registration.port_types[0]
     invalid_port_type = PortTypeDefinition(
         type_id=port_type.type_id,
@@ -505,13 +511,16 @@ def test_malformed_or_unknown_definition_fails_before_catalog_publication(
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     try:
+        registration = importlib.import_module(
+            f"{root_name}.synthetic_echo.package"
+        ).MODULE_PACKAGE
         with pytest.raises(CatalogBuildError, match=message):
-            build_discovered_frozen_catalog(root_name)
+            build_frozen_catalog((registration,))
     finally:
         _forget_packages(root_name)
 
 
-def test_eager_optional_dependency_import_fails_discovery_safely(
+def test_eager_optional_dependency_import_propagates_programmer_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -520,18 +529,20 @@ def test_eager_optional_dependency_import_fails_discovery_safely(
     destination = tmp_path / root_name
     shutil.copytree(source, destination)
     package_path = destination / "synthetic_echo" / "package.py"
+    package_source = package_path.read_text(encoding="utf-8")
     package_path.write_text(
-        "import synthetic_optional_provider_that_is_not_installed\n"
-        + package_path.read_text(encoding="utf-8"),
+        package_source.replace(
+            "from __future__ import annotations\n",
+            "from __future__ import annotations\n"
+            "import synthetic_optional_provider_that_is_not_installed\n",
+            1,
+        ),
         encoding="utf-8",
     )
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     try:
-        with pytest.raises(
-            ModulePackageDiscoveryError,
-            match="Failed to import explicit Module Package registration",
-        ):
-            discover_module_packages(root_name)
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(f"{root_name}.synthetic_echo.package")
     finally:
         _forget_packages(root_name)

@@ -342,7 +342,11 @@ class ExecutionProfile:
             self,
             "provider_configuration",
             MappingProxyType({
-                name: str(path.resolve())
+                name: str(
+                    path
+                    if name == "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"
+                    else path.resolve()
+                )
                 for name, path in expanded_paths.items()
             }),
         )
@@ -677,7 +681,8 @@ def prepare_campaign(
     subprocess.run(
         [
             sys.executable,
-            str(PROJECT_ROOT / "scripts" / "build_backend.py"),
+            "-m",
+            "verification.build",
             str(artifact_root),
         ],
         cwd=PROJECT_ROOT,
@@ -768,7 +773,8 @@ def _run_tier(
     completed = subprocess.run(
         [
             sys.executable,
-            str(PROJECT_ROOT / "scripts" / "verify_backend.py"),
+            "-m",
+            "verification.backend",
             "--acceptance-outcome",
             str(outcome_path),
             tier.name,

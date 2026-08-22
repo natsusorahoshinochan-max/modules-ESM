@@ -1,4 +1,4 @@
-"""Shared executable conformance contracts for v2 Module Packages."""
+"""Test-only executable conformance contracts for v2 Module Packages."""
 
 from __future__ import annotations
 
@@ -11,28 +11,37 @@ from tempfile import TemporaryDirectory
 from types import MappingProxyType
 from typing import Any
 
-from core.module_package import (
-    ModulePackageRegistration,
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.port_types import CatalogBuildError, PortValueError
-from core.project import ProjectManager
-from core.scoring_v2 import ObservationSelector, SelectionObjective
+from core.catalog.declarations import (
+    ModulePackageRegistration,
+)
+from core.catalog.port_contract import (
+    CatalogBuildError,
+    PortValueError,
+)
+from core.project.manager import ProjectManager
+from core.scoring.selection import ObservationSelector, SelectionObjective
+from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import (
-    EnvironmentConfiguration,
     V2RunError,
     V2RunService,
 )
-from core.workflow_authoring_v2 import (
+from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
 )
-from core.workflow_v2 import (
+from core.workflow.document import (
     WorkflowDocument,
     WorkflowEdge,
     WorkflowNodeInstance,
 )
-from datatypes import CandidateCollection, ScoreCollection, ScoreObservation
+from datatypes.candidate import CandidateCollection
+from datatypes.observation import (
+    ScoreCollection,
+    ScoreObservation,
+)
 
 
 _CANONICAL_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -364,7 +373,8 @@ def _verify_case(
         project_manager,
         catalog,
         authoring,
-        EnvironmentConfiguration(
+        admit_environment_configuration(
+            catalog,
             {
                 (case.binding_id, case.binding_version): {
                     "values": dict(case.environment_values),
