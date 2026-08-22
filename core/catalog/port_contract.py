@@ -8,9 +8,8 @@ import hashlib
 import json
 import math
 import re
-import types
 from types import MappingProxyType
-from typing import Any, Callable, Union, cast, get_args, get_origin, get_type_hints
+from typing import Any, Callable, cast
 
 import rfc8785
 
@@ -437,198 +436,17 @@ _VALUE_TYPE_BY_KIND = {
 }
 
 
-def _require_runtime_type(
-    value: Any,
-    expected: Any,
-    *,
-    path: str,
-) -> None:
-    if expected is Any or expected is object:
-        _value_to_wire(value, path=path)
-        return
-
-    origin = get_origin(expected)
-    arguments = get_args(expected)
-    if origin in (Union, types.UnionType):
-        exact_dataclass_type = next(
-            (
-                alternative
-                for alternative in arguments
-                if isinstance(alternative, type)
-                and is_dataclass(alternative)
-                and type(value) is alternative
-            ),
-            None,
-        )
-        if exact_dataclass_type is not None:
-            _require_runtime_type(
-                value,
-                exact_dataclass_type,
-                path=path,
-            )
-            return
-        failures: list[PortValueError] = []
-        for alternative in arguments:
-            try:
-                _require_runtime_type(value, alternative, path=path)
-            except PortValueError as error:
-                failures.append(error)
-            else:
-                return
-        raise PortValueError(
-            f"{path} does not match any declared runtime value type"
-        ) from failures[0]
-
-    if expected is type(None):
-        if value is not None:
-            raise PortValueError(f"{path} must be null")
-        return
-
-    if origin is list or expected is list:
-        if type(value) is not list:
-            raise PortValueError(f"{path} must be a list")
-        item_type = arguments[0] if arguments else Any
-        for index, item in enumerate(value):
-            _require_runtime_type(item, item_type, path=f"{path}[{index}]")
-        return
-
-    if origin in (dict, Mapping) or expected in (dict, Mapping):
-        if not isinstance(value, Mapping):
-            raise PortValueError(f"{path} must be an object mapping")
-        key_type, item_type = arguments if arguments else (Any, Any)
-        for key, item in value.items():
-            _require_runtime_type(key, key_type, path=f"{path}.<key>")
-            _require_runtime_type(item, item_type, path=f"{path}[{key!r}]")
-        return
-
-    if origin is tuple or expected is tuple:
-        if not isinstance(value, tuple):
-            raise PortValueError(f"{path} must be a tuple")
-        if not arguments:
-            for index, item in enumerate(value):
-                _value_to_wire(item, path=f"{path}[{index}]")
-            return
-        if len(arguments) == 2 and arguments[1] is Ellipsis:
-            for index, item in enumerate(value):
-                _require_runtime_type(
-                    item,
-                    arguments[0],
-                    path=f"{path}[{index}]",
-                )
-            return
-        if arguments and len(value) != len(arguments):
-            raise PortValueError(
-                f"{path} must be a {len(arguments)}-item tuple"
-            )
-        for index, (item, item_type) in enumerate(zip(value, arguments, strict=True)):
-            _require_runtime_type(item, item_type, path=f"{path}[{index}]")
-        return
-
-    if expected is float:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise PortValueError(f"{path} must be numeric")
-        _value_to_wire(value, path=path)
-        return
-
-    if expected is int:
-        if type(value) is not int:
-            raise PortValueError(f"{path} must be an integer")
-        _value_to_wire(value, path=path)
-        return
-
-    if expected in (str, bool):
-        if type(value) is not expected:
-            raise PortValueError(f"{path} must be {expected.__name__}")
-        _value_to_wire(value, path=path)
-        return
-
-    if isinstance(expected, type) and is_dataclass(expected):
-        if type(value) is not expected:
-            raise PortValueError(f"{path} must be {expected.__name__}")
-        _validate_dataclass_value(value, path=path)
-        return
-
-    raise PortValueError(f"{path} uses an unsupported runtime type declaration")
-
-
-def _validate_dataclass_value(value: Any, *, path: str) -> None:
-    annotations = get_type_hints(type(value))
-    for item in fields(value):
-        _require_runtime_type(
-            getattr(value, item.name),
-            annotations[item.name],
-            path=f"{path}.{item.name}",
-        )
-
-
 def _validate_domain_value(value: Any, *, path: str) -> None:
-    if type(value) is CandidateDataReference:
-        for field_name in ("candidate_id", "data_type_id"):
-            _validate_runtime_identifier(
-                getattr(value, field_name),
-                path=f"{path}.{field_name}",
-            )
-        if re.fullmatch(
-            r"sha256:[0-9a-f]{64}",
-            value.content_digest,
-        ) is None:
-            raise PortValueError(
-                f"{path}.content_digest must be an exact SHA-256 digest"
-            )
-        return
-
     if type(value) is ExactPortValueReference:
         _validate_domain_value(value.port_type, path=f"{path}.port_type")
-        if value.port_type.contract_kind != "port_type":
-            raise PortValueError(
-                f"{path}.port_type must be an exact Port Type reference"
-            )
-        if re.fullmatch(
-            r"sha256:[0-9a-f]{64}", value.content_digest
-        ) is None:
-            raise PortValueError(
-                f"{path}.content_digest must be an exact SHA-256 digest"
-            )
         return
 
     if type(value) is ResidueAxisReference:
-        if value.axis_kind not in {"resolved_structure", "prediction_input"}:
-            raise PortValueError(f"{path}.axis_kind is not a closed axis kind")
         _validate_domain_value(
             value.axis_contract,
             path=f"{path}.axis_contract",
         )
-        if value.axis_contract.contract_kind != "port_type":
-            raise PortValueError(
-                f"{path}.axis_contract must be an exact Port Type reference"
-            )
-        if re.fullmatch(
-            r"sha256:[0-9a-f]{64}", value.axis_content_digest
-        ) is None:
-            raise PortValueError(
-                f"{path}.axis_content_digest must be an exact SHA-256 digest"
-            )
-        _validate_domain_value(value.source, path=f"{path}.source")
         _validate_domain_value(value.layout, path=f"{path}.layout")
-        if (
-            value.axis_kind == "resolved_structure"
-            and (
-                type(value.source) is not CandidateDataReference
-                or value.source.data_type_id != "protein.structure"
-            )
-        ):
-            raise PortValueError(
-                f"{path}.source must be an exact structure Candidate reference"
-            )
-        if (
-            value.axis_kind == "prediction_input"
-            and type(value.source)
-            not in {CandidateDataReference, ExactPortValueReference}
-        ):
-            raise PortValueError(
-                f"{path}.source must be an exact Candidate or input Port "
-                "value reference"
-            )
         return
 
     if type(value) is ProteinSequence:
@@ -852,23 +670,13 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(
                 f"{path}.role must be subject or reference"
             )
-        _validate_domain_value(value.candidate, path=f"{path}.candidate")
-        return
-
-    if type(value) is PairwiseCandidateMatch:
-        _validate_domain_value(value.subject, path=f"{path}.subject")
-        _validate_domain_value(value.reference, path=f"{path}.reference")
         return
 
     if type(value) is PairwiseCandidateMapping:
         subjects: set[CandidateDataReference] = set()
         references: set[CandidateDataReference] = set()
         candidate_references: dict[str, CandidateDataReference] = {}
-        for index, entry in enumerate(value.entries):
-            _validate_domain_value(
-                entry,
-                path=f"{path}.entries[{index}]",
-            )
+        for entry in value.entries:
             for participant in (entry.subject, entry.reference):
                 known_reference = candidate_references.get(
                     participant.candidate_id
@@ -930,7 +738,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         return
 
     if type(value) is ScoreObservation:
-        _validate_domain_value(value.subject, path=f"{path}.subject")
         if value.metric.contract_kind != "metric":
             raise PortValueError(
                 f"{path}.metric must be an exact metric reference"
@@ -976,7 +783,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
 
 def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
     if is_dataclass(value):
-        _validate_dataclass_value(value, path="$.value")
         _validate_domain_value(value, path="$.value")
 
     if value_kind == "sasa_residue_track":
