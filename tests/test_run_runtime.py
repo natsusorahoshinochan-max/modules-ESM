@@ -2192,15 +2192,11 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
                 ),
                 admitted_inputs={},
                 cancellation=CancellationControl(),
-                committed_artifact_count=0,
-                committed_artifact_bytes=0,
                 cache_bypassed=False,
             )
         )
 
     assert outcome.disposition == "succeeded"
-    assert outcome.published_artifact_count == 0
-    assert outcome.published_artifact_bytes == 0
     assert outcome.admitted_outputs[("direct", "text")].value == "READY"
     assert [type(event.payload) for event in ledger.events()[-3:]] == [
         OperationAttemptTerminal,
@@ -3327,94 +3323,6 @@ def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
     assert not list(output_root.rglob("published/*"))
 
 
-def test_run_artifact_count_and_aggregate_size_are_bounded(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(node_attempt, "MAX_ARTIFACTS_PER_RUN", 1)
-    monkeypatch.setattr(node_attempt, "MAX_ARTIFACT_BYTES_PER_RUN", 8)
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    count_limited = create_application(
-        frozen_catalog_override=_artifact_catalog(
-            [],
-            collection=True,
-            artifact_payloads=(b"1234", b"5678"),
-        )
-    )
-
-    with TestClient(count_limited) as client:
-        project_id, compiled = _commit_artifact_node(client)
-        count_response = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "artifact-count-bound",
-            },
-        )
-        count_projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            count_response.json()["run_id"],
-        )
-
-    assert count_response.status_code == 202
-    assert count_projection["status"] == "failed"
-    assert count_projection["artifact_index"] == []
-    assert not any(
-        fact["fact_type"] == "outputs_published"
-        for fact in _durable_facts(tmp_path / "runs")
-    )
-    assert next(
-        fact for fact in _durable_facts(tmp_path / "runs")
-        if fact["fact_type"] == "operation_attempt_terminal"
-    )["payload"]["status"] == "failed"
-
-    monkeypatch.setattr(node_attempt, "MAX_ARTIFACTS_PER_RUN", 2)
-    aggregate_root = tmp_path / "aggregate-runs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(aggregate_root))
-    aggregate_limited = create_application(
-        frozen_catalog_override=_artifact_catalog(
-            [],
-            collection=True,
-            artifact_payloads=(b"12345", b"67890"),
-        )
-    )
-
-    with TestClient(aggregate_limited) as client:
-        project_id, compiled = _commit_artifact_node(client)
-        aggregate_response = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "artifact-aggregate-bound",
-            },
-        )
-        aggregate_projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            aggregate_response.json()["run_id"],
-        )
-
-    assert aggregate_response.status_code == 202
-    assert aggregate_projection["status"] == "failed"
-    assert aggregate_projection["artifact_index"] == []
-    assert sum(
-        fact["fact_type"] == "outputs_published"
-        for fact in _durable_facts(aggregate_root)
-    ) == 0
-    unreferenced_objects = list(
-        (tmp_path / "outputs").rglob("objects/v1/sha256/*/*")
-    )
-    assert unreferenced_objects == []
-    assert next(
-        fact for fact in _durable_facts(aggregate_root)
-        if fact["fact_type"] == "operation_attempt_terminal"
-    )["payload"]["status"] == "failed"
-    assert not list((tmp_path / "outputs").rglob("published/*"))
-
-
 def test_success_ledger_projects_validated_events_and_opaque_artifact(
     tmp_path,
     monkeypatch,
@@ -3877,7 +3785,7 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
     assert projection["status"] == "succeeded"
 
 
-def test_background_runs_are_bounded_project_reserved_serial_and_joined(
+def test_background_runs_keep_project_reserved_serial_and_joined(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -3885,7 +3793,6 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
     release = threading.Event()
     shutdown_done = threading.Event()
     calls: list[str] = []
-    monkeypatch.setattr(run_runtime, "MAX_BACKGROUND_RUNS", 2)
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
@@ -3933,15 +3840,8 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
             compiled_a["workflow_commit_id"],
             "serial-a-conflict",
         )
-        at_capacity = start(
-            project_c,
-            compiled_c["workflow_commit_id"],
-            "serial-capacity",
-        )
         assert same_project.status_code == 503
-        assert at_capacity.status_code == 503
         validate_error(same_project.json(), status=503)
-        validate_error(at_capacity.json(), status=503)
 
         def shutdown() -> None:
             app.state.run_runtime.shutdown()

@@ -23,8 +23,6 @@ from core.execution.results.cache import (
     ReplayIndexEntry,
 )
 from core.execution.results.manifests import (
-    MAX_NODE_RESULT_MANIFEST_BYTES,
-    MAX_PORT_VALUE_MANIFEST_BYTES,
     _NodeArtifact,
     _NodeOutput,
     _NodeResultManifest,
@@ -108,14 +106,7 @@ class ResultStore:
         self,
         project_id: str,
         reference: StoredObject,
-        *,
-        maximum_size: int | None = None,
     ) -> bytes:
-        if maximum_size is not None and reference.size > maximum_size:
-            raise ResultIntegrityError(
-                reference.content_digest,
-                expected_size=reference.size,
-            )
         try:
             payload = self._objects.read(project_id, reference.content_digest)
         except (ObjectIntegrityError, OSError, StoragePathError, ValueError) as error:
@@ -153,8 +144,6 @@ class ResultStore:
             values=tuple(values),
         )
         encoded = canonical_json_bytes(manifest.canonical_projection())
-        if len(encoded) > MAX_PORT_VALUE_MANIFEST_BYTES:
-            raise ResultStoreWriteError("manifest")
         manifest_object = self._store_bytes(
             project_id,
             encoded,
@@ -246,8 +235,6 @@ class ResultStore:
             artifacts=tuple(node_artifacts),
         )
         encoded = canonical_json_bytes(manifest.canonical_projection())
-        if len(encoded) > MAX_NODE_RESULT_MANIFEST_BYTES:
-            raise ResultStoreWriteError("manifest")
         manifest_object = self._store_bytes(
             project_id,
             encoded,
@@ -285,11 +272,7 @@ class ResultStore:
         project_id: str,
         reference: StoredObject,
     ) -> _NodeResultManifest:
-        encoded = self._read_reference(
-            project_id,
-            reference,
-            maximum_size=MAX_NODE_RESULT_MANIFEST_BYTES,
-        )
+        encoded = self._read_reference(project_id, reference)
         try:
             return _decode_node_manifest(encoded)
         except (TypeError, ValueError) as error:
@@ -306,11 +289,7 @@ class ResultStore:
         output: _NodeOutput,
     ) -> tuple[AdmittedPort, _PortValueManifest]:
         declaration = node_plan.output_ports[output.output_port]
-        encoded = self._read_reference(
-            project_id,
-            output.value_manifest,
-            maximum_size=MAX_PORT_VALUE_MANIFEST_BYTES,
-        )
+        encoded = self._read_reference(project_id, output.value_manifest)
         try:
             manifest = _decode_port_manifest(encoded)
         except (TypeError, ValueError) as error:
@@ -497,8 +476,6 @@ class ResultStore:
                 project_id,
                 output.value_manifest_reference,
             )
-            if len(encoded) > MAX_PORT_VALUE_MANIFEST_BYTES:
-                raise ValueError("Port Value Manifest exceeds its bound")
             manifest = _decode_port_manifest(encoded)
             if (
                 manifest.port_type != output.port_type

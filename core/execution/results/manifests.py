@@ -16,8 +16,6 @@ from datatypes.i_json import freeze_i_json, thaw_i_json
 
 PORT_VALUE_MANIFEST_NAMESPACE = "protein-workbench-port-value-manifest/v2"
 NODE_RESULT_MANIFEST_NAMESPACE = "protein-workbench-node-result-manifest/v3"
-MAX_PORT_VALUE_MANIFEST_BYTES = 32 * 1024 * 1024
-MAX_NODE_RESULT_MANIFEST_BYTES = 4 * 1024 * 1024
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}$")

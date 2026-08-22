@@ -38,7 +38,6 @@ from core.execution.ledger.facts import (
     RunStarted,
     RunTerminal,
     SelectionTerminal,
-    validate_fact_payload,
 )
 from core.execution.ledger.reducer import (
     InvocationState,
@@ -73,8 +72,6 @@ from core.project.storage import (
 )
 from datatypes.exact_reference import ExactContractReference
 
-
-MAX_LEDGER_TRANSACTION_BYTES = 4 * 1024 * 1024
 
 _LedgerTransition: TypeAlias = (
     RunScopeBinding
@@ -282,8 +279,6 @@ class Ledger:
                 raise RuntimeError(
                     "Run Ledger transaction sequence is not contiguous"
                 )
-            if len(encoded) > MAX_LEDGER_TRANSACTION_BYTES:
-                raise RuntimeError("Run Ledger transaction exceeds its bound")
             encoded_transactions.append(encoded)
         try:
             first = decode_transaction(
@@ -1416,8 +1411,6 @@ class Ledger:
         payloads: tuple[FactPayload, ...],
     ) -> LedgerAcknowledgement:
         """Validate and durably publish one atomic logical transition."""
-        if not payloads:
-            raise ValueError("Run Ledger transaction must contain facts")
         with self._condition:
             self._require_available_evidence()
             first_sequence = len(self._state.facts) + 1
@@ -1430,8 +1423,6 @@ class Ledger:
                 for offset, payload in enumerate(payloads)
             )
             try:
-                for fact in facts:
-                    validate_fact_payload(fact.payload)
                 staged_state = self._stage_facts(facts)
             except (TypeError, ValueError) as error:
                 raise self._causal_error() from error
@@ -1450,14 +1441,6 @@ class Ledger:
                 facts=facts,
             )
             encoded = encode_transaction(transaction)
-            if len(encoded) > MAX_LEDGER_TRANSACTION_BYTES:
-                error = V2RunError(
-                    "evidence_unavailable",
-                    "Required Run evidence exceeds the durable transaction bound",
-                    details={"last_durable_cursor": self.cursor.value},
-                )
-                self._mark_evidence_unavailable(error)
-                raise error
             try:
                 self._transaction_store.publish(
                     root=self._root,

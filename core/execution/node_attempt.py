@@ -34,7 +34,6 @@ from core.execution._node_attempt_models import (
     AttemptOutcome,
     AttemptSpec,
     ExecutionTermination,
-    _ArtifactCapacityError,
     _NodeExecutionAttemptState,
 )
 from core.execution._node_attempt_publication import _AttemptPublication
@@ -48,9 +47,6 @@ from core.execution.ledger import (
     run_timestamp,
 )
 from core.execution.output_admission import admit_node_output
-from core.execution.output_admission.artifacts import (
-    AdmittedArtifactPublicationPlan,
-)
 from core.execution.resources import RunResources
 from core.execution.results import ResultStore
 from core.operation import (
@@ -61,10 +57,6 @@ from core.operation import (
 )
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 from core.workflow.plan import ExecutionPlanNode
-
-
-MAX_ARTIFACTS_PER_RUN = 2_048
-MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
 
 
 def _utc_now() -> datetime:
@@ -209,30 +201,6 @@ class _NodeAttempt:
             )
         return resolved, tuple(identities)
 
-    def _require_artifact_capacity(
-        self,
-        *,
-        plan: AdmittedArtifactPublicationPlan,
-        committed_artifact_count: int,
-        committed_artifact_bytes: int,
-        replayed: bool,
-    ) -> None:
-        if (
-            committed_artifact_count + len(plan.publications)
-            > MAX_ARTIFACTS_PER_RUN
-        ):
-            if replayed:
-                raise _ArtifactCapacityError
-            raise PortValueError("Run artifact count exceeds the public bound")
-        if (
-            committed_artifact_bytes
-            + sum(len(publication.body) for publication in plan.publications)
-            > MAX_ARTIFACT_BYTES_PER_RUN
-        ):
-            if replayed:
-                raise _ArtifactCapacityError
-            raise PortValueError("Run artifact bytes exceed the public bound")
-
     @staticmethod
     def _new_state(
         spec: AttemptSpec,
@@ -299,8 +267,6 @@ class _NodeAttempt:
         state: _NodeExecutionAttemptState,
         *,
         cache_bypassed: bool,
-        committed_artifact_count: int,
-        committed_artifact_bytes: int,
     ) -> AttemptOutcome | None:
         if (
             not state.cache_eligible
@@ -308,47 +274,28 @@ class _NodeAttempt:
             or state.result_identity is None
         ):
             return None
-        try:
-            replayed = self._result_store.lookup_replay(
-                project_id=state.project_id,
-                materialization_run_id=state.run_id,
-                node_plan=_node_output_plan(
-                    state.node,
-                    state.candidate_data_port_types,
-                ),
-                result_identity=state.result_identity,
-                result_contract_metadata=result_contract_metadata(
-                    state.node,
-                ),
-            )
-            if replayed is None:
-                return None
-            state.resolution = "cache_replayed"
-            state.stored_result = replayed
-            admitted_node_output = replayed.admitted_output
-            state.admitted_node_output = admitted_node_output
-            state.admitted_outputs = dict(
-                admitted_node_output.runtime_ports
-            )
-            state.artifact_publication_plan = (
-                admitted_node_output.artifact_publication_plan
-            )
-            self._require_artifact_capacity(
-                plan=state.artifact_publication_plan,
-                committed_artifact_count=committed_artifact_count,
-                committed_artifact_bytes=committed_artifact_bytes,
-                replayed=True,
-            )
-        except _ArtifactCapacityError:
-            state.resolution = "cache_replayed"
-            return self._publication.commit_failure(
-                state,
-                public_error=_publication_error(
-                    node_id=state.node.node_id,
-                    stage="artifact_object",
-                ),
-                failure_origin="publication",
-            )
+        replayed = self._result_store.lookup_replay(
+            project_id=state.project_id,
+            materialization_run_id=state.run_id,
+            node_plan=_node_output_plan(
+                state.node,
+                state.candidate_data_port_types,
+            ),
+            result_identity=state.result_identity,
+            result_contract_metadata=result_contract_metadata(
+                state.node,
+            ),
+        )
+        if replayed is None:
+            return None
+        state.resolution = "cache_replayed"
+        state.stored_result = replayed
+        admitted_node_output = replayed.admitted_output
+        state.admitted_node_output = admitted_node_output
+        state.admitted_outputs = dict(admitted_node_output.runtime_ports)
+        state.artifact_publication_plan = (
+            admitted_node_output.artifact_publication_plan
+        )
         state.resources = RunResources(
             project_id=state.project_id,
             run_id=state.run_id,
@@ -594,8 +541,6 @@ class _NodeAttempt:
             Mapping[str, Any],
         ],
         operation_call: OperationCall,
-        committed_artifact_count: int,
-        committed_artifact_bytes: int,
     ) -> AttemptOutcome:
         resources = state.resources
         if resources is None:
@@ -634,12 +579,6 @@ class _NodeAttempt:
             )
             state.artifact_publication_plan = (
                 admitted_node_output.artifact_publication_plan
-            )
-            self._require_artifact_capacity(
-                plan=state.artifact_publication_plan,
-                committed_artifact_count=committed_artifact_count,
-                committed_artifact_bytes=committed_artifact_bytes,
-                replayed=False,
             )
             if self._ledger.cancellation_requested:
                 raise ExecutionTermination("cancelled")
@@ -699,8 +638,6 @@ class _NodeAttempt:
             replayed = self._cache_outcome(
                 state,
                 cache_bypassed=spec.cache_bypassed,
-                committed_artifact_count=spec.committed_artifact_count,
-                committed_artifact_bytes=spec.committed_artifact_bytes,
             )
             if replayed is not None:
                 return replayed
@@ -741,8 +678,6 @@ class _NodeAttempt:
             state,
             operation_execute=operation_execute,
             operation_call=operation_call,
-            committed_artifact_count=spec.committed_artifact_count,
-            committed_artifact_bytes=spec.committed_artifact_bytes,
         )
 
 

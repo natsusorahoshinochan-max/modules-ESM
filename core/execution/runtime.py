@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-import json
 import threading
 from types import MappingProxyType
 from typing import Any, Literal
@@ -60,7 +59,6 @@ from core.workflow.authoring import (
 from core.workflow.plan import ExecutionPlanNode
 
 
-MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
 
 
@@ -118,10 +116,6 @@ class V2RunService:
             if (
                 self._closed
                 or project_id in self._reserved_projects
-                or (
-                    worker is not None
-                    and len(self._workers) >= MAX_BACKGROUND_RUNS
-                )
             ):
                 raise V2RunError(
                     "evidence_unavailable",
@@ -363,8 +357,6 @@ class V2RunService:
         )
         ledger.record(RunStarted(started_at=run_timestamp()))
 
-        committed_artifact_count = 0
-        committed_artifact_bytes = 0
         record = _RunRecord(
             compiled=compiled,
             ledger=ledger,
@@ -440,19 +432,11 @@ class V2RunService:
                         committed_values,
                     ),
                     cancellation=record.cancellation,
-                    committed_artifact_count=committed_artifact_count,
-                    committed_artifact_bytes=committed_artifact_bytes,
                     cache_bypassed=node.node_id in _cache_bypass_nodes,
                 )
             )
             if committed.disposition == "succeeded":
                 committed_values.update(committed.admitted_outputs)
-                committed_artifact_count += (
-                    committed.published_artifact_count
-                )
-                committed_artifact_bytes += (
-                    committed.published_artifact_bytes
-                )
         selection_conclusions: tuple[SelectionTerminal, ...] = ()
         if ledger.selection_consumer_ids and ledger.all_dispositions_succeeded:
             selection_consumers = {
@@ -499,7 +483,7 @@ class V2RunService:
             receipt: dict[str, Any],
             record: _RunRecord,
         ) -> None:
-            state["receipt"] = json.loads(json.dumps(receipt))
+            state["receipt"] = receipt
             state["record"] = record
             admitted.set()
 

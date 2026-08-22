@@ -235,10 +235,6 @@ class _AttemptPublication:
         return AttemptOutcome(
             disposition="succeeded",
             admitted_outputs=state.admitted_outputs,
-            published_artifact_count=len(stored_result.artifacts),
-            published_artifact_bytes=sum(
-                artifact.size for artifact in stored_result.artifacts
-            ),
         )
 
     def _record_committed_cancellation(

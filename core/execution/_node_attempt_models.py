@@ -36,10 +36,6 @@ class ExecutionTermination(RuntimeError):
         super().__init__("Execution terminated without public diagnostics")
 
 
-class _ArtifactCapacityError(RuntimeError):
-    """A restored result cannot fit the current Run publication bounds."""
-
-
 @dataclass(frozen=True, slots=True)
 class AttemptOutcome:
     """The only Node Execution Attempt outcome visible to Run scheduling."""
@@ -55,8 +51,6 @@ class AttemptOutcome:
         tuple[str, str],
         AdmittedPort,
     ] = field(default_factory=dict)
-    published_artifact_count: int = 0
-    published_artifact_bytes: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -76,8 +70,6 @@ class AttemptSpec:
     candidate_data_port_types: Mapping[str, Any]
     admitted_inputs: Mapping[str, AdmittedPort]
     cancellation: CancellationControl
-    committed_artifact_count: int
-    committed_artifact_bytes: int
     cache_bypassed: bool
 
     def __post_init__(self) -> None:

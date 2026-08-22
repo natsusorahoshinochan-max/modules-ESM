@@ -18,7 +18,6 @@ from core.project.storage import (
 
 
 RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v5"
-MAX_RESULT_CACHE_ENTRY_BYTES = 4 * 1024 * 1024
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
@@ -131,10 +130,7 @@ def _entry_from_canonical(
 
 
 def _encode_entry(entry: ReplayIndexEntry) -> bytes:
-    encoded = canonical_json_bytes(_entry_to_canonical(entry))
-    if len(encoded) > MAX_RESULT_CACHE_ENTRY_BYTES:
-        raise ResultIndexError("Replay index entry exceeds its size contract")
-    return encoded
+    return canonical_json_bytes(_entry_to_canonical(entry))
 
 
 def _decode_entry(
@@ -142,8 +138,6 @@ def _decode_entry(
     *,
     requested_result_identity: str,
 ) -> ReplayIndexEntry:
-    if len(encoded) > MAX_RESULT_CACHE_ENTRY_BYTES:
-        raise ResultIndexError("Replay index entry exceeds its size contract")
     try:
         raw = json.loads(encoded)
         if canonical_json_bytes(raw) != encoded:
@@ -176,17 +170,11 @@ class ProjectReplayIndex:
     @staticmethod
     def _read(path: Path) -> bytes:
         try:
-            with path.open("rb") as stream:
-                encoded = stream.read(MAX_RESULT_CACHE_ENTRY_BYTES + 1)
+            return path.read_bytes()
         except FileNotFoundError:
             raise
         except OSError as error:
             raise ResultIndexError("Replay index entry is unavailable") from error
-        if len(encoded) > MAX_RESULT_CACHE_ENTRY_BYTES:
-            raise ResultIndexError(
-                "Replay index entry exceeds its size contract"
-            )
-        return encoded
 
     def lookup(
         self,
@@ -224,7 +212,6 @@ class ProjectReplayIndex:
 
 
 __all__ = [
-    "MAX_RESULT_CACHE_ENTRY_BYTES",
     "ProjectReplayIndex",
     "RESULT_CACHE_ENTRY_NAMESPACE",
     "ReplayIndexEntry",
