@@ -110,6 +110,58 @@ def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
     shutil.copyfile(model_dir / "ccd.pkl", cache / "ccd.pkl")
 
 
+def _load_reviewed_torch_module(
+    *,
+    config_path: Path,
+    checkpoint_path: Path,
+    device: Any,
+) -> Any:
+    """Bind a reviewed checkpoint without retaining a copied state dictionary."""
+    import hydra
+    import omegaconf
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location="cpu",
+        weights_only=False,
+        mmap=True,
+    )
+    module = hydra.utils.instantiate(
+        omegaconf.OmegaConf.load(config_path)
+    )
+    module.load_state_dict(checkpoint, strict=True, assign=True)
+    module = module.to(device)
+    module.eval()
+    return module
+
+
+def _load_reviewed_folding_models(
+    model_dir: Path,
+    device: Any,
+) -> tuple[Any, dict[str, Any]]:
+    """Load the exact folding and pLDDT modules with bounded residency."""
+    architecture_root = Path("configs/model/architecture")
+    folding_model = _load_reviewed_torch_module(
+        config_path=architecture_root / "foldingdit_100M.yaml",
+        checkpoint_path=model_dir / "simplefold_100M.ckpt",
+        device=device,
+    )
+    plddt_out_module = _load_reviewed_torch_module(
+        config_path=architecture_root / "plddt_module.yaml",
+        checkpoint_path=model_dir / "plddt.ckpt",
+        device=device,
+    )
+    plddt_latent_module = _load_reviewed_torch_module(
+        config_path=architecture_root / "foldingdit_1.6B.yaml",
+        checkpoint_path=model_dir / "simplefold_1.6B.ckpt",
+        device=device,
+    )
+    return folding_model, {
+        "plddt_out_module": plddt_out_module,
+        "plddt_latent_module": plddt_latent_module,
+    }
+
+
 def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
     """Serialize and restore the provider's process-global import state."""
     @wraps(function)
@@ -236,8 +288,7 @@ def fold_sequence(
     inf_wrapper.af2_to_esm = None
     gc.collect()
 
-    model = model_wrapper.from_pretrained_folding_model()
-    plddt_models = model_wrapper.from_pretrained_plddt_model()
+    model, plddt_models = _load_reviewed_folding_models(model_dir, device)
 
     structures: list[ProteinStructure] = []
     confidence_results: list[dict[str, Any]] = []

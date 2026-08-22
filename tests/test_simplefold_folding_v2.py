@@ -171,12 +171,10 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
             pass
 
         def from_pretrained_folding_model(self) -> object:
-            assert lifecycle["features_prepared"] is True
-            assert lifecycle["language_model_released"] is True
-            raise StopAfterStagedModelLoad
+            raise AssertionError("copying checkpoint loader must not be used")
 
         def from_pretrained_plddt_model(self) -> object:
-            raise AssertionError("folding model load must happen first")
+            raise AssertionError("copying checkpoint loader must not be used")
 
     class InferenceWrapper:
         def __init__(self, **_kwargs: Any) -> None:
@@ -186,6 +184,58 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
             self.esm_model = LanguageModel()
             self.esm_dict = object()
             self.af2_to_esm = object()
+
+        def run_inference(self, *_args: Any) -> object:
+            assert len(loaded_modules) == 3
+            raise StopAfterStagedModelLoad
+
+    loaded_checkpoints: list[tuple[str, dict[str, Any]]] = []
+    loaded_configs: list[str] = []
+    loaded_modules: list[dict[str, Any]] = []
+
+    def load_checkpoint(
+        path: Path,
+        **kwargs: Any,
+    ) -> dict[str, str]:
+        assert lifecycle["features_prepared"] is True
+        assert lifecycle["language_model_released"] is True
+        loaded_checkpoints.append((Path(path).name, kwargs))
+        return {"checkpoint": Path(path).name}
+
+    class LoadedModule:
+        def __init__(self, config: str) -> None:
+            self.config = config
+
+        def load_state_dict(
+            self,
+            checkpoint: dict[str, str],
+            *,
+            strict: bool,
+            assign: bool,
+        ) -> None:
+            loaded_modules.append(
+                {
+                    "config": self.config,
+                    "checkpoint": checkpoint["checkpoint"],
+                    "strict": strict,
+                    "assign": assign,
+                }
+            )
+
+        def to(self, device: object) -> LoadedModule:
+            assert str(device) == "cpu"
+            return self
+
+        def eval(self) -> LoadedModule:
+            return self
+
+    def load_config(path: Path) -> str:
+        config = str(path)
+        loaded_configs.append(config)
+        return config
+
+    def instantiate(config: str) -> LoadedModule:
+        return LoadedModule(config)
 
     def process_fastas(*, out_dir: Path, **_kwargs: Any) -> None:
         structures = Path(out_dir) / "structures"
@@ -233,6 +283,12 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
         "_setup_simplefold_imports",
         os.getcwd,
     )
+    import hydra
+    import omegaconf
+
+    monkeypatch.setattr(simplefold_runtime.torch, "load", load_checkpoint)
+    monkeypatch.setattr(omegaconf.OmegaConf, "load", load_config)
+    monkeypatch.setattr(hydra.utils, "instantiate", instantiate)
     model_root = tmp_path / "model"
     esm2_source_root = tmp_path / "esm2-source"
     esm2_model_root = tmp_path / "esm2-model"
@@ -254,6 +310,28 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
             required_device="cpu",
             record_evidence=False,
         )
+
+    assert loaded_checkpoints == [
+        (
+            "simplefold_100M.ckpt",
+            {"map_location": "cpu", "weights_only": False, "mmap": True},
+        ),
+        (
+            "plddt.ckpt",
+            {"map_location": "cpu", "weights_only": False, "mmap": True},
+        ),
+        (
+            "simplefold_1.6B.ckpt",
+            {"map_location": "cpu", "weights_only": False, "mmap": True},
+        ),
+    ]
+    assert loaded_configs == [
+        "configs/model/architecture/foldingdit_100M.yaml",
+        "configs/model/architecture/plddt_module.yaml",
+        "configs/model/architecture/foldingdit_1.6B.yaml",
+    ]
+    assert all(module["strict"] is True for module in loaded_modules)
+    assert all(module["assign"] is True for module in loaded_modules)
 
 
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
