@@ -61,8 +61,8 @@ def _admitted_value(
         existing = candidate_references.get(reference.candidate_id)
         if existing is not None and existing != reference:
             raise PortValueError(
-                "Port admission projected conflicting exact Candidate Data "
-                "References"
+                "Port admission projected conflicting exact references for "
+                "Candidate Data"
             )
         candidate_references[reference.candidate_id] = reference
     return AdmittedValue(

@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import math
-import re
 import struct
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import rfc8785
 
@@ -21,10 +20,7 @@ from core.scoring.observation_plan import (
     ProducedObservationPlan,
     ResolvedMetricFacts,
 )
-from datatypes.candidate import (
-    CandidateDataReference,
-    CandidateCollection,
-)
+from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
@@ -38,7 +34,6 @@ from datatypes.observation import (
     ScoreObservation,
 )
 from datatypes.i_json import thaw_i_json
-from datatypes.residue import validate_residue_layout
 
 
 class ObservationAdmissionError(ValueError):
@@ -47,6 +42,7 @@ class ObservationAdmissionError(ValueError):
 
 class _AdmittedValue(Protocol):
     value: Any
+    content_digest: str
 
 
 class ObservationAdmissionPort(Protocol):
@@ -90,13 +86,6 @@ def _validate_resolved_metric_value(
             raise ObservationAdmissionError(
                 "Metric requires an exact scientific residue axis"
             )
-        try:
-            validate_residue_layout(
-                residue_axis.layout,
-                subject="Observation residue layout",
-            )
-        except (TypeError, ValueError) as error:
-            raise ObservationAdmissionError(str(error)) from error
     elif residue_axis is not None:
         raise ObservationAdmissionError(
             "Metric does not declare a scientific residue-axis population"
@@ -155,7 +144,9 @@ def _validate_resolved_metric_value(
                 "Metric value does not satisfy its validity/masking contract"
             )
         if item < metric.minimum or item > metric.maximum:
-            raise ObservationAdmissionError("Metric value is outside its canonical range")
+            raise ObservationAdmissionError(
+                "Metric value is outside its canonical range"
+            )
         if metric.exact_binary32:
             try:
                 round_trip = struct.unpack(
@@ -207,23 +198,6 @@ def _context_profile(context: object) -> ObservationContextProfile:
             normalization=context.normalization,
         )
     raise ObservationAdmissionError("Observation uses an unknown Context type")
-
-
-def _candidate_values(value: object) -> tuple[Any, ...]:
-    if isinstance(value, CandidateCollection):
-        return tuple(value.items)
-    if (
-        isinstance(value, (list, tuple))
-        and all(isinstance(item, CandidateCollection) for item in value)
-    ):
-        return tuple(
-            candidate
-            for collection in value
-            for candidate in collection.items
-        )
-    raise ObservationAdmissionError(
-        "Binding Produced Observation Candidate source is unavailable"
-    )
 
 
 def _observation_value_map(
@@ -282,11 +256,11 @@ def _validate_propagated_score_collection(
             and propagation.absent_input_policy == "ignore"
         ):
             continue
-        source = source_record.value if source_record is not None else None
-        if not isinstance(source, ScoreCollection):
+        if source_record is None:
             raise ObservationAdmissionError(
                 "Binding Observation propagation input is unavailable"
             )
+        source = cast(ScoreCollection, source_record.value)
         source_maps.append(_observation_value_map(source))
         source_observations.extend(_deduplicated_observations(source))
     if not source_maps:
@@ -334,85 +308,26 @@ def _validate_propagated_score_collection(
     return True
 
 
-def resolve_structure_alignment_evidence_admission_facts(
-    values: Sequence[object],
-    value_content_digests: Sequence[str],
+def _structure_alignment_evidence_facts(
+    admitted: ObservationAdmissionPort,
 ) -> tuple[StructureAlignmentEvidenceAdmissionFacts, ...]:
-    """Project the exact cross-value facts required by score admission."""
-    if len(values) != len(value_content_digests) or not values:
-        raise ObservationAdmissionError(
-            "structure-alignment evidence admission is incomplete"
-        )
+    """Project cross-value facts from already-admitted alignment evidence."""
     projected: list[StructureAlignmentEvidenceAdmissionFacts] = []
-    pairs: set[tuple[CandidateDataReference, CandidateDataReference]] = set()
-    digest_pattern = re.compile(r"^sha256:[0-9a-f]{64}$")
-    for value, evidence_content_digest in zip(
-        values,
-        value_content_digests,
-        strict=True,
-    ):
-        subject = getattr(value, "subject", None)
-        reference = getattr(value, "reference", None)
-        subject_axis_content_digest = getattr(
-            value,
-            "subject_axis_content_digest",
-            None,
-        )
-        reference_axis_content_digest = getattr(
-            value,
-            "reference_axis_content_digest",
-            None,
-        )
-        evidence_method = getattr(value, "method", None)
-        normalization = getattr(value, "normalization", None)
-        reference_axis_residue_count = getattr(
-            normalization,
-            "reference_axis_residue_count",
-            None,
-        )
-        aligned_atom_count = getattr(
-            normalization,
-            "aligned_atom_count",
-            None,
-        )
-        if (
-            type(subject) is not CandidateDataReference
-            or subject.data_type_id != "protein.structure"
-            or type(reference) is not CandidateDataReference
-            or reference.data_type_id != "protein.structure"
-            or type(evidence_method) is not ExactContractReference
-            or evidence_method.contract_kind != "method"
-            or type(evidence_content_digest) is not str
-            or digest_pattern.fullmatch(evidence_content_digest) is None
-            or type(subject_axis_content_digest) is not str
-            or digest_pattern.fullmatch(subject_axis_content_digest) is None
-            or type(reference_axis_content_digest) is not str
-            or digest_pattern.fullmatch(reference_axis_content_digest) is None
-            or type(reference_axis_residue_count) is not int
-            or reference_axis_residue_count < 1
-            or type(aligned_atom_count) is not int
-            or aligned_atom_count < 1
-            or aligned_atom_count > reference_axis_residue_count
-        ):
-            raise ObservationAdmissionError(
-                "structure-alignment evidence admission facts are invalid"
-            )
-        pair = (subject, reference)
-        if pair in pairs:
-            raise ObservationAdmissionError(
-                "structure-alignment evidence repeats one exact Candidate pair"
-            )
-        pairs.add(pair)
+    for admitted_value in admitted.values:
+        value = cast(Any, admitted_value.value)
+        normalization = value.normalization
         projected.append(
             StructureAlignmentEvidenceAdmissionFacts(
-                subject=subject,
-                reference=reference,
-                evidence_content_digest=evidence_content_digest,
-                subject_axis_content_digest=subject_axis_content_digest,
-                reference_axis_content_digest=reference_axis_content_digest,
-                evidence_method=evidence_method,
-                reference_axis_residue_count=reference_axis_residue_count,
-                aligned_atom_count=aligned_atom_count,
+                subject=value.subject,
+                reference=value.reference,
+                evidence_content_digest=admitted_value.content_digest,
+                subject_axis_content_digest=value.subject_axis_content_digest,
+                reference_axis_content_digest=value.reference_axis_content_digest,
+                evidence_method=value.method,
+                reference_axis_residue_count=(
+                    normalization.reference_axis_residue_count
+                ),
+                aligned_atom_count=normalization.aligned_atom_count,
             )
         )
     return tuple(projected)
@@ -488,32 +403,12 @@ def _directional_source_record(
     *,
     inputs: Mapping[str, ObservationAdmissionPort],
     outputs: Mapping[str, ObservationAdmissionPort],
-    direction: object,
-    port_name: object,
+    direction: str | None,
+    port_name: str | None,
 ) -> ObservationAdmissionPort | None:
-    if not isinstance(port_name, str):
+    if port_name is None:
         return None
-    if direction == "input":
-        return inputs.get(port_name)
-    if direction == "output":
-        return outputs.get(port_name)
-    return None
-
-
-def _directional_source_value(
-    *,
-    inputs: Mapping[str, ObservationAdmissionPort],
-    outputs: Mapping[str, ObservationAdmissionPort],
-    direction: object,
-    port_name: object,
-) -> Any:
-    record = _directional_source_record(
-        inputs=inputs,
-        outputs=outputs,
-        direction=direction,
-        port_name=port_name,
-    )
-    return record.value if record is not None else None
+    return inputs.get(port_name) if direction == "input" else outputs.get(port_name)
 
 
 def admit_produced_observations(
@@ -558,15 +453,9 @@ def admit_produced_observations(
                 "Observation Interface"
             )
         declaration = matches[0]
-        if (
-            declaration.method_direction is None
-            and declaration.method_port is None
-        ):
+        if declaration.method_port is None:
             allowed_methods = (plan.binding_method,)
-        elif (
-            declaration.method_direction is not None
-            and declaration.method_port is not None
-        ):
+        else:
             method_record = _directional_source_record(
                 inputs=inputs,
                 outputs=outputs,
@@ -578,47 +467,27 @@ def admit_produced_observations(
                 if method_record is not None
                 else ()
             )
-        else:
-            raise ObservationAdmissionError(
-                "Produced Observation Method source declaration is incomplete"
-            )
         if observation.method not in allowed_methods:
             raise ObservationAdmissionError(
                 "Binding emitted an Observation with an undeclared Method"
             )
 
     for declaration in declarations:
-        subject_value = _directional_source_value(
-            inputs=inputs,
-            outputs=outputs,
-            direction=declaration.subject_direction,
-            port_name=declaration.subject_port,
-        )
-        subjects = _candidate_values(subject_value)
-        subject_ids = tuple(candidate.candidate_id for candidate in subjects)
-        if len(subject_ids) != len(set(subject_ids)):
-            raise ObservationAdmissionError(
-                "Binding Produced Observation subject source has duplicates"
-            )
         subject_record = _directional_source_record(
             inputs=inputs,
             outputs=outputs,
             direction=declaration.subject_direction,
             port_name=declaration.subject_port,
         )
-        admitted_subjects = (
-            subject_record.candidate_data if subject_record is not None else ()
-        )
-        if (
-            len(admitted_subjects) != len(subjects)
-            or len({item.candidate_id for item in admitted_subjects})
-            != len(admitted_subjects)
-            or {item.candidate_id for item in admitted_subjects}
-            != set(subject_ids)
-        ):
+        if subject_record is None:
             raise ObservationAdmissionError(
-                "Binding Produced Observation subject identity evidence is "
-                "incomplete or contradictory"
+                "Binding Produced Observation Candidate source is unavailable"
+            )
+        admitted_subjects = subject_record.candidate_data
+        subject_ids = tuple(item.candidate_id for item in admitted_subjects)
+        if len(subject_ids) != len(set(subject_ids)):
+            raise ObservationAdmissionError(
+                "Binding Produced Observation subject source has duplicates"
             )
         exact_subjects = {
             item.candidate_id: item for item in admitted_subjects
@@ -642,10 +511,7 @@ def admit_produced_observations(
                 port_name=evidence_contract.source_port,
             )
             if evidence_record is not None:
-                evidence = resolve_structure_alignment_evidence_admission_facts(
-                    tuple(item.value for item in evidence_record.values),
-                    evidence_record.value_content_digests,
-                )
+                evidence = _structure_alignment_evidence_facts(evidence_record)
         _validate_structure_alignment_evidence_provenance(
             metric=resolved_metric,
             observations=matching_observations,
@@ -653,13 +519,6 @@ def admit_produced_observations(
         )
 
         if resolved_metric.requires_residue_axis:
-            if (
-                declaration.axis_direction is None
-                or declaration.axis_port is None
-            ):
-                raise ObservationAdmissionError(
-                    "Axis-requiring Metric lacks a declared exact axis Port"
-                )
             axis_record = _directional_source_record(
                 inputs=inputs,
                 outputs=outputs,
@@ -682,13 +541,6 @@ def admit_produced_observations(
                         "Observation residue axis does not resolve exactly once "
                         "from its declared scientific axis Port"
                     )
-        elif (
-            declaration.axis_direction is not None
-            or declaration.axis_port is not None
-        ):
-            raise ObservationAdmissionError(
-                "Metric without an axis population declares an axis Port"
-            )
 
         mismatched_subjects = [
             observation.candidate_id
@@ -780,14 +632,6 @@ def admit_produced_observations(
                         "Pairwise Context subject source does not match the "
                         "exact Candidate"
                     )
-                references = _candidate_values(
-                    _directional_source_value(
-                        inputs=inputs,
-                        outputs=outputs,
-                        direction=declaration.reference_direction,
-                        port_name=declaration.reference_port,
-                    )
-                )
                 reference_record = _directional_source_record(
                     inputs=inputs,
                     outputs=outputs,
@@ -799,10 +643,6 @@ def admit_produced_observations(
                     if reference_record is not None
                     else ()
                 )
-                if len(admitted_references) != len(references):
-                    raise ObservationAdmissionError(
-                        "Pairwise reference identity evidence is incomplete"
-                    )
                 reference_matches = [
                     reference
                     for reference in admitted_references
@@ -815,16 +655,17 @@ def admit_produced_observations(
                     )
                 if context.pairing_mode != "per_subject_counterpart":
                     continue
-                pairing = _directional_source_value(
+                pairing_record = _directional_source_record(
                     inputs=inputs,
                     outputs=outputs,
                     direction=declaration.pairing_direction,
                     port_name=declaration.pairing_port,
                 )
-                if not isinstance(pairing, PairwiseCandidateMapping):
+                if pairing_record is None:
                     raise ObservationAdmissionError(
                         "Pairwise Candidate pairing source is unavailable"
                     )
+                pairing = cast(PairwiseCandidateMapping, pairing_record.value)
                 mapping_matches = [
                     entry
                     for entry in pairing.entries
