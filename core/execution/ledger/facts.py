@@ -9,6 +9,7 @@ import math
 import re
 from typing import Literal, TypeAlias
 
+from core.catalog.port_contract import is_valid_artifact_media_type
 from core.operation import EngineInvocationProvenance
 from core.scoring.selection import SelectionInput
 from core.execution.ledger.transitions import PlanNodeEvidence
@@ -547,6 +548,11 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
                 or output.artifact_kind not in {"candidate", "standalone"}
                 or type(output.accepted_media_types) is not tuple
                 or not output.accepted_media_types
+                or any(
+                    type(media_type) is not str
+                    or not is_valid_artifact_media_type(media_type)
+                    for media_type in output.accepted_media_types
+                )
                 or output.accepted_media_types
                 != tuple(sorted(set(output.accepted_media_types)))
                 or (
@@ -695,7 +701,6 @@ def _validate_selection_objective(
         expected_kind="utility_transform",
     )
     _validate_selection_context(value.context_selector)
-    freeze_i_json(value.utility_parameters)
 
 
 def _validate_observation_selector(

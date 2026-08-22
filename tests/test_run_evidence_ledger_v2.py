@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 import json
 from pathlib import Path
 from typing import Literal, cast
@@ -12,6 +12,7 @@ import pytest
 
 from core.catalog.port_contract import canonical_json_bytes, canonical_sha256
 from core.execution.ledger import (
+    ArtifactOutputEvidence,
     AvailabilityBound,
     ContextSelectorEvidence,
     EngineInvocationStarted,
@@ -46,6 +47,7 @@ from core.execution.ledger import (
     StructuredError,
     V2RunError,
 )
+from core.execution.ledger.facts import validate_fact_payload
 from core.execution.ledger.codec import (
     payload_from_canonical,
     payload_to_canonical,
@@ -129,10 +131,8 @@ def _plan_node(
     )
 
 
-def test_run_scope_codec_accepts_semantic_node_identifiers() -> None:
-    binding = _reference()
-    node = _plan_node(node_id="source:node/1+")
-    scope = RunScopeBound(
+def _scope_bound(node: PlanNodeEvidence) -> RunScopeBound:
+    return RunScopeBound(
         project_id="project-1",
         run_id="run-1",
         workflow_commit_id="workflow-commit-" + "0" * 64,
@@ -141,16 +141,50 @@ def test_run_scope_codec_accepts_semantic_node_identifiers() -> None:
         contract_lock_digest="sha256:" + "4" * 64,
         execution_plan_digest="sha256:" + "5" * 64,
         catalog_contract_digest="sha256:" + "6" * 64,
-        resolved_contracts=(binding,),
-        resolved_contract_roots=(binding,),
+        resolved_contracts=(node.binding,),
+        resolved_contract_roots=(node.binding,),
         plan_nodes=(node,),
         selection_terminal_keys=(),
     )
+
+
+def test_run_scope_codec_accepts_semantic_node_identifiers() -> None:
+    node = _plan_node(node_id="source:node/1+")
+    scope = _scope_bound(node)
 
     assert payload_from_canonical(
         "run_scope_bound",
         payload_to_canonical(scope),
     ) == scope
+
+
+def test_artifact_media_grammar_has_one_typed_fact_owner() -> None:
+    invalid_media_type = "not a media type"
+    node = replace(
+        _plan_node(),
+        artifact_outputs=(
+            ArtifactOutputEvidence(
+                output_port="artifact",
+                artifact_kind="standalone",
+                artifact_media_type=invalid_media_type,
+                port_type=_reference(
+                    "port_type",
+                    "fixture.artifact",
+                    "7",
+                ),
+                accepted_media_types=(invalid_media_type,),
+            ),
+        ),
+    )
+    scope = _scope_bound(node)
+
+    with pytest.raises(ValueError):
+        validate_fact_payload(scope)
+    with pytest.raises(ValueError):
+        payload_from_canonical(
+            "run_scope_bound",
+            payload_to_canonical(scope),
+        )
 
 
 def _scope_references(

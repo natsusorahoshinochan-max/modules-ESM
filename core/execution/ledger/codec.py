@@ -43,7 +43,6 @@ from core.execution.ledger.facts import (
     validate_fact_payload,
 )
 from core.execution.ledger.projections import RunCursor
-from core.catalog.port_contract import is_valid_artifact_media_type
 from core.execution.ledger.transitions import (
     ArtifactOutputEvidence,
     PlanNodeEvidence,
@@ -57,11 +56,8 @@ from core.operation import (
     ProviderResidueProjectionEntry,
 )
 from core.scoring.selection import SelectionInput
-from datatypes.exact_reference import (
-    ExactContractReference,
-    validate_canonical_identifier,
-)
-from datatypes.i_json import freeze_i_json, thaw_i_json
+from datatypes.exact_reference import ExactContractReference
+from datatypes.i_json import thaw_i_json
 
 
 TRANSACTION_NAMESPACE = "protein-workbench-run-ledger-transaction/v5"
@@ -122,31 +118,11 @@ def _reference_from_canonical(value: object) -> ExactContractReference:
         value,
         {"contract_kind", "contract_id", "contract_version", "contract_digest"},
     )
-    if (
-        not all(isinstance(raw[field], str) for field in raw)
-        or raw["contract_kind"] not in {
-            "binding",
-            "method",
-            "metric",
-            "node_type",
-            "port_type",
-            "utility_transform",
-        }
-        or re.fullmatch(
-            r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?",
-            raw["contract_version"],
-        )
-        is None
-        or re.fullmatch(r"sha256:[0-9a-f]{64}", raw["contract_digest"])
-        is None
-    ):
-        raise ValueError("Run Ledger contract reference is invalid")
-    validate_canonical_identifier(raw["contract_id"], "contract_id")
     return ExactContractReference(
-        contract_kind=raw["contract_kind"],
-        contract_id=raw["contract_id"],
-        contract_version=raw["contract_version"],
-        contract_digest=raw["contract_digest"],
+        contract_kind=cast(str, raw["contract_kind"]),
+        contract_id=cast(str, raw["contract_id"]),
+        contract_version=cast(str, raw["contract_version"]),
+        contract_digest=cast(str, raw["contract_digest"]),
     )
 
 
@@ -211,17 +187,13 @@ def _required_input_from_canonical(
     value: object,
 ) -> PlanRequiredInputEvidence:
     raw = _mapping(value, {"input_port", "sources"})
-    if not isinstance(raw["sources"], list) or not raw["sources"]:
+    if not isinstance(raw["sources"], list):
         raise ValueError("Run plan required input is invalid")
     sources = tuple(
         _plan_source_from_canonical(item) for item in raw["sources"]
     )
-    if sources != tuple(
-        sorted(set(sources), key=lambda item: (item.node_id, item.output_port))
-    ):
-        raise ValueError("Run plan required input sources are not canonical")
     return PlanRequiredInputEvidence(
-        input_port=raw["input_port"],
+        input_port=cast(str, raw["input_port"]),
         sources=sources,
     )
 
@@ -249,35 +221,15 @@ def _artifact_output_from_canonical(value: object) -> ArtifactOutputEvidence:
             "accepted_media_types",
         },
     )
-    reference = _reference_from_canonical(raw["port_type"])
     media_types = raw["accepted_media_types"]
-    artifact_media_type = raw["artifact_media_type"]
-    if (
-        reference.contract_kind != "port_type"
-        or raw["artifact_kind"] not in {"candidate", "standalone"}
-        or not isinstance(media_types, list)
-        or not media_types
-        or any(
-            not isinstance(media_type, str)
-            or not is_valid_artifact_media_type(media_type)
-            for media_type in media_types
-        )
-        or media_types != sorted(set(media_types))
-        or (
-            artifact_media_type is not None
-            and (
-                not isinstance(artifact_media_type, str)
-                or artifact_media_type not in media_types
-            )
-        )
-    ):
+    if not isinstance(media_types, list):
         raise ValueError("Run plan Artifact output is invalid")
     return ArtifactOutputEvidence(
-        output_port=raw["output_port"],
+        output_port=cast(str, raw["output_port"]),
         artifact_kind=cast(Any, raw["artifact_kind"]),
-        artifact_media_type=cast(str | None, artifact_media_type),
-        port_type=reference,
-        accepted_media_types=tuple(media_types),
+        artifact_media_type=cast(str | None, raw["artifact_media_type"]),
+        port_type=_reference_from_canonical(raw["port_type"]),
+        accepted_media_types=tuple(cast(list[str], media_types)),
     )
 
 
@@ -329,18 +281,8 @@ def _plan_node_from_canonical(value: object) -> PlanNodeEvidence:
     artifact_outputs = value.get("artifact_outputs", [])
     if (
         not isinstance(dependencies, list)
-        or not all(isinstance(item, str) for item in dependencies)
-        or dependencies != sorted(set(dependencies))
         or not isinstance(required_inputs, list)
         or not isinstance(artifact_outputs, list)
-        or value["execution_route"] not in {"direct", "adapter"}
-        or type(value.get("selection_consumer", False)) is not bool
-        or not isinstance(value["result_identity_plan_facts_digest"], str)
-        or re.fullmatch(
-            r"sha256:[0-9a-f]{64}",
-            value["result_identity_plan_facts_digest"],
-        )
-        is None
     ):
         raise ValueError("Run plan node is invalid")
     binding = _reference_from_canonical(value["binding"])
@@ -355,27 +297,14 @@ def _plan_node_from_canonical(value: object) -> PlanNodeEvidence:
     parsed_artifacts = tuple(
         _artifact_output_from_canonical(item) for item in artifact_outputs
     )
-    if (
-        binding.contract_kind != "binding"
-        or (node_type is not None and node_type.contract_kind != "node_type")
-        or parsed_required
-        != tuple(sorted(set(parsed_required), key=lambda item: item.input_port))
-        or any(
-            source.node_id not in dependencies
-            for required_input in parsed_required
-            for source in required_input.sources
-        )
-        or len({item.output_port for item in parsed_artifacts})
-        != len(parsed_artifacts)
-    ):
-        raise ValueError("Run plan node is invalid")
     return PlanNodeEvidence(
-        node_id=value["node_id"],
-        dependencies=tuple(dependencies),
+        node_id=cast(str, value["node_id"]),
+        dependencies=tuple(cast(list[str], dependencies)),
         required_input_sources=parsed_required,
-        result_identity_plan_facts_digest=value[
-            "result_identity_plan_facts_digest"
-        ],
+        result_identity_plan_facts_digest=cast(
+            str,
+            value["result_identity_plan_facts_digest"],
+        ),
         binding=binding,
         execution_route=cast(Any, value["execution_route"]),
         node_type=node_type,
@@ -389,15 +318,7 @@ def _plan_evidence_from_canonical(
 ) -> tuple[PlanNodeEvidence, ...]:
     if not isinstance(value, list):
         raise ValueError("Run plan evidence is invalid")
-    nodes = tuple(_plan_node_from_canonical(item) for item in value)
-    node_ids = tuple(node.node_id for node in nodes)
-    if len(set(node_ids)) != len(node_ids) or any(
-        dependency not in node_ids
-        for node in nodes
-        for dependency in node.dependencies
-    ):
-        raise ValueError("Run plan evidence is invalid")
-    return nodes
+    return tuple(_plan_node_from_canonical(item) for item in value)
 
 
 def _error_to_canonical(value: StructuredError) -> dict[str, Any]:
@@ -420,7 +341,7 @@ def _error_from_canonical(value: object) -> StructuredError:
         message=cast(str, raw["message"]),
         retryable=cast(bool, raw["retryable"]),
         correlation_id=cast(str, raw["correlation_id"]),
-        details=freeze_i_json(raw["details"]),
+        details=raw["details"],
     )
 
 
@@ -462,8 +383,8 @@ def _output_from_canonical(value: object) -> PublishedOutput:
         port_type=_reference_from_canonical(raw["port_type"]),
         content_digest=cast(str, raw["content_digest"]),
         result_identity=cast(str, raw["result_identity"]),
-        materialization=freeze_i_json(raw["materialization"]),
-        producer_provenance=freeze_i_json(raw["producer_provenance"]),
+        materialization=raw["materialization"],
+        producer_provenance=raw["producer_provenance"],
         value_count=cast(int, raw["value_count"]),
         value_manifest_reference=cast(str, raw["value_manifest_reference"]),
     )
@@ -593,9 +514,9 @@ def _objective_from_canonical(value: object) -> SelectionObjectiveEvidence:
         method=_reference_from_canonical(raw["method"]),
         context_selector=_context_from_canonical(raw["context_selector"]),
         utility_transform=_reference_from_canonical(raw["utility_transform"]),
-        utility_parameters=freeze_i_json(raw["utility_parameters"]),
-        declared_weight=float(raw["declared_weight"]),
-        effective_weight=float(raw["effective_weight"]),
+        utility_parameters=raw["utility_parameters"],
+        declared_weight=cast(float, raw["declared_weight"]),
+        effective_weight=cast(float, raw["effective_weight"]),
         match_cardinality=cast(str, raw["match_cardinality"]),
         missing_policy=cast(str, raw["missing_policy"]),
     )
