@@ -514,6 +514,31 @@ def test_restart_hydrates_the_exact_active_commit_plan(tmp_path) -> None:
     )
 
 
+def test_restart_rejects_tampered_persisted_commit_identity(tmp_path) -> None:
+    project_root = tmp_path / "projects"
+    projects = ProjectManager(project_root)
+    project = projects.create("tampered commit")
+    authoring = WorkflowAuthoringService(projects, _catalog())
+    authoring.commit(project.id, workflow=_workflow(project.id))
+    record = (
+        projects.workflow_storage_root(project.id)
+        / "commits"
+        / "00000000000000000001.json"
+    )
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    payload["commit"]["source_draft_digest"] = "not-a-digest"
+    record.write_text(json.dumps(payload), encoding="utf-8")
+
+    restarted = WorkflowAuthoringService(
+        ProjectManager(project_root),
+        _catalog(),
+    )
+    with pytest.raises(WorkflowAuthoringError) as captured:
+        restarted.load_active_commit(project.id)
+
+    assert captured.value.code == "unsupported_schema_version"
+
+
 def test_draft_preserves_uncompiled_values_and_commit_rejects_unknown_parameters(
     tmp_path,
 ) -> None:

@@ -37,7 +37,6 @@ _DRAFT_RECORD_KIND = "workflow_draft"
 _COMMIT_RECORD_KIND = "workflow_commit"
 _REVISION_FILENAME_WIDTH = 20
 _CANONICAL_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_WORKFLOW_COMMIT_ID = re.compile(r"^workflow-commit-[0-9a-f]{64}$")
 
 
 class WorkflowAuthoringError(RuntimeError):
@@ -64,21 +63,6 @@ class WorkflowDraft:
     draft_digest: str
     workflow: WorkflowDocument
 
-    def __post_init__(self) -> None:
-        if type(self.draft_revision) is not int or self.draft_revision < 1:
-            raise ValueError("Workflow Draft revision must be positive")
-        if (
-            type(self.draft_digest) is not str
-            or _CANONICAL_DIGEST.fullmatch(self.draft_digest) is None
-        ):
-            raise ValueError("Workflow Draft digest must be canonical")
-        if self.workflow.workflow_id != self.project_id:
-            raise ValueError("Workflow Draft identity does not match Project")
-        if self.workflow.contract_lock:
-            raise ValueError("Workflow Draft must not contain a Contract Lock")
-        if self.workflow.digest != self.draft_digest:
-            raise ValueError("Workflow Draft digest does not match its Workflow")
-
 @dataclass(frozen=True, slots=True)
 class WorkflowCommit:
     """One immutable active Workflow Commit and its exact identity."""
@@ -94,68 +78,12 @@ class WorkflowCommit:
     contract_lock_digest: str
     execution_plan_digest: str
 
-    def __post_init__(self) -> None:
-        if (
-            type(self.workflow_commit_revision) is not int
-            or self.workflow_commit_revision < 1
-        ):
-            raise ValueError("Workflow Commit revision must be positive")
-        if (
-            type(self.source_draft_revision) is not int
-            or self.source_draft_revision < 1
-        ):
-            raise ValueError("Workflow Commit source Draft must be positive")
-        if (
-            type(self.workflow_commit_id) is not str
-            or _WORKFLOW_COMMIT_ID.fullmatch(self.workflow_commit_id) is None
-        ):
-            raise ValueError("Workflow Commit ID must be canonical")
-        for field_name in (
-            "source_draft_digest",
-            "workflow_digest",
-            "catalog_contract_digest",
-            "contract_lock_digest",
-            "execution_plan_digest",
-        ):
-            value = getattr(self, field_name)
-            if (
-                type(value) is not str
-                or _CANONICAL_DIGEST.fullmatch(value) is None
-            ):
-                raise ValueError(
-                    f"Workflow Commit {field_name} must be canonical"
-                )
-        if self.locked_workflow.workflow_id != self.project_id:
-            raise ValueError("Workflow Commit identity does not match Project")
-        if self.locked_workflow.digest != self.workflow_digest:
-            raise ValueError("Workflow Commit Workflow digest mismatch")
-        if (
-            self.locked_workflow.contract_lock_digest
-            != self.contract_lock_digest
-        ):
-            raise ValueError("Workflow Commit Contract Lock digest mismatch")
-        expected_id = self.execution_plan_digest.replace(
-            "sha256:",
-            "workflow-commit-",
-        )
-        if self.workflow_commit_id != expected_id:
-            raise ValueError("Workflow Commit identity digest mismatch")
-
 @dataclass(frozen=True, slots=True)
 class VerifiedWorkflowCommit:
     """One exact Commit paired with its verified Execution Plan."""
 
     commit: WorkflowCommit
     execution_plan: ExecutionPlan
-
-    def __post_init__(self) -> None:
-        if (
-            self.commit.workflow_commit_revision
-            != self.execution_plan.workflow_commit_revision
-            or self.commit.execution_plan_digest
-            != self.execution_plan.execution_plan_digest
-        ):
-            raise ValueError("Verified Workflow Commit identity mismatch")
 
 
 def _commit_record_projection(commit: WorkflowCommit) -> dict[str, Any]:
@@ -360,11 +288,17 @@ class WorkflowAuthoringService:
                 or type(payload.get("draft_revision")) is not int
                 or payload.get("draft_revision") != revision
                 or not isinstance(payload.get("draft_digest"), str)
+                or _CANONICAL_DIGEST.fullmatch(payload["draft_digest"])
+                is None
                 or not isinstance(payload.get("workflow"), dict)
             ):
                 raise ValueError("closed Workflow Draft schema mismatch")
             workflow = workflow_document_from_canonical(payload["workflow"])
-            if workflow.contract_lock or workflow.digest != payload["draft_digest"]:
+            if (
+                workflow.workflow_id != project_id
+                or workflow.contract_lock
+                or workflow.digest != payload["draft_digest"]
+            ):
                 raise ValueError("Workflow Draft identity mismatch")
             return self._draft_value(project_id, revision, workflow)
         except (OSError, ValueError) as error:
@@ -523,6 +457,40 @@ class WorkflowAuthoringService:
             }
             if set(commit_projection) != expected_commit_fields:
                 raise ValueError("Workflow Commit identity schema mismatch")
+            digest_fields = (
+                "source_draft_digest",
+                "workflow_digest",
+                "catalog_contract_digest",
+                "contract_lock_digest",
+                "execution_plan_digest",
+            )
+            if (
+                type(commit_projection["workflow_commit_revision"])
+                is not int
+                or commit_projection["workflow_commit_revision"] != revision
+                or revision < 1
+                or type(commit_projection["source_draft_revision"])
+                is not int
+                or commit_projection["source_draft_revision"] < 1
+                or any(
+                    type(commit_projection[field_name]) is not str
+                    or _CANONICAL_DIGEST.fullmatch(
+                        commit_projection[field_name]
+                    )
+                    is None
+                    for field_name in digest_fields
+                )
+                or workflow.workflow_id != project_id
+                or workflow.digest != commit_projection["workflow_digest"]
+                or workflow.contract_lock_digest
+                != commit_projection["contract_lock_digest"]
+                or commit_projection["workflow_commit_id"]
+                != commit_projection["execution_plan_digest"].replace(
+                    "sha256:",
+                    "workflow-commit-",
+                )
+            ):
+                raise ValueError("Workflow Commit identity mismatch")
             commit = WorkflowCommit(
                 project_id=project_id,
                 workflow_commit_id=commit_projection["workflow_commit_id"],
@@ -547,11 +515,6 @@ class WorkflowAuthoringService:
                     "execution_plan_digest"
                 ],
             )
-            if (
-                commit.workflow_commit_revision != revision
-                or _commit_record_projection(commit) != commit_projection
-            ):
-                raise ValueError("Workflow Commit identity mismatch")
         except (OSError, TypeError, ValueError) as error:
             raise WorkflowAuthoringError(
                 "unsupported_schema_version",
