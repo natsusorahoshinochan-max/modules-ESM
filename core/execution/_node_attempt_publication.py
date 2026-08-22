@@ -21,8 +21,6 @@ from core.execution.ledger import (
     NodeDisposition,
     NodeSuccessPublication,
     NodeTerminationPublication,
-    PublishedArtifact,
-    PublishedOutput,
     StructuredError,
 )
 from core.execution.results import (
@@ -208,43 +206,6 @@ class _AttemptPublication:
             raise RuntimeError(
                 "Node Execution Attempt success lacks a Result Identity"
             )
-        published_outputs = tuple(
-            PublishedOutput(
-                node_id=output.node_id,
-                output_port=output.output_port,
-                port_type=output.port_type,
-                content_digest=output.content_digest,
-                result_identity=stored_result.result_identity,
-                materialization={
-                    "run_id": output.materialization_run_id,
-                    "resolution": output.resolution,
-                },
-                producer_provenance={
-                    "producer_run_id": output.producer_run_id,
-                    "producer_result_identity": stored_result.result_identity,
-                    "output_port": output.output_port,
-                },
-                value_count=output.value_count,
-                value_manifest_reference=(
-                    output.value_manifest.content_digest
-                ),
-            )
-            for output in stored_result.published_outputs
-        )
-        published_artifacts = tuple(
-            PublishedArtifact(
-                artifact_reference=artifact.artifact_reference,
-                artifact_kind=artifact.artifact_kind,
-                node_id=artifact.node_id,
-                output_port=artifact.output_port,
-                media_type=artifact.media_type,
-                filename=artifact.filename,
-                size=artifact.body.size,
-                content_digest=artifact.body.content_digest,
-                candidate_id=artifact.candidate_id,
-            )
-            for artifact in stored_result.artifacts
-        )
         transition = NodeSuccessPublication(
             node_id=state.node.node_id,
             node_attempt_id=state.node_attempt_id,
@@ -261,8 +222,8 @@ class _AttemptPublication:
                 ),
                 size=stored_result.node_result_manifest.size,
             ),
-            outputs=published_outputs,
-            artifacts=published_artifacts,
+            outputs=stored_result.outputs,
+            artifacts=stored_result.artifacts,
         )
         acknowledged = (
             self._ledger.record_if_active(transition)
@@ -276,7 +237,7 @@ class _AttemptPublication:
             admitted_outputs=state.admitted_outputs,
             published_artifact_count=len(stored_result.artifacts),
             published_artifact_bytes=sum(
-                artifact.body.size for artifact in stored_result.artifacts
+                artifact.size for artifact in stored_result.artifacts
             ),
         )
 

@@ -8,10 +8,6 @@ import pytest
 
 from core.catalog.builtins import builtin_frozen_catalog
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
-from core.execution.ledger import (
-    PublishedArtifact,
-    PublishedOutput,
-)
 from core.execution.output_admission import admit_node_output
 from core.execution.output_admission.admission import (
     NodeOutputPlan,
@@ -259,7 +255,10 @@ def test_restore_and_reads_use_the_result_store_interface(
         node_result_manifest=stored.node_result_manifest,
     )
 
-    assert restored.resolution == "cache_replayed"
+    assert restored.outputs[0].materialization == {
+        "run_id": "run-replay",
+        "resolution": "cache_replayed",
+    }
     assert restored.admitted_output.ports["summary"].value == "ready"
     assert restored.admitted_output.ports["structure"].value == (
         admitted.ports["structure"].value
@@ -269,24 +268,7 @@ def test_restore_and_reads_use_the_result_store_interface(
     )
     value = store.read_typed_value(
         project_id,
-        PublishedOutput(
-            node_id=summary.node_id,
-            output_port=summary.output_port,
-            port_type=summary.port_type,
-            content_digest=summary.content_digest,
-            result_identity=stored.result_identity,
-            materialization={
-                "run_id": summary.materialization_run_id,
-                "resolution": summary.resolution,
-            },
-            producer_provenance={
-                "producer_run_id": summary.producer_run_id,
-                "producer_result_identity": stored.result_identity,
-                "output_port": summary.output_port,
-            },
-            value_count=summary.value_count,
-            value_manifest_reference=summary.value_manifest.content_digest,
-        ),
+        summary,
         0,
     )
     assert value.canonical_bytes == admitted.ports["summary"].values[
@@ -296,15 +278,5 @@ def test_restore_and_reads_use_the_result_store_interface(
     artifact = stored.artifacts[0]
     assert store.read_artifact(
         project_id,
-        PublishedArtifact(
-            artifact_reference=artifact.artifact_reference,
-            artifact_kind=artifact.artifact_kind,
-            node_id=artifact.node_id,
-            output_port=artifact.output_port,
-            media_type=artifact.media_type,
-            filename=artifact.filename,
-            size=artifact.body.size,
-            content_digest=artifact.body.content_digest,
-            candidate_id=artifact.candidate_id,
-        ),
+        artifact,
     ) == b"MODEL        1\nEND\n"

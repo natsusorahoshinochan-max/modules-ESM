@@ -40,7 +40,6 @@ from core.project.objects import (
     StoredObject,
 )
 from core.project.storage import StoragePathError
-from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json
 
 
@@ -70,56 +69,16 @@ class ResultIntegrityError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class StoredOutput:
-    """One stored Port result and its current materialization provenance."""
-
-    node_id: str
-    output_port: str
-    port_type: ExactContractReference
-    content_digest: str
-    value_count: int
-    value_manifest: StoredObject
-    materialization_run_id: str
-    resolution: Literal["executed", "cache_replayed"]
-    producer_run_id: str
-    published_as_typed_output: bool
-
-
-@dataclass(frozen=True, slots=True)
-class StoredArtifact:
-    """One stored raw artifact body ready for Ledger publication."""
-
-    artifact_reference: str
-    artifact_kind: Literal["candidate", "standalone"]
-    node_id: str
-    output_port: str
-    media_type: str
-    filename: str
-    body: StoredObject
-    candidate_id: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class StoredNodeResult:
     """Unpublished immutable result closure produced or restored by the store."""
 
     project_id: str
-    node_id: str
     result_identity: str
-    materialization_run_id: str
     producer_run_id: str
-    resolution: Literal["executed", "cache_replayed"]
-    result_contract_metadata: Mapping[str, Any]
     admitted_output: AdmittedNodeOutput = field(repr=False, compare=False)
     node_result_manifest: StoredObject
-    outputs: tuple[StoredOutput, ...]
-    artifacts: tuple[StoredArtifact, ...]
-
-    @property
-    def published_outputs(self) -> tuple[StoredOutput, ...]:
-        return tuple(
-            output for output in self.outputs if output.published_as_typed_output
-        )
+    outputs: tuple[PublishedOutput, ...]
+    artifacts: tuple[PublishedArtifact, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -225,7 +184,7 @@ class ResultStore:
     ) -> StoredNodeResult:
         """Stage one admitted result without creating visibility or an index."""
         node_outputs: list[_NodeOutput] = []
-        stored_outputs: list[StoredOutput] = []
+        published_outputs: list[PublishedOutput] = []
         artifact_ports = set(
             admitted_output.artifact_publication_plan.artifact_output_ports
         )
@@ -241,22 +200,33 @@ class ResultStore:
             )
             node_outputs.append(node_output)
             descriptor = descriptors[output_port]
-            stored_outputs.append(
-                StoredOutput(
-                    node_id=admitted_output.node_id,
-                    output_port=output_port,
-                    port_type=port_manifest.port_type,
-                    content_digest=descriptor.content_digest,
-                    value_count=len(port_manifest.values),
-                    value_manifest=node_output.value_manifest,
-                    materialization_run_id=materialization_run_id,
-                    resolution="executed",
-                    producer_run_id=materialization_run_id,
-                    published_as_typed_output=output_port not in artifact_ports,
+            if output_port not in artifact_ports:
+                published_outputs.append(
+                    PublishedOutput(
+                        node_id=admitted_output.node_id,
+                        output_port=output_port,
+                        port_type=port_manifest.port_type,
+                        content_digest=descriptor.content_digest,
+                        result_identity=admitted_output.result_identity,
+                        materialization={
+                            "run_id": materialization_run_id,
+                            "resolution": "executed",
+                        },
+                        producer_provenance={
+                            "producer_run_id": materialization_run_id,
+                            "producer_result_identity": (
+                                admitted_output.result_identity
+                            ),
+                            "output_port": output_port,
+                        },
+                        value_count=len(port_manifest.values),
+                        value_manifest_reference=(
+                            node_output.value_manifest.content_digest
+                        ),
+                    )
                 )
-            )
         node_artifacts: list[_NodeArtifact] = []
-        stored_artifacts: list[StoredArtifact] = []
+        published_artifacts: list[PublishedArtifact] = []
         for publication in (
             admitted_output.artifact_publication_plan.publications
         ):
@@ -274,8 +244,8 @@ class ResultStore:
                 candidate_id=publication.candidate_id,
             )
             node_artifacts.append(node_artifact)
-            stored_artifacts.append(
-                self._stored_artifact(admitted_output.node_id, node_artifact)
+            published_artifacts.append(
+                self._published_artifact(admitted_output.node_id, node_artifact)
             )
         metadata = freeze_i_json(result_contract_metadata)
         manifest = _NodeResultManifest(
@@ -294,28 +264,28 @@ class ResultStore:
         )
         return StoredNodeResult(
             project_id=project_id,
-            node_id=admitted_output.node_id,
             result_identity=admitted_output.result_identity,
-            materialization_run_id=materialization_run_id,
             producer_run_id=materialization_run_id,
-            resolution="executed",
-            result_contract_metadata=metadata,
             admitted_output=admitted_output,
             node_result_manifest=manifest_object,
-            outputs=tuple(stored_outputs),
-            artifacts=tuple(stored_artifacts),
+            outputs=tuple(published_outputs),
+            artifacts=tuple(published_artifacts),
         )
 
     @staticmethod
-    def _stored_artifact(node_id: str, artifact: _NodeArtifact) -> StoredArtifact:
-        return StoredArtifact(
+    def _published_artifact(
+        node_id: str,
+        artifact: _NodeArtifact,
+    ) -> PublishedArtifact:
+        return PublishedArtifact(
             artifact_reference=f"artifact-{uuid.uuid4().hex}",
             artifact_kind=artifact.artifact_kind,
             node_id=node_id,
             output_port=artifact.output_port,
             media_type=artifact.media_type,
             filename=artifact.filename,
-            body=artifact.body,
+            size=artifact.body.size,
+            content_digest=artifact.body.content_digest,
             candidate_id=artifact.candidate_id,
         )
 
@@ -417,7 +387,7 @@ class ResultStore:
         ):
             raise ResultIntegrityError(node_result_manifest.content_digest)
         restored_ports: dict[str, AdmittedPort] = {}
-        stored_outputs: list[StoredOutput] = []
+        published_outputs: list[PublishedOutput] = []
         artifact_ports = {
             declaration.output_port for declaration in node_plan.artifact_outputs
         }
@@ -428,22 +398,29 @@ class ResultStore:
                 output=output,
             )
             restored_ports[output.output_port] = admitted
-            stored_outputs.append(
-                StoredOutput(
-                    node_id=node_plan.node_id,
-                    output_port=output.output_port,
-                    port_type=port_manifest.port_type,
-                    content_digest=port_manifest.content_digest,
-                    value_count=len(port_manifest.values),
-                    value_manifest=output.value_manifest,
-                    materialization_run_id=materialization_run_id,
-                    resolution="cache_replayed",
-                    producer_run_id=producer_run_id,
-                    published_as_typed_output=(
-                        output.output_port not in artifact_ports
-                    ),
+            if output.output_port not in artifact_ports:
+                published_outputs.append(
+                    PublishedOutput(
+                        node_id=node_plan.node_id,
+                        output_port=output.output_port,
+                        port_type=port_manifest.port_type,
+                        content_digest=port_manifest.content_digest,
+                        result_identity=result_identity,
+                        materialization={
+                            "run_id": materialization_run_id,
+                            "resolution": "cache_replayed",
+                        },
+                        producer_provenance={
+                            "producer_run_id": producer_run_id,
+                            "producer_result_identity": result_identity,
+                            "output_port": output.output_port,
+                        },
+                        value_count=len(port_manifest.values),
+                        value_manifest_reference=(
+                            output.value_manifest.content_digest
+                        ),
+                    )
                 )
-            )
         admitted_output = restore_node_output(
             plan=node_plan,
             result_identity=result_identity,
@@ -452,7 +429,7 @@ class ResultStore:
         publications = admitted_output.artifact_publication_plan.publications
         if len(publications) != len(manifest.artifacts):
             raise ResultIntegrityError(node_result_manifest.content_digest)
-        stored_artifacts: list[StoredArtifact] = []
+        published_artifacts: list[PublishedArtifact] = []
         for publication, artifact in zip(
             publications,
             manifest.artifacts,
@@ -468,21 +445,17 @@ class ResultStore:
                 or publication.body != body
             ):
                 raise ResultIntegrityError(node_result_manifest.content_digest)
-            stored_artifacts.append(
-                self._stored_artifact(node_plan.node_id, artifact)
+            published_artifacts.append(
+                self._published_artifact(node_plan.node_id, artifact)
             )
         return StoredNodeResult(
             project_id=project_id,
-            node_id=node_plan.node_id,
             result_identity=result_identity,
-            materialization_run_id=materialization_run_id,
             producer_run_id=producer_run_id,
-            resolution="cache_replayed",
-            result_contract_metadata=expected_metadata,
             admitted_output=admitted_output,
             node_result_manifest=node_result_manifest,
-            outputs=tuple(stored_outputs),
-            artifacts=tuple(stored_artifacts),
+            outputs=tuple(published_outputs),
+            artifacts=tuple(published_artifacts),
         )
 
     def lookup_replay(
