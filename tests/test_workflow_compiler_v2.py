@@ -799,41 +799,6 @@ def test_execution_plan_identity_excludes_runtime_handles() -> None:
     )
 
 
-def test_execution_plan_copies_all_public_sequences_at_its_boundary() -> None:
-    catalog = _workflow_catalog()
-    compiled = compile(
-                   CompilationRequest(
-                       lock_workflow(_unlocked_workflow(), catalog),
-                       2,
-                   ),
-                   catalog,
-               )
-    plan = compiled
-
-    copied = replace(
-        plan,
-        nodes=list(plan.nodes),  # type: ignore[arg-type]
-        edges=list(plan.edges),  # type: ignore[arg-type]
-        node_order=list(plan.node_order),  # type: ignore[arg-type]
-        resolved_contracts=list(  # type: ignore[arg-type]
-            plan.resolved_contracts
-        ),
-        observation_selectors=list(  # type: ignore[arg-type]
-            plan.observation_selectors
-        ),
-        selection_objectives=list(  # type: ignore[arg-type]
-            plan.selection_objectives
-        ),
-    )
-
-    assert type(copied.nodes) is tuple
-    assert type(copied.edges) is tuple
-    assert type(copied.node_order) is tuple
-    assert type(copied.resolved_contracts) is tuple
-    assert type(copied.observation_selectors) is tuple
-    assert type(copied.selection_objectives) is tuple
-
-
 @pytest.mark.parametrize(
     "mutation",
     ["missing", "duplicate", "stale_extra", "digest_mismatch"],

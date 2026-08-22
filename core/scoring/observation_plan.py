@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
 from datatypes.exact_reference import ExactContractReference
@@ -208,9 +207,6 @@ class ObservationPropagationPlan:
     filter: ObservationPropagationFilter | None = None
     absent_input_policy: AbsentInputPolicy = "reject"
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "input_ports", tuple(self.input_ports))
-
 
 @dataclass(frozen=True, slots=True)
 class ProducedObservationPlan:
@@ -223,12 +219,6 @@ class ProducedObservationPlan:
         repr=False,
     )
     propagation: ObservationPropagationPlan | None = None
-
-    def __post_init__(self) -> None:
-        observations = tuple(self.observations)
-        facts = dict(self.metric_facts)
-        object.__setattr__(self, "observations", observations)
-        object.__setattr__(self, "metric_facts", MappingProxyType(facts))
 
     def observations_for_output(
         self,

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any
 
 from core.catalog.port_contract import PortValueError
@@ -61,23 +60,6 @@ class NodeOutputPlan:
     )
     artifact_outputs: tuple[ArtifactOutputDeclaration, ...] = ()
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "output_ports",
-            MappingProxyType(dict(self.output_ports)),
-        )
-        object.__setattr__(
-            self,
-            "candidate_data_port_types",
-            MappingProxyType(dict(self.candidate_data_port_types)),
-        )
-        object.__setattr__(
-            self,
-            "artifact_outputs",
-            tuple(self.artifact_outputs),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class AdmittedOutputDescriptor:
@@ -99,26 +81,12 @@ class AdmittedNodeOutput:
     evidence_descriptors: tuple[AdmittedOutputDescriptor, ...]
     artifact_publication_plan: AdmittedArtifactPublicationPlan
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "ports",
-            MappingProxyType(dict(self.ports)),
-        )
-        object.__setattr__(
-            self,
-            "evidence_descriptors",
-            tuple(self.evidence_descriptors),
-        )
-
     @property
     def runtime_ports(self) -> Mapping[tuple[str, str], AdmittedPort]:
-        return MappingProxyType(
-            {
-                (self.node_id, output_port): admitted
-                for output_port, admitted in self.ports.items()
-            }
-        )
+        return {
+            (self.node_id, output_port): admitted
+            for output_port, admitted in self.ports.items()
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,9 +141,9 @@ def _resolve_identity_intents(
             )
         resolved_outputs[output_port] = tuple(materialized_values)
     return _ResolvedIdentityOutputs(
-        values=MappingProxyType(resolved_outputs),
+        values=resolved_outputs,
         candidate_metadata=tuple(candidate_metadata),
-        scientific_axes=MappingProxyType(scientific_axes),
+        scientific_axes=scientific_axes,
     )
 
 
@@ -302,7 +270,7 @@ def admit_node_output(
             )
         admitted[output_port] = snapshot
 
-    admitted_ports = MappingProxyType(admitted)
+    admitted_ports = admitted
     for output_port, snapshot in admitted_ports.items():
         declaration = declarations[output_port]
         if declaration.port_type.type_id != "score.collection":

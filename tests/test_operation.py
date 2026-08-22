@@ -119,10 +119,11 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
         ),
         runtime_observation_method_projection=lambda _: (method,),
     )
+    runtime_value = {"facts": [1, 2]}
     admitted = admit_fixture_port(
         port_type=port_type,
         multiplicity="one",
-        values=({"facts": [1, 2]},),
+        values=(runtime_value,),
         candidate_data_port_types={},
     )
     call = OperationCall(
@@ -134,7 +135,7 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
 
     assert isinstance(call.inputs["facts"], AdmittedPort)
     assert call.inputs["facts"] is admitted
-    assert admitted.value == {"facts": (1, 2)}
+    assert admitted.value is runtime_value
     assert admitted.values[0].canonical_bytes == (
         b'{"port_type_id":"fixture.facts","port_type_version":"1.0.0",'
         b'"schema_namespace":"protein-workbench-port-value/v2",'

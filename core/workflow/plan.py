@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Any
 
 from core.catalog.port_contract import canonical_sha256
@@ -72,11 +71,6 @@ class ResultIdentityPlanFacts:
             self,
             "identity_facts",
             _freeze_json(self.identity_facts),
-        )
-        object.__setattr__(
-            self,
-            "node_parameter_indirections",
-            tuple(sorted(set(self.node_parameter_indirections))),
         )
 
     def identity_projection(self) -> dict[str, Any]:
@@ -198,51 +192,6 @@ class _ExecutionPlanNodeRuntime:
     selection_candidate_output_port: str | None
     artifact_outputs: tuple[ArtifactOutputPlan, ...]
 
-    def __post_init__(self) -> None:
-        for name in ("input_ports", "output_ports"):
-            object.__setattr__(
-                self,
-                name,
-                MappingProxyType(dict(getattr(self, name))),
-            )
-        for name in ("input_sources", "required_input_sources"):
-            object.__setattr__(
-                self,
-                name,
-                MappingProxyType(
-                    {
-                        port_name: tuple(sources)
-                        for port_name, sources in getattr(self, name).items()
-                    }
-                ),
-            )
-        object.__setattr__(self, "dependencies", tuple(self.dependencies))
-        object.__setattr__(
-            self,
-            "effective_randomness_parameters",
-            tuple(self.effective_randomness_parameters),
-        )
-        object.__setattr__(
-            self,
-            "project_input_parameters",
-            tuple(self.project_input_parameters),
-        )
-        object.__setattr__(
-            self,
-            "selection_objectives",
-            tuple(self.selection_objectives),
-        )
-        object.__setattr__(
-            self,
-            "observation_selectors",
-            tuple(self.observation_selectors),
-        )
-        object.__setattr__(
-            self,
-            "artifact_outputs",
-            tuple(self.artifact_outputs),
-        )
-
 @dataclass(frozen=True, slots=True)
 class _ExecutionPlanRuntime:
     """Private Workflow-wide facts resolved atomically during compilation."""
@@ -251,13 +200,6 @@ class _ExecutionPlanRuntime:
         repr=False,
         compare=False,
     )
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "candidate_data_port_types",
-            MappingProxyType(dict(self.candidate_data_port_types)),
-        )
 
 @dataclass(frozen=True, slots=True)
 class ExecutionPlanNode:
@@ -289,14 +231,3 @@ class ExecutionPlan:
     _runtime: _ExecutionPlanRuntime = field(repr=False, compare=False)
     observation_selectors: tuple[ObservationSelector, ...] = ()
     selection_objectives: tuple[SelectionObjective, ...] = ()
-
-    def __post_init__(self) -> None:
-        for name in (
-            "nodes",
-            "edges",
-            "node_order",
-            "resolved_contracts",
-            "observation_selectors",
-            "selection_objectives",
-        ):
-            object.__setattr__(self, name, tuple(getattr(self, name)))

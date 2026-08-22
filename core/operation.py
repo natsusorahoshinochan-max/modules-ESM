@@ -32,17 +32,6 @@ if TYPE_CHECKING:
 PortMultiplicity = Literal["one", "many"]
 
 
-def _freeze_container(value: Any) -> Any:
-    """Freeze caller-owned containers without changing scientific value types."""
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {key: _freeze_container(item) for key, item in value.items()}
-        )
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_container(item) for item in value)
-    return value
-
-
 @dataclass(frozen=True, slots=True)
 class ArtifactPayload:
     """Exact artifact bytes returned by a scientific operation."""
@@ -89,12 +78,7 @@ class EncodedOutputIdentities:
         object.__setattr__(self, "_by_id", MappingProxyType(by_id))
 
     def require(self, identity_id: str) -> EncodedOutputIdentity:
-        try:
-            return self._by_id[identity_id]
-        except KeyError as error:
-            raise ValueError(
-                f"output identity source {identity_id!r} was not encoded"
-            ) from error
+        return self._by_id[identity_id]
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,9 +337,6 @@ class AdmittedValue:
     candidate_data: tuple[CandidateDataReference, ...] = ()
     scientific_axes: tuple[ResidueAxisReference, ...] = ()
     observation_methods: tuple[ExactContractReference, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "value", _freeze_container(self.value))
 
 
 @dataclass(frozen=True, slots=True)

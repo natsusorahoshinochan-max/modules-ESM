@@ -82,13 +82,6 @@ class CompilationRequest:
     locked_workflow: WorkflowDocument
     workflow_commit_revision: int
 
-    def __post_init__(self) -> None:
-        if (
-            type(self.workflow_commit_revision) is not int
-            or self.workflow_commit_revision < 1
-        ):
-            raise ValueError("Workflow Commit revision must be positive")
-
 
 from core.workflow._compiler.identity import (  # noqa: E402
     _result_contracts_for_node,
