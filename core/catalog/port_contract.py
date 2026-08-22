@@ -1358,6 +1358,16 @@ class PortTypeDefinition:
         except PortValueError as error:
             raise CatalogBuildError(str(error)) from error
 
+    def _validated_builtin_wire(self, value: Any) -> Any:
+        expected_type = _VALUE_TYPE_BY_KIND[self.value_kind]
+        if type(value) is not expected_type:
+            raise PortValueError(
+                f"{self.type_id}@{self.version} requires {expected_type.__name__}, "
+                f"got {type(value).__name__}"
+            )
+        _validate_builtin_semantics(self.value_kind, value)
+        return _value_to_wire(value)
+
     def validate(self, value: Any) -> None:
         """Validate one complete runtime value through this nominal contract."""
         if self.runtime_validator is not None:
@@ -1371,19 +1381,12 @@ class PortTypeDefinition:
                     f"{error}"
                 ) from error
             return
-        expected_type = _VALUE_TYPE_BY_KIND[self.value_kind]
-        if type(value) is not expected_type:
-            raise PortValueError(
-                f"{self.type_id}@{self.version} requires "
-                f"{expected_type.__name__}, got {type(value).__name__}"
-            )
-        _validate_builtin_semantics(self.value_kind, value)
-        _value_to_wire(value)
+        self._validated_builtin_wire(value)
 
     def encode(self, value: Any) -> bytes:
         """Validate and encode one value as canonical RFC 8785 UTF-8 bytes."""
-        self.validate(value)
         if self.runtime_to_wire is not None:
+            self.validate(value)
             try:
                 wire_value = self.runtime_to_wire(value)
             except PortValueError:
@@ -1393,20 +1396,19 @@ class PortTypeDefinition:
                     f"{self.type_id}@{self.version} could not encode its value: "
                     f"{error}"
                 ) from error
-            try:
-                canonical_json_bytes(wire_value)
-            except CatalogBuildError as error:
-                raise PortValueError(str(error)) from error
         else:
-            wire_value = _value_to_wire(value)
-        return canonical_json_bytes(
-            {
-                "schema_namespace": PORT_VALUE_NAMESPACE,
-                "port_type_id": self.type_id,
-                "port_type_version": self.version,
-                "value": wire_value,
-            }
-        )
+            wire_value = self._validated_builtin_wire(value)
+        try:
+            return canonical_json_bytes(
+                {
+                    "schema_namespace": PORT_VALUE_NAMESPACE,
+                    "port_type_id": self.type_id,
+                    "port_type_version": self.version,
+                    "value": wire_value,
+                }
+            )
+        except CatalogBuildError as error:
+            raise PortValueError(str(error)) from error
 
     def decode(self, encoded: bytes) -> Any:
         """Decode canonical bytes, rejecting malformed or non-canonical input."""
