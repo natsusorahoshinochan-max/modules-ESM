@@ -6,7 +6,12 @@ production Catalog/compiler, and the public installed-backend protocol.
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from collections import Counter
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -18,17 +23,19 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 import torch
 
-from core import (
-    WorkflowCommit,
-    build_discovered_frozen_catalog,
-    compile_workflow,
-    parse_workflow_document,
-    relock_workflow,
+from core.workflow.authoring import WorkflowCommit
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
 )
-from core.server import create_app
-from datatypes import (
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from protein_workbench_public.bootstrap import create_application
+from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.observation import (
     PairwiseCandidateMapping,
     ScoreCollection,
 )
@@ -73,10 +80,10 @@ def _assert_workflow_commit_owner(
     *,
     workflow_commit_id: str,
 ) -> WorkflowCommit:
-    owner = app.state.workflow_authoring_v2
+    owner = app.state.workflow_authoring
     commit = owner.load_active_commit("canonical-3gb1")
     draft = owner.load_draft("canonical-3gb1")
-    compiled = owner.require_compiled(
+    compiled = owner.require_verified_commit(
         "canonical-3gb1",
         workflow_commit_id=workflow_commit_id,
     )
@@ -99,19 +106,21 @@ def _assert_workflow_commit_owner(
 
 
 def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
-    catalog = build_discovered_frozen_catalog()
-    workflow = parse_workflow_document(_workflow_payload())
+    catalog = build_frozen_catalog(module_registrations())
+    workflow = decode_workflow_document(_workflow_payload())
 
     assert workflow.workflow_id == "canonical-3gb1"
     assert workflow.schema_version == "2.1.0"
     assert workflow.contract_lock
-    assert relock_workflow(workflow, catalog) == workflow
-    compiled = compile_workflow(
-        workflow,
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    assert compiled.execution_plan.resolved_contracts == workflow.contract_lock
+    assert lock_workflow(replace(workflow, contract_lock=()), catalog) == workflow
+    compiled = compile(
+                   CompilationRequest(
+                       workflow,
+                       1,
+                   ),
+                   catalog,
+               )
+    assert compiled.resolved_contracts == workflow.contract_lock
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert all(not node.binding_parameters for node in nodes.values())
@@ -219,10 +228,11 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
     folding = ControlledFoldingClient()
     workflow = _workflow_payload()
     workflow["edges"][0]["target_port"] = "missing"
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=controlled_catalog(),
         _install_canonical_seed=True,
         v2_environment_configuration=controlled_environment(
+            monkeypatch,
             esm3,
             folding,
         ),
@@ -456,13 +466,14 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
     )
     catalog = controlled_catalog()
     assert catalog.contract_digest == (
-        build_discovered_frozen_catalog().contract_digest
+        build_frozen_catalog(module_registrations()).contract_digest
     )
     controlled_configuration = controlled_environment(
+        monkeypatch,
         esm3,
         folding,
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
         _install_canonical_seed=True,
         v2_environment_configuration=controlled_configuration,
@@ -490,7 +501,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             app,
             workflow_commit_id=workflow_commit_id,
         )
-        assert commit.contract_lock_digest == parse_workflow_document(
+        assert commit.contract_lock_digest == decode_workflow_document(
             _workflow_payload()
         ).contract_lock_digest
 

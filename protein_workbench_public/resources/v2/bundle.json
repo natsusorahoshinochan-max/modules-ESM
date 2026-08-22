@@ -1821,6 +1821,35 @@
           "type": "array",
           "uniqueItems": true
         },
+        "environment_fields": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "value_category": {
+                "enum": [
+                  "credential_handle",
+                  "filesystem_path",
+                  "json_value"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "value_category",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        },
         "execution_route": {
           "enum": [
             "adapter",

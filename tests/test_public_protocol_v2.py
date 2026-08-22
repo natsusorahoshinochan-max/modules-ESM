@@ -13,8 +13,10 @@ import pytest
 from fastapi.testclient import TestClient
 import httpx
 
-from core.port_types import builtin_frozen_catalog
-from core.server import create_app
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import (
     PUBLIC_PROTOCOL_NAMESPACE,
     PreparedEventStreamRequest,
@@ -1386,7 +1388,7 @@ def test_backend_serves_the_authoritative_bundle_without_a_v1_fallback(
     discovery = load_bundle()["bundle_discovery"]
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.get(discovery["route"])
 
@@ -1414,7 +1416,7 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         responses = (
             client.get("/api/v2/protocol?legacy=1"),
@@ -1453,7 +1455,7 @@ def test_backend_public_route_inventory_equals_the_bundle() -> None:
         "/openapi.json",
         "/redoc",
     }
-    for route in create_app().routes:
+    for route in create_application(_install_canonical_seed=False).routes:
         path = getattr(route, "path", "")
         if path in framework_documentation_routes:
             continue
@@ -1478,7 +1480,7 @@ def test_project_and_immutable_input_publication_use_only_bundle_operations(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as http:
         def public_request(
             operation_id: str,
@@ -1573,7 +1575,7 @@ def test_project_input_metadata_recovers_filename_after_backend_restart(
         return response.status_code, payload
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as first_backend:
         _, project = public_request(
             first_backend,
@@ -1591,7 +1593,7 @@ def test_project_input_metadata_recovers_filename_after_backend_restart(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as restarted_backend:
         status, recovered = public_request(
             restarted_backend,
@@ -1690,7 +1692,7 @@ def test_backend_rejects_route_owned_fields_in_every_json_body(
     }
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         for operation_id, (method, route, body) in cases.items():
             response = client.request(method, route, json=body)
@@ -1713,7 +1715,7 @@ def test_backend_distinguishes_absent_empty_and_null_cancel_bodies(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         absent = client.post(
             "/api/v2/projects/project-1/runs/run-1:cancel"
@@ -1747,7 +1749,7 @@ def test_backend_rejects_invalid_project_identity_at_public_admission(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.get(
             "/api/v2/projects/project:1/workflow/draft"
@@ -1779,7 +1781,7 @@ def test_backend_classifies_nested_workflow_version_before_authoring(
     }
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.post(
             "/api/v2/projects/project-1/workflow:commit",
@@ -1809,7 +1811,7 @@ def test_project_input_publication_rejects_invalid_project_id_at_admission(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.post(
             "/api/v2/projects/bad!/inputs",
@@ -1834,7 +1836,7 @@ def test_backend_event_stream_rejects_undeclared_query_fields(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         with client.websocket_connect(
             "/api/v2/projects/project-1/runs/run-1/events?legacy_cursor=1"
@@ -1922,7 +1924,7 @@ def test_public_deep_commit_creates_draft_active_commit_and_runnable_plan(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         project_id = client.post(
             "/api/v2/projects",

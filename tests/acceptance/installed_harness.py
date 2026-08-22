@@ -29,7 +29,8 @@ def build_artifacts(output_dir: Path) -> tuple[Path, Path]:
     subprocess.run(
         [
             sys.executable,
-            str(PROJECT_ROOT / "scripts" / "build_backend.py"),
+            "-m",
+            "verification.build",
             str(output_dir),
         ],
         cwd=PROJECT_ROOT,

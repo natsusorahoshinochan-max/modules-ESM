@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-protein-workbench-server = "core.server:main"
+protein-workbench-server = "protein_workbench_public.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -46,6 +46,7 @@ include = [
     "modules*",
     "pdbs*",
     "protein_workbench_public*",
+    "verification*",
 ]
 
 [tool.setuptools.package-data]
