@@ -13,7 +13,6 @@ from core.workflow.authoring import (
 )
 from core.workflow.document import (
     WorkflowDocumentError,
-    workflow_document_from_projection,
 )
 from protein_workbench_public.http.errors import (
     authoring_error_response,
@@ -26,6 +25,11 @@ from protein_workbench_public.protocol import (
     ProtocolValidationError,
     decode_rest_request,
     validate_response,
+)
+from protein_workbench_public.workflow_codec import (
+    decode_admitted_workflow_document,
+    encode_workflow_commit_receipt,
+    encode_workflow_draft,
 )
 
 
@@ -52,10 +56,8 @@ def register_workflow_routes(
                 query_parameters=query_parameters,
                 json_body=json_body,
             )
-            payload = (
-                authoring.load_draft(
-                    admitted["project_id"]
-                ).to_public()
+            payload = encode_workflow_draft(
+                authoring.load_draft(admitted["project_id"])
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
@@ -85,14 +87,14 @@ def register_workflow_routes(
                 json_body=json_body,
             )
             workflow_payload = admitted["workflow"]
-            workflow = workflow_document_from_projection(
+            workflow = decode_admitted_workflow_document(
                 workflow_payload
             )
-            snapshot = (
+            snapshot = encode_workflow_draft(
                 authoring.save_draft(
                     admitted["project_id"],
                     workflow=workflow,
-                ).to_public()
+                )
             )
         except WorkflowDocumentError as error:
             return workflow_document_error_response(error, workflow_payload)
@@ -121,10 +123,10 @@ def register_workflow_routes(
                 query_parameters=query_parameters,
                 json_body=json_body,
             )
-            receipt = (
+            receipt = encode_workflow_commit_receipt(
                 authoring.load_active_commit(
                     admitted["project_id"]
-                ).to_public()
+                )
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
@@ -154,13 +156,15 @@ def register_workflow_routes(
                 json_body=json_body,
             )
             workflow_payload = admitted["workflow"]
-            workflow = workflow_document_from_projection(
+            workflow = decode_admitted_workflow_document(
                 workflow_payload
             )
-            receipt = authoring.commit(
-                admitted["project_id"],
-                workflow=workflow,
-            ).to_public()
+            receipt = encode_workflow_commit_receipt(
+                authoring.commit(
+                    admitted["project_id"],
+                    workflow=workflow,
+                )
+            )
         except WorkflowDocumentError as error:
             return workflow_document_error_response(error, workflow_payload)
         except ProtocolValidationError as error:

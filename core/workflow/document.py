@@ -140,7 +140,8 @@ class ContractLockEntry:
     contract_digest: str
 
     @classmethod
-    def from_public(cls, payload: Mapping[str, Any]) -> ContractLockEntry:
+    def from_canonical(cls, payload: Mapping[str, Any]) -> ContractLockEntry:
+        """Hydrate one exact entry from a durable canonical projection."""
         return cls(
             contract_kind=payload["contract_kind"],
             contract_id=payload["contract_id"],
@@ -156,7 +157,8 @@ class ContractLockEntry:
             self.contract_version,
         )
 
-    def to_public(self) -> dict[str, Any]:
+    def canonical_projection(self) -> dict[str, Any]:
+        """Project the exact entry for Workflow and Plan identity."""
         return {
             "contract_kind": self.contract_kind,
             "contract_id": self.contract_id,
@@ -189,10 +191,11 @@ class WorkflowNodeInstance:
         )
 
     @classmethod
-    def from_public(
+    def from_canonical(
         cls,
         payload: Mapping[str, Any],
     ) -> WorkflowNodeInstance:
+        """Hydrate one Node Instance from a durable canonical projection."""
         return cls(
             node_id=payload["node_id"],
             node_type_id=payload["node_type_id"],
@@ -203,7 +206,8 @@ class WorkflowNodeInstance:
             binding_parameters=payload["binding_parameters"],
         )
 
-    def to_public(self) -> dict[str, Any]:
+    def canonical_projection(self) -> dict[str, Any]:
+        """Project the Node Instance for durable Workflow identity."""
         return {
             "node_id": self.node_id,
             "node_type_id": self.node_type_id,
@@ -224,7 +228,8 @@ class WorkflowEdge:
     target_port: str
 
     @classmethod
-    def from_public(cls, payload: Mapping[str, Any]) -> WorkflowEdge:
+    def from_canonical(cls, payload: Mapping[str, Any]) -> WorkflowEdge:
+        """Hydrate one edge from a durable canonical projection."""
         return cls(
             source_node_id=payload["source_node_id"],
             source_port=payload["source_port"],
@@ -232,7 +237,8 @@ class WorkflowEdge:
             target_port=payload["target_port"],
         )
 
-    def to_public(self) -> dict[str, Any]:
+    def canonical_projection(self) -> dict[str, Any]:
+        """Project the edge for durable Workflow and Plan identity."""
         return {
             "source_node_id": self.source_node_id,
             "source_port": self.source_port,
@@ -242,7 +248,7 @@ class WorkflowEdge:
 
 @dataclass(frozen=True, slots=True)
 class WorkflowDocument:
-    """Immutable parsed public v2 Workflow document."""
+    """Immutable typed Workflow document."""
 
     schema_version: str
     workflow_id: str
@@ -252,12 +258,17 @@ class WorkflowDocument:
     observation_selectors: tuple[ObservationSelector, ...] = ()
     selection_objectives: tuple[SelectionObjective, ...] = ()
 
-    def to_public(self) -> dict[str, Any]:
+    def canonical_projection(self) -> dict[str, Any]:
+        """Project the durable canonical Workflow identity document."""
         return {
             "schema_version": self.schema_version,
             "workflow_id": self.workflow_id,
-            "nodes": [node.to_public() for node in self.nodes],
-            "edges": [edge.to_public() for edge in self.edges],
+            "nodes": [
+                node.canonical_projection() for node in self.nodes
+            ],
+            "edges": [
+                edge.canonical_projection() for edge in self.edges
+            ],
             "observation_selectors": [
                 observation_selector_canonical(selector)
                 for selector in self.observation_selectors
@@ -267,7 +278,7 @@ class WorkflowDocument:
                 for objective in self.selection_objectives
             ],
             "contract_lock": [
-                entry.to_public() for entry in self.contract_lock
+                entry.canonical_projection() for entry in self.contract_lock
             ],
         }
 
@@ -276,7 +287,7 @@ class WorkflowDocument:
         return canonical_sha256(
             {
                 "schema_namespace": WORKFLOW_DIGEST_NAMESPACE,
-                "workflow": self.to_public(),
+                "workflow": self.canonical_projection(),
             }
         )
 
@@ -286,7 +297,8 @@ class WorkflowDocument:
             {
                 "schema_namespace": CONTRACT_LOCK_NAMESPACE,
                 "entries": [
-                    entry.to_public() for entry in self.contract_lock
+                    entry.canonical_projection()
+                    for entry in self.contract_lock
                 ],
             }
         )
@@ -298,24 +310,24 @@ class WorkflowDocumentError(ValueError):
         self.code = code
         super().__init__(message)
 
-def workflow_document_from_projection(
+def workflow_document_from_canonical(
     payload: Mapping[str, Any],
 ) -> WorkflowDocument:
-    """Hydrate a typed Workflow from an already-admitted projection."""
+    """Hydrate a typed Workflow from a durable canonical projection."""
     try:
         return WorkflowDocument(
             schema_version=payload["schema_version"],
             workflow_id=payload["workflow_id"],
             nodes=tuple(
-                WorkflowNodeInstance.from_public(node)
+                WorkflowNodeInstance.from_canonical(node)
                 for node in payload["nodes"]
             ),
             edges=tuple(
-                WorkflowEdge.from_public(edge)
+                WorkflowEdge.from_canonical(edge)
                 for edge in payload["edges"]
             ),
             contract_lock=tuple(
-                ContractLockEntry.from_public(entry)
+                ContractLockEntry.from_canonical(entry)
                 for entry in payload["contract_lock"]
             ),
             observation_selectors=tuple(

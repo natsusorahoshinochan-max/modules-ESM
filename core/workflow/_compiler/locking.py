@@ -130,7 +130,7 @@ def _reference_from_value(value: Any) -> ContractLockEntry | None:
     }
     if set(value) != required:
         return None
-    return ContractLockEntry.from_public(value)
+    return ContractLockEntry.from_canonical(value)
 
 def _reachable_contract_lock(
     workflow: WorkflowDocument,
@@ -161,7 +161,9 @@ def _reachable_contract_lock(
                 version_path=("nodes", index, f"{field_prefix}_version"),
                 node_id=node.node_id,
             )
-            pending.append(ContractLockEntry.from_public(contract.reference()))
+            pending.append(
+                ContractLockEntry.from_canonical(contract.reference())
+            )
     for kind, reference, identity_path, version_path in (
         _workflow_contract_references(workflow)
     ):
@@ -183,7 +185,7 @@ def _reachable_contract_lock(
                 field_path=(*version_path[:-1], "contract_digest"),
             )
         pending.append(
-            ContractLockEntry.from_public(contract.reference())
+            ContractLockEntry.from_canonical(contract.reference())
         )
 
     reachable: dict[tuple[str, str, str], ContractLockEntry] = {}
@@ -192,7 +194,7 @@ def _reachable_contract_lock(
         if reference.key in reachable:
             continue
         contract = catalog.require_contract(*reference.key)
-        observed = ContractLockEntry.from_public(contract.reference())
+        observed = ContractLockEntry.from_canonical(contract.reference())
         reachable[observed.key] = observed
         descriptor = contract.descriptor
         nested: deque[Any] = deque([descriptor])

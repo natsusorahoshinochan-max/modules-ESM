@@ -27,7 +27,7 @@ from core.workflow.compiler import (
 )
 from core.workflow.document import (
     WorkflowDocument,
-    workflow_document_from_projection,
+    workflow_document_from_canonical,
 )
 from core.workflow.plan import ExecutionPlan
 
@@ -78,16 +78,6 @@ class WorkflowDraft:
             raise ValueError("Workflow Draft must not contain a Contract Lock")
         if self.workflow.digest != self.draft_digest:
             raise ValueError("Workflow Draft digest does not match its Workflow")
-
-    def to_public(self) -> dict[str, Any]:
-        """Project the typed Draft to its public wire representation."""
-        return {
-            "project_id": self.project_id,
-            "draft_revision": self.draft_revision,
-            "draft_digest": self.draft_digest,
-            "workflow": self.workflow.to_public(),
-        }
-
 
 @dataclass(frozen=True, slots=True)
 class WorkflowCommit:
@@ -151,22 +141,6 @@ class WorkflowCommit:
         if self.workflow_commit_id != expected_id:
             raise ValueError("Workflow Commit identity digest mismatch")
 
-    def to_public(self) -> dict[str, Any]:
-        """Project the compact Commit receipt without its private Workflow."""
-        return {
-            "accepted": True,
-            "workflow_commit_id": self.workflow_commit_id,
-            "workflow_commit_revision": self.workflow_commit_revision,
-            "source_draft_revision": self.source_draft_revision,
-            "source_draft_digest": self.source_draft_digest,
-            "workflow_digest": self.workflow_digest,
-            "catalog_contract_digest": self.catalog_contract_digest,
-            "contract_lock_digest": self.contract_lock_digest,
-            "execution_plan_digest": self.execution_plan_digest,
-            "issues": [],
-        }
-
-
 @dataclass(frozen=True, slots=True)
 class VerifiedWorkflowCommit:
     """One exact Commit paired with its verified Execution Plan."""
@@ -182,6 +156,20 @@ class VerifiedWorkflowCommit:
             != self.execution_plan.execution_plan_digest
         ):
             raise ValueError("Verified Workflow Commit identity mismatch")
+
+
+def _commit_record_projection(commit: WorkflowCommit) -> dict[str, Any]:
+    """Encode the typed identity retained in a durable Commit record."""
+    return {
+        "workflow_commit_id": commit.workflow_commit_id,
+        "workflow_commit_revision": commit.workflow_commit_revision,
+        "source_draft_revision": commit.source_draft_revision,
+        "source_draft_digest": commit.source_draft_digest,
+        "workflow_digest": commit.workflow_digest,
+        "catalog_contract_digest": commit.catalog_contract_digest,
+        "contract_lock_digest": commit.contract_lock_digest,
+        "execution_plan_digest": commit.execution_plan_digest,
+    }
 
 
 def _generation_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
@@ -375,7 +363,7 @@ class WorkflowAuthoringService:
                 or not isinstance(payload.get("workflow"), dict)
             ):
                 raise ValueError("closed Workflow Draft schema mismatch")
-            workflow = workflow_document_from_projection(payload["workflow"])
+            workflow = workflow_document_from_canonical(payload["workflow"])
             if workflow.contract_lock or workflow.digest != payload["draft_digest"]:
                 raise ValueError("Workflow Draft identity mismatch")
             return self._draft_value(project_id, revision, workflow)
@@ -451,7 +439,7 @@ class WorkflowAuthoringService:
                 "artifact_kind": _DRAFT_RECORD_KIND,
                 "draft_revision": draft_revision,
                 "draft_digest": draft.draft_digest,
-                "workflow": draft.workflow.to_public(),
+                "workflow": draft.workflow.canonical_projection(),
             },
         )
         return draft
@@ -511,28 +499,19 @@ class WorkflowAuthoringService:
                 != {
                     "schema_version",
                     "artifact_kind",
-                    "workflow_commit_revision",
-                    "source_draft_revision",
-                    "source_draft_digest",
                     "workflow",
-                    "receipt",
+                    "commit",
                 }
                 or payload.get("schema_version")
                 != _AUTHORING_RECORD_SCHEMA_VERSION
                 or payload.get("artifact_kind") != _COMMIT_RECORD_KIND
-                or type(payload.get("workflow_commit_revision")) is not int
-                or payload.get("workflow_commit_revision") != revision
-                or type(payload.get("source_draft_revision")) is not int
-                or payload["source_draft_revision"] < 1
-                or not isinstance(payload.get("source_draft_digest"), str)
                 or not isinstance(payload.get("workflow"), dict)
-                or not isinstance(payload.get("receipt"), dict)
+                or not isinstance(payload.get("commit"), dict)
             ):
                 raise ValueError("closed Workflow Commit schema mismatch")
-            workflow = workflow_document_from_projection(payload["workflow"])
-            receipt = payload["receipt"]
-            expected_receipt_fields = {
-                "accepted",
+            workflow = workflow_document_from_canonical(payload["workflow"])
+            commit_projection = payload["commit"]
+            expected_commit_fields = {
                 "workflow_commit_id",
                 "workflow_commit_revision",
                 "source_draft_revision",
@@ -541,35 +520,36 @@ class WorkflowAuthoringService:
                 "catalog_contract_digest",
                 "contract_lock_digest",
                 "execution_plan_digest",
-                "issues",
             }
-            if set(receipt) != expected_receipt_fields:
-                raise ValueError("Workflow Commit receipt schema mismatch")
+            if set(commit_projection) != expected_commit_fields:
+                raise ValueError("Workflow Commit identity schema mismatch")
             commit = WorkflowCommit(
                 project_id=project_id,
-                workflow_commit_id=receipt["workflow_commit_id"],
-                workflow_commit_revision=receipt[
+                workflow_commit_id=commit_projection["workflow_commit_id"],
+                workflow_commit_revision=commit_projection[
                     "workflow_commit_revision"
                 ],
-                source_draft_revision=receipt["source_draft_revision"],
-                source_draft_digest=receipt["source_draft_digest"],
+                source_draft_revision=commit_projection[
+                    "source_draft_revision"
+                ],
+                source_draft_digest=commit_projection[
+                    "source_draft_digest"
+                ],
                 locked_workflow=workflow,
-                workflow_digest=receipt["workflow_digest"],
-                catalog_contract_digest=receipt[
+                workflow_digest=commit_projection["workflow_digest"],
+                catalog_contract_digest=commit_projection[
                     "catalog_contract_digest"
                 ],
-                contract_lock_digest=receipt["contract_lock_digest"],
-                execution_plan_digest=receipt["execution_plan_digest"],
+                contract_lock_digest=commit_projection[
+                    "contract_lock_digest"
+                ],
+                execution_plan_digest=commit_projection[
+                    "execution_plan_digest"
+                ],
             )
             if (
-                receipt.get("accepted") is not True
-                or receipt.get("issues") != []
-                or commit.workflow_commit_revision != revision
-                or commit.source_draft_revision
-                != payload["source_draft_revision"]
-                or commit.source_draft_digest
-                != payload["source_draft_digest"]
-                or commit.to_public() != receipt
+                commit.workflow_commit_revision != revision
+                or _commit_record_projection(commit) != commit_projection
             ):
                 raise ValueError("Workflow Commit identity mismatch")
         except (OSError, TypeError, ValueError) as error:
@@ -688,13 +668,8 @@ class WorkflowAuthoringService:
             {
                 "schema_version": _AUTHORING_RECORD_SCHEMA_VERSION,
                 "artifact_kind": _COMMIT_RECORD_KIND,
-                "workflow_commit_revision": (
-                    commit.workflow_commit_revision
-                ),
-                "source_draft_revision": commit.source_draft_revision,
-                "source_draft_digest": commit.source_draft_digest,
-                "workflow": commit.locked_workflow.to_public(),
-                "receipt": commit.to_public(),
+                "workflow": commit.locked_workflow.canonical_projection(),
+                "commit": _commit_record_projection(commit),
             },
         )
         self._verified_commits[

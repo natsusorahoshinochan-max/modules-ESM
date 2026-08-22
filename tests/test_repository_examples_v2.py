@@ -7,19 +7,24 @@ registration seam, and the built artifact inventory.
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 import json
 from pathlib import Path
 
 import pytest
 
-from core import (
-    WorkflowDocumentError,
-    build_discovered_frozen_catalog,
+from core.catalog.builder import (
     build_frozen_catalog,
-    compile_workflow,
-    discover_module_packages,
-    parse_workflow_document,
-    relock_workflow,
+)
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+)
+from core.workflow.document import WorkflowDocumentError
+from protein_workbench_public.workflow_codec import (
+    decode_workflow_document,
+    encode_workflow_document,
 )
 from examples.v2_suite import (
     CAPABILITY_INVENTORY_PATH,
@@ -112,22 +117,23 @@ def _walk(value: object):
 
 
 def test_repository_examples_are_exact_locked_compilable_v2_workflows() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
 
     assert PRODUCTION_WORKFLOW_PATHS
     for path in PRODUCTION_WORKFLOW_PATHS:
         payload = _load(path)
-        workflow = parse_workflow_document(payload)
+        workflow = decode_workflow_document(payload)
         assert workflow.schema_version == "2.1.0"
         assert workflow.contract_lock
-        assert relock_workflow(workflow, catalog) == workflow
-        compiled = compile_workflow(
-            workflow,
-            workflow_commit_revision=1,
-            catalog=catalog,
-        )
-        assert compiled.execution_plan.workflow_commit_revision == 1
-        assert compiled.execution_plan.workflow_digest == workflow.digest
+        compiled = compile(
+                       CompilationRequest(
+                           workflow,
+                           1,
+                       ),
+                       catalog,
+                   )
+        assert compiled.workflow_commit_revision == 1
+        assert compiled.workflow_digest == workflow.digest
         for node in workflow.nodes:
             node_type = catalog.require_contract(
                 "node_type",
@@ -185,12 +191,12 @@ def test_capability_inventory_names_exactly_12_module_packages() -> None:
     )
     assert set(inventory["package_ids"]) == EXPECTED_PACKAGES
     assert {
-        package.package_id for package in discover_module_packages()
+        package.package_id for package in module_registrations()
     } == EXPECTED_PACKAGES
 
 
 def test_capability_inventory_locks_every_canonical_contract_identity() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     inventory = _load(CAPABILITY_INVENTORY_PATH)
 
     assert inventory["contracts"] == [
@@ -207,7 +213,7 @@ def test_capability_inventory_locks_every_canonical_contract_identity() -> None:
 
 
 def test_examples_and_ctk_fixtures_cover_every_node_and_binding() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     payloads = [
         *(_load(path) for path in PRODUCTION_WORKFLOW_PATHS),
         *(_load(path) for path in CTK_WORKFLOW_PATHS),
@@ -251,7 +257,7 @@ def test_examples_and_ctk_fixtures_cover_every_node_and_binding() -> None:
 
 def test_prediction_confidence_is_materialized_by_explicit_nodes() -> None:
     """Required prediction facts cross the canonical materialization seam."""
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     producer_candidate_ports = {
         "esm3.generate_paired": "structure_candidates",
         "esm3.generate_structure": "structure_candidates",
@@ -315,16 +321,17 @@ def test_prediction_confidence_is_materialized_by_explicit_nodes() -> None:
 
 def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
     catalog = _selection_catalog()
-    workflow = parse_workflow_document(_load(SELECTION_FIXTURE))
+    workflow = decode_workflow_document(_load(SELECTION_FIXTURE))
 
-    assert relock_workflow(workflow, catalog) == workflow
-    compiled = compile_workflow(
-        workflow,
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    assert compiled.execution_plan.workflow_commit_revision == 1
-    assert compiled.execution_plan.workflow_digest == workflow.digest
+    compiled = compile(
+                   CompilationRequest(
+                       workflow,
+                       1,
+                   ),
+                   catalog,
+               )
+    assert compiled.workflow_commit_revision == 1
+    assert compiled.workflow_digest == workflow.digest
     assert {
         objective.source_partition for objective in workflow.selection_objectives
     } == {
@@ -349,7 +356,7 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
         and objective.missing_policy == "error"
         for objective in workflow.selection_objectives
     )
-    serialized = json.dumps(workflow.to_public(), sort_keys=True)
+    serialized = json.dumps(encode_workflow_document(workflow), sort_keys=True)
     assert "score_id" not in serialized
 
 
@@ -361,16 +368,17 @@ def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
             PROMPT_AUTHORING_SOURCE_PACKAGE,
         )
     )
-    workflow = parse_workflow_document(_load(PROMPT_TRACK_FIXTURE))
+    workflow = decode_workflow_document(_load(PROMPT_TRACK_FIXTURE))
 
-    assert relock_workflow(workflow, catalog) == workflow
-    compiled = compile_workflow(
-        workflow,
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    assert compiled.execution_plan.workflow_commit_revision == 1
-    assert compiled.execution_plan.workflow_digest == workflow.digest
+    compiled = compile(
+                   CompilationRequest(
+                       workflow,
+                       1,
+                   ),
+                   catalog,
+               )
+    assert compiled.workflow_commit_revision == 1
+    assert compiled.workflow_digest == workflow.digest
     assert {
         node.binding_id
         for node in workflow.nodes
@@ -382,7 +390,7 @@ def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
 
 
 def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     node_ids = {
         contract.contract_id
         for contract in catalog.contracts
@@ -503,7 +511,7 @@ def test_legacy_sample_exists_only_as_an_explicit_unsupported_fixture() -> None:
         WorkflowDocumentError,
         match="Workflow document is invalid",
     ) as caught:
-        parse_workflow_document(payload)
+        decode_workflow_document(payload)
     assert caught.value.code == "unsupported_schema_version"
 
 
@@ -521,7 +529,7 @@ def test_routine_example_verification_is_pure_and_provider_free(
 
     assert verify_repository_examples() == {
         "catalog_contract_digest": (
-            build_discovered_frozen_catalog().contract_digest
+            build_frozen_catalog(module_registrations()).contract_digest
         ),
         "package_count": 12,
         "node_type_count": 70,

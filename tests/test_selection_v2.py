@@ -37,6 +37,7 @@ from core.scoring.selection import (
 )
 from core.project.manager import ProjectManager
 from protein_workbench_public.bootstrap import create_application
+from protein_workbench_public.workflow_codec import encode_workflow_document
 from core.workflow.compiler import WorkflowCompileError
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import (
@@ -801,7 +802,7 @@ def test_public_execution_is_cache_replay_stable(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": workflow.to_public(),
+                "workflow": encode_workflow_document(workflow),
             },
         )
         assert committed.status_code == 200
@@ -904,7 +905,7 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": document.to_public(),
+                "workflow": encode_workflow_document(document),
             },
         )
         assert committed.status_code == 200

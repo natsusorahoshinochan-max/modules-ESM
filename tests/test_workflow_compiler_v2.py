@@ -43,7 +43,11 @@ from core.workflow.document import (
     WorkflowDocumentError,
 )
 from core.workflow.plan import ExecutionPlan
-from protein_workbench_public.workflow_codec import decode_workflow_document
+from protein_workbench_public.workflow_codec import (
+    decode_workflow_document,
+    encode_workflow_commit_receipt,
+    encode_workflow_document,
+)
 from core.catalog.port_contract import (
     InactiveContractGenerationError,
     UnknownContractError,
@@ -513,7 +517,7 @@ def _workflow_with_reference_generation(
         "match_cardinality": "exactly_one",
         "missing_policy": "error",
     }
-    payload = _unlocked_workflow().to_public()
+    payload = encode_workflow_document(_unlocked_workflow())
     if collection == "observation_selectors":
         payload[collection] = [
             {
@@ -596,12 +600,14 @@ def test_unknown_workflow_reference_reports_the_contract_id_field(
     seam: str,
 ) -> None:
     catalog = _workflow_catalog()
-    payload = _workflow_with_reference_generation(
-        catalog,
-        collection=collection,
-        reference_field=reference_field,
-        contract_version="2.1.0",
-    ).to_public()
+    payload = encode_workflow_document(
+        _workflow_with_reference_generation(
+            catalog,
+            collection=collection,
+            reference_field=reference_field,
+            contract_version="2.1.0",
+        )
+    )
     payload[collection][0][reference_field]["contract_id"] = (
         "synthetic.missing"
     )
@@ -645,12 +651,14 @@ def test_workflow_reference_rejects_a_mismatched_contract_kind_at_kind_field(
     seam: str,
 ) -> None:
     catalog = _workflow_catalog()
-    payload = _workflow_with_reference_generation(
-        catalog,
-        collection=collection,
-        reference_field=reference_field,
-        contract_version="2.1.0",
-    ).to_public()
+    payload = encode_workflow_document(
+        _workflow_with_reference_generation(
+            catalog,
+            collection=collection,
+            reference_field=reference_field,
+            contract_version="2.1.0",
+        )
+    )
     payload[collection][0][reference_field]["contract_kind"] = {
         "metric": "method",
         "method": "metric",
@@ -694,15 +702,17 @@ def test_compile_reports_workflow_reference_digest_drift_at_digest(
     reference_field: str,
 ) -> None:
     catalog = _workflow_catalog()
-    locked = lock_workflow(
-        _workflow_with_reference_generation(
+    locked = encode_workflow_document(
+        lock_workflow(
+            _workflow_with_reference_generation(
+                catalog,
+                collection=collection,
+                reference_field=reference_field,
+                contract_version="2.1.0",
+            ),
             catalog,
-            collection=collection,
-            reference_field=reference_field,
-            contract_version="2.1.0",
-        ),
-        catalog,
-    ).to_public()
+        )
+    )
     locked[collection][0][reference_field]["contract_digest"] = (
         "sha256:" + ("f" * 64)
     )
@@ -859,7 +869,7 @@ def test_contract_lock_mismatch_fails_before_runtime_activity(
             "2.1.0",
         )
         entries.append(
-            ContractLockEntry.from_public(unreachable.reference())
+            ContractLockEntry.from_canonical(unreachable.reference())
         )
         entries.sort()
     else:
@@ -1036,7 +1046,7 @@ def test_v1_ranges_latest_auto_binding_method_and_fallback_fail_closed(
     mutation: dict,
     expected_code: str,
 ) -> None:
-    payload = _unlocked_workflow().to_public()
+    payload = encode_workflow_document(_unlocked_workflow())
     payload.update(mutation)
 
     with pytest.raises(WorkflowDocumentError) as captured:
@@ -1848,7 +1858,7 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     app = create_application(frozen_catalog_override=_workflow_catalog())
 
     with TestClient(app) as client:
-        protected_workflow = _unlocked_workflow().to_public()
+        protected_workflow = encode_workflow_document(_unlocked_workflow())
         protected_workflow["workflow_id"] = "canonical-3gb1"
         protected = client.post(
             "/api/v2/projects/canonical-3gb1/workflow:commit",
@@ -1860,7 +1870,7 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
             "/api/v2/projects",
             json={"name": "mutation errors"},
         ).json()["id"]
-        workflow = _unlocked_workflow().to_public()
+        workflow = encode_workflow_document(_unlocked_workflow())
         workflow["workflow_id"] = project_id
         workflow["nodes"][0]["node_parameters"]["nested"] = {
             "password": "must-not-persist",
@@ -1871,7 +1881,7 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
                 "workflow": workflow,
             },
         )
-        alias_workflow = _unlocked_workflow().to_public()
+        alias_workflow = encode_workflow_document(_unlocked_workflow())
         alias_workflow["workflow_id"] = project_id
         alias_workflow["nodes"][0]["node_parameters"]["nested"] = {
             "sessionCookie": "must-not-persist",
@@ -1936,7 +1946,7 @@ def test_public_commit_reports_an_inactive_exact_contract_generation(
             "/api/v2/projects",
             json={"name": "inactive generation"},
         ).json()["id"]
-        workflow = _unlocked_workflow().to_public()
+        workflow = encode_workflow_document(_unlocked_workflow())
         workflow["workflow_id"] = project_id
         workflow["nodes"][0]["node_type_version"] = "2.0.0"
 
@@ -1982,12 +1992,14 @@ def test_public_commit_rejects_invalid_selector_scientific_inputs(
             "/api/v2/projects",
             json={"name": "stale unlocked reference"},
         ).json()["id"]
-        workflow = _workflow_with_reference_generation(
-            catalog,
-            collection="observation_selectors",
-            reference_field="metric",
-            contract_version="2.1.0",
-        ).to_public()
+        workflow = encode_workflow_document(
+            _workflow_with_reference_generation(
+                catalog,
+                collection="observation_selectors",
+                reference_field="metric",
+                contract_version="2.1.0",
+            )
+        )
         workflow["workflow_id"] = project_id
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
@@ -2047,7 +2059,7 @@ def test_public_draft_preserves_an_inactive_generation_until_commit(
             "/api/v2/projects",
             json={"name": f"inactive persisted {version_field}"},
         ).json()["id"]
-        workflow = _unlocked_workflow().to_public()
+        workflow = encode_workflow_document(_unlocked_workflow())
         workflow["workflow_id"] = project_id
         workflow["nodes"][0][version_field] = "2.0.0"
         saved = client.put(
@@ -2099,7 +2111,7 @@ def test_persisted_commit_cannot_start_after_catalog_generation_change(
             "/api/v2/projects",
             json={"name": "persisted immutable commit"},
         ).json()["id"]
-        unlocked = _unlocked_workflow().to_public()
+        unlocked = encode_workflow_document(_unlocked_workflow())
         unlocked["workflow_id"] = project_id
         committed_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
@@ -2157,7 +2169,7 @@ def test_public_draft_commit_journey_is_revisioned_and_exact(
             "/api/v2/projects",
             json={"name": "v2 authoring"},
         ).json()["id"]
-        unlocked = _unlocked_workflow().to_public()
+        unlocked = encode_workflow_document(_unlocked_workflow())
         unlocked["workflow_id"] = project_id
 
         saved_response = client.put(
@@ -2218,7 +2230,7 @@ def test_public_draft_commit_journey_is_revisioned_and_exact(
         active_response.json(),
     )
     assert active_response.json() == receipt
-    assert committed.to_public() == receipt
+    assert encode_workflow_commit_receipt(committed) == receipt
     assert committed.locked_workflow.contract_lock
     assert (
         compiled.execution_plan.workflow_commit_revision
@@ -2252,7 +2264,7 @@ def test_failed_commit_preserves_active_commit_and_submitted_draft(
             "/api/v2/projects",
             json={"name": "failed replacement commit"},
         ).json()["id"]
-        unlocked = _unlocked_workflow().to_public()
+        unlocked = encode_workflow_document(_unlocked_workflow())
         unlocked["workflow_id"] = project_id
         active_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
@@ -2262,7 +2274,7 @@ def test_failed_commit_preserves_active_commit_and_submitted_draft(
         )
         assert active_response.status_code == 200
         active = active_response.json()
-        invalid = _unlocked_workflow().to_public()
+        invalid = encode_workflow_document(_unlocked_workflow())
         invalid["workflow_id"] = project_id
         invalid["edges"] = []
         failed_response = client.post(

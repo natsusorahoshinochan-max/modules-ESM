@@ -14,14 +14,9 @@ from core.scoring.selection import (
     SelectionObjective,
     SelectionObjectiveProvenance,
     SelectionProvenance,
-    context_selector_canonical,
-    objective_provenance_canonical,
-    observation_selector_canonical,
-    selection_input_canonical,
-    selection_objective_canonical,
-    selection_provenance_canonical,
 )
 from datatypes.exact_reference import ExactContractReference
+from datatypes.i_json import thaw_i_json
 from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,
@@ -36,7 +31,10 @@ def selection_input_from_public(value: Mapping[str, Any]) -> SelectionInput:
 
 
 def selection_input_to_public(value: SelectionInput) -> dict[str, str]:
-    return selection_input_canonical(value)
+    return {
+        "node_id": value.node_id,
+        "output_port": value.output_port,
+    }
 
 
 def context_selector_from_public(
@@ -62,7 +60,23 @@ def context_selector_from_public(
 
 
 def context_selector_to_public(value: ContextSelector) -> dict[str, Any]:
-    return context_selector_canonical(value)
+    if isinstance(value, IntrinsicObservationContext):
+        return {"kind": value.kind}
+    if isinstance(value, CalibrationObservationContext):
+        return {
+            "kind": value.kind,
+            "calibration_metric": value.calibration_metric,
+            "calibration_value": value.calibration_value,
+            "calibration_unit": value.calibration_unit,
+            "population_id": value.population_id,
+        }
+    return {
+        "kind": value.kind,
+        "subject_role": value.subject_role,
+        "reference_role": value.reference_role,
+        "pairing_mode": value.pairing_mode,
+        "normalization": value.normalization,
+    }
 
 
 def _reference_from_public(
@@ -76,6 +90,17 @@ def _reference_from_public(
         contract_version=raw["contract_version"],
         contract_digest=raw["contract_digest"],
     )
+
+
+def _reference_to_public(
+    value: ExactContractReference,
+) -> dict[str, str]:
+    return {
+        "contract_kind": value.contract_kind,
+        "contract_id": value.contract_id,
+        "contract_version": value.contract_version,
+        "contract_digest": value.contract_digest,
+    }
 
 
 def observation_selector_from_public(
@@ -99,7 +124,21 @@ def observation_selector_from_public(
 def observation_selector_to_public(
     value: ObservationSelector | ObservationSelectorProvenance,
 ) -> dict[str, Any]:
-    return observation_selector_canonical(value)
+    return {
+        "selector_id": value.selector_id,
+        "candidate_input": selection_input_to_public(value.candidate_input),
+        "score_collection_input": selection_input_to_public(
+            value.score_collection_input
+        ),
+        "source_partition": value.source_partition,
+        "metric": _reference_to_public(value.metric),
+        "method": _reference_to_public(value.method),
+        "context_selector": context_selector_to_public(
+            value.context_selector
+        ),
+        "match_cardinality": value.match_cardinality,
+        "missing_policy": value.missing_policy,
+    }
 
 
 def selection_objective_from_public(
@@ -126,16 +165,56 @@ def selection_objective_from_public(
 def selection_objective_to_public(
     value: SelectionObjective,
 ) -> dict[str, Any]:
-    return selection_objective_canonical(value)
+    return {
+        "objective_id": value.objective_id,
+        "candidate_input": selection_input_to_public(value.candidate_input),
+        "score_collection_input": selection_input_to_public(
+            value.score_collection_input
+        ),
+        "source_partition": value.source_partition,
+        "metric": _reference_to_public(value.metric),
+        "method": _reference_to_public(value.method),
+        "context_selector": context_selector_to_public(
+            value.context_selector
+        ),
+        "utility_transform": _reference_to_public(value.utility_transform),
+        "utility_parameters": thaw_i_json(value.utility_parameters),
+        "weight": value.weight,
+        "match_cardinality": value.match_cardinality,
+        "missing_policy": value.missing_policy,
+    }
 
 
 def objective_provenance_to_public(
     value: SelectionObjectiveProvenance,
 ) -> dict[str, Any]:
-    return objective_provenance_canonical(value)
+    return {
+        "objective_id": value.objective_id,
+        "candidate_input": selection_input_to_public(value.candidate_input),
+        "score_collection_input": selection_input_to_public(
+            value.score_collection_input
+        ),
+        "source_partition": value.source_partition,
+        "metric": _reference_to_public(value.metric),
+        "method": _reference_to_public(value.method),
+        "context_selector": context_selector_to_public(
+            value.context_selector
+        ),
+        "utility_transform": _reference_to_public(value.utility_transform),
+        "utility_parameters": thaw_i_json(value.utility_parameters),
+        "declared_weight": value.declared_weight,
+        "effective_weight": value.effective_weight,
+        "match_cardinality": value.match_cardinality,
+        "missing_policy": value.missing_policy,
+    }
 
 
 def selection_provenance_to_public(
     value: SelectionProvenance,
 ) -> dict[str, Any]:
-    return selection_provenance_canonical(value)
+    return {
+        "objectives": [
+            objective_provenance_to_public(objective)
+            for objective in value.objectives
+        ]
+    }

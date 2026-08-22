@@ -8,17 +8,22 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from protein_workbench_public.scientific_codec import (
+    encode_observation_context,
+)
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
 from tests.acceptance.retained_evidence import retain_service_run
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 
@@ -175,12 +180,13 @@ def test_local_protein_sol_golden_multiple_metrics(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
+        admit_environment_configuration(
+            catalog,
             {
                 ("solubility.protein_sol.local", "5.0.0"): {
                     "values": _environment(),
                 }
-            }
+            },
         ),
     )
     try:
@@ -300,7 +306,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         for candidate_id in candidate_ids
     }
     assert all(
-        entry.context.to_public() == {"kind": "intrinsic"}
+        encode_observation_context(entry.context) == {"kind": "intrinsic"}
         for entry in scores.entries
         if entry.metric.contract_id == "solubility.protein_sol_pi"
     )

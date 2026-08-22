@@ -47,7 +47,12 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-from protein_workbench_public.workflow_codec import decode_workflow_document
+from protein_workbench_public.workflow_codec import (
+    decode_workflow_document,
+    encode_workflow_commit_receipt,
+    encode_workflow_document,
+    encode_workflow_draft,
+)
 from core.scoring.selection import ObservationSelector, SelectionInput
 from core.project.manager import CANONICAL_3GB1_PROJECT_ID
 from protein_workbench_public.bootstrap import create_application
@@ -57,7 +62,7 @@ from core.workflow.authoring import (
 )
 from core.workflow.document import (
     WorkflowEdge,
-    workflow_document_from_projection,
+    workflow_document_from_canonical,
 )
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import IntrinsicObservationContext
@@ -333,11 +338,11 @@ def test_invalid_unlocked_draft_can_be_saved_and_loaded(tmp_path) -> None:
         workflow=workflow,
     )
 
-    assert saved.to_public() == {
+    assert encode_workflow_draft(saved) == {
         "project_id": project.id,
         "draft_revision": 1,
         "draft_digest": workflow.digest,
-        "workflow": workflow.to_public(),
+        "workflow": encode_workflow_document(workflow),
     }
     assert saved.workflow.contract_lock == ()
     assert authoring.load_draft(project.id) == saved
@@ -362,8 +367,9 @@ def test_commit_locks_compiles_and_activates_one_exact_draft(tmp_path) -> None:
     assert committed.source_draft_digest == draft.draft_digest
     assert committed.workflow_commit_id.startswith("workflow-commit-")
     assert committed.catalog_contract_digest == catalog.contract_digest
-    assert committed.to_public()["issues"] == []
-    assert "compile_id" not in committed.to_public()
+    receipt = encode_workflow_commit_receipt(committed)
+    assert receipt["issues"] == []
+    assert "compile_id" not in receipt
 
     compiled = authoring.require_verified_commit(
         project.id,
@@ -416,7 +422,7 @@ def test_public_synthetic_scorer_commit_requires_candidate_input(
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": workflow.to_public(),
+                "workflow": encode_workflow_document(workflow),
             },
         )
 
@@ -535,7 +541,7 @@ def test_draft_preserves_uncompiled_values_and_commit_rejects_unknown_parameters
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("credential-free draft")
     authoring = WorkflowAuthoringService(projects, _catalog())
-    payload = _workflow(project.id).to_public()
+    payload = encode_workflow_document(_workflow(project.id))
     payload["nodes"][0]["node_parameters"] = {
         "credentials": {"api_key": "must-not-enter-workflow"},
     }
@@ -803,13 +809,14 @@ def test_restart_rejects_commit_from_a_different_catalog_generation(
     assert commit_path.read_bytes() == original_bytes
 
 
-def test_admitted_workflow_constructor_matches_the_validating_parser() -> None:
-    payload = _workflow("project-1").to_public()
+def test_durable_workflow_codec_round_trips_the_canonical_projection() -> None:
+    workflow = _workflow("project-1")
+    payload = workflow.canonical_projection()
 
-    constructed = workflow_document_from_projection(payload)
+    constructed = workflow_document_from_canonical(payload)
 
-    assert constructed == decode_workflow_document(payload)
-    assert constructed.to_public() == payload
+    assert constructed == workflow
+    assert constructed.canonical_projection() == payload
 
 
 def test_seed_install_uses_the_current_draft_and_commit_owners(

@@ -335,7 +335,7 @@ def compile(
         binding = resolved_by_key[
             ("binding", node.binding_id, node.binding_version)
         ]
-        method_reference = ContractLockEntry.from_public(
+        method_reference = ContractLockEntry.from_canonical(
             binding.descriptor["method"]
         )
         method_contract = resolved_by_key[method_reference.key]
@@ -383,7 +383,7 @@ def compile(
                         node_id=node.node_id,
                     )
                 ports[declaration["name"]] = _ExecutionPlanPort(
-                    reference=ContractLockEntry.from_public(reference),
+                    reference=ContractLockEntry.from_canonical(reference),
                     multiplicity=declaration["multiplicity"],
                     required=declaration.get("required") is True,
                     artifact_kind=declaration.get("artifact_kind"),
@@ -566,9 +566,9 @@ def compile(
         "nodes": [
             {
                 "node_id": node.node_id,
-                "node_type": node.node_type.to_public(),
-                "binding": node.binding.to_public(),
-                "method": node.method.to_public(),
+                "node_type": node.node_type.canonical_projection(),
+                "binding": node.binding.canonical_projection(),
+                "method": node.method.canonical_projection(),
                 "node_parameters": _thaw_json(node.node_parameters),
                 "binding_parameters": _thaw_json(node.binding_parameters),
                 "result_identity_plan_facts_digest": (
@@ -577,7 +577,9 @@ def compile(
             }
             for node in nodes
         ],
-        "edges": [edge.to_public() for edge in workflow.edges],
+        "edges": [
+            edge.canonical_projection() for edge in workflow.edges
+        ],
         "observation_selectors": [
             observation_selector_canonical(selector)
             for selector in workflow.observation_selectors
@@ -587,7 +589,7 @@ def compile(
             for objective in workflow.selection_objectives
         ],
         "resolved_contracts": [
-            entry.to_public() for entry in resolved_contracts
+            entry.canonical_projection() for entry in resolved_contracts
         ],
     }
     execution_plan_digest = canonical_sha256(plan_descriptor)
