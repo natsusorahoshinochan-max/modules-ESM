@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-import re
 from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
 
 
 PortMultiplicity = Literal["one", "many"]
-_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 
 
 def _freeze_container(value: Any) -> Any:
@@ -61,19 +59,6 @@ class OutputIdentitySource:
     identity_id: str
     source_role: str
     value: object
-
-    def __post_init__(self) -> None:
-        for field_name, value in (
-            ("source ID", self.identity_id),
-            ("source role", self.source_role),
-        ):
-            if (
-                type(value) is not str
-                or _PUBLIC_IDENTIFIER.fullmatch(value) is None
-            ):
-                raise ValueError(
-                    f"output identity {field_name} must be canonical"
-                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,16 +251,7 @@ class ReadinessResult:
 
     passing: bool
     proof_source: str = "direct-observation"
-    reason_code: str = "prerequisite_unavailable"
-
-    def __post_init__(self) -> None:
-        if any(
-            not isinstance(value, str)
-            or len(value) > 128
-            or _PUBLIC_IDENTIFIER.fullmatch(value) is None
-            for value in (self.proof_source, self.reason_code)
-        ):
-            raise ValueError("Readiness metadata must use public identifiers")
+    reason_code: str | None = None
 
 
 class OperationProjectInput(Protocol):
