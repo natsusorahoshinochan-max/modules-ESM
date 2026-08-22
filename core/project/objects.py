@@ -45,8 +45,6 @@ class ProjectObjectStore:
 
     def store(self, project_id: str, canonical_bytes: bytes) -> StoredObject:
         """Atomically store exact bytes and return their content identity."""
-        if type(canonical_bytes) is not bytes:
-            raise TypeError("Project Object Store accepts exact bytes")
         content_digest = (
             "sha256:" + hashlib.sha256(canonical_bytes).hexdigest()
         )

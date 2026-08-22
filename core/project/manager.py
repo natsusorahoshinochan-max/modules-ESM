@@ -117,16 +117,13 @@ class ProjectManager:
         cls,
         descriptor: ProjectInputDescriptor,
     ) -> bytes:
-        try:
-            return json.dumps(
-                cls._input_descriptor_data(descriptor),
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
-                allow_nan=False,
-            ).encode("utf-8")
-        except (TypeError, ValueError, UnicodeEncodeError) as error:
-            raise ValueError("Project input descriptor is invalid") from error
+        return json.dumps(
+            cls._input_descriptor_data(descriptor),
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+            allow_nan=False,
+        ).encode("utf-8")
 
     @classmethod
     def _input_descriptor(
@@ -167,10 +164,7 @@ class ProjectManager:
             "inputs",
         )
         inputs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-        destination = contained_path(
-            inputs_dir,
-            input_reference,
-        )
+        destination = inputs_dir / input_reference
         if destination.exists():
             raise FileExistsError(input_reference)
         staging_dir = Path(
@@ -265,8 +259,6 @@ class ProjectManager:
             content_digest=raw["content_digest"],
         )
         payload_path = contained_path(input_dir, "payload")
-        if payload_path.stat().st_size != descriptor.size:
-            raise ValueError("Project input content identity is invalid")
         payload = payload_path.read_bytes()
         if (
             len(payload) != descriptor.size
@@ -399,8 +391,7 @@ class ProjectManager:
 
     def assert_writable(self, project_id: str) -> None:
         """Reject ordinary content or metadata writes to the canonical ID."""
-        safe_project_id = validate_identifier(project_id, "project_id")
-        if safe_project_id == CANONICAL_3GB1_PROJECT_ID:
+        if project_id == CANONICAL_3GB1_PROJECT_ID:
             raise ProtectedProjectError(
                 "The canonical 3GB1 project is read-only"
             )
@@ -503,9 +494,8 @@ class ProjectManager:
 
     def load_meta(self, project_id: str) -> ProjectMeta | None:
         """Load exactly one closed v2 Project metadata document."""
-        safe_project_id = validate_identifier(project_id, "project_id")
         path = contained_path(
-            self._project_storage_root(safe_project_id),
+            self._project_storage_root(project_id),
             "project.json",
         )
         if not path.exists():
@@ -528,7 +518,7 @@ class ProjectManager:
                 "seed",
             }
             or raw["schema_version"] != PROJECT_SCHEMA_VERSION
-            or raw["id"] != safe_project_id
+            or raw["id"] != project_id
             or not isinstance(raw["name"], str)
             or not isinstance(raw["created_at"], str)
             or not isinstance(raw["modified_at"], str)
