@@ -14,8 +14,8 @@ from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json, thaw_i_json
 
 
-PORT_VALUE_MANIFEST_NAMESPACE = "protein-workbench-port-value-manifest/v1"
-NODE_RESULT_MANIFEST_NAMESPACE = "protein-workbench-node-result-manifest/v2"
+PORT_VALUE_MANIFEST_NAMESPACE = "protein-workbench-port-value-manifest/v2"
+NODE_RESULT_MANIFEST_NAMESPACE = "protein-workbench-node-result-manifest/v3"
 MAX_PORT_VALUE_MANIFEST_BYTES = 32 * 1024 * 1024
 MAX_NODE_RESULT_MANIFEST_BYTES = 4 * 1024 * 1024
 
@@ -24,17 +24,11 @@ _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}$")
 
 
 @dataclass(frozen=True, slots=True)
-class _StoredValue:
-    index: int
-    object: StoredObject
-
-
-@dataclass(frozen=True, slots=True)
 class _PortValueManifest:
     port_type: ExactContractReference
     multiplicity: Literal["one", "many"]
     content_digest: str
-    values: tuple[_StoredValue, ...]
+    values: tuple[StoredObject, ...]
 
     def canonical_projection(self) -> dict[str, Any]:
         return {
@@ -42,36 +36,24 @@ class _PortValueManifest:
             "port_type": _reference_projection(self.port_type),
             "multiplicity": self.multiplicity,
             "content_digest": self.content_digest,
-            "value_count": len(self.values),
-            "values": [
-                {
-                    "index": value.index,
-                    "content_digest": value.object.content_digest,
-                    "size": value.object.size,
-                    "object": _object_projection(value.object),
-                }
-                for value in self.values
-            ],
+            "values": [_object_projection(value) for value in self.values],
         }
 
 
 @dataclass(frozen=True, slots=True)
 class _NodeOutput:
     output_port: str
-    port_type: ExactContractReference
     value_manifest: StoredObject
 
     def canonical_projection(self) -> dict[str, Any]:
         return {
             "output_port": self.output_port,
-            "port_type": _reference_projection(self.port_type),
             "value_manifest": _object_projection(self.value_manifest),
         }
 
 
 @dataclass(frozen=True, slots=True)
 class _NodeArtifact:
-    index: int
     artifact_kind: Literal["candidate", "standalone"]
     output_port: str
     media_type: str
@@ -81,7 +63,6 @@ class _NodeArtifact:
 
     def canonical_projection(self) -> dict[str, Any]:
         projected: dict[str, Any] = {
-            "index": self.index,
             "artifact_kind": self.artifact_kind,
             "output_port": self.output_port,
             "media_type": self.media_type,
@@ -195,7 +176,6 @@ def _decode_port_manifest(encoded: bytes) -> _PortValueManifest:
         "port_type",
         "multiplicity",
         "content_digest",
-        "value_count",
         "values",
     } or payload["schema_namespace"] != PORT_VALUE_MANIFEST_NAMESPACE:
         raise ValueError("Port Value Manifest is invalid")
@@ -203,34 +183,16 @@ def _decode_port_manifest(encoded: bytes) -> _PortValueManifest:
     values = payload["values"]
     if (
         multiplicity not in {"one", "many"}
-        or type(payload["value_count"]) is not int
-        or payload["value_count"] < 0
         or not isinstance(values, list)
-        or len(values) != payload["value_count"]
     ):
         raise ValueError("Port Value Manifest is invalid")
-    stored_values: list[_StoredValue] = []
-    for index, value in enumerate(values):
-        if (
-            not isinstance(value, Mapping)
-            or set(value) != {"index", "content_digest", "size", "object"}
-            or value["index"] != index
-        ):
-            raise ValueError("Port Value Manifest is invalid")
-        reference = _stored_object(value["object"])
-        if (
-            value["content_digest"] != reference.content_digest
-            or value["size"] != reference.size
-        ):
-            raise ValueError("Port Value Manifest is invalid")
-        stored_values.append(_StoredValue(index, reference))
     return _PortValueManifest(
         port_type=_exact_reference(payload["port_type"]),
         multiplicity=multiplicity,
         content_digest=_require_digest(
             payload["content_digest"], "content_digest"
         ),
-        values=tuple(stored_values),
+        values=tuple(_stored_object(value) for value in values),
     )
 
 
@@ -257,7 +219,6 @@ def _decode_node_manifest(encoded: bytes) -> _NodeResultManifest:
     for output in outputs:
         if not isinstance(output, Mapping) or set(output) != {
             "output_port",
-            "port_type",
             "value_manifest",
         }:
             raise ValueError("Node Result Manifest is invalid")
@@ -268,14 +229,12 @@ def _decode_node_manifest(encoded: bytes) -> _NodeResultManifest:
         decoded_outputs.append(
             _NodeOutput(
                 output_port,
-                _exact_reference(output["port_type"]),
                 _stored_object(output["value_manifest"]),
             )
         )
     decoded_artifacts: list[_NodeArtifact] = []
-    for index, artifact in enumerate(artifacts):
+    for artifact in artifacts:
         required = {
-            "index",
             "artifact_kind",
             "output_port",
             "media_type",
@@ -289,7 +248,6 @@ def _decode_node_manifest(encoded: bytes) -> _NodeResultManifest:
                 artifact_fields != required
                 and artifact_fields != required | {"candidate_id"}
             )
-            or artifact["index"] != index
             or artifact["artifact_kind"] not in {"candidate", "standalone"}
             or type(artifact["media_type"]) is not str
             or type(artifact["filename"]) is not str
@@ -301,7 +259,6 @@ def _decode_node_manifest(encoded: bytes) -> _NodeResultManifest:
             raise ValueError("Node Result Manifest artifact is invalid")
         decoded_artifacts.append(
             _NodeArtifact(
-                index=index,
                 artifact_kind=artifact["artifact_kind"],
                 output_port=_require_identifier(
                     artifact["output_port"], "output_port"

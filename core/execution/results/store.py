@@ -29,7 +29,6 @@ from core.execution.results.manifests import (
     _NodeOutput,
     _NodeResultManifest,
     _PortValueManifest,
-    _StoredValue,
     _decode_node_manifest,
     _decode_port_manifest,
     _exact_reference,
@@ -187,8 +186,8 @@ class ResultStore:
         output_port: str,
         admitted: AdmittedPort,
     ) -> tuple[_NodeOutput, _PortValueManifest]:
-        values: list[_StoredValue] = []
-        for index, value in enumerate(admitted.values):
+        values: list[StoredObject] = []
+        for value in admitted.values:
             stored = self._store_bytes(
                 project_id,
                 value.canonical_bytes,
@@ -196,7 +195,7 @@ class ResultStore:
             )
             if stored.content_digest != value.content_digest:
                 raise ResultStoreWriteError("typed_value_object")
-            values.append(_StoredValue(index, stored))
+            values.append(stored)
         manifest = _PortValueManifest(
             port_type=_exact_reference(admitted.port_type),
             multiplicity=admitted.multiplicity,
@@ -212,7 +211,7 @@ class ResultStore:
             stage="manifest",
         )
         return (
-            _NodeOutput(output_port, manifest.port_type, manifest_object),
+            _NodeOutput(output_port, manifest_object),
             manifest,
         )
 
@@ -246,7 +245,7 @@ class ResultStore:
                 StoredOutput(
                     node_id=admitted_output.node_id,
                     output_port=output_port,
-                    port_type=node_output.port_type,
+                    port_type=port_manifest.port_type,
                     content_digest=descriptor.content_digest,
                     value_count=len(port_manifest.values),
                     value_manifest=node_output.value_manifest,
@@ -258,7 +257,7 @@ class ResultStore:
             )
         node_artifacts: list[_NodeArtifact] = []
         stored_artifacts: list[StoredArtifact] = []
-        for index, publication in enumerate(
+        for publication in (
             admitted_output.artifact_publication_plan.publications
         ):
             body = self._store_bytes(
@@ -267,7 +266,6 @@ class ResultStore:
                 stage="artifact_object",
             )
             node_artifact = _NodeArtifact(
-                index=index,
                 artifact_kind=publication.artifact_kind,
                 output_port=publication.output_port,
                 media_type=publication.media_type,
@@ -361,13 +359,12 @@ class ResultStore:
             ) from error
         expected_reference = _exact_reference(declaration.port_type.reference())
         if (
-            output.port_type != expected_reference
-            or manifest.port_type != expected_reference
+            manifest.port_type != expected_reference
             or manifest.multiplicity != declaration.multiplicity
         ):
             raise ResultIntegrityError(output.value_manifest.content_digest)
         canonical_values = tuple(
-            self._read_reference(project_id, value.object)
+            self._read_reference(project_id, value)
             for value in manifest.values
         )
         try:
@@ -435,7 +432,7 @@ class ResultStore:
                 StoredOutput(
                     node_id=node_plan.node_id,
                     output_port=output.output_port,
-                    port_type=output.port_type,
+                    port_type=port_manifest.port_type,
                     content_digest=port_manifest.content_digest,
                     value_count=len(port_manifest.values),
                     value_manifest=output.value_manifest,
@@ -546,7 +543,7 @@ class ResultStore:
             ):
                 raise ValueError("Published Port Value Manifest diverged")
             value = manifest.values[value_index]
-            payload = self._read_reference(project_id, value.object)
+            payload = self._read_reference(project_id, value)
         except (
             IndexError,
             ObjectIntegrityError,
@@ -558,8 +555,8 @@ class ResultStore:
             raise ResultIntegrityError(output.value_manifest_reference) from error
         return TypedValueRead(
             canonical_bytes=payload,
-            content_digest=value.object.content_digest,
-            size=value.object.size,
+            content_digest=value.content_digest,
+            size=value.size,
         )
 
     def read_artifact(
