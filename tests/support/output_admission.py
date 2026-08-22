@@ -8,7 +8,6 @@ from typing import Any
 from core.execution.output_admission.candidate_identity import (
     _candidate_values,
     _normalize_candidate_outputs,
-    _validate_input_candidate_identities,
 )
 from core.execution.output_admission.port_values import _admit_fresh_port
 from core.operation import AdmittedPort, PortMultiplicity
@@ -73,10 +72,3 @@ def normalize_fixture_outputs(
         observation_propagation=observation_propagation,
     )
     return normalized.values
-
-
-def assert_fixture_input_identity_closure(
-    inputs: Mapping[str, AdmittedPort],
-) -> None:
-    """Exercise the identity closure used by the complete admission seam."""
-    _validate_input_candidate_identities(inputs)

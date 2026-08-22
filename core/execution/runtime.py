@@ -43,9 +43,6 @@ from core.execution.ledger import (
     run_timestamp,
 )
 from core.execution.node_attempt import AttemptSpec, NodeAttemptFactory
-from core.execution.output_admission.candidate_identity import (
-    _validate_input_candidate_identities,
-)
 from core.execution.output_admission.port_values import combine_admitted_port
 from core.execution.results import ResultStore
 from core.operation import AdmittedPort
@@ -198,7 +195,6 @@ class V2RunService:
                 multiplicity=declaration.multiplicity,
                 values=tuple(admitted),
             )
-        _validate_input_candidate_identities(inputs)
         return MappingProxyType(inputs)
 
     def start(

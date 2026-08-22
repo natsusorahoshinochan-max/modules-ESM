@@ -11,7 +11,6 @@ from core.catalog.port_contract import (
     PortValueError,
     _candidate_data_reference_to_canonical,
     _residue_axis_reference_to_canonical,
-    canonical_json_bytes,
     canonical_sha256,
     observation_context_canonical,
 )
@@ -78,64 +77,6 @@ def _candidate_values(value: Any) -> tuple[Candidate, ...]:
             for candidate in _candidate_values(item)
         )
     return ()
-
-
-def _candidate_identity_facts(
-    candidate: Candidate,
-    candidate_data: CandidateDataReference,
-) -> bytes:
-    if candidate_data.candidate_id != candidate.candidate_id:
-        raise PortValueError(
-            "Candidate input identity evidence names a different Candidate"
-        )
-    return canonical_json_bytes(
-        {
-            "data_type_id": candidate_data.data_type_id,
-            "content_digest": candidate_data.content_digest,
-            "parent_ids": list(candidate.parent_ids),
-            "metadata": dict(candidate.metadata),
-        }
-    )
-
-
-def _validate_input_candidate_identities(
-    inputs: Mapping[str, AdmittedPort],
-) -> None:
-    """Require one exact admitted fact set for each input Candidate ID."""
-    references_by_candidate_id: dict[str, CandidateDataReference] = {}
-    facts_by_candidate_id: dict[str, bytes] = {}
-    for input_port in sorted(inputs):
-        admitted = inputs[input_port]
-        admitted_references: dict[str, CandidateDataReference] = {}
-        for reference in admitted.candidate_data:
-            current = admitted_references.get(reference.candidate_id)
-            if current is not None:
-                if current != reference:
-                    raise PortValueError(
-                        "Candidate identity resolves to conflicting canonical "
-                        "facts"
-                    )
-                continue
-            admitted_references[reference.candidate_id] = reference
-            previous = references_by_candidate_id.get(reference.candidate_id)
-            if previous is not None and previous != reference:
-                raise PortValueError(
-                    "Candidate identity resolves to conflicting canonical facts"
-                )
-            references_by_candidate_id[reference.candidate_id] = reference
-        for candidate in _candidate_values(admitted.value):
-            data = admitted_references.get(candidate.candidate_id)
-            if data is None:
-                raise PortValueError(
-                    "Candidate input identity evidence is incomplete"
-                )
-            facts = _candidate_identity_facts(candidate, data)
-            previous = facts_by_candidate_id.get(candidate.candidate_id)
-            if previous is not None and previous != facts:
-                raise PortValueError(
-                    "Candidate identity resolves to conflicting canonical facts"
-                )
-            facts_by_candidate_id[candidate.candidate_id] = facts
 
 
 @dataclass(frozen=True, slots=True)
