@@ -11,7 +11,7 @@ from fastapi.responses import Response
 
 from core.catalog.model import FrozenCatalog
 from core.project.manager import ProjectManager
-from core.run_execution_v2 import V2RunService
+from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
 from protein_workbench_public.http.catalog_routes import (
     register_catalog_routes,
@@ -61,7 +61,7 @@ def create_http_app(
     app.state.project_manager = projects
     app.state.frozen_catalog = catalog
     app.state.workflow_authoring = authoring
-    app.state.run_execution_v2 = runtime
+    app.state.run_runtime = runtime
 
     install_error_handlers(app)
     public_bundle = load_bundle()

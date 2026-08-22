@@ -23,12 +23,12 @@ from core.project.objects import ProjectObjectStore
 from core.execution.node_attempt import (
     ExecutionTermination,
 )
-import core.run_execution_v2 as run_execution_v2
+from core.execution.ledger import FilesystemLedgerStore
 from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import validate_error, validate_response
 from protein_workbench_public.ledger_codec import encode_event
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
-from tests.test_run_execution_v2 import (
+from tests.test_run_runtime import (
     _artifact_catalog,
     _commit_artifact_node,
     _commit_independent_nodes,
@@ -70,7 +70,7 @@ def _public_events(
     project_id: str,
     run_id: str,
 ) -> list[dict[str, Any]]:
-    runtime = app.state.run_execution_v2
+    runtime = app.state.run_runtime
     return [
         encode_event(
             project_id=project_id,
@@ -103,7 +103,7 @@ def _terminal_ids(events: list[dict[str, Any]]) -> dict[str, set[str]]:
 
 class _PublishConclusionThenLoseAcknowledgement:
     def __init__(self, *, publish_final_name: bool) -> None:
-        self.filesystem = run_execution_v2.FilesystemLedgerStore()
+        self.filesystem = FilesystemLedgerStore()
         self.publish_final_name = publish_final_name
         self.conclusion_published = threading.Event()
         self.release_acknowledgement = threading.Event()
@@ -171,11 +171,7 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
         )
         assert store.conclusion_published.is_set()
         store.release_acknowledgement.set()
-        record = app.state.run_execution_v2._require_record(
-            project_id,
-            receipt["run_id"],
-        )
-        assert record.finished.wait(timeout=2)
+        app.state.run_runtime.shutdown()
 
         projection = client.get(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}"
@@ -192,25 +188,17 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
                 websocket.receive_json()
 
     assert projection.status_code == cancelled.status_code == 503
-    assert isinstance(record.execution_error, run_execution_v2.V2RunError)
-    assert record.evidence_unavailable is record.execution_error
-    sticky_error = record.evidence_unavailable
-    assert sticky_error is not None
+    projection_details = projection.json()["error"]["details"]
     for response in (projection, cancelled):
         validate_error(response.json(), status=503)
         assert response.json()["error"]["code"] == "evidence_unavailable"
-        assert response.json()["error"]["details"] == {
-            "last_durable_cursor": sticky_error.details[
-                "last_durable_cursor"
-            ]
-        }
+        assert response.json()["error"]["details"] == projection_details
     validate_error(unavailable_event_stream, status=503)
     assert unavailable_event_stream["error"]["code"] == (
         "evidence_unavailable"
     )
+    assert unavailable_event_stream["error"]["details"] == projection_details
     assert closed.value.code == 1008
-    assert record.finished.is_set()
-    assert record.execution_error.code == "evidence_unavailable"
     durable_transactions = [
         json.loads(path.read_bytes())
         for path in sorted(

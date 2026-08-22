@@ -14,7 +14,7 @@ import pytest
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.run_execution_v2 import (
+from core.execution.runtime import (
     V2RunError,
 )
 

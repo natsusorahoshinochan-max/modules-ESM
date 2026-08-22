@@ -19,7 +19,7 @@ from core.execution.ledger import LedgerStore
 from core.execution.results import ProjectReplayIndex, ResultStore
 from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
-from core.run_execution_v2 import V2RunService
+from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
 from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS
 from modules.esm3.package import MODULE_PACKAGE as ESM3

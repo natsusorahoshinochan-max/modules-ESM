@@ -826,7 +826,7 @@ def test_fresh_canonical_3gb1_public_run() -> None:
             },
         )
         started.raise_for_status()
-        service = app.state.run_execution_v2
+        service = app.state.run_runtime
         wait_for_service_run_terminal_events(
             service,
             PROJECT_ID,

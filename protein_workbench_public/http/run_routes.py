@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 
 from core.execution.ledger import V2RunError
-from core.run_execution_v2 import V2RunService
+from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringError
 from protein_workbench_public.ledger_codec import (
     decode_run_cursor,

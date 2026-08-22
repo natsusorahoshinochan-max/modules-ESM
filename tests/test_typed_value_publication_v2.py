@@ -19,7 +19,7 @@ from tests.fixtures.public_v2 import (
     retrieve_service_typed_output_canonical_bytes,
     wait_for_testclient_run_terminal,
 )
-from tests.test_run_execution_v2 import _commit_pipeline, _pipeline_catalog
+from tests.test_run_runtime import _commit_pipeline, _pipeline_catalog
 
 
 def _start_pipeline(client: TestClient) -> tuple[str, str, dict[str, object]]:
@@ -110,7 +110,7 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
             assert response.headers["x-value-index"] == "0"
             assert response.headers["x-value-count"] == "1"
 
-        events = public_run_events(app.state.run_execution_v2, project_id, run_id)
+        events = public_run_events(app.state.run_runtime, project_id, run_id)
         assert "ready" not in json.dumps(events)
 
 
@@ -215,7 +215,7 @@ def test_object_write_failure_closes_node_without_public_output(
     app = create_application(frozen_catalog_override=_pipeline_catalog([]))
     with TestClient(app) as client:
         project_id, run_id, projection = _start_pipeline(client)
-        events = public_run_events(app.state.run_execution_v2, project_id, run_id)
+        events = public_run_events(app.state.run_runtime, project_id, run_id)
 
     assert projection["status"] == "failed"
     assert projection["outputs"] == []

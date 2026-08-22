@@ -17,7 +17,7 @@ from core.catalog.model import (
     FrozenCatalog,
 )
 from core.execution.environment import admit_environment_configuration
-from core.run_execution_v2 import (
+from core.execution.runtime import (
     V2RunService,
 )
 from tests.support.result_store import result_store

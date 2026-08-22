@@ -49,7 +49,8 @@ from core.project.manager import ProjectManager
 from core.parameters.contract import admit_declarations
 from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public.workflow_codec import encode_workflow_document
-import core.run_execution_v2 as run_execution_v2
+import core.execution.runtime as run_runtime
+from core.execution.ledger import FilesystemLedgerStore
 from core.workflow.compiler import WorkflowCompileError
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import CandidateDataReference
@@ -1340,7 +1341,7 @@ def _selection_public_scope(
 
 class _FailRunClosureStore:
     def __init__(self) -> None:
-        self.filesystem = run_execution_v2.FilesystemLedgerStore()
+        self.filesystem = FilesystemLedgerStore()
 
     def read_transactions(self, *, root, relative_parts):
         return self.filesystem.read_transactions(
@@ -1937,7 +1938,7 @@ def test_selection_conclusion_and_run_terminal_publish_as_one_closure(
             run_id,
         )
         events = public_run_events(
-            client.app.state.run_execution_v2,
+            client.app.state.run_runtime,
             project_id,
             run_id,
         )
@@ -1992,8 +1993,8 @@ def test_selection_derivation_failure_closes_selection_and_run_together(
         )
 
     monkeypatch.setattr(
-        run_execution_v2,
-        "_selection_consumer_result",
+        run_runtime,
+        "selection_consumer_result",
         fail_selection_derivation,
     )
 
@@ -2016,7 +2017,7 @@ def test_selection_derivation_failure_closes_selection_and_run_together(
             run_id,
         )
         events = public_run_events(
-            client.app.state.run_execution_v2,
+            client.app.state.run_runtime,
             project_id,
             run_id,
         )

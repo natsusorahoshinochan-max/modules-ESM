@@ -1126,7 +1126,7 @@ def test_fresh_source_bound_public_run(
             },
         )
         started.raise_for_status()
-        service = app.state.run_execution_v2
+        service = app.state.run_runtime
         wait_for_service_run_terminal_events(
             service,
             project_id,

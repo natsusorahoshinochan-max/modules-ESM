@@ -969,7 +969,7 @@ def _run_public_collection_workflow(
                 "replay_complete",
             }
         )
-    return app.state.run_execution_v2, catalog, first, second, replay_events
+    return app.state.run_runtime, catalog, first, second, replay_events
 
 
 def _decoded_outputs(
@@ -1304,7 +1304,7 @@ def _run_through_public_rest(
             "replay_complete",
         }
     )
-    return app.state.run_execution_v2, projection, events
+    return app.state.run_runtime, projection, events
 
 
 def _scorer(partition: str, binding: str) -> WorkflowNodeInstance:

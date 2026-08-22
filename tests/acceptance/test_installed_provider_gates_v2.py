@@ -166,7 +166,7 @@ def _run_rich_esm3_generation(
         build_frozen_catalog,
     )
     from core.execution.environment import admit_environment_configuration
-    from core.run_execution_v2 import V2RunService
+    from core.execution.runtime import V2RunService
     from core.workflow.authoring import WorkflowAuthoringService
     from core.workflow.document import (
         WorkflowDocument,
@@ -844,7 +844,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
         build_frozen_catalog,
     )
     from core.execution.environment import admit_environment_configuration
-    from core.run_execution_v2 import V2RunService
+    from core.execution.runtime import V2RunService
     from core.workflow.authoring import WorkflowAuthoringService
     from core.workflow.document import (
         WorkflowDocument,

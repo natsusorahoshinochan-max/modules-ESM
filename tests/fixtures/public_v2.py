@@ -156,7 +156,7 @@ def wait_for_testclient_run_terminal(
     timeout_seconds: float = TERMINAL_WAIT_SECONDS,
 ) -> dict[str, Any]:
     """Wait on the durable ledger, then read the public terminal projection."""
-    service = client.app.state.run_execution_v2
+    service = client.app.state.run_runtime
     wait_for_service_run_terminal_events(
         service,
         project_id,

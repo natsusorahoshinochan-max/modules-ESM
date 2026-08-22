@@ -19,10 +19,25 @@ from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
 from core.execution.resources import CancellationControl, RunResources
 import core.execution.node_attempt as node_attempt
+from core.execution._run_runtime_evidence import (
+    _exact_contract_reference,
+    _exact_reference_from_catalog,
+    _execution_plan_contract_roots,
+    _reachable_contract_evidence,
+    _run_catalog_digest,
+    plan_evidence,
+)
 from core.execution.ledger import (
+    AvailabilityBinding,
+    FilesystemLedgerStore,
+    Ledger,
     NodeAttemptTerminal,
     NodeDisposition,
     OperationAttemptTerminal,
+    RunAdmission,
+    RunScopeBinding,
+    RunStart,
+    V2RunError,
 )
 from core.catalog.builtins import (
     builtin_frozen_catalog,
@@ -54,11 +69,14 @@ from core.parameters.contract import admit_declarations
 from core.execution.node_attempt import ExecutionTermination
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from protein_workbench_public.bootstrap import create_application
-import core.run_execution_v2 as run_execution_v2
+import core.execution.runtime as run_runtime
 from core.execution.environment import admit_environment_configuration
 from tests.support.output_admission import admit_fixture_port
 from tests.support.result_store import result_store
-from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.authoring import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
+)
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
@@ -1474,7 +1492,7 @@ def test_started_engine_terminal_statuses_are_causally_closed(
             run_id=run_id,
         )
         events = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             run_id,
         )
@@ -1591,7 +1609,7 @@ def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
             run_id=started.json()["run_id"],
         )
         events = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             started.json()["run_id"],
         )
@@ -1651,7 +1669,7 @@ def test_direct_cache_miss_enters_its_operation_without_readiness(
             run_id=started.json()["run_id"],
         )
         events = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             started.json()["run_id"],
         )
@@ -1810,7 +1828,7 @@ def test_public_terminal_wait_helper_never_returns_a_running_projection(
     returned = threading.Event()
     projections: list[dict[str, Any]] = []
     monkeypatch.setattr(
-        run_execution_v2,
+        run_runtime,
         "FAST_RUN_COMPLETION_GRACE_SECONDS",
         0.0,
     )
@@ -1901,7 +1919,7 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
             started.json()["run_id"],
         )
         events = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             started.json()["run_id"],
         )
@@ -2041,6 +2059,12 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
+    catalog = _direct_catalog(calls)
+    environment_configuration = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
@@ -2054,18 +2078,14 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         str(tmp_path / "outputs"),
     )
     app = create_application(
-        frozen_catalog_override=_direct_catalog(calls),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
+        frozen_catalog_override=catalog,
+        v2_environment_configuration=environment_configuration,
     )
 
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
-        service = app.state.run_execution_v2
-        compiled = service._authoring.require_verified_commit(
+        projects = app.state.project_manager
+        compiled = app.state.workflow_authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
@@ -2073,23 +2093,23 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         node = plan.nodes[0]
         run_id = "run-attempt-interface"
         contract_roots = tuple(
-            run_execution_v2._execution_plan_contract_roots(plan)
+            _execution_plan_contract_roots(plan)
         )
         resolved_contracts = tuple(
-            run_execution_v2._exact_contract_reference(entry)
+            _exact_contract_reference(entry)
             for entry in plan.resolved_contracts
         )
-        ledger = run_execution_v2.Ledger(
-            service._projects,
+        ledger = Ledger(
+            projects,
             project_id,
             run_id,
-            service._plan_evidence(plan),
-            service._ledger_transaction_store,
+            plan_evidence(plan),
+            None,
             expected_resolved_contracts=resolved_contracts,
             expected_contract_roots=contract_roots,
         )
         ledger.record(
-            run_execution_v2.RunScopeBinding(
+            RunScopeBinding(
                 workflow_commit_id=committed["workflow_commit_id"],
                 workflow_commit_revision=plan.workflow_commit_revision,
                 workflow_digest=plan.workflow_digest,
@@ -2100,10 +2120,21 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
                 resolved_contract_roots=contract_roots,
             )
         )
-        availability = service._availability(node)
+        availability = next(
+            snapshot
+            for snapshot in catalog.availability
+            if (
+                snapshot["binding"]["contract_id"],
+                snapshot["binding"]["contract_version"],
+            )
+            == (
+                node.binding.contract_id,
+                node.binding.contract_version,
+            )
+        )
         ledger.record(
-            run_execution_v2.AvailabilityBinding(
-                binding=run_execution_v2._exact_contract_reference(
+            AvailabilityBinding(
+                binding=_exact_contract_reference(
                     node.binding
                 ),
                 catalog_observed_at=availability["observed_at"],
@@ -2111,20 +2142,23 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
             )
         )
         ledger.record(
-            run_execution_v2.RunAdmission(
+            RunAdmission(
                 workflow_commit_id=committed["workflow_commit_id"],
                 workflow_commit_revision=plan.workflow_commit_revision,
             )
         )
         ledger.record(
-            run_execution_v2.RunStart(
+            RunStart(
                 started_at="2026-08-21T00:00:00Z",
             )
         )
         attempts = node_attempt.NodeAttempt(
-            projects=service._projects,
-            environment=service._environment,
-            result_store=service._result_store,
+            projects=projects,
+            environment=admit_environment_configuration(
+                catalog,
+                environment_configuration,
+            ),
+            result_store=result_store(projects),
             ledger=ledger,
             availability_by_binding={
                 (
@@ -2254,7 +2288,7 @@ def test_run_rejects_output_method_not_owned_by_its_binding(
             run_id=run_id,
         )
         events = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             run_id,
         )
@@ -2347,12 +2381,12 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
                 forbid_execution_lookup,
             )
 
-        receipt = app.state.run_execution_v2.start(
+        receipt = app.state.run_runtime.start(
             project_id,
             workflow_commit_id=compiled["workflow_commit_id"],
             client_request_id="resolved-plan-only",
         )
-        projection = app.state.run_execution_v2.projection(
+        projection = app.state.run_runtime.projection(
             project_id,
             receipt["run_id"],
         )
@@ -2385,7 +2419,7 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
             [],
             node_title="Scientifically distinct active generation",
         )
-        service = run_execution_v2.V2RunService(
+        service = run_runtime.V2RunService(
             app.state.project_manager,
             active_catalog,
             app.state.workflow_authoring,
@@ -2393,7 +2427,7 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
             result_store(app.state.project_manager),
         )
         try:
-            with pytest.raises(run_execution_v2.V2RunError) as captured:
+            with pytest.raises(V2RunError) as captured:
                 service.start(
                     project_id,
                     workflow_commit_id=compiled["workflow_commit_id"],
@@ -2569,7 +2603,7 @@ def test_failed_readiness_closes_only_the_provider_bound_node(
             run_id=response.json()["run_id"],
         )
         events = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             response.json()["run_id"],
         )
@@ -2624,7 +2658,7 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
 ) -> None:
     class FailNodeConclusionTransaction:
         def __init__(self) -> None:
-            self.filesystem = run_execution_v2.FilesystemLedgerStore()
+            self.filesystem = FilesystemLedgerStore()
 
         def read_transactions(self, *, root, relative_parts):
             return self.filesystem.read_transactions(
@@ -2790,7 +2824,7 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
         run_id = response.json()["run_id"]
         projection = wait_for_testclient_run_terminal(client, project_id, run_id)
         events = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             run_id,
         )
@@ -2938,7 +2972,7 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
             }
         ),
     )
-    service = run_execution_v2.V2RunService(
+    service = run_runtime.V2RunService(
         projects,
         catalog,
         authoring,
@@ -3077,7 +3111,7 @@ def test_artifact_port_without_publication_intent_remains_an_ordinary_output(
             response.json()["run_id"],
         )
         events = _public_events(
-            client.app.state.run_execution_v2,
+            client.app.state.run_runtime,
             project_id,
             response.json()["run_id"],
         )
@@ -3139,7 +3173,7 @@ def test_artifact_object_write_failure_publishes_no_node_values(
             started.json()["run_id"],
         )
         events = _public_events(
-            client.app.state.run_execution_v2,
+            client.app.state.run_runtime,
             project_id,
             started.json()["run_id"],
         )
@@ -3529,7 +3563,7 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
         run_id = started.json()["run_id"]
         before = wait_for_testclient_run_terminal(client, project_id, run_id)
         before_events = _public_events(
-            client.app.state.run_execution_v2,
+            client.app.state.run_runtime,
             project_id,
             run_id,
         )
@@ -3615,14 +3649,14 @@ def test_restart_rebuilds_output_identity_source_contract_closure() -> None:
     )
     catalog = FrozenCatalog((source_port, identity_port))
     roots = (
-        run_execution_v2._exact_reference_from_catalog(
+        _exact_reference_from_catalog(
             identity_port.reference()
         ),
     )
     expected_contracts = tuple(
         sorted(
             (
-                run_execution_v2._exact_reference_from_catalog(
+                _exact_reference_from_catalog(
                     source_port.reference()
                 ),
                 roots[0],
@@ -3636,7 +3670,7 @@ def test_restart_rebuilds_output_identity_source_contract_closure() -> None:
     )
 
     class RestartLedger:
-        run_scope = run_execution_v2.RunScopeBinding(
+        run_scope = RunScopeBinding(
             workflow_commit_id="workflow-commit-1",
             workflow_commit_revision=1,
             workflow_digest="sha256:" + "1" * 64,
@@ -3647,11 +3681,11 @@ def test_restart_rebuilds_output_identity_source_contract_closure() -> None:
             resolved_contract_roots=roots,
         )
 
-    rebuilt = run_execution_v2._reachable_contract_evidence(catalog, roots)
+    rebuilt = _reachable_contract_evidence(catalog, roots)
 
     assert rebuilt == expected_contracts
     assert (
-        run_execution_v2._run_catalog_digest(RestartLedger(), catalog)
+        _run_catalog_digest(RestartLedger(), catalog)
         == catalog.contract_digest
     )
 
@@ -3825,7 +3859,7 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
             }
         ]
         projected = _public_events(
-            app.state.run_execution_v2,
+            app.state.run_runtime,
             project_id,
             run_id,
         )
@@ -3853,7 +3887,7 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
     release = threading.Event()
     shutdown_done = threading.Event()
     calls: list[str] = []
-    monkeypatch.setattr(run_execution_v2, "MAX_BACKGROUND_RUNS", 2)
+    monkeypatch.setattr(run_runtime, "MAX_BACKGROUND_RUNS", 2)
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
@@ -3912,7 +3946,7 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
         validate_error(at_capacity.json(), status=503)
 
         def shutdown() -> None:
-            app.state.run_execution_v2.shutdown()
+            app.state.run_runtime.shutdown()
             shutdown_done.set()
 
         shutdown_thread = threading.Thread(target=shutdown)
@@ -3938,6 +3972,169 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
         )
         assert after_shutdown.status_code == 503
         validate_error(after_shutdown.json(), status=503)
+
+
+def test_sync_start_shares_project_lease_and_releases_it_after_failure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_application(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_gate=(entered, release),
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        runtime = app.state.run_runtime
+        with pytest.raises(WorkflowAuthoringError) as missing:
+            runtime.start(
+                project_id,
+                workflow_commit_id="workflow-commit-missing",
+                client_request_id="sync-missing",
+            )
+        assert missing.value.code == "workflow_commit_not_found"
+
+        state: dict[str, object] = {}
+
+        def execute_sync() -> None:
+            try:
+                state["receipt"] = runtime.start(
+                    project_id,
+                    workflow_commit_id=compiled["workflow_commit_id"],
+                    client_request_id="sync-active",
+                )
+            except BaseException as error:
+                state["error"] = error
+
+        sync_worker = threading.Thread(target=execute_sync)
+        sync_worker.start()
+        assert entered.wait(timeout=1)
+
+        with pytest.raises(V2RunError) as sync_conflict:
+            runtime.start(
+                project_id,
+                workflow_commit_id=compiled["workflow_commit_id"],
+                client_request_id="sync-conflict",
+            )
+        assert sync_conflict.value.code == "evidence_unavailable"
+        background_conflict = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "background-conflict",
+            },
+        )
+        assert background_conflict.status_code == 503
+        validate_error(background_conflict.json(), status=503)
+
+        release.set()
+        sync_worker.join(timeout=2)
+        assert not sync_worker.is_alive()
+        assert "error" not in state
+        receipt = state["receipt"]
+        assert isinstance(receipt, dict)
+        assert runtime.projection(
+            project_id,
+            receipt["run_id"],
+        ).status == "succeeded"
+
+
+def test_background_thread_start_is_atomic_with_shutdown(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    start_entered = threading.Event()
+    allow_start = threading.Event()
+    shutdown_done = threading.Event()
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_application(
+        frozen_catalog_override=_direct_catalog([]),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        runtime = app.state.run_runtime
+        original_start = threading.Thread.start
+
+        def controlled_start(worker: threading.Thread) -> None:
+            if worker.name.startswith("v2-run-admission-"):
+                start_entered.set()
+                assert allow_start.wait(timeout=2)
+            original_start(worker)
+
+        monkeypatch.setattr(threading.Thread, "start", controlled_start)
+        state: dict[str, object] = {}
+
+        def start_background() -> None:
+            try:
+                state["receipt"] = runtime.start_background(
+                    project_id,
+                    workflow_commit_id=compiled["workflow_commit_id"],
+                    client_request_id="atomic-start",
+                )
+            except BaseException as error:
+                state["start_error"] = error
+
+        def shutdown() -> None:
+            try:
+                runtime.shutdown()
+            except BaseException as error:
+                state["shutdown_error"] = error
+            finally:
+                shutdown_done.set()
+
+        starter = threading.Thread(target=start_background)
+        starter.start()
+        assert start_entered.wait(timeout=1)
+        shutdown_worker = threading.Thread(target=shutdown)
+        shutdown_worker.start()
+        assert not shutdown_done.wait(timeout=0.05)
+
+        allow_start.set()
+        starter.join(timeout=2)
+        shutdown_worker.join(timeout=2)
+        assert not starter.is_alive()
+        assert not shutdown_worker.is_alive()
+        assert shutdown_done.is_set()
+        assert "start_error" not in state
+        assert "shutdown_error" not in state
+        receipt = state["receipt"]
+        assert isinstance(receipt, dict)
+        assert runtime.projection(
+            project_id,
+            receipt["run_id"],
+        ).status == "succeeded"
 
 
 def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
@@ -3982,7 +4179,7 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
             assert entered.wait(timeout=1)
             run_id = started.json()["run_id"]
             before_events = _public_events(
-                first.app.state.run_execution_v2,
+                first.app.state.run_runtime,
                 project_id,
                 run_id,
             )
@@ -3997,7 +4194,7 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
                 f"/api/v2/projects/{project_id}/runs/{run_id}"
             ).json()
             reconciled_events = _public_events(
-                restarted.app.state.run_execution_v2,
+                restarted.app.state.run_runtime,
                 project_id,
                 run_id,
             )
@@ -4012,7 +4209,7 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
                 f"/api/v2/projects/{project_id}/runs/{run_id}"
             ).json()
             repeated_events = _public_events(
-                restarted_again.app.state.run_execution_v2,
+                restarted_again.app.state.run_runtime,
                 project_id,
                 run_id,
             )
@@ -4071,7 +4268,7 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
                 "client_request_id": "cursor-b",
             },
         ).json()
-        cursor_a = app.state.run_execution_v2.ledger_cursor(
+        cursor_a = app.state.run_runtime.ledger_cursor(
             project_a,
             started_a["run_id"],
         ).value

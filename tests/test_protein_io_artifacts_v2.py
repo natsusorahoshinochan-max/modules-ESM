@@ -21,7 +21,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.execution.environment import admit_environment_configuration
-from core.run_execution_v2 import (
+from core.execution.runtime import (
     V2RunError,
     V2RunService,
 )
@@ -236,7 +236,7 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
         create_application(frozen_catalog_override=active_catalog)
     ) as client:
         with pytest.raises(V2RunError) as service_rejected:
-            client.app.state.run_execution_v2.artifact(
+            client.app.state.run_runtime.artifact(
                 project_id,
                 run_id,
                 artifact["artifact_reference"],
@@ -315,7 +315,7 @@ def test_artifact_route_returns_exact_utf8_filename_provenance(
             _install_canonical_seed=False,
         )
     ) as client:
-        service = client.app.state.run_execution_v2
+        service = client.app.state.run_runtime
         monkeypatch.setattr(
             service,
             "artifact",

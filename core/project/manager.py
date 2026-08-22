@@ -334,6 +334,21 @@ class ProjectManager:
         safe_run_id = validate_identifier(run_id, "run_id")
         return contained_path(self.run_storage_root(project_id), safe_run_id)
 
+    def stored_run_ids(self, project_id: str) -> tuple[str, ...]:
+        """List exact Run identities in the Project's Runtime scope."""
+        run_root = self.run_storage_root(project_id)
+        if not run_root.is_dir():
+            return ()
+        stored: list[str] = []
+        for path in sorted(run_root.iterdir()):
+            if not path.is_dir():
+                continue
+            try:
+                stored.append(validate_identifier(path.name, "run_id"))
+            except StoragePathError:
+                continue
+        return tuple(stored)
+
     def stored_project_ids(self) -> tuple[str, ...]:
         """List contained Project IDs that currently have local storage."""
         if not self._root_dir.is_dir():

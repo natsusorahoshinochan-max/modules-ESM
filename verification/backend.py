@@ -84,7 +84,7 @@ TIERS = {
             "test_readiness_rejects_before_fold_call"
         ),
         (
-            "tests/test_run_execution_v2.py::"
+            "tests/test_run_runtime.py::"
             "test_branch_failure_closes_every_disposition_and_unrelated_work_continues"
         ),
         (

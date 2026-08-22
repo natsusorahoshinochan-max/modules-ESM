@@ -48,7 +48,7 @@ from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,
 )
-from tests.test_run_execution_v2 import (
+from tests.test_run_runtime import (
     _artifact_catalog,
     _commit_artifact_node,
     _commit_one_node,
@@ -58,6 +58,7 @@ from tests.test_run_execution_v2 import (
     _direct_catalog,
     _pipeline_catalog,
 )
+from core.execution._run_runtime_evidence import plan_evidence
 
 
 def _start_run(
@@ -77,7 +78,7 @@ def _start_run(
     run_id = started.json()["run_id"]
     projection = wait_for_testclient_run_terminal(client, project_id, run_id)
     events = public_run_events(
-        client.app.state.run_execution_v2,
+        client.app.state.run_runtime,
         project_id,
         run_id,
     )
@@ -128,7 +129,7 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
             {},
         )
         cache_metadata = result_contract_metadata(node)
-        ledger_plan_facts = app.state.run_execution_v2._plan_evidence(plan)[0]
+        ledger_plan_facts = plan_evidence(plan)[0]
 
     assert descriptor["result_identity_plan_facts"] == expected_projection
     assert cache_metadata == {

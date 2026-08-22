@@ -754,7 +754,7 @@ def test_event_stream_maps_unexpected_failure_to_internal_error(
             raise RuntimeError("private replay failure detail")
 
         monkeypatch.setattr(
-            client.app.state.run_execution_v2,
+            client.app.state.run_runtime,
             "replay",
             fail_replay,
         )
