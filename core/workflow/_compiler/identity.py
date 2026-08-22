@@ -96,31 +96,6 @@ def _result_contracts_for_node(
             binding_contract.contract_id,
             binding_contract.contract_version,
         ),
-        (
-            binding_contract.descriptor["method"]["contract_kind"],
-            binding_contract.descriptor["method"]["contract_id"],
-            binding_contract.descriptor["method"]["contract_version"],
-        ),
-        *{
-            (
-                port["port_type"]["contract_kind"],
-                port["port_type"]["contract_id"],
-                port["port_type"]["contract_version"],
-            )
-            for direction in ("inputs", "outputs")
-            for port in node_contract.descriptor.get(direction, ())
-        },
-        *{
-            (
-                observation["metric"]["contract_kind"],
-                observation["metric"]["contract_id"],
-                observation["metric"]["contract_version"],
-            )
-            for observation in binding_contract.descriptor.get(
-                "produced_observations",
-                (),
-            )
-        },
     }
     for objective in selected_objectives:
         keys.update(
