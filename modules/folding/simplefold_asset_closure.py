@@ -4,21 +4,45 @@ from __future__ import annotations
 
 import hashlib
 import shutil
-import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from modules.provider_contract import (
-    SIMPLEFOLD_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_ARTIFACT_SHA256,
-    SIMPLEFOLD_ESM2_REVISION,
-    SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
-    SIMPLEFOLD_REVISION,
+from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
+    validate_provider_checkout,
 )
+
+
+SIMPLEFOLD_REVISION = "c7a5570a6be9f5c695126e27c804e77567209934"
+SIMPLEFOLD_ESM2_REVISION = "2b369911bb5b4b0dda914521b9475cad1656b2ac"
+SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256 = (
+    "0bdb3dcb95c534b967d84bcca090146bd6528328ab8e010b412da9a3e702ac83"
+)
+SIMPLEFOLD_ESM2_ARTIFACT_SHA256 = {
+    "esm2_t36_3B_UR50D.pt": (
+        "7de8b4082ba15891959ab368b77ce3886697af1efb16d3c9e9e7b0c5d3f07500"
+    ),
+    "esm2_t36_3B_UR50D-contact-regression.pt": (
+        "4da500eab246481dc9c8c95bc7b1d02f2803d761c380b0e95186d4a07d0fc84e"
+    ),
+}
+SIMPLEFOLD_ARTIFACT_SHA256 = {
+    "simplefold_100M.ckpt": (
+        "4cd0b8a0b317a6ab8634444fffd78ce84cfd49c20fe927b83c76c36fda5f54bd"
+    ),
+    "simplefold_1.6B.ckpt": (
+        "aaac2d73dcc59c61153c58a1d56e74a8ada9d6057d67000f7836f3c87325312b"
+    ),
+    "plddt.ckpt": (
+        "cb32fa9cdc9e80406b793a8c09a929077534d9991a1d08f4c159d2e4ed81315f"
+    ),
+    "ccd.pkl": (
+        "2d3b2f03a3c5665944adba51e33263511e51b21c9cd05d902f9c4b7c1e58d2f4"
+    ),
+}
 
 
 class SimpleFoldAssetClosureAdmissionError(RuntimeError):
@@ -158,26 +182,6 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _git(root: Path, *args: str) -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(root), *args],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (
-        OSError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-    ) as exc:
-        raise SimpleFoldAssetClosureAdmissionError(
-            "SimpleFold source is not a usable locked Git checkout"
-        ) from exc
-    return completed.stdout.strip()
-
-
 def _configured_root(environment: Mapping[str, Any], key: str) -> Path:
     root = environment.get(key)
     if not isinstance(root, Path) or not root.is_dir():
@@ -219,17 +223,12 @@ def admit_simplefold_provider_asset_closure(
             environment,
             cast(str, source.environment_key),
         )
-        checkout_root = Path(
-            _git(source_root, "rev-parse", "--show-toplevel")
-        ).resolve()
-        if checkout_root != source_root.resolve():
+        try:
+            validate_provider_checkout(source_root, source.revision)
+        except ProviderInstallationUnavailable as error:
             raise SimpleFoldAssetClosureAdmissionError(
-                "SimpleFold source root must be the Git checkout root"
-            )
-        if _git(source_root, "rev-parse", "HEAD") != source.revision:
-            raise SimpleFoldAssetClosureAdmissionError(
-                "SimpleFold source revision changed"
-            )
+                "SimpleFold source is not the locked Git checkout"
+            ) from error
         try:
             source_tree_sha256 = _source_tree_sha256(
                 source_root,

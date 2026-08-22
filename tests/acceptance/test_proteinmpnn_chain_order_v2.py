@@ -11,20 +11,18 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from core import EngineInvocationProvenance
-from datatypes import (
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueLayout,
+from core.operation import (
+    EngineInvocationProvenance,
 )
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 from modules.proteinmpnn.adapter import (
     LocalProteinMPNNAdapter,
 )
-from modules.structure_transform.implementation import (
-    normalize_csh_parent_span,
-    resolve_residue_axis,
-)
+from modules.structure_transform.csh_normalization import normalize_csh_parent_span
+from modules.structure_transform.residue_axis import resolve_residue_axis
 
 pytestmark = [
     pytest.mark.acceptance,

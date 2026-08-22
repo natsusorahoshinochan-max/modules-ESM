@@ -8,17 +8,19 @@ from pathlib import Path
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ScoreCollection
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.observation import ScoreCollection
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -120,7 +122,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         project.id,
         workflow=workflow,
     )
-    environment = EnvironmentConfiguration({
+    environment = admit_environment_configuration(catalog, {
         ("folding.fold.simplefold_local", "10.0.0"): {
             "values": {
                 "model_root": Path(

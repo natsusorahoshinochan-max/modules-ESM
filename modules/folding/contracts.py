@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from core import MethodDefinition
+from core.catalog.declarations import (
+    MethodDefinition,
+)
 
 from .esmfold2_contract import (
     ESM_SDK_REVISION,

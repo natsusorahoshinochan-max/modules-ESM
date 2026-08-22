@@ -11,11 +11,9 @@ import numpy as np
 import pytest
 import torch
 
-from modules.provider_contract import (
-    ESM_SDK_REVISION,
-    read_biohub_token,
-    validate_installed_provider_checkout,
-)
+from core.provider_support import validate_installed_provider_checkout
+from modules.esm3.credentials import read_biohub_token
+from modules.folding.esmfold2_contract import ESM_SDK_REVISION
 from tests.acceptance.conftest import (
     PROJECT_ROOT,
     SEQUENCE_3GB1_SHA256,
@@ -284,7 +282,6 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
 
     client = LocalBoundary()
     environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
-    environment["provider_client"] = client
     service, catalog, projection, events = _run_fold(
         tmp_path,
         route="local",

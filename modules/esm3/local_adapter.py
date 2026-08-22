@@ -14,10 +14,11 @@ from types import FunctionType
 from typing import Any, cast
 import weakref
 
-from core import ReadinessResult, RunResources
-from modules.provider_contract import (
-    LOCAL_ESM3_SNAPSHOT_REVISION,
-    LOCAL_ESM3_WEIGHT_SHA256,
+from core.operation import (
+    OperationResources,
+    ReadinessResult,
+)
+from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
 )
@@ -32,6 +33,21 @@ from .adapter import (
 
 LOCAL_ESM3_MODEL = "esm3_sm_open_v1"
 LOCAL_ESM3_SNAPSHOT_SOURCE = "biohub/esm3-sm-open-v1"
+LOCAL_ESM3_SNAPSHOT_REVISION = "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
+LOCAL_ESM3_WEIGHT_SHA256 = {
+    "data/weights/esm3_sm_open_v1.pth": (
+        "5ead5a135c658068db6a4f1b933e72d6110992c4668822e1c0e2dcc53e38acd9"
+    ),
+    "data/weights/esm3_structure_encoder_v0.pth": (
+        "467acbaee703ba3ccde6e75241a912a316952e5ff071355f85c1d33c68704f40"
+    ),
+    "data/weights/esm3_structure_decoder_v0.pth": (
+        "3b726258a44274792b40ce7ea307e10c5da09936368a4ffa2970264d909da65b"
+    ),
+    "data/weights/esm3_function_decoder_v0.pth": (
+        "f76d074efcaccfe21365a4fa96f212dadd66798e1e49d809ab7ffbe025d227c9"
+    ),
+}
 LOCAL_ESM3_DEVICE = "cpu"
 LOCAL_ESM3_TORCH_VERSION = "2.13.0"
 LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
@@ -39,6 +55,27 @@ LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
 
 class LocalESM3RuntimeUnavailable(RuntimeError):
     """The exact local ESM-3 runtime cannot be admitted."""
+
+
+def local_esm3_snapshot_root() -> Path:
+    """Return the configured path for the exact local ESM-3 snapshot."""
+    configured_cache = os.environ.get("HF_HUB_CACHE")
+    if configured_cache:
+        hub_cache = Path(configured_cache).expanduser()
+    else:
+        hf_home = Path(
+            os.environ.get(
+                "HF_HOME",
+                str(Path.home() / ".cache" / "huggingface"),
+            )
+        ).expanduser()
+        hub_cache = hf_home / "hub"
+    return (
+        hub_cache
+        / "models--biohub--esm3-sm-open-v1"
+        / "snapshots"
+        / LOCAL_ESM3_SNAPSHOT_REVISION
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,7 +368,7 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
         model_name: str,
     ) -> None:
         super().__init__(
@@ -347,21 +384,6 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         if self._resolved_client is not None:
             return self._resolved_client
         runtime = _trusted_local_runtime(self._environment)
-        client = self._environment.get("provider_client")
-        if client is not None:
-            self._resolved_client = client
-            return client
-        client_factory = self._environment.get("client_factory")
-        if client_factory is not None:
-            client = client_factory(
-                model_name=self._model_name,
-                model_snapshot_path=runtime.snapshot_path,
-                device=runtime.device,
-                runtime_directory=runtime.runtime_directory,
-                performance_settings=dict(runtime.performance_settings),
-            )
-            self._resolved_client = client
-            return client
         client = load_local_esm3_client(
             self._environment,
             model_name=self._model_name,

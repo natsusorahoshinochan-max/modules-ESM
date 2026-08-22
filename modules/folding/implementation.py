@@ -7,19 +7,19 @@ import hashlib
 import math
 from typing import Any
 
-from core.operation import (
-    OperationCall,
-    ResolvedProducedObservation,
-)
-from datatypes import (
-    CandidateDataReference,
+from core.operation import OperationCall
+from core.scoring.observation_plan import ResolvedProducedObservation
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
     ResidueAxisReference,
-    ResolvedStructureResidueAxis,
+)
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.structure import ResolvedStructureResidueAxis
 from ._output_construction import (
     CompletedFoldingSample,
     CompletedFoldingSampleBatch,

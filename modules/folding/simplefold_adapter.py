@@ -8,13 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict, TypeAlias
 
-from core import (
+from core.operation import (
+    OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
     ReadinessResult,
-    RunResources,
 )
-from datatypes import ProteinSequence, ProteinStructure
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 
 from . import simplefold_contract
 from .simplefold_asset_closure import (
@@ -160,7 +161,7 @@ class LocalSimpleFoldAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources
@@ -175,21 +176,6 @@ class LocalSimpleFoldAdapter:
         staging_directory: Path,
         staged_closure: StagedSimpleFoldProviderAssetClosure,
     ) -> Callable[[], _SimpleFoldNativeResult]:
-        client = self._environment.get("provider_client")
-        if client is not None:
-            def invoke_client() -> _SimpleFoldNativeResult:
-                return cast(
-                    _SimpleFoldNativeResult,
-                    client.fold(
-                        sequence=sequence,
-                        num_steps=num_steps,
-                        num_samples=num_samples,
-                        effective_seed=effective_seed,
-                        staging_directory=staged_closure.root,
-                    ),
-                )
-
-            return invoke_client
         configured = {
             "model_root": staged_closure.group_root("simplefold_models"),
             "esm2_source_root": staged_closure.group_root("esm2_source"),

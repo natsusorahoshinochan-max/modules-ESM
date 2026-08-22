@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
-import subprocess
 import tempfile
 from dataclasses import dataclass
 from functools import lru_cache
@@ -12,15 +11,17 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol
 
-from modules.provider_contract import (
+from core.provider_support import (
+    ProviderInstallationUnavailable,
+    validate_provider_checkout,
+)
+from modules.proteinmpnn.assets import (
     PROTEINMPNN_REVISION,
     PROTEINMPNN_V_48_020_SHA256,
 )
-from datatypes import (
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ResidueLayout,
-)
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
 _ALPHABET_DICT = dict(zip(_ALPHABET, range(21)))
@@ -32,22 +33,6 @@ class ProteinMPNNReadinessUnavailable(RuntimeError):
     """The exact ProteinMPNN source or checkpoint cannot be admitted."""
 
 
-def _run_provider_git(root: Path, *args: str) -> str:
-    try:
-        completed = subprocess.run(
-            ["git", "-C", str(root), *args],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        raise ProteinMPNNReadinessUnavailable(
-            f"ProteinMPNN provider root is not a usable locked Git checkout: {root}"
-        ) from exc
-    return completed.stdout.strip()
-
-
 def _verify_provider_checkout(root: Path) -> None:
     provider_file = root / "protein_mpnn_utils.py"
     if not provider_file.is_file():
@@ -55,19 +40,12 @@ def _verify_provider_checkout(root: Path) -> None:
             "Configured ProteinMPNN provider root must contain "
             "protein_mpnn_utils.py"
         )
-    repository_root = Path(
-        _run_provider_git(root, "rev-parse", "--show-toplevel")
-    ).resolve()
-    if repository_root != root:
+    try:
+        validate_provider_checkout(root, PROTEINMPNN_REVISION)
+    except ProviderInstallationUnavailable as error:
         raise ProteinMPNNReadinessUnavailable(
-            "ProteinMPNN provider root must be the Git checkout root"
-        )
-    commit = _run_provider_git(root, "rev-parse", "HEAD")
-    if commit != PROTEINMPNN_REVISION:
-        raise ProteinMPNNReadinessUnavailable(
-            f"ProteinMPNN checkout commit {commit} does not match "
-            f"locked commit {PROTEINMPNN_REVISION}"
-        )
+            "ProteinMPNN provider root is not the locked Git checkout"
+        ) from error
 
 
 @lru_cache(maxsize=None)

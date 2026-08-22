@@ -6,16 +6,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from core import (
+from core.operation import (
+    OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
-    RunResources,
 )
-from datatypes import (
-    ProteinPrompt,
-    ProteinSequence,
-    ProteinStructure,
-)
+from datatypes.prompt import ProteinPrompt
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 
 
 ESM_SDK_REVISION = "917af90b624535eed1e072d343c717e3ec11fef4"
@@ -66,6 +64,22 @@ _ATOM37_INDEX = {
     )
 }
 _PROVIDER_SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYXBZUO")
+
+
+def build_biohub_esm3_client(
+    *,
+    model_name: str,
+    endpoint_id: str,
+    credential_handle: object,
+) -> Any:
+    """Construct the exact locked SDK client from trusted deployment values."""
+    from esm.sdk import client
+
+    return client(
+        model=model_name,
+        url={"biohub": "https://biohub.ai"}[endpoint_id],
+        token=credential_handle,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,7 +402,7 @@ class _BaseESM3Adapter:
     def __init__(
         self,
         *,
-        resources: RunResources,
+        resources: OperationResources,
         model_name: str,
         exact_seed_control: bool,
     ) -> None:
@@ -613,7 +627,7 @@ class BiohubESM3Adapter(_BaseESM3Adapter):
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
         model_name: str,
     ) -> None:
         super().__init__(
@@ -627,11 +641,7 @@ class BiohubESM3Adapter(_BaseESM3Adapter):
     def _client(self) -> Any:
         if self._resolved_client is not None:
             return self._resolved_client
-        client = self._environment.get("provider_client")
-        if client is not None:
-            self._resolved_client = client
-            return client
-        client = self._environment["client_factory"](
+        client = build_biohub_esm3_client(
             model_name=self._model_name,
             endpoint_id=self._environment["endpoint_id"],
             credential_handle=self._environment["credential_handle"],

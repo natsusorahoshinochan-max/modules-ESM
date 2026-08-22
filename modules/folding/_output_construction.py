@@ -5,19 +5,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import cast
 
-from core import AdmittedPort
-from core.port_types import builtin_frozen_catalog
-from datatypes import (
+from core.operation import (
+    AdmittedPort,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueLayout,
 )
-from datatypes.protein import residue_identity_chain, validate_residue_layout
-from modules.structure_prediction.domain import (
+from datatypes.exact_reference import ExactContractReference
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+from datatypes.residue import (
+    residue_identity_chain,
+    validate_residue_layout,
+)
+from datatypes.prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
     PredictionResidueAxis,

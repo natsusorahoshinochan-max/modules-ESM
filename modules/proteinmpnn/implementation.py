@@ -5,20 +5,27 @@ from __future__ import annotations
 import hashlib
 from typing import Any, cast
 
-from core import OperationCall, RunResources
-from datatypes import (
+from core.operation import (
+    OperationResources,
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
-    ProteinMPNNConstraints,
-    ProteinSequence,
     ResidueAxisReference,
-    ResolvedStructureResidueAxis,
+)
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ResolvedStructureResidueAxis
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
@@ -101,7 +108,7 @@ def _structure_candidates_with_axes(
 class ProteinMPNNConstraintsImplementation:
     """Author one complete identity-addressed constraint value."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -116,7 +123,7 @@ class ProteinMPNNConstraintsImplementation:
 class ProteinMPNNRandomFixedPositionsImplementation:
     """Choose a stable identity-addressed fixed-residue subset."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -352,6 +359,7 @@ class ProteinMPNNScoreImplementation:
             metric=self._metric,
             method=self._method,
             context=IntrinsicObservationContext(),
+            source_partition="default",
             value=score,
             residue_axis=axis_reference,
         )

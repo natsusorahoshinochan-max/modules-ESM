@@ -5,23 +5,30 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core import (
-    AdmittedPort,
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     EffectiveRandomnessResolver,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    OperationContext,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
+    ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    AdmittedPort,
+    OperationContext,
+    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
-    ScientificOperationFactory,
 )
 
 from . import simplefold_contract
@@ -72,6 +79,32 @@ from .simplefold_contract import (
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
     SIMPLEFOLD_DEVICE,
     SIMPLEFOLD_MODEL,
+)
+
+
+_BIOHUB_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("endpoint_id", "json_value"),
+    EnvironmentFieldDeclaration("credential_handle", "credential_handle"),
+)
+_LOCAL_ESMFOLD2_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("model_snapshot_revision", "json_value"),
+    EnvironmentFieldDeclaration(
+        "language_model_snapshot_revision",
+        "json_value",
+    ),
+    EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),
+    EnvironmentFieldDeclaration(
+        "language_model_snapshot_path",
+        "filesystem_path",
+    ),
+    EnvironmentFieldDeclaration("runtime_directory", "filesystem_path"),
+    EnvironmentFieldDeclaration("device", "json_value"),
+)
+_SIMPLEFOLD_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("model_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("esm2_source_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("esm2_model_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("device", "json_value"),
 )
 
 
@@ -403,6 +436,11 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             ),
         ),
         binding_parameters={},
+        environment_fields=(
+            _BIOHUB_ENVIRONMENT_FIELDS
+            if route == "remote"
+            else _LOCAL_ESMFOLD2_ENVIRONMENT_FIELDS
+        ),
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -476,6 +514,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "default": 50,
             },
         },
+        environment_fields=_SIMPLEFOLD_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -597,6 +636,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
             CONFIDENCE_METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=_SIMPLEFOLD_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(

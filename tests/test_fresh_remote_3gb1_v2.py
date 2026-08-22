@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from collections import Counter
 from importlib.resources import files
 import json
@@ -12,8 +16,9 @@ from typing import Any
 
 import pytest
 
-from core import build_discovered_frozen_catalog, parse_workflow_document
-from datatypes import CandidateCollection, PairwiseCandidateMapping
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from datatypes.candidate import CandidateCollection
+from datatypes.observation import PairwiseCandidateMapping
 from protein_workbench_public import validate_event
 from tests.acceptance.retained_evidence import (
     require_retained_evidence,
@@ -283,7 +288,7 @@ def _assert_provider_invocations(
 
 def _provider_invocation_contract_fixture(
 ) -> tuple[Any, dict[str, Any], dict[str, Any], tuple[dict[str, Any], ...]]:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     workflow_nodes: list[dict[str, Any]] = []
     dispositions: list[dict[str, Any]] = []
     event_payloads: list[dict[str, Any]] = []
@@ -790,7 +795,7 @@ def _assert_science(
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 def test_fresh_canonical_3gb1_public_run() -> None:
-    from core.server import create_app
+    from protein_workbench_public.bootstrap import create_application
     from fastapi.testclient import TestClient
 
     workflow = json.loads(
@@ -798,8 +803,8 @@ def test_fresh_canonical_3gb1_public_run() -> None:
             "v2", "canonical-3gb1.workflow.json"
         ).read_text(encoding="utf-8")
     )
-    catalog = build_discovered_frozen_catalog()
-    app = create_app(v2_environment_configuration=_environment())
+    catalog = build_frozen_catalog(module_registrations())
+    app = create_application(v2_environment_configuration=_environment())
     with TestClient(app) as client:
         active_commit = client.get(
             f"/api/v2/projects/{PROJECT_ID}/workflow/active-commit"
@@ -808,7 +813,7 @@ def test_fresh_canonical_3gb1_public_run() -> None:
         commit = active_commit.json()
         assert commit["accepted"] is True
         assert commit["catalog_contract_digest"] == catalog.contract_digest
-        assert commit["workflow_digest"] == parse_workflow_document(
+        assert commit["workflow_digest"] == decode_workflow_document(
             workflow
         ).digest
         started = client.post(

@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
-from core import (
-    EnvironmentConfiguration,
-    FrozenCatalog,
-    ProjectManager,
-    ResultReplaySource,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import (
+    ResultReplaySource,
+    V2RunService,
+)
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
 from tests.fixtures.public_v2 import decode_service_typed_output_value
 
 
@@ -52,6 +60,19 @@ class ProviderClient:
     def generate(self, protein: Any, config: Any) -> ProviderResponse:
         self.calls.append((protein, config))
         return next(self._responses)
+
+
+@contextmanager
+def _installed_test_client(binding_route: str, client: Any | None):
+    with ExitStack() as stack:
+        if client is not None:
+            target = (
+                "modules.esm3.local_adapter.load_local_esm3_client"
+                if binding_route == "local_open"
+                else "modules.esm3.adapter.build_biohub_esm3_client"
+            )
+            stack.enter_context(patch(target, return_value=client))
+        yield
 
 
 def generation_catalog(*, include_protein_io: bool) -> FrozenCatalog:
@@ -297,15 +318,17 @@ def run_generation(
         project.id,
         workflow=workflow,
     )
-    environment_values = {
-        "endpoint_id": "biohub",
-        "credential_handle": object(),
-        "provider_client": client,
-        "private_token": "secret-must-never-publish",
-        "runtime_path": "/private/esm3-runtime",
-    }
+    environment_values = (
+        {}
+        if binding_route == "local_open"
+        else {
+            "endpoint_id": "biohub",
+            "credential_handle": "secret-must-never-publish",
+        }
+    )
     environment_values.update(environment_overrides or {})
-    environment = EnvironmentConfiguration(
+    environment = admit_environment_configuration(
+        catalog,
         {
             (f"esm3.{operation}.{binding_route}", "8.0.0"): {
                 "values": environment_values,
@@ -319,17 +342,18 @@ def run_generation(
         environment,
         result_replay_source,
     )
-    try:
-        receipt = service.start_background(
-            project.id,
-            workflow_commit_id=committed.workflow_commit_id,
-            client_request_id=f"esm3-{operation}",
-        )
-        service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
-    finally:
-        service.shutdown()
+    with _installed_test_client(binding_route, client):
+        try:
+            receipt = service.start_background(
+                project.id,
+                workflow_commit_id=committed.workflow_commit_id,
+                client_request_id=f"esm3-{operation}",
+            )
+            service.shutdown()
+            projection = service.projection(project.id, receipt["run_id"])
+            events = service.public_events(project.id, receipt["run_id"])
+        finally:
+            service.shutdown()
     return service, catalog, projection, events
 
 
@@ -449,27 +473,28 @@ def run_generation_from_prompt_fixture(
         project.id,
         workflow=workflow,
     )
-    environment = EnvironmentConfiguration(
+    environment = admit_environment_configuration(
+        catalog,
         {
             (f"esm3.{operation}.{binding_route}", "8.0.0"): {
                 "values": {
                     "endpoint_id": "biohub",
-                    "credential_handle": object(),
-                    "provider_client": client,
+                    "credential_handle": "fixture-secret-must-not-publish",
                 },
             }
         }
     )
     service = V2RunService(projects, catalog, authoring, environment)
-    try:
-        receipt = service.start_background(
-            project.id,
-            workflow_commit_id=committed.workflow_commit_id,
-            client_request_id=f"esm3-{operation}-{mode}",
-        )
-        service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
-    finally:
-        service.shutdown()
+    with _installed_test_client(binding_route, client):
+        try:
+            receipt = service.start_background(
+                project.id,
+                workflow_commit_id=committed.workflow_commit_id,
+                client_request_id=f"esm3-{operation}-{mode}",
+            )
+            service.shutdown()
+            projection = service.projection(project.id, receipt["run_id"])
+            events = service.public_events(project.id, receipt["run_id"])
+        finally:
+            service.shutdown()
     return service, catalog, projection, events

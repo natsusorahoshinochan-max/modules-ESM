@@ -6,29 +6,37 @@ from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any, cast
 
-from core import (
-    AdmittedPort,
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     EffectiveRandomnessResolver,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    PortTypeDefinition,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
 )
-from datatypes import ProteinMPNNConstraints
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.operation import (
+    AdmittedPort,
+    OperationContext,
+    ReadinessCheckInput,
+    ReadinessResult,
+    ScientificOperation,
+)
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 from datatypes.i_json import thaw_i_json
-from modules.provider_contract import (
+from datatypes.residue import ResidueLayout
+from modules.proteinmpnn.assets import (
     PROTEINMPNN_REVISION,
     PROTEINMPNN_V_48_020_SHA256,
 )
@@ -149,7 +157,6 @@ def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
         or set(raw_layout) != {"chain_id", "length", "residue_ids"}
     ):
         raise ValueError("ProteinMPNN constraint layout is malformed")
-    from datatypes import ResidueLayout
 
     layout = ResidueLayout(
         chain_id=raw_layout["chain_id"],
@@ -467,6 +474,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         (
             ProducedObservationDefinition(
                 output_port="scores",
+                output_partition="default",
                 metric=ContractIdentity(
                     "metric",
                     "proteinmpnn.native_sequence_nll",
@@ -499,6 +507,14 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             _METHOD_VERSIONS[operation],
         ),
         binding_parameters={},
+        environment_fields=(
+            (
+                EnvironmentFieldDeclaration("provider_root", "filesystem_path"),
+                EnvironmentFieldDeclaration("device", "json_value"),
+            )
+            if is_model
+            else ()
+        ),
         execution_route="adapter" if is_model else "direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(

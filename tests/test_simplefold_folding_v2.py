@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 import threading
@@ -12,33 +14,40 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.operation import (
     ReadinessResult,
+)
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import (
     ResultReplayHit,
     ResultReplaySource,
     V2RunService,
-    WorkflowAuthoringService,
+)
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
-    ProteinSequence,
-    ProteinStructure,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
-from tests.fixtures.simplefold import build_fixture_simplefold_closure
+from tests.fixtures.simplefold import (
+    build_fixture_simplefold_closure,
+    install_fixture_source_staging_group,
+)
 
 
 _SIMPLEFOLD_BINDING_VERSION = "10.0.0"
@@ -138,7 +147,7 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["folding"]
     assert {
@@ -148,7 +157,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         "definitions/simplefold_confidence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     simplefold = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
@@ -351,8 +360,26 @@ def _simplefold_environment(
     monkeypatch: pytest.MonkeyPatch,
     client: Any,
 ) -> dict[str, Any]:
+    import modules.folding.simplefold_adapter as adapter
     import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    def fixture_fold_sequence(**kwargs: Any) -> Any:
+        return client.fold(
+            sequence=kwargs["sequence"],
+            num_steps=kwargs["num_steps"],
+            num_samples=kwargs["num_samples"],
+            effective_seed=kwargs["effective_seed"],
+            staging_directory=Path(kwargs["project_dir"]),
+        )
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "fold_sequence",
+        fixture_fold_sequence,
+    )
+    install_fixture_source_staging_group(monkeypatch, adapter)
 
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -396,8 +423,6 @@ def _simplefold_environment(
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
         "device": contract.SIMPLEFOLD_DEVICE,
-        "provider_client": client,
-        "private_token": "must-never-publish",
     }
 
 
@@ -504,14 +529,17 @@ def _run_simplefold(
             monkeypatch,
             client,
         )
-    environment = EnvironmentConfiguration({
-        (
-            "folding.fold.simplefold_local",
-            _SIMPLEFOLD_BINDING_VERSION,
-        ): {
-            "values": environment_values,
-        }
-    })
+    environment = admit_environment_configuration(
+        catalog,
+        {
+            (
+                "folding.fold.simplefold_local",
+                _SIMPLEFOLD_BINDING_VERSION,
+            ): {
+                "values": environment_values,
+            }
+        },
+    )
     service = V2RunService(
         projects,
         catalog,
@@ -950,7 +978,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
-    from modules.structure_prediction.domain import ConfidenceFactCollection
+    from datatypes.prediction import ConfidenceFactCollection
 
     class Adapter:
         def __init__(self) -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from contextlib import contextmanager
 from pathlib import Path
 import hashlib
@@ -9,12 +11,12 @@ from typing import Any
 
 import pytest
 
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.run_execution_v2 import (
     ResultReplaySource,
     V2RunError,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
 )
 
 
@@ -26,7 +28,13 @@ def _plain_invocations(
         item = dict(invocation)
         provenance = item.get("invocation_provenance")
         if provenance is not None:
-            item["invocation_provenance"] = provenance.to_public()  # type: ignore[union-attr]
+            randomness = provenance.effective_randomness  # type: ignore[union-attr]
+            public_randomness = {"control": randomness.control}
+            if randomness.effective_seed is not None:
+                public_randomness["effective_seed"] = randomness.effective_seed
+            item["invocation_provenance"] = {
+                "effective_randomness": public_randomness,
+            }
         plain.append(item)
     return plain
 
@@ -35,7 +43,9 @@ def _patch_local_runtime(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     *,
-    accepted_generation: str = "fixture-a",
+    accepted_revision: str = (
+        "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
+    ),
 ) -> None:
     import modules.esm3.local_adapter as local_adapter
     import modules.esm3.package as package
@@ -46,7 +56,7 @@ def _patch_local_runtime(
     snapshot_path.mkdir(exist_ok=True)
 
     def resolve(environment: Any) -> local_adapter.LocalESM3Runtime:
-        if environment.get("artifact_generation") != accepted_generation:
+        if environment.get("model_snapshot_revision") != accepted_revision:
             raise local_adapter.LocalESM3RuntimeUnavailable(
                 "fixture model identity changed"
             )
@@ -74,15 +84,13 @@ def _local_environment(tmp_path: Path) -> dict[str, Any]:
         "device": "cpu",
         "runtime_directory": tmp_path / "local-runtime",
         "performance_settings": {},
-        "artifact_generation": "fixture-a",
-        "private_model_token": "local-secret-must-not-publish",
     }
 
 
 def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["esm3"]
     assert {
@@ -94,7 +102,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         "definitions/represent_sequence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     for operation in (
         "generate_sequence",
         "generate_structure",
@@ -166,7 +174,7 @@ def test_local_startup_failure_isolated_from_remote_bindings(
         "local_runtime_structurally_available",
         lambda: False,
     )
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     availability = {
         snapshot["binding"]["contract_id"]: snapshot
         for snapshot in catalog.availability
@@ -366,13 +374,14 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
+    import modules.esm3.local_adapter as local_adapter
 
-    from datatypes import (
-        ProteinPrompt,
-        ProteinSequence,
+    from datatypes.prompt import ProteinPrompt
+    from datatypes.residue import (
         ResidueLayout,
         ResidueTrack,
     )
+    from datatypes.sequence import ProteinSequence
     from modules.esm3.adapter import ESM3CallParameters
     from modules.esm3.local_adapter import (
         LOCAL_ESM3_MODEL,
@@ -400,12 +409,14 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
 
     _patch_local_runtime(monkeypatch, tmp_path)
     client = SeedRecordingClient()
+    monkeypatch.setattr(
+        local_adapter,
+        "load_local_esm3_client",
+        lambda *_args, **_kwargs: client,
+    )
     resources = InvocationResources()
     adapter = LocalESM3Adapter(
-        environment={
-            **_local_environment(tmp_path),
-            "provider_client": client,
-        },
+        environment=_local_environment(tmp_path),
         resources=resources,
         model_name=LOCAL_ESM3_MODEL,
     )
@@ -726,7 +737,11 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from datatypes import ProteinPrompt, ResidueLayout, ResidueTrack
+    from datatypes.prompt import ProteinPrompt
+    from datatypes.residue import (
+        ResidueLayout,
+        ResidueTrack,
+    )
     from modules.esm3.adapter import ESM3CallParameters
     import modules.esm3.local_adapter as local_adapter
 
@@ -808,7 +823,7 @@ def test_local_binding_never_falls_back_to_remote_client(
     _patch_local_runtime(
         monkeypatch,
         tmp_path,
-        accepted_generation="never-accepted",
+        accepted_revision="never-accepted",
     )
     remote_client = ProviderClient([])
 

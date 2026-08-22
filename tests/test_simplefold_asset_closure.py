@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import json
 import subprocess
 from pathlib import Path
@@ -321,13 +325,12 @@ def test_admission_rejects_declared_file_and_reviewed_source_changes(
 
 def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
 ) -> None:
-    from core import build_discovered_frozen_catalog
     from modules.folding.simplefold_asset_closure import (
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
     )
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     for binding_id, version, closure in (
         (
             "folding.fold.simplefold_local",

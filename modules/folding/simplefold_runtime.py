@@ -19,10 +19,8 @@ from typing import Any, Callable
 
 import torch
 
-from datatypes import (
-    ProteinSequence,
-    ProteinStructure,
-)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 
 
 _SIMPLEFOLD_PROCESS_LOCK = threading.RLock()

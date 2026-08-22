@@ -13,17 +13,18 @@ import os
 from pathlib import Path
 from typing import Any, cast, Iterable, Protocol, TYPE_CHECKING
 
-from core import (
+from core.operation import (
+    OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
     ReadinessResult,
-    RunResources,
 )
-from modules.provider_contract import (
+from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
 )
-from datatypes import ProteinSequence, ProteinStructure
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 
 from .esmfold2_contract import (
     ESM_SDK_REVISION,
@@ -129,15 +130,9 @@ def local_runtime_structurally_available() -> bool:
 
 
 def remote_readiness(environment: Mapping[str, Any]) -> bool:
-    client = environment.get("provider_client")
-    factory = environment.get("client_factory")
     return (
         environment.get("endpoint_id") == "biohub"
         and environment.get("credential_handle") is not None
-        and (
-            callable(getattr(client, "fold", None))
-            or callable(factory)
-        )
         and _remote_provider_installation_is_exact()
     )
 
@@ -457,18 +452,15 @@ def fixed_folding_config() -> Any:
     )
 
 
-def remote_client(environment: Mapping[str, Any]) -> Any:
-    client = environment.get("provider_client")
-    if callable(getattr(client, "fold", None)):
-        return client
-    factory = environment.get("client_factory")
-    if callable(factory):
-        return factory(
-            model_name=REMOTE_ESMFOLD2_MODEL,
-            endpoint_id=environment["endpoint_id"],
-            credential_handle=environment["credential_handle"],
-        )
-    raise RuntimeError("remote ESMFold2 client is unavailable")
+def build_remote_engine(environment: Mapping[str, Any]) -> Any:
+    """Construct the official Biohub engine from admitted deployment values."""
+    from esm.sdk import esmfold2_client
+
+    return esmfold2_client(
+        model=REMOTE_ESMFOLD2_MODEL,
+        url={"biohub": "https://biohub.ai"}[environment["endpoint_id"]],
+        token=environment["credential_handle"],
+    )
 
 
 def load_local_engine(
@@ -476,20 +468,6 @@ def load_local_engine(
     runtime: LocalESMFold2Runtime,
 ) -> Any:
     """Load the exact local snapshots only after Readiness has validated them."""
-    client = environment.get("provider_client")
-    if callable(getattr(client, "fold", None)):
-        return client
-    factory = environment.get("client_factory")
-    if callable(factory):
-        return factory(
-            model_snapshot_path=runtime.model_snapshot_path,
-            language_model_snapshot_path=(
-                runtime.language_model_snapshot_path
-            ),
-            device=runtime.device,
-            runtime_directory=runtime.runtime_directory,
-        )
-
     from esm.models.esmfold2 import (
         ESMFold2InputBuilder,
         ProteinInput,
@@ -608,15 +586,15 @@ class BiohubESMFold2Adapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources
         self._client: Any | None = None
 
-    def _provider_client(self) -> Any:
+    def _engine(self) -> Any:
         if self._client is None:
-            self._client = remote_client(self._environment)
+            self._client = build_remote_engine(self._environment)
         return self._client
 
     def fold(
@@ -629,7 +607,7 @@ class BiohubESMFold2Adapter:
         """Invoke Biohub once, then admit its raw result outside Invocation."""
         del derived_call_seed
         provider_sequence = sequence.sequence
-        client = self._provider_client()
+        client = self._engine()
         config = fixed_folding_config()
         with self._resources.engine_invocation(
             engine_role=engine_role,
@@ -659,7 +637,7 @@ class LocalESMFold2Adapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources

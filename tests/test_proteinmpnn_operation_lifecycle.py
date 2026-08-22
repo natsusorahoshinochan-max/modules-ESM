@@ -8,15 +8,19 @@ from typing import Any
 
 import pytest
 
-from core import OperationCall
-from datatypes import (
+from core.operation import (
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
-    ProteinSequence,
     ResidueAxisReference,
 )
+from datatypes.sequence import ProteinSequence
 from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from modules.proteinmpnn.implementation import (
     ProteinMPNNDesignImplementation,
@@ -26,7 +30,7 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
 from tests.fixtures.scientific_operation import admitted_port_fixture

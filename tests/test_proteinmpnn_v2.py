@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from contextlib import nullcontext
 from dataclasses import replace
 import hashlib
@@ -10,52 +12,78 @@ from typing import Any
 
 import pytest
 
-from core import (
-    CatalogBuildError,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.declarations import (
     ContractIdentity,
-    EnvironmentConfiguration,
-    ModulePackageContractCase,
-    ModulePackagePortCase,
-    ProjectManager,
+)
+from core.catalog.port_contract import (
+    CatalogBuildError,
+)
+from core.operation import (
     OperationCall,
+)
+from core.execution.environment import (
+    EnvironmentConfiguration,
+    admit_environment_configuration,
+)
+from core.run_execution_v2 import (
     ResultReplayHit,
     ResultReplaySource,
     V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    builtin_frozen_catalog,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
+)
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
+    ModulePackagePortCase,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
-from core.workflow_v2 import (
-    WorkflowCompileError,
-    WorkflowEdge,
-    compile_workflow,
-    relock_workflow,
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
 )
-from datatypes import (
+from core.catalog.port_contract import (
+    canonical_json_bytes,
+)
+from core.workflow.compiler import (
+    CompilationRequest,
+    WorkflowCompileError,
+    compile,
+    lock_workflow,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
-    ModifiedResidueNormalizationCollection,
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ProteinStructure,
     ResidueAxisReference,
-    ResidueLayout,
-    ResolvedStructureResidueAxis,
+)
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
+)
+from datatypes.residue import (
+    ModifiedResidueNormalizationCollection,
+    ResidueLayout,
+)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import (
+    ProteinStructure,
+    ResolvedStructureResidueAxis,
     StructureAtomCoordinate,
     StructureAxisSegment,
     StructureResidueCoordinates,
 )
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 from modules.proteinmpnn.adapter import (
     LocalProteinMPNNAdapter,
 )
@@ -66,7 +94,7 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
@@ -221,7 +249,7 @@ def _admitted_structure_axis_inputs(
 def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["proteinmpnn"]
@@ -236,7 +264,7 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
         "definitions/score.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
         (contract_id, version)
         for kind, contract_id, version in catalog.owners
@@ -529,7 +557,7 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
             STRUCTURE_TRANSFORM_PACKAGE,
         )
     )
-    workflow = relock_workflow(
+    workflow = lock_workflow(
         WorkflowDocument(
             schema_version="2.1.0",
             workflow_id="proteinmpnn-method-mismatch",
@@ -544,10 +572,12 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
         WorkflowCompileError,
         match="Selected Binding does not belong",
     ):
-        compile_workflow(
-            workflow,
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                workflow,
+                1,
+            ),
+            catalog,
         )
     assert provider.parsed == []
     assert provider.requests == []
@@ -575,7 +605,7 @@ def _run(
     nodes: tuple[WorkflowNodeInstance, ...],
     edges: tuple[WorkflowEdge, ...],
     registrations: tuple[Any, ...],
-    environment: EnvironmentConfiguration | None = None,
+    environment: Any | None = None,
     result_replay_source: ResultReplaySource | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog(registrations)
@@ -597,11 +627,16 @@ def _run(
             contract_lock=(),
         ),
     )
+    admitted_environment = (
+        environment
+        if isinstance(environment, EnvironmentConfiguration)
+        else admit_environment_configuration(catalog, environment or {})
+    )
     service = V2RunService(
         projects,
         catalog,
         authoring,
-        environment or EnvironmentConfiguration({}),
+        admitted_environment,
         result_replay_source,
     )
     try:
@@ -924,12 +959,14 @@ def test_constraint_parameter_schema_rejects_public_x_bias() -> None:
         contract_lock=(),
     )
 
-    locked = relock_workflow(workflow, catalog)
+    locked = lock_workflow(workflow, catalog)
     with pytest.raises(WorkflowCompileError) as rejected:
-        compile_workflow(
-            locked,
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                locked,
+                1,
+            ),
+            catalog,
         )
 
     assert rejected.value.field_path[-3:] == (
@@ -1053,7 +1090,41 @@ class _AdapterResources:
             item = dict(invocation)
             provenance = item.get("invocation_provenance")
             if provenance is not None:
-                item["invocation_provenance"] = provenance.to_public()
+                public: dict[str, Any] = {}
+                randomness = provenance.effective_randomness
+                if randomness is not None:
+                    public_randomness: dict[str, Any] = {
+                        "control": randomness.control,
+                    }
+                    if randomness.effective_seed is not None:
+                        public_randomness["effective_seed"] = (
+                            randomness.effective_seed
+                        )
+                    public["effective_randomness"] = public_randomness
+                projection = provenance.provider_residue_projection
+                if projection is not None:
+                    public["provider_residue_projection"] = {
+                        "position_semantics": projection.position_semantics,
+                        "workbench_chain_order": list(
+                            projection.workbench_chain_order
+                        ),
+                        "provider_structure_chain_order": list(
+                            projection.provider_structure_chain_order
+                        ),
+                        "provider_chain_order": list(
+                            projection.provider_chain_order
+                        ),
+                        "entries": [
+                            {
+                                "residue_id": entry.residue_id,
+                                "segment_index": entry.segment_index,
+                                "provider_chain_id": entry.provider_chain_id,
+                                "provider_position": entry.provider_position,
+                            }
+                            for entry in projection.entries
+                        ],
+                    }
+                item["invocation_provenance"] = public
             plain.append(item)
         return plain
 
@@ -1225,14 +1296,13 @@ def _proteinmpnn_provider_root() -> Path:
 
 
 def _proteinmpnn_environment(
-) -> EnvironmentConfiguration:
-    return EnvironmentConfiguration(
-        {
+    catalog: Any | None = None,
+) -> Any:
+    raw = {
             (binding_id, version): {
                 "values": {
                     "device": "cpu",
                     "provider_root": _proteinmpnn_provider_root(),
-                    "private_token": "proteinmpnn-secret-must-not-publish",
                 },
             }
             for binding_id, version in (
@@ -1240,7 +1310,9 @@ def _proteinmpnn_environment(
                 ("proteinmpnn.score.local", "8.0.0"),
             )
         }
-    )
+    if catalog is None:
+        return raw
+    return admit_environment_configuration(catalog, raw)
 
 
 def _score_workflow() -> tuple[
@@ -1502,6 +1574,7 @@ def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
                                 "6.0.0",
                             ),
                             context=IntrinsicObservationContext(),
+                            source_partition="default",
                             value=1.0,
                             residue_axis=axes[0],
                         )
@@ -2526,7 +2599,7 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
             projects,
             catalog,
             authoring,
-            _proteinmpnn_environment(),
+            _proteinmpnn_environment(catalog),
         )
         receipt = service.start_background(
             project.id,
@@ -3495,14 +3568,6 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     assert proteinmpnn_readiness(
         {**environment, "device": "cuda"}
     ).passing is False
-    provider = _ControlledProteinMPNNProvider()
-    provider.provider_contract_identity = "sha256:" + "0" * 64
-    assert proteinmpnn_readiness(
-        {
-            "device": "cpu",
-            "provider_client": provider,
-        }
-    ).passing is False
 
 
 def test_design_operation_owns_reference_and_constraint_axis_closure() -> None:
@@ -4141,9 +4206,8 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             },
             binding_parameters={},
             environment_values={
-                "device": "cpu",
-                "provider_root": _proteinmpnn_provider_root(),
-                "private_token": "ctk-proteinmpnn-secret",
+                    "device": "cpu",
+                    "provider_root": _proteinmpnn_provider_root(),
             },
             workflow_nodes=(source, design_axis_resolver),
             workflow_edges=(
@@ -4184,9 +4248,8 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             node_parameters={},
             binding_parameters={},
             environment_values={
-                "device": "cpu",
-                "provider_root": _proteinmpnn_provider_root(),
-                "private_token": "ctk-proteinmpnn-secret",
+                    "device": "cpu",
+                    "provider_root": _proteinmpnn_provider_root(),
             },
             workflow_nodes=(
                 score_source,

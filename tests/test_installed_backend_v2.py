@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 import os
@@ -18,8 +22,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from core import build_discovered_frozen_catalog
-from modules.acceptance_campaign import acceptance_tier
+from verification.acceptance_campaign import acceptance_tier
 from protein_workbench_public import (
     bundle_bytes,
     bundle_digest,
@@ -45,7 +48,7 @@ from websockets.sync.client import connect
 pytestmark = pytest.mark.installed_package
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SOURCE_CATALOG = build_discovered_frozen_catalog()
+SOURCE_CATALOG = build_frozen_catalog(module_registrations())
 SOURCE_CATALOG_BYTES = SOURCE_CATALOG.catalog_descriptor_bytes
 SOURCE_CATALOG_DIGEST = SOURCE_CATALOG.contract_digest
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
@@ -142,8 +145,10 @@ import examples
 import modules
 import pdbs
 import protein_workbench_public
-from core import build_discovered_frozen_catalog
+from core.catalog.builder import build_frozen_catalog
 from protein_workbench_public import bundle_bytes, bundle_digest
+from protein_workbench_public.bootstrap import module_registrations
+from protein_workbench_public.catalog_codec import encode_catalog_projection
 
 source_root = Path(__import__("os").environ["PW_SOURCE_ROOT"]).resolve()
 origins = {
@@ -155,7 +160,7 @@ origins = {
     "public": str(Path(protein_workbench_public.__file__).resolve()),
 }
 assert all(not Path(path).is_relative_to(source_root) for path in origins.values())
-catalog = build_discovered_frozen_catalog()
+catalog = build_frozen_catalog(module_registrations())
 print(json.dumps({
     "origins": origins,
     "protocol_hex": bundle_bytes().hex(),
@@ -163,8 +168,9 @@ print(json.dumps({
     "catalog_hex": catalog.catalog_descriptor_bytes.hex(),
     "catalog_digest": catalog.contract_digest,
     "contracts": [contract.reference() for contract in catalog.contracts],
-    "availability": catalog.public_snapshot(
-        protocol_digest=bundle_digest()
+    "availability": encode_catalog_projection(
+        catalog.projection(),
+        protocol_digest=bundle_digest(),
     )["availability"],
 }, sort_keys=True))
 """
@@ -378,7 +384,7 @@ def test_installed_backend_completes_full_public_v2_journey(
             str(installed_artifact.python),
             "-I",
             "-m",
-            "core.server",
+            "protein_workbench_public.cli",
             "--host",
             "127.0.0.1",
             "--port",
@@ -753,9 +759,8 @@ import examples
 import modules
 import pdbs
 import protein_workbench_public
-from core.server import create_app
-from modules.esm3.esmc_adapter import biohub_esmc_client_factory
-from modules.provider_contract import read_biohub_token
+from protein_workbench_public.bootstrap import create_application
+from modules.esm3.credentials import read_biohub_token
 
 source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
 for package in (
@@ -768,12 +773,11 @@ for package in (
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)
 binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "5.0.0")
-app = create_app(v2_environment_configuration={
+app = create_application(v2_environment_configuration={
     binding: {
         "values": {
             "endpoint_id": "biohub",
             "credential_handle": read_biohub_token(),
-            "client_factory": biohub_esmc_client_factory,
         },
     },
 })

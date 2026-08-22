@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core import RunResources
-from datatypes import ProteinSequence
+from core.operation import OperationResources
+from datatypes.sequence import ProteinSequence
 
 from .domain import ESMCSequenceRepresentation
 
@@ -14,7 +14,7 @@ from .domain import ESMCSequenceRepresentation
 BIOHUB_ESMC_MODEL = "esmc-600m-2024-12"
 
 
-def biohub_esmc_client_factory(
+def build_biohub_esmc_client(
     *,
     model_name: str,
     endpoint_id: str,
@@ -79,18 +79,11 @@ def normalize_representation(
 
 
 def environment_ready(environment: Mapping[str, Any]) -> bool:
-    """Require an exact deployment client/factory and an opaque credential."""
-    if environment.get("endpoint_id") != "biohub":
-        return False
-    client = environment.get("provider_client")
-    factory = environment.get("client_factory")
+    """Require the exact endpoint declaration and an opaque credential."""
     return (
-        (
-            callable(getattr(client, "encode", None))
-            and callable(getattr(client, "logits", None))
-        )
-        or callable(factory)
-    ) and environment.get("credential_handle") is not None
+        environment.get("endpoint_id") == "biohub"
+        and environment.get("credential_handle") is not None
+    )
 
 
 class BiohubESMCAdapter:
@@ -100,7 +93,7 @@ class BiohubESMCAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
         model_name: str,
     ) -> None:
         self._environment = environment
@@ -108,10 +101,7 @@ class BiohubESMCAdapter:
         self._model_name = model_name
 
     def _client(self) -> Any:
-        client = self._environment.get("provider_client")
-        if client is not None:
-            return client
-        return self._environment["client_factory"](
+        return build_biohub_esmc_client(
             model_name=self._model_name,
             endpoint_id=self._environment["endpoint_id"],
             credential_handle=self._environment["credential_handle"],

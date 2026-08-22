@@ -6,26 +6,33 @@ from collections.abc import Callable, Mapping
 import importlib.util
 from typing import Any
 
-from core import (
-    AdmittedPort,
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     EffectiveRandomnessResolver,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    PortTypeDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
 )
-from modules.provider_contract import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.operation import (
+    AdmittedPort,
+    OperationContext,
+    ReadinessCheckInput,
+    ReadinessResult,
+    ScientificOperation,
+)
+from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
 )
@@ -96,6 +103,17 @@ _LOCAL_MODEL = {
     "scale": "small-open",
     "release": "esm3-sm-open-v1",
 }
+_BIOHUB_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("endpoint_id", "json_value"),
+    EnvironmentFieldDeclaration("credential_handle", "credential_handle"),
+)
+_LOCAL_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("model_snapshot_revision", "json_value"),
+    EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),
+    EnvironmentFieldDeclaration("runtime_directory", "filesystem_path"),
+    EnvironmentFieldDeclaration("device", "json_value"),
+    EnvironmentFieldDeclaration("performance_settings", "json_value"),
+)
 
 
 def _provider_installation_is_exact() -> bool:
@@ -198,6 +216,7 @@ def _esmc_binding() -> ExecutionBindingDefinition:
             _ESMC_METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=_BIOHUB_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -384,16 +403,8 @@ def _local_available() -> AvailabilityResult:
 
 def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     environment = check_input.values
-    if environment.get("endpoint_id") != "biohub":
-        return ReadinessResult(False)
-    client = environment.get("provider_client")
-    client_factory = environment.get("client_factory")
-    has_bound_client = (
-        callable(getattr(client, "generate", None))
-        or callable(client_factory)
-    )
     return ReadinessResult(
-        has_bound_client
+        environment.get("endpoint_id") == "biohub"
         and environment.get("credential_handle") is not None
         and _provider_installation_is_exact()
     )
@@ -635,6 +646,7 @@ def _binding(
             _GENERATION_METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=_BIOHUB_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -726,6 +738,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
             _GENERATION_METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=_LOCAL_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(

@@ -11,18 +11,22 @@ from pathlib import Path
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ScoreCollection
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.catalog.port_contract import (
+    canonical_json_bytes,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.observation import ScoreCollection
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -240,7 +244,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "stat", guarded_os_stat)
     monkeypatch.setattr(os, "lstat", guarded_os_lstat)
     monkeypatch.setattr(os, "access", guarded_os_access)
-    environment = EnvironmentConfiguration({
+    environment = admit_environment_configuration(catalog, {
         ("folding.simplefold_confidence.simplefold_local", "6.0.0"): {
             "values": {
                 "model_root": model_root,

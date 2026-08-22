@@ -16,8 +16,11 @@ from functools import partial
 from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict
 
-from core import ReadinessResult, RunResources
-from datatypes import (
+from core.operation import (
+    OperationResources,
+    ReadinessResult,
+)
+from datatypes.structure import (
     ResolvedStructureResidueAxis,
     StructureAxisSegment,
 )
@@ -421,7 +424,7 @@ class LocalSimpleFoldConfidenceAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources
@@ -444,20 +447,6 @@ class LocalSimpleFoldConfidenceAdapter:
         staging_directory: Path,
         staged_closure: StagedSimpleFoldProviderAssetClosure,
     ) -> Callable[[], _SimpleFoldConfidenceNativeResult]:
-        client = self._environment.get("provider_client")
-        if client is not None:
-            def invoke_client() -> _SimpleFoldConfidenceNativeResult:
-                return cast(
-                    _SimpleFoldConfidenceNativeResult,
-                    client.evaluate(
-                        residue_axis=residue_axis,
-                        staging_directory=staged_closure.root,
-                        resolved_provider_identity=provider_identity(),
-                    ),
-                )
-
-            return invoke_client
-
         def invoke_local_runtime() -> _SimpleFoldConfidenceNativeResult:
             return _native_existing_structure_confidence(
                 residue_axis=residue_axis,

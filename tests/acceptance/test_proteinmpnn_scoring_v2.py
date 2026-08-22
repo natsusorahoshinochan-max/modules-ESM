@@ -9,18 +9,20 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
-    CandidateCollection,
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import CandidateCollection
+from datatypes.observation import (
     IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
@@ -45,8 +47,8 @@ def _source_node() -> WorkflowNodeInstance:
 def _environment(
     binding_id: str,
     binding_version: str,
-) -> EnvironmentConfiguration:
-    return EnvironmentConfiguration({
+) -> dict[tuple[str, str], dict[str, dict[str, object]]]:
+    return {
         (binding_id, binding_version): {
             "values": {
                 "device": "cpu",
@@ -55,7 +57,7 @@ def _environment(
                 ).resolve(),
             },
         }
-    })
+    }
 
 
 def _run(
@@ -105,7 +107,10 @@ def _run(
         projects,
         catalog,
         authoring,
-        _environment(binding_id, binding_version),
+        admit_environment_configuration(
+            catalog,
+            _environment(binding_id, binding_version),
+        ),
     )
     receipt = service.start_background(
         project.id,

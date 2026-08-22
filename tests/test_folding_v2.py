@@ -2,46 +2,59 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
+from contextlib import ExitStack
 from pathlib import Path
 import hashlib
 import json
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 import torch
 
-from core import (
-    EnvironmentConfiguration,
-    ModulePackageContractCase,
-    ProjectManager,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.operation import (
     ReadinessResult,
+)
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import (
     ResultReplaySource,
     V2RunError,
     V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
+)
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
     verify_module_package_contract,
 )
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
 import core.run_execution_v2 as run_execution_v2
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ProteinSequence,
-    ProteinStructure,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     operation_call,
     operation_context,
 )
 from tests.fixtures.public_v2 import decode_service_typed_output_value
-from tests.fixtures.simplefold import build_fixture_simplefold_closure
+from tests.fixtures.simplefold import (
+    build_fixture_simplefold_closure,
+    install_fixture_source_staging_group,
+)
 
 
 _FOLD_NODE_VERSION = "8.0.0"
@@ -225,19 +238,17 @@ def _run_fold(
         project.id,
         workflow=workflow,
     )
-    environment_values = {
-        "provider_client": client,
-        "private_token": "must-never-publish",
-    }
-    if route == "remote":
-        environment_values.update(
-            {
-                "endpoint_id": "biohub",
-                "credential_handle": object(),
-            }
-        )
+    environment_values = (
+        {
+            "endpoint_id": "biohub",
+            "credential_handle": "must-never-publish",
+        }
+        if route == "remote"
+        else {}
+    )
     environment_values.update(environment_overrides or {})
-    environment = EnvironmentConfiguration(
+    environment = admit_environment_configuration(
+        catalog,
         {
             (
                 f"folding.fold.esmfold2_{route}",
@@ -254,24 +265,32 @@ def _run_fold(
         environment,
         result_replay_source,
     )
-    try:
-        receipt = service.start_background(
-            project.id,
-            workflow_commit_id=committed.workflow_commit_id,
-            client_request_id=f"fold-{route}",
-        )
-        service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
-    finally:
-        service.shutdown()
+    with ExitStack() as stack:
+        if client is not None:
+            target = (
+                "modules.folding.adapter.build_remote_engine"
+                if route == "remote"
+                else "modules.folding.adapter.load_local_engine"
+            )
+            stack.enter_context(patch(target, return_value=client))
+        try:
+            receipt = service.start_background(
+                project.id,
+                workflow_commit_id=committed.workflow_commit_id,
+                client_request_id=f"fold-{route}",
+            )
+            service.shutdown()
+            projection = service.projection(project.id, receipt["run_id"])
+            events = service.public_events(project.id, receipt["run_id"])
+        finally:
+            service.shutdown()
     return service, catalog, projection, events
 
 
 def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["folding"]
     assert registration.package_version == "10.0.0"
@@ -282,7 +301,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         "definitions/simplefold_confidence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     remote = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
@@ -469,7 +488,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
                 contract_lock=(),
             ),
         )
-        compiled = authoring.require_compiled(
+        compiled = authoring.require_verified_commit(
             project.id,
             workflow_commit_id=committed.workflow_commit_id,
         )
@@ -521,7 +540,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
 def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> None:
     from modules.folding.adapter import local_readiness
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     availability = {
         snapshot["binding"]["contract_id"]: snapshot
         for snapshot in catalog.availability
@@ -584,8 +603,6 @@ def _write_local_runtime_fixture(
         "language_model_snapshot_revision": adapter.LOCAL_ESMC_REVISION,
         "device": "cpu",
         "runtime_directory": runtime_directory,
-        "provider_client": object(),
-        "private_model_token": "must-not-publish",
     }
 
 
@@ -1028,7 +1045,7 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
         ESMFold2FoldingImplementation,
     )
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.structure_prediction.domain import ConfidenceFactCollection
+    from datatypes.prediction import ConfidenceFactCollection
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -1286,7 +1303,6 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
     else:
         client = LocalClient()
         environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
-        environment["provider_client"] = client
 
     service, catalog, projection, events = _run_fold(
         tmp_path,
@@ -1477,6 +1493,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.folding.adapter as folding_adapter
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -1526,9 +1543,11 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         tmp_path,
         monkeypatch,
     )
-    local_environment["provider_client"] = LocalClient()
     import modules.folding.simplefold_asset_closure as asset_closure
+    import modules.folding.simplefold_adapter as simplefold_adapter
+    import modules.folding.simplefold_confidence_adapter as confidence_adapter
     import modules.folding.simplefold_contract as simplefold_contract
+    import modules.folding.simplefold_runtime as simplefold_runtime
 
     simplefold_model_root = tmp_path / "simplefold-models"
     simplefold_esm2_models = tmp_path / "simplefold-esm2-models"
@@ -1605,21 +1624,44 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                 "valid_protein_residues": [True, True],
             }
 
+    simplefold_client = SimpleFoldClient()
+    confidence_client = ConfidenceClient()
+    monkeypatch.setattr(
+        folding_adapter,
+        "build_remote_engine",
+        lambda _environment: RemoteClient(),
+    )
+    monkeypatch.setattr(
+        folding_adapter,
+        "load_local_engine",
+        lambda _environment, _runtime: LocalClient(),
+    )
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "fold_sequence",
+        lambda **kwargs: simplefold_client.fold(**kwargs),
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "_native_existing_structure_confidence",
+        lambda **kwargs: confidence_client.evaluate(
+            residue_axis=kwargs["residue_axis"]
+        ),
+    )
+    install_fixture_source_staging_group(monkeypatch, simplefold_adapter)
+    install_fixture_source_staging_group(monkeypatch, confidence_adapter)
+
     simplefold_environment = {
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
         "device": simplefold_contract.SIMPLEFOLD_DEVICE,
-        "provider_client": SimpleFoldClient(),
-        "private_token": "ctk-secret-must-not-publish",
     }
     confidence_environment = {
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
         "device": simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
-        "provider_client": ConfidenceClient(),
-        "private_token": "ctk-secret-must-not-publish",
     }
     structure_source_node = WorkflowNodeInstance(
         node_id="structure-source",
@@ -1675,9 +1717,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             binding_parameters={},
             environment_values={
                 "endpoint_id": "biohub",
-                "credential_handle": object(),
-                "provider_client": RemoteClient(),
-                "private_token": "ctk-secret-must-not-publish",
+                "credential_handle": "ctk-secret-must-not-publish",
             },
             **common,
         ),
@@ -1686,10 +1726,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             binding_id="folding.fold.esmfold2_local",
             binding_version=_LOCAL_FOLD_BINDING_VERSION,
             binding_parameters={},
-            environment_values={
-                **local_environment,
-                "private_token": "ctk-secret-must-not-publish",
-            },
+            environment_values=local_environment,
             **common,
         ),
         ModulePackageContractCase(

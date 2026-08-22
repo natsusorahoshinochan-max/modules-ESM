@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from datatypes import ProteinStructure
+from datatypes.structure import ProteinStructure
 from tests.acceptance.retained_evidence import (
     retain_proteinmpnn_lifecycle,
 )

@@ -2,21 +2,27 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import dataclass, replace
 import math
+from pathlib import Path
 from typing import Any
 
 import torch
 
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.declarations import (
     AvailabilityResult,
     ModulePackageRegistration,
+)
+from core.operation import (
     ReadinessCheckInput,
     ReadinessResult,
-    build_frozen_catalog,
-    discover_module_packages,
 )
-from datatypes import ProteinSequence
+from datatypes.sequence import ProteinSequence
 
 
 VERSION = "2.1.0"
@@ -274,7 +280,7 @@ def controlled_catalog() -> Any:
         return ReadinessResult(True)
 
     registrations: list[ModulePackageRegistration] = []
-    for registration in discover_module_packages():
+    for registration in module_registrations():
         bindings = []
         for binding in registration.bindings:
             if binding.binding_id not in PROVIDER_BINDINGS:
@@ -300,10 +306,19 @@ def controlled_catalog() -> Any:
 
 
 def controlled_environment(
+    monkeypatch: Any,
     esm3: ControlledESM3Client,
     folding: ControlledFoldingClient,
 ) -> dict[tuple[str, str], dict[str, object]]:
     """Build trusted run-scoped configuration without Workflow-owned values."""
+    monkeypatch.setattr(
+        "modules.esm3.adapter.build_biohub_esm3_client",
+        lambda **_kwargs: esm3,
+    )
+    monkeypatch.setattr(
+        "modules.folding.adapter.build_remote_engine",
+        lambda _environment: folding,
+    )
     return {
         (
             "esm3.generate_paired.biohub_medium",
@@ -311,8 +326,7 @@ def controlled_environment(
         ): {
             "values": {
                 "endpoint_id": "biohub",
-                "credential_handle": object(),
-                "provider_client": esm3,
+                "credential_handle": "controlled-esm3-credential",
             },
         },
         (
@@ -321,11 +335,17 @@ def controlled_environment(
         ): {
             "values": {
                 "endpoint_id": "biohub",
-                "credential_handle": object(),
-                "provider_client": folding,
+                "credential_handle": "controlled-folding-credential",
             },
         },
         ("proteinmpnn.design.local", PROTEINMPNN_BINDING_VERSION): {
-            "values": {},
+            "values": {
+                "device": "cpu",
+                "provider_root": (
+                    Path(__file__).resolve().parents[2]
+                    / "repositories"
+                    / "ProteinMPNN"
+                ),
+            },
         },
     }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 from dataclasses import replace
@@ -10,28 +12,32 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.operation import (
     ReadinessResult,
+)
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import (
     ResultReplaySource,
     V2RunError,
     V2RunService,
-    WorkflowAuthoringService,
+)
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ProteinStructure,
-    ScoreCollection,
 )
+from datatypes.observation import ScoreCollection
+from datatypes.structure import ProteinStructure
 from modules.structure_prediction.package import (
     MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
 )
@@ -39,7 +45,10 @@ from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
-from tests.fixtures.simplefold import build_fixture_simplefold_closure
+from tests.fixtures.simplefold import (
+    build_fixture_simplefold_closure,
+    install_fixture_source_staging_group,
+)
 
 
 def _two_residue_pdb() -> str:
@@ -103,7 +112,7 @@ def _two_chain_pdb() -> str:
 
 def test_confidence_provider_segments_come_only_from_resolved_axis() -> None:
     import modules.folding.simplefold_confidence_adapter as adapter
-    from modules.structure_transform.implementation import resolve_residue_axis
+    from modules.structure_transform.residue_axis import resolve_residue_axis
 
     axis = resolve_residue_axis(ProteinStructure(_two_chain_pdb()))
 
@@ -117,7 +126,7 @@ def test_confidence_provider_segments_come_only_from_resolved_axis() -> None:
 
 def test_confidence_features_use_normalized_modified_polymer_axis() -> None:
     import modules.folding.simplefold_confidence_adapter as adapter
-    from modules.structure_transform.implementation import resolve_residue_axis
+    from modules.structure_transform.residue_axis import resolve_residue_axis
     from tests.fixtures.structure_transform_sources.package import _FIXTURES
 
     axis = resolve_residue_axis(
@@ -142,6 +151,20 @@ def _confidence_environment(
     import modules.folding.simplefold_confidence_adapter as adapter
     import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
+
+    def fixture_native_confidence(**kwargs: Any) -> Any:
+        return client.evaluate(
+            residue_axis=kwargs["residue_axis"],
+            staging_directory=kwargs["staged_closure"].root,
+            resolved_provider_identity=adapter.provider_identity(),
+        )
+
+    monkeypatch.setattr(
+        adapter,
+        "_native_existing_structure_confidence",
+        fixture_native_confidence,
+    )
+    install_fixture_source_staging_group(monkeypatch, adapter)
 
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -190,8 +213,6 @@ def _confidence_environment(
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
         "device": contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
-        "provider_client": client,
-        "private_token": "must-never-publish",
     }
 
 
@@ -309,11 +330,14 @@ def _run_confidence(
             monkeypatch,
             client=client,
         )
-    environment = EnvironmentConfiguration({
-        ("folding.simplefold_confidence.simplefold_local", "6.0.0"): {
-            "values": environment_values,
-        }
-    })
+    environment = admit_environment_configuration(
+        catalog,
+        {
+            ("folding.simplefold_confidence.simplefold_local", "6.0.0"): {
+                "values": environment_values,
+            }
+        },
+    )
     service = V2RunService(
         projects,
         catalog,
@@ -338,7 +362,7 @@ def _run_confidence(
 def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["folding"]
     assert {
@@ -348,7 +372,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
         "definitions/simplefold_confidence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
@@ -648,7 +672,7 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
         CandidateResolvedResidueAxisAssociation,
         CandidateResolvedResidueAxisAssociations,
     )
-    from modules.structure_transform.implementation import resolve_residue_axis
+    from modules.structure_transform.residue_axis import resolve_residue_axis
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
@@ -777,7 +801,7 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
         CandidateResolvedResidueAxisAssociation,
         CandidateResolvedResidueAxisAssociations,
     )
-    from modules.structure_transform.implementation import resolve_residue_axis
+    from modules.structure_transform.residue_axis import resolve_residue_axis
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
@@ -899,7 +923,7 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
         CandidateResolvedResidueAxisAssociation,
         CandidateResolvedResidueAxisAssociations,
     )
-    from modules.structure_transform.implementation import resolve_residue_axis
+    from modules.structure_transform.residue_axis import resolve_residue_axis
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
@@ -980,7 +1004,7 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
         CandidateResolvedResidueAxisAssociation,
         CandidateResolvedResidueAxisAssociations,
     )
-    from modules.structure_transform.implementation import resolve_residue_axis
+    from modules.structure_transform.residue_axis import resolve_residue_axis
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )

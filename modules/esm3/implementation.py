@@ -6,23 +6,27 @@ from collections.abc import Mapping
 import hashlib
 from typing import Any, cast
 
-from core import (
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.operation import (
     AdmittedPort,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
     OperationCall,
-    builtin_frozen_catalog,
 )
-from datatypes import (
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
-    ProteinPrompt,
-    ProteinSequence,
-    ProteinStructure,
 )
-from modules.structure_prediction.domain import (
+from datatypes.prompt import ProteinPrompt
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+from datatypes.prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
     PredictionResidueAxis,

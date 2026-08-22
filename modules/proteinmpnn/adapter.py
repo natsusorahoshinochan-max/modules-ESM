@@ -9,20 +9,18 @@ import os
 from pathlib import Path
 from typing import Any, cast
 
-from core import (
+from core.operation import (
+    OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
     ProviderResidueProjection,
     ProviderResidueProjectionEntry,
     ReadinessResult,
-    RunResources,
 )
-from modules.provider_contract import proteinmpnn_provider_identity
-from datatypes import (
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ResolvedStructureResidueAxis,
-)
+from modules.proteinmpnn.assets import proteinmpnn_provider_identity
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ResolvedStructureResidueAxis
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 
 from .provider_runtime import (
     ProteinMPNNDesignRequest,
@@ -161,13 +159,6 @@ def proteinmpnn_readiness(
             reason_code="proteinmpnn_runtime_unavailable",
         )
     if environment.get("device") != PROTEINMPNN_DEVICE:
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
-    client = environment.get("provider_client")
-    if client is not None:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -350,7 +341,7 @@ class LocalProteinMPNNAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
         provider_factory: Callable[
             [
                 Mapping[str, Any],

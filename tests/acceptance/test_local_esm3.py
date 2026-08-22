@@ -13,8 +13,10 @@ from tests.acceptance.retained_evidence import retain_service_run
 def test_local_esm3_all_generation_modes(
     tmp_path: Path,
 ) -> None:
-    from modules.provider_contract import local_esm3_snapshot_root
-    from modules.esm3.local_adapter import LOCAL_ESM3_SNAPSHOT_REVISION
+    from modules.esm3.local_adapter import (
+        LOCAL_ESM3_SNAPSHOT_REVISION,
+        local_esm3_snapshot_root,
+    )
     from tests.fixtures.esm3_generation import (
         decode_output,
         generation_catalog,

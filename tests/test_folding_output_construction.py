@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
 import pytest
 
-from datatypes import (
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    ProteinSequence,
-    ProteinStructure,
 )
+from datatypes.exact_reference import ExactContractReference
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from modules.folding._output_construction import (
     CompletedFoldingSample,
     CompletedFoldingSampleBatch,
@@ -216,7 +218,9 @@ def test_shared_parent_intake_rejects_an_empty_collection() -> None:
 
 def test_shared_parent_intake_rejects_an_admitted_structure_collection(
 ) -> None:
-    from core import build_frozen_catalog
+    from core.catalog.builder import (
+        build_frozen_catalog,
+    )
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
