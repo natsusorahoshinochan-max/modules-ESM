@@ -43,7 +43,12 @@ _METHOD = ExactContractReference(
     "sha256:" + "1" * 64,
 )
 _RESULT_IDENTITY = "sha256:" + "2" * 64
-_METADATA = {"result_identity_plan_facts": {"digest": "exact-fixture"}}
+_METADATA = {
+    "result_identity_plan_facts": {
+        "digest": "exact-fixture",
+        "integral_weight": 1.0,
+    }
+}
 
 
 def _artifact_port_type() -> PortTypeDefinition:

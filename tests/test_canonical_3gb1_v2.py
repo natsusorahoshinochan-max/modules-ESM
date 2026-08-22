@@ -63,9 +63,9 @@ WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
 EXPECTED_TOP_THREE = [
-    "candidate-eab1e005fdcf40f74379b4e1d92f31c55de63b65f76151f436649c729611e940",
-    "candidate-37862bc7beee528065d925d588fe37f787c74a81532bb05a97197d555255cd68",
-    "candidate-8860c6af17a9dde6ac2bf6cf37b9f62586241909b61b0ef901dae6cc53bfeb02",
+    "candidate-50c2b9947296a048c75cad2d9cc0220a3ae99ad38d6023b47c47bfd5e626cfd7",
+    "candidate-7bbce318c17419b22c47b6f5dada2b99279db0e089571373c14da0636dbdb80f",
+    "candidate-ce6705b0f150a1e7e66bf7f5bed22706c647b07d3ac34d7831d1040fd9fb2fd7",
 ]
 EXPECTED_TOP_PARENT_INDICES = [2, 0, 3]
 pytestmark = pytest.mark.deterministic_acceptance

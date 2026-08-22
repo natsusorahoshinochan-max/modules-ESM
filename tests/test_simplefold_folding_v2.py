@@ -982,7 +982,8 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
-    from datatypes.prediction import ConfidenceFactCollection
+    from core.operation import OutputIdentityIntent
+    from datatypes.prediction import PendingConfidenceFactCollection
 
     class Adapter:
         def __init__(self) -> None:
@@ -1048,9 +1049,11 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
     )
 
     structures = outputs["structure_candidates"]
-    facts = outputs["confidence_facts"]
+    intent = outputs["confidence_facts"]
     assert type(structures) is CandidateCollection
-    assert type(facts) is ConfidenceFactCollection
+    assert type(intent) is OutputIdentityIntent
+    facts = intent.relation
+    assert type(facts) is PendingConfidenceFactCollection
     assert {
         "provider",
         "model",
@@ -1068,9 +1071,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
     assert fact.prediction_axis.sequence.residue_ids == ("A:1", "A:2")
     assert fact.prediction_axis.layout.residue_ids == ("A:1", "A:2")
     assert facts.observation_method == context.method
-    assert structures.items[0].metadata["prediction_key"] == (
-        fact.prediction_key
-    )
+    assert "prediction_key" not in structures.items[0].metadata
     assert set(outputs) == {"structure_candidates", "confidence_facts"}
     assert adapter.calls == [
         {

@@ -2613,13 +2613,13 @@
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.biohub_medium",
       "contract_version": "8.0.0",
-      "contract_digest": "sha256:247cafa5ef058ab7234ea7132b7298840ec3bee773c05e2238a26783b6340e47"
+      "contract_digest": "sha256:bdaa5c1e89c2e8c182b11711675e892c3517215e08f837219a95a6752782aa2c"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
       "contract_version": "9.0.0",
-      "contract_digest": "sha256:7c074385741585289c43146e8acdf4d63a21ce60b1f4f7e89e2508b7de2e4d5d"
+      "contract_digest": "sha256:e4f9ff45d55ec7dad0d25317b8c7162b850374dafb56e1f43945f781ed2e363f"
     },
     {
       "contract_kind": "binding",
@@ -2691,7 +2691,7 @@
       "contract_kind": "binding",
       "contract_id": "structure_prediction.materialize_confidence.direct",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:8f61c8ab52a1f843757c3ab38c96fc8b1f30c18c5ce5bf353a3918651ba253da"
+      "contract_digest": "sha256:829aa1e80acd56894ecee5609162f4140e8fa59296c8b616ffc050fae139e063"
     },
     {
       "contract_kind": "binding",
@@ -2871,13 +2871,13 @@
       "contract_kind": "node_type",
       "contract_id": "esm3.generate_paired",
       "contract_version": "8.0.0",
-      "contract_digest": "sha256:13a5e858a593c529a1c82494bd913b1b0305ff41178995c5244a3afb77950d0e"
+      "contract_digest": "sha256:c7c8248583423bee972dbc5c903ea873c51777cae6db5b762e673bfd3531ebbb"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "folding.fold",
       "contract_version": "8.0.0",
-      "contract_digest": "sha256:02d1f706a231edff46e8158f1e2b62fb21553e9cc0e21c26475c9ec976954f02"
+      "contract_digest": "sha256:f71d468bc68994fbd350f72bd11815257e5ce12df0de7ba9ac69faecd5564ae6"
     },
     {
       "contract_kind": "node_type",
@@ -2949,7 +2949,7 @@
       "contract_kind": "node_type",
       "contract_id": "structure_prediction.materialize_confidence",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:31058d06c82952f561a884174ccfc3ea6141be1ddcb79e9af48391d125361334"
+      "contract_digest": "sha256:c66270cd703812867eb96bdb63da6987125e0099c9acce2c6f8ac83cf7b24206"
     },
     {
       "contract_kind": "node_type",
@@ -3033,7 +3033,13 @@
       "contract_kind": "port_type",
       "contract_id": "structure_prediction.confidence_facts",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:13439c7067f0ccfb64e135e309bf65598bb299f887a36b3770f0ea504ce8cabe"
+      "contract_digest": "sha256:8fc9d067c367cbd5a333049080d92e8ee31939db24ca0b9e39d67581c5771f43"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_prediction.prediction_residue_axis",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:83586d14617bf4b9c05952a542a7f681a2d2533f011ce5ea33dab79deb7394c6"
     },
     {
       "contract_kind": "port_type",

@@ -23,6 +23,7 @@ from core.execution.ledger import (
     Ledger,
     LedgerStore,
     NodeAttemptStart,
+    NodeFailurePublication,
     NodeSuccessPublication,
     NodeTerminationPublication,
     ObservationSelectorEvidence,
@@ -323,6 +324,36 @@ def test_success_publication_is_one_atomic_typed_transition(tmp_path: Path) -> N
     projection = ledger.projection()
     assert projection.status == "succeeded"
     assert projection.node_dispositions[0].outcome == "succeeded"
+
+
+def test_attempt_failure_closes_without_fictitious_operation(
+    tmp_path: Path,
+) -> None:
+    ledger, _, _ = _admitted_ledger(tmp_path)
+    ledger.record(NodeAttemptStart("node-1", "attempt-1"))
+    error = StructuredError(
+        code="node_execution_failed",
+        message="Node execution failed safely",
+        retryable=False,
+        correlation_id="incident-attempt",
+        details={"exception_type": "PortValueError"},
+    )
+
+    ledger.record(
+        NodeFailurePublication(
+            node_id="node-1",
+            node_attempt_id="attempt-1",
+            operation_attempt_id=None,
+            resolution="executed",
+            error=error,
+            failure_origin="attempt",
+        )
+    )
+
+    terminal = ledger.facts[-2].payload
+    assert terminal.failure_origin == "attempt"
+    assert terminal.error is error
+    assert ledger.projection().node_dispositions[0].outcome == "failed"
 
 
 @pytest.mark.parametrize("store_kind", ("memory", "filesystem"))

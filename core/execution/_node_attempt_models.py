@@ -107,7 +107,7 @@ class _NodeExecutionAttemptState:
     inputs: Mapping[str, AdmittedPort]
     project_inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]]
     resource_identities: tuple[Mapping[str, Any], ...]
-    effective_randomness: _EffectiveRandomnessSnapshot
+    effective_randomness: _EffectiveRandomnessSnapshot | None
     result_identity: str | None
     cache_eligible: bool = False
     resolution: Literal["executed", "cache_replayed"] = "executed"

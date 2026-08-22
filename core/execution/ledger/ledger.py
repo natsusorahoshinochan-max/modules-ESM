@@ -1261,6 +1261,10 @@ class Ledger:
                 or child_operations[0].terminal != "failed"
             ):
                 raise self._causal_error()
+            if failure_origin == "attempt" and (
+                payload.resolution != "executed" or child_operations
+            ):
+                raise self._causal_error()
             if failure_origin == "binding" and (
                 payload.resolution != "executed" or child_operations
             ):

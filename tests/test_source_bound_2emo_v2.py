@@ -537,7 +537,10 @@ def test_source_bound_2emo_is_exact_locked_and_compilable() -> None:
     workflow = decode_workflow_document(_payload())
     assert workflow.workflow_id == "source-bound-2emo"
     assert workflow.contract_lock
-    assert lock_workflow(workflow, catalog) == workflow
+    assert lock_workflow(
+        replace(workflow, contract_lock=()),
+        catalog,
+    ) == workflow
     compile(
         CompilationRequest(
             workflow,

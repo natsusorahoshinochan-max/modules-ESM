@@ -1159,8 +1159,21 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
             "path_source": "trusted_environment_configuration",
         }
     }
+    assert tuple(
+        dict(field) for field in binding.descriptor["environment_fields"]
+    ) == (
+        {
+            "name": "dssp_binary",
+            "required": True,
+            "value_category": "filesystem_path",
+        },
+        {
+            "name": "dssp_timeout_seconds",
+            "required": False,
+            "value_category": "json_value",
+        },
+    )
     published = binding.descriptor_bytes.decode("utf-8")
-    assert "dssp_binary" not in published
     assert "/opt/" not in published
 
 

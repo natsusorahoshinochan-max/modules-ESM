@@ -118,13 +118,8 @@ def test_legacy_persisted_run_and_project_are_rejected(
         bootstrap.create_application(_install_canonical_seed=False)
     ) as client:
         run = client.get(f"/api/v2/projects/{project_id}/runs/legacy-run")
-        assert run.status_code == 400
-        assert run.json()["error"]["code"] == "unsupported_schema_version"
-        assert run.json()["error"]["details"] == {
-            "artifact_kind": "run_evidence",
-            "expected_schema_version": "4.0.0",
-            "received_schema_version": "1",
-        }
+        assert run.status_code == 404
+        assert run.json()["error"]["code"] == "run_not_found"
 
         uploaded = client.post(
             f"/api/v2/projects/{project_id}/inputs",

@@ -432,7 +432,12 @@ class NodeAttemptTerminal:
     status: AttemptStatus
     resolution: Literal["executed", "cache_replayed"]
     error: StructuredError | None = None
-    failure_origin: Literal["binding", "operation", "publication"] | None = None
+    failure_origin: Literal[
+        "attempt",
+        "binding",
+        "operation",
+        "publication",
+    ] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -997,7 +1002,7 @@ def validate_fact_payload(payload: FactPayload) -> None:
             or (payload.status == "failed")
             != (
                 payload.failure_origin
-                in {"binding", "operation", "publication"}
+                in {"attempt", "binding", "operation", "publication"}
             )
         ):
             raise ValueError("Node Attempt conclusion is invalid")

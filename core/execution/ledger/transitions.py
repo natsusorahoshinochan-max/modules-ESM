@@ -171,7 +171,12 @@ class NodeFailurePublication:
     operation_attempt_id: str | None
     resolution: Literal["executed", "cache_replayed"]
     error: StructuredError
-    failure_origin: Literal["binding", "operation", "publication"]
+    failure_origin: Literal[
+        "attempt",
+        "binding",
+        "operation",
+        "publication",
+    ]
 
 
 @dataclass(frozen=True, slots=True)

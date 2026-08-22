@@ -48,8 +48,7 @@ def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Attest the configured executable without performing annotation work."""
     path = environment.get("dssp_binary")
     if (
-        not isinstance(path, str)
-        or not path
+        not isinstance(path, Path)
         or not os.path.isfile(path)
         or not os.access(path, os.X_OK)
     ):

@@ -452,7 +452,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         ResolvedSelectionObjective,
         ResolvedUtilityTransform,
     )
-    from core.parameters import AdmittedParameterValues
+    from core.parameters.model import AdmittedParameterValues
     from tests.support.output_admission import admit_fixture_port
     from datatypes.candidate import (
         Candidate,

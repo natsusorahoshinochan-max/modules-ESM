@@ -147,20 +147,14 @@ def _provider_free_simplefold_environment(
         ),
     )
 
-    closure = replace(
-        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
-        sources=(),
-    )
-    monkeypatch.setattr(
-        simplefold_contract,
-        "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
-        closure,
-    )
+    closure = simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
     configured_roots = {
         environment_key: root / environment_key
-        for environment_key in {
-            entry.environment_key for entry in closure.files
-        }
+        for environment_key in (
+            "model_root",
+            "esm2_source_root",
+            "esm2_model_root",
+        )
     }
     for configured_root in configured_roots.values():
         configured_root.mkdir(parents=True)
@@ -168,6 +162,13 @@ def _provider_free_simplefold_environment(
         (configured_roots[entry.environment_key] / entry.runtime_filename).write_bytes(
             f"provider-free-{entry.runtime_filename}".encode()
         )
+    for source in closure.sources:
+        if source.environment_key is None:
+            continue
+        for relative in source.reviewed_files:
+            path = configured_roots[source.environment_key] / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"provider-free-{relative}".encode())
     return {
         **configured_roots,
         "device": simplefold_contract.SIMPLEFOLD_DEVICE,
@@ -287,7 +288,10 @@ def test_source_bound_1pga_is_exact_locked_and_compilable() -> None:
     assert workflow.workflow_id == "source-bound-1pga"
     assert workflow.schema_version == "2.1.0"
     assert workflow.contract_lock
-    assert lock_workflow(workflow, catalog) == workflow
+    assert lock_workflow(
+        replace(workflow, contract_lock=()),
+        catalog,
+    ) == workflow
     compiled = compile(
                    CompilationRequest(
                        workflow,

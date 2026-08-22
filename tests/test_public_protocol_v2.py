@@ -480,6 +480,16 @@ def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
     ("failure_origin", "error"),
     (
         (
+            "attempt",
+            {
+                "code": "node_execution_failed",
+                "message": "Node execution failed safely",
+                "retryable": False,
+                "correlation_id": "incident-attempt",
+                "details": {"exception_type": "PortValueError"},
+            },
+        ),
+        (
             "binding",
             {
                 "code": "readiness_rejected",
@@ -536,14 +546,18 @@ def test_failed_node_attempt_event_closes_error_by_failure_origin(
     }
     validate_schema("#/$defs/NodeAttemptTerminalEvent", event)
 
-    if failure_origin == "operation":
+    if failure_origin in {"attempt", "operation"}:
         with pytest.raises(ProtocolValidationError):
             validate_schema(
                 "#/$defs/NodeAttemptTerminalEvent",
                 {**event, "resolution": "cache_replayed"},
             )
 
-    other_origin = "publication" if failure_origin == "operation" else "operation"
+    other_origin = (
+        "publication"
+        if failure_origin in {"attempt", "operation"}
+        else "operation"
+    )
     with pytest.raises(ProtocolValidationError):
         validate_schema(
             "#/$defs/NodeAttemptTerminalEvent",

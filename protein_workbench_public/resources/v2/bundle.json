@@ -1087,6 +1087,38 @@
           "additionalProperties": false,
           "properties": {
             "error": {
+              "$ref": "#/$defs/NodeOperationFailureError"
+            },
+            "failure_origin": {
+              "const": "attempt"
+            },
+            "node_attempt_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "resolution": {
+              "const": "executed"
+            },
+            "status": {
+              "const": "failed"
+            },
+            "type": {
+              "const": "node_attempt_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "node_attempt_id",
+            "status",
+            "resolution",
+            "failure_origin",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
               "$ref": "#/$defs/NodeBindingFailureError"
             },
             "failure_origin": {

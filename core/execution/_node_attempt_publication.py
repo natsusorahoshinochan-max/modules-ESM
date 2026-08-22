@@ -59,7 +59,12 @@ class _AttemptPublication:
         state: _NodeExecutionAttemptState,
         *,
         public_error: StructuredError,
-        failure_origin: Literal["binding", "operation", "publication"],
+        failure_origin: Literal[
+            "attempt",
+            "binding",
+            "operation",
+            "publication",
+        ],
         only_if_active: bool = False,
     ) -> AttemptOutcome | None:
         transition = NodeFailurePublication(
@@ -88,7 +93,12 @@ class _AttemptPublication:
         state: _NodeExecutionAttemptState,
         *,
         public_error: StructuredError,
-        failure_origin: Literal["binding", "operation", "publication"],
+        failure_origin: Literal[
+            "attempt",
+            "binding",
+            "operation",
+            "publication",
+        ],
     ) -> AttemptOutcome:
         committed = self._record_failure(
             state,

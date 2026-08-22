@@ -1560,17 +1560,34 @@ def test_invalid_scientific_operation_factory_fails_after_attempt_start(
                 "client_request_id": "invalid-operation-factory",
             },
         )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+        events = _public_events(
+            app.state.run_runtime,
+            project_id,
+            started.json()["run_id"],
+        )
 
-    assert started.status_code == 500
-    validate_error(started.json(), status=500)
-    assert started.json()["error"]["code"] == "internal_error"
+    assert projection["status"] == "failed"
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert terminal["failure_origin"] == "attempt"
+    assert terminal["error"]["code"] == "node_execution_failed"
+    assert terminal["error"]["details"]["exception_type"] == "TypeError"
     fact_types = [
         fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
     ]
     assert fact_types.count("node_attempt_started") == 1
     assert "operation_attempt_started" not in fact_types
     assert "engine_invocation_started" not in fact_types
-    assert "node_attempt_terminal" not in fact_types
+    assert fact_types.count("node_attempt_terminal") == 1
 
 
 def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
@@ -1743,14 +1760,30 @@ def test_adapter_preoperation_error_precedes_provider_readiness(
                 "client_request_id": "preoperation-error",
             },
         )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+        events = _public_events(
+            app.state.run_runtime,
+            project_id,
+            started.json()["run_id"],
+        )
 
-    assert started.status_code == 500
-    validate_error(started.json(), status=500)
-    assert started.json()["error"]["code"] == "internal_error"
+    assert projection["status"] == "failed"
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert terminal["failure_origin"] == "attempt"
+    assert terminal["error"]["code"] == "node_execution_failed"
+    assert terminal["error"]["details"]["exception_type"] == "RuntimeError"
     assert not any(
         fact["fact_type"]
         in {
-            "node_attempt_started",
             "operation_attempt_started",
             "readiness_attested",
             "engine_invocation_started",
@@ -1805,10 +1838,27 @@ def test_readiness_programming_error_fails_after_attempt_start(
                 "client_request_id": "invalid-readiness",
             },
         )
+        assert started.status_code == 202
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+        events = _public_events(
+            app.state.run_runtime,
+            project_id,
+            started.json()["run_id"],
+        )
 
-    assert started.status_code == 500
-    validate_error(started.json(), status=500)
-    assert started.json()["error"]["code"] == "internal_error"
+    assert projection["status"] == "failed"
+    terminal = next(
+        item["event"]
+        for item in events
+        if item["event"]["type"] == "node_attempt_terminal"
+    )
+    assert terminal["failure_origin"] == "attempt"
+    assert terminal["error"]["code"] == "node_execution_failed"
+    assert terminal["error"]["details"]["exception_type"] == "RuntimeError"
     assert calls == ["readiness"]
     fact_types = [
         fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
@@ -1817,7 +1867,7 @@ def test_readiness_programming_error_fails_after_attempt_start(
     assert "readiness_attested" not in fact_types
     assert "operation_attempt_started" not in fact_types
     assert "engine_invocation_started" not in fact_types
-    assert "node_attempt_terminal" not in fact_types
+    assert fact_types.count("node_attempt_terminal") == 1
 
 
 def test_public_terminal_wait_helper_never_returns_a_running_projection(
@@ -3974,6 +4024,92 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
         )
         assert after_shutdown.status_code == 503
         validate_error(after_shutdown.json(), status=503)
+
+
+def test_terminal_project_lease_waits_for_background_release(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    release_entered = threading.Event()
+    allow_release = threading.Event()
+    second_finished = threading.Event()
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_application(
+        frozen_catalog_override=_direct_catalog([]),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        runtime = app.state.run_runtime
+        original_release = runtime._release_project
+
+        def delayed_first_release(
+            retained_project_id: str,
+            *,
+            worker: threading.Thread | None = None,
+        ) -> None:
+            if worker is not None and not release_entered.is_set():
+                release_entered.set()
+                assert allow_release.wait(timeout=2)
+            original_release(retained_project_id, worker=worker)
+
+        monkeypatch.setattr(
+            runtime,
+            "_release_project",
+            delayed_first_release,
+        )
+        first = runtime.start_background(
+            project_id,
+            workflow_commit_id=compiled["workflow_commit_id"],
+            client_request_id="terminal-before-release-first",
+        )
+        assert release_entered.wait(timeout=1)
+        assert runtime.projection(
+            project_id,
+            first["run_id"],
+        ).status == "succeeded"
+
+        second_state: dict[str, object] = {}
+
+        def start_second() -> None:
+            try:
+                second_state["receipt"] = runtime.start_background(
+                    project_id,
+                    workflow_commit_id=compiled["workflow_commit_id"],
+                    client_request_id="terminal-before-release-second",
+                )
+            except BaseException as error:
+                second_state["error"] = error
+            finally:
+                second_finished.set()
+
+        second_worker = threading.Thread(target=start_second)
+        second_worker.start()
+        assert not second_finished.wait(timeout=0.05)
+        allow_release.set()
+        assert second_finished.wait(timeout=2)
+        second_worker.join(timeout=1)
+        assert "error" not in second_state
+        second = second_state["receipt"]
+        assert isinstance(second, dict)
+        assert wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            second["run_id"],
+        )["status"] == "succeeded"
 
 
 def test_sync_start_shares_project_lease_and_releases_it_after_failure(

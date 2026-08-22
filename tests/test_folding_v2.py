@@ -1063,7 +1063,8 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
         ESMFold2FoldingImplementation,
     )
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from datatypes.prediction import ConfidenceFactCollection
+    from core.operation import OutputIdentityIntent
+    from datatypes.prediction import PendingConfidenceFactCollection
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -1153,8 +1154,10 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
     assert adapter.calls[0][1] is None
     assert adapter.calls[0][0] == parent.data
     assert adapter.calls[0][2] == "fold_parent_0_sample_0"
-    facts = outputs["confidence_facts"]
-    assert type(facts) is ConfidenceFactCollection
+    intent = outputs["confidence_facts"]
+    assert type(intent) is OutputIdentityIntent
+    facts = intent.relation
+    assert type(facts) is PendingConfidenceFactCollection
     assert len(facts.entries) == 1
     fact = facts.entries[0]
     assert fact.prediction_axis.sequence == parent.data
@@ -1167,9 +1170,7 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
     assert fact.plddt_per_residue == (70.0, 80.0)
     assert fact.ptm == 0.625
     assert fact.pae == ((0.0, 1.0), (1.0, 0.0))
-    assert structures.items[0].metadata["prediction_key"] == (
-        fact.prediction_key
-    )
+    assert "prediction_key" not in structures.items[0].metadata
     assert set(outputs) == {"structure_candidates", "confidence_facts"}
 
 
@@ -1486,7 +1487,10 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
 @pytest.mark.deterministic_acceptance
 def test_readiness_rejects_before_fold_call(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.folding.adapter as folding_adapter
+
     class BombClient:
         def __init__(self) -> None:
             self.calls = 0
@@ -1497,11 +1501,15 @@ def test_readiness_rejects_before_fold_call(
             raise AssertionError("provider call must not happen")
 
     client = BombClient()
+    monkeypatch.setattr(
+        folding_adapter,
+        "_remote_provider_installation_is_exact",
+        lambda: False,
+    )
     _, _, projection, _ = _run_fold(
         tmp_path,
         route="remote",
         client=client,
-        environment_overrides={"credential_handle": None},
     )
     assert projection["status"] == "failed"
     assert client.calls == 0

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -72,7 +74,10 @@ def verify_repository_examples() -> dict[str, object]:
         workflow = decode_workflow_document(_load_json(path))
         if not workflow.contract_lock:
             raise ValueError(f"{path.name} has an empty Contract Lock")
-        if lock_workflow(workflow, catalog) != workflow:
+        if lock_workflow(
+            replace(workflow, contract_lock=()),
+            catalog,
+        ) != workflow:
             raise ValueError(f"{path.name} has a stale Contract Lock")
         try:
             compiled = compile(

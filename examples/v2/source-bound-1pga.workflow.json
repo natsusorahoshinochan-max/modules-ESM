@@ -598,13 +598,13 @@
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
       "contract_version": "9.0.0",
-      "contract_digest": "sha256:7c074385741585289c43146e8acdf4d63a21ce60b1f4f7e89e2508b7de2e4d5d"
+      "contract_digest": "sha256:e4f9ff45d55ec7dad0d25317b8c7162b850374dafb56e1f43945f781ed2e363f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.simplefold_local",
       "contract_version": "10.0.0",
-      "contract_digest": "sha256:993a21c4fe285595817d62a5eedddab19383fa480f65122c5cd8de8d17a107f8"
+      "contract_digest": "sha256:feac3dd4669fa275db27b9a5fdb2f98568c0399b88e09dd1ad0394bafdbfcd71"
     },
     {
       "contract_kind": "binding",
@@ -658,7 +658,7 @@
       "contract_kind": "binding",
       "contract_id": "structure_prediction.materialize_confidence.direct",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:8f61c8ab52a1f843757c3ab38c96fc8b1f30c18c5ce5bf353a3918651ba253da"
+      "contract_digest": "sha256:829aa1e80acd56894ecee5609162f4140e8fa59296c8b616ffc050fae139e063"
     },
     {
       "contract_kind": "binding",
@@ -784,7 +784,7 @@
       "contract_kind": "node_type",
       "contract_id": "folding.fold",
       "contract_version": "8.0.0",
-      "contract_digest": "sha256:02d1f706a231edff46e8158f1e2b62fb21553e9cc0e21c26475c9ec976954f02"
+      "contract_digest": "sha256:f71d468bc68994fbd350f72bd11815257e5ce12df0de7ba9ac69faecd5564ae6"
     },
     {
       "contract_kind": "node_type",
@@ -838,7 +838,7 @@
       "contract_kind": "node_type",
       "contract_id": "structure_prediction.materialize_confidence",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:31058d06c82952f561a884174ccfc3ea6141be1ddcb79e9af48391d125361334"
+      "contract_digest": "sha256:c66270cd703812867eb96bdb63da6987125e0099c9acce2c6f8ac83cf7b24206"
     },
     {
       "contract_kind": "node_type",
@@ -892,7 +892,13 @@
       "contract_kind": "port_type",
       "contract_id": "structure_prediction.confidence_facts",
       "contract_version": "2.0.0",
-      "contract_digest": "sha256:13439c7067f0ccfb64e135e309bf65598bb299f887a36b3770f0ea504ce8cabe"
+      "contract_digest": "sha256:8fc9d067c367cbd5a333049080d92e8ee31939db24ca0b9e39d67581c5771f43"
+    },
+    {
+      "contract_kind": "port_type",
+      "contract_id": "structure_prediction.prediction_residue_axis",
+      "contract_version": "2.0.0",
+      "contract_digest": "sha256:83586d14617bf4b9c05952a542a7f681a2d2533f011ce5ea33dab79deb7394c6"
     },
     {
       "contract_kind": "port_type",

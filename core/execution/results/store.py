@@ -44,7 +44,7 @@ from core.project.objects import (
 )
 from core.project.storage import StoragePathError
 from datatypes.exact_reference import ExactContractReference
-from datatypes.i_json import freeze_i_json, i_json_values_equal
+from datatypes.i_json import freeze_i_json
 
 
 class ResultStoreWriteError(RuntimeError):
@@ -412,10 +412,8 @@ class ResultStore:
         expected_metadata = freeze_i_json(result_contract_metadata)
         if (
             manifest.result_identity != result_identity
-            or not i_json_values_equal(
-                manifest.result_contract_metadata,
-                expected_metadata,
-            )
+            or canonical_json_bytes(manifest.result_contract_metadata)
+            != canonical_json_bytes(expected_metadata)
         ):
             raise ResultIntegrityError(node_result_manifest.content_digest)
         declared_ports = node_plan.output_ports
@@ -516,10 +514,9 @@ class ResultStore:
         if entry is None:
             return None
         expected_metadata = freeze_i_json(result_contract_metadata)
-        if not i_json_values_equal(
-            entry.result_contract_metadata,
-            expected_metadata,
-        ):
+        if canonical_json_bytes(
+            entry.result_contract_metadata
+        ) != canonical_json_bytes(expected_metadata):
             raise ResultIntegrityError(entry.node_result_manifest.content_digest)
         restored = self.restore(
             project_id=project_id,

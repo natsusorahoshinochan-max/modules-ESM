@@ -211,7 +211,10 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     workflow = decode_workflow_document(_payload())
     assert workflow.workflow_id == "source-bound-5g53"
     assert workflow.contract_lock
-    assert lock_workflow(workflow, catalog) == workflow
+    assert lock_workflow(
+        replace(workflow, contract_lock=()),
+        catalog,
+    ) == workflow
     compile(
         CompilationRequest(
             workflow,

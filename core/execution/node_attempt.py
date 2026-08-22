@@ -233,17 +233,10 @@ class _NodeAttempt:
                 raise _ArtifactCapacityError
             raise PortValueError("Run artifact bytes exceed the public bound")
 
-    def _prepare(
-        self,
+    @staticmethod
+    def _new_state(
         spec: AttemptSpec,
     ) -> _NodeExecutionAttemptState:
-        project_inputs, resource_identities = (
-            self._resolve_project_inputs(spec.project_id, spec.node)
-        )
-        effective_randomness = _resolve_effective_randomness(
-            spec.node,
-            spec.admitted_inputs,
-        )
         return _NodeExecutionAttemptState(
             project_id=spec.project_id,
             run_id=spec.run_id,
@@ -253,16 +246,36 @@ class _NodeAttempt:
             node_attempt_id=f"node-attempt-{uuid.uuid4().hex}",
             operation_attempt_id=f"operation-{uuid.uuid4().hex}",
             inputs=spec.admitted_inputs,
-            project_inputs=project_inputs,
-            resource_identities=resource_identities,
-            effective_randomness=effective_randomness,
+            project_inputs={},
+            resource_identities=(),
+            effective_randomness=None,
             result_identity=None,
         )
+
+    def _prepare(
+        self,
+        state: _NodeExecutionAttemptState,
+    ) -> None:
+        project_inputs, resource_identities = (
+            self._resolve_project_inputs(state.project_id, state.node)
+        )
+        effective_randomness = _resolve_effective_randomness(
+            state.node,
+            state.inputs,
+        )
+        state.project_inputs = project_inputs
+        state.resource_identities = resource_identities
+        state.effective_randomness = effective_randomness
 
     def _resolve_result_identity(
         self,
         state: _NodeExecutionAttemptState,
     ) -> None:
+        effective_randomness = state.effective_randomness
+        if effective_randomness is None:
+            raise RuntimeError(
+                "Node Execution Attempt lacks resolved effective randomness"
+            )
         state.cache_eligible = (
             state.node._runtime.cacheable
             and state.node._runtime.deterministic
@@ -270,7 +283,7 @@ class _NodeAttempt:
                 state.node,
                 state.inputs,
                 resolved_resource_inputs=state.resource_identities,
-                effective_randomness_snapshot=state.effective_randomness,
+                effective_randomness_snapshot=effective_randomness,
             )
         )
         if state.cache_eligible:
@@ -278,7 +291,7 @@ class _NodeAttempt:
                 state.node,
                 state.inputs,
                 resolved_resource_inputs=state.resource_identities,
-                effective_randomness_snapshot=state.effective_randomness,
+                effective_randomness_snapshot=effective_randomness,
             )
 
     def _cache_outcome(
@@ -436,44 +449,103 @@ class _NodeAttempt:
         Callable[[OperationCall], Mapping[str, Any]],
         OperationCall,
     ] | AttemptOutcome:
+        effective_randomness = state.effective_randomness
+        if effective_randomness is None:
+            raise RuntimeError(
+                "Node Execution Attempt lacks resolved effective randomness"
+            )
         resources = self._owned_resources(state)
         state.resources = resources
         operation_call = OperationCall(
             inputs=state.inputs,
-            node_parameters=state.effective_randomness.node_parameters,
-            binding_parameters=state.effective_randomness.binding_parameters,
-            effective_randomness=(
-                state.effective_randomness.effective_randomness
-            ),
+            node_parameters=effective_randomness.node_parameters,
+            binding_parameters=effective_randomness.binding_parameters,
+            effective_randomness=effective_randomness.effective_randomness,
         )
-        try:
-            environment = self._environment.for_binding(
-                state.node.binding.contract_id,
-                state.node.binding.contract_version,
+        environment = self._environment.for_binding(
+            state.node.binding.contract_id,
+            state.node.binding.contract_version,
+        )
+        implementation = state.node._runtime.factory.build(
+            OperationContext(
+                method=_exact_reference(state.node.method),
+                produced_observations=(
+                    state.node._runtime.produced_observation_plan.observations
+                ),
+                selection_objectives=(
+                    state.node._runtime.selection_objectives
+                ),
+                observation_selectors=(
+                    state.node._runtime.observation_selectors
+                ),
+                environment=environment,
+                resources=resources,
             )
-            implementation = state.node._runtime.factory.build(
-                OperationContext(
-                    method=_exact_reference(state.node.method),
-                    produced_observations=(
-                        state.node._runtime.produced_observation_plan.observations
-                    ),
-                    selection_objectives=(
-                        state.node._runtime.selection_objectives
-                    ),
-                    observation_selectors=(
-                        state.node._runtime.observation_selectors
-                    ),
-                    environment=environment,
-                    resources=resources,
-                )
+        )
+        execute_candidate = getattr(implementation, "execute", None)
+        if not callable(execute_candidate):
+            raise TypeError(
+                "Scientific Operation factory must return an "
+                "object with callable execute(OperationCall)"
             )
-            execute_candidate = getattr(implementation, "execute", None)
-            if not callable(execute_candidate):
-                raise TypeError(
-                    "Scientific Operation factory must return an "
-                    "object with callable execute(OperationCall)"
-                )
-        except BaseException as error:
+        if self._ledger.cancellation_requested:
+            return self._cleanup_before_operation_attempt(
+                state,
+                outcome="cancelled",
+            )
+        return implementation, execute_candidate, operation_call
+
+    def _commit_execution_error(
+        self,
+        state: _NodeExecutionAttemptState,
+        error: BaseException,
+        *,
+        failure_origin: Literal["attempt", "operation"],
+    ) -> AttemptOutcome:
+        if self._ledger.cancellation_requested:
+            state.cancellation.wait_for_cleanup()
+        if (
+            isinstance(error, V2RunError)
+            and error.code == "evidence_unavailable"
+        ):
+            self._ledger.retain_evidence_unavailable(error)
+            raise error
+        terminal_status = (
+            "failed"
+            if state.cancellation.cleanup_error is not None
+            else "cancelled"
+            if self._ledger.cancellation_requested
+            else error.status
+            if isinstance(error, ExecutionTermination)
+            else "failed"
+        )
+        public_error = _execution_error(error)
+        if terminal_status == "failed":
+            return self._publication.commit_failure(
+                state,
+                public_error=public_error,
+                failure_origin=failure_origin,
+            )
+        return self._publication.commit_termination(
+            state,
+            status=cast(
+                Literal[
+                    "cancelled",
+                    "interrupted",
+                    "outcome_unknown",
+                ],
+                terminal_status,
+            ),
+            public_error=public_error,
+        )
+
+    def _commit_preoperation_error(
+        self,
+        state: _NodeExecutionAttemptState,
+        error: BaseException,
+    ) -> AttemptOutcome:
+        resources = state.resources
+        if resources is not None:
             try:
                 resources.cleanup_temporary_work()
             except BaseException as cleanup_error:
@@ -481,13 +553,21 @@ class _NodeAttempt:
                     "Run workspace cleanup also failed: "
                     f"{type(cleanup_error).__name__}"
                 )
-            raise
-        if self._ledger.cancellation_requested:
-            return self._cleanup_before_operation_attempt(
-                state,
-                outcome="cancelled",
-            )
-        return implementation, execute_candidate, operation_call
+        cancellation_cleanup_error = state.cancellation.cleanup_error
+        if cancellation_cleanup_error is not None:
+            if cancellation_cleanup_error is not error:
+                cancellation_cleanup_error.add_note(
+                    "Execution also terminated before cleanup: "
+                    f"{type(error).__name__}"
+                )
+            error = cancellation_cleanup_error
+        return self._commit_execution_error(
+            state,
+            error,
+            failure_origin=(
+                "operation" if state.operation_started else "attempt"
+            ),
+        )
 
     def _start_operation(
         self,
@@ -527,12 +607,17 @@ class _NodeAttempt:
             raw_outputs = operation_execute(operation_call)
             if self._ledger.cancellation_requested:
                 raise ExecutionTermination("cancelled")
+            effective_randomness = state.effective_randomness
+            if effective_randomness is None:
+                raise RuntimeError(
+                    "Node Execution Attempt lacks resolved effective randomness"
+                )
             if state.result_identity is None:
                 state.result_identity = _result_identity(
                     state.node,
                     state.inputs,
                     resolved_resource_inputs=resources.result_identity_inputs,
-                    effective_randomness_snapshot=state.effective_randomness,
+                    effective_randomness_snapshot=effective_randomness,
                 )
             admitted_node_output = admit_node_output(
                 node_plan=_node_output_plan(
@@ -583,41 +668,10 @@ class _NodeAttempt:
                     )
                 body_error = cancellation_cleanup_error
         if body_error is not None:
-            if self._ledger.cancellation_requested:
-                state.cancellation.wait_for_cleanup()
-            if (
-                isinstance(body_error, V2RunError)
-                and body_error.code == "evidence_unavailable"
-            ):
-                self._ledger.retain_evidence_unavailable(body_error)
-                raise body_error
-            terminal_status = (
-                "failed"
-                if state.cancellation.cleanup_error is not None
-                else "cancelled"
-                if self._ledger.cancellation_requested
-                else body_error.status
-                if isinstance(body_error, ExecutionTermination)
-                else "failed"
-            )
-            public_error = _execution_error(body_error)
-            if terminal_status == "failed":
-                return self._publication.commit_failure(
-                    state,
-                    public_error=public_error,
-                    failure_origin="operation",
-                )
-            return self._publication.commit_termination(
+            return self._commit_execution_error(
                 state,
-                status=cast(
-                    Literal[
-                        "cancelled",
-                        "interrupted",
-                        "outcome_unknown",
-                    ],
-                    terminal_status,
-                ),
-                public_error=public_error,
+                body_error,
+                failure_origin="operation",
             )
         return self._publication.commit_success(state)
 
@@ -626,59 +680,63 @@ class _NodeAttempt:
         spec: AttemptSpec,
     ) -> AttemptOutcome:
         """Execute one schedulable Node Execution Attempt lifecycle."""
-        state = self._prepare(spec)
+        state = self._new_state(spec)
         cancellation = self._begin_attempt(state)
         if cancellation is not None:
             return self._publication.commit_unstarted(
                 node_id=state.node.node_id,
                 outcome=cancellation,
             )
-        self._resolve_result_identity(state)
-        if self._ledger.cancellation_requested:
-            return self._publication.commit_termination(
+        try:
+            self._prepare(state)
+            self._resolve_result_identity(state)
+            if self._ledger.cancellation_requested:
+                return self._publication.commit_termination(
+                    state,
+                    status=self._pending_cancellation_outcome(state),
+                    public_error=None,
+                )
+            replayed = self._cache_outcome(
                 state,
-                status=self._pending_cancellation_outcome(state),
-                public_error=None,
+                cache_bypassed=spec.cache_bypassed,
+                committed_artifact_count=spec.committed_artifact_count,
+                committed_artifact_bytes=spec.committed_artifact_bytes,
             )
-        replayed = self._cache_outcome(
-            state,
-            cache_bypassed=spec.cache_bypassed,
-            committed_artifact_count=spec.committed_artifact_count,
-            committed_artifact_bytes=spec.committed_artifact_bytes,
-        )
-        if replayed is not None:
-            return replayed
-        if self._ledger.cancellation_requested:
-            return self._publication.commit_termination(
-                state,
-                status=self._pending_cancellation_outcome(state),
-                public_error=None,
-            )
+            if replayed is not None:
+                return replayed
+            if self._ledger.cancellation_requested:
+                return self._publication.commit_termination(
+                    state,
+                    status=self._pending_cancellation_outcome(state),
+                    public_error=None,
+                )
 
-        readiness_error = self._readiness_failure(state)
-        if self._ledger.cancellation_requested:
-            return self._publication.commit_termination(
-                state,
-                status=self._pending_cancellation_outcome(state),
-                public_error=None,
-            )
-        if readiness_error is not None:
-            return self._publication.commit_failure(
-                state,
-                public_error=_binding_error(readiness_error),
-                failure_origin="binding",
-            )
+            readiness_error = self._readiness_failure(state)
+            if self._ledger.cancellation_requested:
+                return self._publication.commit_termination(
+                    state,
+                    status=self._pending_cancellation_outcome(state),
+                    public_error=None,
+                )
+            if readiness_error is not None:
+                return self._publication.commit_failure(
+                    state,
+                    public_error=_binding_error(readiness_error),
+                    failure_origin="binding",
+                )
 
-        operation = self._build_operation(state)
-        if isinstance(operation, AttemptOutcome):
-            return operation
-        _, operation_execute, operation_call = operation
-        cancellation = self._start_operation(state)
-        if cancellation is not None:
-            return self._cleanup_before_operation_attempt(
-                state,
-                outcome=cancellation,
-            )
+            operation = self._build_operation(state)
+            if isinstance(operation, AttemptOutcome):
+                return operation
+            _, operation_execute, operation_call = operation
+            cancellation = self._start_operation(state)
+            if cancellation is not None:
+                return self._cleanup_before_operation_attempt(
+                    state,
+                    outcome=cancellation,
+                )
+        except BaseException as error:
+            return self._commit_preoperation_error(state, error)
         return self._run_operation(
             state,
             operation_execute=operation_execute,

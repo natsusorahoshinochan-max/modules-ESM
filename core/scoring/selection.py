@@ -132,6 +132,7 @@ class SelectionObjective:
             raise SelectionError(
                 "Selection Objective weight must be finite and strictly positive"
             )
+        object.__setattr__(self, "weight", numeric_weight)
         if not self.source_partition:
             raise SelectionError(
                 "Selection Objective requires an exact source partition"
