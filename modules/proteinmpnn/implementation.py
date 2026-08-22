@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from core.operation import (
     OperationResources,
@@ -26,9 +26,6 @@ from datatypes.observation import (
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ResolvedStructureResidueAxis
 from modules.proteinmpnn.domain import ProteinMPNNConstraints
-from modules.structure_transform.domain import (
-    CandidateResolvedResidueAxisAssociations,
-)
 
 from .adapter import LocalProteinMPNNAdapter
 from .domain import (
@@ -38,6 +35,15 @@ from .domain import (
 
 
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
+
+
+class _ResolvedAxisAssociations(Protocol):
+    """Structural view of the admitted resolved-axis capability value."""
+
+    def axis_for(
+        self,
+        subject: CandidateDataReference,
+    ) -> ResolvedStructureResidueAxis: ...
 
 
 def _reference_key(
@@ -65,7 +71,7 @@ def _structure_candidates_with_axes(
     axis_input = call.inputs["structure_residue_axes"]
     collection = cast(CandidateCollection, admitted.value)
     associations = cast(
-        CandidateResolvedResidueAxisAssociations,
+        _ResolvedAxisAssociations,
         axis_input.value,
     )
     if collection.item_type != "protein.structure" or not collection.items:

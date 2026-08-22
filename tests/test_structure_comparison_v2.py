@@ -10,29 +10,40 @@ from typing import Any
 import numpy as np
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    PortValueError,
+)
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    PortValueError,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_frozen_catalog,
-    builtin_frozen_catalog,
-    validate_produced_score_collection,
     verify_module_package_contract,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.scoring.observation_admission import ObservationAdmissionError
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    ProteinStructure,
-    ScoreCollection,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import ScoreCollection
+from datatypes.structure import ProteinStructure
+from tests.fixtures.observation_admission import (
+    admit_test_produced_score_collection,
 )
 from modules.structure_comparison.alignment import (
     _affine_sequence_alignment,
@@ -79,11 +90,11 @@ from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS_PACK
 from modules.structure_prediction.package import (
     MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.package import MODULE_PACKAGE as TRANSFORM_PACKAGE
 from tests.fixtures.structure_comparison_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -147,8 +158,10 @@ def _axis(
 
 def test_evidence_operations_reuse_the_admitted_structure_axis_identity(
 ) -> None:
-    from core import OperationCall
-    from datatypes import ResidueAxisReference
+    from core.operation import (
+        OperationCall,
+    )
+    from datatypes.exact_reference import ResidueAxisReference
     from modules.structure_comparison.inserted_loop import _axes_by_subject
     from modules.structure_comparison.three_way import _axis as _three_way_axis
     from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
@@ -980,7 +993,7 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
         "subjects": subjects,
         "references": references,
     }
-    validate_produced_score_collection(
+    admit_test_produced_score_collection(
         catalog=catalog,
         binding=metric_contract,
         output_port="scores",
@@ -1019,10 +1032,10 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
             ),
         )
         with pytest.raises(
-            PortValueError,
+            ObservationAdmissionError,
             match="alignment evidence provenance",
         ):
-            validate_produced_score_collection(
+            admit_test_produced_score_collection(
                 catalog=catalog,
                 binding=metric_contract,
                 output_port="scores",
@@ -1624,7 +1637,7 @@ def _run_inserted_loop_failure_case(
         manager,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
     )
     try:
         receipt = service.start_background(

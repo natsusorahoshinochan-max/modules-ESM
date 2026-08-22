@@ -22,7 +22,7 @@ from datatypes.candidate import (
 )
 from datatypes.residue import ModifiedResidueNormalizationCollection
 from datatypes.structure import ProteinStructure
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
     CandidateModifiedResidueNormalizationAssociations,

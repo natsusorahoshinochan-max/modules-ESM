@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol, cast
 
-from core import OperationCall, OperationContext
-from datatypes import (
-    CandidateDataReference,
+from core.operation import (
+    OperationCall,
+    OperationContext,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.observation import (
     PairwiseCandidateMapping,
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_transform import (
-    CandidateResolvedResidueAxisAssociation,
-    CandidateResolvedResidueAxisAssociations,
-)
+from datatypes.structure import ResolvedStructureResidueAxis
 
 from .alignment import align_resolved_axes
 from .contracts import (
@@ -27,6 +27,19 @@ from .metrics import (
     rmsd_from_evidence,
     tm_score_from_evidence,
 )
+
+
+class _ResolvedAxisAssociation(Protocol):
+    """Structural view of one admitted resolved-axis association."""
+
+    subject: CandidateDataReference
+    residue_axis: ResolvedStructureResidueAxis
+
+
+class _ResolvedAxisAssociations(Protocol):
+    """Structural view of the resolved-axis capability collection."""
+
+    entries: tuple[_ResolvedAxisAssociation, ...]
 
 
 def _reference_key(
@@ -54,12 +67,15 @@ def _candidate_references(
 
 
 def _axis_associations(
-    value: CandidateResolvedResidueAxisAssociations,
+    value: object,
     references: tuple[CandidateDataReference, ...],
     *,
     role: str,
-) -> dict[CandidateDataReference, CandidateResolvedResidueAxisAssociation]:
-    by_reference = {entry.subject: entry for entry in value.entries}
+) -> dict[CandidateDataReference, _ResolvedAxisAssociation]:
+    associations = cast(_ResolvedAxisAssociations, value)
+    by_reference = {
+        entry.subject: entry for entry in associations.entries
+    }
     if set(by_reference) != set(references):
         raise ValueError(
             f"{role} residue axes must cover exact Candidate references"

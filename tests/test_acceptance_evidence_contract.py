@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from modules.acceptance_campaign import (
+from verification.acceptance_campaign import (
     CANONICAL_ACCEPTANCE_TIERS,
     acceptance_definition,
 )

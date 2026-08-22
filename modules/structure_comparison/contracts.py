@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from importlib.metadata import version
 
-from core import CatalogContract, MethodDefinition
-from datatypes import ExactContractReference
-from modules.folding.contracts import (
-    REMOTE_ESMFOLD2_FOLD_METHOD,
-    SIMPLEFOLD_FOLD_METHOD,
+from core.catalog.declarations import (
+    CatalogContract,
+    MethodDefinition,
 )
+from datatypes.exact_reference import ExactContractReference
 
 
 VERSION = "3.0.0"
@@ -31,8 +30,14 @@ def method_reference(method: MethodDefinition) -> ExactContractReference:
     )
 
 
-REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = method_reference(
-    REMOTE_ESMFOLD2_FOLD_METHOD
+REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = ExactContractReference(
+    contract_kind="method",
+    contract_id="folding.fold.esmfold2_fast_biohub_2026_05",
+    contract_version="4.0.0",
+    contract_digest=(
+        "sha256:96ba1f830ca71c844cc1ea506e6b60a3"
+        "27b5cf4c17bd0bfc2143b25bf669bee8"
+    ),
 )
 
 
@@ -374,4 +379,12 @@ THREE_WAY_CONSISTENCY_METHOD_REFERENCE = method_reference(
 INSERTED_LOOP_EVALUATION_METHOD_REFERENCE = method_reference(
     INSERTED_LOOP_EVALUATION_METHOD
 )
-SIMPLEFOLD_FOLD_METHOD_REFERENCE = method_reference(SIMPLEFOLD_FOLD_METHOD)
+SIMPLEFOLD_FOLD_METHOD_REFERENCE = ExactContractReference(
+    contract_kind="method",
+    contract_id="folding.fold.simplefold_100m_c7a5570",
+    contract_version="5.0.0",
+    contract_digest=(
+        "sha256:010f5170d530d8b72445dc7a52295233"
+        "4853f263c3b6ac9d0f3eb414f6fb2b5e"
+    ),
+)

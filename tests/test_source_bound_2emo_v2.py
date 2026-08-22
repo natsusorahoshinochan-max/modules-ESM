@@ -54,7 +54,7 @@ from modules.structure_comparison.metrics import (
     rmsd_from_evidence,
     tm_score_from_evidence,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociations,
 )

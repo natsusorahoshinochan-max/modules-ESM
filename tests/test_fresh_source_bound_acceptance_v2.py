@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from collections.abc import Callable, Mapping
 import hashlib
 from importlib.resources import files
@@ -12,10 +16,11 @@ from typing import Any
 
 import pytest
 
-from core import build_discovered_frozen_catalog
-from datatypes import (
+from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.observation import (
     PairwiseCandidateMapping,
     ScoreCollection,
 )
@@ -32,7 +37,7 @@ from modules.structure_comparison.domain import (
     StructureAlignmentEvidence,
     ThreeWayConsistencyEvidence,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociations,
 )
@@ -504,7 +509,7 @@ def _assert_2emo_science(
         for fold in folds.items
     )
     assert len(alignments) == 8
-    structure_port = build_discovered_frozen_catalog().require_port_type(
+    structure_port = build_frozen_catalog(module_registrations()).require_port_type(
         "protein.structure",
         "4.0.0",
     )
@@ -1056,7 +1061,7 @@ def test_fresh_2emo_observer_rejects_protein_sol_before_release(
 def test_fresh_source_bound_public_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from core.server import create_app
+    from protein_workbench_public.bootstrap import create_application
     from fastapi.testclient import TestClient
     from protein_workbench_public import encode_project_input_content
 
@@ -1069,13 +1074,13 @@ def test_fresh_source_bound_public_run(
             encoding="utf-8"
         )
     )
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     lifecycle = (
         _observe_fresh_2emo_lifecycle(monkeypatch)
         if tier_name == "fresh-2emo"
         else None
     )
-    app = create_app(
+    app = create_application(
         v2_environment_configuration=_environment(tier_name),
         _install_canonical_seed=False,
     )

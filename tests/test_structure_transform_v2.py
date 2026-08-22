@@ -60,7 +60,7 @@ from datatypes.structure import (
     StructureComponentDisposition,
     StructureResidueCoordinates,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateNormalizationFact,
     CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,

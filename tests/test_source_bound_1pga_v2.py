@@ -55,7 +55,7 @@ from modules.structure_comparison.contracts import (
     THREE_WAY_CONSISTENCY_METHOD_REFERENCE,
     TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from protein_workbench_public import encode_project_input_content

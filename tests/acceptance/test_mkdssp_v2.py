@@ -10,8 +10,13 @@ from typing import Any
 
 import pytest
 
-from core import ReadinessCheckInput, build_frozen_catalog
-from datatypes import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.operation import (
+    ReadinessCheckInput,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
@@ -21,11 +26,11 @@ from modules.structure_annotation.package import MODULE_PACKAGE, _dssp_ready
 from modules.prompt_authoring.package import (
     MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )

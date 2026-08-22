@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import math
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
-from core import AdmittedPort, OperationCall
-from datatypes import (
+from core.operation import (
+    AdmittedPort,
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
+    ResidueAxisReference,
+)
+from datatypes.observation import (
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseObservationContext,
-    ResidueAxisReference,
-    ResolvedStructureResidueAxis,
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_transform import (
-    CandidateResolvedResidueAxisAssociations,
-)
+from datatypes.structure import ResolvedStructureResidueAxis
 from .contracts import (
     INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
@@ -36,6 +40,19 @@ from .domain import (
     ResidueIdentityCorrespondence,
     StructureAlignmentEvidence,
 )
+
+
+class _ResolvedAxisAssociation(Protocol):
+    """Structural view of one admitted resolved-axis association."""
+
+    subject: CandidateDataReference
+    residue_axis: ResolvedStructureResidueAxis
+
+
+class _ResolvedAxisAssociations(Protocol):
+    """Structural view of the resolved-axis capability collection."""
+
+    entries: tuple[_ResolvedAxisAssociation, ...]
 
 
 def _candidate_scope(
@@ -63,7 +80,7 @@ def _axes_by_subject(
     tuple[ResolvedStructureResidueAxis, ResidueAxisReference],
 ]:
     associations = cast(
-        CandidateResolvedResidueAxisAssociations,
+        _ResolvedAxisAssociations,
         admitted.value,
     )
     axes = {entry.subject: entry.residue_axis for entry in associations.entries}

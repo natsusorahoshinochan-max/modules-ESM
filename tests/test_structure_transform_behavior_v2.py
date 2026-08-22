@@ -25,7 +25,9 @@ from core.workflow.document import WorkflowEdge
 from datatypes.candidate import CandidateCollection
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
-from modules.structure_transform import CandidateResolvedResidueAxisAssociations
+from modules.structure_transform.domain import (
+    CandidateResolvedResidueAxisAssociations,
+)
 from modules.structure_transform.package import MODULE_PACKAGE
 from tests.fixtures.proteinmpnn_model_sources.package import (
     MODULE_PACKAGE as CANDIDATE_SOURCE_PACKAGE,

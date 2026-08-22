@@ -3,25 +3,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import cast
+from typing import Protocol, cast
 
-from core import OperationCall
-from datatypes import (
+from core.operation import (
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
+    ResidueAxisReference,
+)
+from datatypes.observation import (
     PairwiseCandidateMapping,
     PairwiseObservationContext,
-    ProteinSequence,
-    ResidueAxisReference,
-    ResolvedStructureResidueAxis,
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_transform import (
-    CandidateResolvedResidueAxisAssociations,
-)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ResolvedStructureResidueAxis
 from .contracts import (
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
@@ -35,6 +38,19 @@ from .domain import (
     comparison_is_close,
     confidence_is_eligible,
 )
+
+
+class _ResolvedAxisAssociation(Protocol):
+    """Structural view of one admitted resolved-axis association."""
+
+    subject: CandidateDataReference
+    residue_axis: ResolvedStructureResidueAxis
+
+
+class _ResolvedAxisAssociations(Protocol):
+    """Structural view of the resolved-axis capability collection."""
+
+    entries: tuple[_ResolvedAxisAssociation, ...]
 
 
 _MEAN_PLDDT = ("structure.plddt.mean_residue", "3.0.0")
@@ -63,7 +79,7 @@ def _axis(
     subject: CandidateDataReference,
 ) -> tuple[ResolvedStructureResidueAxis, ResidueAxisReference]:
     associations = cast(
-        CandidateResolvedResidueAxisAssociations,
+        _ResolvedAxisAssociations,
         call.inputs[port].value,
     )
     matches = tuple(
