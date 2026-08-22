@@ -1955,7 +1955,6 @@
         "execution_route",
         "route_behavior",
         "availability_declaration",
-        "readiness_declaration",
         "deterministic",
         "cacheable",
         "implementation_identity",

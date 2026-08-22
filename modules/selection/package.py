@@ -9,7 +9,6 @@ from core.catalog.declarations import (
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ObservationSelectorConsumptionDefinition,
-    ReadinessDeclaration,
     ScientificOperationFactory,
     SelectionObjectiveConsumptionDefinition,
 )
@@ -19,10 +18,6 @@ from core.catalog.definition_resource import (
 )
 from core.catalog.port_contract import (
     BehaviorReference,
-)
-from core.operation import (
-    ReadinessCheckInput,
-    ReadinessResult,
 )
 from core.operation import OperationContext
 
@@ -47,11 +42,6 @@ MULTI_OBJECTIVE_OPERATIONS = frozenset(
 
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
-
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
 
 
 def _factory(operation: str):
@@ -97,15 +87,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ),
             prerequisites={},
             check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"selection.{operation}/readiness",
-                NODE_BINDING_VERSION,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
         ),
         deterministic=True,
         cacheable=True,

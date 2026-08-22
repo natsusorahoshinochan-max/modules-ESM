@@ -660,10 +660,10 @@ class ExecutionBindingDefinition:
     execution_route: Literal["adapter", "direct"]
     factory: ScientificOperationFactory
     availability: AvailabilityDeclaration
-    readiness: ReadinessDeclaration
     deterministic: bool
     cacheable: bool
     implementation_identity: Mapping[str, Any]
+    readiness: ReadinessDeclaration | None = None
     produced_observations: tuple[ProducedObservationDefinition, ...] = ()
     adapter_behavior: BehaviorReference | None = None
     observation_propagation: ObservationPropagationDefinition | None = None
@@ -749,7 +749,6 @@ class ExecutionBindingDefinition:
                 else self.factory.behavior.descriptor()
             ),
             "availability_declaration": self.availability.descriptor(),
-            "readiness_declaration": self.readiness.descriptor(),
             "deterministic": self.deterministic,
             "cacheable": self.cacheable,
             "implementation_identity": implementation_identity,
@@ -763,6 +762,8 @@ class ExecutionBindingDefinition:
                 else None
             ),
         }
+        if self.readiness is not None:
+            descriptor["readiness_declaration"] = self.readiness.descriptor()
         if self.selection_objective_consumption is not None:
             descriptor["selection_objective_consumption"] = (
                 self.selection_objective_consumption.descriptor_template()

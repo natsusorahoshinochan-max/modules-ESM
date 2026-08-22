@@ -11,7 +11,6 @@ from core.catalog.declarations import (
     ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.definition_resource import (
@@ -25,8 +24,6 @@ from core.catalog.port_contract import (
 from core.operation import (
     ArtifactPayload,
     OperationContext,
-    ReadinessCheckInput,
-    ReadinessResult,
     ScientificOperation,
 )
 
@@ -57,11 +54,6 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
-
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
 
 
 def _validate_artifact_payload(value: object) -> None:
@@ -153,15 +145,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ),
             prerequisites={},
             check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"protein_io.{operation}/readiness",
-                version,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
         ),
         deterministic=True,
         cacheable=operation.startswith("export_"),

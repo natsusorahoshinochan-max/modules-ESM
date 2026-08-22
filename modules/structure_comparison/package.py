@@ -13,7 +13,6 @@ from core.catalog.declarations import (
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ProducedObservationDefinition,
-    ReadinessDeclaration,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
@@ -25,8 +24,6 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     OperationContext,
-    ReadinessCheckInput,
-    ReadinessResult,
     ScientificOperation,
 )
 
@@ -58,11 +55,6 @@ TM_UTILITY_VERSION = "4.0.0"
 
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
-
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
 
 
 def _build(
@@ -122,15 +114,6 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
         prerequisites={},
         check=_available,
     ),
-    readiness=ReadinessDeclaration(
-        behavior=BehaviorReference(
-            "structure_comparison.evaluate_inserted_loop.direct/readiness",
-            INSERTED_LOOP_VERSION,
-            {"observation": "per-run"},
-        ),
-        prerequisites={},
-        check=_ready,
-    ),
     deterministic=True,
     cacheable=True,
     implementation_identity={
@@ -171,15 +154,6 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
         ),
         prerequisites={},
         check=_available,
-    ),
-    readiness=ReadinessDeclaration(
-        behavior=BehaviorReference(
-            "structure_comparison.classify_three_way_consistency.direct/readiness",
-            THREE_WAY_VERSION,
-            {"observation": "per-run"},
-        ),
-        prerequisites={},
-        check=_ready,
     ),
     deterministic=True,
     cacheable=True,
@@ -324,15 +298,6 @@ def _binding(
             ),
             prerequisites={},
             check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"{binding_id}/readiness",
-                node_version,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
         ),
         deterministic=True,
         cacheable=True,

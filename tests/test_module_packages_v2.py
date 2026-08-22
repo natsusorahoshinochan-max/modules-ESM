@@ -433,6 +433,25 @@ def test_production_bindings_publish_exact_typed_environment_closures() -> None:
             )
 
 
+def test_only_adapter_bindings_declare_provider_readiness() -> None:
+    registrations = module_registrations()
+    catalog = build_frozen_catalog(registrations)
+
+    for registration in registrations:
+        for binding in registration.bindings:
+            resolved = catalog.require_contract(
+                "binding",
+                binding.binding_id,
+                binding.version,
+            )
+            if binding.execution_route == "adapter":
+                assert binding.readiness is not None
+                assert "readiness_declaration" in resolved.descriptor
+            else:
+                assert binding.readiness is None
+                assert "readiness_declaration" not in resolved.descriptor
+
+
 def test_package_owned_port_type_has_one_independent_exact_reference(
     tmp_path: Path,
     monkeypatch,

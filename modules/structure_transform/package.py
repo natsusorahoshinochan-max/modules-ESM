@@ -8,7 +8,6 @@ from core.catalog.declarations import (
     ContractIdentity,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.definition_resource import (
@@ -21,8 +20,6 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     OperationContext,
-    ReadinessCheckInput,
-    ReadinessResult,
     ScientificOperation,
 )
 from datatypes.structure import ProteinStructure
@@ -107,11 +104,6 @@ _METHOD_VERSIONS = {
 }
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
-
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
 
 
 def _build_select_chains(context: OperationContext) -> ScientificOperation:
@@ -233,15 +225,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ),
             prerequisites={},
             check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"structure_transform.{operation}/readiness",
-                binding_version,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
         ),
         deterministic=True,
         cacheable=True,

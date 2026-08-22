@@ -296,11 +296,6 @@ def _dssp_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     return mkdssp_readiness(check_input.values)
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
-
-
 def _build(operation: str):
     def factory(context: OperationContext) -> ScientificOperation:
         if operation == "dssp_compute":
@@ -494,35 +489,27 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ),
             check=_available,
         ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"structure_annotation.{operation}/readiness",
-                (
-                    _DSSP_READINESS_BEHAVIOR_VERSION
-                    if is_dssp
-                    else _VERSION
+        readiness=(
+            ReadinessDeclaration(
+                behavior=BehaviorReference(
+                    f"structure_annotation.{operation}/readiness",
+                    _DSSP_READINESS_BEHAVIOR_VERSION,
+                    {
+                        "observation": "per-run",
+                        "path_source": "trusted_environment_configuration",
+                    }
                 ),
-                {
-                    "observation": "per-run",
-                    "path_source": (
-                        "trusted_environment_configuration"
-                        if is_dssp
-                        else "none"
-                    ),
-                },
-            ),
-            prerequisites=(
-                {
+                prerequisites={
                     "binary": {
                         "name": MKDSSP_BINARY,
                         "required_version": MKDSSP_VERSION,
                         "path_source": "trusted_environment_configuration",
                     }
-                }
-                if is_dssp
-                else {}
-            ),
-            check=_dssp_ready if is_dssp else _ready,
+                },
+                check=_dssp_ready,
+            )
+            if is_dssp
+            else None
         ),
         deterministic=True,
         cacheable=True,

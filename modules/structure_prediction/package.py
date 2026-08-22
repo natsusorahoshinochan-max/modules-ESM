@@ -9,7 +9,6 @@ from core.catalog.declarations import (
     ExecutionBindingDefinition,
     ModulePackageRegistration,
     ProducedObservationDefinition,
-    ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.definition_resource import (
@@ -21,8 +20,6 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     OperationContext,
-    ReadinessCheckInput,
-    ReadinessResult,
     ScientificOperation,
 )
 
@@ -43,11 +40,6 @@ _METRIC_VERSIONS = {
 
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
-
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
 
 
 def _build(context: OperationContext) -> ScientificOperation:
@@ -115,15 +107,6 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
         ),
         prerequisites={},
         check=_available,
-    ),
-    readiness=ReadinessDeclaration(
-        behavior=BehaviorReference(
-            "structure_prediction.materialize_confidence.direct/readiness",
-            VERSION,
-            {"observation": "per-run"},
-        ),
-        prerequisites={},
-        check=_ready,
     ),
     deterministic=True,
     cacheable=True,

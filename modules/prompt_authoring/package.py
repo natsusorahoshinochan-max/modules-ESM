@@ -9,7 +9,6 @@ from core.catalog.declarations import (
     EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    ReadinessDeclaration,
     ScientificOperationFactory,
 )
 from core.catalog.definition_resource import (
@@ -21,8 +20,6 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     OperationContext,
-    ReadinessCheckInput,
-    ReadinessResult,
     ScientificOperation,
 )
 
@@ -91,11 +88,6 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
-
-
 def _build(operation: str):
     def factory(context: OperationContext) -> ScientificOperation:
         implementation = _IMPLEMENTATIONS[operation]
@@ -157,15 +149,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ),
             prerequisites={},
             check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"prompt_authoring.{operation}/readiness",
-                binding_version,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
         ),
         deterministic=True,
         cacheable=True,

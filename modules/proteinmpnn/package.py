@@ -233,11 +233,6 @@ def _model_available() -> AvailabilityResult:
     )
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
-
-
 def _model_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
     return proteinmpnn_readiness(check_input.values)
 
@@ -574,19 +569,19 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ),
             check=_model_available if is_model else _available,
         ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"proteinmpnn.{operation}/readiness",
-                version,
-                {
-                    "observation": "cache-miss",
-                    "cache_order": "before-provider-entry",
-                    "model_load": "forbidden",
-                    "secret_retention": "none",
-                },
-            ),
-            prerequisites=(
-                {
+        readiness=(
+            ReadinessDeclaration(
+                behavior=BehaviorReference(
+                    f"proteinmpnn.{operation}/readiness",
+                    version,
+                    {
+                        "observation": "cache-miss",
+                        "cache_order": "before-provider-entry",
+                        "model_load": "forbidden",
+                        "secret_retention": "none",
+                    },
+                ),
+                prerequisites={
                     "provider_checkout": {
                         "source_revision": PROTEINMPNN_REVISION,
                         "path_source": "trusted_environment_configuration",
@@ -600,11 +595,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                         "source": "trusted_environment_configuration",
                         "exact_value": PROTEINMPNN_DEVICE,
                     },
-                }
-                if is_model
-                else {}
-            ),
-            check=_model_ready if is_model else _ready,
+                },
+                check=_model_ready,
+            )
+            if is_model
+            else None
         ),
         deterministic=True,
         cacheable=True,
