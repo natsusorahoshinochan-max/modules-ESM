@@ -21,7 +21,6 @@ from core.execution.ledger.codec import (
 from core.execution.ledger.facts import (
     AvailabilityBound,
     CancellationRequested,
-    CommittedFactRange,
     DerivedRunReference,
     EngineInvocationStarted,
     EngineInvocationTerminal,
@@ -33,7 +32,6 @@ from core.execution.ledger.facts import (
     OperationAttemptStarted,
     OperationAttemptTerminal,
     OutputsPublished,
-    ProposedFact,
     ReadinessAttested,
     RunAdmitted,
     RunScopeBound,
@@ -448,16 +446,6 @@ class Ledger:
                 raise ValueError("Ledger cursor sequence is outside the Run")
             return self._cursor_at(sequence)
 
-    def _acknowledgement(
-        self,
-        committed: CommittedFactRange,
-    ) -> LedgerAcknowledgement:
-        return LedgerAcknowledgement(
-            first_sequence=committed.first_sequence,
-            last_sequence=committed.last_sequence,
-            cursor=self._cursor_at(committed.last_sequence),
-        )
-
     def record(
         self,
         transition: LedgerTransition,
@@ -507,30 +495,24 @@ class Ledger:
         self,
         scope: RunScopeBinding,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        RunScopeBound(
-                            project_id=self._project_id,
-                            run_id=self._run_id,
-                            workflow_commit_id=scope.workflow_commit_id,
-                            workflow_commit_revision=scope.workflow_commit_revision,
-                            workflow_digest=scope.workflow_digest,
-                            contract_lock_digest=scope.contract_lock_digest,
-                            execution_plan_digest=scope.execution_plan_digest,
-                            catalog_contract_digest=scope.catalog_contract_digest,
-                            resolved_contracts=scope.resolved_contracts,
-                            resolved_contract_roots=(
-                                scope.resolved_contract_roots
-                            ),
-                            plan_nodes=self.plan_nodes,
-                            selection_required=bool(self._selection_consumer_ids),
-                            selection_terminal_keys=self._selection_consumer_ids,
-                            derived_from=scope.derived_from,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                RunScopeBound(
+                    project_id=self._project_id,
+                    run_id=self._run_id,
+                    workflow_commit_id=scope.workflow_commit_id,
+                    workflow_commit_revision=scope.workflow_commit_revision,
+                    workflow_digest=scope.workflow_digest,
+                    contract_lock_digest=scope.contract_lock_digest,
+                    execution_plan_digest=scope.execution_plan_digest,
+                    catalog_contract_digest=scope.catalog_contract_digest,
+                    resolved_contracts=scope.resolved_contracts,
+                    resolved_contract_roots=scope.resolved_contract_roots,
+                    plan_nodes=self.plan_nodes,
+                    selection_required=bool(self._selection_consumer_ids),
+                    selection_terminal_keys=self._selection_consumer_ids,
+                    derived_from=scope.derived_from,
+                ),
             )
         )
 
@@ -538,17 +520,13 @@ class Ledger:
         self,
         availability: AvailabilityBinding,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        AvailabilityBound(
-                            binding=availability.binding,
-                            catalog_observed_at=availability.catalog_observed_at,
-                            available=availability.available,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                AvailabilityBound(
+                    binding=availability.binding,
+                    catalog_observed_at=availability.catalog_observed_at,
+                    available=availability.available,
+                ),
             )
         )
 
@@ -556,16 +534,12 @@ class Ledger:
         self,
         admission: RunAdmission,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        RunAdmitted(
-                            admission.workflow_commit_id,
-                            admission.workflow_commit_revision,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                RunAdmitted(
+                    admission.workflow_commit_id,
+                    admission.workflow_commit_revision,
+                ),
             )
         )
 
@@ -573,38 +547,32 @@ class Ledger:
         self,
         transition: RunStart,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit((ProposedFact(RunStarted(transition.started_at)),))
-        )
+        return self._commit((RunStarted(transition.started_at),))
 
     def _record_readiness(
         self,
         attestation: ReadinessAttestation,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        ReadinessAttested(
-                            binding=attestation.binding,
-                            readiness_contract_digest=(
-                                attestation.readiness_contract_digest
-                            ),
-                            observed_at=attestation.observed_at,
-                            conclusion=attestation.conclusion,
-                            proof_source=attestation.proof_source,
-                            attestation_digest=readiness_attestation_digest(
-                                binding=attestation.binding,
-                                readiness_contract_digest=(
-                                    attestation.readiness_contract_digest
-                                ),
-                                observed_at=attestation.observed_at,
-                                conclusion=attestation.conclusion,
-                                proof_source=attestation.proof_source,
-                            ),
-                        )
+        return self._commit(
+            (
+                ReadinessAttested(
+                    binding=attestation.binding,
+                    readiness_contract_digest=(
+                        attestation.readiness_contract_digest
                     ),
-                )
+                    observed_at=attestation.observed_at,
+                    conclusion=attestation.conclusion,
+                    proof_source=attestation.proof_source,
+                    attestation_digest=readiness_attestation_digest(
+                        binding=attestation.binding,
+                        readiness_contract_digest=(
+                            attestation.readiness_contract_digest
+                        ),
+                        observed_at=attestation.observed_at,
+                        conclusion=attestation.conclusion,
+                        proof_source=attestation.proof_source,
+                    ),
+                ),
             )
         )
 
@@ -612,16 +580,12 @@ class Ledger:
         self,
         transition: NodeAttemptStart,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        NodeAttemptStarted(
-                            transition.node_id,
-                            transition.node_attempt_id,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                NodeAttemptStarted(
+                    transition.node_id,
+                    transition.node_attempt_id,
+                ),
             )
         )
 
@@ -629,16 +593,12 @@ class Ledger:
         self,
         transition: OperationAttemptStart,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        OperationAttemptStarted(
-                            transition.operation_attempt_id,
-                            transition.node_attempt_id,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                OperationAttemptStarted(
+                    transition.operation_attempt_id,
+                    transition.node_attempt_id,
+                ),
             )
         )
 
@@ -646,20 +606,16 @@ class Ledger:
         self,
         transition: EngineInvocationStart,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        EngineInvocationStarted(
-                            invocation_id=transition.invocation_id,
-                            operation_attempt_id=transition.operation_attempt_id,
-                            engine_role=transition.engine_role,
-                            engine_identity=transition.engine_identity,
-                            parent_invocation_id=transition.parent_invocation_id,
-                            provenance=transition.provenance,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                EngineInvocationStarted(
+                    invocation_id=transition.invocation_id,
+                    operation_attempt_id=transition.operation_attempt_id,
+                    engine_role=transition.engine_role,
+                    engine_identity=transition.engine_identity,
+                    parent_invocation_id=transition.parent_invocation_id,
+                    provenance=transition.provenance,
+                ),
             )
         )
 
@@ -667,17 +623,13 @@ class Ledger:
         self,
         conclusion: EngineInvocationConclusion,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        EngineInvocationTerminal(
-                            invocation_id=conclusion.invocation_id,
-                            status=conclusion.status,
-                            error=conclusion.error,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                EngineInvocationTerminal(
+                    invocation_id=conclusion.invocation_id,
+                    status=conclusion.status,
+                    error=conclusion.error,
+                ),
             )
         )
 
@@ -687,54 +639,46 @@ class Ledger:
     ) -> LedgerAcknowledgement:
         outputs = publication.outputs
         artifacts = publication.artifacts
-        facts: list[ProposedFact] = []
+        facts: list[FactPayload] = []
         if publication.operation_attempt_id is not None:
             facts.append(
-                ProposedFact(
-                    OperationAttemptTerminal(
-                        publication.operation_attempt_id,
-                        "succeeded",
-                    )
+                OperationAttemptTerminal(
+                    publication.operation_attempt_id,
+                    "succeeded",
                 )
             )
         facts.append(
-            ProposedFact(
-                OutputsPublished(
-                    node_id=publication.node_id,
-                    result_identity=publication.result_identity,
-                    node_result_manifest=publication.node_result_manifest,
-                    outputs=outputs,
-                    artifacts=artifacts,
-                )
+            OutputsPublished(
+                node_id=publication.node_id,
+                result_identity=publication.result_identity,
+                node_result_manifest=publication.node_result_manifest,
+                outputs=outputs,
+                artifacts=artifacts,
             )
         )
         facts.extend(
             (
-                ProposedFact(
-                    NodeAttemptTerminal(
-                        node_attempt_id=publication.node_attempt_id,
-                        status="succeeded",
-                        resolution=publication.resolution,
-                    )
+                NodeAttemptTerminal(
+                    node_attempt_id=publication.node_attempt_id,
+                    status="succeeded",
+                    resolution=publication.resolution,
                 ),
-                ProposedFact(
-                    NodeDisposition(
-                        node_id=publication.node_id,
-                        outcome="succeeded",
-                        resolution=publication.resolution,
-                        blocked_by=(),
-                    )
+                NodeDisposition(
+                    node_id=publication.node_id,
+                    outcome="succeeded",
+                    resolution=publication.resolution,
+                    blocked_by=(),
                 ),
             )
         )
-        return self._acknowledgement(self._commit(tuple(facts)))
+        return self._commit(tuple(facts))
 
     def _record_node_failure(
         self,
         publication: NodeFailurePublication,
     ) -> LedgerAcknowledgement:
         error = publication.error
-        facts: list[ProposedFact] = []
+        facts: list[FactPayload] = []
         if publication.operation_attempt_id is not None:
             operation_status = (
                 "failed"
@@ -742,35 +686,29 @@ class Ledger:
                 else "succeeded"
             )
             facts.append(
-                ProposedFact(
-                    OperationAttemptTerminal(
-                        operation_attempt_id=publication.operation_attempt_id,
-                        status=operation_status,
-                        error=error if operation_status == "failed" else None,
-                    )
+                OperationAttemptTerminal(
+                    operation_attempt_id=publication.operation_attempt_id,
+                    status=operation_status,
+                    error=error if operation_status == "failed" else None,
                 )
             )
         facts.extend(
             (
-                ProposedFact(
-                    NodeAttemptTerminal(
-                        node_attempt_id=publication.node_attempt_id,
-                        status="failed",
-                        resolution=publication.resolution,
-                        error=error,
-                        failure_origin=publication.failure_origin,
-                    )
+                NodeAttemptTerminal(
+                    node_attempt_id=publication.node_attempt_id,
+                    status="failed",
+                    resolution=publication.resolution,
+                    error=error,
+                    failure_origin=publication.failure_origin,
                 ),
-                ProposedFact(
-                    NodeDisposition(
-                        publication.node_id,
-                        "failed",
-                        (),
-                    )
+                NodeDisposition(
+                    publication.node_id,
+                    "failed",
+                    (),
                 ),
             )
         )
-        return self._acknowledgement(self._commit(tuple(facts)))
+        return self._commit(tuple(facts))
 
     def _record_node_termination(
         self,
@@ -782,57 +720,47 @@ class Ledger:
             else publication.status
         )
         error = publication.error
-        facts: list[ProposedFact] = []
+        facts: list[FactPayload] = []
         if publication.operation_attempt_id is not None:
             facts.append(
-                ProposedFact(
-                    OperationAttemptTerminal(
-                        operation_attempt_id=publication.operation_attempt_id,
-                        status=publication.operation_status,
-                        error=(
-                            error
-                            if publication.operation_status != "succeeded"
-                            else None
-                        ),
-                    )
+                OperationAttemptTerminal(
+                    operation_attempt_id=publication.operation_attempt_id,
+                    status=publication.operation_status,
+                    error=(
+                        error
+                        if publication.operation_status != "succeeded"
+                        else None
+                    ),
                 )
             )
         facts.extend(
             (
-                ProposedFact(
-                    NodeAttemptTerminal(
-                        node_attempt_id=publication.node_attempt_id,
-                        status=publication.status,
-                        resolution=publication.resolution,
-                        error=error,
-                    )
+                NodeAttemptTerminal(
+                    node_attempt_id=publication.node_attempt_id,
+                    status=publication.status,
+                    resolution=publication.resolution,
+                    error=error,
                 ),
-                ProposedFact(
-                    NodeDisposition(
-                        publication.node_id,
-                        disposition,
-                        (),
-                    )
+                NodeDisposition(
+                    publication.node_id,
+                    disposition,
+                    (),
                 ),
             )
         )
-        return self._acknowledgement(self._commit(tuple(facts)))
+        return self._commit(tuple(facts))
 
     def _record_unstarted_node(
         self,
         conclusion: UnstartedNodeConclusion,
     ) -> LedgerAcknowledgement:
-        return self._acknowledgement(
-            self._commit(
-                (
-                    ProposedFact(
-                        NodeDisposition(
-                            conclusion.node_id,
-                            conclusion.outcome,
-                            conclusion.blocked_by,
-                        )
-                    ),
-                )
+        return self._commit(
+            (
+                NodeDisposition(
+                    conclusion.node_id,
+                    conclusion.outcome,
+                    conclusion.blocked_by,
+                ),
             )
         )
 
@@ -858,12 +786,10 @@ class Ledger:
             self._state.dispositions.values(),
             selections,
         )
-        return self._acknowledgement(
-            self._commit(
-                (
-                    *(ProposedFact(selection) for selection in selections),
-                    ProposedFact(RunTerminal(run_status)),
-                )
+        return self._commit(
+            (
+                *selections,
+                RunTerminal(run_status),
             )
         )
 
@@ -1622,10 +1548,10 @@ class Ledger:
 
     def _commit(
         self,
-        logical_facts: tuple[ProposedFact, ...],
-    ) -> CommittedFactRange:
+        payloads: tuple[FactPayload, ...],
+    ) -> LedgerAcknowledgement:
         """Validate and durably publish one atomic logical transition."""
-        if not logical_facts:
+        if not payloads:
             raise ValueError("Run Ledger transaction must contain facts")
         with self._condition:
             self._require_available_evidence()
@@ -1634,9 +1560,9 @@ class Ledger:
                 Fact(
                     sequence=first_sequence + offset,
                     recorded_at=run_timestamp(),
-                    payload=proposed.payload,
+                    payload=payload,
                 )
-                for offset, proposed in enumerate(logical_facts)
+                for offset, payload in enumerate(payloads)
             )
             try:
                 for fact in facts:
@@ -1689,10 +1615,10 @@ class Ledger:
             self._transaction_count = transaction_sequence
             self._committed_fact_count = facts[-1].sequence
             self._condition.notify_all()
-            return CommittedFactRange(
+            return LedgerAcknowledgement(
                 first_sequence=first_sequence,
                 last_sequence=facts[-1].sequence,
-                facts=facts,
+                cursor=self._cursor_at(facts[-1].sequence),
             )
 
     def _install_loaded_transaction(
@@ -1766,9 +1692,7 @@ class Ledger:
                     decision_sequence=decision_sequence,
                     cursor=self._cursor_at(decision_sequence),
                 )
-            committed = self._commit(
-                (ProposedFact(CancellationRequested(run_timestamp())),)
-            )
+            committed = self._commit((CancellationRequested(run_timestamp()),))
             decision_sequence = committed.last_sequence
             return CancellationDecision(
                 outcome="cancellation_requested",
@@ -1837,4 +1761,4 @@ class Ledger:
         with self._condition:
             if not self._state.run_admitted or self._state.run_terminal:
                 return
-            self._commit((ProposedFact(RunTerminal("interrupted")),))
+            self._commit((RunTerminal("interrupted"),))

@@ -481,22 +481,10 @@ FactPayload: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True)
-class ProposedFact:
-    payload: FactPayload
-
-
-@dataclass(frozen=True, slots=True)
 class Fact:
     sequence: int
     recorded_at: str
     payload: FactPayload
-
-
-@dataclass(frozen=True, slots=True)
-class CommittedFactRange:
-    first_sequence: int
-    last_sequence: int
-    facts: tuple[Fact, ...]
 
 
 def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
