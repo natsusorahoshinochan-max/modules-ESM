@@ -24,6 +24,7 @@ from core.catalog.declarations import (
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
+    load_method_definitions,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
@@ -332,9 +333,11 @@ def _build(operation: str):
     return factory
 
 
-def _method(operation: str) -> MethodDefinition:
-    algorithms: dict[str, dict[str, Any]] = {
-        "dssp_compute": {
+def _dssp_method() -> MethodDefinition:
+    return MethodDefinition(
+        method_id="structure_annotation.dssp_compute.method",
+        version=_METHOD_VERSIONS[_DSSP_OPERATION],
+        algorithm_identity={
             "name": "mkdssp-residue-annotation",
             "binary": {
                 "name": MKDSSP_BINARY,
@@ -349,152 +352,31 @@ def _method(operation: str) -> MethodDefinition:
             "secondary_absent_marker": "?",
             "accessibility_absent_markers": [".", "?"],
         },
-        "secondary_structure_extract": {
-            "name": "exact-DSSP-SS8-track-extraction",
-            "alphabet": "GHITEBSC",
-            "absent": "_",
-            "coarse_conversion": "none",
-        },
-        "sasa_compute": {
-            "name": "exact-DSSP-solvent-accessibility-extraction",
-            "unit": "angstrom_squared",
-            "missing_value": "null",
-        },
-        "secondary_structure_agreement": {
-            "name": "exact-SS8-present-residue-agreement",
-            "alphabet": "GHITEBSC",
-            "absent_policy": "exclude",
-            "coarse_conversion": "none",
-        },
-        "apply_secondary_structure_to_prompt": {
-            "name": "exact-annotation-SS8-to-ProteinPrompt-conditioning",
-            "source_alphabet": "GHITEBSC_",
-            "target_alphabet": "GHITEBS-",
-            "symbol_mapping": {
-                "C": "-",
-                "GHITEBS": "identity",
-                "_": "null",
-            },
-            "source_missing_role": "annotation_unavailable",
-            "target_missing_role": "prompt_unspecified",
-            "layout": "exact_identity",
-            "unaffected_prompt_fields": "byte-equivalent-canonical-values",
-            "provenance_transition": (
-                "observed_annotation_to_prompt_conditioning"
-            ),
-        },
-        "apply_sasa_to_prompt": {
-            "name": "exact-DSSP-SASA-to-ProteinPrompt-conditioning",
-            "unit": "angstrom_squared",
-            "numeric_mapping": "identity",
-            "source_missing_role": "annotation_unavailable",
-            "target_missing_role": "prompt_unspecified",
-            "layout": "exact_identity",
-            "unaffected_prompt_fields": "byte-equivalent-canonical-values",
-            "provenance_transition": (
-                "observed_annotation_to_prompt_conditioning"
-            ),
-        },
-        "expected_secondary_structure_from_prompt": {
-            "name": (
-                "exact-ProteinPrompt-conditioning-to-expected-annotation-SS8"
-            ),
-            "source_alphabet": "GHITEBS-",
-            "target_alphabet": "GHITEBSC_",
-            "symbol_mapping": {
-                "-": "C",
-                "GHITEBS": "identity",
-                "null": "_",
-            },
-            "source_missing_role": "prompt_unspecified",
-            "target_missing_role": "expected_comparison_excluded",
-            "layout": "exact_identity",
-            "provenance_transition": (
-                "prompt_conditioning_to_expected_annotation"
-            ),
-        },
-    }
-    return MethodDefinition(
-        method_id=f"structure_annotation.{operation}.method",
-        version=_METHOD_VERSIONS[operation],
-        algorithm_identity=algorithms[operation],
         model_identity={"kind": "none"},
         checkpoint_identity={"kind": "none"},
         featurization_identity={
-            "dssp_compute": {
-                "input": (
-                    "singleton ProteinStructure Candidate and authoritative "
-                    "resolved residue axis joined by exact admitted "
-                    "CandidateDataReference"
-                ),
-                "structure_format": "PDB-v3.3-fixed-columns",
-                "provider_output_format": "mkdssp-4.6.1-mmCIF",
-                "residue_mapping": (
-                    "dssp_struct_summary-label-asym-and-seq-joined-through-"
-                    "atom_site-auth-asym-auth-seq-and-PDB-ins-code-to-"
-                    "exact-authoritative-axis-identity"
-                ),
-            },
-            "secondary_structure_extract": {
-                "input": "candidate-associated DSSP annotation",
-                "projection": "secondary_structure",
-                "P_conversion": "C",
-                "subject": "preserve exact CandidateDataReference",
-            },
-            "sasa_compute": {
-                "input": "candidate-associated DSSP annotation",
-                "projection": "sasa",
-                "unit": "angstrom_squared",
-                "subject": "preserve exact CandidateDataReference",
-            },
-            "secondary_structure_agreement": {
-                "inputs": "expected and observed candidate-associated SS8 tracks",
-                "participant_binding": {
-                    "observed": "exact admitted subject Candidate reference",
-                    "expected": "exact admitted reference Candidate reference",
-                },
-                "layout": "exact_identity",
-                "presence_mask": "both-values-not-underscore",
-            },
-            "apply_secondary_structure_to_prompt": {
-                "inputs": [
-                    "ProteinPrompt",
-                    "candidate-associated secondary-structure track",
-                ],
-                "output": "ProteinPrompt",
-                "track": "secondary_structure",
-                "layout": "exact_identity",
-                "candidate_attribution": "not copied into ProteinPrompt",
-            },
-            "apply_sasa_to_prompt": {
-                "inputs": [
-                    "ProteinPrompt",
-                    "candidate-associated SASA track",
-                ],
-                "output": "ProteinPrompt",
-                "track": "sasa",
-                "unit": "angstrom_squared",
-                "layout": "exact_identity",
-                "candidate_attribution": "not copied into ProteinPrompt",
-            },
-            "expected_secondary_structure_from_prompt": {
-                "inputs": ["ProteinPrompt", "singleton reference Candidate"],
-                "output": "candidate-associated secondary-structure track",
-                "track": "secondary_structure",
-                "layout": "exact_identity",
-                "output_role": "expected_comparison",
-                "participant_binding": (
-                    "exact admitted reference Candidate reference"
-                ),
-            },
-        }[operation],
-        source_identity=(
-            mkdssp_provider_identity()
-            if operation == _DSSP_OPERATION
-            else {"kind": "repository-owned"}
-        ),
+            "input": (
+                "singleton ProteinStructure Candidate and authoritative "
+                "resolved residue axis joined by exact admitted "
+                "CandidateDataReference"
+            ),
+            "structure_format": "PDB-v3.3-fixed-columns",
+            "provider_output_format": "mkdssp-4.6.1-mmCIF",
+            "residue_mapping": (
+                "dssp_struct_summary-label-asym-and-seq-joined-through-"
+                "atom_site-auth-asym-auth-seq-and-PDB-ins-code-to-"
+                "exact-authoritative-axis-identity"
+            ),
+        },
+        source_identity=mkdssp_provider_identity(),
         scale_contract={"kind": "identity"},
     )
+
+
+STATIC_METHODS = load_method_definitions(
+    __package__,
+    "definitions/methods.yaml",
+)
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
@@ -760,7 +642,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             "definitions/secondary_structure_position_agreement_metric.yaml"
         ),
     ),
-    methods=tuple(_method(operation) for operation in _OPERATIONS),
+    methods=(_dssp_method(), *STATIC_METHODS),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(
         _port_type(
