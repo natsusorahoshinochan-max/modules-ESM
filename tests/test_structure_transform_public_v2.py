@@ -12,6 +12,8 @@ from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import (
     encode_project_input_content,
     prepare_rest_request,
+)
+from tests.support.protocol import (
     validate_artifact_response,
     validate_response,
 )

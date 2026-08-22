@@ -21,7 +21,7 @@ import pytest
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from datatypes.candidate import CandidateCollection
 from datatypes.observation import PairwiseCandidateMapping
-from protein_workbench_public import validate_event
+from tests.support.protocol import validate_event
 from tests.acceptance.retained_evidence import (
     require_retained_evidence,
     retain_service_run,

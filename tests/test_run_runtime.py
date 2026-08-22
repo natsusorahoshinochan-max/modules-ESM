@@ -98,10 +98,12 @@ from datatypes.exact_reference import ExactContractReference
 from datatypes.sequence import ProteinSequence
 from protein_workbench_public import (
     artifact_content_disposition,
+)
+from tests.support.protocol import (
     validate_error,
     validate_response,
-    validate_schema,
 )
+from protein_workbench_public import validate_schema
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,

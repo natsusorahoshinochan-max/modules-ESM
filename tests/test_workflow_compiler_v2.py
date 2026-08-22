@@ -59,7 +59,7 @@ from core.catalog.port_contract import (
     UnknownContractError,
 )
 from protein_workbench_public.bootstrap import create_application
-from protein_workbench_public import validate_error, validate_response
+from tests.support.protocol import validate_error, validate_response
 
 
 def _catalog_contract(

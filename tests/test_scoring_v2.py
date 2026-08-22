@@ -63,10 +63,9 @@ from core.workflow.compiler import WorkflowCompileError
 from core.workflow.document import WorkflowDocumentError
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from protein_workbench_public import (
-    validate_event,
-    validate_response,
     validate_schema,
 )
+from tests.support.protocol import validate_event, validate_response
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,

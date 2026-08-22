@@ -15,7 +15,7 @@ from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
-from protein_workbench_public import validate_response
+from tests.support.protocol import validate_response
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,

@@ -25,7 +25,7 @@ from core.execution.node_attempt import (
 )
 from core.execution.ledger import FilesystemLedgerStore
 from protein_workbench_public.bootstrap import create_application
-from protein_workbench_public import validate_error, validate_response
+from tests.support.protocol import validate_error, validate_response
 from protein_workbench_public.ledger_codec import encode_event
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.test_run_runtime import (

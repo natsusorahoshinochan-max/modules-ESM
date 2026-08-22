@@ -32,13 +32,15 @@ from protein_workbench_public import (
     encode_project_input_content,
     prepare_run_event_stream_request,
     prepare_rest_request,
+    validate_request,
+    validate_schema,
+)
+from tests.support.protocol import (
     validate_artifact_response,
-    validate_typed_value_response,
     validate_error,
     validate_event,
-    validate_request,
     validate_response,
-    validate_schema,
+    validate_typed_value_response,
 )
 from tests.public_protocol_acceptance_client import (
     PublicProtocolAcceptanceClient,

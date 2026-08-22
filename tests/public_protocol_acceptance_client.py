@@ -11,6 +11,8 @@ from protein_workbench_public import (
     ProtocolValidationError,
     encode_project_input_content,
     prepare_rest_request,
+)
+from tests.support.protocol import (
     validate_artifact_response,
     validate_error,
     validate_event,

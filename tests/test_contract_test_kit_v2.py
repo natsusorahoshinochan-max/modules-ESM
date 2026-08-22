@@ -30,6 +30,8 @@ from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import (
     prepare_run_event_stream_request,
     prepare_rest_request,
+)
+from tests.support.protocol import (
     validate_artifact_response,
     validate_event,
     validate_response,

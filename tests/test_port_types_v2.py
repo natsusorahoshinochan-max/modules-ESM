@@ -55,7 +55,7 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from modules.proteinmpnn.domain import ProteinMPNNConstraints
 from datatypes.residue import validate_residue_map as validate_canonical_residue_map
-from protein_workbench_public import validate_response
+from tests.support.protocol import validate_response
 
 
 EXPECTED_PORT_TYPE_IDS = {

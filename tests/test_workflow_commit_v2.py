@@ -72,7 +72,7 @@ from tests.support.catalog import (
     install_runtime,
 )
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
-from protein_workbench_public import validate_error
+from tests.support.protocol import validate_error
 from tests.fixtures.zero_core_packages.synthetic_echo.package import (
     MODULE_PACKAGE as SYNTHETIC_ECHO_PACKAGE,
 )

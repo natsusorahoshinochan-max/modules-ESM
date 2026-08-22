@@ -42,7 +42,7 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.sequence import ProteinSequence
-from protein_workbench_public import validate_response
+from tests.support.protocol import validate_response
 from protein_workbench_public.bootstrap import module_registrations
 from protein_workbench_public.catalog_codec import encode_catalog_projection
 from tests.fixtures.scientific_operation import admitted_port_fixture

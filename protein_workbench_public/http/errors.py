@@ -24,7 +24,6 @@ from protein_workbench_public.protocol import (
     REST_BODY_ABSENT,
     ProtocolValidationError,
     load_bundle,
-    validate_error,
 )
 
 
@@ -48,7 +47,6 @@ def public_error_payload(
         },
     }
     status = definition["http_status"]
-    validate_error(payload, status=status)
     return status, payload
 
 
