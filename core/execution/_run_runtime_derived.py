@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 from core.execution._run_runtime_registry import _RunRegistry
-from core.execution.ledger import V2RunError
+from core.execution.ledger import DerivedRunReference, V2RunError
 from core.workflow.plan import ExecutionPlan
 
 
@@ -146,12 +146,12 @@ class _DerivedRunStarter:
             project_id,
             workflow_commit_id=source_projection.workflow_commit_id,
             client_request_id=client_request_id,
-            _derived_from={
-                "source_run_id": source_run_id,
-                "policy": policy,
-                "selected_node_ids": selected_in_plan_order,
-                "forced_node_ids": forced_in_plan_order,
-            },
+            _derived_from=DerivedRunReference(
+                source_run_id=source_run_id,
+                policy=policy,
+                selected_node_ids=tuple(selected_in_plan_order),
+                forced_node_ids=tuple(forced_in_plan_order),
+            ),
             _cache_bypass_nodes=forced,
             _retained_compiled=compiled,
         )

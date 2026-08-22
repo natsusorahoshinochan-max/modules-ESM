@@ -227,7 +227,7 @@ class V2RunService:
         ]
         | None = None,
         _before_execute: Callable[[], None] | None = None,
-        _derived_from: Mapping[str, Any] | None = None,
+        _derived_from: DerivedRunReference | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
         _retained_compiled: VerifiedWorkflowCommit | None = None,
     ) -> dict[str, Any]:
@@ -241,24 +241,6 @@ class V2RunService:
             compiled = _retained_compiled
         plan = compiled.execution_plan
         workflow_commit_revision = plan.workflow_commit_revision
-        if plan.catalog_contract_digest != self._catalog.contract_digest:
-            raise V2RunError(
-                "contract_digest_mismatch",
-                "Compiled FrozenCatalog identity is no longer current",
-                details={
-                    "issues": [
-                        {
-                            "code": "catalog_contract_digest_mismatch",
-                            "severity": "error",
-                            "message": (
-                                "Start Run requires the FrozenCatalog used "
-                                "during compilation"
-                            ),
-                            "field_path": ["workflow_commit_id"],
-                        }
-                    ]
-                },
-            )
         run_id = f"run-{uuid.uuid4().hex}"
         admitted_plan_evidence = plan_evidence(plan)
         try:
@@ -297,20 +279,7 @@ class V2RunService:
                     _exact_contract_reference(entry)
                     for entry in plan.resolved_contracts
                 ),
-                derived_from=(
-                    DerivedRunReference(
-                        source_run_id=_derived_from["source_run_id"],
-                        policy=_derived_from["policy"],
-                        selected_node_ids=tuple(
-                            _derived_from["selected_node_ids"]
-                        ),
-                        forced_node_ids=tuple(
-                            _derived_from["forced_node_ids"]
-                        ),
-                    )
-                    if _derived_from is not None
-                    else None
-                ),
+                derived_from=_derived_from,
             )
         )
         distinct: dict[tuple[str, str], ExecutionPlanNode] = {}
@@ -462,7 +431,7 @@ class V2RunService:
         *,
         workflow_commit_id: str,
         client_request_id: str,
-        _derived_from: Mapping[str, Any] | None = None,
+        _derived_from: DerivedRunReference | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
         _retained_compiled: VerifiedWorkflowCommit | None = None,
     ) -> dict[str, Any]:

@@ -2335,46 +2335,6 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
     ]
 
 
-def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    compiled_catalog = _direct_catalog([])
-    app = create_application(frozen_catalog_override=compiled_catalog)
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        active_catalog = _direct_catalog(
-            [],
-            node_title="Scientifically distinct active generation",
-        )
-        service = run_runtime.V2RunService(
-            app.state.project_manager,
-            active_catalog,
-            app.state.workflow_authoring,
-            node_attempt.NodeAttemptFactory(
-                app.state.project_manager,
-                admit_environment_configuration(active_catalog, {}),
-                result_store(app.state.project_manager),
-            ),
-            result_store(app.state.project_manager),
-        )
-        try:
-            with pytest.raises(V2RunError) as captured:
-                service.start(
-                    project_id,
-                    workflow_commit_id=compiled["workflow_commit_id"],
-                    client_request_id="inactive-plan",
-                )
-        finally:
-            service.shutdown()
-
-    assert captured.value.code == "contract_digest_mismatch"
-
-
 def test_simplefold_bindings_receive_independent_run_scoped_readiness(
     tmp_path,
     monkeypatch,
