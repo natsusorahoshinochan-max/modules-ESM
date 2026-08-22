@@ -368,8 +368,6 @@ class ProjectManager:
         project_id: str,
         run_id: str,
         node_id: str,
-        *,
-        seed: int = 42,
     ) -> "RunContext":
         """Build a context whose mutable paths are project/run contained."""
         from core.execution.run_context import RunContext
@@ -377,13 +375,7 @@ class ProjectManager:
         safe_node_id = validate_identifier(node_id, "node_id")
         run_dir = self.run_storage_directory(project_id, run_id)
         return RunContext(
-            project_dir=str(self._project_storage_root(project_id)),
-            node_id=safe_node_id,
-            run_id=run_id,
-            seed=seed,
             temp_dir=str(contained_path(run_dir, "temp", safe_node_id)),
-            output_dir=str(self.run_output_storage_root(project_id, run_id)),
-            log_dir=str(contained_path(run_dir, "logs")),
         )
 
     def _ensure_dir(self, project_id: str) -> Path:

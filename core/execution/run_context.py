@@ -16,21 +16,7 @@ from core.project.storage import validate_identifier
 class RunContext:
     """Own the contained mutable namespaces for one exact Run and Node."""
 
-    project_dir: str
-    node_id: str
-    run_id: str
-    seed: int
     temp_dir: str
-    output_dir: str
-    log_dir: str
-
-    def __post_init__(self) -> None:
-        validate_identifier(self.run_id, "run_id")
-        validate_identifier(self.node_id, "node_id")
-        object.__setattr__(self, "project_dir", str(Path(self.project_dir).resolve()))
-        object.__setattr__(self, "temp_dir", str(Path(self.temp_dir).resolve()))
-        object.__setattr__(self, "output_dir", str(Path(self.output_dir).resolve()))
-        object.__setattr__(self, "log_dir", str(Path(self.log_dir).resolve()))
 
     @contextmanager
     def temporary_directory(self, *, prefix: str) -> Iterator[Path]:
