@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,7 +54,7 @@ class SimpleFoldClosureFile:
 
     role: str
     environment_key: str
-    staging_group: str
+    runtime_group: str
     runtime_filename: str
     sha256: str
 
@@ -69,7 +68,7 @@ class SimpleFoldClosureSource:
     source_name: str | None = None
     package_name: str | None = None
     environment_key: str | None = None
-    staging_group: str | None = None
+    runtime_group: str | None = None
     reviewed_files: tuple[str, ...] = ()
     source_tree_sha256: str | None = None
 
@@ -77,7 +76,7 @@ class SimpleFoldClosureSource:
         """Reject incomplete repository-owned declarations immediately."""
         reviewed_tree_fields = (
             self.environment_key,
-            self.staging_group,
+            self.runtime_group,
             self.reviewed_files,
             self.source_tree_sha256,
         )
@@ -90,7 +89,7 @@ class SimpleFoldClosureSource:
             return
         if (
             self.environment_key is None
-            or self.staging_group is None
+            or self.runtime_group is None
             or not self.reviewed_files
             or self.source_tree_sha256 is None
         ):
@@ -163,14 +162,13 @@ class SimpleFoldProviderAssetClosure:
 
 
 @dataclass(frozen=True, slots=True)
-class StagedSimpleFoldProviderAssetClosure:
-    """Private per-invocation layout populated from one admitted closure."""
+class BoundSimpleFoldProviderAssetClosure:
+    """Runtime roots bound from one closure admitted at Readiness."""
 
-    root: Path
     groups: tuple[tuple[str, Path], ...]
 
     def group_root(self, group: str) -> Path:
-        """Return one declaration-owned staged group."""
+        """Return one declaration-owned runtime root."""
         return dict(self.groups)[group]
 
 
@@ -258,46 +256,28 @@ def admit_simplefold_provider_asset_closure(
             )
 
 
-def stage_simplefold_provider_asset_closure(
+def bind_simplefold_provider_asset_closure(
     closure: SimpleFoldProviderAssetClosure,
     environment: Mapping[str, Any],
-    staging_directory: Path,
-) -> StagedSimpleFoldProviderAssetClosure:
-    """Copy only one admitted declaration without proving it again."""
-    root = staging_directory / "simplefold_provider_assets"
-    root.mkdir(parents=True, mode=0o700)
-    group_names = {
-        file.staging_group for file in closure.files
-    } | {
-        source.staging_group
-        for source in closure.sources
-        if source.staging_group is not None
-    }
-    groups = tuple(
-        (group, root / group) for group in sorted(group_names)
-    )
-    for _, group_root in groups:
-        group_root.mkdir(mode=0o700)
-    group_roots = dict(groups)
+) -> BoundSimpleFoldProviderAssetClosure:
+    """Bind roots already proved by the Binding's Readiness boundary."""
+    group_roots: dict[str, Path] = {}
+
+    def bind(group: str, environment_key: str) -> None:
+        root = cast(Path, environment[environment_key])
+        prior = group_roots.setdefault(group, root)
+        if prior != root:
+            raise ValueError("SimpleFold runtime group has conflicting roots")
+
     for file in closure.files:
-        source_root = cast(Path, environment[file.environment_key])
-        shutil.copyfile(
-            source_root / file.runtime_filename,
-            group_roots[file.staging_group] / file.runtime_filename,
-        )
+        bind(file.runtime_group, file.environment_key)
     for source in closure.sources:
-        if source.staging_group is None:
+        if source.runtime_group is None:
             continue
-        source_root = cast(
-            Path,
-            environment[cast(str, source.environment_key)],
-        )
-        destination_root = group_roots[source.staging_group]
-        for relative in source.reviewed_files:
-            destination = destination_root / relative
-            destination.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
-            shutil.copyfile(source_root / relative, destination)
-    return StagedSimpleFoldProviderAssetClosure(root=root, groups=groups)
+        bind(source.runtime_group, cast(str, source.environment_key))
+    return BoundSimpleFoldProviderAssetClosure(
+        groups=tuple(sorted(group_roots.items())),
+    )
 
 
 _ESM2_REVIEWED_RUNTIME_FILES = (
@@ -326,7 +306,7 @@ _ESM2_SOURCE = SimpleFoldClosureSource(
     role="language_model_runtime_source",
     source_name="facebookresearch/esm",
     environment_key="esm2_source_root",
-    staging_group="esm2_source",
+    runtime_group="esm2_source",
     revision=SIMPLEFOLD_ESM2_REVISION,
     reviewed_files=_ESM2_REVIEWED_RUNTIME_FILES,
     source_tree_sha256=SIMPLEFOLD_ESM2_SOURCE_TREE_SHA256,
@@ -335,42 +315,42 @@ _ESM2_SOURCE = SimpleFoldClosureSource(
 _CCD = SimpleFoldClosureFile(
     role="chemical_component_dictionary",
     environment_key="model_root",
-    staging_group="simplefold_models",
+    runtime_group="simplefold_models",
     runtime_filename="ccd.pkl",
     sha256=SIMPLEFOLD_ARTIFACT_SHA256["ccd.pkl"],
 )
 _PLDDT = SimpleFoldClosureFile(
     role="confidence_output_head",
     environment_key="model_root",
-    staging_group="simplefold_models",
+    runtime_group="simplefold_models",
     runtime_filename="plddt.ckpt",
     sha256=SIMPLEFOLD_ARTIFACT_SHA256["plddt.ckpt"],
 )
 _SIMPLEFOLD_1_6B = SimpleFoldClosureFile(
     role="confidence_latent_model",
     environment_key="model_root",
-    staging_group="simplefold_models",
+    runtime_group="simplefold_models",
     runtime_filename="simplefold_1.6B.ckpt",
     sha256=SIMPLEFOLD_ARTIFACT_SHA256["simplefold_1.6B.ckpt"],
 )
 _SIMPLEFOLD_100M = SimpleFoldClosureFile(
     role="folding_model",
     environment_key="model_root",
-    staging_group="simplefold_models",
+    runtime_group="simplefold_models",
     runtime_filename="simplefold_100M.ckpt",
     sha256=SIMPLEFOLD_ARTIFACT_SHA256["simplefold_100M.ckpt"],
 )
 _ESM2 = SimpleFoldClosureFile(
     role="language_model",
     environment_key="esm2_model_root",
-    staging_group="esm2_models",
+    runtime_group="esm2_models",
     runtime_filename="esm2_t36_3B_UR50D.pt",
     sha256=SIMPLEFOLD_ESM2_ARTIFACT_SHA256["esm2_t36_3B_UR50D.pt"],
 )
 _ESM2_CONTACT_REGRESSION = SimpleFoldClosureFile(
     role="language_model_contact_regression",
     environment_key="esm2_model_root",
-    staging_group="esm2_models",
+    runtime_group="esm2_models",
     runtime_filename="esm2_t36_3B_UR50D-contact-regression.pt",
     sha256=SIMPLEFOLD_ESM2_ARTIFACT_SHA256[
         "esm2_t36_3B_UR50D-contact-regression.pt"

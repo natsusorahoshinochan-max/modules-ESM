@@ -57,7 +57,7 @@ from tests.fixtures.scientific_operation import (
 from tests.fixtures.public_v2 import decode_service_typed_output_value
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
-    install_fixture_source_staging_group,
+    install_fixture_source_runtime_group,
 )
 
 
@@ -1674,8 +1674,8 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             residue_axis=kwargs["residue_axis"]
         ),
     )
-    install_fixture_source_staging_group(monkeypatch, simplefold_adapter)
-    install_fixture_source_staging_group(monkeypatch, confidence_adapter)
+    install_fixture_source_runtime_group(monkeypatch, simplefold_adapter)
+    install_fixture_source_runtime_group(monkeypatch, confidence_adapter)
 
     simplefold_environment = {
         "model_root": simplefold_model_root,

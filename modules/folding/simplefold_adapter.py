@@ -19,10 +19,10 @@ from datatypes.structure import ProteinStructure
 
 from . import simplefold_contract
 from .simplefold_asset_closure import (
+    BoundSimpleFoldProviderAssetClosure,
     SimpleFoldAssetClosureAdmissionError,
-    StagedSimpleFoldProviderAssetClosure,
     admit_simplefold_provider_asset_closure,
-    stage_simplefold_provider_asset_closure,
+    bind_simplefold_provider_asset_closure,
 )
 
 
@@ -174,12 +174,12 @@ class LocalSimpleFoldAdapter:
         num_samples: int,
         effective_seed: int,
         staging_directory: Path,
-        staged_closure: StagedSimpleFoldProviderAssetClosure,
+        bound_closure: BoundSimpleFoldProviderAssetClosure,
     ) -> Callable[[], _SimpleFoldNativeResult]:
         configured = {
-            "model_root": staged_closure.group_root("simplefold_models"),
-            "esm2_source_root": staged_closure.group_root("esm2_source"),
-            "esm2_model_root": staged_closure.group_root("esm2_models"),
+            "model_root": bound_closure.group_root("simplefold_models"),
+            "esm2_source_root": bound_closure.group_root("esm2_source"),
+            "esm2_model_root": bound_closure.group_root("esm2_models"),
         }
         from .simplefold_runtime import fold_sequence
 
@@ -216,10 +216,9 @@ class LocalSimpleFoldAdapter:
         with self._resources.temporary_directory(
             prefix="simplefold-fold-"
         ) as staging_directory:
-            staged_closure = stage_simplefold_provider_asset_closure(
+            bound_closure = bind_simplefold_provider_asset_closure(
                 simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
                 self._environment,
-                staging_directory,
             )
             provider_call = self._provider_call(
                 sequence=sequence,
@@ -227,7 +226,7 @@ class LocalSimpleFoldAdapter:
                 num_samples=num_samples,
                 effective_seed=derived_call_seed,
                 staging_directory=staging_directory,
-                staged_closure=staged_closure,
+                bound_closure=bound_closure,
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,

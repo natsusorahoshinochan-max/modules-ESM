@@ -47,7 +47,7 @@ from tests.fixtures.scientific_operation import (
 )
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
-    install_fixture_source_staging_group,
+    install_fixture_source_runtime_group,
 )
 
 
@@ -569,7 +569,7 @@ def _simplefold_environment(
         "fold_sequence",
         fixture_fold_sequence,
     )
-    install_fixture_source_staging_group(monkeypatch, adapter)
+    install_fixture_source_runtime_group(monkeypatch, adapter)
 
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -752,51 +752,6 @@ def _run_simplefold(
     finally:
         service.shutdown()
     return catalog, service, projection, events
-
-
-def test_staging_failure_is_an_operation_failure_before_provider_entry(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.folding.simplefold_asset_closure as asset_closure
-
-    class Client:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def fold(self, **_kwargs: Any) -> Any:
-            self.calls += 1
-            raise AssertionError("Provider entry must not start")
-
-    client = Client()
-    environment = _simplefold_environment(
-        tmp_path / "environment",
-        monkeypatch,
-        client,
-    )
-
-    def fail_staging(_source: Path, _destination: Path) -> None:
-        raise OSError("fixture staging failure")
-
-    monkeypatch.setattr(asset_closure.shutil, "copyfile", fail_staging)
-    _, _, projection, events = _run_simplefold(
-        tmp_path / "run",
-        monkeypatch,
-        client=client,
-        num_samples=1,
-        environment_values=environment,
-    )
-
-    event_types = [event["event"]["type"] for event in events]
-    assert projection["status"] == "failed"
-    assert event_types.count("operation_attempt_started") == 2
-    assert event_types.count("operation_attempt_terminal") == 2
-    assert all(
-        event["event"].get("engine_role") != "fold_parent_0"
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-    )
-    assert client.calls == 0
 
 
 def test_closure_admission_failure_is_a_binding_failure_without_operation(

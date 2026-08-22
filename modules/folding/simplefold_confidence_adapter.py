@@ -28,10 +28,10 @@ from datatypes.structure import (
 from . import simplefold_contract
 from .adapter import normalize_residue_plddt
 from .simplefold_asset_closure import (
+    BoundSimpleFoldProviderAssetClosure,
     SimpleFoldAssetClosureAdmissionError,
-    StagedSimpleFoldProviderAssetClosure,
     admit_simplefold_provider_asset_closure,
-    stage_simplefold_provider_asset_closure,
+    bind_simplefold_provider_asset_closure,
 )
 
 
@@ -212,7 +212,7 @@ def _native_existing_structure_confidence(
     *,
     residue_axis: ResolvedStructureResidueAxis,
     staging_directory: Path,
-    staged_closure: StagedSimpleFoldProviderAssetClosure,
+    bound_closure: BoundSimpleFoldProviderAssetClosure,
 ) -> _SimpleFoldConfidenceNativeResult:
     """Run only the latent confidence path over supplied coordinates."""
     import numpy as np
@@ -227,9 +227,9 @@ def _native_existing_structure_confidence(
     def run() -> _SimpleFoldConfidenceNativeResult:
         residue_ids = cast(tuple[str, ...], residue_axis.layout.residue_ids)
         input_coordinates = _coordinates_by_residue(residue_axis)
-        model_dir = staged_closure.group_root("simplefold_models")
-        esm2_model_dir = staged_closure.group_root("esm2_models")
-        esm2_source_root = staged_closure.group_root("esm2_source")
+        model_dir = bound_closure.group_root("simplefold_models")
+        esm2_model_dir = bound_closure.group_root("esm2_models")
+        esm2_source_root = bound_closure.group_root("esm2_source")
         old_cwd = _setup_simplefold_imports()
         try:
             from simplefold.boltz_data_pipeline import const
@@ -445,13 +445,13 @@ class LocalSimpleFoldConfidenceAdapter:
         *,
         residue_axis: ResolvedStructureResidueAxis,
         staging_directory: Path,
-        staged_closure: StagedSimpleFoldProviderAssetClosure,
+        bound_closure: BoundSimpleFoldProviderAssetClosure,
     ) -> Callable[[], _SimpleFoldConfidenceNativeResult]:
         def invoke_local_runtime() -> _SimpleFoldConfidenceNativeResult:
             return _native_existing_structure_confidence(
                 residue_axis=residue_axis,
                 staging_directory=staging_directory,
-                staged_closure=staged_closure,
+                bound_closure=bound_closure,
             )
 
         return invoke_local_runtime
@@ -466,15 +466,14 @@ class LocalSimpleFoldConfidenceAdapter:
         with self._resources.temporary_directory(
             prefix="simplefold-confidence-"
         ) as staging_directory:
-            staged_closure = stage_simplefold_provider_asset_closure(
+            bound_closure = bind_simplefold_provider_asset_closure(
                 simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
                 self._environment,
-                staging_directory,
             )
             provider_call = self._provider_call(
                 residue_axis=residue_axis,
                 staging_directory=staging_directory,
-                staged_closure=staged_closure,
+                bound_closure=bound_closure,
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,

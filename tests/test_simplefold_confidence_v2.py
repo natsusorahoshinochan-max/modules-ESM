@@ -50,7 +50,7 @@ from tests.fixtures.scientific_operation import (
 )
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
-    install_fixture_source_staging_group,
+    install_fixture_source_runtime_group,
 )
 
 
@@ -158,7 +158,7 @@ def _confidence_environment(
     def fixture_native_confidence(**kwargs: Any) -> Any:
         return client.evaluate(
             residue_axis=kwargs["residue_axis"],
-            staging_directory=kwargs["staged_closure"].root,
+            staging_directory=kwargs["staging_directory"],
             resolved_provider_identity=adapter.provider_identity(),
         )
 
@@ -167,7 +167,7 @@ def _confidence_environment(
         "_native_existing_structure_confidence",
         fixture_native_confidence,
     )
-    install_fixture_source_staging_group(monkeypatch, adapter)
+    install_fixture_source_runtime_group(monkeypatch, adapter)
 
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
