@@ -7,20 +7,26 @@ import math
 from typing import Any
 
 from core.operation import OperationCall
-from core.port_types import canonical_sha256
-from core.scoring_v2 import (
+from core.catalog.port_contract import (
+    canonical_sha256,
+)
+from core.scoring.selection import (
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
+    observation_selector_identity_canonical,
     observation_selector_identity_facts_from_facts,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities_from_facts,
     resolve_objective_observations,
+    selection_objective_identity_canonical,
     selection_objective_identity_facts_from_facts,
     weighted_utility_totals,
 )
-from datatypes import (
+from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.observation import (
     ScoreCollection,
     ScoreObservation,
 )
@@ -38,11 +44,11 @@ class SelectionImplementation:
     ) -> None:
         self._operation = operation
         self._objectives = {
-            item.objective.objective_id: item
+            item.objective_id: item
             for item in objectives
         }
         self._selectors = {
-            item.selector.selector_id: item
+            item.selector_id: item
             for item in selectors
         }
 
@@ -65,11 +71,10 @@ class SelectionImplementation:
             selector_facts = self._selectors[
                 call.node_parameters["selector_id"]
             ]
-            selector = selector_facts.selector
             matching = resolve_objective_observations(
                 candidates=candidates,
                 collection=scores,
-                objective=selector,
+                objective=selector_facts,
                 out_of_scope_policy=out_of_scope_policy,
                 duplicate_policy="error",
             )
@@ -79,7 +84,7 @@ class SelectionImplementation:
                 operator=call.node_parameters["operator"],
                 threshold=call.node_parameters["threshold"],
             )
-            selection_contract = (
+            selection_contract = observation_selector_identity_canonical(
                 observation_selector_identity_facts_from_facts(
                     (selector_facts,),
                     candidate_input_port="candidates",
@@ -89,11 +94,10 @@ class SelectionImplementation:
         else:
             objective_id = call.node_parameters["objective_id"]
             objective_facts = self._objectives[objective_id]
-            objective = objective_facts.objective
             matching = resolve_objective_observations(
                 candidates=candidates,
                 collection=scores,
-                objective=objective,
+                objective=objective_facts,
                 out_of_scope_policy=out_of_scope_policy,
                 duplicate_policy="error",
             )
@@ -102,15 +106,15 @@ class SelectionImplementation:
                 entries=list(matching.values()),
             )
             profile = resolve_candidate_utilities_from_facts(
-                candidate_inputs={objective.candidate_input: candidates},
+                candidate_inputs={objective_facts.candidate_input: candidates},
                 score_collection_inputs={
-                    objective.score_collection_input: scoped_scores
+                    objective_facts.score_collection_input: scoped_scores
                 },
                 objectives=(objective_facts,),
                 candidate_data_references=candidate_data_references,
             )
             ranked = rank_candidates_by_weighted_utility(profile)
-            selection_contract = (
+            selection_contract = selection_objective_identity_canonical(
                 selection_objective_identity_facts_from_facts(
                     (objective_facts,),
                     candidate_input_port="candidates",
@@ -174,8 +178,8 @@ class SelectionImplementation:
             self._objectives[objective_id]
             for objective_id in objective_ids
         )
-        candidate_reference = objectives[0].objective.candidate_input
-        score_reference = objectives[0].objective.score_collection_input
+        candidate_reference = objectives[0].candidate_input
+        score_reference = objectives[0].score_collection_input
         profile = resolve_candidate_utilities_from_facts(
             candidate_inputs={candidate_reference: candidates},
             score_collection_inputs={score_reference: scores},
@@ -284,13 +288,14 @@ class SelectionImplementation:
                 ),
                 "operation": self._operation,
                 "input_collection_id": candidates.collection_id,
-                "objectives": list(
-                    selection_objective_identity_facts_from_facts(
+                "objectives": [
+                    selection_objective_identity_canonical(fact)
+                    for fact in selection_objective_identity_facts_from_facts(
                         objectives,
                         candidate_input_port="candidates",
                         score_collection_input_port="scores",
                     )
-                ),
+                ],
                 "parameters": {
                     name: list(value) if isinstance(value, tuple) else value
                     for name, value in node_parameters.items()

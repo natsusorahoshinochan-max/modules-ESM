@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -1131,8 +1133,12 @@ def test_fresh_source_bound_public_run(
             started.json()["run_id"],
             timeout_seconds=170 * 60,
         )
-        projection = service.projection(project_id, started.json()["run_id"])
-        events = service.public_events(project_id, projection["run_id"])
+        projection = public_run_projection(
+            service,
+            project_id,
+            started.json()["run_id"],
+        )
+        events = public_run_events(service, project_id, projection["run_id"])
 
         assert projection["status"] == "succeeded", events
         assert all(

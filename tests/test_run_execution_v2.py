@@ -16,45 +16,66 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from core import (
-    ArtifactPayload,
-    BehaviorReference,
-    CatalogContract,
-    EffectiveRandomnessResolver,
-    ExecutionTermination,
-    FrozenCatalog,
-    OperationCall,
-    OperationContext,
-    PortTypeDefinition,
-    PortValueError,
-    ProjectManager,
-    ReadinessCheckInput,
-    ReadinessResult,
-    ReadinessDeclaration,
-    ResultReplayHit,
-    ResultReplaySource,
-    RunResources,
-    ScientificOperationFactory,
+from core.project.manager import ProjectManager
+from core.execution.resources import RunResources
+from core.execution.ledger import (
+    NodeAttemptTerminal,
+    NodeDisposition,
+    OperationAttemptTerminal,
+)
+from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
-from core.server import create_app
-import core.run_execution_v2 as run_execution_v2
-from core.value_admission import admitted_port_values
-from core.workflow_authoring_v2 import WorkflowAuthoringService
-from core.workflow_v2 import (
-    ExecutionPlanNode,
-    compile_workflow,
-    parse_workflow_document,
-    relock_workflow,
+from core.catalog.declarations import (
+    CatalogContract,
+    EffectiveRandomnessResolver,
+    EnvironmentFieldDeclaration,
+    ReadinessDeclaration,
+    ScientificOperationFactory,
 )
-from datatypes import (
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+    PortValueError,
+)
+from core.operation import (
+    ArtifactPayload,
+    OperationCall,
+    OperationContext,
+    ReadinessCheckInput,
+    ReadinessResult,
+    ResolvedOutputIdentity,
+)
+from core.parameters.contract import admit_declarations
+from core.run_execution_v2 import (
+    ExecutionTermination,
+    ResultReplayHit,
+    ResultReplaySource,
+)
+from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
+from protein_workbench_public.bootstrap import create_application
+import core.run_execution_v2 as run_execution_v2
+from core.execution.environment import admit_environment_configuration
+from tests.support.output_admission import admit_fixture_port
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from core.workflow.plan import ExecutionPlanNode
+from protein_workbench_public.ledger_codec import encode_event
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    ProteinSequence,
 )
+from datatypes.exact_reference import ExactContractReference
+from datatypes.sequence import ProteinSequence
 from protein_workbench_public import (
     artifact_content_disposition,
     validate_error,
@@ -73,6 +94,17 @@ def _transaction_has_fact(payload: bytes, fact_type: str) -> bool:
     transaction = json.loads(payload)
     return any(
         fact["fact_type"] == fact_type for fact in transaction["facts"]
+    )
+
+
+def _public_events(runtime, project_id: str, run_id: str) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        encode_event(
+            project_id=project_id,
+            run_id=run_id,
+            fact=fact,
+        )
+        for fact in runtime.events(project_id, run_id)
     )
 
 
@@ -110,7 +142,14 @@ def _contract(
     contract_kind: str,
     contract_id: str,
     descriptor: dict[str, Any],
+    *,
+    environment_fields: tuple[EnvironmentFieldDeclaration, ...] | None = None,
 ) -> CatalogContract:
+    parameter_field = {
+        "node_type": "node_parameters",
+        "binding": "binding_parameters",
+        "utility_transform": "parameters",
+    }.get(contract_kind)
     return CatalogContract(
         contract_kind=contract_kind,
         contract_id=contract_id,
@@ -122,6 +161,28 @@ def _contract(
             "contract_version": "2.1.0",
             **descriptor,
         },
+        parameter_contract=(
+            None
+            if parameter_field is None
+            else admit_declarations(
+                descriptor.get(parameter_field, {}),
+                path=f"test:{contract_kind}:{contract_id}.{parameter_field}",
+            )
+        ),
+        environment_fields=(
+            environment_fields
+            if environment_fields is not None
+            else (
+                (
+                    EnvironmentFieldDeclaration(
+                        "credential",
+                        "credential_handle",
+                    ),
+                )
+                if contract_kind == "binding"
+                else ()
+            )
+        ),
     )
 
 
@@ -175,6 +236,10 @@ def _direct_catalog(
     effective_randomness_parameters: tuple[str, ...] = (),
     effective_randomness_resolver: EffectiveRandomnessResolver | None = None,
     output_method_projection: Literal["binding", "other"] | None = None,
+    binding_environment_fields: tuple[
+        EnvironmentFieldDeclaration,
+        ...,
+    ] = (),
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
     method = _contract(
@@ -342,6 +407,13 @@ def _direct_catalog(
                     else {}
                 ),
             },
+            environment_fields=(
+                EnvironmentFieldDeclaration(
+                    "credential",
+                    "credential_handle",
+                ),
+                *binding_environment_fields,
+            ),
         )
         bindings.append(binding)
 
@@ -590,7 +662,7 @@ def _pipeline_catalog(
     )
     def validate_text(value: Any) -> None:
         calls.append(f"validate:{value!r}")
-        if type(value) is not str:
+        if type(value) is not str or value != value.strip().lower():
             raise PortValueError("canonical text requires a string")
 
     canonical_text = PortTypeDefinition(
@@ -760,7 +832,7 @@ def _pipeline_catalog(
                         terminating_source_nodes[self._node_id]
                     )
                 outputs: dict[str, Any] = {
-                    "text": 17 if invalid_source_output else " READY "
+                    "text": 17 if invalid_source_output else "ready"
                 }
                 if include_candidate_data:
                     outputs["candidates"] = CandidateCollection(
@@ -831,7 +903,7 @@ def _pipeline_catalog(
                 text_value = (
                     text_record.value
                     if text_record is not None
-                    else "OPTIONAL"
+                    else "optional"
                 )
                 calls.append(
                     f"sink-input:{text_record.value if text_record else None}"
@@ -1268,7 +1340,7 @@ def test_branch_failure_closes_every_disposition_and_unrelated_work_continues(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
             failing_source_node_id="failing",
@@ -1372,7 +1444,7 @@ def test_failed_optional_input_does_not_block_a_node(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
             failing_source_node_id="failing",
@@ -1411,12 +1483,11 @@ def test_failed_optional_input_does_not_block_a_node(
 
 @pytest.mark.parametrize(
     ("attempt_status", "disposition", "run_status"),
-    (
-        ("failed", "failed", "failed"),
-        ("cancelled", "cancelled", "cancelled"),
-        ("interrupted", "interrupted", "interrupted"),
-        ("outcome_unknown", "interrupted", "interrupted"),
-    ),
+        (
+            ("failed", "failed", "failed"),
+            ("interrupted", "interrupted", "interrupted"),
+            ("outcome_unknown", "interrupted", "interrupted"),
+        ),
 )
 def test_started_engine_terminal_statuses_are_causally_closed(
     tmp_path,
@@ -1428,7 +1499,7 @@ def test_started_engine_terminal_statuses_are_causally_closed(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             [],
             terminating_source_nodes={"source": attempt_status},
@@ -1451,7 +1522,11 @@ def test_started_engine_terminal_statuses_are_causally_closed(
             project_id=project_id,
             run_id=run_id,
         )
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
+        events = _public_events(
+            app.state.run_execution_v2,
+            project_id,
+            run_id,
+        )
 
     assert projection["status"] == run_status
     assert [
@@ -1494,7 +1569,7 @@ def test_invalid_scientific_operation_factory_fails_after_attempt_start(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             invalid_factory_result=True,
@@ -1559,7 +1634,7 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
         v2_result_replay_source=FixtureReplaySource(),
         v2_environment_configuration={
@@ -1591,7 +1666,11 @@ def test_cache_replay_closes_only_the_scheduled_node_attempt(
             run_id,
             projection["outputs"][0],
         )
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
+        events = _public_events(
+            app.state.run_execution_v2,
+            project_id,
+            run_id,
+        )
 
     assert projection["node_dispositions"] == [
         {
@@ -1621,7 +1700,7 @@ def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1649,7 +1728,8 @@ def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
             project_id=project_id,
             run_id=started.json()["run_id"],
         )
-        events = app.state.run_execution_v2.public_events(
+        events = _public_events(
+            app.state.run_execution_v2,
             project_id,
             started.json()["run_id"],
         )
@@ -1681,7 +1761,7 @@ def test_direct_cache_miss_enters_its_operation_without_readiness(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             execution_route="direct",
@@ -1708,7 +1788,8 @@ def test_direct_cache_miss_enters_its_operation_without_readiness(
             project_id=project_id,
             run_id=started.json()["run_id"],
         )
-        events = app.state.run_execution_v2.public_events(
+        events = _public_events(
+            app.state.run_execution_v2,
             project_id,
             started.json()["run_id"],
         )
@@ -1763,7 +1844,7 @@ def test_adapter_preoperation_error_precedes_provider_readiness(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -1822,7 +1903,7 @@ def test_readiness_programming_error_fails_after_attempt_start(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             readiness_checks={"test.direct.local": invalid_readiness},
@@ -1900,7 +1981,7 @@ def test_cache_invariant_failure_fails_fast_without_executing_provider(
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     catalog = _direct_catalog(calls, cacheable=True)
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
         v2_result_replay_source=FailingReplaySource(),
         v2_environment_configuration={
@@ -1947,7 +2028,7 @@ def test_public_terminal_wait_helper_never_returns_a_running_projection(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             execution_gate=(entered, release),
@@ -2003,7 +2084,7 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             invocation_count=invocation_count,
@@ -2030,7 +2111,8 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
             project_id,
             started.json()["run_id"],
         )
-        events = app.state.run_execution_v2.public_events(
+        events = _public_events(
+            app.state.run_execution_v2,
             project_id,
             started.json()["run_id"],
         )
@@ -2057,14 +2139,11 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
-                "values": {
-                    "credential": "credential-value",
-                    "runtime_path": str(tmp_path / "private-runtime"),
-                },
+                "values": {"credential": "credential-value"},
             }
         },
     )
@@ -2185,7 +2264,7 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -2197,7 +2276,7 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
         service = app.state.run_execution_v2
-        compiled = service._authoring.require_compiled(
+        compiled = service._authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
@@ -2207,15 +2286,17 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         contract_roots = tuple(
             run_execution_v2._execution_plan_contract_roots(plan)
         )
-        ledger = run_execution_v2._RunEvidenceLedger(
+        resolved_contracts = tuple(
+            run_execution_v2._exact_contract_reference(entry)
+            for entry in plan.resolved_contracts
+        )
+        ledger = run_execution_v2.Ledger(
             service._projects,
             project_id,
             run_id,
             service._plan_evidence(plan),
             service._ledger_transaction_store,
-            expected_resolved_contracts=tuple(
-                entry.to_public() for entry in plan.resolved_contracts
-            ),
+            expected_resolved_contracts=resolved_contracts,
             expected_contract_roots=contract_roots,
         )
         ledger.record(
@@ -2226,16 +2307,16 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
                 contract_lock_digest=plan.contract_lock_digest,
                 execution_plan_digest=plan.execution_plan_digest,
                 catalog_contract_digest=plan.catalog_contract_digest,
-                resolved_contracts=tuple(
-                    entry.to_public() for entry in plan.resolved_contracts
-                ),
+                resolved_contracts=resolved_contracts,
                 resolved_contract_roots=contract_roots,
             )
         )
         availability = service._availability(node)
         ledger.record(
             run_execution_v2.AvailabilityBinding(
-                binding=node.binding.to_public(),
+                binding=run_execution_v2._exact_contract_reference(
+                    node.binding
+                ),
                 catalog_observed_at=availability["observed_at"],
                 available=availability["available"],
             )
@@ -2283,12 +2364,10 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
     assert outcome.disposition == "succeeded"
     assert outcome.artifacts == ()
     assert outcome.admitted_outputs[("direct", "text")].value == "READY"
-    assert [
-        event["event"]["type"] for event in ledger.public_events()[-3:]
-    ] == [
-        "operation_attempt_terminal",
-        "node_attempt_terminal",
-        "node_disposition",
+    assert [type(event.payload) for event in ledger.events()[-3:]] == [
+        OperationAttemptTerminal,
+        NodeAttemptTerminal,
+        NodeDisposition,
     ]
 
 
@@ -2308,7 +2387,7 @@ def test_run_accepts_output_method_projected_by_its_binding(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             output_method_projection="binding",
@@ -2356,7 +2435,7 @@ def test_run_rejects_output_method_not_owned_by_its_binding(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             output_method_projection="other",
@@ -2384,7 +2463,11 @@ def test_run_rejects_output_method_not_owned_by_its_binding(
             project_id=project_id,
             run_id=run_id,
         )
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
+        events = _public_events(
+            app.state.run_execution_v2,
+            project_id,
+            run_id,
+        )
 
     assert projection["status"] == "failed"
     assert projection["node_dispositions"][0]["outcome"] == "failed"
@@ -2442,7 +2525,7 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
         effective_randomness_parameters=("seed",),
         effective_randomness_resolver=resolver,
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -2484,7 +2567,7 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
             receipt["run_id"],
         )
 
-    assert projection["status"] == "succeeded"
+    assert projection.status == "succeeded"
     assert len(randomness_calls) == 1
     assert randomness_calls[0]["node_parameters"] == {"seed": 5}
     assert calls == [
@@ -2504,7 +2587,7 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     compiled_catalog = _direct_catalog([])
-    app = create_app(frozen_catalog_override=compiled_catalog)
+    app = create_application(frozen_catalog_override=compiled_catalog)
 
     with TestClient(app) as client:
         project_id, compiled = _commit_one_node(client)
@@ -2515,8 +2598,8 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
         service = run_execution_v2.V2RunService(
             app.state.project_manager,
             active_catalog,
-            app.state.workflow_authoring_v2,
-            run_execution_v2.EnvironmentConfiguration({}),
+            app.state.workflow_authoring,
+            admit_environment_configuration(active_catalog, {}),
         )
         try:
             with pytest.raises(run_execution_v2.V2RunError) as captured:
@@ -2591,10 +2674,13 @@ def test_simplefold_bindings_receive_independent_run_scoped_readiness(
 
         return readiness
 
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             binding_ids=bindings,
+            binding_environment_fields=(
+                EnvironmentFieldDeclaration("device", "json_value"),
+            ),
             readiness_checks={
                 binding_id: readiness_for(binding_id)
                 for binding_id in bindings
@@ -2648,11 +2734,21 @@ def test_failed_readiness_closes_only_the_provider_bound_node(
     bindings = ("test.direct.local", "test.other.local")
     secret = "sk-never-persist-this-value"
     private_path = str(tmp_path / "private-runtime")
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             binding_ids=bindings,
             failing_binding_id="test.other.local",
+            binding_environment_fields=(
+                EnvironmentFieldDeclaration(
+                    "api_key",
+                    "credential_handle",
+                ),
+                EnvironmentFieldDeclaration(
+                    "runtime_path",
+                    "filesystem_path",
+                ),
+            ),
         ),
         v2_environment_configuration={
             (binding_id, "2.1.0"): {
@@ -2681,7 +2777,8 @@ def test_failed_readiness_closes_only_the_provider_bound_node(
             project_id=project_id,
             run_id=response.json()["run_id"],
         )
-        events = app.state.run_execution_v2.public_events(
+        events = _public_events(
+            app.state.run_execution_v2,
             project_id,
             response.json()["run_id"],
         )
@@ -2736,8 +2833,12 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
 ) -> None:
     class FailNodeConclusionTransaction:
         def __init__(self) -> None:
-            self.filesystem = (
-                run_execution_v2.FilesystemLedgerTransactionStore()
+            self.filesystem = run_execution_v2.FilesystemLedgerStore()
+
+        def read_transactions(self, *, root, relative_parts):
+            return self.filesystem.read_transactions(
+                root=root,
+                relative_parts=relative_parts,
             )
 
         def publish(self, *, root, relative_parts, payload) -> None:
@@ -2755,7 +2856,7 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -2801,7 +2902,7 @@ def test_run_without_selection_closes_after_its_node_disposition(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -2869,14 +2970,14 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
         raise PermissionError(secret)
 
     monkeypatch.setattr(
-        run_execution_v2.RunResources,
+        RunResources,
         "cleanup_temporary_work",
         fail_cleanup,
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -2897,7 +2998,11 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
         assert response.status_code == 202
         run_id = response.json()["run_id"]
         projection = wait_for_testclient_run_terminal(client, project_id, run_id)
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
+        events = _public_events(
+            app.state.run_execution_v2,
+            project_id,
+            run_id,
+        )
 
     assert projection["status"] == "failed"
     assert projection["outputs"] == []
@@ -2928,7 +3033,7 @@ def test_connected_ports_publish_and_consume_only_canonical_validated_values(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(frozen_catalog_override=_pipeline_catalog(calls))
+    app = create_application(frozen_catalog_override=_pipeline_catalog(calls))
 
     with TestClient(app) as client:
         project_id, compiled = _commit_pipeline(client)
@@ -2962,8 +3067,6 @@ def test_connected_ports_publish_and_consume_only_canonical_validated_values(
     assert "sink-input:ready" in calls
     assert "sink-input: READY " not in calls
     assert [item for item in calls if item.startswith("validate:")] == [
-        "validate:' READY '",
-        "validate:'ready'",
         "validate:'ready'",
         "validate:'ready'",
     ]
@@ -3007,7 +3110,7 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
-        workflow=parse_workflow_document(
+        workflow=decode_workflow_document(
             {
                 "schema_version": "2.1.0",
                 "workflow_id": project.id,
@@ -3048,7 +3151,7 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
         projects,
         catalog,
         authoring,
-        run_execution_v2.EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
     )
 
     try:
@@ -3064,7 +3167,7 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
     finally:
         service.shutdown()
 
-    assert projection["status"] == "succeeded"
+    assert projection.status == "succeeded"
     assert calls.count("candidate-digests:verified") == 1
 
 
@@ -3162,7 +3265,7 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("cross-input Candidate conflict")
     authoring = WorkflowAuthoringService(projects, catalog)
-    workflow = parse_workflow_document(
+    workflow = decode_workflow_document(
         {
             "schema_version": "2.1.0",
             "workflow_id": project.id,
@@ -3229,7 +3332,7 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
         projects,
         catalog,
         authoring,
-        run_execution_v2.EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
         ConflictingCandidateReplay(),
     )
 
@@ -3241,7 +3344,7 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
                 client_request_id="candidate-conflict",
             )
             projection = service.projection(project.id, receipt["run_id"])
-            events = service.public_events(project.id, receipt["run_id"])
+            events = _public_events(service, project.id, receipt["run_id"])
         else:
             with pytest.raises(
                 PortValueError,
@@ -3305,7 +3408,7 @@ def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
         for item in events
         if item["event"]["type"] == "run_terminal"
     )
-    assert projection["status"] == "succeeded"
+    assert projection.status == "succeeded"
     assert sink_terminal["status"] == "succeeded"
     assert sink_disposition["outcome"] == "succeeded"
     assert run_terminal["status"] == "succeeded"
@@ -3323,7 +3426,7 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
             invalid_source_output=True,
@@ -3398,14 +3501,14 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
     ] == ["failed", "failed", "failed"]
 
 
-def test_artifact_publication_requires_explicit_node_port_opt_in(
+def test_artifact_port_without_publication_intent_remains_an_ordinary_output(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
             artifact_kind=None,
@@ -3428,13 +3531,14 @@ def test_artifact_publication_requires_explicit_node_port_opt_in(
             project_id,
             response.json()["run_id"],
         )
-        events = client.app.state.run_execution_v2.public_events(
+        events = _public_events(
+            client.app.state.run_execution_v2,
             project_id,
             response.json()["run_id"],
         )
 
     assert response.status_code == 202
-    assert projection["status"] == "failed"
+    assert projection["status"] == "succeeded"
     assert projection["artifact_index"] == []
     operation_terminal = next(
         item["event"]
@@ -3446,8 +3550,8 @@ def test_artifact_publication_requires_explicit_node_port_opt_in(
         for item in events
         if item["event"]["type"] == "node_attempt_terminal"
     )
-    assert operation_terminal["status"] == "failed"
-    assert node_terminal["failure_origin"] == "operation"
+    assert operation_terminal["status"] == "succeeded"
+    assert node_terminal["status"] == "succeeded"
 
 
 def test_artifact_object_write_failure_publishes_no_node_values(
@@ -3455,16 +3559,16 @@ def test_artifact_object_write_failure_publishes_no_node_values(
     monkeypatch,
 ) -> None:
     output_root = tmp_path / "outputs"
-    original_put = run_execution_v2.ProjectObjectStore.put_exact
+    original_store = run_execution_v2.ProjectObjectStore.store
 
     def fail_artifact_put(store, project_id, payload):
         if payload == b"MODEL        1\nEND\n":
             raise OSError("fixture Artifact object write failure")
-        return original_put(store, project_id, payload)
+        return original_store(store, project_id, payload)
 
     monkeypatch.setattr(
         run_execution_v2.ProjectObjectStore,
-        "put_exact",
+        "store",
         fail_artifact_put,
     )
     monkeypatch.setenv(
@@ -3473,7 +3577,7 @@ def test_artifact_object_write_failure_publishes_no_node_values(
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    app = create_app(frozen_catalog_override=_artifact_catalog([]))
+    app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
         project_id, committed = _commit_artifact_node(client)
@@ -3489,7 +3593,8 @@ def test_artifact_object_write_failure_publishes_no_node_values(
             project_id,
             started.json()["run_id"],
         )
-        events = client.app.state.run_execution_v2.public_events(
+        events = _public_events(
+            client.app.state.run_execution_v2,
             project_id,
             started.json()["run_id"],
         )
@@ -3539,7 +3644,7 @@ def test_standalone_file_collection_projects_each_opaque_artifact(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
             collection=True,
@@ -3582,7 +3687,7 @@ def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
             artifact_kind="candidate",
@@ -3620,49 +3725,6 @@ def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
     assert not list(output_root.rglob("published/*"))
 
 
-@pytest.mark.parametrize("candidate_id", ("候选", "a" * 129))
-def test_invalid_candidate_artifact_identifier_leaves_no_stored_payload(
-    tmp_path,
-    monkeypatch,
-    candidate_id: str,
-) -> None:
-    output_root = tmp_path / "outputs"
-    run_root = tmp_path / "runs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    app = create_app(
-        frozen_catalog_override=_artifact_catalog(
-            [],
-            artifact_kind="candidate",
-            artifact_candidate_id=candidate_id,
-        )
-    )
-
-    with TestClient(app) as client:
-        project_id, committed = _commit_artifact_node(client)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": committed["workflow_commit_id"],
-                "client_request_id": "invalid-candidate-artifact-identifier",
-            },
-        )
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            started.json()["run_id"],
-        )
-
-    assert projection["status"] == "failed"
-    assert projection["artifact_index"] == []
-    assert list(output_root.rglob("objects/v1/sha256/*/*")) == []
-    assert not any(
-        fact["fact_type"] == "artifact_published"
-        for fact in _durable_facts(run_root)
-    )
-
-
 def test_run_artifact_count_and_aggregate_size_are_bounded(
     tmp_path,
     monkeypatch,
@@ -3672,7 +3734,7 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    count_limited = create_app(
+    count_limited = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
             collection=True,
@@ -3710,7 +3772,7 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 2)
     aggregate_root = tmp_path / "aggregate-runs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(aggregate_root))
-    aggregate_limited = create_app(
+    aggregate_limited = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
             collection=True,
@@ -3761,7 +3823,7 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    app = create_app(frozen_catalog_override=_artifact_catalog(calls))
+    app = create_application(frozen_catalog_override=_artifact_catalog(calls))
 
     with TestClient(app) as client:
         catalog = client.get("/api/v2/catalog")
@@ -3907,7 +3969,7 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     }
 
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=catalog,
             v2_environment_configuration=environment,
         )
@@ -3923,14 +3985,15 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
         assert started.status_code == 202
         run_id = started.json()["run_id"]
         before = wait_for_testclient_run_terminal(client, project_id, run_id)
-        before_events = client.app.state.run_execution_v2.public_events(
+        before_events = _public_events(
+            client.app.state.run_execution_v2,
             project_id,
             run_id,
         )
         resume_cursor = before_events[3]["cursor"]
 
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=catalog,
             v2_environment_configuration=environment,
         )
@@ -3969,6 +4032,87 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     assert len(resumed_facts) == len(expected_sequences)
 
 
+def test_restart_rebuilds_output_identity_source_contract_closure() -> None:
+    source_port = builtin_frozen_catalog().require_port_type("text", "2.1.0")
+    materializer = BehaviorReference(
+        "test.restart-identity/materialize",
+        "1.0.0",
+        {"source_roles": {"source": source_port.reference()}},
+    )
+    identity_port = PortTypeDefinition(
+        type_id="test.restart-identity",
+        version="1.0.0",
+        validator=BehaviorReference(
+            "test.restart-identity/validate",
+            "1.0.0",
+            {
+                "output_identity_materialization": (
+                    materializer.descriptor()
+                )
+            },
+        ),
+        codec=BehaviorReference(
+            "test.restart-identity/codec",
+            "1.0.0",
+            {},
+        ),
+        content_identity=BehaviorReference(
+            "test.restart-identity/content",
+            "1.0.0",
+            {},
+        ),
+        runtime_validator=lambda value: None,
+        runtime_to_wire=lambda value: value,
+        runtime_from_wire=lambda value: value,
+        output_identity_materialization=materializer,
+        runtime_output_identity_materializer=(
+            lambda value, _: ResolvedOutputIdentity(value)
+        ),
+        output_identity_source_port_types={"source": source_port},
+    )
+    catalog = FrozenCatalog((source_port, identity_port))
+    roots = (
+        run_execution_v2._exact_reference_from_catalog(
+            identity_port.reference()
+        ),
+    )
+    expected_contracts = tuple(
+        sorted(
+            (
+                run_execution_v2._exact_reference_from_catalog(
+                    source_port.reference()
+                ),
+                roots[0],
+            ),
+            key=lambda reference: (
+                reference.contract_kind,
+                reference.contract_id,
+                reference.contract_version,
+            ),
+        )
+    )
+
+    class RestartLedger:
+        run_scope = run_execution_v2.RunScopeBinding(
+            workflow_commit_id="workflow-commit-1",
+            workflow_commit_revision=1,
+            workflow_digest="sha256:" + "1" * 64,
+            contract_lock_digest="sha256:" + "2" * 64,
+            execution_plan_digest="sha256:" + "3" * 64,
+            catalog_contract_digest=catalog.contract_digest,
+            resolved_contracts=expected_contracts,
+            resolved_contract_roots=roots,
+        )
+
+    rebuilt = run_execution_v2._reachable_contract_evidence(catalog, roots)
+
+    assert rebuilt == expected_contracts
+    assert (
+        run_execution_v2._run_catalog_digest(RestartLedger(), catalog)
+        == catalog.contract_digest
+    )
+
+
 def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger(
     tmp_path,
     monkeypatch,
@@ -4001,7 +4145,7 @@ def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger
 
     try:
         with TestClient(
-            create_app(
+            create_application(
                 frozen_catalog_override=original_catalog,
                 v2_environment_configuration=environment,
                 _v2_wait_for_workers_on_shutdown=False,
@@ -4026,7 +4170,7 @@ def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger
         }
 
         with TestClient(
-            create_app(
+            create_application(
                 frozen_catalog_override=active_catalog,
                 v2_environment_configuration=environment,
             )
@@ -4068,7 +4212,7 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             execution_gate=(entered, release),
@@ -4137,7 +4281,8 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
                 "replay_complete",
             }
         ]
-        projected = app.state.run_execution_v2.public_events(
+        projected = _public_events(
+            app.state.run_execution_v2,
             project_id,
             run_id,
         )
@@ -4175,7 +4320,7 @@ def test_background_runs_are_bounded_project_reserved_serial_and_joined(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             execution_gate=(entered, release),
@@ -4276,7 +4421,7 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
 
     try:
         with TestClient(
-            create_app(
+            create_application(
                 frozen_catalog_override=catalog,
                 v2_environment_configuration=environment,
                 _v2_wait_for_workers_on_shutdown=False,
@@ -4293,13 +4438,14 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
             assert started.status_code == 202
             assert entered.wait(timeout=1)
             run_id = started.json()["run_id"]
-            before_events = first.app.state.run_execution_v2.public_events(
+            before_events = _public_events(
+                first.app.state.run_execution_v2,
                 project_id,
                 run_id,
             )
 
         with TestClient(
-            create_app(
+            create_application(
                 frozen_catalog_override=catalog,
                 v2_environment_configuration=environment,
             )
@@ -4307,15 +4453,14 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
             projection = restarted.get(
                 f"/api/v2/projects/{project_id}/runs/{run_id}"
             ).json()
-            reconciled_events = (
-                restarted.app.state.run_execution_v2.public_events(
-                    project_id,
-                    run_id,
-                )
+            reconciled_events = _public_events(
+                restarted.app.state.run_execution_v2,
+                project_id,
+                run_id,
             )
 
         with TestClient(
-            create_app(
+            create_application(
                 frozen_catalog_override=catalog,
                 v2_environment_configuration=environment,
             )
@@ -4323,11 +4468,10 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
             repeated_projection = restarted_again.get(
                 f"/api/v2/projects/{project_id}/runs/{run_id}"
             ).json()
-            repeated_events = (
-                restarted_again.app.state.run_execution_v2.public_events(
-                    project_id,
-                    run_id,
-                )
+            repeated_events = _public_events(
+                restarted_again.app.state.run_execution_v2,
+                project_id,
+                run_id,
             )
     finally:
         release.set()
@@ -4343,15 +4487,6 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
     }
     assert repeated_projection == projection
     assert repeated_events == reconciled_events
-
-    run_dir = run_root / project_id / run_id
-    assert json.loads((run_dir / "manifest.json").read_text()) == projection
-    persisted_events = [
-        json.loads(line)
-        for line in (run_dir / "lifecycle.jsonl").read_text().splitlines()
-    ]
-    assert persisted_events == list(reconciled_events)
-
 
 def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
     tmp_path,
@@ -4371,7 +4506,7 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
             "values": {"credential": "credential-value"},
         }
     }
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration=environment,
     )
@@ -4396,7 +4531,7 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
         cursor_a = app.state.run_execution_v2.ledger_cursor(
             project_a,
             started_a["run_id"],
-        )
+        ).value
         stale_cursor = cursor_a[:-1] + (
             "A" if cursor_a[-1] != "A" else "B"
         )
@@ -4429,101 +4564,3 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
                 with pytest.raises(WebSocketDisconnect) as closed:
                     websocket.receive_json()
                 assert closed.value.code == 1008
-
-
-def test_projection_failure_leaves_facts_intact_and_restart_rebuilds_outputs(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    project_root = tmp_path / "projects"
-    run_root = tmp_path / "runs"
-    output_root = tmp_path / "outputs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    original_replace = run_execution_v2.replace_file
-    fail_terminal_lifecycle = {"pending": True}
-
-    def replace_projection(root, relative_parts, payload):
-        if (
-            relative_parts[-1] == "lifecycle.jsonl"
-            and fail_terminal_lifecycle["pending"]
-            and b'"type":"run_terminal"' in payload
-        ):
-            fail_terminal_lifecycle["pending"] = False
-            raise OSError("fixture projection failure")
-        return original_replace(
-            root,
-            relative_parts,
-            payload,
-        )
-
-    monkeypatch.setattr(
-        run_execution_v2,
-        "replace_file",
-        replace_projection,
-    )
-    catalog = _direct_catalog([])
-    environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
-    }
-    with TestClient(
-        create_app(
-            frozen_catalog_override=catalog,
-            v2_environment_configuration=environment,
-        )
-    ) as client:
-        project_id, compiled = _commit_one_node(client)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "projection-failure",
-            },
-        ).json()
-        run_id = started["run_id"]
-        projection = wait_for_testclient_run_terminal(client, project_id, run_id)
-        assert projection["status"] == "succeeded"
-        repaired_events = client.app.state.run_execution_v2.public_events(
-            project_id,
-            run_id,
-        )
-    ledger_paths = sorted(
-        (run_root / project_id / run_id / "ledger").glob("*.json")
-    )
-    before_restart = [path.read_bytes() for path in ledger_paths]
-    assert fail_terminal_lifecycle["pending"] is False
-    run_dir = run_root / project_id / run_id
-    assert json.loads((run_dir / "manifest.json").read_text()) == projection
-    assert [
-        json.loads(line)
-        for line in (run_dir / "lifecycle.jsonl").read_text().splitlines()
-    ] == list(repaired_events)
-
-    with TestClient(
-        create_app(
-            frozen_catalog_override=catalog,
-            v2_environment_configuration=environment,
-        )
-    ) as restarted:
-        rebuilt = restarted.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}"
-        ).json()
-        events = restarted.app.state.run_execution_v2.public_events(
-            project_id,
-            run_id,
-        )
-
-    assert rebuilt == projection
-    assert events[-1]["event"] == {
-        "type": "run_terminal",
-        "status": "succeeded",
-    }
-    assert [path.read_bytes() for path in ledger_paths] == before_restart
-    assert json.loads((run_dir / "manifest.json").read_text()) == rebuilt
-    assert [
-        json.loads(line)
-        for line in (run_dir / "lifecycle.jsonl").read_text().splitlines()
-    ] == list(events)

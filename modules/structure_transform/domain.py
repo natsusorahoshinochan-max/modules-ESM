@@ -11,7 +11,7 @@ from core.catalog.port_contract import (
 
 from datatypes.candidate import CandidateDataReference
 from datatypes.residue import ModifiedResidueNormalizationCollection
-from datatypes.structure import ResolvedStructureResidueAxis
+from datatypes.structure import ProteinStructure, ResolvedStructureResidueAxis
 
 
 _NORMALIZATION_KEY = re.compile(r"^normalization-[0-9a-f]{64}$")
@@ -64,6 +64,68 @@ class CandidateNormalizationFact:
             raise ValueError("structure_content_digest is not canonical")
         if type(self.normalizations) is not ModifiedResidueNormalizationCollection:
             raise TypeError("normalizations must be an exact collection")
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCandidateNormalizationFact:
+    """Normalization evidence awaiting canonical source identities."""
+
+    candidate_id: str
+    output_role: str
+    output_slot: int
+    structure: ProteinStructure
+    normalizations: ModifiedResidueNormalizationCollection
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCandidateNormalizationFactCollection:
+    """Data-only normalization relation awaiting admission identities."""
+
+    entries: tuple[PendingCandidateNormalizationFact, ...]
+
+    def __post_init__(self) -> None:
+        entries = tuple(self.entries)
+        if not entries or any(
+            type(entry) is not PendingCandidateNormalizationFact
+            for entry in entries
+        ):
+            raise TypeError(
+                "pending normalization facts require typed nonempty entries"
+            )
+        object.__setattr__(self, "entries", entries)
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializedCandidateNormalizationFact:
+    """One final normalization fact and its Candidate metadata identity."""
+
+    candidate_id: str
+    normalization_key: str
+    fact: CandidateNormalizationFact
+
+
+def materialize_candidate_normalization_fact(
+    pending: PendingCandidateNormalizationFact,
+    *,
+    structure_content_digest: str,
+    normalizations_content_digest: str,
+) -> MaterializedCandidateNormalizationFact:
+    """Bind trusted encoded identities to one normalization result."""
+    key = normalization_key(
+        output_role=pending.output_role,
+        output_slot=pending.output_slot,
+        structure_content_digest=structure_content_digest,
+        normalizations_content_digest=normalizations_content_digest,
+    )
+    return MaterializedCandidateNormalizationFact(
+        candidate_id=pending.candidate_id,
+        normalization_key=key,
+        fact=CandidateNormalizationFact(
+            normalization_key=key,
+            structure_content_digest=structure_content_digest,
+            normalizations=pending.normalizations,
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)

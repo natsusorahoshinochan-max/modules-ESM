@@ -7,18 +7,28 @@ import math
 import re
 from typing import Any
 
-from core import OperationCall, ResolvedProducedObservation
-from datatypes import (
+from core.operation import (
+    OperationCall,
+)
+from core.scoring.observation_plan import ResolvedProducedObservation
+from datatypes.candidate import (
     Candidate,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
     ResidueAxisReference,
+)
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
 
-from .domain import ConfidenceFact, prediction_key
+from datatypes.prediction import (
+    ConfidenceFact,
+    prediction_key,
+)
 _SAMPLE_SLOT = re.compile(r"^0:(0|[1-9][0-9]*)$")
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
 

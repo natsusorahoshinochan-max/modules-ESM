@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from core import build_frozen_catalog
-from core.server import create_app
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from protein_workbench_public.bootstrap import create_application
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -36,7 +38,7 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
         (MODULE_PACKAGE, SOURCE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
     )
 
-    with TestClient(create_app(frozen_catalog_override=catalog)) as client:
+    with TestClient(create_application(frozen_catalog_override=catalog)) as client:
         project_id = client.post(
             "/api/v2/projects",
             json={"name": "stochastic prompt public journey"},

@@ -36,3 +36,26 @@ def build_fixture_simplefold_closure(
             for source in closure.sources
         ),
     )
+
+
+def install_fixture_source_staging_group(
+    monkeypatch: object,
+    adapter_module: object,
+) -> None:
+    """Supply the empty source group needed by a replaced test runtime."""
+    original = adapter_module.stage_simplefold_provider_asset_closure
+
+    def stage(*args: object, **kwargs: object):
+        staged = original(*args, **kwargs)
+        source_root = staged.root / "esm2_source"
+        source_root.mkdir(exist_ok=True)
+        return replace(
+            staged,
+            groups=(*staged.groups, ("esm2_source", source_root)),
+        )
+
+    monkeypatch.setattr(  # type: ignore[attr-defined]
+        adapter_module,
+        "stage_simplefold_provider_asset_closure",
+        stage,
+    )

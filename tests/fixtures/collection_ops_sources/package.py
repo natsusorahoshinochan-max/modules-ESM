@@ -5,35 +5,43 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
-from datatypes import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
+    OperationCall,
+    OperationContext,
+    ReadinessCheckInput,
+    ReadinessResult,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.observation import (
     IntrinsicObservationContext,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.sequence import ProteinSequence
 from tests.fixtures.exact_content_identity import exact_content_identity
 
 

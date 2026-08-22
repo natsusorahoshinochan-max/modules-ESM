@@ -6,8 +6,16 @@ import math
 import re
 from typing import Any, cast
 
-from core import BehaviorReference, PortTypeDefinition
-from datatypes import CandidateDataReference, ExactContractReference
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+)
 
 from .contracts import (
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
@@ -345,8 +353,8 @@ def alignment_evidence_to_wire(value: object) -> object:
     assert type(value) is StructureAlignmentEvidence
     return {
         "schema_version": EVIDENCE_VERSION,
-        "subject": value.subject.to_public(),
-        "reference": value.reference.to_public(),
+        "subject": _candidate_data_reference_to_canonical(value.subject),
+        "reference": _candidate_data_reference_to_canonical(value.reference),
         "subject_axis_content_digest": value.subject_axis_content_digest,
         "reference_axis_content_digest": value.reference_axis_content_digest,
         "segment_map": [
@@ -555,8 +563,8 @@ def alignment_evidence_from_wire(value: object) -> StructureAlignmentEvidence:
         )
     )
     evidence = StructureAlignmentEvidence(
-        subject=CandidateDataReference.from_public(subject),
-        reference=CandidateDataReference.from_public(reference),
+        subject=_candidate_data_reference_from_canonical(subject),
+        reference=_candidate_data_reference_from_canonical(reference),
         subject_axis_content_digest=raw["subject_axis_content_digest"],
         reference_axis_content_digest=raw["reference_axis_content_digest"],
         segment_map=segment_map,

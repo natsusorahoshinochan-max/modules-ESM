@@ -9,10 +9,13 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from core import WorkflowAuthoringError, build_frozen_catalog
-from core.server import create_app
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ResidueLayout
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.workflow.authoring import WorkflowAuthoringError
+from protein_workbench_public.bootstrap import create_application
+from core.workflow.document import WorkflowEdge
+from datatypes.residue import ResidueLayout
 from modules.prompt_authoring.domain import AlignedResidueTrack
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
@@ -510,7 +513,7 @@ def test_prompt_authoring_executes_through_the_public_protocol(
         (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
     )
     with TestClient(
-        create_app(frozen_catalog_override=catalog_override)
+        create_application(frozen_catalog_override=catalog_override)
     ) as client:
         def public_request(
             operation_id: str,

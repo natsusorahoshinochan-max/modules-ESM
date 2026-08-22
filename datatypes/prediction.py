@@ -19,6 +19,7 @@ from datatypes.exact_reference import (
 from datatypes.i_json import thaw_i_json
 from datatypes.residue import ResidueLayout, validate_residue_layout
 from datatypes.sequence import ProteinSequence, validate_protein_sequence
+from datatypes.structure import ProteinStructure
 
 
 def _canonical_sha256(value: object) -> str:
@@ -114,6 +115,68 @@ class PredictionResidueAxis:
                 "prediction sequence residue identities must exactly equal "
                 "the prediction residue layout"
             )
+
+
+@dataclass(frozen=True, slots=True)
+class PendingConfidenceFact:
+    """Provider result awaiting canonical structure and axis identities."""
+
+    candidate_id: str
+    output_role: str
+    output_slot: int
+    structure: ProteinStructure
+    prediction_axis: PredictionResidueAxis
+    plddt_per_residue: tuple[float | None, ...]
+    ptm: float | None
+    pae: tuple[tuple[float, ...], ...] | None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "plddt_per_residue",
+            tuple(self.plddt_per_residue),
+        )
+        if self.pae is not None:
+            object.__setattr__(
+                self,
+                "pae",
+                tuple(tuple(row) for row in self.pae),
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class PendingConfidenceFactCollection:
+    """Data-only confidence relation awaiting admission-owned identities."""
+
+    observation_method: ExactContractReference
+    entries: tuple[PendingConfidenceFact, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.observation_method) is not ExactContractReference
+            or self.observation_method.contract_kind != "method"
+        ):
+            raise TypeError(
+                "pending confidence facts require one exact Method"
+            )
+        entries = tuple(self.entries)
+        if not entries or any(
+            type(entry) is not PendingConfidenceFact for entry in entries
+        ):
+            raise TypeError(
+                "pending confidence facts require typed nonempty entries"
+            )
+        object.__setattr__(self, "entries", entries)
+
+
+@dataclass(frozen=True, slots=True)
+class MaterializedConfidenceFact:
+    """One final confidence fact and its exact admission projections."""
+
+    candidate_id: str
+    prediction_key: str
+    fact: ConfidenceFact
+    scientific_axis: ResidueAxisReference
 
 
 def prediction_axis_reference(
@@ -294,3 +357,36 @@ class ConfidenceFactCollection:
             "entries",
             tuple(sorted(raw_entries, key=lambda entry: entry.prediction_key)),
         )
+
+
+def materialize_confidence_fact(
+    pending: PendingConfidenceFact,
+    *,
+    structure_content_digest: str,
+    prediction_axis_contract: ExactContractReference,
+    prediction_axis_content_digest: str,
+) -> MaterializedConfidenceFact:
+    """Bind trusted encoded identities to one provider confidence result."""
+    key = prediction_key(
+        output_role=pending.output_role,
+        output_slot=pending.output_slot,
+        structure_content_digest=structure_content_digest,
+        prediction_axis_content_digest=prediction_axis_content_digest,
+    )
+    return MaterializedConfidenceFact(
+        candidate_id=pending.candidate_id,
+        prediction_key=key,
+        fact=ConfidenceFact(
+            prediction_key=key,
+            structure_content_digest=structure_content_digest,
+            prediction_axis=pending.prediction_axis,
+            plddt_per_residue=pending.plddt_per_residue,
+            ptm=pending.ptm,
+            pae=pending.pae,
+        ),
+        scientific_axis=prediction_axis_reference(
+            pending.prediction_axis,
+            axis_contract=prediction_axis_contract,
+            axis_content_digest=prediction_axis_content_digest,
+        ),
+    )

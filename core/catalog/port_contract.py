@@ -14,6 +14,7 @@ from typing import Any, Callable, Union, cast, get_args, get_origin, get_type_hi
 
 import rfc8785
 
+from core.operation import EncodedOutputIdentities, ResolvedOutputIdentity
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -1260,6 +1261,23 @@ class PortTypeDefinition:
         repr=False,
         compare=False,
     )
+    output_identity_materialization: BehaviorReference | None = None
+    runtime_output_identity_materializer: Callable[
+        [object, EncodedOutputIdentities],
+        ResolvedOutputIdentity,
+    ] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
+    output_identity_source_port_types: Mapping[
+        str,
+        "PortTypeDefinition",
+    ] = field(
+        default_factory=dict,
+        repr=False,
+        compare=False,
+    )
     candidate_data_projection: BehaviorReference | None = None
     runtime_candidate_data_projection: Callable[
         [Any, Mapping[str, "PortTypeDefinition"]],
@@ -1294,6 +1312,56 @@ class PortTypeDefinition:
     def __post_init__(self) -> None:
         _validate_identifier(self.type_id, "type_id")
         _validate_version(self.version, "version")
+        source_port_types = dict(self.output_identity_source_port_types)
+        for source_role, source_port_type in source_port_types.items():
+            _validate_identifier(source_role, "output identity source role")
+            if type(source_port_type) is not PortTypeDefinition:
+                raise CatalogBuildError(
+                    "output identity source roles require exact Port Types"
+                )
+        object.__setattr__(
+            self,
+            "output_identity_source_port_types",
+            MappingProxyType(source_port_types),
+        )
+        if (self.output_identity_materialization is None) != (
+            self.runtime_output_identity_materializer is None
+        ):
+            raise CatalogBuildError(
+                "output identity materialization declaration and runtime must "
+                "be provided together"
+            )
+        if (self.output_identity_materialization is None) != (
+            not source_port_types
+        ):
+            raise CatalogBuildError(
+                "output identity materialization requires exact source Port "
+                "roles"
+            )
+        if (
+            self.output_identity_materialization is not None
+            and self.validator.parameters.get(
+                "output_identity_materialization"
+            )
+            != self.output_identity_materialization.descriptor()
+        ):
+            raise CatalogBuildError(
+                "output identity materialization must be declared by the "
+                "Port validator behavior"
+            )
+        if (
+            self.output_identity_materialization is not None
+            and self.output_identity_materialization.parameters.get(
+                "source_roles"
+            )
+            != {
+                source_role: source_port_type.reference()
+                for source_role, source_port_type in source_port_types.items()
+            }
+        ):
+            raise CatalogBuildError(
+                "output identity source roles must declare exact Port references"
+            )
         if (self.candidate_data_projection is None) != (
             self.runtime_candidate_data_projection is None
         ):
@@ -1479,6 +1547,25 @@ class PortTypeDefinition:
                 "Observation Method projection returned duplicate exact Methods"
             )
         return references
+
+    def materialize_output_identity(
+        self,
+        relation: object,
+        identities: EncodedOutputIdentities,
+    ) -> ResolvedOutputIdentity:
+        """Resolve one data-only fresh identity relation for this Port."""
+        materializer = self.runtime_output_identity_materializer
+        if materializer is None:
+            raise PortValueError(
+                f"Port Type {self.type_id}@{self.version} does not own output "
+                "identity materialization"
+            )
+        resolved = materializer(relation, identities)
+        if type(resolved) is not ResolvedOutputIdentity:
+            raise TypeError(
+                "output identity materializer returned an unsupported value"
+            )
+        return resolved
 
     @property
     def value_kind(self) -> str:

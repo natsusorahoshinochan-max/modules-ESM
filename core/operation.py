@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import re
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, ContextManager, Literal, Protocol
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ContextManager,
+    Literal,
+    Protocol,
+)
 
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import (
@@ -49,6 +55,134 @@ class ArtifactPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class OutputIdentitySource:
+    """One fresh scientific value whose canonical identity is needed."""
+
+    identity_id: str
+    source_role: str
+    value: object
+
+    def __post_init__(self) -> None:
+        for field_name, value in (
+            ("source ID", self.identity_id),
+            ("source role", self.source_role),
+        ):
+            if (
+                type(value) is not str
+                or _PUBLIC_IDENTIFIER.fullmatch(value) is None
+            ):
+                raise ValueError(
+                    f"output identity {field_name} must be canonical"
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedOutputIdentity:
+    """Exact identity fact produced by Output Admission's one source encode."""
+
+    identity_id: str
+    port_type: ExactContractReference
+    content_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.port_type) is not ExactContractReference
+            or self.port_type.contract_kind != "port_type"
+        ):
+            raise TypeError("encoded output identity requires an exact Port Type")
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedOutputIdentities:
+    """Closed identity facts supplied to one intent materialization."""
+
+    entries: tuple[EncodedOutputIdentity, ...]
+    _by_id: Mapping[str, EncodedOutputIdentity] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        entries = tuple(self.entries)
+        if any(type(entry) is not EncodedOutputIdentity for entry in entries):
+            raise TypeError(
+                "encoded output identities require exact identity facts"
+            )
+        by_id = {entry.identity_id: entry for entry in entries}
+        if len(by_id) != len(entries):
+            raise ValueError("encoded output identities contain a duplicate ID")
+        object.__setattr__(self, "entries", entries)
+        object.__setattr__(self, "_by_id", MappingProxyType(by_id))
+
+    def require(self, identity_id: str) -> EncodedOutputIdentity:
+        try:
+            return self._by_id[identity_id]
+        except KeyError as error:
+            raise ValueError(
+                f"output identity source {identity_id!r} was not encoded"
+            ) from error
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateMetadataIdentity:
+    """One resolved identity string to attach to a fresh Candidate."""
+
+    candidate_id: str
+    field_name: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedOutputIdentity:
+    """Final runtime value and projections materialized from encoded sources."""
+
+    value: object
+    candidate_metadata: tuple[CandidateMetadataIdentity, ...] = ()
+    scientific_axes: tuple[ResidueAxisReference, ...] | None = None
+
+    def __post_init__(self) -> None:
+        candidate_metadata = tuple(self.candidate_metadata)
+        if any(
+            type(item) is not CandidateMetadataIdentity
+            for item in candidate_metadata
+        ):
+            raise TypeError(
+                "resolved output Candidate metadata must use typed identities"
+            )
+        object.__setattr__(self, "candidate_metadata", candidate_metadata)
+        if self.scientific_axes is not None:
+            scientific_axes = tuple(self.scientific_axes)
+            if any(
+                type(axis) is not ResidueAxisReference
+                for axis in scientific_axes
+            ):
+                raise TypeError(
+                    "resolved output scientific axes must be exact references"
+                )
+            object.__setattr__(self, "scientific_axes", scientific_axes)
+
+
+@dataclass(frozen=True, slots=True)
+class OutputIdentityIntent:
+    """Data-only relation resolved by the exact output Port contract."""
+
+    identity_sources: tuple[OutputIdentitySource, ...]
+    relation: object
+
+    def __post_init__(self) -> None:
+        sources = tuple(self.identity_sources)
+        if any(type(source) is not OutputIdentitySource for source in sources):
+            raise TypeError(
+                "output identity intent requires typed identity sources"
+            )
+        identity_ids = tuple(source.identity_id for source in sources)
+        if len(identity_ids) != len(set(identity_ids)):
+            raise ValueError("output identity intent contains duplicate source IDs")
+        object.__setattr__(self, "identity_sources", sources)
+
+
+@dataclass(frozen=True, slots=True)
 class InvocationRandomness:
     """Effective randomness observed at an engine boundary."""
 
@@ -65,6 +199,22 @@ class ProviderResidueProjectionEntry:
     provider_chain_id: str
     provider_position: int
 
+    def __post_init__(self) -> None:
+        if (
+            type(self.residue_id) is not str
+            or not self.residue_id
+            or type(self.provider_chain_id) is not str
+            or not self.provider_chain_id
+        ):
+            raise TypeError("provider residue identities must be nonempty strings")
+        if (
+            type(self.segment_index) is not int
+            or self.segment_index < 0
+            or type(self.provider_position) is not int
+            or self.provider_position < 1
+        ):
+            raise ValueError("provider residue positions must be canonical")
+
 
 @dataclass(frozen=True, slots=True)
 class ProviderResidueProjection:
@@ -77,6 +227,28 @@ class ProviderResidueProjection:
     position_semantics: Literal["one_based_chain_local"] = (
         "one_based_chain_local"
     )
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "workbench_chain_order",
+            "provider_structure_chain_order",
+            "provider_chain_order",
+        ):
+            values = tuple(getattr(self, field_name))
+            if any(type(value) is not str or not value for value in values):
+                raise TypeError("provider chain orders require nonempty strings")
+            object.__setattr__(self, field_name, values)
+        entries = tuple(self.entries)
+        if any(
+            type(entry) is not ProviderResidueProjectionEntry
+            for entry in entries
+        ):
+            raise TypeError(
+                "provider residue projection entries require exact typed values"
+            )
+        object.__setattr__(self, "entries", entries)
+        if self.position_semantics != "one_based_chain_local":
+            raise ValueError("provider residue position semantics are unsupported")
 
 
 @dataclass(frozen=True, slots=True)

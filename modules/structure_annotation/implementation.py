@@ -5,22 +5,25 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Mapping, Protocol
 
-from core import (
+from core.operation import (
+    OperationResources,
     AdmittedPort,
     OperationCall,
-    ResolvedProducedObservation,
-    RunResources,
 )
-from datatypes import (
-    CandidateDataReference,
-    ExactContractReference,
+from core.scoring.observation_plan import (
+    PairwiseContextProfile,
+    ResolvedProducedObservation,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     PairwiseObservationContext,
     PairwiseParticipant,
-    ResolvedStructureResidueAxis,
-    ResidueTrack,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.residue import ResidueTrack
+from datatypes.structure import ResolvedStructureResidueAxis
 from .domain import DSSPAnnotation, StructureAnnotationTrack
 
 
@@ -105,7 +108,7 @@ class DSSPComputeOperation:
 class SecondaryStructureExtractOperation:
     """Extract the canonical SS8 track without crossing a provider seam."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -125,7 +128,7 @@ class SecondaryStructureExtractOperation:
 class SASAComputeOperation:
     """Extract canonical DSSP accessibility without a provider Adapter."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -142,7 +145,7 @@ class SASAComputeOperation:
 class ApplySecondaryStructureToPromptOperation:
     """Apply one exact annotation SS8 track to a ProteinPrompt."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -170,7 +173,7 @@ class ApplySecondaryStructureToPromptOperation:
 class ApplySASAToPromptOperation:
     """Apply exact DSSP solvent accessibility to a ProteinPrompt."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -191,7 +194,7 @@ class ApplySASAToPromptOperation:
 class ExpectedSecondaryStructureFromPromptOperation:
     """Project Prompt conditioning as an expected annotation SS8 track."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -228,7 +231,7 @@ class SecondaryStructureAgreementOperation:
     def __init__(
         self,
         *,
-        resources: RunResources,
+        resources: OperationResources,
         method: ExactContractReference,
         produced_observation: ResolvedProducedObservation,
     ) -> None:
@@ -296,6 +299,10 @@ class SecondaryStructureAgreementOperation:
             ) / len(compared)
             produced = self._produced_observation
             profile = produced.context_profile
+            if not isinstance(profile, PairwiseContextProfile):
+                raise TypeError(
+                    "Secondary-structure agreement requires pairwise Context"
+                )
             observation = ScoreObservation(
                 subject=subject_reference,
                 metric=produced.metric,
@@ -309,8 +316,8 @@ class SecondaryStructureAgreementOperation:
                         role="reference",
                         candidate=reference_reference,
                     ),
-                    pairing_mode=str(profile["pairing_mode"]),
-                    normalization=str(profile["normalization"]),
+                    pairing_mode=profile.pairing_mode,
+                    normalization=profile.normalization,
                 ),
                 value=agreement,
                 residue_axis=admitted_axis,

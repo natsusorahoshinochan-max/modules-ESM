@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events
+
 import json
 from pathlib import Path
 from typing import Any
@@ -9,9 +11,9 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from core import ProjectManager
-from core.project_objects import ProjectObjectStore
-from core.server import create_app
+from core.project.manager import ProjectManager
+from core.project.objects import ObjectIntegrityError, ProjectObjectStore
+from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import validate_error
 from tests.fixtures.public_v2 import (
     retrieve_service_typed_output_canonical_bytes,
@@ -45,7 +47,7 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
             f"PROTEIN_WORKBENCH_{name}_ROOT",
             str(tmp_path / name.lower()),
         )
-    app = create_app(frozen_catalog_override=_pipeline_catalog(calls))
+    app = create_application(frozen_catalog_override=_pipeline_catalog(calls))
 
     with TestClient(app) as client:
         project_id, run_id, projection = _start_pipeline(client)
@@ -135,7 +137,7 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
                 ],
             }
 
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
+        events = public_run_events(app.state.run_execution_v2, project_id, run_id)
         assert "ready" not in json.dumps(events)
 
 
@@ -148,7 +150,7 @@ def test_typed_value_retrieval_is_strictly_run_node_port_and_index_scoped(
             f"PROTEIN_WORKBENCH_{name}_ROOT",
             str(tmp_path / name.lower()),
         )
-    app = create_app(frozen_catalog_override=_pipeline_catalog([]))
+    app = create_application(frozen_catalog_override=_pipeline_catalog([]))
 
     with TestClient(app) as client:
         project_id, run_id, projection = _start_pipeline(client)
@@ -183,14 +185,40 @@ def test_project_object_store_deduplicates_exact_bytes(
     store = ProjectObjectStore(projects)
     payload = b"exact canonical value"
 
-    first = store.put_exact(project.id, payload)
-    repeated = store.put_exact(project.id, payload)
+    first = store.store(project.id, payload)
+    repeated = store.store(project.id, payload)
 
     assert repeated == first
     assert store.read(
         project.id,
         first.content_digest,
     ) == payload
+
+
+def test_project_object_store_rejects_changed_existing_bytes(
+    tmp_path: Path,
+) -> None:
+    output_root = tmp_path / "outputs"
+    projects = ProjectManager(
+        tmp_path / "projects",
+        output_root=output_root,
+    )
+    project = projects.create("immutable object identity")
+    store = ProjectObjectStore(projects)
+    payload = b"exact canonical value"
+    stored = store.store(project.id, payload)
+    object_path = (
+        output_root
+        / project.id
+        / "objects"
+        / Path(*ProjectObjectStore._relative_parts(stored.content_digest))
+    )
+    object_path.write_bytes(b"changed")
+
+    with pytest.raises(ObjectIntegrityError):
+        store.read(project.id, stored.content_digest)
+    with pytest.raises(ObjectIntegrityError):
+        store.store(project.id, payload)
 
 
 def test_object_write_failure_closes_node_without_public_output(
@@ -210,11 +238,11 @@ def test_object_write_failure_closes_node_without_public_output(
     ) -> object:
         raise OSError("injected immutable object write failure")
 
-    monkeypatch.setattr(ProjectObjectStore, "put_exact", fail_write)
-    app = create_app(frozen_catalog_override=_pipeline_catalog([]))
+    monkeypatch.setattr(ProjectObjectStore, "store", fail_write)
+    app = create_application(frozen_catalog_override=_pipeline_catalog([]))
     with TestClient(app) as client:
         project_id, run_id, projection = _start_pipeline(client)
-        events = app.state.run_execution_v2.public_events(project_id, run_id)
+        events = public_run_events(app.state.run_execution_v2, project_id, run_id)
 
     assert projection["status"] == "failed"
     assert projection["outputs"] == []

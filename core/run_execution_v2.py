@@ -11,12 +11,9 @@ from dataclasses import dataclass, field, fields, is_dataclass, replace
 from datetime import datetime, timezone
 import json
 import logging
-import os
 from pathlib import Path
 import re
-import signal
 import threading
-import time
 from types import MappingProxyType
 from typing import Any, Literal, Protocol, cast
 import uuid
@@ -27,28 +24,100 @@ from protein_workbench_public import (
     validate_schema,
 )
 
-from core.artifacts import ArtifactPayload, is_valid_artifact_media_type
+from core.catalog.port_contract import (
+    is_valid_artifact_media_type,
+)
 from core.operation import (
     AdmittedPort,
+    EngineInvocationProvenance,
+    InvocationRandomness,
     OperationCall,
     OperationContext,
+    ProviderResidueProjection,
+    ProviderResidueProjectionEntry,
+    ReadinessCheckInput,
+    ReadinessResult,
 )
-from core.port_types import (
-    ContractResolutionError,
+from core.execution.environment import EnvironmentConfiguration
+from core.execution.ledger import (
+    ArtifactOutputEvidence,
+    AvailabilityBinding,
+    CancellationDecision,
+    ContextSelectorEvidence,
+    DerivedRunReference,
+    EngineInvocationConclusion,
+    EngineInvocationStart,
+    FilesystemLedgerStore,
+    Fact,
+    Ledger,
+    LedgerStore,
+    ImmutableObjectReference,
+    NodeAttemptStart,
+    NodeFailurePublication,
+    NodeSuccessPublication,
+    NodeTerminationPublication,
+    ObservationSelectorEvidence,
+    OperationAttemptStart,
+    PlanNodeEvidence,
+    PlanRequiredInputEvidence,
+    PlanValueSourceEvidence,
+    PublishedArtifact,
+    PublishedOutput,
+    ReadinessAttestation,
+    ReplayWindow,
+    RunCursor,
+    RunAdmission,
+    RunClosure,
+    RunProjection,
+    RunScopeBinding,
+    RunStart,
+    SelectionFailure,
+    SelectionObjectiveEvidence,
+    SelectionResult,
+    SelectionSuccess,
+    StructuredError,
+    UnstartedNodeConclusion,
+    V2RunError,
+    run_cursor,
+    run_timestamp,
+)
+from core.execution.output_admission.admission import (
+    NodeOutputPlan,
+    OutputPortPlan,
+    _restored_node_output,
+    admit_node_output,
+)
+from core.execution.output_admission.artifacts import (
+    AdmittedArtifactPublicationPlan,
+    ArtifactOutputDeclaration,
+)
+from core.execution.output_admission.candidate_identity import (
+    _validate_input_candidate_identities,
+)
+from core.execution.output_admission.port_values import (
+    combine_admitted_port,
+    restore_admitted_port,
+)
+from core.execution.resources import CancellationControl, RunResources
+from core.catalog.model import (
     FrozenCatalog,
+)
+from core.catalog.port_contract import (
+    ContractResolutionError,
+    PortTypeDefinition,
     PortValueError,
     canonical_json_bytes,
     canonical_sha256,
 )
-from core.process_control import signal_process_group
-from core.project import ProjectManager
-from core.project_objects import ObjectIntegrityError, ProjectObjectStore
-from core.scoring_v2 import (
+from core.project.manager import ProjectInputDescriptor, ProjectManager
+from core.project.objects import ObjectIntegrityError, ProjectObjectStore
+from core.scoring.selection import (
+    PairwiseContextSelector,
     SelectionError,
+    observation_selector_provenance_from_facts,
     selection_objective_provenance_from_facts,
-    validate_produced_score_collection_from_facts,
 )
-from core.storage import (
+from core.project.storage import (
     StoragePathError,
     replace_file,
     validate_identifier,
@@ -56,39 +125,33 @@ from core.storage import (
     write_new_file,
     write_new_file_durable,
 )
-from core.value_admission import (
-    admitted_port_values,
-    admitted_port_values_from_bytes,
-    combine_admitted_port_values,
-    normalize_scientific_outputs,
-    validate_candidate_input_identities,
+from core.workflow.authoring import (
+    VerifiedWorkflowCommit,
+    WorkflowAuthoringService,
 )
-from core.workflow_authoring_v2 import WorkflowAuthoringService
-from core.workflow_v2 import (
-    CONTRACT_LOCK_NAMESPACE,
-    CompiledWorkflow,
+from core.workflow.document import CONTRACT_LOCK_NAMESPACE, ContractLockEntry
+from core.workflow.plan import (
     ExecutionPlan,
     ExecutionPlanNode,
 )
-from datatypes import (
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ProteinSequence,
-    ProteinStructure,
-    ScoreCollection,
-    ExactContractReference,
-    validate_canonical_identifier,
 )
-from datatypes.protein import residue_identity_chain
+from datatypes.exact_reference import (
+    ExactContractReference,
+)
+from datatypes.observation import (
+    CalibrationObservationContext,
+    IntrinsicObservationContext,
+)
+from datatypes.residue import residue_identity_chain
 
 
 _LOGGER = logging.getLogger(__name__)
 
 
-READINESS_ATTESTATION_NAMESPACE = (
-    "protein-workbench-readiness-attestation/v2"
-)
 RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
 RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v4"
 PORT_VALUE_MANIFEST_NAMESPACE = (
@@ -97,21 +160,13 @@ PORT_VALUE_MANIFEST_NAMESPACE = (
 NODE_RESULT_MANIFEST_NAMESPACE = (
     "protein-workbench-node-result-manifest/v1"
 )
-RUN_LEDGER_TRANSACTION_NAMESPACE = (
-    "protein-workbench-run-ledger-transaction/v4"
-)
-RUN_LEDGER_SCHEMA_VERSION = "4.0.0"
 MAX_ARTIFACTS_PER_RUN = 2_048
-MAX_ARTIFACT_SIZE_BYTES = 64 * 1024 * 1024
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
-MAX_LEDGER_TRANSACTION_BYTES = 4 * 1024 * 1024
 MAX_PORT_VALUE_MANIFEST_BYTES = 32 * 1024 * 1024
 MAX_NODE_RESULT_MANIFEST_BYTES = 4 * 1024 * 1024
 MAX_RESULT_CACHE_ENTRY_BYTES = 4 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
-CANCELLATION_TERM_GRACE_SECONDS = 0.25
-CANCELLATION_KILL_GRACE_SECONDS = 0.25
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
 _ATTEMPT_TERMINALS = frozenset(
     {
@@ -127,65 +182,6 @@ _DISPOSITION_OUTCOMES = frozenset(
 )
 
 
-def _is_sha256_digest(value: Any) -> bool:
-    return (
-        isinstance(value, str)
-        and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
-    )
-
-
-def _contract_reference_key(
-    value: Mapping[str, Any],
-) -> tuple[str, str, str, str]:
-    return (
-        value["contract_kind"],
-        value["contract_id"],
-        value["contract_version"],
-        value["contract_digest"],
-    )
-
-
-def _validated_contract_reference_key(
-    value: Any,
-    *,
-    expected_kind: str | None = None,
-) -> tuple[str, str, str, str]:
-    try:
-        validate_schema("#/$defs/ContractReference", value)
-    except ProtocolValidationError as error:
-        raise ValueError("Contract reference is invalid") from error
-    if expected_kind is not None and value["contract_kind"] != expected_kind:
-        raise ValueError("Contract reference kind is invalid")
-    return _contract_reference_key(value)
-
-
-def _is_timestamp(value: Any) -> bool:
-    try:
-        validate_schema("#/$defs/Timestamp", value)
-    except ProtocolValidationError:
-        return False
-    return True
-
-
-def _run_terminal_status(
-    dispositions: Mapping[str, Mapping[str, Any]],
-    selection_terminals: tuple[Mapping[str, Any], ...],
-) -> Literal["succeeded", "failed", "cancelled", "interrupted"]:
-    outcomes = {
-        disposition["outcome"] for disposition in dispositions.values()
-    }
-    if "failed" in outcomes or any(
-        terminal["status"] == "failed"
-        for terminal in selection_terminals
-    ):
-        return "failed"
-    if "interrupted" in outcomes:
-        return "interrupted"
-    if "cancelled" in outcomes:
-        return "cancelled"
-    return "succeeded"
-
-
 def _is_immutable_object_descriptor(value: Any) -> bool:
     return (
         isinstance(value, Mapping)
@@ -198,297 +194,41 @@ def _is_immutable_object_descriptor(value: Any) -> bool:
     )
 
 
-@dataclass(frozen=True, slots=True)
-class InvocationRandomness:
-    """Typed effective-randomness provenance transported to the Ledger."""
-
-    control: Literal["exact_seed", "provider_uncontrolled"]
-    effective_seed: int | None = None
-
-    def to_public(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"control": self.control}
-        if self.effective_seed is not None:
-            result["effective_seed"] = self.effective_seed
-        return result
-
-
-@dataclass(frozen=True, slots=True)
-class ProviderResidueProjectionEntry:
-    """One typed Workbench-to-Provider residue association."""
-
-    residue_id: str
-    segment_index: int
-    provider_chain_id: str
-    provider_position: int
-
-    def to_public(self) -> dict[str, Any]:
-        return {
-            "residue_id": self.residue_id,
-            "segment_index": self.segment_index,
-            "provider_chain_id": self.provider_chain_id,
-            "provider_position": self.provider_position,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class ProviderResidueProjection:
-    """Typed chain, order, and residue-mapping invocation provenance."""
-
-    workbench_chain_order: tuple[str, ...]
-    provider_structure_chain_order: tuple[str, ...]
-    provider_chain_order: tuple[str, ...]
-    entries: tuple[ProviderResidueProjectionEntry, ...]
-    position_semantics: Literal["one_based_chain_local"] = (
-        "one_based_chain_local"
-    )
-
-    def to_public(self) -> dict[str, Any]:
-        return {
-            "position_semantics": self.position_semantics,
-            "workbench_chain_order": list(self.workbench_chain_order),
-            "provider_structure_chain_order": list(
-                self.provider_structure_chain_order
-            ),
-            "provider_chain_order": list(self.provider_chain_order),
-            "entries": [entry.to_public() for entry in self.entries],
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class EngineInvocationProvenance:
-    """Closed typed provenance frozen for transport to durable admission."""
-
-    effective_randomness: InvocationRandomness | None = None
-    project_input_filename: str | None = None
-    provider_residue_projection: ProviderResidueProjection | None = None
-
-    def to_public(self) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        if self.effective_randomness is not None:
-            result["effective_randomness"] = (
-                self.effective_randomness.to_public()
-            )
-        if self.project_input_filename is not None:
-            result["project_input_filename"] = self.project_input_filename
-        if self.provider_residue_projection is not None:
-            result["provider_residue_projection"] = (
-                self.provider_residue_projection.to_public()
-            )
-        return result
-
-
-def _validate_invocation_provenance(value: Mapping[str, Any]) -> None:
-    """Admit the closed provenance grammar at the Ledger durable seam."""
-    try:
-        validate_schema("#/$defs/InvocationProvenance", value)
-    except ProtocolValidationError as error:
-        raise ValueError("Engine invocation provenance is malformed") from error
-
-    projection = value.get("provider_residue_projection")
-    if projection is None:
-        return
-
-    workbench_chain_order = tuple(projection["workbench_chain_order"])
-    provider_structure_chain_order = tuple(
-        projection["provider_structure_chain_order"]
-    )
-    provider_chain_order = tuple(projection["provider_chain_order"])
-    if (
-        len(set(workbench_chain_order)) != len(workbench_chain_order)
-        or len(set(provider_structure_chain_order))
-        != len(provider_structure_chain_order)
-        or len(set(provider_chain_order)) != len(provider_chain_order)
-        or set(provider_structure_chain_order) != set(provider_chain_order)
-    ):
-        raise ValueError("Engine invocation provenance chain order is malformed")
-
-    residue_ids: set[str] = set()
-    workbench_entry_chains: set[str] = set()
-    provider_entry_chains: set[str] = set()
-    provider_positions: set[tuple[str, int]] = set()
-    workbench_segment_order: list[str] = []
-    current_segment_index = -1
-    current_provider_position = 0
-    for entry in projection["entries"]:
-        residue_id = entry["residue_id"]
-        segment_index = entry["segment_index"]
-        provider_chain_id = entry["provider_chain_id"]
-        provider_position = entry["provider_position"]
-        provider_coordinate = (provider_chain_id, provider_position)
-        try:
-            workbench_chain_id = residue_identity_chain(
-                residue_id,
-                subject="provider projection residue identity",
-            )
-        except ValueError as error:
-            raise ValueError(
-                "Engine invocation provenance entries are malformed"
-            ) from error
-        if (
-            workbench_chain_id not in workbench_chain_order
-            or provider_chain_id not in provider_chain_order
-            or segment_index < current_segment_index
-            or segment_index > current_segment_index + 1
-            or segment_index >= len(provider_structure_chain_order)
-            or provider_chain_id
-            != provider_structure_chain_order[segment_index]
-            or residue_id in residue_ids
-            or provider_coordinate in provider_positions
-        ):
-            raise ValueError(
-                "Engine invocation provenance entries are malformed"
-            )
-        if segment_index != current_segment_index:
-            if provider_position != 1:
-                raise ValueError(
-                    "Engine invocation provenance entries are malformed"
-                )
-            current_segment_index = segment_index
-            current_provider_position = 1
-            workbench_segment_order.append(workbench_chain_id)
-        else:
-            if (
-                provider_position != current_provider_position + 1
-                or workbench_segment_order[-1] != workbench_chain_id
-            ):
-                raise ValueError(
-                    "Engine invocation provenance entries are malformed"
-                )
-            current_provider_position = provider_position
-        residue_ids.add(residue_id)
-        workbench_entry_chains.add(workbench_chain_id)
-        provider_entry_chains.add(provider_chain_id)
-        provider_positions.add(provider_coordinate)
-    if (
-        workbench_entry_chains != set(workbench_chain_order)
-        or provider_entry_chains != set(provider_structure_chain_order)
-        or current_segment_index
-        != len(provider_structure_chain_order) - 1
-        or tuple(
-            chain
-            for index, chain in enumerate(workbench_segment_order)
-            if index == 0 or chain != workbench_segment_order[index - 1]
-        ) != workbench_chain_order
-    ):
-        raise ValueError("Engine invocation provenance entries are malformed")
-
-    return
-
-
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def run_timestamp(value: datetime | None = None) -> str:
-    observed = value or _utc_now()
-    return observed.astimezone(timezone.utc).isoformat()
-
-
-def _cursor_fact_digest(fact: Mapping[str, Any] | None) -> str:
-    if fact is None:
-        return "origin"
-    return canonical_sha256(dict(fact))
-
-
-def run_cursor(
-    sequence: int,
-    *,
-    project_id: str = "unavailable",
-    run_id: str = "unavailable",
-    fact: Mapping[str, Any] | None = None,
-) -> str:
-    """Encode a scope-bound durable position without exposing its structure."""
-    payload = canonical_json_bytes(
-        {
-            "schema_namespace": "protein-workbench-run-cursor/v2",
-            "scope_digest": canonical_sha256(
-                {
-                    "schema_namespace": "protein-workbench-run-scope/v2",
-                    "project_id": project_id,
-                    "run_id": run_id,
-                }
-            ),
-            "sequence": sequence,
-            "fact_digest": _cursor_fact_digest(fact),
-        }
-    )
-    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
-    return f"pw2.{encoded}"
-
-
-def _decode_run_cursor(value: str) -> Mapping[str, Any]:
-    if not isinstance(value, str) or not value.startswith("pw2."):
-        raise ValueError("cursor prefix is invalid")
-    encoded = value.removeprefix("pw2.")
-    if not encoded or not re.fullmatch(r"[A-Za-z0-9_-]+", encoded):
-        raise ValueError("cursor encoding is invalid")
-    padding = "=" * (-len(encoded) % 4)
-    try:
-        decoded = base64.b64decode(
-            encoded + padding,
-            altchars=b"-_",
-            validate=True,
-        )
-        payload = json.loads(decoded)
-    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise ValueError("cursor encoding is invalid") from error
-    if (
-        not isinstance(payload, dict)
-        or set(payload)
-        != {
-            "schema_namespace",
-            "scope_digest",
-            "sequence",
-            "fact_digest",
-        }
-        or payload["schema_namespace"]
-        != "protein-workbench-run-cursor/v2"
-        or not isinstance(payload["scope_digest"], str)
-        or type(payload["sequence"]) is not int
-        or payload["sequence"] < 0
-        or not isinstance(payload["fact_digest"], str)
-    ):
-        raise ValueError("cursor payload is invalid")
-    return payload
-
-
-def _safe_cursor_detail(value: Any) -> str:
-    if not isinstance(value, str) or not value:
-        return "invalid"
-    return value[:512]
-
-
-def _public_failure(error: BaseException) -> dict[str, Any]:
+def _execution_error(error: BaseException) -> StructuredError:
     error_type = type(error).__name__
     if (
         len(error_type) > 128
         or _PUBLIC_IDENTIFIER.fullmatch(error_type) is None
     ):
         error_type = "Exception"
-    return {
-        "code": "node_execution_failed",
-        "message": "Node execution failed safely",
-        "retryable": False,
-        "correlation_id": f"incident-{uuid.uuid4().hex}",
-        "details": {"exception_type": error_type},
-    }
+    return StructuredError(
+        code="node_execution_failed",
+        message="Node execution failed safely",
+        retryable=False,
+        correlation_id=f"incident-{uuid.uuid4().hex}",
+        details={"exception_type": error_type},
+    )
 
 
-def _public_binding_failure(error: V2RunError) -> dict[str, Any]:
+def _binding_error(error: V2RunError) -> StructuredError:
     """Preserve one failed Binding gate without inventing an Operation."""
-    return {
-        "code": error.code,
-        "message": str(error),
-        "retryable": {
+    return StructuredError(
+        code=error.code,
+        message=str(error),
+        retryable={
             "binding_unavailable": False,
             "readiness_rejected": True,
         }[error.code],
-        "correlation_id": f"incident-{uuid.uuid4().hex}",
-        "details": dict(error.details),
-    }
+        correlation_id=f"incident-{uuid.uuid4().hex}",
+        details=error.details,
+    )
 
 
-def _public_publication_failure(
+def _publication_error(
     *,
     node_id: str,
     stage: Literal[
@@ -496,20 +236,20 @@ def _public_publication_failure(
         "artifact_object",
         "manifest",
     ],
-) -> dict[str, Any]:
-    return {
-        "code": "node_publication_failed",
-        "message": "Node result publication failed",
-        "retryable": False,
-        "correlation_id": f"incident-{uuid.uuid4().hex}",
-        "details": {
+) -> StructuredError:
+    return StructuredError(
+        code="node_publication_failed",
+        message="Node result publication failed",
+        retryable=False,
+        correlation_id=f"incident-{uuid.uuid4().hex}",
+        details={
             "node_id": node_id,
             "publication_stage": stage,
         },
-    }
+    )
 
 
-def _public_selection_failure(error: BaseException) -> dict[str, Any]:
+def _selection_error(error: BaseException) -> StructuredError:
     error_type = type(error).__name__
     if (
         len(error_type) > 128
@@ -521,393 +261,13 @@ def _public_selection_failure(error: BaseException) -> dict[str, Any]:
         if isinstance(error, SelectionError)
         else {"exception_type": error_type}
     )
-    return {
-        "code": "selection_failed",
-        "message": "Workflow selection failed safely",
-        "retryable": False,
-        "correlation_id": f"incident-{uuid.uuid4().hex}",
-        "details": details,
-    }
-
-
-def _public_event_from_fact(
-    *,
-    project_id: str,
-    run_id: str,
-    fact: Mapping[str, Any],
-) -> dict[str, Any] | None:
-    fact_type = fact["fact_type"]
-    public_fact_types = {
-        "readiness_attested",
-        "run_admitted",
-        "run_started",
-        "node_attempt_started",
-        "operation_attempt_started",
-        "engine_invocation_started",
-        "engine_invocation_terminal",
-        "operation_attempt_terminal",
-        "node_attempt_terminal",
-        "node_disposition",
-        "selection_terminal",
-        "run_terminal",
-    }
-    if fact_type not in public_fact_types:
-        return None
-    payload = dict(fact["payload"])
-    if fact_type == "readiness_attested":
-        event = {
-            "type": fact_type,
-            "binding": payload["binding"],
-            "attestation_digest": payload["attestation_digest"],
-            "observed_at": payload["observed_at"],
-            "conclusion": payload["conclusion"],
-            "proof_source": payload["proof_source"],
-        }
-    elif fact_type == "node_disposition":
-        disposition = dict(payload)
-        disposition["terminal_sequence"] = fact["sequence"]
-        event = {"type": fact_type, "disposition": disposition}
-    else:
-        event = {"type": fact_type, **payload}
-    return {
-        "schema_namespace": "protein-workbench-public/v2",
-        "project_id": project_id,
-        "run_id": run_id,
-        "sequence": fact["sequence"],
-        "cursor": run_cursor(
-            fact["sequence"],
-            project_id=project_id,
-            run_id=run_id,
-            fact=fact,
-        ),
-        "emitted_at": fact["recorded_at"],
-        "event": event,
-    }
-
-
-@dataclass(frozen=True, slots=True)
-class BindingEnvironment:
-    """Trusted private values for one selected Binding."""
-
-    values: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.values, Mapping):
-            raise TypeError("Binding Environment values must be a Mapping")
-        object.__setattr__(
-            self,
-            "values",
-            MappingProxyType(dict(self.values)),
-        )
-
-
-class EnvironmentConfiguration:
-    """Trusted Binding-scoped configuration excluded from public evidence."""
-
-    def __init__(
-        self,
-        entries: Mapping[tuple[str, str], Mapping[str, Any]] | None = None,
-    ) -> None:
-        resolved: dict[tuple[str, str], Mapping[str, Any]] = {}
-        for identity, entry in (entries or {}).items():
-            if (
-                not isinstance(identity, tuple)
-                or len(identity) != 2
-                or not all(isinstance(part, str) for part in identity)
-                or not isinstance(entry, Mapping)
-            ):
-                raise ValueError(
-                    "Environment Configuration must be keyed by exact Binding"
-                )
-            resolved[identity] = MappingProxyType(dict(entry))
-        self._entries = MappingProxyType(resolved)
-
-    def for_binding(
-        self,
-        binding_id: str,
-        binding_version: str,
-    ) -> BindingEnvironment:
-        entry = self._entries.get((binding_id, binding_version), {})
-        values = entry.get("values", {})
-        return BindingEnvironment(values() if callable(values) else values)
-
-
-@dataclass(frozen=True, slots=True)
-class ReadinessCheckInput:
-    """Closed private checker input for one selected Binding."""
-
-    values: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.values, Mapping):
-            raise TypeError("Readiness values must be a Mapping")
-        object.__setattr__(
-            self,
-            "values",
-            MappingProxyType(dict(self.values)),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class ReadinessResult:
-    """One direct readiness conclusion at the Provider boundary."""
-
-    passing: bool
-    proof_source: str = "direct-observation"
-    reason_code: str = "prerequisite_unavailable"
-
-    def __post_init__(self) -> None:
-        if type(self.passing) is not bool:
-            raise TypeError("Readiness conclusion must be boolean")
-        if any(
-            not isinstance(value, str)
-            or len(value) > 128
-            or _PUBLIC_IDENTIFIER.fullmatch(value) is None
-            for value in (self.proof_source, self.reason_code)
-        ):
-            raise ValueError("Readiness metadata must use public identifiers")
-
-
-class _CancellationControl:
-    """Thread-safe owner of active process groups for one Run."""
-
-    def __init__(self) -> None:
-        self._condition = threading.Condition(threading.RLock())
-        self._cleanup_lock = threading.Lock()
-        self._cleanup_complete = threading.Event()
-        self._requested = False
-        self._next_registration = 0
-        self._cleanup_error: BaseException | None = None
-        self._process_groups: dict[
-            int,
-            tuple[int, Callable[[], None] | None],
-        ] = {}
-
-    def register_process_group(
-        self,
-        process_group: int,
-        *,
-        fallback: Callable[[], None] | None,
-    ) -> int:
-        if type(process_group) is not int:
-            raise ValueError("Process-group identity must be an integer")
-        with self._condition:
-            self._next_registration += 1
-            registration = self._next_registration
-            self._process_groups[registration] = (
-                process_group,
-                fallback,
-            )
-            requested = self._requested
-            if requested:
-                self._cleanup_complete.clear()
-        if requested:
-            threading.Thread(
-                target=self.request,
-                name=f"run-cancellation-cleanup-{registration}",
-                daemon=True,
-            ).start()
-        return registration
-
-    def unregister_process_group(self, registration: int) -> None:
-        with self._condition:
-            self._process_groups.pop(registration, None)
-            self._condition.notify_all()
-
-    @staticmethod
-    def _process_group_active(process_group: int) -> bool:
-        if process_group <= 1 or process_group == os.getpgrp():
-            return True
-        try:
-            os.killpg(process_group, 0)
-        except ProcessLookupError:
-            return False
-        except (PermissionError, OSError):
-            return True
-        return True
-
-    def _active_groups(
-        self,
-    ) -> tuple[tuple[int, int, Callable[[], None] | None], ...]:
-        with self._condition:
-            for registration, (process_group, _) in tuple(
-                self._process_groups.items()
-            ):
-                if not self._process_group_active(process_group):
-                    self._process_groups.pop(registration, None)
-            return tuple(
-                (registration, process_group, fallback)
-                for registration, (process_group, fallback)
-                in self._process_groups.items()
-            )
-
-    def _signal_all(self, process_signal: signal.Signals) -> None:
-        for _, process_group, fallback in self._active_groups():
-            try:
-                signal_process_group(
-                    process_group,
-                    process_signal,
-                    fallback=fallback,
-                )
-            except BaseException as error:
-                with self._condition:
-                    if self._cleanup_error is None:
-                        self._cleanup_error = error
-
-    def _wait_for_exit(self, timeout_seconds: float) -> bool:
-        deadline = time.monotonic() + timeout_seconds
-        with self._condition:
-            while self._active_groups():
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return False
-                self._condition.wait(min(remaining, 0.01))
-            return True
-
-    def request(self) -> None:
-        with self._cleanup_lock:
-            self._cleanup_complete.clear()
-            try:
-                with self._condition:
-                    self._requested = True
-                self._signal_all(signal.SIGTERM)
-                if self._wait_for_exit(CANCELLATION_TERM_GRACE_SECONDS):
-                    return
-                self._signal_all(signal.SIGKILL)
-                if self._wait_for_exit(CANCELLATION_KILL_GRACE_SECONDS):
-                    return
-                with self._condition:
-                    if self._cleanup_error is None:
-                        self._cleanup_error = RuntimeError(
-                            "Run process-group cleanup could not be confirmed"
-                        )
-            finally:
-                self._cleanup_complete.set()
-
-    def wait_for_cleanup(self) -> None:
-        """Wait until the cancellation owner reaches a bounded conclusion."""
-        timeout = (
-            CANCELLATION_TERM_GRACE_SECONDS
-            + CANCELLATION_KILL_GRACE_SECONDS
-            + 0.25
-        )
-        if self._cleanup_complete.wait(timeout):
-            return
-        with self._condition:
-            if self._cleanup_error is None:
-                self._cleanup_error = RuntimeError(
-                    "Run cancellation cleanup did not reach a conclusion"
-                )
-
-    @property
-    def cleanup_error(self) -> BaseException | None:
-        with self._condition:
-            return self._cleanup_error
-
-
-@dataclass(frozen=True, slots=True)
-class RunResources:
-    """Project/Run-contained resources available to one Scientific Operation."""
-
-    project_id: str
-    run_id: str
-    node_id: str
-    _projects: ProjectManager = field(repr=False, compare=False)
-    _invocation_recorder: "_OperationInvocationRecorder | None" = field(
-        default=None,
-        repr=False,
-        compare=False,
+    return StructuredError(
+        code="selection_failed",
+        message="Workflow selection failed safely",
+        retryable=False,
+        correlation_id=f"incident-{uuid.uuid4().hex}",
+        details=details,
     )
-    _cancellation_control: "_CancellationControl | None" = field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
-    _project_inputs: Mapping[
-        str,
-        tuple[Mapping[str, Any], bytes],
-    ] = field(
-        default_factory=dict,
-        repr=False,
-        compare=False,
-    )
-    _project_input_identities: tuple[Mapping[str, Any], ...] = field(
-        default=(),
-        repr=False,
-        compare=False,
-    )
-
-    def read_project_input(
-        self,
-        input_reference: str,
-    ) -> tuple[Mapping[str, Any], bytes]:
-        """Read one trusted input from this Run's exact Project scope."""
-        try:
-            descriptor, payload = self._project_inputs[input_reference]
-        except KeyError as error:
-            raise RuntimeError(
-                "Project input access was not declared by the Node contract"
-            ) from error
-        return dict(descriptor), payload
-
-    @property
-    def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]:
-        """Return path-free immutable resource identities observed by this Node."""
-        return tuple(dict(identity) for identity in self._project_input_identities)
-
-    def temporary_directory(self, *, prefix: str):
-        """Create one temporary workspace for this Node."""
-        context = self._projects.run_context(
-            self.project_id,
-            self.run_id,
-            self.node_id,
-        )
-        return context.temporary_directory(prefix=prefix)
-
-    def cleanup_temporary_work(self) -> None:
-        context = self._projects.run_context(
-            self.project_id,
-            self.run_id,
-            self.node_id,
-        )
-        context.cleanup_temporary_work()
-
-    @contextmanager
-    def cancellable_process_group(
-        self,
-        process_group: int,
-        *,
-        fallback: Callable[[], None] | None = None,
-    ):
-        """Register one isolated process group for Run cancellation."""
-        if self._cancellation_control is None:
-            raise RuntimeError("Run cancellation control is unavailable")
-        registration = self._cancellation_control.register_process_group(
-            process_group,
-            fallback=fallback,
-        )
-        try:
-            yield
-        finally:
-            self._cancellation_control.unregister_process_group(registration)
-
-    @contextmanager
-    def engine_invocation(
-        self,
-        *,
-        engine_role: str = "primary",
-        parent_invocation_id: str | None = None,
-        invocation_provenance: EngineInvocationProvenance | None = None,
-    ):
-        """Record one explicit crossing of a scientific engine boundary."""
-        if self._invocation_recorder is None:
-            raise RuntimeError("Engine Invocation is unavailable")
-        with self._invocation_recorder.invoke(
-            engine_role=engine_role,
-            parent_invocation_id=parent_invocation_id,
-            invocation_provenance=invocation_provenance,
-        ) as invocation_id:
-            yield invocation_id
 
 
 class ResultReplaySource:
@@ -975,21 +335,6 @@ class ResultReplayHit:
         )
 
 
-class V2RunError(RuntimeError):
-    """One public-safe v2 Run failure."""
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        details: Mapping[str, Any],
-    ) -> None:
-        self.code = code
-        self.details = dict(details)
-        super().__init__(message)
-
-
 class ExecutionTermination(RuntimeError):
     """A bounded terminal conclusion reported by a started engine seam."""
 
@@ -1025,26 +370,6 @@ class ResultCachePublicationError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class AdmittedArtifactPublication:
-    """Operation-admitted Artifact facts ready for immutable persistence."""
-
-    output_port: str
-    artifact_kind: Literal["standalone", "candidate"]
-    body: bytes
-    media_type: str
-    filename: str
-    candidate_id: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class AdmittedArtifactPublicationPlan:
-    """Closed ordinary/Artifact output partition for outcome publication."""
-
-    artifact_output_ports: tuple[str, ...]
-    publications: tuple[AdmittedArtifactPublication, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class _CommittedNodeOutcome:
     """The only Node Execution Attempt outcome visible to Run scheduling."""
 
@@ -1070,7 +395,7 @@ class _NodeExecutionAttemptState:
     node_attempt_id: str
     operation_attempt_id: str
     inputs: Mapping[str, AdmittedPort]
-    project_inputs: Mapping[str, tuple[Mapping[str, Any], bytes]]
+    project_inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]]
     resource_identities: tuple[Mapping[str, Any], ...]
     effective_randomness: _EffectiveRandomnessSnapshot
     result_identity: str | None
@@ -1088,3098 +413,6 @@ class _NodeExecutionAttemptState:
         default_factory=lambda: AdmittedArtifactPublicationPlan((), ())
     )
 
-
-@dataclass(frozen=True, slots=True)
-class _PlanValueSourceEvidence:
-    node_id: str
-    output_port: str
-
-    def to_dict(self) -> dict[str, str]:
-        return {
-            "node_id": self.node_id,
-            "output_port": self.output_port,
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class _PlanRequiredInputEvidence:
-    input_port: str
-    sources: tuple[_PlanValueSourceEvidence, ...]
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "input_port": self.input_port,
-            "sources": [source.to_dict() for source in self.sources],
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class _PlanNodeEvidence:
-    node_id: str
-    dependencies: tuple[str, ...]
-    required_input_sources: tuple[_PlanRequiredInputEvidence, ...]
-    result_identity_plan_facts_digest: str
-    binding: Mapping[str, Any]
-    execution_route: Literal["direct", "adapter"]
-    node_type: Mapping[str, Any] | None = None
-    artifact_outputs: tuple[Mapping[str, Any], ...] = ()
-    selection_consumer: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        result = {
-            "node_id": self.node_id,
-            "dependencies": list(self.dependencies),
-            "required_input_sources": [
-                required_input.to_dict()
-                for required_input in self.required_input_sources
-            ],
-            "result_identity_plan_facts_digest": (
-                self.result_identity_plan_facts_digest
-            ),
-            "binding": dict(self.binding),
-            "execution_route": self.execution_route,
-        }
-        if self.node_type is not None:
-            result["node_type"] = dict(self.node_type)
-        if self.artifact_outputs:
-            result["artifact_outputs"] = [
-                {
-                    **dict(output),
-                    "port_type": dict(output["port_type"]),
-                    "accepted_media_types": list(
-                        output["accepted_media_types"]
-                    ),
-                }
-                for output in self.artifact_outputs
-            ]
-        if self.selection_consumer:
-            result["selection_consumer"] = True
-        return result
-
-
-def _parse_plan_evidence(
-    value: Any,
-) -> tuple[_PlanNodeEvidence, ...]:
-    if not isinstance(value, list):
-        raise ValueError("Run plan evidence is invalid")
-    parsed: list[_PlanNodeEvidence] = []
-    seen: set[str] = set()
-    for item in value:
-        allowed_fields = {
-            "node_id",
-            "dependencies",
-            "required_input_sources",
-            "result_identity_plan_facts_digest",
-            "binding",
-            "execution_route",
-        }
-        if (
-            not isinstance(item, Mapping)
-            or not allowed_fields <= set(item)
-            or set(item) - allowed_fields
-            - {"node_type", "artifact_outputs", "selection_consumer"}
-            or not isinstance(item["node_id"], str)
-            or not isinstance(item["dependencies"], list)
-            or not isinstance(item["required_input_sources"], list)
-            or not isinstance(
-                item["result_identity_plan_facts_digest"],
-                str,
-            )
-            or re.fullmatch(
-                r"sha256:[0-9a-f]{64}",
-                item["result_identity_plan_facts_digest"],
-            )
-            is None
-            or type(item.get("selection_consumer", False)) is not bool
-            or not all(
-                isinstance(dependency, str)
-                for dependency in item["dependencies"]
-            )
-            or item["execution_route"] not in {"direct", "adapter"}
-            or item["node_id"] in seen
-        ):
-            raise ValueError("Run plan evidence is invalid")
-        node_id = validate_identifier(item["node_id"], "node_id")
-        dependencies = tuple(sorted(set(item["dependencies"])))
-        if list(dependencies) != item["dependencies"]:
-            raise ValueError("Run plan evidence is invalid")
-        try:
-            _validated_contract_reference_key(
-                item["binding"],
-                expected_kind="binding",
-            )
-        except ValueError as error:
-            raise ValueError("Run plan evidence is invalid") from error
-        required_input_sources: list[_PlanRequiredInputEvidence] = []
-        for required_input in item["required_input_sources"]:
-            if (
-                not isinstance(required_input, Mapping)
-                or set(required_input) != {"input_port", "sources"}
-                or not isinstance(required_input["input_port"], str)
-                or not isinstance(required_input["sources"], list)
-                or not required_input["sources"]
-            ):
-                raise ValueError("Run plan evidence is invalid")
-            input_port = validate_identifier(
-                required_input["input_port"],
-                "input_port",
-            )
-            sources: list[_PlanValueSourceEvidence] = []
-            for source in required_input["sources"]:
-                if (
-                    not isinstance(source, Mapping)
-                    or set(source) != {"node_id", "output_port"}
-                    or not isinstance(source["node_id"], str)
-                    or not isinstance(source["output_port"], str)
-                ):
-                    raise ValueError("Run plan evidence is invalid")
-                sources.append(
-                    _PlanValueSourceEvidence(
-                        validate_identifier(source["node_id"], "node_id"),
-                        validate_identifier(
-                            source["output_port"],
-                            "output_port",
-                        ),
-                    )
-                )
-            canonical_sources = tuple(
-                sorted(
-                    set(sources),
-                    key=lambda source: (source.node_id, source.output_port),
-                )
-            )
-            if (
-                [source.to_dict() for source in canonical_sources]
-                != required_input["sources"]
-                or any(
-                    source.node_id not in dependencies
-                    for source in canonical_sources
-                )
-            ):
-                raise ValueError("Run plan evidence is invalid")
-            required_input_sources.append(
-                _PlanRequiredInputEvidence(input_port, canonical_sources)
-            )
-        canonical_required_inputs = tuple(
-            sorted(
-                set(required_input_sources),
-                key=lambda required_input: required_input.input_port,
-            )
-        )
-        if (
-            [
-                required_input.to_dict()
-                for required_input in canonical_required_inputs
-            ]
-            != item["required_input_sources"]
-        ):
-            raise ValueError("Run plan evidence is invalid")
-        node_type = item.get("node_type")
-        if node_type is not None:
-            try:
-                _validated_contract_reference_key(
-                    node_type,
-                    expected_kind="node_type",
-                )
-            except ValueError as error:
-                raise ValueError("Run plan evidence is invalid") from error
-            node_type = dict(node_type)
-        raw_artifact_outputs = item.get("artifact_outputs", [])
-        if not isinstance(raw_artifact_outputs, list):
-            raise ValueError("Run plan evidence is invalid")
-        artifact_outputs: list[Mapping[str, Any]] = []
-        artifact_output_names: set[str] = set()
-        for artifact_output in raw_artifact_outputs:
-            if (
-                not isinstance(artifact_output, Mapping)
-                or set(artifact_output)
-                != {
-                    "output_port",
-                    "artifact_kind",
-                    "artifact_media_type",
-                    "port_type",
-                    "accepted_media_types",
-                }
-                or artifact_output["artifact_kind"]
-                not in {"candidate", "standalone"}
-                or (
-                    artifact_output["artifact_media_type"] is not None
-                    and not is_valid_artifact_media_type(
-                        artifact_output["artifact_media_type"]
-                    )
-                )
-                or not isinstance(
-                    artifact_output["accepted_media_types"],
-                    list,
-                )
-            ):
-                raise ValueError("Run plan evidence is invalid")
-            output_port = validate_identifier(
-                artifact_output["output_port"],
-                "output_port",
-            )
-            media_types = tuple(
-                artifact_output["accepted_media_types"]
-            )
-            if (
-                output_port in artifact_output_names
-                or not media_types
-                or tuple(sorted(set(media_types))) != media_types
-                or any(
-                    not is_valid_artifact_media_type(media_type)
-                    for media_type in media_types
-                )
-                or (
-                    artifact_output["artifact_media_type"] is not None
-                    and artifact_output["artifact_media_type"]
-                    not in media_types
-                )
-            ):
-                raise ValueError("Run plan evidence is invalid")
-            try:
-                _validated_contract_reference_key(
-                    artifact_output["port_type"],
-                    expected_kind="port_type",
-                )
-            except ValueError as error:
-                raise ValueError("Run plan evidence is invalid") from error
-            artifact_output_names.add(output_port)
-            artifact_outputs.append(
-                {
-                    "output_port": output_port,
-                    "artifact_kind": artifact_output["artifact_kind"],
-                    "artifact_media_type": artifact_output[
-                        "artifact_media_type"
-                    ],
-                    "port_type": dict(artifact_output["port_type"]),
-                    "accepted_media_types": media_types,
-                }
-            )
-        seen.add(node_id)
-        parsed.append(
-            _PlanNodeEvidence(
-                node_id=node_id,
-                dependencies=dependencies,
-                required_input_sources=canonical_required_inputs,
-                result_identity_plan_facts_digest=(
-                    item["result_identity_plan_facts_digest"]
-                ),
-                binding=dict(item["binding"]),
-                execution_route=item["execution_route"],
-                node_type=node_type,
-                artifact_outputs=tuple(artifact_outputs),
-                selection_consumer=item.get("selection_consumer", False),
-            )
-        )
-    if any(
-        dependency not in seen
-        for node in parsed
-        for dependency in node.dependencies
-    ):
-        raise ValueError("Run plan evidence is invalid")
-    return tuple(parsed)
-
-
-@dataclass(frozen=True, slots=True)
-class RunScopeBinding:
-    """Complete immutable Run scope selected before Ledger admission."""
-
-    workflow_commit_id: str
-    workflow_commit_revision: int
-    workflow_digest: str
-    contract_lock_digest: str
-    execution_plan_digest: str
-    catalog_contract_digest: str
-    resolved_contracts: tuple[Mapping[str, Any], ...]
-    resolved_contract_roots: tuple[Mapping[str, Any], ...]
-    derived_from: Mapping[str, Any] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AvailabilityBinding:
-    """One exact Binding Availability snapshot selected for this Run."""
-
-    binding: Mapping[str, Any]
-    catalog_observed_at: str
-    available: bool
-
-
-@dataclass(frozen=True, slots=True)
-class RunAdmission:
-    """The exact Workflow Commit admitted into one bound Run scope."""
-
-    workflow_commit_id: str
-    workflow_commit_revision: int
-
-
-@dataclass(frozen=True, slots=True)
-class RunStart:
-    """The execution start of one admitted Run."""
-
-    started_at: str
-
-
-@dataclass(frozen=True, slots=True)
-class ReadinessAttestation:
-    """One complete run-scoped Readiness conclusion for an exact Binding."""
-
-    binding: Mapping[str, Any]
-    readiness_contract_digest: str
-    observed_at: str
-    conclusion: Literal["passing", "failing"]
-    proof_source: str
-    attestation_digest: str
-
-
-@dataclass(frozen=True, slots=True)
-class EngineInvocationStart:
-    """One complete typed entry into a declared scientific engine seam."""
-
-    invocation_id: str
-    operation_attempt_id: str
-    engine_role: str
-    engine_identity: str
-    parent_invocation_id: str | None = None
-    provenance: EngineInvocationProvenance | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NodeAttemptStart:
-    """One scheduled Node Execution Attempt start."""
-
-    node_id: str
-    node_attempt_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class OperationAttemptStart:
-    """One Operation Attempt start under a Node Execution Attempt."""
-
-    node_attempt_id: str
-    operation_attempt_id: str
-
-
-@dataclass(frozen=True, slots=True)
-class EngineInvocationConclusion:
-    """One complete terminal conclusion for a started Engine Invocation."""
-
-    invocation_id: str
-    status: Literal[
-        "succeeded",
-        "failed",
-        "cancelled",
-        "interrupted",
-        "outcome_unknown",
-    ]
-    error: Mapping[str, Any] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class NodeSuccessPublication:
-    """Complete successful Node Outcome Publication selected by runtime."""
-
-    node_id: str
-    node_attempt_id: str
-    operation_attempt_id: str | None
-    resolution: Literal["executed", "cache_replayed"]
-    result_identity: str
-    node_result_manifest: Mapping[str, Any]
-    outputs: tuple[Mapping[str, Any], ...]
-    artifacts: tuple[Mapping[str, Any], ...]
-    nonempty_output_ports: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class NodeFailurePublication:
-    """Complete failed Node Outcome Publication selected by runtime."""
-
-    node_id: str
-    node_attempt_id: str
-    operation_attempt_id: str | None
-    resolution: Literal["executed", "cache_replayed"]
-    error: Mapping[str, Any]
-    failure_origin: Literal["binding", "operation", "publication"]
-
-
-@dataclass(frozen=True, slots=True)
-class NodeTerminationPublication:
-    """Complete cancelled or interrupted Node outcome at its causal depth."""
-
-    node_id: str
-    status: Literal["cancelled", "interrupted", "outcome_unknown"]
-    node_attempt_id: str
-    operation_attempt_id: str | None = None
-    operation_status: Literal[
-        "succeeded",
-        "cancelled",
-        "interrupted",
-        "outcome_unknown",
-    ] | None = None
-    resolution: Literal["executed", "cache_replayed"] = "executed"
-    error: Mapping[str, Any] | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class UnstartedNodeConclusion:
-    """One complete disposition for a Node with no Execution Attempt."""
-
-    node_id: str
-    outcome: Literal["blocked", "cancelled", "interrupted"]
-    blocked_by: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True, slots=True)
-class SelectionSuccess:
-    """One successful Selection conclusion chosen for Run Closure."""
-
-    result: Mapping[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class SelectionFailure:
-    """One failed Selection conclusion chosen for Run Closure."""
-
-    error: Mapping[str, Any]
-
-
-SelectionConclusion = SelectionSuccess | SelectionFailure
-
-
-@dataclass(frozen=True, slots=True)
-class RunClosure:
-    """The complete normal Selection and Run Closure conclusion."""
-
-    selections: tuple[SelectionConclusion, ...] = ()
-
-
-LedgerTransition = (
-    RunScopeBinding
-    | AvailabilityBinding
-    | RunAdmission
-    | RunStart
-    | ReadinessAttestation
-    | NodeAttemptStart
-    | OperationAttemptStart
-    | EngineInvocationStart
-    | EngineInvocationConclusion
-    | NodeSuccessPublication
-    | NodeFailurePublication
-    | NodeTerminationPublication
-    | UnstartedNodeConclusion
-    | RunClosure
-)
-
-
-@dataclass(frozen=True, slots=True)
-class LedgerAcknowledgement:
-    """The durable logical range acknowledged for one typed transition."""
-
-    first_sequence: int
-    last_sequence: int
-    cursor: str
-
-
-@dataclass(frozen=True, slots=True)
-class _LogicalFact:
-    """One Ledger-owned logical fact inside a typed transition."""
-
-    fact_type: str
-    payload: Mapping[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
-class _CommittedFactRange:
-    """The acknowledged contiguous logical facts from one commit."""
-
-    first_sequence: int
-    last_sequence: int
-    facts: tuple[Mapping[str, Any], ...]
-
-
-class LedgerTransactionStore(Protocol):
-    """Publish one already-canonical physical Ledger transaction."""
-
-    def publish(
-        self,
-        *,
-        root: Path,
-        relative_parts: tuple[str, ...],
-        payload: bytes,
-    ) -> None: ...
-
-
-class FilesystemLedgerTransactionStore:
-    """Production owner-only atomic filesystem transaction publisher."""
-
-    def publish(
-        self,
-        *,
-        root: Path,
-        relative_parts: tuple[str, ...],
-        payload: bytes,
-    ) -> None:
-        write_new_file_durable(
-            root,
-            relative_parts,
-            payload,
-        )
-
-
-@dataclass(slots=True)
-class _LedgerReducerState:
-    facts: list[dict[str, Any]]
-    availability_by_binding: dict[
-        tuple[str, str, str, str],
-        dict[str, Any],
-    ]
-    readiness_by_binding: dict[
-        tuple[str, str, str, str],
-        dict[str, Any],
-    ]
-    node_attempts: dict[str, dict[str, Any]]
-    node_attempt_by_node: dict[str, str]
-    operations: dict[str, dict[str, Any]]
-    invocations: dict[str, dict[str, Any]]
-    dispositions: dict[str, dict[str, Any]]
-    outputs_published: set[str]
-    nonempty_output_ports: dict[str, set[str]]
-    run_admitted: bool
-    run_started: bool
-    selection_required: bool
-    expected_selection_terminal_keys: tuple[str, ...]
-    selection_terminals: list[dict[str, Any]]
-    selection_terminal_keys: set[str]
-    run_terminal: bool
-    cancellation_sequence: int | None
-
-    def clone(self) -> _LedgerReducerState:
-        """Stage from immutable retained facts and copied reducer indexes."""
-        return _LedgerReducerState(
-            facts=list(self.facts),
-            availability_by_binding=deepcopy(self.availability_by_binding),
-            readiness_by_binding=deepcopy(self.readiness_by_binding),
-            node_attempts=deepcopy(self.node_attempts),
-            node_attempt_by_node=dict(self.node_attempt_by_node),
-            operations=deepcopy(self.operations),
-            invocations=deepcopy(self.invocations),
-            dispositions=deepcopy(self.dispositions),
-            outputs_published=set(self.outputs_published),
-            nonempty_output_ports={
-                node_id: set(output_ports)
-                for node_id, output_ports in self.nonempty_output_ports.items()
-            },
-            run_admitted=self.run_admitted,
-            run_started=self.run_started,
-            selection_required=self.selection_required,
-            expected_selection_terminal_keys=(
-                self.expected_selection_terminal_keys
-            ),
-            selection_terminals=deepcopy(self.selection_terminals),
-            selection_terminal_keys=set(self.selection_terminal_keys),
-            run_terminal=self.run_terminal,
-            cancellation_sequence=self.cancellation_sequence,
-        )
-
-
-class _RunEvidenceLedger:
-    """Schema-checked, causally closed owner-only facts for one Run."""
-
-    def __init__(
-        self,
-        projects: ProjectManager,
-        project_id: str,
-        run_id: str,
-        plan_nodes: tuple[_PlanNodeEvidence, ...],
-        transaction_store: LedgerTransactionStore | None = None,
-        *,
-        expected_resolved_contracts: tuple[Mapping[str, Any], ...],
-        expected_contract_roots: tuple[Mapping[str, Any], ...],
-    ) -> None:
-        self._projects = projects
-        run_dir = projects.run_dir(project_id, run_id)
-        self._root = run_dir.parent
-        self._project_id = project_id
-        self._run_id = run_id
-        self._plan_node_order = tuple(node.node_id for node in plan_nodes)
-        self._plan_nodes = frozenset(self._plan_node_order)
-        self._dependencies = {
-            node.node_id: frozenset(node.dependencies)
-            for node in plan_nodes
-        }
-        self._required_input_sources = {
-            node.node_id: node.required_input_sources
-            for node in plan_nodes
-        }
-        self._bindings_by_node = {
-            node.node_id: dict(node.binding) for node in plan_nodes
-        }
-        self._execution_routes = {
-            node.node_id: node.execution_route for node in plan_nodes
-        }
-        self._expected_binding_keys = frozenset(
-            _contract_reference_key(node.binding)
-            for node in plan_nodes
-        )
-        self._provider_binding_keys = frozenset(
-            _contract_reference_key(node.binding)
-            for node in plan_nodes
-            if node.execution_route == "adapter"
-        )
-        minimum_roots = tuple(
-            reference
-            for node in plan_nodes
-            for reference in (
-                node.binding,
-                *((node.node_type,) if node.node_type is not None else ()),
-            )
-        )
-        minimum_contracts = (
-            *minimum_roots,
-            *(
-                output["port_type"]
-                for node in plan_nodes
-                for output in node.artifact_outputs
-            ),
-        )
-        self._minimum_contract_root_keys = frozenset(
-            _contract_reference_key(reference) for reference in minimum_roots
-        )
-        self._minimum_resolved_contract_keys = frozenset(
-            _contract_reference_key(reference)
-            for reference in minimum_contracts
-        )
-        self._expected_contract_roots = tuple(
-            dict(reference)
-            for reference in expected_contract_roots
-        )
-        self._expected_resolved_contracts = tuple(
-            dict(reference)
-            for reference in expected_resolved_contracts
-        )
-        self._result_identity_plan_facts_digests = {
-            node.node_id: node.result_identity_plan_facts_digest
-            for node in plan_nodes
-        }
-        self._node_types = {
-            node.node_id: (
-                dict(node.node_type)
-                if node.node_type is not None
-                else None
-            )
-            for node in plan_nodes
-        }
-        self._artifact_outputs = {
-            node.node_id: tuple(
-                {
-                    **dict(output),
-                    "port_type": dict(output["port_type"]),
-                    "accepted_media_types": tuple(
-                        output["accepted_media_types"]
-                    ),
-                }
-                for output in node.artifact_outputs
-            )
-            for node in plan_nodes
-        }
-        self._selection_consumer_ids = tuple(
-            node.node_id for node in plan_nodes if node.selection_consumer
-        )
-        self._state = _LedgerReducerState(
-            facts=[],
-            availability_by_binding={},
-            readiness_by_binding={},
-            node_attempts={},
-            node_attempt_by_node={},
-            operations={},
-            invocations={},
-            dispositions={},
-            outputs_published=set(),
-            nonempty_output_ports={},
-            run_admitted=False,
-            run_started=False,
-            selection_required=False,
-            expected_selection_terminal_keys=(),
-            selection_terminals=[],
-            selection_terminal_keys=set(),
-            run_terminal=False,
-            cancellation_sequence=None,
-        )
-        self._transaction_count = 0
-        self._committed_fact_count = 0
-        self._transaction_store = (
-            transaction_store or FilesystemLedgerTransactionStore()
-        )
-        self._condition = threading.Condition(threading.RLock())
-        self._projection_error: BaseException | None = None
-        self._evidence_unavailable: V2RunError | None = None
-
-    def _mark_evidence_unavailable(self, error: V2RunError) -> None:
-        if self._evidence_unavailable is None:
-            self._evidence_unavailable = error
-        self._condition.notify_all()
-
-    def _retain_evidence_unavailable(self, error: V2RunError) -> None:
-        """Order one unavailable-evidence decision against Run writers."""
-        with self._condition:
-            self._mark_evidence_unavailable(error)
-
-    def _require_available_evidence(self) -> None:
-        unavailable = self._evidence_unavailable
-        if unavailable is not None:
-            raise V2RunError(
-                unavailable.code,
-                str(unavailable),
-                details=unavailable.details,
-            ) from unavailable
-
-    def _install_reducer_state(self, state: _LedgerReducerState) -> None:
-        self._state = state
-
-    @property
-    def facts(self) -> tuple[dict[str, Any], ...]:
-        with self._condition:
-            return tuple(json.loads(json.dumps(fact)) for fact in self._state.facts)
-
-    @property
-    def cursor(self) -> str:
-        with self._condition:
-            return self._cursor_at(self._committed_fact_count)
-
-    @property
-    def terminal(self) -> bool:
-        with self._condition:
-            return self._state.run_terminal
-
-    @property
-    def admitted(self) -> bool:
-        with self._condition:
-            return self._state.run_admitted
-
-    @property
-    def run_scope(self) -> RunScopeBinding | None:
-        """Project the admitted immutable Run scope as its typed value."""
-        with self._condition:
-            if not self._state.facts:
-                return None
-            payload = self._state.facts[0]["payload"]
-            return RunScopeBinding(
-                workflow_commit_id=payload["workflow_commit_id"],
-                workflow_commit_revision=payload[
-                    "workflow_commit_revision"
-                ],
-                workflow_digest=payload["workflow_digest"],
-                contract_lock_digest=payload["contract_lock_digest"],
-                execution_plan_digest=payload["execution_plan_digest"],
-                catalog_contract_digest=payload[
-                    "catalog_contract_digest"
-                ],
-                resolved_contracts=tuple(
-                    deepcopy(dict(reference))
-                    for reference in payload["resolved_contracts"]
-                ),
-                resolved_contract_roots=tuple(
-                    deepcopy(dict(reference))
-                    for reference in payload["resolved_contract_roots"]
-                ),
-                derived_from=(
-                    deepcopy(dict(payload["derived_from"]))
-                    if "derived_from" in payload
-                    else None
-                ),
-            )
-
-    @property
-    def cancellation_requested(self) -> bool:
-        with self._condition:
-            return self._state.cancellation_sequence is not None
-
-    @property
-    def all_dispositions_succeeded(self) -> bool:
-        """Return whether the durable Plan disposition set is all-success."""
-        with self._condition:
-            return (
-                set(self._state.dispositions) == set(self._plan_nodes)
-                and all(
-                    disposition["outcome"] == "succeeded"
-                    for disposition in self._state.dispositions.values()
-                )
-            )
-
-    @property
-    def selection_consumer_ids(self) -> tuple[str, ...]:
-        """Return the Selection consumers fixed by durable Run scope."""
-        return self._selection_consumer_ids
-
-    @property
-    def plan_nodes(self) -> tuple[_PlanNodeEvidence, ...]:
-        return tuple(
-            _PlanNodeEvidence(
-                node_id=node_id,
-                dependencies=tuple(sorted(self._dependencies[node_id])),
-                required_input_sources=self._required_input_sources[node_id],
-                result_identity_plan_facts_digest=(
-                    self._result_identity_plan_facts_digests[node_id]
-                ),
-                binding=self._bindings_by_node[node_id],
-                execution_route=self._execution_routes[node_id],
-                node_type=self._node_types[node_id],
-                artifact_outputs=self._artifact_outputs[node_id],
-                selection_consumer=node_id in self._selection_consumer_ids,
-            )
-            for node_id in self._plan_node_order
-        )
-
-    def _cursor_at(self, sequence: int) -> str:
-        fact = self._state.facts[sequence - 1] if sequence else None
-        return run_cursor(
-            sequence,
-            project_id=self._project_id,
-            run_id=self._run_id,
-            fact=fact,
-        )
-
-    def sequence_for_cursor(self, cursor: str | None) -> int:
-        if cursor is None:
-            return 0
-        try:
-            payload = _decode_run_cursor(cursor)
-        except ValueError as error:
-            raise V2RunError(
-                "invalid_cursor",
-                "Run Event Stream cursor is invalid",
-                details={"after_sequence": _safe_cursor_detail(cursor)},
-            ) from error
-        sequence = payload["sequence"]
-        with self._condition:
-            expected = (
-                self._cursor_at(sequence)
-                if sequence <= len(self._state.facts)
-                else None
-            )
-        if (
-            payload["scope_digest"]
-            != canonical_sha256(
-                {
-                    "schema_namespace": "protein-workbench-run-scope/v2",
-                    "project_id": self._project_id,
-                    "run_id": self._run_id,
-                }
-            )
-            or expected != cursor
-        ):
-            raise V2RunError(
-                "invalid_cursor",
-                "Run Event Stream cursor is stale or belongs to another scope",
-                details={"after_sequence": _safe_cursor_detail(cursor)},
-            )
-        return sequence
-
-    def cursor_at(self, sequence: int) -> str:
-        with self._condition:
-            if sequence < 0 or sequence > len(self._state.facts):
-                raise ValueError("Ledger cursor sequence is outside the Run")
-            return self._cursor_at(sequence)
-
-    def _acknowledgement(
-        self,
-        committed: _CommittedFactRange,
-    ) -> LedgerAcknowledgement:
-        return LedgerAcknowledgement(
-            first_sequence=committed.first_sequence,
-            last_sequence=committed.last_sequence,
-            cursor=self._cursor_at(committed.last_sequence),
-        )
-
-    def record(
-        self,
-        transition: LedgerTransition,
-    ) -> LedgerAcknowledgement:
-        """Validate and durably acknowledge one complete legal transition."""
-        if isinstance(transition, RunScopeBinding):
-            return self._record_run_scope(transition)
-        if isinstance(transition, AvailabilityBinding):
-            return self._record_availability(transition)
-        if isinstance(transition, RunAdmission):
-            return self._record_run_admission(transition)
-        if isinstance(transition, RunStart):
-            return self._record_run_start(transition)
-        if isinstance(transition, ReadinessAttestation):
-            return self._record_readiness(transition)
-        if isinstance(transition, NodeAttemptStart):
-            return self._record_node_attempt_start(transition)
-        if isinstance(transition, OperationAttemptStart):
-            return self._record_operation_attempt_start(transition)
-        if isinstance(transition, EngineInvocationStart):
-            return self._record_engine_invocation_start(transition)
-        if isinstance(transition, EngineInvocationConclusion):
-            return self._record_engine_invocation_conclusion(transition)
-        if isinstance(transition, NodeSuccessPublication):
-            return self._record_node_success(transition)
-        if isinstance(transition, NodeFailurePublication):
-            return self._record_node_failure(transition)
-        if isinstance(transition, NodeTerminationPublication):
-            return self._record_node_termination(transition)
-        if isinstance(transition, UnstartedNodeConclusion):
-            return self._record_unstarted_node(transition)
-        if isinstance(transition, RunClosure):
-            return self._record_run_closure(transition)
-        raise TypeError("Run Evidence Ledger transition is not current")
-
-    def _record_run_scope(
-        self,
-        scope: RunScopeBinding,
-    ) -> LedgerAcknowledgement:
-        """Durably bind the complete immutable scope of this Run."""
-        payload: dict[str, Any] = {
-            "project_id": self._project_id,
-            "run_id": self._run_id,
-            "workflow_commit_id": scope.workflow_commit_id,
-            "workflow_commit_revision": scope.workflow_commit_revision,
-            "workflow_digest": scope.workflow_digest,
-            "contract_lock_digest": scope.contract_lock_digest,
-            "execution_plan_digest": scope.execution_plan_digest,
-            "catalog_contract_digest": scope.catalog_contract_digest,
-            "resolved_contracts": [
-                dict(reference) for reference in scope.resolved_contracts
-            ],
-            "resolved_contract_roots": [
-                dict(reference)
-                for reference in scope.resolved_contract_roots
-            ],
-            "plan_nodes": [node.to_dict() for node in self.plan_nodes],
-            "selection_required": bool(self._selection_consumer_ids),
-            "selection_terminal_keys": list(self._selection_consumer_ids),
-        }
-        if scope.derived_from is not None:
-            payload["derived_from"] = dict(scope.derived_from)
-        return self._acknowledgement(
-            self._commit((_LogicalFact("run_scope_bound", payload),))
-        )
-
-    def _record_availability(
-        self,
-        availability: AvailabilityBinding,
-    ) -> LedgerAcknowledgement:
-        """Durably bind one exact startup Availability snapshot."""
-        return self._acknowledgement(
-            self._commit(
-                (
-                    _LogicalFact(
-                        "availability_bound",
-                        {
-                            "binding": dict(availability.binding),
-                            "catalog_observed_at": (
-                                availability.catalog_observed_at
-                            ),
-                            "available": availability.available,
-                        },
-                    ),
-                )
-            )
-        )
-
-    def _record_run_admission(
-        self,
-        admission: RunAdmission,
-    ) -> LedgerAcknowledgement:
-        """Durably admit the exact Workflow Commit bound to the Run scope."""
-        return self._acknowledgement(
-            self._commit(
-                (
-                    _LogicalFact(
-                        "run_admitted",
-                        {
-                            "workflow_commit_id": admission.workflow_commit_id,
-                            "workflow_commit_revision": (
-                                admission.workflow_commit_revision
-                            ),
-                        },
-                    ),
-                )
-            )
-        )
-
-    def _record_run_start(
-        self,
-        transition: RunStart,
-    ) -> LedgerAcknowledgement:
-        """Durably record that admitted Run execution started."""
-        return self._acknowledgement(
-            self._commit(
-                (
-                    _LogicalFact(
-                        "run_started",
-                        {"started_at": transition.started_at},
-                    ),
-                )
-            )
-        )
-
-    def _record_readiness(
-        self,
-        attestation: ReadinessAttestation,
-    ) -> LedgerAcknowledgement:
-        """Durably admit one exact Binding Readiness conclusion."""
-        return self._acknowledgement(
-            self._commit(
-                (
-                    _LogicalFact(
-                        "readiness_attested",
-                        {
-                            "binding": dict(attestation.binding),
-                            "readiness_contract_digest": (
-                                attestation.readiness_contract_digest
-                            ),
-                            "observed_at": attestation.observed_at,
-                            "conclusion": attestation.conclusion,
-                            "proof_source": attestation.proof_source,
-                            "attestation_digest": (
-                                attestation.attestation_digest
-                            ),
-                        },
-                    ),
-                )
-            )
-        )
-
-    def _record_node_attempt_start(
-        self,
-        transition: NodeAttemptStart,
-    ) -> LedgerAcknowledgement:
-        """Durably start one scheduled Node Execution Attempt."""
-        return self._acknowledgement(
-            self._commit(
-                (
-                    _LogicalFact(
-                        "node_attempt_started",
-                        {
-                            "node_id": transition.node_id,
-                            "node_attempt_id": transition.node_attempt_id,
-                        },
-                    ),
-                )
-            )
-        )
-
-    def _record_operation_attempt_start(
-        self,
-        transition: OperationAttemptStart,
-    ) -> LedgerAcknowledgement:
-        """Start one Operation Attempt under its Node Execution Attempt."""
-        return self._acknowledgement(
-            self._commit(
-                (
-                    _LogicalFact(
-                        "operation_attempt_started",
-                        {
-                            "node_attempt_id": transition.node_attempt_id,
-                            "operation_attempt_id": (
-                                transition.operation_attempt_id
-                            ),
-                        },
-                    ),
-                )
-            )
-        )
-
-    def _record_engine_invocation_start(
-        self,
-        transition: EngineInvocationStart,
-    ) -> LedgerAcknowledgement:
-        """Durably admit one complete Engine Invocation start."""
-        payload: dict[str, Any] = {
-            "invocation_id": transition.invocation_id,
-            "operation_attempt_id": transition.operation_attempt_id,
-            "engine_role": transition.engine_role,
-            "engine_identity": transition.engine_identity,
-        }
-        if transition.parent_invocation_id is not None:
-            payload["parent_invocation_id"] = transition.parent_invocation_id
-        if transition.provenance is not None:
-            payload["invocation_provenance"] = (
-                transition.provenance.to_public()
-            )
-        return self._acknowledgement(
-            self._commit((_LogicalFact("engine_invocation_started", payload),))
-        )
-
-    def _record_engine_invocation_conclusion(
-        self,
-        conclusion: EngineInvocationConclusion,
-    ) -> LedgerAcknowledgement:
-        """Durably conclude one started Engine Invocation."""
-        payload: dict[str, Any] = {
-            "invocation_id": conclusion.invocation_id,
-            "status": conclusion.status,
-        }
-        if conclusion.error is not None:
-            payload["error"] = dict(conclusion.error)
-        return self._acknowledgement(
-            self._commit((_LogicalFact("engine_invocation_terminal", payload),))
-        )
-
-    def _record_node_success(
-        self,
-        publication: NodeSuccessPublication,
-    ) -> LedgerAcknowledgement:
-        """Assemble and durably publish one successful Node outcome."""
-        facts: list[_LogicalFact] = []
-        if publication.operation_attempt_id is not None:
-            facts.append(
-                _LogicalFact(
-                    "operation_attempt_terminal",
-                    {
-                        "operation_attempt_id": (
-                            publication.operation_attempt_id
-                        ),
-                        "status": "succeeded",
-                    },
-                )
-            )
-        facts.append(
-            _LogicalFact(
-                "outputs_published",
-                {
-                    "node_id": publication.node_id,
-                    "result_identity": publication.result_identity,
-                    "node_result_manifest": dict(
-                        publication.node_result_manifest
-                    ),
-                    "outputs": [dict(output) for output in publication.outputs],
-                    "artifacts": [
-                        dict(artifact) for artifact in publication.artifacts
-                    ],
-                    "nonempty_output_ports": list(
-                        publication.nonempty_output_ports
-                    ),
-                },
-            )
-        )
-        facts.extend(
-            _LogicalFact(
-                "artifact_published",
-                {"artifact": dict(artifact)},
-            )
-            for artifact in publication.artifacts
-        )
-        facts.extend(
-            (
-                _LogicalFact(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": publication.node_attempt_id,
-                        "status": "succeeded",
-                        "resolution": publication.resolution,
-                    },
-                ),
-                _LogicalFact(
-                    "node_disposition",
-                    {
-                        "node_id": publication.node_id,
-                        "outcome": "succeeded",
-                        "resolution": publication.resolution,
-                        "blocked_by": [],
-                    },
-                ),
-            )
-        )
-        return self._acknowledgement(self._commit(tuple(facts)))
-
-    def _record_node_failure(
-        self,
-        publication: NodeFailurePublication,
-    ) -> LedgerAcknowledgement:
-        """Assemble and durably publish one failed Node outcome."""
-        facts: list[_LogicalFact] = []
-        if publication.operation_attempt_id is not None:
-            operation_status = (
-                "failed"
-                if publication.failure_origin == "operation"
-                else "succeeded"
-            )
-            operation_payload: dict[str, Any] = {
-                "operation_attempt_id": publication.operation_attempt_id,
-                "status": operation_status,
-            }
-            if operation_status == "failed":
-                operation_payload["error"] = dict(publication.error)
-            facts.append(
-                _LogicalFact(
-                    "operation_attempt_terminal",
-                    operation_payload,
-                )
-            )
-        facts.extend(
-            (
-                _LogicalFact(
-                    "node_attempt_terminal",
-                    {
-                        "node_attempt_id": publication.node_attempt_id,
-                        "status": "failed",
-                        "resolution": publication.resolution,
-                        "error": dict(publication.error),
-                        "failure_origin": publication.failure_origin,
-                    },
-                ),
-                _LogicalFact(
-                    "node_disposition",
-                    {
-                        "node_id": publication.node_id,
-                        "outcome": "failed",
-                        "blocked_by": [],
-                    },
-                ),
-            )
-        )
-        return self._acknowledgement(self._commit(tuple(facts)))
-
-    def _record_node_termination(
-        self,
-        publication: NodeTerminationPublication,
-    ) -> LedgerAcknowledgement:
-        """Assemble one cancelled or interrupted Node outcome."""
-        disposition = (
-            "interrupted"
-            if publication.status == "outcome_unknown"
-            else publication.status
-        )
-        facts: list[_LogicalFact] = []
-        terminal_payload: dict[str, Any] = {"status": publication.status}
-        if publication.error is not None:
-            terminal_payload["error"] = dict(publication.error)
-        if (
-            publication.operation_attempt_id is not None
-            or publication.operation_status is not None
-        ):
-            operation_payload: dict[str, Any] = {
-                "operation_attempt_id": publication.operation_attempt_id,
-                "status": publication.operation_status,
-            }
-            if (
-                publication.operation_status != "succeeded"
-                and publication.error is not None
-            ):
-                operation_payload["error"] = dict(publication.error)
-            facts.append(
-                _LogicalFact(
-                    "operation_attempt_terminal",
-                    operation_payload,
-                )
-            )
-        facts.append(
-            _LogicalFact(
-                "node_attempt_terminal",
-                {
-                    "node_attempt_id": publication.node_attempt_id,
-                    "resolution": publication.resolution,
-                    **terminal_payload,
-                },
-            )
-        )
-        facts.append(
-            _LogicalFact(
-                "node_disposition",
-                {
-                    "node_id": publication.node_id,
-                    "outcome": disposition,
-                    "blocked_by": [],
-                },
-            )
-        )
-        return self._acknowledgement(self._commit(tuple(facts)))
-
-    def _record_unstarted_node(
-        self,
-        conclusion: UnstartedNodeConclusion,
-    ) -> LedgerAcknowledgement:
-        """Durably conclude one Node that never began an Attempt."""
-        return self._acknowledgement(
-            self._commit(
-                (
-                    _LogicalFact(
-                        "node_disposition",
-                        {
-                            "node_id": conclusion.node_id,
-                            "outcome": conclusion.outcome,
-                            "blocked_by": list(conclusion.blocked_by),
-                        },
-                    ),
-                )
-            )
-        )
-
-    def _record_run_closure(
-        self,
-        closure: RunClosure,
-    ) -> LedgerAcknowledgement:
-        """Atomically conclude required Selection and normal Run Closure."""
-        selection_payloads = tuple(
-            (
-                {"status": "succeeded", "result": dict(selection.result)}
-                if isinstance(selection, SelectionSuccess)
-                else {"status": "failed", "error": dict(selection.error)}
-            )
-            for selection in closure.selections
-        )
-        run_status = _run_terminal_status(
-            self._state.dispositions,
-            selection_payloads,
-        )
-        return self._acknowledgement(
-            self._commit(
-                (
-                    *(
-                        _LogicalFact("selection_terminal", payload)
-                        for payload in selection_payloads
-                    ),
-                    _LogicalFact("run_terminal", {"status": run_status}),
-                )
-            )
-        )
-
-    def _require_fields(
-        self,
-        payload: Mapping[str, Any],
-        *,
-        required: frozenset[str],
-        optional: frozenset[str] = frozenset(),
-    ) -> None:
-        fields = frozenset(payload)
-        if not required <= fields or fields - required - optional:
-            raise V2RunError(
-                "evidence_unavailable",
-                "Required Run evidence failed schema validation",
-                details={"last_durable_cursor": self.cursor},
-            )
-
-    def _causal_error(self) -> V2RunError:
-        return V2RunError(
-            "evidence_unavailable",
-            "Required Run evidence failed causal validation",
-            details={"last_durable_cursor": self.cursor},
-        )
-
-    def _required_input_blocker_set(self, node_id: str) -> frozenset[str]:
-        blockers: set[str] = set()
-        for required_input in self._required_input_sources[node_id]:
-            if any(
-                source.output_port
-                in self._state.nonempty_output_ports.get(source.node_id, set())
-                for source in required_input.sources
-            ):
-                continue
-            blockers.update(source.node_id for source in required_input.sources)
-        return frozenset(blockers)
-
-    def _validate_causality(
-        self,
-        fact_type: str,
-        payload: Mapping[str, Any],
-    ) -> None:
-        if self._state.run_terminal:
-            raise self._causal_error()
-        if fact_type == "run_scope_bound":
-            try:
-                workflow_commit_id = validate_identifier(
-                    payload["workflow_commit_id"],
-                    "workflow_commit_id",
-                )
-            except StoragePathError as error:
-                raise self._causal_error() from error
-            if (
-                self._state.facts
-                or payload["project_id"] != self._project_id
-                or payload["run_id"] != self._run_id
-                or workflow_commit_id != payload["workflow_commit_id"]
-                or type(payload["workflow_commit_revision"]) is not int
-                or payload["workflow_commit_revision"] < 1
-            ):
-                raise self._causal_error()
-            return
-        if (
-            not self._state.facts
-            or self._state.facts[0]["fact_type"] != "run_scope_bound"
-        ):
-            raise self._causal_error()
-        if fact_type == "availability_bound":
-            binding_key = _contract_reference_key(payload["binding"])
-            if (
-                self._state.run_admitted
-                or binding_key not in self._expected_binding_keys
-                or binding_key in self._state.availability_by_binding
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "run_admitted":
-            scope = self._state.facts[0]["payload"]
-            if (
-                self._state.run_admitted
-                or self._state.run_started
-                or payload["workflow_commit_id"]
-                != scope["workflow_commit_id"]
-                or payload["workflow_commit_revision"]
-                != scope["workflow_commit_revision"]
-                or set(self._state.availability_by_binding)
-                != set(self._expected_binding_keys)
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "run_started":
-            if not self._state.run_admitted or self._state.run_started:
-                raise self._causal_error()
-            return
-        if fact_type == "readiness_attested":
-            binding_key = _contract_reference_key(payload["binding"])
-            availability = self._state.availability_by_binding.get(binding_key)
-            if (
-                not self._state.run_started
-                or binding_key not in self._provider_binding_keys
-                or availability is None
-                or availability["available"] is not True
-                or binding_key in self._state.readiness_by_binding
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "cancellation_requested":
-            if (
-                not self._state.run_started
-                or self._state.cancellation_sequence is not None
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "node_attempt_started":
-            node_id = payload["node_id"]
-            attempt_id = payload["node_attempt_id"]
-            if (
-                not self._state.run_started
-                or self._state.cancellation_sequence is not None
-                or node_id not in self._plan_nodes
-                or node_id in self._state.node_attempt_by_node
-                or node_id in self._state.dispositions
-                or attempt_id in self._state.node_attempts
-                or any(
-                    upstream not in self._state.dispositions
-                    for upstream in self._dependencies[node_id]
-                )
-                or self._required_input_blocker_set(node_id)
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "operation_attempt_started":
-            attempt_id = payload["node_attempt_id"]
-            operation_id = payload["operation_attempt_id"]
-            attempt = self._state.node_attempts.get(attempt_id)
-            if attempt is None:
-                raise self._causal_error()
-            node_id = attempt["node_id"]
-            binding_key = _contract_reference_key(
-                self._bindings_by_node[node_id]
-            )
-            readiness = self._state.readiness_by_binding.get(binding_key)
-            if (
-                self._state.cancellation_sequence is not None
-                or attempt["terminal"] is not None
-                or operation_id in self._state.operations
-                or any(
-                    operation["node_attempt_id"] == attempt_id
-                    for operation in self._state.operations.values()
-                )
-                or (
-                    self._execution_routes[node_id] == "adapter"
-                    and (
-                        readiness is None
-                        or readiness["conclusion"] != "passing"
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "engine_invocation_started":
-            operation_id = payload["operation_attempt_id"]
-            invocation_id = payload["invocation_id"]
-            parent_invocation_id = payload.get("parent_invocation_id")
-            operation = self._state.operations.get(operation_id)
-            parent = (
-                self._state.invocations.get(parent_invocation_id)
-                if parent_invocation_id is not None
-                else None
-            )
-            if (
-                self._state.cancellation_sequence is not None
-                or operation is None
-                or operation["terminal"] is not None
-                or invocation_id in self._state.invocations
-                or (
-                    parent_invocation_id is not None
-                    and (
-                        parent is None
-                        or parent["operation_attempt_id"] != operation_id
-                        or parent["terminal"] != "succeeded"
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "engine_invocation_terminal":
-            invocation = self._state.invocations.get(payload["invocation_id"])
-            if invocation is None or invocation["terminal"] is not None:
-                raise self._causal_error()
-            return
-        if fact_type == "operation_attempt_terminal":
-            operation_id = payload["operation_attempt_id"]
-            operation = self._state.operations.get(operation_id)
-            if (
-                operation is None
-                or operation["terminal"] is not None
-                or any(
-                    invocation["operation_attempt_id"] == operation_id
-                    and invocation["terminal"] is None
-                    for invocation in self._state.invocations.values()
-                )
-                or (
-                    payload["status"] == "succeeded"
-                    and any(
-                        invocation["operation_attempt_id"] == operation_id
-                        and invocation["terminal"] != "succeeded"
-                        for invocation in self._state.invocations.values()
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if fact_type in {"artifact_published", "outputs_published"}:
-            node_id = (
-                payload["artifact"]["node_id"]
-                if fact_type == "artifact_published"
-                else payload["node_id"]
-            )
-            attempt_id = self._state.node_attempt_by_node.get(node_id)
-            attempt = (
-                self._state.node_attempts.get(attempt_id)
-                if attempt_id is not None
-                else None
-            )
-            if (
-                self._state.cancellation_sequence is not None
-                or attempt is None
-                or attempt["terminal"] is not None
-                or node_id in self._state.dispositions
-                or (
-                    fact_type == "outputs_published"
-                    and node_id in self._state.outputs_published
-                )
-            ):
-                raise self._causal_error()
-            child_operations = [
-                operation_id
-                for operation_id, operation in self._state.operations.items()
-                if operation["node_attempt_id"] == attempt_id
-            ]
-            if child_operations:
-                if fact_type == "outputs_published" and any(
-                    self._state.operations[operation_id]["terminal"] != "succeeded"
-                    for operation_id in child_operations
-                ):
-                    raise self._causal_error()
-                if fact_type == "artifact_published" and any(
-                    invocation["operation_attempt_id"] in child_operations
-                    and invocation["terminal"] != "succeeded"
-                    for invocation in self._state.invocations.values()
-                ):
-                    raise self._causal_error()
-            return
-        if fact_type == "node_attempt_terminal":
-            attempt_id = payload["node_attempt_id"]
-            attempt = self._state.node_attempts.get(attempt_id)
-            child_operations = [
-                operation
-                for operation in self._state.operations.values()
-                if operation["node_attempt_id"] == attempt_id
-            ]
-            if (
-                attempt is None
-                or attempt["terminal"] is not None
-                or any(
-                    operation["terminal"] is None
-                    for operation in child_operations
-                )
-                or (
-                    payload["resolution"] == "cache_replayed"
-                    and (
-                        child_operations
-                        or (
-                            payload["status"] == "succeeded"
-                            and attempt["node_id"]
-                            not in self._state.outputs_published
-                        )
-                        or (
-                            payload["status"] == "cancelled"
-                            and self._state.cancellation_sequence is None
-                        )
-                        or (
-                            payload["status"] == "failed"
-                            and attempt["node_id"]
-                            in self._state.outputs_published
-                        )
-                    )
-                )
-                or (
-                    payload["resolution"] == "executed"
-                    and payload["status"] == "succeeded"
-                    and len(child_operations) != 1
-                )
-                or (
-                    payload["resolution"] == "executed"
-                    and child_operations
-                    and child_operations[-1]["terminal"]
-                    != payload["status"]
-                    and not (
-                        payload["status"] == "failed"
-                        and payload.get("failure_origin")
-                        == "publication"
-                        and child_operations[-1]["terminal"] == "succeeded"
-                    )
-                    and not (
-                        self._state.cancellation_sequence is not None
-                        and payload["status"]
-                        in {"cancelled", "interrupted", "outcome_unknown"}
-                        and child_operations[-1]["terminal"]
-                        in {
-                            "succeeded",
-                            "cancelled",
-                            "interrupted",
-                            "outcome_unknown",
-                        }
-                    )
-                )
-            ):
-                raise self._causal_error()
-            failure_origin = payload.get("failure_origin")
-            if failure_origin == "operation" and (
-                payload["resolution"] != "executed"
-                or len(child_operations) != 1
-                or child_operations[0]["terminal"] != "failed"
-            ):
-                raise self._causal_error()
-            if failure_origin == "binding" and (
-                payload["resolution"] != "executed"
-                or child_operations
-            ):
-                raise self._causal_error()
-            if failure_origin == "binding":
-                node_id = attempt["node_id"]
-                binding_key = _contract_reference_key(
-                    self._bindings_by_node[node_id]
-                )
-                availability = self._state.availability_by_binding.get(
-                    binding_key
-                )
-                readiness = self._state.readiness_by_binding.get(binding_key)
-                error = payload["error"]
-                if (
-                    self._execution_routes[node_id] != "adapter"
-                    or error["details"]["binding"]
-                    != self._bindings_by_node[node_id]
-                    or (
-                        error["code"] == "binding_unavailable"
-                        and (
-                            availability is None
-                            or availability["available"] is not False
-                        )
-                    )
-                    or (
-                        error["code"] == "readiness_rejected"
-                        and (
-                            readiness is None
-                            or readiness["conclusion"] != "failing"
-                        )
-                    )
-                ):
-                    raise self._causal_error()
-            if failure_origin == "publication" and (
-                (
-                    payload["resolution"] == "executed"
-                    and (
-                        len(child_operations) != 1
-                        or child_operations[0]["terminal"] != "succeeded"
-                    )
-                )
-                or (
-                    payload["resolution"] == "cache_replayed"
-                    and child_operations
-                )
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "node_disposition":
-            node_id = payload["node_id"]
-            outcome = payload["outcome"]
-            if node_id not in self._plan_nodes or node_id in self._state.dispositions:
-                raise self._causal_error()
-            attempt_id = self._state.node_attempt_by_node.get(node_id)
-            attempt = (
-                self._state.node_attempts.get(attempt_id)
-                if attempt_id is not None
-                else None
-            )
-            if outcome == "blocked":
-                blocked_by = frozenset(payload["blocked_by"])
-                required_input_blockers = self._required_input_blocker_set(
-                    node_id
-                )
-                if (
-                    self._state.cancellation_sequence is not None
-                    or attempt is not None
-                    or not blocked_by
-                    or any(
-                        upstream not in self._state.dispositions
-                        for upstream in self._dependencies[node_id]
-                    )
-                    or blocked_by != required_input_blockers
-                ):
-                    raise self._causal_error()
-                return
-            if (
-                outcome == "succeeded"
-                and self._state.cancellation_sequence is not None
-            ):
-                raise self._causal_error()
-            if outcome in {"cancelled", "interrupted"} and attempt is None:
-                return
-            if attempt is None or attempt["terminal"] is None:
-                raise self._causal_error()
-            expected_outcome = {
-                "succeeded": "succeeded",
-                "failed": "failed",
-                "cancelled": "cancelled",
-                "interrupted": "interrupted",
-                "outcome_unknown": "interrupted",
-            }[attempt["terminal"]]
-            if expected_outcome != outcome:
-                raise self._causal_error()
-            if outcome == "succeeded" and (
-                payload.get("resolution") != attempt["resolution"]
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "selection_terminal":
-            result = payload.get("result")
-            selection_key = (
-                result.get("selection_node_id")
-                if isinstance(result, Mapping)
-                else "__failed__"
-            )
-            if (
-                not self._state.run_started
-                or not self._state.selection_required
-                or set(self._state.dispositions) != set(self._plan_nodes)
-                or any(
-                    disposition["outcome"] != "succeeded"
-                    for disposition in self._state.dispositions.values()
-                )
-                or not isinstance(selection_key, str)
-                or (
-                    payload["status"] == "succeeded"
-                    and (
-                        selection_key
-                        not in self._state.expected_selection_terminal_keys
-                        or selection_key in self._state.selection_terminal_keys
-                    )
-                )
-                or (
-                    payload["status"] == "failed"
-                    and self._state.selection_terminals
-                )
-                or (
-                    payload["status"] == "succeeded"
-                    and any(
-                        terminal["status"] == "failed"
-                        for terminal in self._state.selection_terminals
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if fact_type == "run_terminal":
-            if (
-                payload["status"] == "interrupted"
-                and self._state.run_admitted
-                and not self._state.run_terminal
-            ):
-                return
-            expected_status = _run_terminal_status(
-                self._state.dispositions,
-                tuple(self._state.selection_terminals),
-            )
-            outcomes = {
-                disposition["outcome"]
-                for disposition in self._state.dispositions.values()
-            }
-            if (
-                not self._state.run_started
-                or set(self._state.dispositions) != set(self._plan_nodes)
-                or any(
-                    attempt["terminal"] is None
-                    for attempt in self._state.node_attempts.values()
-                )
-                or any(
-                    operation["terminal"] is None
-                    for operation in self._state.operations.values()
-                )
-                or any(
-                    invocation["terminal"] is None
-                    for invocation in self._state.invocations.values()
-                )
-                or (
-                    self._state.selection_required
-                    and not outcomes.intersection(
-                        {"failed", "interrupted", "cancelled"}
-                    )
-                    and payload["status"] == "succeeded"
-                    and (
-                        self._state.selection_terminal_keys
-                        != set(self._state.expected_selection_terminal_keys)
-                    )
-                )
-                or payload["status"] != expected_status
-            ):
-                raise self._causal_error()
-
-    def _validate_schema(
-        self,
-        fact_type: str,
-        payload: Mapping[str, Any],
-    ) -> None:
-        schemas = {
-            "run_scope_bound": (
-                frozenset(
-                    {
-                        "project_id",
-                        "run_id",
-                        "workflow_commit_id",
-                        "workflow_commit_revision",
-                        "workflow_digest",
-                        "contract_lock_digest",
-                        "execution_plan_digest",
-                        "catalog_contract_digest",
-                        "resolved_contracts",
-                        "resolved_contract_roots",
-                        "plan_nodes",
-                        "selection_required",
-                        "selection_terminal_keys",
-                    }
-                ),
-                frozenset({"derived_from"}),
-            ),
-            "availability_bound": (
-                frozenset(
-                    {"binding", "catalog_observed_at", "available"}
-                ),
-                frozenset(),
-            ),
-            "readiness_attested": (
-                frozenset(
-                    {
-                        "binding",
-                        "readiness_contract_digest",
-                        "observed_at",
-                        "conclusion",
-                        "proof_source",
-                        "attestation_digest",
-                    }
-                ),
-                frozenset(),
-            ),
-            "run_admitted": (
-                frozenset(
-                    {"workflow_commit_id", "workflow_commit_revision"}
-                ),
-                frozenset(),
-            ),
-            "run_started": (frozenset({"started_at"}), frozenset()),
-            "cancellation_requested": (
-                frozenset({"requested_at"}),
-                frozenset(),
-            ),
-            "node_attempt_started": (
-                frozenset({"node_id", "node_attempt_id"}),
-                frozenset(),
-            ),
-            "operation_attempt_started": (
-                frozenset({"operation_attempt_id", "node_attempt_id"}),
-                frozenset(),
-            ),
-            "engine_invocation_started": (
-                frozenset(
-                    {
-                        "invocation_id",
-                        "operation_attempt_id",
-                        "engine_role",
-                        "engine_identity",
-                    }
-                ),
-                frozenset(
-                    {"parent_invocation_id", "invocation_provenance"}
-                ),
-            ),
-            "engine_invocation_terminal": (
-                frozenset({"invocation_id", "status"}),
-                frozenset({"error"}),
-            ),
-            "artifact_published": (
-                frozenset({"artifact"}),
-                frozenset(),
-            ),
-            "outputs_published": (
-                frozenset(
-                    {
-                        "node_id",
-                        "result_identity",
-                        "node_result_manifest",
-                        "outputs",
-                        "artifacts",
-                        "nonempty_output_ports",
-                    }
-                ),
-                frozenset(),
-            ),
-            "operation_attempt_terminal": (
-                frozenset({"operation_attempt_id", "status"}),
-                frozenset({"error"}),
-            ),
-            "node_attempt_terminal": (
-                frozenset({"node_attempt_id", "status", "resolution"}),
-                frozenset({"error", "failure_origin"}),
-            ),
-            "node_disposition": (
-                frozenset({"node_id", "outcome", "blocked_by"}),
-                frozenset({"resolution"}),
-            ),
-            "selection_terminal": (
-                frozenset({"status"}),
-                frozenset({"result", "error"}),
-            ),
-            "run_terminal": (frozenset({"status"}), frozenset()),
-        }
-        try:
-            required, optional = schemas[fact_type]
-        except KeyError as error:
-            raise V2RunError(
-                "evidence_unavailable",
-                "Required Run evidence has an unknown fact type",
-                details={"last_durable_cursor": self.cursor},
-            ) from error
-        self._require_fields(
-            payload,
-            required=required,
-            optional=optional,
-        )
-        identifier_fields = {
-            "node_attempt_started": (
-                ("node_id", "#/$defs/NodeInstanceId"),
-                ("node_attempt_id", "#/$defs/Identifier"),
-            ),
-            "operation_attempt_started": (
-                ("operation_attempt_id", "#/$defs/Identifier"),
-                ("node_attempt_id", "#/$defs/Identifier"),
-            ),
-            "engine_invocation_started": (
-                ("invocation_id", "#/$defs/Identifier"),
-                ("operation_attempt_id", "#/$defs/Identifier"),
-                ("engine_role", "#/$defs/Identifier"),
-            ),
-            "engine_invocation_terminal": (
-                ("invocation_id", "#/$defs/Identifier"),
-            ),
-            "operation_attempt_terminal": (
-                ("operation_attempt_id", "#/$defs/Identifier"),
-            ),
-            "node_attempt_terminal": (
-                ("node_attempt_id", "#/$defs/Identifier"),
-            ),
-            "node_disposition": (
-                ("node_id", "#/$defs/NodeInstanceId"),
-            ),
-        }
-        try:
-            for field_name, schema_reference in identifier_fields.get(
-                fact_type,
-                (),
-            ):
-                validate_schema(schema_reference, payload[field_name])
-            if (
-                fact_type == "engine_invocation_started"
-                and "parent_invocation_id" in payload
-            ):
-                validate_schema(
-                    "#/$defs/Identifier",
-                    payload["parent_invocation_id"],
-                )
-        except ProtocolValidationError as error:
-            raise self._causal_error() from error
-        if (
-            fact_type == "engine_invocation_started"
-            and "invocation_provenance" in payload
-        ):
-            try:
-                _validate_invocation_provenance(
-                    payload["invocation_provenance"]
-                )
-            except (TypeError, ValueError) as error:
-                raise V2RunError(
-                    "evidence_unavailable",
-                    "Required Run evidence failed schema validation",
-                    details={"last_durable_cursor": self.cursor},
-                ) from error
-        if fact_type == "run_scope_bound":
-            resolved_contracts = payload["resolved_contracts"]
-            resolved_contract_roots = payload["resolved_contract_roots"]
-            try:
-                resolved_contract_keys = [
-                    _validated_contract_reference_key(reference)
-                    for reference in resolved_contracts
-                ]
-                resolved_root_keys = [
-                    _validated_contract_reference_key(reference)
-                    for reference in resolved_contract_roots
-                ]
-            except (TypeError, ValueError) as error:
-                raise self._causal_error() from error
-            if (
-                not all(
-                    _is_sha256_digest(payload[field_name])
-                    for field_name in (
-                        "workflow_digest",
-                        "contract_lock_digest",
-                        "execution_plan_digest",
-                        "catalog_contract_digest",
-                    )
-                )
-                or not isinstance(resolved_contracts, list)
-                or resolved_contract_keys != sorted(set(resolved_contract_keys))
-                or resolved_contracts
-                != [
-                    dict(reference)
-                    for reference in self._expected_resolved_contracts
-                ]
-                or not isinstance(resolved_contract_roots, list)
-                or resolved_root_keys != sorted(set(resolved_root_keys))
-                or resolved_contract_roots
-                != [
-                    dict(reference)
-                    for reference in self._expected_contract_roots
-                ]
-                or not set(resolved_root_keys) <= set(resolved_contract_keys)
-                or not self._minimum_contract_root_keys
-                <= set(resolved_root_keys)
-                or not self._minimum_resolved_contract_keys
-                <= set(resolved_contract_keys)
-                or payload["contract_lock_digest"]
-                != canonical_sha256(
-                    {
-                        "schema_namespace": CONTRACT_LOCK_NAMESPACE,
-                        "entries": resolved_contracts,
-                    }
-                )
-            ):
-                raise self._causal_error()
-            plan_nodes = payload["plan_nodes"]
-
-            def valid_plan_node(item: Any) -> bool:
-                node_id = (
-                    item.get("node_id")
-                    if isinstance(item, Mapping)
-                    else None
-                )
-                expected_node_type = self._node_types.get(node_id)
-                expected_artifact_outputs = [
-                    {
-                        **dict(output),
-                        "port_type": dict(output["port_type"]),
-                        "accepted_media_types": list(
-                            output["accepted_media_types"]
-                        ),
-                    }
-                    for output in self._artifact_outputs.get(node_id, ())
-                ]
-                expected_fields = {
-                    "node_id",
-                    "dependencies",
-                    "required_input_sources",
-                    "result_identity_plan_facts_digest",
-                    "binding",
-                    "execution_route",
-                }
-                if expected_node_type is not None:
-                    expected_fields.add("node_type")
-                if expected_artifact_outputs:
-                    expected_fields.add("artifact_outputs")
-                if node_id in self._selection_consumer_ids:
-                    expected_fields.add("selection_consumer")
-                if (
-                    not isinstance(item, Mapping)
-                    or set(item) != expected_fields
-                    or node_id not in self._dependencies
-                ):
-                    return False
-                return (
-                    item["dependencies"]
-                    == sorted(self._dependencies[node_id])
-                    and item["required_input_sources"]
-                    == [
-                        required_input.to_dict()
-                        for required_input in (
-                            self._required_input_sources[node_id]
-                        )
-                    ]
-                    and item["result_identity_plan_facts_digest"]
-                    == self._result_identity_plan_facts_digests[node_id]
-                    and item["binding"] == self._bindings_by_node[node_id]
-                    and item["execution_route"]
-                    == self._execution_routes[node_id]
-                    and item.get("node_type") == expected_node_type
-                    and item.get("artifact_outputs", [])
-                    == expected_artifact_outputs
-                    and item.get("selection_consumer", False)
-                    == (node_id in self._selection_consumer_ids)
-                )
-
-            if (
-                not isinstance(plan_nodes, list)
-                or [
-                    item.get("node_id")
-                    for item in plan_nodes
-                    if isinstance(item, Mapping)
-                ]
-                != list(self._plan_node_order)
-                or any(not valid_plan_node(item) for item in plan_nodes)
-            ):
-                raise self._causal_error()
-            selection_required = payload["selection_required"]
-            expected_selection_terminal_keys = list(
-                self._selection_consumer_ids
-                if selection_required
-                else ()
-            )
-            if (
-                type(selection_required) is not bool
-                or selection_required
-                != bool(self._selection_consumer_ids)
-                or payload["selection_terminal_keys"]
-                != expected_selection_terminal_keys
-            ):
-                raise self._causal_error()
-            derived_from = payload.get("derived_from")
-            if derived_from is not None and (
-                not isinstance(derived_from, Mapping)
-                or set(derived_from)
-                != {
-                    "source_run_id",
-                    "policy",
-                    "selected_node_ids",
-                    "forced_node_ids",
-                }
-                or derived_from["policy"]
-                not in {"retry_failed", "force_selected"}
-                or not isinstance(derived_from["source_run_id"], str)
-                or not isinstance(derived_from["selected_node_ids"], list)
-                or not isinstance(derived_from["forced_node_ids"], list)
-                or not all(
-                    isinstance(node_id, str)
-                    for node_id in (
-                        *derived_from["selected_node_ids"],
-                        *derived_from["forced_node_ids"],
-                    )
-                )
-                or list(
-                    dict.fromkeys(derived_from["selected_node_ids"])
-                )
-                != derived_from["selected_node_ids"]
-                or list(dict.fromkeys(derived_from["forced_node_ids"]))
-                != derived_from["forced_node_ids"]
-                or not set(derived_from["selected_node_ids"])
-                <= self._plan_nodes
-                or not set(derived_from["forced_node_ids"])
-                <= self._plan_nodes
-            ):
-                raise self._causal_error()
-        if fact_type == "availability_bound":
-            try:
-                _validated_contract_reference_key(
-                    payload["binding"],
-                    expected_kind="binding",
-                )
-            except ValueError as error:
-                raise self._causal_error() from error
-            if (
-                not _is_timestamp(payload["catalog_observed_at"])
-                or type(payload["available"]) is not bool
-            ):
-                raise self._causal_error()
-        if fact_type == "readiness_attested":
-            try:
-                _validated_contract_reference_key(
-                    payload["binding"],
-                    expected_kind="binding",
-                )
-                validate_schema(
-                    "#/$defs/Identifier",
-                    payload["proof_source"],
-                )
-            except (ProtocolValidationError, ValueError) as error:
-                raise self._causal_error() from error
-            attestation_payload = {
-                "binding": payload["binding"],
-                "readiness_contract_digest": payload[
-                    "readiness_contract_digest"
-                ],
-                "observed_at": payload["observed_at"],
-                "conclusion": payload["conclusion"],
-                "proof_source": payload["proof_source"],
-            }
-            if (
-                not _is_sha256_digest(payload["readiness_contract_digest"])
-                or not _is_timestamp(payload["observed_at"])
-                or payload["conclusion"] not in {"passing", "failing"}
-                or not _is_sha256_digest(payload["attestation_digest"])
-                or payload["attestation_digest"]
-                != canonical_sha256(
-                    {
-                        "schema_namespace": READINESS_ATTESTATION_NAMESPACE,
-                        **attestation_payload,
-                    }
-                )
-            ):
-                raise self._causal_error()
-        if fact_type in {"run_started", "cancellation_requested"}:
-            timestamp_field = (
-                "started_at"
-                if fact_type == "run_started"
-                else "requested_at"
-            )
-            if not _is_timestamp(payload[timestamp_field]):
-                raise self._causal_error()
-        if fact_type == "run_admitted" and (
-            not isinstance(payload["workflow_commit_id"], str)
-            or type(payload["workflow_commit_revision"]) is not int
-            or payload["workflow_commit_revision"] < 1
-        ):
-            raise self._causal_error()
-        if fact_type == "engine_invocation_started" and (
-            not _is_sha256_digest(payload["engine_identity"])
-        ):
-            raise self._causal_error()
-        if (
-            fact_type.endswith("_terminal")
-            and fact_type != "run_terminal"
-            and payload["status"] not in _ATTEMPT_TERMINALS
-        ):
-            raise self._causal_error()
-        if fact_type == "node_attempt_terminal" and payload["resolution"] not in {
-            "executed",
-            "cache_replayed",
-        }:
-            raise self._causal_error()
-        if fact_type == "node_attempt_terminal" and (
-            (payload["status"] == "failed")
-            != (payload.get("failure_origin") in {
-                "binding",
-                "operation",
-                "publication",
-            })
-        ):
-            raise self._causal_error()
-        if fact_type == "node_attempt_terminal" and payload["status"] == "failed":
-            failure_error_schemas = {
-                "binding": "#/$defs/NodeBindingFailureError",
-                "operation": "#/$defs/NodeOperationFailureError",
-                "publication": "#/$defs/NodePublicationFailureError",
-            }
-            try:
-                validate_schema(
-                    failure_error_schemas[payload["failure_origin"]],
-                    payload["error"],
-                )
-            except (KeyError, ProtocolValidationError) as error:
-                raise self._causal_error() from error
-        if fact_type == "node_disposition":
-            if payload["outcome"] not in _DISPOSITION_OUTCOMES:
-                raise self._causal_error()
-            if (
-                payload["outcome"] == "succeeded"
-            ) != ("resolution" in payload):
-                raise self._causal_error()
-            if (
-                not isinstance(payload["blocked_by"], list)
-                or any(
-                    not isinstance(node_id, str)
-                    for node_id in payload["blocked_by"]
-                )
-                or payload["blocked_by"]
-                != sorted(set(payload["blocked_by"]))
-                or (
-                    "resolution" in payload
-                    and payload["resolution"]
-                    not in {"executed", "cache_replayed"}
-                )
-            ):
-                raise self._causal_error()
-        if fact_type == "artifact_published":
-            try:
-                validate_schema(
-                    "#/$defs/ArtifactDescriptor",
-                    payload["artifact"],
-                )
-            except ProtocolValidationError as error:
-                raise self._causal_error() from error
-        if fact_type == "outputs_published":
-            if (
-                not isinstance(payload["outputs"], list)
-                or not isinstance(payload["artifacts"], list)
-                or not isinstance(payload["nonempty_output_ports"], list)
-                or any(
-                    not isinstance(output_port, str)
-                    for output_port in payload["nonempty_output_ports"]
-                )
-                or payload["nonempty_output_ports"]
-                != sorted(set(payload["nonempty_output_ports"]))
-                or not isinstance(payload["result_identity"], str)
-                or re.fullmatch(
-                    r"sha256:[0-9a-f]{64}",
-                    payload["result_identity"],
-                )
-                is None
-                or not _is_immutable_object_descriptor(
-                    payload["node_result_manifest"]
-                )
-            ):
-                raise self._causal_error()
-            try:
-                for output in payload["outputs"]:
-                    validate_schema("#/$defs/TypedOutput", output)
-                for artifact in payload["artifacts"]:
-                    validate_schema("#/$defs/ArtifactDescriptor", artifact)
-            except ProtocolValidationError as error:
-                raise self._causal_error() from error
-            output_ports = {
-                output.get("output_port")
-                for output in payload["outputs"]
-                if isinstance(output, Mapping)
-            } | {
-                artifact.get("output_port")
-                for artifact in payload["artifacts"]
-                if isinstance(artifact, Mapping)
-            }
-            expected_nonempty_output_ports = {
-                output["output_port"]
-                for output in payload["outputs"]
-                if output["value_count"] > 0
-            } | {
-                artifact["output_port"] for artifact in payload["artifacts"]
-            }
-            if (
-                payload["nonempty_output_ports"]
-                != sorted(expected_nonempty_output_ports)
-                or expected_nonempty_output_ports - output_ports
-                or any(
-                    output["node_id"] != payload["node_id"]
-                    or output["result_identity"]
-                    != payload["result_identity"]
-                    for output in payload["outputs"]
-                )
-                or any(
-                    artifact["node_id"] != payload["node_id"]
-                    for artifact in payload["artifacts"]
-                )
-            ):
-                raise self._causal_error()
-        if fact_type == "run_terminal" and payload["status"] not in {
-            "succeeded",
-            "failed",
-            "cancelled",
-            "interrupted",
-        }:
-            raise self._causal_error()
-        if fact_type == "selection_terminal":
-            status = payload["status"]
-            if (
-                status not in {"succeeded", "failed"}
-                or (status == "succeeded")
-                != ("result" in payload and "error" not in payload)
-                or (status == "failed")
-                != ("error" in payload and "result" not in payload)
-            ):
-                raise self._causal_error()
-            try:
-                validate_schema(
-                    (
-                        "#/$defs/SelectionResult"
-                        if status == "succeeded"
-                        else "#/$defs/StructuredError"
-                    ),
-                    payload["result" if status == "succeeded" else "error"],
-                )
-            except ProtocolValidationError as error:
-                raise self._causal_error() from error
-
-    def _apply(self, fact_type: str, payload: Mapping[str, Any]) -> None:
-        if fact_type == "run_scope_bound":
-            self._state.selection_required = payload["selection_required"]
-            self._state.expected_selection_terminal_keys = tuple(
-                payload["selection_terminal_keys"]
-            )
-        elif fact_type == "availability_bound":
-            binding_key = _contract_reference_key(payload["binding"])
-            self._state.availability_by_binding[binding_key] = dict(payload)
-        elif fact_type == "readiness_attested":
-            binding_key = _contract_reference_key(payload["binding"])
-            self._state.readiness_by_binding[binding_key] = dict(payload)
-        elif fact_type == "run_admitted":
-            self._state.run_admitted = True
-        elif fact_type == "run_started":
-            self._state.run_started = True
-        elif fact_type == "cancellation_requested":
-            self._state.cancellation_sequence = len(self._state.facts)
-        elif fact_type == "node_attempt_started":
-            record = {
-                "node_id": payload["node_id"],
-                "terminal": None,
-                "resolution": None,
-            }
-            self._state.node_attempts[payload["node_attempt_id"]] = record
-            self._state.node_attempt_by_node[payload["node_id"]] = payload[
-                "node_attempt_id"
-            ]
-        elif fact_type == "operation_attempt_started":
-            self._state.operations[payload["operation_attempt_id"]] = {
-                "node_attempt_id": payload["node_attempt_id"],
-                "terminal": None,
-                "error": None,
-            }
-        elif fact_type == "engine_invocation_started":
-            self._state.invocations[payload["invocation_id"]] = {
-                "operation_attempt_id": payload["operation_attempt_id"],
-                "parent_invocation_id": payload.get(
-                    "parent_invocation_id"
-                ),
-                "terminal": None,
-                "error": None,
-            }
-        elif fact_type == "engine_invocation_terminal":
-            invocation = self._state.invocations[payload["invocation_id"]]
-            invocation["terminal"] = payload["status"]
-            invocation["error"] = deepcopy(payload.get("error"))
-        elif fact_type == "operation_attempt_terminal":
-            operation = self._state.operations[payload["operation_attempt_id"]]
-            operation["terminal"] = payload["status"]
-            operation["error"] = deepcopy(payload.get("error"))
-        elif fact_type == "node_attempt_terminal":
-            attempt = self._state.node_attempts[payload["node_attempt_id"]]
-            attempt["terminal"] = payload["status"]
-            attempt["resolution"] = payload["resolution"]
-        elif fact_type == "outputs_published":
-            self._state.outputs_published.add(payload["node_id"])
-            self._state.nonempty_output_ports[payload["node_id"]] = set(
-                payload["nonempty_output_ports"]
-            )
-        elif fact_type == "node_disposition":
-            self._state.dispositions[payload["node_id"]] = dict(payload)
-        elif fact_type == "selection_terminal":
-            terminal = dict(payload)
-            result = terminal.get("result")
-            selection_key = (
-                result.get("selection_node_id")
-                if isinstance(result, Mapping)
-                else "__failed__"
-            )
-            self._state.selection_terminals.append(terminal)
-            if terminal["status"] == "succeeded":
-                self._state.selection_terminal_keys.add(selection_key)
-        elif fact_type == "run_terminal":
-            self._state.run_terminal = True
-
-    def _projection(self) -> dict[str, Any]:
-        if (
-            not self._state.facts
-            or self._state.facts[0]["fact_type"] != "run_scope_bound"
-        ):
-            raise self._causal_error()
-        scope = self._state.facts[0]["payload"]
-        dispositions: list[dict[str, Any]] = []
-        published_by_node: dict[
-            str,
-            tuple[list[dict[str, Any]], list[dict[str, Any]]],
-        ] = {}
-        status = "admitted"
-        selection_results: list[dict[str, Any]] = []
-        selection_error: dict[str, Any] | None = None
-        terminal_sequence: int | None = None
-        for fact in self._state.facts:
-            payload = fact["payload"]
-            if fact["fact_type"] == "run_started":
-                status = "running"
-            elif fact["fact_type"] == "node_disposition":
-                disposition = dict(payload)
-                disposition["terminal_sequence"] = fact["sequence"]
-                dispositions.append(disposition)
-            elif fact["fact_type"] == "outputs_published":
-                published_by_node[payload["node_id"]] = (
-                    payload["outputs"],
-                    payload["artifacts"],
-                )
-            elif (
-                fact["fact_type"] == "selection_terminal"
-                and payload["status"] == "succeeded"
-            ):
-                selection_results.append(payload["result"])
-            elif fact["fact_type"] == "selection_terminal":
-                selection_error = payload["error"]
-            elif fact["fact_type"] == "run_terminal":
-                status = payload["status"]
-                terminal_sequence = fact["sequence"]
-        successful_nodes = {
-            disposition["node_id"]
-            for disposition in dispositions
-            if disposition["outcome"] == "succeeded"
-        }
-        outputs = [
-            output
-            for node_id in self._plan_node_order
-            if node_id in successful_nodes
-            for output in published_by_node.get(node_id, ([], []))[0]
-        ]
-        artifacts = [
-            artifact
-            for node_id in self._plan_node_order
-            if node_id in successful_nodes
-            for artifact in published_by_node.get(node_id, ([], []))[1]
-        ]
-        projection = {
-            "project_id": self._project_id,
-            "run_id": self._run_id,
-            "workflow_commit_id": scope["workflow_commit_id"],
-            "workflow_commit_revision": scope[
-                "workflow_commit_revision"
-            ],
-            "workflow_digest": scope["workflow_digest"],
-            "status": status,
-            "ledger_cursor": self._cursor_at(len(self._state.facts)),
-            "node_dispositions": dispositions,
-            "outputs": outputs,
-            "artifact_index": artifacts,
-        }
-        if scope.get("selection_required", False):
-            projection["selection_results"] = selection_results
-        if selection_error is not None:
-            projection["selection_error"] = selection_error
-        if terminal_sequence is not None:
-            projection["terminal_sequence"] = terminal_sequence
-        derived_from = scope.get("derived_from")
-        if isinstance(derived_from, Mapping):
-            projection["derived_from_run_id"] = derived_from["source_run_id"]
-        return projection
-
-    def request_cancellation(
-        self,
-        after_cursor: str | None,
-    ) -> dict[str, Any]:
-        """Persist one cancellation decision under the Ledger ordering lock."""
-        with self._condition:
-            self._require_available_evidence()
-            observed_sequence = self.sequence_for_cursor(after_cursor)
-            if self._state.cancellation_sequence is not None:
-                decision_sequence = self._state.cancellation_sequence
-                return {
-                    "outcome": "already_requested",
-                    "decision_sequence": decision_sequence,
-                    "cursor": self._cursor_at(decision_sequence),
-                }
-            if self._state.run_terminal:
-                terminal_sequence = len(self._state.facts)
-                return {
-                    "outcome": (
-                        "completed_before_cancel"
-                        if (
-                            after_cursor is not None
-                            and observed_sequence < terminal_sequence
-                        )
-                        else "already_terminal"
-                    ),
-                    "decision_sequence": terminal_sequence,
-                    "cursor": self._cursor_at(terminal_sequence),
-                }
-            if set(self._state.dispositions) == set(self._plan_nodes):
-                decision_sequence = len(self._state.facts)
-                return {
-                    "outcome": "completed_before_cancel",
-                    "decision_sequence": decision_sequence,
-                    "cursor": self._cursor_at(decision_sequence),
-                }
-            committed = self._commit(
-                (
-                    _LogicalFact(
-                        "cancellation_requested",
-                        {"requested_at": run_timestamp()},
-                    ),
-                )
-            )
-            decision_sequence = committed.last_sequence
-            return {
-                "outcome": "cancellation_requested",
-                "decision_sequence": decision_sequence,
-                "cursor": self._cursor_at(decision_sequence),
-            }
-
-    def projection(self) -> dict[str, Any]:
-        with self._condition:
-            self._require_available_evidence()
-            self._ensure_projection_consistency()
-            return json.loads(json.dumps(self._projection()))
-
-    def _refresh_projections(self) -> None:
-        manifest = canonical_json_bytes(self._projection())
-        lifecycle = b"".join(
-            canonical_json_bytes(event) + b"\n"
-            for fact in self._state.facts
-            if (
-                event := _public_event_from_fact(
-                    project_id=self._project_id,
-                    run_id=self._run_id,
-                    fact=fact,
-                )
-            )
-            is not None
-        )
-        replace_file(
-            self._root,
-            (self._run_id, "manifest.json"),
-            manifest,
-        )
-        replace_file(
-            self._root,
-            (self._run_id, "lifecycle.jsonl"),
-            lifecycle,
-        )
-
-    def rebuild_projections(self) -> None:
-        with self._condition:
-            try:
-                self._refresh_projections()
-            except (OSError, StoragePathError) as error:
-                self._projection_error = error
-                raise
-            else:
-                self._projection_error = None
-
-    def _ensure_projection_consistency(self) -> None:
-        if self._projection_error is None:
-            return
-        try:
-            self._refresh_projections()
-        except (OSError, StoragePathError) as error:
-            self._projection_error = error
-            raise V2RunError(
-                "evidence_unavailable",
-                "Run projections are temporarily unavailable",
-                details={"last_durable_cursor": self.cursor},
-            ) from error
-        self._projection_error = None
-
-    def _stage_facts(
-        self,
-        facts: tuple[dict[str, Any], ...],
-    ) -> _LedgerReducerState:
-        for fact in facts:
-            self._validate_schema(fact["fact_type"], fact["payload"])
-        self._validate_transaction_boundary(facts)
-        prior_state = self._state
-        staged_state = prior_state.clone()
-        self._install_reducer_state(staged_state)
-        try:
-            for fact in facts:
-                fact_type = fact["fact_type"]
-                payload = fact["payload"]
-                self._validate_causality(fact_type, payload)
-                event = _public_event_from_fact(
-                    project_id=self._project_id,
-                    run_id=self._run_id,
-                    fact=fact,
-                )
-                if event is not None:
-                    try:
-                        validate_event(event)
-                    except ProtocolValidationError as error:
-                        raise V2RunError(
-                            "evidence_unavailable",
-                            "Required Run evidence failed public schema validation",
-                            details={"last_durable_cursor": self.cursor},
-                        ) from error
-                retained = deepcopy(fact)
-                self._state.facts.append(retained)
-                self._apply(fact_type, payload)
-            return staged_state
-        finally:
-            self._install_reducer_state(prior_state)
-
-    def _validate_transaction_boundary(
-        self,
-        facts: tuple[dict[str, Any], ...],
-    ) -> None:
-        closure_facts = [
-            fact
-            for fact in facts
-            if fact["fact_type"] in {"selection_terminal", "run_terminal"}
-        ]
-        if closure_facts:
-            if (
-                closure_facts != list(facts)
-                or facts[-1]["fact_type"] != "run_terminal"
-                or any(
-                    fact["fact_type"] != "selection_terminal"
-                    for fact in facts[:-1]
-                )
-            ):
-                raise self._causal_error()
-            return
-        operation_terminals = [
-            fact
-            for fact in facts
-            if fact["fact_type"] == "operation_attempt_terminal"
-        ]
-        node_terminals = [
-            fact
-            for fact in facts
-            if fact["fact_type"] == "node_attempt_terminal"
-        ]
-        publications = [
-            fact
-            for fact in facts
-            if fact["fact_type"]
-            in {"artifact_published", "outputs_published"}
-        ]
-        dispositions = [
-            fact
-            for fact in facts
-            if fact["fact_type"] == "node_disposition"
-        ]
-        if not (operation_terminals or node_terminals or publications):
-            return
-        if (
-            len(operation_terminals) > 1
-            or len(node_terminals) != 1
-            or len(dispositions) != 1
-        ):
-            raise self._causal_error()
-        node_terminal = node_terminals[0]["payload"]
-        attempt = self._state.node_attempts.get(
-            node_terminal["node_attempt_id"]
-        )
-        if (
-            attempt is None
-            or dispositions[0]["payload"]["node_id"] != attempt["node_id"]
-        ):
-            raise self._causal_error()
-        terminal_succeeded = node_terminal["status"] == "succeeded"
-        output_publications = [
-            fact
-            for fact in publications
-            if fact["fact_type"] == "outputs_published"
-        ]
-        publication_node_ids = {
-            (
-                fact["payload"]["node_id"]
-                if fact["fact_type"] == "outputs_published"
-                else fact["payload"]["artifact"]["node_id"]
-            )
-            for fact in publications
-        }
-        if (
-            terminal_succeeded != (len(output_publications) == 1)
-            or (not terminal_succeeded and publications)
-            or publication_node_ids - {attempt["node_id"]}
-        ):
-            raise self._causal_error()
-        artifact_publications = [
-            fact["payload"]["artifact"]
-            for fact in publications
-            if fact["fact_type"] == "artifact_published"
-        ]
-        if output_publications and (
-            output_publications[0]["payload"]["artifacts"]
-            != artifact_publications
-        ):
-            raise self._causal_error()
-        open_operations = [
-            operation_id
-            for operation_id, operation in self._state.operations.items()
-            if (
-                operation["node_attempt_id"]
-                == node_terminal["node_attempt_id"]
-                and operation["terminal"] is None
-            )
-        ]
-        if (
-            bool(open_operations) != bool(operation_terminals)
-            or (
-                operation_terminals
-                and operation_terminals[0]["payload"][
-                    "operation_attempt_id"
-                ]
-                not in open_operations
-            )
-        ):
-            raise self._causal_error()
-        expected_fact_types = [
-            *(
-                ("operation_attempt_terminal",)
-                if operation_terminals
-                else ()
-            ),
-            *(("outputs_published",) if terminal_succeeded else ()),
-            *("artifact_published" for _ in artifact_publications),
-            "node_attempt_terminal",
-            "node_disposition",
-        ]
-        if [fact["fact_type"] for fact in facts] != expected_fact_types:
-            raise self._causal_error()
-
-    def _commit(
-        self,
-        logical_facts: tuple[_LogicalFact, ...],
-    ) -> _CommittedFactRange:
-        """Validate and durably publish one atomic logical transition."""
-        if not logical_facts:
-            raise ValueError("Run Ledger transaction must contain facts")
-        with self._condition:
-            self._require_available_evidence()
-            first_sequence = len(self._state.facts) + 1
-            facts = tuple(
-                {
-                    "sequence": first_sequence + offset,
-                    "recorded_at": run_timestamp(),
-                    "fact_type": proposed.fact_type,
-                    "payload": dict(proposed.payload),
-                }
-                for offset, proposed in enumerate(logical_facts)
-            )
-            try:
-                staged_state = self._stage_facts(facts)
-            except V2RunError as error:
-                if error.code == "evidence_unavailable":
-                    self._mark_evidence_unavailable(error)
-                raise
-            transaction_sequence = self._transaction_count + 1
-            transaction = {
-                "schema_namespace": RUN_LEDGER_TRANSACTION_NAMESPACE,
-                "schema_version": RUN_LEDGER_SCHEMA_VERSION,
-                "project_id": self._project_id,
-                "run_id": self._run_id,
-                "transaction_sequence": transaction_sequence,
-                "first_fact_sequence": first_sequence,
-                "last_fact_sequence": facts[-1]["sequence"],
-                "committed_at": run_timestamp(),
-                "facts": list(facts),
-            }
-            encoded = canonical_json_bytes(transaction)
-            if len(encoded) > MAX_LEDGER_TRANSACTION_BYTES:
-                error = V2RunError(
-                    "evidence_unavailable",
-                    "Required Run evidence exceeds the durable transaction bound",
-                    details={"last_durable_cursor": self.cursor},
-                )
-                self._mark_evidence_unavailable(error)
-                raise error
-            try:
-                self._transaction_store.publish(
-                    root=self._root,
-                    relative_parts=(
-                        self._run_id,
-                        "ledger",
-                        f"{transaction_sequence:020d}.json",
-                    ),
-                    payload=encoded,
-                )
-            except (OSError, StoragePathError) as error:
-                unavailable = V2RunError(
-                    "evidence_unavailable",
-                    "Required Run evidence transaction could not be acknowledged",
-                    details={"last_durable_cursor": self.cursor},
-                )
-                self._mark_evidence_unavailable(unavailable)
-                raise unavailable from error
-            self._install_reducer_state(staged_state)
-            self._transaction_count = transaction_sequence
-            self._committed_fact_count = facts[-1]["sequence"]
-            try:
-                self._refresh_projections()
-            except (OSError, StoragePathError) as error:
-                self._projection_error = error
-            else:
-                self._projection_error = None
-            self._condition.notify_all()
-            retained = tuple(deepcopy(fact) for fact in facts)
-            return _CommittedFactRange(
-                first_sequence=first_sequence,
-                last_sequence=facts[-1]["sequence"],
-                facts=retained,
-            )
-
-    @contextmanager
-    def _ordered_transition_scope(self) -> Iterator[None]:
-        """Keep one typed outcome transition ordered with cancellation."""
-        with self._condition:
-            try:
-                yield
-            except V2RunError as error:
-                if error.code == "evidence_unavailable":
-                    self._mark_evidence_unavailable(error)
-                raise
-
-    def _load_transaction(
-        self,
-        transaction: Mapping[str, Any],
-        encoded: bytes,
-    ) -> None:
-        with self._condition:
-            if (
-                not isinstance(transaction, Mapping)
-                or set(transaction)
-                != {
-                    "schema_namespace",
-                    "schema_version",
-                    "project_id",
-                    "run_id",
-                    "transaction_sequence",
-                    "first_fact_sequence",
-                    "last_fact_sequence",
-                    "committed_at",
-                    "facts",
-                }
-                or transaction["schema_namespace"]
-                != RUN_LEDGER_TRANSACTION_NAMESPACE
-                or transaction["schema_version"] != RUN_LEDGER_SCHEMA_VERSION
-                or transaction["project_id"] != self._project_id
-                or transaction["run_id"] != self._run_id
-                or type(transaction["transaction_sequence"]) is not int
-                or transaction["transaction_sequence"]
-                != self._transaction_count + 1
-                or type(transaction["first_fact_sequence"]) is not int
-                or transaction["first_fact_sequence"] != len(self._state.facts) + 1
-                or type(transaction["last_fact_sequence"]) is not int
-                or not _is_timestamp(transaction["committed_at"])
-                or not isinstance(transaction["facts"], list)
-                or not transaction["facts"]
-                or transaction["last_fact_sequence"]
-                != transaction["first_fact_sequence"]
-                + len(transaction["facts"])
-                - 1
-                or canonical_json_bytes(dict(transaction)) != encoded
-            ):
-                raise self._causal_error()
-            facts: list[dict[str, Any]] = []
-            for expected_sequence, fact in enumerate(
-                transaction["facts"],
-                start=transaction["first_fact_sequence"],
-            ):
-                if (
-                    not isinstance(fact, Mapping)
-                    or set(fact)
-                    != {"sequence", "recorded_at", "fact_type", "payload"}
-                    or type(fact["sequence"]) is not int
-                    or fact["sequence"] != expected_sequence
-                    or not _is_timestamp(fact["recorded_at"])
-                    or not isinstance(fact["fact_type"], str)
-                    or not isinstance(fact["payload"], Mapping)
-                ):
-                    raise self._causal_error()
-                facts.append(deepcopy(dict(fact)))
-            staged_state = self._stage_facts(tuple(facts))
-            self._install_reducer_state(staged_state)
-            self._transaction_count = transaction["transaction_sequence"]
-            self._committed_fact_count = transaction["last_fact_sequence"]
-
-    def public_events(
-        self,
-        *,
-        after_sequence: int = 0,
-        through_sequence: int | None = None,
-    ) -> tuple[dict[str, Any], ...]:
-        with self._condition:
-            self._require_available_evidence()
-            self._ensure_projection_consistency()
-            upper = (
-                len(self._state.facts)
-                if through_sequence is None
-                else min(through_sequence, len(self._state.facts))
-            )
-            return tuple(
-                event
-                for fact in self._state.facts[after_sequence:upper]
-                if (
-                    event := _public_event_from_fact(
-                        project_id=self._project_id,
-                        run_id=self._run_id,
-                        fact=fact,
-                    )
-                )
-                is not None
-            )
-
-    def replay_window(
-        self,
-        cursor: str | None,
-    ) -> tuple[int, str, int, str, tuple[dict[str, Any], ...], bool]:
-        with self._condition:
-            self._require_available_evidence()
-            after_sequence = self.sequence_for_cursor(cursor)
-            through_sequence = len(self._state.facts)
-            through_cursor = self._cursor_at(through_sequence)
-            events = self.public_events(
-                after_sequence=after_sequence,
-                through_sequence=through_sequence,
-            )
-            return (
-                after_sequence,
-                self._cursor_at(after_sequence),
-                through_sequence,
-                through_cursor,
-                events,
-                self._state.run_terminal,
-            )
-
-    def wait_for_public_events(
-        self,
-        after_sequence: int,
-        *,
-        timeout_seconds: float,
-    ) -> tuple[tuple[dict[str, Any], ...], int, bool]:
-        with self._condition:
-            self._require_available_evidence()
-            if (
-                len(self._state.facts) <= after_sequence
-                and not self._state.run_terminal
-            ):
-                self._condition.wait(timeout_seconds)
-            self._require_available_evidence()
-            return (
-                self.public_events(after_sequence=after_sequence),
-                len(self._state.facts),
-                self._state.run_terminal,
-            )
-
-    def notify_waiters(self) -> None:
-        """Wake event consumers after an active Run state transition."""
-        with self._condition:
-            self._condition.notify_all()
-
-    def reconcile_restart(self) -> None:
-        """Mark a previously admitted process as interrupted."""
-        with self._condition:
-            if not self._state.run_admitted or self._state.run_terminal:
-                return
-            self._commit(
-                (_LogicalFact("run_terminal", {"status": "interrupted"}),)
-            )
 
 def _load_node_result_manifest(
     object_store: ProjectObjectStore,
@@ -4313,7 +546,7 @@ class _NodeExecutionAttemptModule:
         project_id: str,
         run_id: str,
         execution_plan: ExecutionPlan,
-        ledger: _RunEvidenceLedger,
+        ledger: Ledger,
         run_record: _RunRecord,
         availability_by_binding: Mapping[
             tuple[str, str],
@@ -4345,7 +578,7 @@ class _NodeExecutionAttemptModule:
         artifacts: list[dict[str, Any]] = []
         for publication in plan.publications:
             try:
-                stored = self._object_store.put_exact(
+                stored = self._object_store.store(
                     project_id,
                     publication.body,
                 )
@@ -4381,7 +614,7 @@ class _NodeExecutionAttemptModule:
             value_entries: list[dict[str, Any]] = []
             for index, value in enumerate(snapshot.values):
                 try:
-                    stored = self._object_store.put_exact(
+                    stored = self._object_store.store(
                         project_id,
                         value.canonical_bytes,
                     )
@@ -4400,7 +633,10 @@ class _NodeExecutionAttemptModule:
                         "index": index,
                         "content_digest": value.content_digest,
                         "size": stored.size,
-                        "object": stored.to_dict(),
+                        "object": {
+                            "content_digest": stored.content_digest,
+                            "size": stored.size,
+                        },
                     }
                 )
             manifest = {
@@ -4412,7 +648,7 @@ class _NodeExecutionAttemptModule:
                 "values": value_entries,
             }
             try:
-                manifest_object = self._object_store.put_exact(
+                manifest_object = self._object_store.store(
                     project_id,
                     canonical_json_bytes(manifest),
                 )
@@ -4435,7 +671,10 @@ class _NodeExecutionAttemptModule:
                 {
                     "output_port": descriptor["output_port"],
                     "port_type": dict(snapshot.port_type),
-                    "value_manifest": manifest_object.to_dict(),
+                    "value_manifest": {
+                        "content_digest": manifest_object.content_digest,
+                        "size": manifest_object.size,
+                    },
                 }
             )
         return published, result_outputs
@@ -4455,11 +694,11 @@ class _NodeExecutionAttemptModule:
         self,
         state: _NodeExecutionAttemptState,
         *,
-        public_error: Mapping[str, Any],
+        public_error: StructuredError,
         failure_origin: Literal["binding", "operation", "publication"],
-    ) -> _CommittedNodeOutcome:
-        self._ledger.record(
-            NodeFailurePublication(
+        only_if_active: bool = False,
+    ) -> _CommittedNodeOutcome | None:
+        transition = NodeFailurePublication(
                 node_id=state.node.node_id,
                 node_attempt_id=state.node_attempt_id,
                 operation_attempt_id=(
@@ -4470,30 +709,38 @@ class _NodeExecutionAttemptModule:
                 resolution=state.resolution,
                 error=public_error,
                 failure_origin=failure_origin,
-            )
         )
+        acknowledged = (
+            self._ledger.record_if_active(transition)
+            if only_if_active
+            else self._ledger.record(transition)
+        )
+        if acknowledged is None:
+            return None
         return _CommittedNodeOutcome(disposition="failed")
 
     def _commit_failure(
         self,
         state: _NodeExecutionAttemptState,
         *,
-        public_error: Mapping[str, Any],
+        public_error: StructuredError,
         failure_origin: Literal["binding", "operation", "publication"],
     ) -> _CommittedNodeOutcome:
-        with self._ledger._ordered_transition_scope():
-            return self._record_failure(
-                state,
-                public_error=public_error,
-                failure_origin=failure_origin,
-            )
+        committed = self._record_failure(
+            state,
+            public_error=public_error,
+            failure_origin=failure_origin,
+        )
+        if committed is None:
+            raise RuntimeError("Required Node failure was not acknowledged")
+        return committed
 
     def _record_termination(
         self,
         state: _NodeExecutionAttemptState,
         *,
         status: Literal["cancelled", "interrupted", "outcome_unknown"],
-        public_error: Mapping[str, Any] | None,
+        public_error: StructuredError | None,
         operation_status: Literal[
             "succeeded",
             "cancelled",
@@ -4532,14 +779,13 @@ class _NodeExecutionAttemptModule:
         state: _NodeExecutionAttemptState,
         *,
         status: Literal["cancelled", "interrupted", "outcome_unknown"],
-        public_error: Mapping[str, Any] | None,
+        public_error: StructuredError | None,
     ) -> _CommittedNodeOutcome:
-        with self._ledger._ordered_transition_scope():
-            return self._record_termination(
-                state,
-                status=status,
-                public_error=public_error,
-            )
+        return self._record_termination(
+            state,
+            status=status,
+            public_error=public_error,
+        )
 
     def _commit_unstarted(
         self,
@@ -4547,29 +793,29 @@ class _NodeExecutionAttemptModule:
         node_id: str,
         outcome: Literal["cancelled", "interrupted"],
     ) -> _CommittedNodeOutcome:
-        with self._ledger._ordered_transition_scope():
-            self._ledger.record(
-                UnstartedNodeConclusion(
-                    node_id=node_id,
-                    outcome=outcome,
-                )
+        self._ledger.record(
+            UnstartedNodeConclusion(
+                node_id=node_id,
+                outcome=outcome,
             )
+        )
         return _CommittedNodeOutcome(disposition=outcome)
 
     def _begin_attempt(
         self,
         state: _NodeExecutionAttemptState,
     ) -> Literal["cancelled", "interrupted"] | None:
-        with self._ledger._ordered_transition_scope():
-            if self._ledger.cancellation_requested:
-                return self._pending_cancellation_outcome()
-            self._ledger.record(
-                NodeAttemptStart(
-                    node_id=state.node.node_id,
-                    node_attempt_id=state.node_attempt_id,
-                )
+        acknowledged = self._ledger.record_if_active(
+            NodeAttemptStart(
+                node_id=state.node.node_id,
+                node_attempt_id=state.node_attempt_id,
             )
-        return None
+        )
+        return (
+            None
+            if acknowledged is not None
+            else self._pending_cancellation_outcome()
+        )
 
     def _pending_cancellation_outcome(
         self,
@@ -4639,7 +885,7 @@ class _NodeExecutionAttemptModule:
         if len(node_result_manifest_bytes) > MAX_NODE_RESULT_MANIFEST_BYTES:
             raise NodePublicationError("manifest")
         try:
-            manifest_object = self._object_store.put_exact(
+            manifest_object = self._object_store.store(
                 self._project_id,
                 node_result_manifest_bytes,
             )
@@ -4659,7 +905,10 @@ class _NodeExecutionAttemptModule:
             ),
             artifacts,
             node_result_manifest,
-            cast(dict[str, Any], manifest_object.to_dict()),
+            {
+                "content_digest": manifest_object.content_digest,
+                "size": manifest_object.size,
+            },
         )
 
     def _record_success(
@@ -4669,13 +918,45 @@ class _NodeExecutionAttemptModule:
         typed_descriptors: list[dict[str, Any]],
         artifacts: list[dict[str, Any]],
         node_result_manifest_reference: Mapping[str, Any],
-    ) -> _CommittedNodeOutcome:
+        only_if_active: bool = False,
+    ) -> _CommittedNodeOutcome | None:
         if state.result_identity is None:
             raise RuntimeError(
                 "Node Execution Attempt success lacks a Result Identity"
             )
-        self._ledger.record(
-            NodeSuccessPublication(
+        published_outputs = tuple(
+            PublishedOutput(
+                node_id=descriptor["node_id"],
+                output_port=descriptor["output_port"],
+                port_type=_exact_reference_from_catalog(
+                    descriptor["port_type"]
+                ),
+                content_digest=descriptor["content_digest"],
+                result_identity=descriptor["result_identity"],
+                materialization=descriptor["materialization"],
+                producer_provenance=descriptor["producer_provenance"],
+                value_count=descriptor["value_count"],
+                value_manifest_reference=descriptor[
+                    "value_manifest_reference"
+                ],
+            )
+            for descriptor in typed_descriptors
+        )
+        published_artifacts = tuple(
+            PublishedArtifact(
+                artifact_reference=artifact["artifact_reference"],
+                artifact_kind=artifact["artifact_kind"],
+                node_id=artifact["node_id"],
+                output_port=artifact["output_port"],
+                media_type=artifact["media_type"],
+                filename=artifact["filename"],
+                size=artifact["size"],
+                content_digest=artifact["content_digest"],
+                candidate_id=artifact.get("candidate_id"),
+            )
+            for artifact in artifacts
+        )
+        transition = NodeSuccessPublication(
                 node_id=state.node.node_id,
                 node_attempt_id=state.node_attempt_id,
                 operation_attempt_id=(
@@ -4685,9 +966,14 @@ class _NodeExecutionAttemptModule:
                 ),
                 resolution=state.resolution,
                 result_identity=state.result_identity,
-                node_result_manifest=node_result_manifest_reference,
-                outputs=tuple(typed_descriptors),
-                artifacts=tuple(artifacts),
+                node_result_manifest=ImmutableObjectReference(
+                    content_digest=node_result_manifest_reference[
+                        "content_digest"
+                    ],
+                    size=node_result_manifest_reference["size"],
+                ),
+                outputs=published_outputs,
+                artifacts=published_artifacts,
                 nonempty_output_ports=tuple(
                     sorted(
                         output_port
@@ -4697,8 +983,14 @@ class _NodeExecutionAttemptModule:
                         if node_id == state.node.node_id and admitted
                     )
                 ),
-            )
         )
+        acknowledged = (
+            self._ledger.record_if_active(transition)
+            if only_if_active
+            else self._ledger.record(transition)
+        )
+        if acknowledged is None:
+            return None
         return _CommittedNodeOutcome(
             disposition="succeeded",
             admitted_outputs=state.admitted_outputs,
@@ -4724,11 +1016,11 @@ class _NodeExecutionAttemptModule:
                 return self._record_termination(
                     state,
                     status="interrupted",
-                    public_error=_public_failure(cancellation.cleanup_error),
+                    public_error=_execution_error(cancellation.cleanup_error),
                 )
             return self._record_failure(
                 state,
-                public_error=_public_failure(cancellation.cleanup_error),
+                public_error=_execution_error(cancellation.cleanup_error),
                 failure_origin="publication",
             )
         return self._record_termination(
@@ -4759,25 +1051,31 @@ class _NodeExecutionAttemptModule:
         except NodePublicationError as error:
             publication_error = error
 
-        with self._ledger._ordered_transition_scope():
-            cancelled = self._record_committed_cancellation(state)
-            if cancelled is not None:
-                return cancelled
-            if publication_error is not None:
-                return self._record_failure(
+        if publication_error is not None:
+            committed = self._record_failure(
                     state,
-                    public_error=_public_publication_failure(
+                    public_error=_publication_error(
                         node_id=state.node.node_id,
                         stage=publication_error.stage,
                     ),
                     failure_origin="publication",
+                    only_if_active=True,
                 )
+        else:
             committed = self._record_success(
                 state,
                 typed_descriptors=typed_descriptors,
                 artifacts=artifacts,
                 node_result_manifest_reference=node_result_manifest_reference,
+                only_if_active=True,
             )
+        if committed is None:
+            cancelled = self._record_committed_cancellation(state)
+            if cancelled is None:
+                raise RuntimeError(
+                    "Node outcome lost its cancellation ordering decision"
+                )
+            return cancelled
         if (
             committed.disposition == "succeeded"
             and state.resolution == "executed"
@@ -4810,7 +1108,7 @@ class _NodeExecutionAttemptModule:
         self,
         *,
         node: ExecutionPlanNode,
-        ledger: _RunEvidenceLedger,
+        ledger: Ledger,
     ) -> None:
         binding_id = node.binding.contract_id
         binding_version = node.binding.contract_version
@@ -4826,31 +1124,17 @@ class _NodeExecutionAttemptModule:
         readiness_digest = canonical_sha256(
             {
                 "schema_namespace": "protein-workbench-readiness/v2",
-                "binding": node.binding.to_public(),
+                "binding": node.binding.canonical_projection(),
                 "declaration": _plain_json(declaration.descriptor()),
-            }
-        )
-        attestation_payload = {
-            "binding": node.binding.to_public(),
-            "readiness_contract_digest": readiness_digest,
-            "observed_at": run_timestamp(observed_at),
-            "conclusion": "passing" if result.passing else "failing",
-            "proof_source": result.proof_source,
-        }
-        attestation_digest = canonical_sha256(
-            {
-                "schema_namespace": READINESS_ATTESTATION_NAMESPACE,
-                **attestation_payload,
             }
         )
         ledger.record(
             ReadinessAttestation(
-                binding=node.binding.to_public(),
+                binding=_exact_contract_reference(node.binding),
                 readiness_contract_digest=readiness_digest,
-                observed_at=attestation_payload["observed_at"],
-                conclusion=attestation_payload["conclusion"],
+                observed_at=run_timestamp(observed_at),
+                conclusion="passing" if result.passing else "failing",
                 proof_source=result.proof_source,
-                attestation_digest=attestation_digest,
             )
         )
         if not result.passing:
@@ -4858,7 +1142,7 @@ class _NodeExecutionAttemptModule:
                 "readiness_rejected",
                 "Selected Binding is not ready for this Run",
                 details={
-                    "binding": node.binding.to_public(),
+                    "binding": node.binding.canonical_projection(),
                     "reason_code": result.reason_code,
                 },
             )
@@ -4871,10 +1155,7 @@ class _NodeExecutionAttemptModule:
             AdmittedPort,
         ],
     ) -> Mapping[str, AdmittedPort]:
-        declarations = {
-            name: port.declaration
-            for name, port in node._runtime.input_ports.items()
-        }
+        declarations = node._runtime.input_ports
         admitted_inputs: dict[str, list[Any]] = {}
         for port_name, sources in node._runtime.input_sources.items():
             for source_reference in sources:
@@ -4894,7 +1175,7 @@ class _NodeExecutionAttemptModule:
         for port_name, admitted in admitted_inputs.items():
             declaration = declarations[port_name]
             if (
-                declaration["multiplicity"] == "one"
+                declaration.multiplicity == "one"
                 and len(admitted) != 1
             ):
                 raise RuntimeError(
@@ -4902,12 +1183,12 @@ class _NodeExecutionAttemptModule:
                     f"{port_name!r} resolved to {len(admitted)} "
                     "admitted values"
                 )
-            inputs[port_name] = combine_admitted_port_values(
-                port_type=declaration["port_type"],
-                multiplicity=declaration["multiplicity"],
+            inputs[port_name] = combine_admitted_port(
+                port_type=declaration.reference.canonical_projection(),
+                multiplicity=declaration.multiplicity,
                 values=tuple(admitted),
             )
-        validate_candidate_input_identities(inputs)
+        _validate_input_candidate_identities(inputs)
         return MappingProxyType(inputs)
 
     def _resolve_project_inputs(
@@ -4915,11 +1196,11 @@ class _NodeExecutionAttemptModule:
         project_id: str,
         node: ExecutionPlanNode,
     ) -> tuple[
-        dict[str, tuple[Mapping[str, Any], bytes]],
+        dict[str, tuple[ProjectInputDescriptor, bytes]],
         tuple[Mapping[str, Any], ...],
     ]:
         """Resolve declared Project resources before Result Identity lookup."""
-        resolved: dict[str, tuple[Mapping[str, Any], bytes]] = {}
+        resolved: dict[str, tuple[ProjectInputDescriptor, bytes]] = {}
         identities: list[Mapping[str, Any]] = []
         for parameter_name in node._runtime.project_input_parameters:
             reference = node.node_parameters.get(parameter_name)
@@ -4936,258 +1217,34 @@ class _NodeExecutionAttemptModule:
                 {
                     "resource_kind": "project_input",
                     "parameter_name": parameter_name,
-                    "content_digest": descriptor["content_digest"],
-                    "size": descriptor["size"],
+                    "content_digest": descriptor.content_digest,
+                    "size": descriptor.size,
                 }
             )
         return resolved, tuple(identities)
 
-    def _normalize_candidate_outputs(
+    def _require_artifact_capacity(
         self,
         *,
-        plan: ExecutionPlan,
-        node: ExecutionPlanNode,
-        result_identity: str,
-        inputs: Mapping[str, Any],
-        outputs: Mapping[str, Any],
-    ) -> Mapping[str, Any]:
-        return normalize_scientific_outputs(
-            node_id=node.node_id,
-            result_identity=result_identity,
-            inputs=inputs,
-            outputs=outputs,
-            candidate_content_digest=lambda candidate: (
-                _candidate_data_content_digest(
-                    plan._runtime.candidate_data_port_types,
-                    candidate,
-                )
-            ),
-            observation_propagation=(
-                node._runtime.binding_contract.descriptor.get(
-                    "observation_propagation"
-                )
-            ),
-        )
-
-    def _published_outputs(
-        self,
-        node: ExecutionPlanNode,
-        admitted: Mapping[
-            tuple[str, str],
-            AdmittedPort,
-        ],
-    ) -> list[dict[str, Any]]:
-        return [
-            {
-                "node_id": node.node_id,
-                "output_port": output_port,
-                "port_type": dict(snapshot.port_type),
-                "content_digest": snapshot.content_digest,
-            }
-            for (node_id, output_port), snapshot in admitted.items()
-            if node_id == node.node_id
-        ]
-
-    def _admit_outputs(
-        self,
-        plan: ExecutionPlan,
-        node: ExecutionPlanNode,
-        outputs: Any,
-        *,
-        inputs: Mapping[str, AdmittedPort],
-    ) -> tuple[
-        list[dict[str, Any]],
-        dict[tuple[str, str], AdmittedPort],
-    ]:
-        if not isinstance(outputs, Mapping):
-            raise PortValueError("Direct implementation output must be an object")
-        declared = {
-            name: port.declaration
-            for name, port in node._runtime.output_ports.items()
-        }
-        if set(outputs) - set(declared):
-            raise PortValueError("Direct implementation returned unknown outputs")
-
-        admitted: dict[tuple[str, str], AdmittedPort] = {}
-        for port_name, declaration in declared.items():
-            if declaration["required"] is True and port_name not in outputs:
-                raise PortValueError(
-                    f"Required output Port {port_name!r} is missing"
-                )
-            if port_name not in outputs:
-                continue
-            supplied = outputs[port_name]
-            if (
-                declaration["multiplicity"] == "many"
-                and not isinstance(supplied, (list, tuple))
-            ):
-                raise PortValueError(
-                    f"Output Port {port_name!r} requires many values"
-                )
-            values = (
-                tuple(supplied)
-                if declaration["multiplicity"] == "many"
-                else (supplied,)
-            )
-            port_type = node._runtime.output_ports[port_name].port_type
-            snapshot = admitted_port_values(
-                port_type=port_type,
-                multiplicity=declaration["multiplicity"],
-                values=values,
-                candidate_data_port_types=(
-                    plan._runtime.candidate_data_port_types
-                ),
-            )
-            if (
-                port_type.type_id != "score.collection"
-                and port_type.observation_method_projection is not None
-            ):
-                producing_method = _exact_reference(node.method)
-                if any(
-                    method != producing_method
-                    for method in snapshot.observation_methods
-                ):
-                    raise PortValueError(
-                        "Output Observation Method projection does not equal "
-                        "the producing Binding Method"
-                    )
-            admitted[(node.node_id, port_name)] = snapshot
-
-        admitted_outputs = MappingProxyType(
-            {
-                port_name: snapshot
-                for (node_id, port_name), snapshot in admitted.items()
-                if node_id == node.node_id
-            }
-        )
-        for port_name, snapshot in admitted_outputs.items():
-            if (
-                node._runtime.output_ports[port_name].port_type.type_id
-                != "score.collection"
-            ):
-                continue
-            for value in snapshot.values:
-                validate_produced_score_collection_from_facts(
-                    binding_descriptor=(
-                        node._runtime.binding_contract.descriptor
-                    ),
-                    output_port=port_name,
-                    collection=value.value,
-                    inputs=inputs,
-                    outputs=admitted_outputs,
-                    metric_facts=node._runtime.produced_metric_facts,
-                )
-        return self._published_outputs(node, admitted), admitted
-
-    def _artifact_publication_plan(
-        self,
-        *,
-        node: ExecutionPlanNode,
-        admitted_output_descriptors: list[dict[str, Any]],
-        runtime: Mapping[tuple[str, str], AdmittedPort],
-        current_artifact_count: int,
-        current_artifact_bytes: int,
-        trusted_replay: bool,
-    ) -> AdmittedArtifactPublicationPlan:
-        port_declarations = {
-            name: port.declaration
-            for name, port in node._runtime.output_ports.items()
-        }
-        artifact_output_ports: list[str] = []
-        publications: list[AdmittedArtifactPublication] = []
-        for output in admitted_output_descriptors:
-            declaration = port_declarations[output["output_port"]]
-            output_port = output["output_port"]
-            port_type = node._runtime.output_ports[output_port].port_type
-            decoded_values = tuple(
-                admitted.value
-                for admitted in runtime[(node.node_id, output_port)].values
-            )
-            artifact_kind = declaration.get("artifact_kind")
-            if artifact_kind is None:
-                if port_type.artifact_media_types is None:
-                    continue
-                if trusted_replay:
-                    raise RuntimeError(
-                        "Compiled artifact Port lacks publication intent"
-                    )
-                raise PortValueError(
-                    "Artifact output requires explicit Port intent"
-                )
-            artifact_output_ports.append(output_port)
-            declared_media_type = declaration.get("artifact_media_type")
-            for payload in decoded_values:
-                if not trusted_replay:
-                    if type(payload) is not ArtifactPayload:
-                        raise PortValueError(
-                            "Artifact output must contain ArtifactPayload values"
-                        )
-                    if (
-                        type(payload.body) is not bytes
-                        or len(payload.body) > MAX_ARTIFACT_SIZE_BYTES
-                    ):
-                        raise PortValueError(
-                            "Artifact payload exceeds the public bound"
-                        )
-                    validate_relative_path(
-                        payload.filename,
-                        "artifact_filename",
-                        allow_nested=False,
-                    )
-                    if payload.media_type != declared_media_type:
-                        raise PortValueError(
-                            "Artifact media type is outside its nominal "
-                            "Port contract"
-                        )
-                    if artifact_kind == "standalone":
-                        if payload.candidate_id is not None:
-                            raise PortValueError(
-                                "Standalone artifact cannot claim a "
-                                "Candidate identity"
-                            )
-                    else:
-                        try:
-                            validate_canonical_identifier(
-                                payload.candidate_id,
-                                "candidate_id",
-                            )
-                        except ValueError as error:
-                            raise PortValueError(
-                                "Candidate artifact identity is invalid"
-                            ) from error
-                admitted_payload = cast(ArtifactPayload, payload)
-                publications.append(
-                    AdmittedArtifactPublication(
-                        output_port=output_port,
-                        artifact_kind=cast(
-                            Literal["standalone", "candidate"],
-                            artifact_kind,
-                        ),
-                        body=admitted_payload.body,
-                        media_type=admitted_payload.media_type,
-                        filename=admitted_payload.filename,
-                        candidate_id=admitted_payload.candidate_id,
-                    )
-                )
+        plan: AdmittedArtifactPublicationPlan,
+        committed_artifacts: tuple[Mapping[str, Any], ...],
+        replayed: bool,
+    ) -> None:
         if (
-            current_artifact_count + len(publications)
+            len(committed_artifacts) + len(plan.publications)
             > MAX_ARTIFACTS_PER_RUN
         ):
-            if trusted_replay:
+            if replayed:
                 raise NodePublicationError("artifact_object")
             raise PortValueError("Run artifact count exceeds the public bound")
         if (
-            current_artifact_bytes
-            + sum(len(publication.body) for publication in publications)
+            sum(artifact["size"] for artifact in committed_artifacts)
+            + sum(len(publication.body) for publication in plan.publications)
             > MAX_ARTIFACT_BYTES_PER_RUN
         ):
-            if trusted_replay:
+            if replayed:
                 raise NodePublicationError("artifact_object")
             raise PortValueError("Run artifact bytes exceed the public bound")
-        return AdmittedArtifactPublicationPlan(
-            artifact_output_ports=tuple(artifact_output_ports),
-            publications=tuple(publications),
-        )
 
 
     def _prepare(
@@ -5219,10 +1276,9 @@ class _NodeExecutionAttemptModule:
         self,
         state: _NodeExecutionAttemptState,
     ) -> None:
-        binding_contract = state.node._runtime.binding_contract
         state.cache_eligible = (
-            binding_contract.descriptor.get("cacheable") is True
-            and binding_contract.descriptor.get("deterministic") is True
+            state.node._runtime.cacheable
+            and state.node._runtime.deterministic
             and _result_identity_is_cache_safe(
                 state.node,
                 state.inputs,
@@ -5263,34 +1319,37 @@ class _NodeExecutionAttemptModule:
                 return None
             state.resolution = "cache_replayed"
             state.producer_run_id = replayed.producer_run_id
-            state.admitted_outputs = dict(replayed.admitted_outputs)
+            admitted_node_output = _restored_node_output(
+                plan=_node_output_plan(self._execution_plan, state.node),
+                result_identity=state.result_identity,
+                ports={
+                    output_port: admitted
+                    for (node_id, output_port), admitted in (
+                        replayed.admitted_outputs.items()
+                    )
+                    if node_id == state.node.node_id
+                },
+            )
+            state.admitted_outputs = dict(
+                admitted_node_output.runtime_ports
+            )
             state.admitted_output_descriptors = tuple(
-                self._published_outputs(
-                    state.node,
-                    state.admitted_outputs,
-                )
+                descriptor.to_mapping()
+                for descriptor in admitted_node_output.evidence_descriptors
             )
             state.artifact_publication_plan = (
-                self._artifact_publication_plan(
-                    node=state.node,
-                    admitted_output_descriptors=[
-                        dict(value)
-                        for value in state.admitted_output_descriptors
-                    ],
-                    runtime=state.admitted_outputs,
-                    current_artifact_count=len(committed_artifacts),
-                    current_artifact_bytes=sum(
-                        artifact["size"]
-                        for artifact in committed_artifacts
-                    ),
-                    trusted_replay=True,
-                )
+                admitted_node_output.artifact_publication_plan
+            )
+            self._require_artifact_capacity(
+                plan=state.artifact_publication_plan,
+                committed_artifacts=committed_artifacts,
+                replayed=True,
             )
         except NodePublicationError as error:
             state.resolution = "cache_replayed"
             return self._commit_failure(
                 state,
-                public_error=_public_publication_failure(
+                public_error=_publication_error(
                     node_id=state.node.node_id,
                     stage=error.stage,
                 ),
@@ -5309,8 +1368,7 @@ class _NodeExecutionAttemptModule:
         self,
         state: _NodeExecutionAttemptState,
     ) -> V2RunError | None:
-        binding_contract = state.node._runtime.binding_contract
-        if binding_contract.descriptor["execution_route"] != "adapter":
+        if state.node._runtime.execution_route != "adapter":
             return None
         binding_key = (
             state.node.binding.contract_id,
@@ -5324,7 +1382,7 @@ class _NodeExecutionAttemptModule:
                     "binding_unavailable",
                     "Selected Binding is unavailable",
                     details={
-                        "binding": state.node.binding.to_public(),
+                        "binding": state.node.binding.canonical_projection(),
                         "reason_code": availability["reason"]["code"],
                     },
                 )
@@ -5383,7 +1441,7 @@ class _NodeExecutionAttemptModule:
             state,
             status=outcome,
             public_error=(
-                _public_failure(self._run_record.cancellation.cleanup_error)
+                _execution_error(self._run_record.cancellation.cleanup_error)
                 if self._run_record.cancellation.cleanup_error is not None
                 else None
             ),
@@ -5416,7 +1474,7 @@ class _NodeExecutionAttemptModule:
                 OperationContext(
                     method=_exact_reference(state.node.method),
                     produced_observations=(
-                        state.node._runtime.produced_observations
+                        state.node._runtime.produced_observation_plan.observations
                     ),
                     selection_objectives=(
                         state.node._runtime.selection_objectives
@@ -5424,7 +1482,7 @@ class _NodeExecutionAttemptModule:
                     observation_selectors=(
                         state.node._runtime.observation_selectors
                     ),
-                    environment=environment.values,
+                    environment=environment,
                     resources=resources,
                 )
             )
@@ -5454,15 +1512,15 @@ class _NodeExecutionAttemptModule:
         self,
         state: _NodeExecutionAttemptState,
     ) -> Literal["cancelled", "interrupted"] | None:
-        with self._ledger._ordered_transition_scope():
-            if self._ledger.cancellation_requested:
-                return self._pending_cancellation_outcome()
-            self._ledger.record(
-                OperationAttemptStart(
-                    operation_attempt_id=state.operation_attempt_id,
-                    node_attempt_id=state.node_attempt_id,
-                )
+        acknowledged = self._ledger.record_if_active(
+            OperationAttemptStart(
+                operation_attempt_id=state.operation_attempt_id,
+                node_attempt_id=state.node_attempt_id,
             )
+        )
+        if acknowledged is None:
+            return self._pending_cancellation_outcome()
+        else:
             state.operation_started = True
         return None
 
@@ -5494,34 +1552,29 @@ class _NodeExecutionAttemptModule:
                     resolved_resource_inputs=resources.result_identity_inputs,
                     effective_randomness_snapshot=state.effective_randomness,
                 )
-            if isinstance(raw_outputs, Mapping):
-                raw_outputs = self._normalize_candidate_outputs(
-                    plan=self._execution_plan,
-                    node=state.node,
-                    result_identity=state.result_identity,
-                    inputs=state.inputs,
-                    outputs=raw_outputs,
-                )
-            published, admitted = self._admit_outputs(
-                self._execution_plan,
-                state.node,
-                raw_outputs,
-                inputs=state.inputs,
+            admitted_node_output = admit_node_output(
+                node_plan=_node_output_plan(
+                    self._execution_plan,
+                    state.node,
+                ),
+                admitted_inputs=state.inputs,
+                raw_outputs=raw_outputs,
+                result_identity=state.result_identity,
             )
-            state.admitted_output_descriptors = tuple(published)
-            state.admitted_outputs = admitted
+            state.admitted_output_descriptors = tuple(
+                descriptor.to_mapping()
+                for descriptor in admitted_node_output.evidence_descriptors
+            )
+            state.admitted_outputs = dict(
+                admitted_node_output.runtime_ports
+            )
             state.artifact_publication_plan = (
-                self._artifact_publication_plan(
-                    node=state.node,
-                    admitted_output_descriptors=published,
-                    runtime=admitted,
-                    current_artifact_count=len(committed_artifacts),
-                    current_artifact_bytes=sum(
-                        artifact["size"]
-                        for artifact in committed_artifacts
-                    ),
-                    trusted_replay=False,
-                )
+                admitted_node_output.artifact_publication_plan
+            )
+            self._require_artifact_capacity(
+                plan=state.artifact_publication_plan,
+                committed_artifacts=committed_artifacts,
+                replayed=False,
             )
             if self._ledger.cancellation_requested:
                 raise ExecutionTermination("cancelled")
@@ -5558,7 +1611,7 @@ class _NodeExecutionAttemptModule:
                 isinstance(body_error, V2RunError)
                 and body_error.code == "evidence_unavailable"
             ):
-                self._ledger._retain_evidence_unavailable(body_error)
+                self._ledger.retain_evidence_unavailable(body_error)
                 raise body_error
             terminal_status = (
                 "failed"
@@ -5569,7 +1622,7 @@ class _NodeExecutionAttemptModule:
                 if isinstance(body_error, ExecutionTermination)
                 else "failed"
             )
-            public_error = _public_failure(body_error)
+            public_error = _execution_error(body_error)
             if terminal_status == "failed":
                 return self._commit_failure(
                     state,
@@ -5641,7 +1694,7 @@ class _NodeExecutionAttemptModule:
         if readiness_error is not None:
             return self._commit_failure(
                 state,
-                public_error=_public_binding_failure(readiness_error),
+                public_error=_binding_error(readiness_error),
                 failure_origin="binding",
             )
 
@@ -5665,7 +1718,7 @@ class _NodeExecutionAttemptModule:
 
 @dataclass(frozen=True, slots=True)
 class _OperationInvocationRecorder:
-    ledger: _RunEvidenceLedger
+    ledger: Ledger
     operation_attempt_id: str
     default_engine_identity: str
 
@@ -5678,19 +1731,18 @@ class _OperationInvocationRecorder:
         invocation_provenance: EngineInvocationProvenance | None,
     ):
         invocation_id = f"invocation-{uuid.uuid4().hex}"
-        with self.ledger._ordered_transition_scope():
-            if self.ledger.cancellation_requested:
-                raise ExecutionTermination("cancelled")
-            self.ledger.record(
-                EngineInvocationStart(
-                    invocation_id=invocation_id,
-                    operation_attempt_id=self.operation_attempt_id,
-                    engine_role=engine_role,
-                    engine_identity=self.default_engine_identity,
-                    parent_invocation_id=parent_invocation_id,
-                    provenance=invocation_provenance,
-                )
+        acknowledged = self.ledger.record_if_active(
+            EngineInvocationStart(
+                invocation_id=invocation_id,
+                operation_attempt_id=self.operation_attempt_id,
+                engine_role=engine_role,
+                engine_identity=self.default_engine_identity,
+                parent_invocation_id=parent_invocation_id,
+                provenance=invocation_provenance,
             )
+        )
+        if acknowledged is None:
+            raise ExecutionTermination("cancelled")
         try:
             yield invocation_id
         except BaseException as error:
@@ -5703,7 +1755,7 @@ class _OperationInvocationRecorder:
                 EngineInvocationConclusion(
                     invocation_id=invocation_id,
                     status=terminal_status,
-                    error=_public_failure(error),
+                    error=_execution_error(error),
                 )
             )
             raise
@@ -5720,10 +1772,10 @@ class _OperationInvocationRecorder:
 
 @dataclass(slots=True)
 class _RunRecord:
-    compiled: CompiledWorkflow | None
-    ledger: _RunEvidenceLedger
-    cancellation: _CancellationControl = field(
-        default_factory=_CancellationControl,
+    compiled: VerifiedWorkflowCommit | None
+    ledger: Ledger
+    cancellation: CancellationControl = field(
+        default_factory=CancellationControl,
     )
     finished: threading.Event = field(default_factory=threading.Event)
     execution_error: BaseException | None = None
@@ -5740,9 +1792,31 @@ _RESOLVED_CONTRACT_FIELDS = frozenset(
 )
 
 
+def _exact_contract_reference(
+    entry: ContractLockEntry,
+) -> ExactContractReference:
+    return ExactContractReference(
+        contract_kind=entry.contract_kind,
+        contract_id=entry.contract_id,
+        contract_version=entry.contract_version,
+        contract_digest=entry.contract_digest,
+    )
+
+
+def _exact_reference_from_catalog(
+    reference: Mapping[str, Any],
+) -> ExactContractReference:
+    return ExactContractReference(
+        contract_kind=reference["contract_kind"],
+        contract_id=reference["contract_id"],
+        contract_version=reference["contract_version"],
+        contract_digest=reference["contract_digest"],
+    )
+
+
 def _execution_plan_contract_roots(
     plan: ExecutionPlan,
-) -> list[dict[str, Any]]:
+) -> tuple[ExactContractReference, ...]:
     """Persist the exact roots needed to reconstruct one Plan's Lock."""
     root_identities = {
         reference.key
@@ -5750,89 +1824,97 @@ def _execution_plan_contract_roots(
         for reference in (node.node_type, node.binding)
     }
     for resolved_selector in plan._runtime.observation_selectors:
-        selector = resolved_selector.selector
         root_identities.update(
             {
                 (
-                    selector.metric.contract_kind,
-                    selector.metric.contract_id,
-                    selector.metric.contract_version,
+                    resolved_selector.metric.contract_kind,
+                    resolved_selector.metric.contract_id,
+                    resolved_selector.metric.contract_version,
                 ),
                 (
-                    selector.method.contract_kind,
-                    selector.method.contract_id,
-                    selector.method.contract_version,
+                    resolved_selector.method.contract_kind,
+                    resolved_selector.method.contract_id,
+                    resolved_selector.method.contract_version,
                 ),
             }
         )
     for resolved_objective in plan._runtime.selection_objectives:
-        objective = resolved_objective.objective
         root_identities.update(
             {
                 (
-                    objective.metric.contract_kind,
-                    objective.metric.contract_id,
-                    objective.metric.contract_version,
+                    resolved_objective.metric.contract_kind,
+                    resolved_objective.metric.contract_id,
+                    resolved_objective.metric.contract_version,
                 ),
                 (
-                    objective.method.contract_kind,
-                    objective.method.contract_id,
-                    objective.method.contract_version,
+                    resolved_objective.method.contract_kind,
+                    resolved_objective.method.contract_id,
+                    resolved_objective.method.contract_version,
                 ),
                 (
-                    objective.utility_transform.contract_kind,
-                    objective.utility_transform.contract_id,
-                    objective.utility_transform.contract_version,
+                    resolved_objective.utility.reference.contract_kind,
+                    resolved_objective.utility.reference.contract_id,
+                    resolved_objective.utility.reference.contract_version,
                 ),
             }
         )
     lock_by_identity = {
         entry.key: entry for entry in plan.resolved_contracts
     }
-    return [
-        lock_by_identity[identity].to_public()
+    return tuple(
+        _exact_contract_reference(lock_by_identity[identity])
         for identity in sorted(root_identities)
-    ]
+    )
 
 
 def _reachable_contract_evidence(
     catalog: FrozenCatalog,
-    roots: list[dict[str, str]],
-) -> list[dict[str, Any]]:
+    roots: tuple[ExactContractReference, ...],
+) -> tuple[ExactContractReference, ...]:
     """Rebuild the exact active Catalog closure from durable Plan roots."""
-    pending = [dict(entry) for entry in roots]
-    reachable: dict[tuple[str, str, str], dict[str, Any]] = {}
+    pending = list(roots)
+    reachable: dict[
+        tuple[str, str, str],
+        ExactContractReference,
+    ] = {}
     while pending:
         reference = pending.pop()
         identity = (
-            reference["contract_kind"],
-            reference["contract_id"],
-            reference["contract_version"],
+            reference.contract_kind,
+            reference.contract_id,
+            reference.contract_version,
         )
         contract = catalog.require_contract(*identity)
-        current_reference = contract.reference()
+        current_reference = _exact_reference_from_catalog(
+            contract.reference()
+        )
         if reference != current_reference:
             raise RuntimeError("Run scope Contract root is not active")
         if identity in reachable:
             continue
         reachable[identity] = current_reference
-        nested_values: list[Any] = [contract.descriptor]
+        descriptor = (
+            contract.descriptor()
+            if type(contract) is PortTypeDefinition
+            else contract.descriptor
+        )
+        nested_values: list[Any] = [descriptor]
         while nested_values:
             value = nested_values.pop()
             if (
                 isinstance(value, Mapping)
                 and set(value) == _RESOLVED_CONTRACT_FIELDS
             ):
-                pending.append(dict(value))
+                pending.append(_exact_reference_from_catalog(value))
             elif isinstance(value, Mapping):
                 nested_values.extend(value.values())
             elif isinstance(value, (list, tuple)):
                 nested_values.extend(value)
-    return [reachable[identity] for identity in sorted(reachable)]
+    return tuple(reachable[identity] for identity in sorted(reachable))
 
 
 def _run_catalog_digest(
-    ledger: _RunEvidenceLedger,
+    ledger: Ledger,
     catalog: FrozenCatalog,
 ) -> str:
     """Classify one admitted Ledger against the active Catalog generation."""
@@ -5844,71 +1926,11 @@ def _run_catalog_digest(
         return persisted_catalog_digest
     expected_contracts = _reachable_contract_evidence(
         catalog,
-        [dict(reference) for reference in scope.resolved_contract_roots],
+        scope.resolved_contract_roots,
     )
-    if list(scope.resolved_contracts) != expected_contracts:
+    if scope.resolved_contracts != expected_contracts:
         raise RuntimeError("Run scope resolved Contracts are invalid")
     return persisted_catalog_digest
-
-
-def _read_run_evidence_ledger(
-    projects: ProjectManager,
-    project_id: str,
-    run_id: str,
-    transaction_store: LedgerTransactionStore | None = None,
-) -> _RunEvidenceLedger | None:
-    """Load and causally validate one Run's physical transactions."""
-    run_dir = projects.run_dir(project_id, run_id)
-    ledger_dir = run_dir / "ledger"
-    if (
-        not ledger_dir.is_dir()
-    ):
-        return None
-    transaction_paths = sorted(ledger_dir.glob("*.json"))
-    if not transaction_paths:
-        return None
-    encoded_transactions: list[bytes] = []
-    parsed_transactions: list[Mapping[str, Any]] = []
-    for expected_sequence, path in enumerate(transaction_paths, start=1):
-        if path.name != f"{expected_sequence:020d}.json":
-            raise RuntimeError(
-                "Run Ledger transaction sequence is not contiguous"
-            )
-        encoded = _read_bounded_file(
-            run_dir.parent,
-            (run_id, "ledger", path.name),
-            field="run_ledger",
-            maximum_size=MAX_LEDGER_TRANSACTION_BYTES,
-        )
-        parsed = json.loads(encoded)
-        if not isinstance(parsed, Mapping):
-            raise RuntimeError("Run Ledger transaction is invalid")
-        encoded_transactions.append(encoded)
-        parsed_transactions.append(parsed)
-    first = parsed_transactions[0]["facts"][0]
-    plan_nodes = _parse_plan_evidence(
-        first["payload"]["plan_nodes"]
-    )
-    ledger = _RunEvidenceLedger(
-        projects,
-        project_id,
-        run_id,
-        plan_nodes,
-        transaction_store,
-        expected_resolved_contracts=tuple(
-            first["payload"]["resolved_contracts"]
-        ),
-        expected_contract_roots=tuple(
-            first["payload"]["resolved_contract_roots"]
-        ),
-    )
-    for transaction, encoded in zip(
-        parsed_transactions,
-        encoded_transactions,
-        strict=True,
-    ):
-        ledger._load_transaction(transaction, encoded)
-    return ledger
 
 
 def _plain_json(value: Any) -> Any:
@@ -5946,15 +1968,9 @@ def _resolve_effective_randomness(
     node: ExecutionPlanNode,
     inputs: Mapping[str, AdmittedPort],
 ) -> _EffectiveRandomnessSnapshot:
-    binding_contract = node._runtime.binding_contract
     node_parameters = _plain_json(node.node_parameters)
     binding_parameters = _plain_json(node.binding_parameters)
-    declared_randomness = tuple(
-        binding_contract.descriptor.get(
-            "effective_randomness_parameters",
-            (),
-        )
-    )
+    declared_randomness = node._runtime.effective_randomness_parameters
     if declared_randomness:
         resolver = node._runtime.effective_randomness_resolver
         if resolver is None:
@@ -6043,7 +2059,6 @@ def _result_identity_descriptor(
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> dict[str, Any]:
     """Build the closed scientific identity of one resolved Node result."""
-    binding_contract = node._runtime.binding_contract
     plan_facts = node.result_identity_plan_facts
     canonical_plan_facts = plan_facts.canonical_projection()
     static_facts = canonical_plan_facts["identity_facts"]
@@ -6080,9 +2095,7 @@ def _result_identity_descriptor(
         resolved_node_parameters.pop(parameter_name, None)
     for parameter_name in node._runtime.project_input_parameters:
         resolved_node_parameters.pop(parameter_name, None)
-    declared_randomness = binding_contract.descriptor.get(
-        "effective_randomness_parameters"
-    )
+    declared_randomness = node._runtime.effective_randomness_parameters
     if declared_randomness:
         effective_randomness = _plain_json(
             randomness_snapshot.effective_randomness
@@ -6101,7 +2114,7 @@ def _result_identity_descriptor(
         "node_parameters": resolved_node_parameters,
         "binding_parameters": resolved_binding_parameters,
         "determinism": {
-            "deterministic": binding_contract.descriptor.get("deterministic"),
+            "deterministic": node._runtime.deterministic,
             "effective_randomness": effective_randomness,
         },
     }
@@ -6113,45 +2126,44 @@ def _result_identity_descriptor(
     return descriptor
 
 
-def _candidate_data_type_id(value: Any) -> str | None:
-    return {
-        ProteinSequence: "protein.sequence",
-        ProteinStructure: "protein.structure",
-    }.get(type(value))
-
-
-def _active_content_digest(
-    port_types: Mapping[str, Any],
-    type_id: str,
-    value: Any,
-) -> str:
-    try:
-        port_type = port_types[type_id]
-    except KeyError as error:
-        raise PortValueError(
-            f"Execution Plan lacks Candidate data Port Type {type_id!r}"
-        ) from error
-    return port_type.content_digest(value)
-
-
-def _candidate_data_content_digest(
-    port_types: Mapping[str, Any],
-    candidate: Candidate,
-) -> str:
-    type_id = _candidate_data_type_id(candidate.data)
-    if type_id is None:
-        raise PortValueError(
-            "Candidate data has no registered content identity"
-        )
-    return _active_content_digest(port_types, type_id, candidate.data)
-
-
 def _exact_reference(reference: Any) -> ExactContractReference:
     return ExactContractReference(
         contract_kind=reference.contract_kind,
         contract_id=reference.contract_id,
         contract_version=reference.contract_version,
         contract_digest=reference.contract_digest,
+    )
+
+
+def _node_output_plan(
+    execution_plan: ExecutionPlan,
+    node: ExecutionPlanNode,
+) -> NodeOutputPlan:
+    """Project compiler-owned typed facts into the Output Admission seam."""
+    return NodeOutputPlan(
+        node_id=node.node_id,
+        producing_method=_exact_reference(node.method),
+        output_ports={
+            output_port: OutputPortPlan(
+                required=declaration.required,
+                multiplicity=declaration.multiplicity,
+                port_type=declaration.port_type,
+            )
+            for output_port, declaration in node._runtime.output_ports.items()
+        },
+        candidate_data_port_types=(
+            execution_plan._runtime.candidate_data_port_types
+        ),
+        produced_observations=node._runtime.produced_observation_plan,
+        artifact_outputs=tuple(
+            ArtifactOutputDeclaration(
+                output_port=declaration.output_port,
+                artifact_kind=declaration.artifact_kind,
+                artifact_media_type=declaration.artifact_media_type,
+                accepted_media_types=declaration.accepted_media_types,
+            )
+            for declaration in node._runtime.artifact_outputs
+        ),
     )
 
 
@@ -6172,22 +2184,42 @@ def _result_identity(
     )
 
 
+def _context_selector_evidence(value: object) -> ContextSelectorEvidence:
+    if isinstance(value, IntrinsicObservationContext):
+        return ContextSelectorEvidence(kind="intrinsic")
+    if isinstance(value, CalibrationObservationContext):
+        return ContextSelectorEvidence(
+            kind="calibration",
+            calibration_metric=value.calibration_metric,
+            calibration_value=value.calibration_value,
+            calibration_unit=value.calibration_unit,
+            population_id=value.population_id,
+        )
+    if isinstance(value, PairwiseContextSelector):
+        return ContextSelectorEvidence(
+            kind="pairwise",
+            subject_role=value.subject_role,
+            reference_role=value.reference_role,
+            pairing_mode=value.pairing_mode,
+            normalization=value.normalization,
+        )
+    raise TypeError("Selection Context selector is not current")
+
+
 def _selection_consumer_result(
     node: ExecutionPlanNode,
     values: Mapping[tuple[str, str], AdmittedPort],
-) -> dict[str, Any]:
+) -> SelectionResult:
     """Project one declared selection Node's actual typed output."""
     resolved_objectives = node._runtime.selection_objectives
     resolved_selectors = node._runtime.observation_selectors
     if resolved_selectors:
-        selectors = tuple(item.selector for item in resolved_selectors)
         candidate_references = {
-            selector.candidate_input for selector in selectors
+            selector.candidate_input for selector in resolved_selectors
         }
     else:
-        objectives = tuple(item.objective for item in resolved_objectives)
         candidate_references = {
-            objective.candidate_input for objective in objectives
+            objective.candidate_input for objective in resolved_objectives
         }
     if len(candidate_references) != 1:
         raise SelectionError(
@@ -6210,26 +2242,62 @@ def _selection_consumer_result(
         )
     selected = resolved.value
     candidate_reference = next(iter(candidate_references))
-    result = {
-        "status": "succeeded",
-        "selection_node_id": node.node_id,
-        "selection_method": node.method.to_public(),
-        "candidate_input": candidate_reference.to_public(),
-        "selected_collection_id": selected.collection_id,
-        "selected_candidate_ids": [
-            candidate.candidate_id for candidate in selected.items
-        ],
-    }
     if resolved_selectors:
-        result["observation_selectors"] = [
-            selector.to_public() for selector in selectors
-        ]
+        observation_selectors = tuple(
+            ObservationSelectorEvidence(
+                selector_id=selector.selector_id,
+                candidate_input=selector.candidate_input,
+                score_collection_input=selector.score_collection_input,
+                source_partition=selector.source_partition,
+                metric=selector.metric,
+                method=selector.method,
+                context_selector=_context_selector_evidence(
+                    selector.context_selector
+                ),
+                match_cardinality=selector.match_cardinality,
+                missing_policy=selector.missing_policy,
+            )
+            for selector in observation_selector_provenance_from_facts(
+                resolved_selectors
+            )
+        )
+        objectives: tuple[SelectionObjectiveEvidence, ...] = ()
     else:
         provenance = selection_objective_provenance_from_facts(
             resolved_objectives
         )
-        result["objectives"] = provenance["objectives"]
-    return result
+        objectives = tuple(
+            SelectionObjectiveEvidence(
+                objective_id=objective.objective_id,
+                candidate_input=objective.candidate_input,
+                score_collection_input=objective.score_collection_input,
+                source_partition=objective.source_partition,
+                metric=objective.metric,
+                method=objective.method,
+                context_selector=_context_selector_evidence(
+                    objective.context_selector
+                ),
+                utility_transform=objective.utility_transform,
+                utility_parameters=dict(objective.utility_parameters),
+                declared_weight=objective.declared_weight,
+                effective_weight=objective.effective_weight,
+                match_cardinality=objective.match_cardinality,
+                missing_policy=objective.missing_policy,
+            )
+            for objective in provenance.objectives
+        )
+        observation_selectors = ()
+    return SelectionResult(
+        selection_node_id=node.node_id,
+        selection_method=_exact_reference(node.method),
+        candidate_input=candidate_reference,
+        selected_collection_id=selected.collection_id,
+        selected_candidate_ids=tuple(
+            candidate.candidate_id for candidate in selected.items
+        ),
+        objectives=objectives,
+        observation_selectors=observation_selectors,
+    )
 
 
 def _contains_unresolved_identity(value: Any) -> bool:
@@ -6344,7 +2412,7 @@ def _admitted_output_from_manifest(
 ) -> AdmittedPort:
     """Materialize one committed Port manifest through its exact codec."""
     output_port = output["output_port"]
-    declaration = node._runtime.output_ports[output_port].declaration
+    declaration = node._runtime.output_ports[output_port]
     reference = output["value_manifest"]
     if reference["size"] > MAX_PORT_VALUE_MANIFEST_BYTES:
         raise RuntimeError("Current Port Value Manifest is invalid")
@@ -6355,8 +2423,9 @@ def _admitted_output_from_manifest(
     manifest = _decode_port_value_manifest(encoded)
     if (
         manifest["port_type"] != output["port_type"]
-        or manifest["port_type"] != declaration["port_type"]
-        or manifest["multiplicity"] != declaration["multiplicity"]
+        or manifest["port_type"]
+        != declaration.reference.canonical_projection()
+        or manifest["multiplicity"] != declaration.multiplicity
     ):
         raise RuntimeError("Current Port Value Manifest is invalid")
     canonical_values: list[bytes] = []
@@ -6368,9 +2437,9 @@ def _admitted_output_from_manifest(
             )
         )
     port_type = node._runtime.output_ports[output_port].port_type
-    admitted = admitted_port_values_from_bytes(
+    admitted = restore_admitted_port(
         port_type=port_type,
-        multiplicity=declaration["multiplicity"],
+        multiplicity=declaration.multiplicity,
         canonical_values=tuple(canonical_values),
         candidate_data_port_types=(
             execution_plan._runtime.candidate_data_port_types
@@ -6408,7 +2477,7 @@ class _ProjectResultCache(ResultReplaySource):
         project_id: str,
         result_identity: str,
     ) -> dict[str, Any] | None:
-        root = self._projects.cache_dir(project_id)
+        root = self._projects.result_cache_storage_root(project_id)
         parts = self._relative_parts(result_identity)
         try:
             encoded = _read_bounded_file(
@@ -6474,10 +2543,7 @@ class _ProjectResultCache(ResultReplaySource):
         ]
         if entry["outputs"] != expected_cache_outputs:
             raise RuntimeError("Current Result Cache entry is invalid")
-        declarations = {
-            name: port.declaration
-            for name, port in node._runtime.output_ports.items()
-        }
+        declarations = node._runtime.output_ports
         produced_ports = [
             output["output_port"] for output in node_result["outputs"]
         ]
@@ -6576,7 +2642,7 @@ class _ProjectResultCache(ResultReplaySource):
             ) from error
         if existing is not None:
             return
-        root = self._projects.cache_dir(project_id)
+        root = self._projects.result_cache_storage_root(project_id)
         encoded_entry = canonical_json_bytes(entry)
         if len(encoded_entry) > MAX_RESULT_CACHE_ENTRY_BYTES:
             raise ResultCachePublicationError(
@@ -6602,7 +2668,7 @@ class V2RunService:
         authoring: WorkflowAuthoringService,
         environment: EnvironmentConfiguration,
         result_replay_source: ResultReplaySource | None = None,
-        ledger_transaction_store: LedgerTransactionStore | None = None,
+        ledger_transaction_store: LedgerStore | None = None,
     ) -> None:
         self._projects = projects
         self._catalog = catalog
@@ -6619,9 +2685,8 @@ class V2RunService:
         )
         self._ledger_transaction_store = ledger_transaction_store
         self._runs: dict[tuple[str, str], _RunRecord] = {}
-        self._damaged_runs: dict[tuple[str, str], str] = {}
+        self._damaged_runs: dict[tuple[str, str], RunCursor] = {}
         self._inactive_runs: dict[tuple[str, str], str] = {}
-        self._unsupported_runs: dict[tuple[str, str], str] = {}
         self._run_owners: dict[str, str] = {}
         self._worker_condition = threading.Condition(threading.RLock())
         self._workers: set[threading.Thread] = set()
@@ -6630,25 +2695,25 @@ class V2RunService:
         self._closed = False
         self._validated_ledgers: dict[
             tuple[str, str],
-            _RunEvidenceLedger,
+            Ledger,
         ] = {}
         self._load_persisted_runs()
 
     def _plan_evidence(
         self,
         plan: ExecutionPlan,
-    ) -> tuple[_PlanNodeEvidence, ...]:
+    ) -> tuple[PlanNodeEvidence, ...]:
         return tuple(
-            _PlanNodeEvidence(
+            PlanNodeEvidence(
                 node_id=node.node_id,
                 dependencies=node._runtime.dependencies,
                 required_input_sources=tuple(
-                    _PlanRequiredInputEvidence(
+                    PlanRequiredInputEvidence(
                         input_port=input_port,
                         sources=tuple(
                             sorted(
                                 (
-                                    _PlanValueSourceEvidence(
+                                    PlanValueSourceEvidence(
                                         source.node_id,
                                         source.output_port,
                                     )
@@ -6668,12 +2733,19 @@ class V2RunService:
                 result_identity_plan_facts_digest=(
                     node.result_identity_plan_facts.digest
                 ),
-                binding=node.binding.to_public(),
-                execution_route=node._runtime.binding_contract.descriptor[
-                    "execution_route"
-                ],
-                node_type=node.node_type.to_public(),
-                artifact_outputs=node._runtime.artifact_outputs,
+                binding=_exact_contract_reference(node.binding),
+                execution_route=node._runtime.execution_route,
+                node_type=_exact_contract_reference(node.node_type),
+                artifact_outputs=tuple(
+                    ArtifactOutputEvidence(
+                        output_port=output.output_port,
+                        artifact_kind=output.artifact_kind,
+                        artifact_media_type=output.artifact_media_type,
+                        port_type=_exact_contract_reference(output.port_type),
+                        accepted_media_types=output.accepted_media_types,
+                    )
+                    for output in node._runtime.artifact_outputs
+                ),
                 selection_consumer=bool(
                     node._runtime.selection_objectives
                     or node._runtime.observation_selectors
@@ -6683,24 +2755,8 @@ class V2RunService:
         )
 
     def _run_directories(self):
-        project_root = self._projects.root_dir
-        if not project_root.is_dir():
-            return
-        for project_dir in sorted(project_root.iterdir()):
-            if not project_dir.is_dir():
-                continue
-            try:
-                project_id = validate_identifier(
-                    project_dir.name,
-                    "project_id",
-                )
-            except StoragePathError:
-                continue
-            run_parent = (
-                self._projects.run_root / project_id
-                if self._projects.run_root is not None
-                else self._projects.project_dir(project_id) / "runs"
-            )
+        for project_id in self._projects.stored_project_ids():
+            run_parent = self._projects.run_storage_root(project_id)
             if (
                 not run_parent.is_dir()
             ):
@@ -6727,49 +2783,8 @@ class V2RunService:
                     continue
                 yield project_id, run_id, run_parent
 
-    @staticmethod
-    def _unsupported_run_version(
-        run_parent: Path,
-        run_id: str,
-    ) -> str | None:
-        """Classify an old schema without using it as current Run evidence."""
-        run_dir = run_parent / run_id
-        ledger_files = sorted((run_dir / "ledger").glob("*.json"))
-        candidate = (
-            ledger_files[0]
-            if ledger_files
-            else run_dir / "manifest.json"
-        )
-        if not candidate.is_file():
-            return None
-        try:
-            encoded = candidate.read_bytes()
-            if len(encoded) > MAX_LEDGER_TRANSACTION_BYTES:
-                return None
-            payload = json.loads(encoded)
-        except (OSError, json.JSONDecodeError):
-            return None
-        if not isinstance(payload, Mapping):
-            return None
-        observed = payload.get("schema_version")
-        if observed == RUN_LEDGER_SCHEMA_VERSION:
-            return None
-        if isinstance(observed, (str, int)):
-            return str(observed)[:64]
-        return None if ledger_files else "unknown"
-
     def _load_persisted_runs(self) -> None:
-        for project_id, run_id, run_parent in self._run_directories():
-            unsupported_version = self._unsupported_run_version(
-                run_parent,
-                run_id,
-            )
-            if unsupported_version is not None:
-                self._unsupported_runs[(project_id, run_id)] = (
-                    unsupported_version
-                )
-                self._run_owners.setdefault(run_id, project_id)
-                continue
+        for project_id, run_id, _ in self._run_directories():
             try:
                 ledger = self._load_persisted_run(
                     project_id,
@@ -6799,8 +2814,8 @@ class V2RunService:
         self,
         project_id: str,
         run_id: str,
-    ) -> _RunEvidenceLedger | None:
-        ledger = _read_run_evidence_ledger(
+    ) -> Ledger | None:
+        ledger = Ledger.load(
             self._projects,
             project_id,
             run_id,
@@ -6826,10 +2841,6 @@ class V2RunService:
             self._run_owners[run_id] = project_id
             return ledger
         ledger.reconcile_restart()
-        try:
-            ledger.rebuild_projections()
-        except (OSError, StoragePathError):
-            pass
         record = _RunRecord(
             compiled=None,
             ledger=ledger,
@@ -6858,19 +2869,6 @@ class V2RunService:
         try:
             return self._runs[(project_id, run_id)]
         except KeyError as error:
-            unsupported_version = self._unsupported_runs.get(
-                (project_id, run_id)
-            )
-            if unsupported_version is not None:
-                raise V2RunError(
-                    "unsupported_schema_version",
-                    "Run evidence is not a supported exact v2 artifact",
-                    details={
-                        "artifact_kind": "run_evidence",
-                        "expected_schema_version": RUN_LEDGER_SCHEMA_VERSION,
-                        "received_schema_version": unsupported_version,
-                    },
-                ) from error
             inactive_catalog_digest = self._inactive_runs.get(
                 (project_id, run_id)
             )
@@ -6893,7 +2891,7 @@ class V2RunService:
                 raise V2RunError(
                     "evidence_unavailable",
                     "Required Run evidence is damaged and unavailable",
-                    details={"last_durable_cursor": damaged_cursor},
+                    details={"last_durable_cursor": damaged_cursor.value},
                 ) from error
             raise V2RunError(
                 "run_not_found",
@@ -6928,7 +2926,7 @@ class V2RunService:
             "binding_unavailable",
             "Selected Binding has no Availability snapshot",
             details={
-                "binding": node.binding.to_public(),
+                "binding": node.binding.canonical_projection(),
                 "reason_code": "availability_missing",
             },
         )
@@ -6967,11 +2965,11 @@ class V2RunService:
         _before_execute: Callable[[], None] | None = None,
         _derived_from: Mapping[str, Any] | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
-        _retained_compiled: CompiledWorkflow | None = None,
+        _retained_compiled: VerifiedWorkflowCommit | None = None,
     ) -> dict[str, Any]:
         del client_request_id
         if _retained_compiled is None:
-            compiled = self._authoring.require_compiled(
+            compiled = self._authoring.require_verified_commit(
                 project_id,
                 workflow_commit_id=workflow_commit_id,
             )
@@ -7000,14 +2998,15 @@ class V2RunService:
         run_id = f"run-{uuid.uuid4().hex}"
         plan_evidence = self._plan_evidence(plan)
         try:
-            ledger = _RunEvidenceLedger(
+            ledger = Ledger(
                 self._projects,
                 project_id,
                 run_id,
                 plan_evidence,
                 self._ledger_transaction_store,
                 expected_resolved_contracts=tuple(
-                    entry.to_public() for entry in plan.resolved_contracts
+                    _exact_contract_reference(entry)
+                    for entry in plan.resolved_contracts
                 ),
                 expected_contract_roots=tuple(
                     _execution_plan_contract_roots(plan)
@@ -7017,7 +3016,7 @@ class V2RunService:
             raise V2RunError(
                 "evidence_unavailable",
                 "Required Run evidence workspace is unavailable",
-                details={"last_durable_cursor": run_cursor(0)},
+                details={"last_durable_cursor": run_cursor(0).value},
             ) from error
         ledger.record(
             RunScopeBinding(
@@ -7031,9 +3030,23 @@ class V2RunService:
                     _execution_plan_contract_roots(plan)
                 ),
                 resolved_contracts=tuple(
-                    entry.to_public() for entry in plan.resolved_contracts
+                    _exact_contract_reference(entry)
+                    for entry in plan.resolved_contracts
                 ),
-                derived_from=_derived_from,
+                derived_from=(
+                    DerivedRunReference(
+                        source_run_id=_derived_from["source_run_id"],
+                        policy=_derived_from["policy"],
+                        selected_node_ids=tuple(
+                            _derived_from["selected_node_ids"]
+                        ),
+                        forced_node_ids=tuple(
+                            _derived_from["forced_node_ids"]
+                        ),
+                    )
+                    if _derived_from is not None
+                    else None
+                ),
             )
         )
         distinct: dict[tuple[str, str], ExecutionPlanNode] = {}
@@ -7054,7 +3067,7 @@ class V2RunService:
             availability_by_binding[binding_key] = availability
             ledger.record(
                 AvailabilityBinding(
-                    binding=node.binding.to_public(),
+                    binding=_exact_contract_reference(node.binding),
                     catalog_observed_at=availability["observed_at"],
                     available=availability["available"],
                 )
@@ -7093,7 +3106,7 @@ class V2RunService:
             "workflow_commit_id": workflow_commit_id,
             "workflow_commit_revision": workflow_commit_revision,
             "admitted_sequence": admitted.last_sequence,
-            "event_cursor": admitted.cursor,
+            "event_cursor": admitted.cursor.value,
         }
         if _on_admitted is not None:
             _on_admitted(receipt, record)
@@ -7106,29 +3119,35 @@ class V2RunService:
                 committed_values,
             )
             concluded_before_scheduling = False
-            with ledger._ordered_transition_scope():
-                if ledger.cancellation_requested:
-                    outcome: Literal["cancelled", "interrupted"] = (
-                        "interrupted"
-                        if record.cancellation.cleanup_error is not None
-                        else "cancelled"
+            cancellation_outcome: Literal["cancelled", "interrupted"] = (
+                "interrupted"
+                if record.cancellation.cleanup_error is not None
+                else "cancelled"
+            )
+            if blocked_by:
+                acknowledged = ledger.record_if_active(
+                    UnstartedNodeConclusion(
+                        node_id=node.node_id,
+                        outcome="blocked",
+                        blocked_by=tuple(blocked_by),
                     )
+                )
+                if acknowledged is None:
                     ledger.record(
                         UnstartedNodeConclusion(
                             node_id=node.node_id,
-                            outcome=outcome,
+                            outcome=cancellation_outcome,
                         )
                     )
-                    concluded_before_scheduling = True
-                elif blocked_by:
-                    ledger.record(
-                        UnstartedNodeConclusion(
-                            node_id=node.node_id,
-                            outcome="blocked",
-                            blocked_by=tuple(blocked_by),
-                        )
+                concluded_before_scheduling = True
+            elif ledger.cancellation_requested:
+                ledger.record(
+                    UnstartedNodeConclusion(
+                        node_id=node.node_id,
+                        outcome=cancellation_outcome,
                     )
-                    concluded_before_scheduling = True
+                )
+                concluded_before_scheduling = True
             if concluded_before_scheduling:
                 continue
             committed = attempts.execute(
@@ -7158,7 +3177,7 @@ class V2RunService:
             except SelectionError as error:
                 selection_conclusions = (
                     SelectionFailure(
-                        error=_public_selection_failure(error),
+                        error=_selection_error(error),
                     ),
                 )
         ledger.record(RunClosure(selection_conclusions))
@@ -7173,7 +3192,7 @@ class V2RunService:
         client_request_id: str,
         _derived_from: Mapping[str, Any] | None = None,
         _cache_bypass_nodes: frozenset[str] = frozenset(),
-        _retained_compiled: CompiledWorkflow | None = None,
+        _retained_compiled: VerifiedWorkflowCommit | None = None,
     ) -> dict[str, Any]:
         """Admit synchronously, then execute without blocking event delivery."""
         admitted = threading.Event()
@@ -7238,7 +3257,7 @@ class V2RunService:
                 raise V2RunError(
                     "evidence_unavailable",
                     "Run execution admission is temporarily unavailable",
-                    details={"last_durable_cursor": run_cursor(0)},
+                    details={"last_durable_cursor": run_cursor(0).value},
                 )
             self._workers.add(worker)
             self._reserved_projects.add(project_id)
@@ -7301,7 +3320,7 @@ class V2RunService:
         """Start a new Run from one immutable terminal source reference."""
         source = self._require_record(project_id, source_run_id)
         source_projection = source.ledger.projection()
-        terminal_sequence = source_projection.get("terminal_sequence")
+        terminal_sequence = source_projection.terminal_sequence
         if terminal_sequence is None:
             raise V2RunError(
                 "malformed_request",
@@ -7333,11 +3352,11 @@ class V2RunService:
             raise RuntimeError("Source Run Ledger has no admitted scope")
         if (
             plan.workflow_commit_revision
-            != source_projection["workflow_commit_revision"]
+            != source_projection.workflow_commit_revision
             or plan.workflow_digest
-            != source_projection["workflow_digest"]
+            != source_projection.workflow_digest
             or source_scope.workflow_commit_id
-            != source_projection["workflow_commit_id"]
+            != source_projection.workflow_commit_id
             or plan.contract_lock_digest
             != source_scope.contract_lock_digest
             or plan.execution_plan_digest
@@ -7387,8 +3406,8 @@ class V2RunService:
                 },
             )
         source_outcomes = {
-            disposition["node_id"]: disposition["outcome"]
-            for disposition in source_projection["node_dispositions"]
+            disposition.node_id: disposition.outcome
+            for disposition in source_projection.node_dispositions
         }
         if policy == "retry_failed" and any(
             source_outcomes.get(node_id) != "failed"
@@ -7424,7 +3443,7 @@ class V2RunService:
         ]
         return self.start_background(
             project_id,
-            workflow_commit_id=source_projection["workflow_commit_id"],
+            workflow_commit_id=source_projection.workflow_commit_id,
             client_request_id=client_request_id,
             _derived_from={
                 "source_run_id": source_run_id,
@@ -7441,22 +3460,18 @@ class V2RunService:
         project_id: str,
         run_id: str,
         *,
-        after_cursor: str | None,
-    ) -> dict[str, Any]:
+        after_cursor: RunCursor | None,
+    ) -> CancellationDecision:
         """Persist cancellation before signalling active work."""
         record = self._require_record(project_id, run_id)
         self._require_available_evidence(record)
         decision = record.ledger.request_cancellation(after_cursor)
-        if decision["outcome"] in {
+        if decision.outcome in {
             "cancellation_requested",
             "already_requested",
         }:
             record.cancellation.request()
-        return {
-            "project_id": project_id,
-            "run_id": run_id,
-            **decision,
-        }
+        return decision
 
     def shutdown(self) -> None:
         """Stop admission and wait until every tracked Run writer is closed."""
@@ -7466,22 +3481,22 @@ class V2RunService:
         for worker in workers:
             worker.join()
 
-    def projection(self, project_id: str, run_id: str) -> dict[str, Any]:
+    def projection(self, project_id: str, run_id: str) -> RunProjection:
         record = self._require_record(project_id, run_id)
         self._require_available_evidence(record)
         return record.ledger.projection()
 
     @staticmethod
     def _typed_value_integrity_error(
-        descriptor: Mapping[str, Any],
+        descriptor: PublishedOutput,
         value_index: int,
         *,
         expected_digest: str,
         expected_size: int | None = None,
     ) -> V2RunError:
         details: dict[str, Any] = {
-            "node_id": descriptor["node_id"],
-            "output_port": descriptor["output_port"],
+            "node_id": descriptor.node_id,
+            "output_port": descriptor.output_port,
             "value_index": value_index,
             "expected_digest": expected_digest,
         }
@@ -7506,9 +3521,9 @@ class V2RunService:
         descriptor = next(
             (
                 output
-                for output in record.ledger.projection()["outputs"]
-                if output["node_id"] == node_id
-                and output["output_port"] == output_port
+                for output in record.ledger.projection().outputs
+                if output.node_id == node_id
+                and output.output_port == output_port
             ),
             None,
         )
@@ -7516,7 +3531,7 @@ class V2RunService:
             descriptor is None
             or type(value_index) is not int
             or value_index < 0
-            or value_index >= descriptor["value_count"]
+            or value_index >= descriptor.value_count
         ):
             raise V2RunError(
                 "typed_output_not_found",
@@ -7527,7 +3542,7 @@ class V2RunService:
                     "value_index": value_index,
                 },
             )
-        manifest_reference = descriptor["value_manifest_reference"]
+        manifest_reference = descriptor.value_manifest_reference
         try:
             encoded_manifest = self._object_store.read(
                 project_id,
@@ -7535,10 +3550,16 @@ class V2RunService:
             )
             manifest = _decode_port_value_manifest(encoded_manifest)
             if (
-                manifest["port_type"] != descriptor["port_type"]
+                manifest["port_type"]
+                != {
+                    "contract_kind": descriptor.port_type.contract_kind,
+                    "contract_id": descriptor.port_type.contract_id,
+                    "contract_version": descriptor.port_type.contract_version,
+                    "contract_digest": descriptor.port_type.contract_digest,
+                }
                 or manifest["content_digest"]
-                != descriptor["content_digest"]
-                or manifest["value_count"] != descriptor["value_count"]
+                != descriptor.content_digest
+                or manifest["value_count"] != descriptor.value_count
             ):
                 raise ValueError("Port Value Manifest contract is invalid")
             entry = manifest["values"][value_index]
@@ -7571,11 +3592,16 @@ class V2RunService:
             "typed_value": {
                 "node_id": node_id,
                 "output_port": output_port,
-                "port_type": descriptor["port_type"],
-                "port_content_digest": descriptor["content_digest"],
+                "port_type": {
+                    "contract_kind": descriptor.port_type.contract_kind,
+                    "contract_id": descriptor.port_type.contract_id,
+                    "contract_version": descriptor.port_type.contract_version,
+                    "contract_digest": descriptor.port_type.contract_digest,
+                },
+                "port_content_digest": descriptor.content_digest,
                 "value_manifest_reference": manifest_reference,
                 "value_index": value_index,
-                "value_count": descriptor["value_count"],
+                "value_count": descriptor.value_count,
                 "value_content_digest": entry["content_digest"],
                 "size": entry["size"],
             }
@@ -7592,8 +3618,8 @@ class V2RunService:
         descriptor = next(
             (
                 artifact
-                for artifact in record.ledger.projection()["artifact_index"]
-                if artifact["artifact_reference"] == artifact_reference
+                for artifact in record.ledger.projection().artifacts
+                if artifact.artifact_reference == artifact_reference
             ),
             None,
         )
@@ -7609,7 +3635,7 @@ class V2RunService:
         try:
             payload = self._object_store.read(
                 project_id,
-                descriptor["content_digest"],
+                descriptor.content_digest,
             )
         except ObjectIntegrityError as error:
             raise V2RunError(
@@ -7617,47 +3643,59 @@ class V2RunService:
                 "Artifact integrity validation failed",
                 details={"artifact_reference": artifact_reference},
             ) from error
-        return json.loads(json.dumps(descriptor)), payload
+        public_descriptor = {
+            "artifact_reference": descriptor.artifact_reference,
+            "artifact_kind": descriptor.artifact_kind,
+            "node_id": descriptor.node_id,
+            "output_port": descriptor.output_port,
+            "media_type": descriptor.media_type,
+            "filename": descriptor.filename,
+            "size": descriptor.size,
+            "content_digest": descriptor.content_digest,
+        }
+        if descriptor.candidate_id is not None:
+            public_descriptor["candidate_id"] = descriptor.candidate_id
+        return public_descriptor, payload
 
-    def public_events(
+    def events(
         self,
         project_id: str,
         run_id: str,
-    ) -> tuple[dict[str, Any], ...]:
+    ) -> tuple[Fact, ...]:
         record = self._require_record(project_id, run_id)
         self._require_available_evidence(record)
-        return record.ledger.public_events()
+        return record.ledger.events()
 
-    def ledger_cursor(self, project_id: str, run_id: str) -> str:
+    def ledger_cursor(self, project_id: str, run_id: str) -> RunCursor:
         return self._require_record(project_id, run_id).ledger.cursor
 
-    def replay_window(
+    def replay(
         self,
         project_id: str,
         run_id: str,
-        cursor: str | None,
-    ) -> tuple[int, str, int, str, tuple[dict[str, Any], ...], bool]:
+        cursor: RunCursor | None,
+    ) -> ReplayWindow:
         record = self._require_record(
             project_id,
             run_id,
         )
         self._require_available_evidence(record)
-        return record.ledger.replay_window(cursor)
+        return record.ledger.replay(cursor)
 
-    def wait_for_public_events(
+    def wait_for_events(
         self,
         project_id: str,
         run_id: str,
         after_sequence: int,
         *,
         timeout_seconds: float = 1.0,
-    ) -> tuple[tuple[dict[str, Any], ...], int, bool]:
+    ) -> tuple[tuple[Fact, ...], int, bool]:
         record = self._require_record(
             project_id,
             run_id,
         )
         self._require_available_evidence(record)
-        observed = record.ledger.wait_for_public_events(
+        observed = record.ledger.wait_for_events(
             after_sequence,
             timeout_seconds=timeout_seconds,
         )

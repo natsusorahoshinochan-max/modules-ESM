@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from protein_workbench_public.bootstrap import module_registrations
 
 from contextlib import ExitStack
@@ -280,8 +282,12 @@ def _run_fold(
                 client_request_id=f"fold-{route}",
             )
             service.shutdown()
-            projection = service.projection(project.id, receipt["run_id"])
-            events = service.public_events(project.id, receipt["run_id"])
+            projection = public_run_projection(
+                service,
+                project.id,
+                receipt["run_id"],
+            )
+            events = public_run_events(service, project.id, receipt["run_id"])
         finally:
             service.shutdown()
     return service, catalog, projection, events

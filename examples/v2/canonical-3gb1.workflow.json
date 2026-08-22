@@ -1012,13 +1012,13 @@
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.biohub_medium",
       "contract_version": "8.0.0",
-      "contract_digest": "sha256:247cafa5ef058ab7234ea7132b7298840ec3bee773c05e2238a26783b6340e47"
+      "contract_digest": "sha256:9b8de669050a0b7c0efac2d9fe0300ba2fb463e00e38d0efa77886092d702fa8"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_remote",
       "contract_version": "9.0.0",
-      "contract_digest": "sha256:7c074385741585289c43146e8acdf4d63a21ce60b1f4f7e89e2508b7de2e4d5d"
+      "contract_digest": "sha256:0fb81dbbe4e9effab11f04b3933fc18e36c4bb51666bd1da95ce9737cdd353e0"
     },
     {
       "contract_kind": "binding",
@@ -1066,7 +1066,7 @@
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
       "contract_version": "11.0.0",
-      "contract_digest": "sha256:29b5cd3dbedca80f3ee474d80de7a3d5b0bfc9a15bb8142c9d7945296fc2f7a4"
+      "contract_digest": "sha256:fd38cce333c76a208d4d7d33a574c86a0486ef1726226f2fe43040814018d8c1"
     },
     {
       "contract_kind": "binding",

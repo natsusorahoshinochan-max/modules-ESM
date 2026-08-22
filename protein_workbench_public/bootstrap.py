@@ -15,9 +15,9 @@ from core.catalog.builder import build_frozen_catalog
 from core.catalog.declarations import ModulePackageRegistration
 from core.catalog.model import FrozenCatalog
 from core.execution.environment import admit_environment_configuration
+from core.execution.ledger import LedgerStore
 from core.project.manager import ProjectManager
 from core.run_execution_v2 import (
-    LedgerTransactionStore,
     ResultReplaySource,
     V2RunService,
 )
@@ -74,7 +74,7 @@ def create_application(
         Mapping[tuple[str, str], Mapping[str, Any]] | None
     ) = None,
     v2_result_replay_source: ResultReplaySource | None = None,
-    _v2_ledger_transaction_store: LedgerTransactionStore | None = None,
+    _v2_ledger_transaction_store: LedgerStore | None = None,
     _v2_wait_for_workers_on_shutdown: bool = True,
     _install_canonical_seed: bool | None = None,
 ) -> FastAPI:
@@ -120,7 +120,11 @@ def create_application(
             )
     environment = admit_environment_configuration(
         catalog,
-        v2_environment_configuration or {},
+        (
+            {}
+            if v2_environment_configuration is None
+            else v2_environment_configuration
+        ),
     )
     runtime = V2RunService(
         projects,

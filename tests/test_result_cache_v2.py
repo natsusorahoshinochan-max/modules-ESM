@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events
+
 from datetime import datetime, timezone
 import json
 from typing import Any
@@ -9,22 +11,36 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from core import (
-    BehaviorReference,
-    EffectiveRandomnessResolver,
-    ExecutionTermination,
-    FrozenCatalog,
-    OperationCall,
-    OperationContext,
-    ReadinessDeclaration,
-    ReadinessResult,
-    ResultReplaySource,
-    ScientificOperationFactory,
+from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.server import create_app
+from core.catalog.declarations import (
+    EffectiveRandomnessResolver,
+    ReadinessDeclaration,
+    ScientificOperationFactory,
+)
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from core.run_execution_v2 import (
+    ExecutionTermination,
+    ResultReplaySource,
+)
+from protein_workbench_public.bootstrap import create_application
 import core.run_execution_v2 as run_execution_v2
-from datatypes import Candidate, CandidateCollection, ProteinSequence
+from datatypes.candidate import (
+    Candidate,
+    CandidateCollection,
+)
+from datatypes.sequence import ProteinSequence
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,
@@ -58,7 +74,8 @@ def _start_run(
     assert started.status_code == 202
     run_id = started.json()["run_id"]
     projection = wait_for_testclient_run_terminal(client, project_id, run_id)
-    events = client.app.state.run_execution_v2.public_events(
+    events = public_run_events(
+        client.app.state.run_execution_v2,
         project_id,
         run_id,
     )
@@ -74,11 +91,11 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
             f"PROTEIN_WORKBENCH_{name}_ROOT",
             str(tmp_path / name.lower()),
         )
-    app = create_app(frozen_catalog_override=_direct_catalog([]))
+    app = create_application(frozen_catalog_override=_direct_catalog([]))
 
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
-        compiled = app.state.workflow_authoring_v2.require_compiled(
+        compiled = app.state.workflow_authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
@@ -146,11 +163,11 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
             }
         },
     )
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
 
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
-        compiled = app.state.workflow_authoring_v2.require_compiled(
+        compiled = app.state.workflow_authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
@@ -374,7 +391,7 @@ def test_deterministic_result_replays_without_rechecking_provider_readiness(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -436,7 +453,7 @@ def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -499,7 +516,7 @@ def test_node_result_manifest_covers_ordinary_and_artifact_output_ports(
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
             cacheable=True,
@@ -565,7 +582,7 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
             cacheable=True,
@@ -608,7 +625,7 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_result_replay_source=UnavailableOnPublish(),
         v2_environment_configuration={
@@ -666,7 +683,7 @@ def test_candidate_identity_is_run_independent_and_preserved_on_replay(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(frozen_catalog_override=_candidate_catalog(calls))
+    app = create_application(frozen_catalog_override=_candidate_catalog(calls))
 
     with TestClient(app) as client:
         project_id, compiled = _commit_candidate_node(client)
@@ -734,7 +751,7 @@ def test_duplicate_candidate_producer_identity_fails_closed(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_candidate_catalog(
             [],
             duplicate_output_ids=True,
@@ -778,7 +795,7 @@ def test_root_candidate_cannot_declare_node_id_as_pseudo_parent(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_candidate_catalog(
             [],
             declare_root_node_as_parent=True,
@@ -819,7 +836,7 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -890,7 +907,7 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
     }
     first_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 first_calls,
                 cacheable=True,
@@ -917,7 +934,7 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
 
     second_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 second_calls,
                 cacheable=True,
@@ -981,7 +998,7 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
         node_title="Scientific text producer",
     )
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=producer_catalog,
             v2_environment_configuration=environment,
         )
@@ -1015,7 +1032,7 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
     )
     assert producer_catalog.contract_digest != active_catalog.contract_digest
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=active_catalog,
             v2_environment_configuration=environment,
         )
@@ -1095,7 +1112,7 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
     }
     first_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 first_calls,
                 cacheable=True,
@@ -1121,7 +1138,7 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
 
     second_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 second_calls,
                 cacheable=True,
@@ -1165,7 +1182,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1255,7 +1272,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             cacheable=True,
@@ -1306,7 +1323,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1351,7 +1368,7 @@ def test_unresolved_result_affecting_identity_disables_cross_run_cache(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1400,7 +1417,7 @@ def test_unresolvable_declared_effective_seed_disables_cross_run_cache(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1462,7 +1479,7 @@ def test_null_declared_effective_seed_disables_cross_run_cache(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1544,7 +1561,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
         ),
         resolve=resolve_randomness,
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1599,7 +1616,7 @@ def test_unresolved_port_behavior_identity_disables_cross_run_cache(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
             cacheable=True,

@@ -1,5 +1,7 @@
 """Public seams for Protein-Sol's calibrated multi-Metric output."""
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -723,10 +725,10 @@ def _run_protein_sol(
                 receipt["run_id"],
             )
             projections.append(
-                service.projection(project.id, receipt["run_id"])
+                public_run_projection(service, project.id, receipt["run_id"])
             )
             event_groups.append(
-                service.public_events(project.id, receipt["run_id"])
+                public_run_events(service, project.id, receipt["run_id"])
             )
     finally:
         service.shutdown()

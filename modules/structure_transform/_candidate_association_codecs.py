@@ -10,6 +10,13 @@ from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
     _candidate_data_reference_to_canonical,
 )
+from core.operation import (
+    CandidateMetadataIdentity,
+    EncodedOutputIdentities,
+    OutputIdentityIntent,
+    OutputIdentitySource,
+    ResolvedOutputIdentity,
+)
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import (
     ExactContractReference,
@@ -18,6 +25,7 @@ from datatypes.exact_reference import (
 from datatypes.structure import ResolvedStructureResidueAxis
 
 from ._normalization_codec import (
+    MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
     NORMALIZATION_VERSION,
     normalizations_from_wire,
     normalizations_to_wire,
@@ -39,6 +47,9 @@ from .domain import (
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
+    PendingCandidateNormalizationFact,
+    PendingCandidateNormalizationFactCollection,
+    materialize_candidate_normalization_fact,
 )
 
 
@@ -304,6 +315,85 @@ def _normalization_facts_from_wire(value: object) -> object:
     return result
 
 
+def candidate_normalization_output_identity_intent(
+    pending_facts: tuple[PendingCandidateNormalizationFact, ...],
+) -> OutputIdentityIntent:
+    """Declare normalization identities without executable output callbacks."""
+    relation = PendingCandidateNormalizationFactCollection(pending_facts)
+    return OutputIdentityIntent(
+        identity_sources=tuple(
+            source
+            for index, pending in enumerate(relation.entries)
+            for source in (
+                OutputIdentitySource(
+                    identity_id=f"structure:{index}",
+                    source_role="structure",
+                    value=pending.structure,
+                ),
+                OutputIdentitySource(
+                    identity_id=f"normalizations:{index}",
+                    source_role="normalizations",
+                    value=pending.normalizations,
+                ),
+            )
+        ),
+        relation=relation,
+    )
+
+
+def _materialize_candidate_normalization_output_identity(
+    relation: object,
+    identities: EncodedOutputIdentities,
+) -> ResolvedOutputIdentity:
+    if type(relation) is not PendingCandidateNormalizationFactCollection:
+        raise TypeError(
+            "normalization output identity requires pending normalization facts"
+        )
+    materialized = tuple(
+        materialize_candidate_normalization_fact(
+            pending,
+            structure_content_digest=identities.require(
+                f"structure:{index}"
+            ).content_digest,
+            normalizations_content_digest=identities.require(
+                f"normalizations:{index}"
+            ).content_digest,
+        )
+        for index, pending in enumerate(relation.entries)
+    )
+    return ResolvedOutputIdentity(
+        value=CandidateNormalizationFactCollection(
+            tuple(item.fact for item in materialized)
+        ),
+        candidate_metadata=tuple(
+            CandidateMetadataIdentity(
+                candidate_id=item.candidate_id,
+                field_name="normalization_key",
+                value=item.normalization_key,
+            )
+            for item in materialized
+        ),
+    )
+
+
+_NORMALIZATION_OUTPUT_IDENTITY_MATERIALIZATION = BehaviorReference(
+    (
+        "structure_transform.candidate_normalization_facts/"
+        "output_identity_materialization"
+    ),
+    NORMALIZATION_FACTS_VERSION,
+    {
+        "relation": "pending-candidate-normalization-facts",
+        "source_roles": {
+            "structure": _STRUCTURE_CODEC.reference(),
+            "normalizations": (
+                MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.reference()
+            ),
+        },
+    },
+)
+
+
 CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_transform.candidate_normalization_facts",
     version=NORMALIZATION_FACTS_VERSION,
@@ -314,6 +404,9 @@ CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE = PortTypeDefinition(
             "accepted_value_kind": "candidate_normalization_fact_collection",
             "candidate_identity": "materialized-only-after-admission",
             "entry_key": "normalization_key",
+            "output_identity_materialization": (
+                _NORMALIZATION_OUTPUT_IDENTITY_MATERIALIZATION.descriptor()
+            ),
         },
     ),
     codec=BehaviorReference(
@@ -329,6 +422,16 @@ CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE = PortTypeDefinition(
     runtime_validator=_validate_normalization_facts,
     runtime_to_wire=_normalization_facts_to_wire,
     runtime_from_wire=_normalization_facts_from_wire,
+    output_identity_materialization=(
+        _NORMALIZATION_OUTPUT_IDENTITY_MATERIALIZATION
+    ),
+    runtime_output_identity_materializer=(
+        _materialize_candidate_normalization_output_identity
+    ),
+    output_identity_source_port_types={
+        "structure": _STRUCTURE_CODEC,
+        "normalizations": MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
+    },
 )
 
 

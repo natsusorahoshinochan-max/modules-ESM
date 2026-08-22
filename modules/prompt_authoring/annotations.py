@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import cast
 
-from datatypes import (
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
-    ResidueLayout,
     validate_canonical_function_annotations,
 )
+from datatypes.residue import ResidueLayout
 
 from .domain import residue_chain, validate_layout
 

@@ -5,16 +5,23 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from core import OperationCall, ResolvedProducedObservation
-from datatypes import (
+from core.operation import (
+    OperationCall,
+)
+from core.scoring.observation_plan import (
+    CalibrationContextProfile,
+    IntrinsicContextProfile,
+    ResolvedProducedObservation,
+)
+from datatypes.candidate import CandidateCollection
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     CalibrationObservationContext,
-    CandidateCollection,
-    ExactContractReference,
     IntrinsicObservationContext,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.sequence import ProteinSequence
 
 from .adapter import (
     LocalProteinSolAdapter,
@@ -131,13 +138,15 @@ class ProteinSolImplementation:
         produced: ResolvedProducedObservation,
     ) -> IntrinsicObservationContext | CalibrationObservationContext:
         profile = produced.context_profile
-        if profile["kind"] == "intrinsic":
+        if isinstance(profile, IntrinsicContextProfile):
             return IntrinsicObservationContext()
+        if not isinstance(profile, CalibrationContextProfile):
+            raise TypeError("Protein-Sol requires intrinsic or calibration Context")
         return CalibrationObservationContext(
-            calibration_metric=cast(str, profile["calibration_metric"]),
-            calibration_value=cast(float, profile["calibration_value"]),
-            calibration_unit=cast(str, profile["calibration_unit"]),
-            population_id=cast(str, profile["population_id"]),
+            calibration_metric=profile.calibration_metric,
+            calibration_value=profile.calibration_value,
+            calibration_unit=profile.calibration_unit,
+            population_id=profile.population_id,
         )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:

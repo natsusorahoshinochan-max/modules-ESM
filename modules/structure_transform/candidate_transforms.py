@@ -4,12 +4,9 @@ from __future__ import annotations
 
 from typing import Mapping, cast
 
-from core.catalog.builtins import (
-    builtin_frozen_catalog,
-)
 from core.operation import (
-    OperationResources,
     OperationCall,
+    OperationResources,
 )
 from datatypes.candidate import (
     Candidate,
@@ -20,23 +17,18 @@ from datatypes.residue import ModifiedResidueNormalizationCollection
 
 from .csh_normalization import normalize_csh_parent_span
 from .domain import (
-    CandidateNormalizationFact,
     CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
-    normalization_key,
+    PendingCandidateNormalizationFact,
 )
-from .port_types import MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE
+from ._candidate_association_codecs import (
+    candidate_normalization_output_identity_intent,
+)
 from .projections import extract_sequence, select_chains
 from .residue_axis import resolve_residue_axis
-
-
-_STRUCTURE_CONTENT_TYPE = builtin_frozen_catalog().require_port_type(
-    "protein.structure",
-    "4.0.0",
-)
 
 
 def _structure_candidate_parents(value: object) -> list[Candidate]:
@@ -185,7 +177,7 @@ class NormalizeCshParentSpanCandidatesImplementation:
     def execute(self, call: OperationCall) -> dict[str, object]:
         candidates_and_references = _candidate_structures_and_references(call)
         normalized_candidates: list[Candidate] = []
-        facts: list[CandidateNormalizationFact] = []
+        facts: list[PendingCandidateNormalizationFact] = []
         with self._run_resources.engine_invocation():
             for output_slot, (candidate, _) in enumerate(
                 candidates_and_references
@@ -193,23 +185,19 @@ class NormalizeCshParentSpanCandidatesImplementation:
                 normalized, normalizations = normalize_csh_parent_span(
                     candidate.data
                 )
-                structure_digest = _STRUCTURE_CONTENT_TYPE.content_digest(
-                    normalized
-                )
-                normalizations_digest = (
-                    MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.content_digest(
-                        normalizations
+                candidate_id = f"normalized-csh-{output_slot}"
+                facts.append(
+                    PendingCandidateNormalizationFact(
+                        candidate_id=candidate_id,
+                        output_role="structure_candidates",
+                        output_slot=output_slot,
+                        structure=normalized,
+                        normalizations=normalizations,
                     )
-                )
-                key = normalization_key(
-                    output_role="structure_candidates",
-                    output_slot=output_slot,
-                    structure_content_digest=structure_digest,
-                    normalizations_content_digest=normalizations_digest,
                 )
                 normalized_candidates.append(
                     Candidate(
-                        candidate_id=f"normalized-csh-{output_slot}",
+                        candidate_id=candidate_id,
                         data=normalized,
                         parent_ids=(candidate.candidate_id,),
                         metadata={
@@ -217,15 +205,7 @@ class NormalizeCshParentSpanCandidatesImplementation:
                                 "structure_transform."
                                 "normalize_csh_parent_span_candidates"
                             ),
-                            "normalization_key": key,
                         },
-                    )
-                )
-                facts.append(
-                    CandidateNormalizationFact(
-                        normalization_key=key,
-                        structure_content_digest=structure_digest,
-                        normalizations=normalizations,
                     )
                 )
         return {
@@ -234,7 +214,7 @@ class NormalizeCshParentSpanCandidatesImplementation:
                 item_type="protein.structure",
                 items=tuple(normalized_candidates),
             ),
-            "normalization_facts": CandidateNormalizationFactCollection(
+            "normalization_facts": candidate_normalization_output_identity_intent(
                 tuple(facts)
             ),
         }
@@ -287,20 +267,7 @@ class MaterializeCandidateNormalizationsImplementation:
                     raise ValueError(
                         "normalized Candidate output slot metadata is incomplete"
                     )
-                expected_key = normalization_key(
-                    output_role=output_port,
-                    output_slot=output_slot,
-                    structure_content_digest=reference.content_digest,
-                    normalizations_content_digest=(
-                        MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.content_digest(
-                            fact.normalizations
-                        )
-                    ),
-                )
-                if (
-                    fact.structure_content_digest != reference.content_digest
-                    or key != expected_key
-                ):
+                if fact.structure_content_digest != reference.content_digest:
                     raise ValueError(
                         "normalization fact contradicts admitted Candidate content"
                     )

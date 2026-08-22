@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import replace
 
 import pytest
 
-from core import (
-    CatalogBuildError,
-    build_discovered_frozen_catalog,
+from core.catalog.builder import (
     build_frozen_catalog,
-    discover_module_packages,
+)
+from core.catalog.port_contract import (
+    CatalogBuildError,
 )
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
@@ -22,7 +24,7 @@ from tests.fixtures.prompt_authoring_v2 import VERSION
 def test_stochastic_prompt_authoring_registers_two_exact_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["prompt_authoring"]
     assert {
@@ -32,7 +34,7 @@ def test_stochastic_prompt_authoring_registers_two_exact_nodes() -> None:
         "definitions/random_insert_masked.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     for operation in ("random_mask", "random_insert_masked"):
         node = catalog.require_contract(
             "node_type",

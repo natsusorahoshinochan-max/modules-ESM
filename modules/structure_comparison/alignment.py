@@ -9,7 +9,7 @@ from Bio.SVDSuperimposer import SVDSuperimposer
 from scipy.optimize import linear_sum_assignment
 from tmtools import tm_align
 
-from datatypes import ResolvedStructureResidueAxis
+from datatypes.structure import ResolvedStructureResidueAxis
 
 from .domain import (
     AlignmentAtomCorrespondence,

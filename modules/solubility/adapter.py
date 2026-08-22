@@ -15,8 +15,12 @@ import shutil
 import subprocess
 from typing import Any, Literal, cast
 
-from core import ReadinessResult, RunResources
-from datatypes import CandidateDataReference, ProteinSequence
+from core.operation import (
+    OperationResources,
+    ReadinessResult,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.sequence import ProteinSequence
 
 
 SoluProtMode = Literal["full", "no_tm"]
@@ -845,7 +849,7 @@ class LocalSoluProtAdapter:
 
     mode: SoluProtMode
     environment: Mapping[str, Any] = field(repr=False, compare=False)
-    resources: RunResources = field(repr=False, compare=False)
+    resources: OperationResources = field(repr=False, compare=False)
 
     def predict(
         self,
@@ -898,7 +902,7 @@ class LocalProteinSolAdapter:
     """Translate canonical sequences through the pinned Protein-Sol runtime."""
 
     environment: Mapping[str, Any] = field(repr=False, compare=False)
-    resources: RunResources = field(repr=False, compare=False)
+    resources: OperationResources = field(repr=False, compare=False)
 
     def predict(
         self,

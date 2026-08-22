@@ -6,8 +6,16 @@ import math
 import re
 from typing import Any, cast
 
-from core import BehaviorReference, PortTypeDefinition
-from datatypes import CandidateDataReference, ExactContractReference
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+)
 
 from .contracts import (
     INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
@@ -258,7 +266,7 @@ def validate_inserted_loop_evaluation(value: object) -> None:
 
 
 def _reference_to_wire(value: CandidateDataReference) -> dict[str, object]:
-    return value.to_public()
+    return _candidate_data_reference_to_canonical(value)
 
 
 def _method_to_wire(value: ExactContractReference) -> dict[str, str]:
@@ -467,9 +475,9 @@ def _entry_from_wire(value: object) -> InsertedLoopCandidateEvidence:
         "loop_core_nonbonded_distance_angstrom_minimum",
     }
     return InsertedLoopCandidateEvidence(
-        subject=CandidateDataReference.from_public(raw["subject"]),
-        reference=CandidateDataReference.from_public(raw["reference"]),
-        counterpart=CandidateDataReference.from_public(raw["counterpart"]),
+        subject=_candidate_data_reference_from_canonical(raw["subject"]),
+        reference=_candidate_data_reference_from_canonical(raw["reference"]),
+        counterpart=_candidate_data_reference_from_canonical(raw["counterpart"]),
         prediction_axis_content_digest=raw["prediction_axis_content_digest"],
         structure_axis_content_digest=raw["structure_axis_content_digest"],
         prediction_to_structure_correspondence=correspondence,

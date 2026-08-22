@@ -99,7 +99,10 @@ from tests.fixtures.public_v2 import (
     wait_for_testclient_run_terminal,
 )
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
-from modules.structure_prediction.port_types import CONFIDENCE_FACTS_PORT_TYPE
+from modules.structure_prediction.port_types import (
+    CONFIDENCE_FACTS_PORT_TYPE,
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+)
 
 
 def _contract(
@@ -779,7 +782,11 @@ def _dynamic_observation_method_catalog(
 
     catalog = replace(
         catalog,
-        port_types=(*catalog.port_types, facts_type),
+        port_types=(
+            *catalog.port_types,
+            PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+            facts_type,
+        ),
         contracts=(*catalog.contracts, *added_contracts),
         availability=(
             *catalog.availability,

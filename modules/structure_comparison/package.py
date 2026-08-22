@@ -6,22 +6,28 @@ import math
 from collections.abc import Callable
 from typing import Any, Mapping
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    OperationContext,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
     UtilityTransformDefinition,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    ReadinessCheckInput,
+    ReadinessResult,
+    ScientificOperation,
 )
 
 from .contracts import (

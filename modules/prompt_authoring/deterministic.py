@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
-from datatypes import (
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueMap,
     ResidueTrack,

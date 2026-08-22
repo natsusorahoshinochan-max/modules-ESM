@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events
+
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -1338,8 +1340,12 @@ def _selection_public_scope(
 
 class _FailRunClosureStore:
     def __init__(self) -> None:
-        self.filesystem = (
-            run_execution_v2.FilesystemLedgerTransactionStore()
+        self.filesystem = run_execution_v2.FilesystemLedgerStore()
+
+    def read_transactions(self, *, root, relative_parts):
+        return self.filesystem.read_transactions(
+            root=root,
+            relative_parts=relative_parts,
         )
 
     def publish(self, *, root, relative_parts, payload) -> None:
@@ -1930,7 +1936,8 @@ def test_selection_conclusion_and_run_terminal_publish_as_one_closure(
             project_id,
             run_id,
         )
-        events = client.app.state.run_execution_v2.public_events(
+        events = public_run_events(
+            client.app.state.run_execution_v2,
             project_id,
             run_id,
         )
@@ -2008,7 +2015,8 @@ def test_selection_derivation_failure_closes_selection_and_run_together(
             project_id,
             run_id,
         )
-        events = client.app.state.run_execution_v2.public_events(
+        events = public_run_events(
+            client.app.state.run_execution_v2,
             project_id,
             run_id,
         )

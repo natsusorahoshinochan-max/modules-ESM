@@ -6,37 +6,47 @@ from collections.abc import Mapping
 from contextlib import nullcontext
 from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ProducedObservationDefinition,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
-from core.port_types import PROTEIN_STRUCTURE_PORT_TYPE_VERSION
-from datatypes import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from core.catalog.port_contract import (
+    PROTEIN_STRUCTURE_PORT_TYPE_VERSION,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.observation import (
     PairwiseObservationContext,
     PairwiseCandidateMapping,
     PairwiseParticipant,
-    ProteinStructure,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.structure import ProteinStructure
 from tests.fixtures.exact_content_identity import exact_content_identity
 
 

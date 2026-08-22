@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_projection
+
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +80,7 @@ def _run(
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id="workflow-usability-repair",
     )
-    projection = service.projection(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
     service.shutdown()
     return catalog, service, projection
 

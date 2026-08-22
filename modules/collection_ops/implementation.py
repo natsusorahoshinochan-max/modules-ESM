@@ -6,11 +6,13 @@ from collections.abc import Mapping
 from typing import Any
 
 from core.operation import AdmittedPort, OperationCall
-from datatypes import (
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    i_json_values_equal,
+)
+from datatypes.i_json import i_json_values_equal
+from datatypes.observation import (
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ScoreCollection,

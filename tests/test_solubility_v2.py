@@ -5,6 +5,8 @@ registration, exact catalog contracts, Binding readiness, and V2 Run
 execution through typed Ports.
 """
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
@@ -13,19 +15,25 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ModulePackageContractCase,
-    ProjectManager,
-    ReadinessResult,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
+)
+from core.operation import (
+    ReadinessResult,
+)
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import V2RunService
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
     verify_module_package_contract,
 )
-from core.workflow_v2 import WorkflowEdge
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
 
 
 def _prepare_soluprot_fixture(**kwargs: Any) -> tuple[tuple[str, ...], Path]:
@@ -62,29 +70,32 @@ def _prepare_protein_sol_fixture(
 def _soluprot_admitted_environment(
     *,
     private_runtime_path: str,
+    include_tm: bool,
 ) -> dict[str, Any]:
-    return {
-        "fixture_ready": True,
-        "private_runtime_path": private_runtime_path,
-        "python_executable": Path("/fixture/soluprot/python"),
-        "wheel_path": Path("/fixture/soluprot/soluprot.whl"),
-        "site_packages_root": Path("/fixture/soluprot/site-packages"),
-        "usearch_executable": Path("/fixture/soluprot/usearch"),
-        "tmhmm_root": Path("/fixture/soluprot/tmhmm"),
-        "perl_executable": Path("/fixture/soluprot/perl"),
+    private_root = Path(private_runtime_path)
+    environment = {
+        "python_executable": private_root / "python",
+        "wheel_path": private_root / "soluprot.whl",
+        "site_packages_root": private_root / "site-packages",
+        "usearch_executable": private_root / "usearch",
     }
+    if include_tm:
+        environment.update({
+            "tmhmm_root": private_root / "tmhmm",
+            "perl_executable": private_root / "perl",
+        })
+    return environment
 
 
 def _protein_sol_admitted_environment(
     *,
     private_runtime_path: str,
 ) -> dict[str, Any]:
+    private_root = Path(private_runtime_path)
     return {
-        "fixture_ready": True,
-        "private_runtime_path": private_runtime_path,
-        "source_root": Path("/fixture/protein-sol/source"),
-        "bash_executable": Path("/fixture/protein-sol/bash"),
-        "perl_executable": Path("/fixture/protein-sol/perl"),
+        "source_root": private_root / "source",
+        "bash_executable": private_root / "bash",
+        "perl_executable": private_root / "perl",
     }
 
 
@@ -93,7 +104,8 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.solubility.adapter as adapter
-    from datatypes import CandidateDataReference, ProteinSequence
+    from datatypes.candidate import CandidateDataReference
+    from datatypes.sequence import ProteinSequence
     from modules.solubility.adapter import SequenceSolubilitySubject
 
     events: list[str] = []
@@ -212,7 +224,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
 
 
 def test_soluprot_adapter_translation_preserves_exact_subject_identity() -> None:
-    from datatypes import CandidateDataReference
+    from datatypes.candidate import CandidateDataReference
     from modules.solubility.adapter import (
         SoluProtPrediction,
         parse_soluprot_output,
@@ -246,17 +258,17 @@ def test_soluprot_adapter_translation_preserves_exact_subject_identity() -> None
 
 def test_soluprot_operation_consumes_identity_associated_predictions(
 ) -> None:
-    from core import (
+    from core.operation import (
         OperationCall,
-        ResolvedProducedObservation,
     )
-    from datatypes import (
+    from core.scoring.observation_plan import ResolvedProducedObservation
+    from datatypes.candidate import (
         Candidate,
         CandidateCollection,
         CandidateDataReference,
-        ExactContractReference,
-        ProteinSequence,
     )
+    from datatypes.exact_reference import ExactContractReference
+    from datatypes.sequence import ProteinSequence
     from modules.solubility.adapter import SoluProtPrediction
     from modules.solubility.implementation import SoluProtImplementation
     from tests.fixtures.scientific_operation import admitted_port_fixture
@@ -357,7 +369,11 @@ def test_soluprot_operation_consumes_identity_associated_predictions(
 def test_soluprot_operation_owns_its_sequence_population(
     sequence: str | None,
 ) -> None:
-    from datatypes import Candidate, CandidateCollection, ProteinSequence
+    from datatypes.candidate import (
+        Candidate,
+        CandidateCollection,
+    )
+    from datatypes.sequence import ProteinSequence
     from modules.solubility.implementation import SoluProtImplementation
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.scientific_operation import (
@@ -701,7 +717,7 @@ def _run_soluprot(
         package,
         "soluprot_readiness",
         lambda environment, *, mode: ReadinessResult(
-            bool(environment.get("fixture_ready")),
+            True,
             proof_source="direct-observation",
             reason_code=f"soluprot_{mode}_runtime_unavailable",
         ),
@@ -786,14 +802,16 @@ def _run_soluprot(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
+        admit_environment_configuration(
+            catalog,
             {
                 (f"solubility.soluprot_{mode}.local", "5.0.0"): {
                     "values": _soluprot_admitted_environment(
-                        private_runtime_path="/must/not/publish"
+                        private_runtime_path="/must/not/publish",
+                        include_tm=mode == "full",
                     ),
                 }
-            }
+            },
         ),
     )
     try:
@@ -803,8 +821,8 @@ def _run_soluprot(
             client_request_id=f"soluprot-{mode}",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
     projection["_fixture_calls"] = calls
@@ -1006,7 +1024,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         package,
         "soluprot_readiness",
         lambda environment, *, mode: ReadinessResult(
-            environment.get("fixture_ready") is True,
+            True,
             proof_source="direct-observation",
             reason_code=f"soluprot_{mode}_runtime_unavailable",
         ),
@@ -1015,7 +1033,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         package,
         "protein_sol_readiness",
         lambda environment: ReadinessResult(
-            environment.get("fixture_ready") is True,
+            True,
             proof_source="direct-observation",
             reason_code="protein_sol_runtime_unavailable",
         ),
@@ -1086,7 +1104,8 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
             node_parameters={},
             binding_parameters={},
             environment_values=_soluprot_admitted_environment(
-                private_runtime_path="/secret/runtime"
+                private_runtime_path="/secret/runtime",
+                include_tm=mode == "full",
             ),
             workflow_nodes=(source,),
             workflow_edges=(

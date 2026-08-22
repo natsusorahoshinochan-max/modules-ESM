@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 import hashlib
 import os
 from pathlib import Path
@@ -121,8 +123,8 @@ def _run(
     return (
         catalog,
         service,
-        service.projection(project.id, receipt["run_id"]),
-        service.public_events(project.id, receipt["run_id"]),
+        public_run_projection(service, project.id, receipt["run_id"]),
+        public_run_events(service, project.id, receipt["run_id"]),
     )
 
 

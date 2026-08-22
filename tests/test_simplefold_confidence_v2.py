@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from protein_workbench_public.bootstrap import module_registrations
 
 import hashlib
@@ -352,8 +354,8 @@ def _run_confidence(
             client_request_id="simplefold-confidence",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
     return catalog, service, projection, events

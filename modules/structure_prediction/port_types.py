@@ -6,26 +6,45 @@ import json
 import re
 from typing import Any, TypeVar, cast
 
-from core import (
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    builtin_frozen_catalog,
     canonical_json_bytes,
 )
-from datatypes import (
-    CandidateDataReference,
+from core.operation import (
+    CandidateMetadataIdentity,
+    EncodedOutputIdentities,
+    OutputIdentityIntent,
+    OutputIdentitySource,
+    ResolvedOutputIdentity,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
-    ProteinSequence,
-    ResidueLayout,
     ResidueAxisReference,
     validate_canonical_identifier,
 )
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+    _exact_port_value_reference_to_canonical,
+)
+from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
 
-from .domain import (
+from datatypes.prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
+    PendingConfidenceFact,
+    PendingConfidenceFactCollection,
     PredictionResidueAxis,
+    materialize_confidence_fact,
+    prediction_axis_reference,
 )
 
 
@@ -33,6 +52,14 @@ VERSION = "2.0.0"
 _BUILTINS = builtin_frozen_catalog()
 _LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
 _SEQUENCE_CODEC = _BUILTINS.require_port_type("protein.sequence", "3.0.0")
+_STRUCTURE_IDENTITY_PORT_TYPE = _BUILTINS.require_port_type(
+    "protein.structure",
+    "4.0.0",
+)
+_ALLOWED_SCALAR_SOURCES = {
+    ExactContractReference(**_SEQUENCE_CODEC.reference()),
+    ExactContractReference(**PROTEIN_PROMPT_PORT_TYPE.reference()),
+}
 _CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
@@ -125,12 +152,12 @@ def _source_to_wire(
     if type(source) is CandidateDataReference:
         return {
             "kind": "candidate_data_reference",
-            "value": source.to_public(),
+            "value": _candidate_data_reference_to_canonical(source),
         }
     assert type(source) is ExactPortValueReference
     return {
         "kind": "exact_port_value_reference",
-        "value": source.to_public(),
+        "value": _exact_port_value_reference_to_canonical(source),
     }
 
 
@@ -144,7 +171,7 @@ def _source_from_wire(
     )
     kind = decoded["kind"]
     if kind == "candidate_data_reference":
-        return CandidateDataReference.from_public(decoded["value"])
+        return _candidate_data_reference_from_canonical(decoded["value"])
     if kind != "exact_port_value_reference":
         raise ValueError("prediction residue axis source kind is invalid")
     port_value = _closed_dict(
@@ -175,6 +202,14 @@ def _validate_prediction_residue_axis(value: object) -> None:
     )
     if normalized != value:
         raise ValueError("prediction residue axis is not in canonical form")
+    if (
+        type(value.source) is ExactPortValueReference
+        and value.source.port_type not in _ALLOWED_SCALAR_SOURCES
+    ):
+        raise ValueError(
+            "prediction residue axis source must identify an exact "
+            "protein.sequence or protein.prompt Port value"
+        )
 
 
 def _prediction_axis_to_wire(value: object) -> object:
@@ -302,10 +337,7 @@ def _confidence_fact_to_wire(value: ConfidenceFact) -> dict[str, object]:
     return {
         "prediction_key": value.prediction_key,
         "structure_content_digest": value.structure_content_digest,
-        "prediction_axis": _wire_value(
-            PREDICTION_RESIDUE_AXIS_PORT_TYPE,
-            value.prediction_axis,
-        ),
+        "prediction_axis": _prediction_axis_to_wire(value.prediction_axis),
         "plddt_per_residue": list(value.plddt_per_residue),
         "ptm": value.ptm,
         "pae": (
@@ -396,30 +428,21 @@ def _confidence_facts_from_wire(value: object) -> object:
     return result
 
 
-def prediction_axis_reference(
-    axis: PredictionResidueAxis,
-) -> ResidueAxisReference:
-    """Project one scalar prediction axis into its exact Score reference."""
-    return ResidueAxisReference(
-        axis_kind="prediction_input",
-        axis_contract=ExactContractReference(
-            **PREDICTION_RESIDUE_AXIS_PORT_TYPE.reference()
-        ),
-        axis_content_digest=(
-            PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(axis)
-        ),
-        source=axis.source,
-        layout=axis.layout,
-    )
-
-
 def _confidence_axis_references(
     value: object,
 ) -> tuple[ResidueAxisReference, ...]:
     admitted = cast(ConfidenceFactCollection, value)
     references: list[ResidueAxisReference] = []
     for entry in admitted.entries:
-        reference = prediction_axis_reference(entry.prediction_axis)
+        reference = prediction_axis_reference(
+            entry.prediction_axis,
+            axis_contract=ExactContractReference(
+                **PREDICTION_RESIDUE_AXIS_PORT_TYPE.reference()
+            ),
+            axis_content_digest=PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
+                entry.prediction_axis
+            ),
+        )
         if reference not in references:
             references.append(reference)
     return tuple(references)
@@ -430,6 +453,99 @@ def _confidence_method_references(
 ) -> tuple[ExactContractReference, ...]:
     admitted = cast(ConfidenceFactCollection, value)
     return (admitted.observation_method,)
+
+
+def confidence_output_identity_intent(
+    *,
+    observation_method: ExactContractReference,
+    pending_facts: tuple[PendingConfidenceFact, ...],
+) -> OutputIdentityIntent:
+    """Declare confidence identities without carrying executable callbacks."""
+    relation = PendingConfidenceFactCollection(
+        observation_method=observation_method,
+        entries=pending_facts,
+    )
+    return OutputIdentityIntent(
+        identity_sources=tuple(
+            source
+            for index, pending in enumerate(relation.entries)
+            for source in (
+                OutputIdentitySource(
+                    identity_id=f"structure:{index}",
+                    source_role="structure",
+                    value=pending.structure,
+                ),
+                OutputIdentitySource(
+                    identity_id=f"prediction-axis:{index}",
+                    source_role="prediction-axis",
+                    value=pending.prediction_axis,
+                ),
+            )
+        ),
+        relation=relation,
+    )
+
+
+def _materialize_confidence_output_identity(
+    relation: object,
+    identities: EncodedOutputIdentities,
+) -> ResolvedOutputIdentity:
+    if type(relation) is not PendingConfidenceFactCollection:
+        raise TypeError(
+            "confidence output identity requires pending confidence facts"
+        )
+    materialized = tuple(
+        materialize_confidence_fact(
+            pending,
+            structure_content_digest=identities.require(
+                f"structure:{index}"
+            ).content_digest,
+            prediction_axis_contract=identities.require(
+                f"prediction-axis:{index}"
+            ).port_type,
+            prediction_axis_content_digest=identities.require(
+                f"prediction-axis:{index}"
+            ).content_digest,
+        )
+        for index, pending in enumerate(relation.entries)
+    )
+    collection = ConfidenceFactCollection(
+        observation_method=relation.observation_method,
+        entries=tuple(item.fact for item in materialized),
+    )
+    axes_by_key = {
+        item.prediction_key: item.scientific_axis for item in materialized
+    }
+    return ResolvedOutputIdentity(
+        value=collection,
+        candidate_metadata=tuple(
+            CandidateMetadataIdentity(
+                candidate_id=item.candidate_id,
+                field_name="prediction_key",
+                value=item.prediction_key,
+            )
+            for item in materialized
+        ),
+        scientific_axes=tuple(
+            dict.fromkeys(
+                axes_by_key[fact.prediction_key]
+                for fact in collection.entries
+            )
+        ),
+    )
+
+
+_CONFIDENCE_OUTPUT_IDENTITY_MATERIALIZATION = BehaviorReference(
+    "structure_prediction.confidence_facts/output_identity_materialization",
+    VERSION,
+    {
+        "relation": "pending-confidence-facts",
+        "source_roles": {
+            "structure": _STRUCTURE_IDENTITY_PORT_TYPE.reference(),
+            "prediction-axis": PREDICTION_RESIDUE_AXIS_PORT_TYPE.reference(),
+        },
+    },
+)
 
 
 CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
@@ -445,6 +561,9 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
             "observation_method": "one-exact-shared-Method",
             "axis_contract": (
                 "structure_prediction.prediction_residue_axis@2.0.0"
+            ),
+            "output_identity_materialization": (
+                _CONFIDENCE_OUTPUT_IDENTITY_MATERIALIZATION.descriptor()
             ),
         },
     ),
@@ -487,11 +606,20 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
         },
     ),
     runtime_observation_method_projection=_confidence_method_references,
+    output_identity_materialization=(
+        _CONFIDENCE_OUTPUT_IDENTITY_MATERIALIZATION
+    ),
+    runtime_output_identity_materializer=(
+        _materialize_confidence_output_identity
+    ),
+    output_identity_source_port_types={
+        "structure": _STRUCTURE_IDENTITY_PORT_TYPE,
+        "prediction-axis": PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+    },
 )
 
 
 __all__ = [
     "CONFIDENCE_FACTS_PORT_TYPE",
     "PREDICTION_RESIDUE_AXIS_PORT_TYPE",
-    "prediction_axis_reference",
 ]

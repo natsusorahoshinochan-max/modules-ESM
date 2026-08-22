@@ -5,23 +5,29 @@ from __future__ import annotations
 import base64
 import re
 
-from core import (
-    ArtifactPayload,
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    PortTypeDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
+    ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.operation import (
+    ArtifactPayload,
+    OperationContext,
+    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
-    ScientificOperationFactory,
 )
 
 from .implementation import (

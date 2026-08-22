@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from protein_workbench_public.bootstrap import module_registrations
 
 from contextlib import nullcontext
@@ -649,8 +651,8 @@ def _run(
         return (
             catalog,
             service,
-            service.projection(project.id, receipt["run_id"]),
-            service.public_events(project.id, receipt["run_id"]),
+            public_run_projection(service, project.id, receipt["run_id"]),
+            public_run_events(service, project.id, receipt["run_id"]),
         )
     finally:
         service.shutdown()
@@ -2607,8 +2609,8 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
             client_request_id=f"score-replay-{id(provider)}",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
         assert projection["status"] == "succeeded", events
         score_output = next(
             output

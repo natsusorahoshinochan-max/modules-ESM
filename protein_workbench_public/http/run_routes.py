@@ -10,8 +10,16 @@ from typing import Any
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 
-from core.run_execution_v2 import V2RunError, V2RunService, run_timestamp
+from core.execution.ledger import V2RunError
+from core.run_execution_v2 import V2RunService
 from core.workflow.authoring import WorkflowAuthoringError
+from protein_workbench_public.ledger_codec import (
+    decode_run_cursor,
+    encode_cancellation_receipt,
+    encode_event,
+    encode_run_projection,
+    public_timestamp,
+)
 from protein_workbench_public.http.errors import (
     authoring_error_response,
     protocol_error_field_path,
@@ -97,11 +105,18 @@ def register_run_routes(
                 query_parameters=query_parameters,
                 json_body=json_body,
             )
-            receipt = await asyncio.to_thread(
+            decision = await asyncio.to_thread(
                 runtime.cancel,
                 admitted["project_id"],
                 admitted["run_id"],
-                after_cursor=admitted.get("after_sequence"),
+                after_cursor=decode_run_cursor(
+                    admitted.get("after_sequence")
+                ),
+            )
+            receipt = encode_cancellation_receipt(
+                project_id=admitted["project_id"],
+                run_id=admitted["run_id"],
+                decision=decision,
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
@@ -176,9 +191,11 @@ def register_run_routes(
                 query_parameters=query_parameters,
                 json_body=json_body,
             )
-            projection = runtime.projection(
-                admitted["project_id"],
-                admitted["run_id"],
+            projection = encode_run_projection(
+                runtime.projection(
+                    admitted["project_id"],
+                    admitted["run_id"],
+                )
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
@@ -353,25 +370,23 @@ def register_run_routes(
             project_id = admitted["project_id"]
             run_id = admitted["run_id"]
             after_sequence = admitted.get("after_sequence")
-            (
-                replay_after_sequence,
-                replay_after_cursor,
-                replay_through_sequence,
-                replay_through_cursor,
-                events,
-                terminal,
-            ) = runtime.replay_window(
+            replay = runtime.replay(
                 project_id,
                 run_id,
-                after_sequence,
+                decode_run_cursor(after_sequence),
             )
+            replay_after_sequence = replay.after_sequence
+            replay_after_cursor = replay.after_cursor.value
+            replay_through_sequence = replay.through_sequence
+            replay_through_cursor = replay.through_cursor.value
+            terminal = replay.terminal
             replay_started = {
                 "schema_namespace": "protein-workbench-public/v2",
                 "project_id": project_id,
                 "run_id": run_id,
                 "sequence": replay_after_sequence,
                 "cursor": replay_after_cursor,
-                "emitted_at": run_timestamp(),
+                "emitted_at": public_timestamp(),
                 "event": {
                     "type": "replay_started",
                     "replay_through_cursor": replay_through_cursor,
@@ -384,7 +399,12 @@ def register_run_routes(
             }
             validate_event(replay_started)
             await websocket.send_json(replay_started)
-            for event in events:
+            for fact in replay.events:
+                event = encode_event(
+                    project_id=project_id,
+                    run_id=run_id,
+                    fact=fact,
+                )
                 validate_event(event)
                 await websocket.send_json(event)
             replay_complete = {
@@ -393,7 +413,7 @@ def register_run_routes(
                 "run_id": run_id,
                 "sequence": replay_through_sequence,
                 "cursor": replay_through_cursor,
-                "emitted_at": run_timestamp(),
+                "emitted_at": public_timestamp(),
                 "event": {
                     "type": "replay_complete",
                     "live_from_cursor": replay_through_cursor,
@@ -404,13 +424,18 @@ def register_run_routes(
             live_after_sequence = replay_through_sequence
             while not terminal:
                 live_events, observed_sequence, terminal = await asyncio.to_thread(
-                    runtime.wait_for_public_events,
+                    runtime.wait_for_events,
                     project_id,
                     run_id,
                     live_after_sequence,
                     timeout_seconds=1.0,
                 )
-                for event in live_events:
+                for fact in live_events:
+                    event = encode_event(
+                        project_id=project_id,
+                        run_id=run_id,
+                        fact=fact,
+                    )
                     validate_event(event)
                     await websocket.send_json(event)
                 live_after_sequence = observed_sequence

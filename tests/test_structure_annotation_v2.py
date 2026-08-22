@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from protein_workbench_public.bootstrap import module_registrations
 
 import json
@@ -1378,8 +1380,8 @@ def _run_dssp(
         service.shutdown()
         raise
     service.shutdown()
-    projection = service.projection(project.id, receipt["run_id"])
-    events = service.public_events(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
+    events = public_run_events(service, project.id, receipt["run_id"])
     return catalog, service, projection, events, str(binary)
 
 
@@ -2276,7 +2278,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id="structure-annotation-agreement",
     )
-    projection = service.projection(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
     service.shutdown()
 
     subject_output = next(

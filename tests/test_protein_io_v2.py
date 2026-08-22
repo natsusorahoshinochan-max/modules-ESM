@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
@@ -9,40 +13,52 @@ from typing import Any
 
 import pytest
 
-from core import (
-    ArtifactPayload,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
-    DefinitionResource,
-    EnvironmentConfiguration,
-    ModulePackageContractCase,
-    ModulePackagePortCase,
-    OperationCall,
     PortValueError,
-    ProjectManager,
+)
+from core.operation import (
+    ArtifactPayload,
+    OperationCall,
+)
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import (
     V2RunError,
     V2RunService,
-    WorkflowAuthoringService,
-    WorkflowAuthoringError,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
+)
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
+    ModulePackagePortCase,
     verify_module_package_contract,
 )
-from tests.fixtures.scientific_operation import admitted_port_fixture
-from core.parameter_contract import (
-    ParameterContractDefinitionError,
-    validate_parameter_declarations,
+from core.workflow.authoring import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from tests.fixtures.scientific_operation import admitted_port_fixture
+from core.parameters.contract import (
+    ParameterContractDefinitionError,
+    admit_declarations,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
-    ProteinSequence,
-    ProteinStructure,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from modules.protein_io.implementation import StructureExportImplementation
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.fixtures.protein_io_sources.package import (
@@ -245,7 +261,7 @@ def test_candidate_artifact_filenames_are_deterministic_ordinal_components(
 def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["protein_io"]
@@ -259,7 +275,7 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
         "definitions/structure_export.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
         (contract_id, version)
         for kind, contract_id, version in catalog.owners
@@ -365,7 +381,7 @@ def test_project_resource_parameters_must_be_required() -> None:
         ParameterContractDefinitionError,
         match="must be required",
     ):
-        validate_parameter_declarations(
+        admit_declarations(
             {
                 "project_input_ref": {
                     "parameter_scope": "scientific",
@@ -450,7 +466,7 @@ def _run_single_node(
     project_input_filenames: dict[str, str] | None = None,
     catalog: Any | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
-    catalog = catalog or build_discovered_frozen_catalog()
+    catalog = catalog or build_frozen_catalog(module_registrations())
     projects = ProjectManager(
         tmp_path / "projects",
         cache_root=tmp_path / "cache",
@@ -500,7 +516,7 @@ def _run_single_node(
         project.id,
         workflow=workflow,
     )
-    compiled = authoring.require_compiled(
+    compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -512,7 +528,7 @@ def _run_single_node(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
     )
     receipt = service.start_background(
         project.id,
@@ -520,8 +536,8 @@ def _run_single_node(
         client_request_id=f"protein-io-{operation}",
     )
     service.shutdown()
-    projection = service.projection(project.id, receipt["run_id"])
-    events = service.public_events(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
+    events = public_run_events(service, project.id, receipt["run_id"])
     return (catalog, service, projection, events)
 
 

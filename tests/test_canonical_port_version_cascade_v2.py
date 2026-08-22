@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from contextlib import nullcontext
 
-from core import build_discovered_frozen_catalog, build_frozen_catalog
-from modules.structure_transform.implementation import resolve_residue_axis
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from tests.fixtures.scientific_operation import build_operation, operation_call
 from tests.fixtures.structure_transform_sources.package import _FIXTURES
-from datatypes import ProteinStructure, ResidueLayout
+from datatypes.residue import ResidueLayout
+from datatypes.structure import ProteinStructure
 
 
 _PROMPT_NODE_VERSIONS = {
@@ -216,7 +221,7 @@ _CANDIDATE_PROJECTION_BINDING_GENERATIONS = {
 
 def test_candidate_reference_projection_ports_publish_new_exact_generations(
 ) -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
 
     expected_versions = {
         "candidate.collection": "4.0.0",
@@ -264,7 +269,7 @@ def test_candidate_reference_projection_ports_publish_new_exact_generations(
 
 def test_candidate_reference_projection_cascades_every_dependent_contract(
 ) -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
 
     for node_id, (active, replaced) in (
         _CANDIDATE_PROJECTION_NODE_GENERATIONS.items()

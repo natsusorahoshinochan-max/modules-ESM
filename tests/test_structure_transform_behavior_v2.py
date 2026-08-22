@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from pathlib import Path
 from typing import Any
 
@@ -144,8 +146,8 @@ def _run_transform(
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"structure-transform-{operation}-{environment_label}",
     )
-    projection = service.projection(project.id, receipt["run_id"])
-    events = service.public_events(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
+    events = public_run_events(service, project.id, receipt["run_id"])
     service.shutdown()
     return catalog, service, projection, events
 
@@ -280,7 +282,7 @@ def _run_candidate_transform(
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"candidate-transform-{operation}",
     )
-    projection = service.projection(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
     service.shutdown()
     return catalog, service, projection
 

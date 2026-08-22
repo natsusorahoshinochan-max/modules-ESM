@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from datatypes import (
+from datatypes.prompt import (
     FunctionAnnotations,
     ProteinPrompt,
-    ProteinSequence,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueTrack,
 )
+from datatypes.sequence import ProteinSequence
 
 from .annotations import (
     require_function_annotation_layout,

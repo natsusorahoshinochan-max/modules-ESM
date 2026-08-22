@@ -6,16 +6,21 @@ from pathlib import Path
 import time
 from typing import Any, Mapping
 
-from core import ArtifactPayload, OperationCall
-from datatypes import (
+from core.operation import (
+    ArtifactPayload,
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
-    ExactContractReference,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     IntrinsicObservationContext,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.sequence import ProteinSequence
 
 
 def _execute_echo(
@@ -124,6 +129,7 @@ class SyntheticEchoScorerImplementation:
                         metric=self._metric,
                         method=self._method,
                         context=IntrinsicObservationContext(),
+                        source_partition="default",
                         value=1.0,
                     )
                     for reference in references

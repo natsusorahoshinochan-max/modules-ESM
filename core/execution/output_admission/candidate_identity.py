@@ -1,37 +1,46 @@
-"""Pure reconstruction and canonical admission of scientific Port values."""
+"""Candidate identity, lineage, pairing, and Score normalization."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-import hashlib
 from types import MappingProxyType
 from typing import Any
 
+from core.catalog.port_contract import (
+    PortValueError,
+    _candidate_data_reference_to_canonical,
+    _observation_context_to_canonical,
+    _residue_axis_reference_to_canonical,
+    canonical_json_bytes,
+    canonical_sha256,
+)
 from core.operation import (
     AdmittedPort,
-    AdmittedValue,
+    CandidateMetadataIdentity,
     CandidatePairingIntent,
     CandidatePairingIntentEntry,
-    PortMultiplicity,
 )
-from core.port_types import PortValueError, canonical_json_bytes, canonical_sha256
-from datatypes import (
+from core.execution.output_admission.identity import (
+    _FreshOutputIdentityEncoder,
+)
+from core.scoring.observation_plan import ObservationPropagationPlan
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
-    PairwiseObservationContext,
-    ProteinSequence,
-    ProteinStructure,
-    ScoreCollection,
-    ScoreObservation,
-)
-from datatypes.protein import (
     validate_candidate_lineage_graph,
     validate_candidate_parent_ids,
 )
+from datatypes.observation import (
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
+    PairwiseObservationContext,
+    ScoreCollection,
+    ScoreObservation,
+)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 
 
 _RUNTIME_METADATA_KEYS = frozenset(
@@ -51,152 +60,6 @@ _RUNTIME_METADATA_KEYS = frozenset(
         "performance",
     }
 )
-
-
-def _admitted_from_canonical_bytes(
-    *,
-    port_type: Any,
-    canonical_bytes: bytes,
-    candidate_data_port_types: Mapping[str, Any],
-) -> AdmittedValue:
-    runtime_value = port_type.decode(canonical_bytes)
-    scientific_axes = (
-        port_type.scientific_axis_references(runtime_value)
-        if port_type.runtime_scientific_axis_projection is not None
-        else ()
-    )
-    references = [
-        *(
-            port_type.candidate_data_references(
-                runtime_value,
-                candidate_data_port_types,
-            )
-            if port_type.runtime_candidate_data_projection is not None
-            else ()
-        )
-    ]
-    references.extend(
-        axis.source
-        for axis in scientific_axes
-        if type(axis.source) is CandidateDataReference
-    )
-    candidate_references: dict[str, CandidateDataReference] = {}
-    for reference in references:
-        if type(reference) is not CandidateDataReference:
-            raise PortValueError(
-                "Port admission projected a non-Candidate Data Reference"
-            )
-        existing = candidate_references.get(reference.candidate_id)
-        if existing is not None and existing != reference:
-            raise PortValueError(
-                "Port admission projected conflicting exact Candidate Data "
-                "References"
-            )
-        candidate_references[reference.candidate_id] = reference
-    return AdmittedValue(
-        value=runtime_value,
-        canonical_bytes=canonical_bytes,
-        content_digest=(
-            "sha256:" + hashlib.sha256(canonical_bytes).hexdigest()
-        ),
-        candidate_data=tuple(candidate_references.values()),
-        scientific_axes=scientific_axes,
-        observation_methods=(
-            port_type.observation_method_references(runtime_value)
-            if port_type.runtime_observation_method_projection is not None
-            else ()
-        ),
-    )
-
-
-def admitted_port_values(
-    *,
-    port_type: Any,
-    multiplicity: PortMultiplicity,
-    values: tuple[Any, ...],
-    candidate_data_port_types: Mapping[str, Any],
-) -> AdmittedPort:
-    """Encode and decode each raw value exactly once at its output Port."""
-    admitted = tuple(
-        _admitted_from_canonical_bytes(
-            port_type=port_type,
-            canonical_bytes=port_type.encode(value),
-            candidate_data_port_types=candidate_data_port_types,
-        )
-        for value in values
-    )
-    return _admitted_port_snapshot(
-        port_type=port_type.reference(),
-        multiplicity=multiplicity,
-        admitted=admitted,
-    )
-
-
-def admitted_port_values_from_bytes(
-    *,
-    port_type: Any,
-    multiplicity: PortMultiplicity,
-    canonical_values: tuple[bytes, ...],
-    candidate_data_port_types: Mapping[str, Any],
-) -> AdmittedPort:
-    """Restore one output Port directly from its canonical stored bytes."""
-    admitted = tuple(
-        _admitted_from_canonical_bytes(
-            port_type=port_type,
-            canonical_bytes=value,
-            candidate_data_port_types=candidate_data_port_types,
-        )
-        for value in canonical_values
-    )
-    return _admitted_port_snapshot(
-        port_type=port_type.reference(),
-        multiplicity=multiplicity,
-        admitted=admitted,
-    )
-
-
-def combine_admitted_port_values(
-    *,
-    port_type: Mapping[str, Any],
-    multiplicity: PortMultiplicity,
-    values: tuple[AdmittedValue, ...],
-) -> AdmittedPort:
-    """Combine already-admitted edge values without repeating admission."""
-    return _admitted_port_snapshot(
-        port_type=port_type,
-        multiplicity=multiplicity,
-        admitted=values,
-    )
-
-
-def _admitted_port_snapshot(
-    *,
-    port_type: Mapping[str, Any],
-    multiplicity: PortMultiplicity,
-    admitted: tuple[AdmittedValue, ...],
-) -> AdmittedPort:
-    if multiplicity == "one" and len(admitted) != 1:
-        raise PortValueError(
-            "Port with one multiplicity requires one value"
-        )
-    content_digest = (
-        admitted[0].content_digest
-        if len(admitted) == 1
-        else canonical_sha256(
-            {
-                "port_type": dict(port_type),
-                "value_content_digests": [
-                    value.content_digest for value in admitted
-                ],
-            }
-        )
-    )
-    return AdmittedPort(
-        port_type=port_type,
-        multiplicity=multiplicity,
-        values=admitted,
-        content_digest=content_digest,
-    )
 
 
 def _output_values(value: Any) -> tuple[Any, ...]:
@@ -235,38 +98,32 @@ def _candidate_identity_facts(
     )
 
 
-def validate_candidate_input_identities(
+def _validate_input_candidate_identities(
     inputs: Mapping[str, AdmittedPort],
 ) -> None:
-    """Reject one Candidate ID bound to conflicting admitted exact facts."""
+    """Require one exact admitted fact set for each input Candidate ID."""
     references_by_candidate_id: dict[str, CandidateDataReference] = {}
     facts_by_candidate_id: dict[str, bytes] = {}
     for input_port in sorted(inputs):
         admitted = inputs[input_port]
         admitted_references: dict[str, CandidateDataReference] = {}
         for reference in admitted.candidate_data:
-            current_reference = admitted_references.get(reference.candidate_id)
-            if current_reference is not None:
-                if current_reference != reference:
+            current = admitted_references.get(reference.candidate_id)
+            if current is not None:
+                if current != reference:
                     raise PortValueError(
                         "Candidate identity resolves to conflicting canonical "
                         "facts"
                     )
                 continue
             admitted_references[reference.candidate_id] = reference
-            previous_reference = references_by_candidate_id.get(
-                reference.candidate_id
-            )
-            if (
-                previous_reference is not None
-                and previous_reference != reference
-            ):
+            previous = references_by_candidate_id.get(reference.candidate_id)
+            if previous is not None and previous != reference:
                 raise PortValueError(
                     "Candidate identity resolves to conflicting canonical facts"
                 )
             references_by_candidate_id[reference.candidate_id] = reference
-        candidates = _candidate_values(admitted.value)
-        for candidate in candidates:
+        for candidate in _candidate_values(admitted.value):
             data = admitted_references.get(candidate.candidate_id)
             if data is None:
                 raise PortValueError(
@@ -287,6 +144,12 @@ class _CandidateOutput:
     output_port: str
     value_index: int
     sample_index: int
+
+
+@dataclass(frozen=True, slots=True)
+class _NormalizedCandidateOutputs:
+    values: Mapping[str, Any]
+    candidate_data: Mapping[str, CandidateDataReference]
 
 
 def _candidate_data_type_id(value: object) -> str | None:
@@ -312,8 +175,7 @@ def _normalized_score(
     if isinstance(context, PairwiseObservationContext):
         if (
             context.subject.candidate_id != score.subject.candidate_id
-            or context.subject.content_digest
-            != score.subject.content_digest
+            or context.subject.content_digest != score.subject.content_digest
         ):
             raise PortValueError(
                 "Pairwise Score Context subject conflicts with exact subject"
@@ -333,32 +195,17 @@ def _normalized_score(
                 ),
             ),
         )
-    return replace(
-        score,
-        subject=subject,
-        context=context,
-    )
+    return replace(score, subject=subject, context=context)
 
 
 def _propagated_candidate_reference_index(
     *,
-    observation_propagation: Mapping[str, Any],
+    observation_propagation: ObservationPropagationPlan,
     inputs: Mapping[str, AdmittedPort],
 ) -> tuple[str, Mapping[str, CandidateDataReference]]:
-    output_port = observation_propagation.get("output_port")
-    input_ports = observation_propagation.get("input_ports")
-    if not isinstance(output_port, str) or not isinstance(
-        input_ports, (list, tuple)
-    ):
-        raise PortValueError(
-            "Binding Observation propagation identity contract is malformed"
-        )
+    output_port = observation_propagation.output_port
     by_candidate_id: dict[str, CandidateDataReference] = {}
-    for input_port in input_ports:
-        if not isinstance(input_port, str):
-            raise PortValueError(
-                "Binding Observation propagation identity contract is malformed"
-            )
+    for input_port in observation_propagation.input_ports:
         record = inputs.get(input_port)
         for reference in record.candidate_data if record is not None else ():
             previous = by_candidate_id.get(reference.candidate_id)
@@ -386,7 +233,9 @@ def _score_collection_id(
             "value_slot": value_slot,
             "scores": [
                 {
-                    "subject": score.subject.to_public(),
+                    "subject": _candidate_data_reference_to_canonical(
+                        score.subject
+                    ),
                     "metric": {
                         "contract_kind": score.metric.contract_kind,
                         "contract_id": score.metric.contract_id,
@@ -399,11 +248,13 @@ def _score_collection_id(
                         "contract_version": score.method.contract_version,
                         "contract_digest": score.method.contract_digest,
                     },
-                    "context": score.context.to_public(),
+                    "context": _observation_context_to_canonical(score.context),
                     "residue_axis": (
                         None
                         if score.residue_axis is None
-                        else score.residue_axis.to_public()
+                        else _residue_axis_reference_to_canonical(
+                            score.residue_axis
+                        )
                     ),
                     "source_partition": score.source_partition,
                     "value": score.value,
@@ -414,16 +265,17 @@ def _score_collection_id(
     ).removeprefix("sha256:")
 
 
-def normalize_scientific_outputs(
+def _normalize_candidate_outputs(
     *,
-    node_id: str,
     result_identity: str,
     inputs: Mapping[str, AdmittedPort],
     outputs: Mapping[str, Any],
-    candidate_content_digest: Callable[[Candidate], str],
-    observation_propagation: Mapping[str, Any] | None = None,
-) -> Mapping[str, Any]:
-    """Return identity-normalized values without modifying Operation output."""
+    candidate_data_port_types: Mapping[str, Any],
+    identity_encoder: _FreshOutputIdentityEncoder,
+    candidate_metadata: tuple[CandidateMetadataIdentity, ...] = (),
+    observation_propagation: ObservationPropagationPlan | None = None,
+) -> _NormalizedCandidateOutputs:
+    """Normalize producer-local identities before nominal Port admission."""
     input_candidates = {
         candidate.candidate_id: candidate
         for admitted in inputs.values()
@@ -453,17 +305,24 @@ def normalize_scientific_outputs(
         MappingProxyType({})
     )
     if observation_propagation is not None:
-        (
-            propagated_output_port,
-            propagated_references,
-        ) = _propagated_candidate_reference_index(
-            observation_propagation=observation_propagation,
-            inputs=inputs,
+        propagated_output_port, propagated_references = (
+            _propagated_candidate_reference_index(
+                observation_propagation=observation_propagation,
+                inputs=inputs,
+            )
         )
     normalized_ids: dict[str, str] = {}
     normalized_candidates: dict[str, Candidate] = {}
     normalized_candidate_digests: dict[str, str] = {}
     output_candidates: dict[str, _CandidateOutput] = {}
+    metadata_by_candidate: dict[str, dict[str, str]] = {}
+    for metadata in candidate_metadata:
+        fields = metadata_by_candidate.setdefault(metadata.candidate_id, {})
+        if metadata.field_name in fields:
+            raise PortValueError(
+                "Output identity intents assign duplicate Candidate metadata"
+            )
+        fields[metadata.field_name] = metadata.value
 
     for output_port in sorted(outputs):
         for value_index, value in enumerate(
@@ -484,6 +343,11 @@ def normalize_scientific_outputs(
                     sample_index=sample_index,
                 )
 
+    if set(metadata_by_candidate) - set(output_candidates):
+        raise PortValueError(
+            "Output identity intent names an unknown Candidate identity"
+        )
+
     try:
         for output in output_candidates.values():
             validate_candidate_parent_ids(
@@ -502,11 +366,15 @@ def normalize_scientific_outputs(
     def resolve_candidate(raw_candidate_id: str) -> None:
         if raw_candidate_id in normalized_candidates:
             return
-
         output = output_candidates[raw_candidate_id]
         candidate = output.candidate
         input_candidate = input_candidates.get(raw_candidate_id)
         if input_candidate is not None:
+            if raw_candidate_id in metadata_by_candidate:
+                raise PortValueError(
+                    "Output identity intent cannot modify a pass-through "
+                    "Candidate"
+                )
             if candidate != input_candidate:
                 raise PortValueError(
                     "Candidate pass-through changed exact input identity, "
@@ -549,7 +417,21 @@ def normalize_scientific_outputs(
                 )
             normalized_parent_ids.add(normalized_parent_id)
             parents.append(normalized_parent_id)
-        content_digest = candidate_content_digest(candidate)
+        type_id = _candidate_data_type_id(candidate.data)
+        if type_id is None:
+            raise PortValueError(
+                "Candidate data has no registered content identity"
+            )
+        try:
+            candidate_data_port_type = candidate_data_port_types[type_id]
+        except KeyError as error:
+            raise PortValueError(
+                f"Execution Plan lacks Candidate data Port Type {type_id!r}"
+            ) from error
+        content_digest = identity_encoder.encode_value(
+            port_type=candidate_data_port_type,
+            value=candidate.data,
+        ).content_digest
         sample_slot = f"{output.value_index}:{output.sample_index}"
         candidate_identity = canonical_sha256(
             {
@@ -561,11 +443,15 @@ def normalize_scientific_outputs(
                 "content_digest": content_digest,
             }
         )
-        normalized_id = (
-            "candidate-"
-            + candidate_identity.removeprefix("sha256:")
+        normalized_id = "candidate-" + candidate_identity.removeprefix(
+            "sha256:"
         )
         normalized_ids[raw_candidate_id] = normalized_id
+        resolved_metadata = metadata_by_candidate.get(raw_candidate_id, {})
+        if set(resolved_metadata) & set(candidate.metadata):
+            raise PortValueError(
+                "Operation output precomputed identity-owned Candidate metadata"
+            )
         normalized_candidates[raw_candidate_id] = Candidate(
             candidate_id=normalized_id,
             data=candidate.data,
@@ -576,6 +462,7 @@ def normalize_scientific_outputs(
                     for key, item in candidate.metadata.items()
                     if key not in _RUNTIME_METADATA_KEYS
                 },
+                **resolved_metadata,
                 "producer_result_identity": result_identity,
                 "output_port": output.output_port,
                 "sample_slot": sample_slot,
@@ -610,9 +497,7 @@ def normalize_scientific_outputs(
     def require_exact_input_subject(
         subject: CandidateDataReference,
     ) -> CandidateDataReference:
-        _, expected = exact_input_candidate_facts(
-            subject.candidate_id
-        )
+        _, expected = exact_input_candidate_facts(subject.candidate_id)
         if subject != expected:
             raise PortValueError(
                 "Score subject conflicts with exact Candidate content identity"
@@ -825,4 +710,19 @@ def normalize_scientific_outputs(
             normalized_outputs[output_port] = values
         else:
             normalized_outputs[output_port] = values[0]
-    return normalized_outputs
+    candidate_data: dict[str, CandidateDataReference] = {}
+    for raw_candidate_id, candidate in normalized_candidates.items():
+        data_type_id = _candidate_data_type_id(candidate.data)
+        if data_type_id is None:
+            raise PortValueError(
+                "Candidate data has no registered content identity"
+            )
+        candidate_data[candidate.candidate_id] = CandidateDataReference(
+            candidate_id=candidate.candidate_id,
+            data_type_id=data_type_id,
+            content_digest=normalized_candidate_digests[raw_candidate_id],
+        )
+    return _NormalizedCandidateOutputs(
+        values=MappingProxyType(normalized_outputs),
+        candidate_data=MappingProxyType(candidate_data),
+    )

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import math
 
-from datatypes import PairwiseObservationContext, PairwiseParticipant
+from datatypes.observation import (
+    PairwiseObservationContext,
+    PairwiseParticipant,
+)
 
 from .domain import StructureAlignmentEvidence
 

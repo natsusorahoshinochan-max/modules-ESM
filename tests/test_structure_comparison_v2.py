@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pytest
@@ -21,6 +20,7 @@ from core.catalog.port_contract import (
     PortValueError,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.ledger.projections import RunProjection
 from core.run_execution_v2 import V2RunService
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
@@ -1593,7 +1593,7 @@ def _inserted_loop_ctk_case(
 def _run_inserted_loop_failure_case(
     case: ModulePackageContractCase,
     tmp_path: Path,
-) -> dict[str, Any]:
+) -> RunProjection:
     support = (
         TRANSFORM_PACKAGE,
         SOURCE_PACKAGE,
@@ -1653,16 +1653,16 @@ def _run_inserted_loop_failure_case(
     return projection
 
 
-def _assert_inserted_loop_failure(projection: dict[str, Any]) -> None:
-    assert projection["status"] == "failed"
+def _assert_inserted_loop_failure(projection: RunProjection) -> None:
+    assert projection.status == "failed"
     assert next(
         disposition
-        for disposition in projection["node_dispositions"]
-        if disposition["node_id"] == "contract-test-node"
-    )["outcome"] == "failed"
+        for disposition in projection.node_dispositions
+        if disposition.node_id == "contract-test-node"
+    ).outcome == "failed"
     assert not any(
-        output["node_id"] == "contract-test-node"
-        for output in projection["outputs"]
+        output.node_id == "contract-test-node"
+        for output in projection.outputs
     )
 
 

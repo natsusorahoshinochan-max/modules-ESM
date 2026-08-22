@@ -755,7 +755,7 @@ def test_event_stream_maps_unexpected_failure_to_internal_error(
 
         monkeypatch.setattr(
             client.app.state.run_execution_v2,
-            "replay_window",
+            "replay",
             fail_replay,
         )
         with client.websocket_connect(

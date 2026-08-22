@@ -224,7 +224,8 @@ schema、Catalog Contract、Port Value 和前端 UI state 是不同演化轴，�
 这些事实见
 [`bundle.json`](../../protein_workbench_public/resources/v2/bundle.json)、
 [`protein_workbench_public/protocol.py`](../../protein_workbench_public/protocol.py) 和
-[`core/server.py`](../../core/server.py)。
+[`protein_workbench_public/http/app.py`](../../protein_workbench_public/http/app.py)
+与其 route owners。
 
 server handler 已经从 bundle 取 route，并在边界调用 `decode_rest_request()` 与
 `validate_response()`；这意味着后端不是由 FastAPI/Pydantic model 偶然定义协议，
@@ -252,7 +253,7 @@ artifact 确定它应按哪一版 JSON Schema 解释。
 另一个更直接的缺口是：`NodeTypeContractDescriptor.node_parameters` 和
 `BindingContractDescriptor.binding_parameters` 在 public bundle 中只引用 opaque
 `JsonObject`。后端 Catalog Builder 实际支持并验证一个更丰富的 closed grammar，见
-[`core/parameter_contract.py`](../../core/parameter_contract.py)，但 public payload schema
+[`core/parameters/contract.py`](../../core/parameters/contract.py)，但 public payload schema
 没有把 `ParameterDefinition`、`value_contract` 和 `parameter_groups` 的结构完整发布。
 
 结果是旧前端自行发明了一份较窄的 `ParameterDefinition`：只认识 type、enum、minimum

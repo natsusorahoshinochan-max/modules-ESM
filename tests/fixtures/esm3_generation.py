@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import Any
@@ -350,8 +352,12 @@ def run_generation(
                 client_request_id=f"esm3-{operation}",
             )
             service.shutdown()
-            projection = service.projection(project.id, receipt["run_id"])
-            events = service.public_events(project.id, receipt["run_id"])
+            projection = public_run_projection(
+                service,
+                project.id,
+                receipt["run_id"],
+            )
+            events = public_run_events(service, project.id, receipt["run_id"])
         finally:
             service.shutdown()
     return service, catalog, projection, events
@@ -493,8 +499,12 @@ def run_generation_from_prompt_fixture(
                 client_request_id=f"esm3-{operation}-{mode}",
             )
             service.shutdown()
-            projection = service.projection(project.id, receipt["run_id"])
-            events = service.public_events(project.id, receipt["run_id"])
+            projection = public_run_projection(
+                service,
+                project.id,
+                receipt["run_id"],
+            )
+            events = public_run_events(service, project.id, receipt["run_id"])
         finally:
             service.shutdown()
     return service, catalog, projection, events

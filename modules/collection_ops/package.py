@@ -2,20 +2,26 @@
 
 from __future__ import annotations
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    ReadinessCheckInput,
+    ReadinessResult,
 )
 from core.operation import OperationContext
 

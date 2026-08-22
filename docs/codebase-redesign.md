@@ -76,8 +76,8 @@ The detailed current acceptance resolution is recorded in
 Run focused tests, then:
 
 ```bash
-.venv/bin/python scripts/verify_backend.py routine
-.venv/bin/python scripts/verify_backend.py deterministic-acceptance
+.venv/bin/python -m verification.backend routine
+.venv/bin/python -m verification.backend deterministic-acceptance
 cd frontend && npm run lint && npm run build
 ```
 

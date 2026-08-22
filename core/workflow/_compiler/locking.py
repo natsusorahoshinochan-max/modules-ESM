@@ -11,6 +11,7 @@ from core.catalog.port_contract import (
     CatalogBuildError,
     ContractResolutionError,
     InactiveContractGenerationError,
+    PortTypeDefinition,
     UnknownContractError,
 )
 from core.scoring.selection import SelectionObjective
@@ -196,7 +197,11 @@ def _reachable_contract_lock(
         contract = catalog.require_contract(*reference.key)
         observed = ContractLockEntry.from_canonical(contract.reference())
         reachable[observed.key] = observed
-        descriptor = contract.descriptor
+        descriptor = (
+            contract.descriptor()
+            if type(contract) is PortTypeDefinition
+            else contract.descriptor
+        )
         nested: deque[Any] = deque([descriptor])
         while nested:
             value = nested.popleft()

@@ -1,0 +1,82 @@
+"""Focused constructors for exercising Output Admission internals in tests."""
+
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+from typing import Any
+
+from core.execution.output_admission.candidate_identity import (
+    _candidate_values,
+    _normalize_candidate_outputs,
+    _validate_input_candidate_identities,
+)
+from core.execution.output_admission.port_values import _admit_fresh_port
+from core.operation import AdmittedPort, PortMultiplicity
+from core.scoring.observation_plan import ObservationPropagationPlan
+from datatypes.candidate import Candidate
+
+
+def admit_fixture_port(
+    *,
+    port_type: Any,
+    multiplicity: PortMultiplicity,
+    values: tuple[Any, ...],
+    candidate_data_port_types: Mapping[str, Any],
+) -> AdmittedPort:
+    """Build one real fresh Port admission for a focused fixture."""
+    return _admit_fresh_port(
+        port_type=port_type,
+        multiplicity=multiplicity,
+        values=values,
+        candidate_data_port_types=candidate_data_port_types,
+    )
+
+
+def normalize_fixture_outputs(
+    *,
+    node_id: str,
+    result_identity: str,
+    inputs: Mapping[str, AdmittedPort],
+    outputs: Mapping[str, Any],
+    candidate_content_digest: Callable[[Candidate], str],
+    observation_propagation: ObservationPropagationPlan | None = None,
+) -> Mapping[str, Any]:
+    """Exercise the identity partition without inventing a production seam."""
+    del node_id
+
+    class _FixtureEncodedIdentity:
+        def __init__(self, content_digest: str) -> None:
+            self.content_digest = content_digest
+
+    candidates_by_data_id = {
+        id(candidate.data): candidate
+        for output in outputs.values()
+        for candidate in _candidate_values(output)
+    }
+
+    class _FixtureIdentityEncoder:
+        def encode_value(self, *, port_type: object, value: object):
+            del port_type
+            return _FixtureEncodedIdentity(
+                candidate_content_digest(candidates_by_data_id[id(value)])
+            )
+
+    normalized = _normalize_candidate_outputs(
+        result_identity=result_identity,
+        inputs=inputs,
+        outputs=outputs,
+        candidate_data_port_types={
+            "protein.sequence": object(),
+            "protein.structure": object(),
+        },
+        identity_encoder=_FixtureIdentityEncoder(),
+        observation_propagation=observation_propagation,
+    )
+    return normalized.values
+
+
+def assert_fixture_input_identity_closure(
+    inputs: Mapping[str, AdmittedPort],
+) -> None:
+    """Exercise the identity closure used by the complete admission seam."""
+    _validate_input_candidate_identities(inputs)

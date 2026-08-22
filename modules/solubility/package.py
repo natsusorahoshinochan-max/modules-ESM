@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
     ProducedObservationDefinition,
     ReadinessDeclaration,
-    ScientificOperation,
     ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    ScientificOperation,
 )
 
 from .adapter import (
@@ -55,6 +62,17 @@ _METHOD_VERSION = "3.0.0"
 _METRIC_VERSION = "2.1.0"
 _NODE_BINDING_VERSION = "5.0.0"
 _MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
+_SOLUPROT_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("python_executable", "filesystem_path"),
+    EnvironmentFieldDeclaration("wheel_path", "filesystem_path"),
+    EnvironmentFieldDeclaration("site_packages_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("usearch_executable", "filesystem_path"),
+)
+_PROTEIN_SOL_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("source_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("bash_executable", "filesystem_path"),
+    EnvironmentFieldDeclaration("perl_executable", "filesystem_path"),
+)
 
 
 def _available() -> AvailabilityResult:
@@ -174,6 +192,18 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
             _METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=(
+            _SOLUPROT_ENVIRONMENT_FIELDS
+            + (
+                EnvironmentFieldDeclaration("tmhmm_root", "filesystem_path"),
+                EnvironmentFieldDeclaration(
+                    "perl_executable",
+                    "filesystem_path",
+                ),
+            )
+            if tm_feature
+            else _SOLUPROT_ENVIRONMENT_FIELDS
+        ),
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -423,6 +453,7 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
             _METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=_PROTEIN_SOL_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(

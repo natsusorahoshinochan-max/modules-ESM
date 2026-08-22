@@ -8,9 +8,6 @@ from typing import cast
 from core.operation import (
     AdmittedPort,
 )
-from core.catalog.builtins import (
-    builtin_frozen_catalog,
-)
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -25,20 +22,14 @@ from datatypes.residue import (
     validate_residue_layout,
 )
 from datatypes.prediction import (
-    ConfidenceFact,
-    ConfidenceFactCollection,
+    PendingConfidenceFact,
     PredictionResidueAxis,
-    prediction_key,
 )
 from modules.structure_prediction.port_types import (
-    PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+    confidence_output_identity_intent,
 )
 
 
-_STRUCTURE_PORT_TYPE = builtin_frozen_catalog().require_port_type(
-    "protein.structure",
-    "4.0.0",
-)
 _FOLDING_SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWY")
 
 
@@ -174,27 +165,18 @@ class FoldingOutputConstruction:
         self._observation_method = observation_method
 
     @staticmethod
-    def _confidence_fact(
+    def _pending_confidence_fact(
         *,
+        candidate_id: str,
         output_slot: int,
         sample: CompletedFoldingSample,
         prediction_axis: PredictionResidueAxis,
-    ) -> tuple[str, ConfidenceFact]:
-        structure_content_digest = _STRUCTURE_PORT_TYPE.content_digest(
-            sample.structure
-        )
-        prediction_axis_content_digest = (
-            PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(prediction_axis)
-        )
-        key = prediction_key(
+    ) -> PendingConfidenceFact:
+        return PendingConfidenceFact(
+            candidate_id=candidate_id,
             output_role="structure_candidates",
             output_slot=output_slot,
-            structure_content_digest=structure_content_digest,
-            prediction_axis_content_digest=prediction_axis_content_digest,
-        )
-        return key, ConfidenceFact(
-            prediction_key=key,
-            structure_content_digest=structure_content_digest,
+            structure=sample.structure,
             prediction_axis=prediction_axis,
             plddt_per_residue=sample.per_residue_plddt,
             ptm=sample.ptm,
@@ -204,12 +186,10 @@ class FoldingOutputConstruction:
     @staticmethod
     def _metadata(
         sample: CompletedFoldingSample,
-        prediction_key_value: str,
     ) -> dict[str, int | str]:
         metadata: dict[str, int | str] = {
             "parent_index": sample.parent_slot,
             "sample_index": sample.sample_slot,
-            "prediction_key": prediction_key_value,
         }
         if sample.effective_call_seed is not None:
             metadata["effective_call_seed"] = sample.effective_call_seed
@@ -220,7 +200,7 @@ class FoldingOutputConstruction:
     def construct(
         self,
         completed: CompletedFoldingSampleBatch,
-    ) -> dict[str, CandidateCollection | ConfidenceFactCollection]:
+    ) -> dict[str, object]:
         expected_slots = {
             (parent.slot, sample_slot)
             for parent in self.parents
@@ -244,23 +224,25 @@ class FoldingOutputConstruction:
             )
 
         candidates: list[Candidate] = []
-        confidence_facts: list[ConfidenceFact] = []
+        confidence_facts: list[PendingConfidenceFact] = []
         for parent in self.parents:
             for sample_slot in range(self._sample_count):
                 sample = samples_by_slot[(parent.slot, sample_slot)]
-                key, fact = self._confidence_fact(
+                candidate_id = (
+                    f"fold-parent-{parent.slot}-sample-{sample_slot}"
+                )
+                fact = self._pending_confidence_fact(
+                    candidate_id=candidate_id,
                     output_slot=len(candidates),
                     sample=sample,
                     prediction_axis=parent.prediction_axis,
                 )
                 candidates.append(
                     Candidate(
-                        candidate_id=(
-                            f"fold-parent-{parent.slot}-sample-{sample_slot}"
-                        ),
+                        candidate_id=candidate_id,
                         data=sample.structure,
                         parent_ids=(parent.candidate.candidate_id,),
-                        metadata=self._metadata(sample, key),
+                        metadata=self._metadata(sample),
                     )
                 )
                 confidence_facts.append(fact)
@@ -271,8 +253,8 @@ class FoldingOutputConstruction:
                 "protein.structure",
                 tuple(candidates),
             ),
-            "confidence_facts": ConfidenceFactCollection(
+            "confidence_facts": confidence_output_identity_intent(
                 observation_method=self._observation_method,
-                entries=tuple(confidence_facts),
+                pending_facts=tuple(confidence_facts),
             ),
         }

@@ -5,24 +5,31 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 import base64
 
-from core import (
-    ArtifactPayload,
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    PortTypeDefinition,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
     UtilityTransformDefinition,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.operation import (
+    ArtifactPayload,
+    OperationContext,
+    ReadinessCheckInput,
+    ReadinessResult,
 )
 
 from .implementation import (
@@ -175,6 +182,16 @@ def _binding(
                 },
             }
         },
+        environment_fields=(
+            EnvironmentFieldDeclaration("fixture_ready", "json_value"),
+            EnvironmentFieldDeclaration("credential", "credential_handle"),
+            EnvironmentFieldDeclaration("runtime_path", "filesystem_path"),
+            EnvironmentFieldDeclaration(
+                "block_marker",
+                "filesystem_path",
+                required=False,
+            ),
+        ),
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -269,6 +286,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             produced_observations=(
                 ProducedObservationDefinition(
                     output_port="scores",
+                    output_partition="default",
                     metric=_METRIC,
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",

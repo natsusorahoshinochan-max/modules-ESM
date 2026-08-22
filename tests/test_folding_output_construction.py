@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.catalog.builder import build_frozen_catalog
+from core.operation import OutputIdentityIntent
 
 import pytest
 
@@ -12,6 +13,7 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.exact_reference import ExactContractReference
+from datatypes.prediction import PendingConfidenceFactCollection
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from modules.folding._output_construction import (
@@ -137,34 +139,40 @@ def test_shared_output_construction_closes_and_canonicalizes_one_population(
         == {
             "parent_index",
             "sample_index",
-            "prediction_key",
             "effective_call_seed",
             "num_steps",
         }
         for item in structures.items
     )
 
-    facts = outputs["confidence_facts"]
-    facts_by_key = {fact.prediction_key: fact for fact in facts.entries}
-    assert facts.observation_method == _METHOD
-    assert set(facts_by_key) == {
-        item.metadata["prediction_key"] for item in structures.items
+    intent = outputs["confidence_facts"]
+    assert type(intent) is OutputIdentityIntent
+    assert type(intent.relation) is PendingConfidenceFactCollection
+    assert intent.relation.observation_method == _METHOD
+    assert len(intent.relation.entries) == 4
+    assert len(intent.identity_sources) == 8
+    assert not hasattr(intent, "resolve_identities")
+    assert all(
+        not hasattr(source, "port_type")
+        for source in intent.identity_sources
+    )
+    assert {source.source_role for source in intent.identity_sources} == {
+        "structure",
+        "prediction-axis",
     }
-    for item in structures.items:
-        fact = facts_by_key[item.metadata["prediction_key"]]
-        parent_slot = item.metadata["parent_index"]
-        assert fact.prediction_axis.source.candidate_id == (
+    for pending in intent.relation.entries:
+        parent_slot = int(pending.candidate_id.split("-")[2])
+        assert pending.prediction_axis.source.candidate_id == (
             f"parent-{parent_slot}"
         )
-        assert fact.prediction_axis.sequence.residue_ids == (
+        assert pending.prediction_axis.sequence.residue_ids == (
             ("Q:-2A", "Q:10")
             if parent_slot == 0
             else ("A:1", "A:2")
         )
-        assert fact.structure_content_digest.startswith("sha256:")
-        assert fact.plddt_per_residue == (
-            float(70 + 10 * parent_slot + item.metadata["sample_index"]),
-            float(71 + 10 * parent_slot + item.metadata["sample_index"]),
+        assert pending.plddt_per_residue == (
+            float(70 + 10 * parent_slot + pending.output_slot % 2),
+            float(71 + 10 * parent_slot + pending.output_slot % 2),
         )
 
 

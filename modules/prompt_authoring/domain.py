@@ -9,8 +9,11 @@ import math
 import re
 from typing import Any, Literal, NotRequired, TypedDict
 
-from datatypes import ResidueLayout, ResidueMap
-from datatypes.protein import (
+from datatypes.residue import (
+    ResidueLayout,
+    ResidueMap,
+)
+from datatypes.residue import (
     residue_identity_chain,
     validate_residue_layout,
     validate_residue_map as validate_canonical_residue_map,

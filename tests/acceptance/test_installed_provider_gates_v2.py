@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from core.catalog.builder import build_frozen_catalog
 
 import os
@@ -267,8 +269,8 @@ def _run_rich_esm3_generation(
             client_request_id=f"biohub-{binding_route}-{operation}",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
     return service, catalog, projection, events
@@ -969,8 +971,8 @@ def test_mkdssp_executes_exact_method_through_public_run(
             client_request_id="installed-mkdssp",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
 

@@ -141,7 +141,7 @@ def wait_for_service_run_terminal_events(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise AssertionError("public Run did not reach a durable terminal")
-        _, after_sequence, terminal = service.wait_for_public_events(
+        _, after_sequence, terminal = service.wait_for_events(
             project_id,
             run_id,
             after_sequence,

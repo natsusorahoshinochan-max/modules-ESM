@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from core.workflow_v2 import WorkflowEdge
+from core.workflow.document import WorkflowEdge
 from tests.fixtures.prompt_authoring_v2 import (
     prepare_operation,
     run_operation,

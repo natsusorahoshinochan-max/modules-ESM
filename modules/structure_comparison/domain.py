@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from datatypes import CandidateDataReference, ExactContractReference
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import ExactContractReference
 
 
 Vector3 = tuple[float, float, float]

@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from core.project import CANONICAL_3GB1_PROJECT_ID, ProjectManager
+from core.project.manager import (
+    CANONICAL_3GB1_PROJECT_ID,
+    ProjectInputDescriptor,
+    ProjectManager,
+)
 
 
 _ATOM_DIGEST = (
@@ -28,12 +32,12 @@ def test_project_input_filename_survives_manager_restart(tmp_path: Path) -> None
     restarted = ProjectManager(project_root)
     recovered, payload = restarted.read_input(project.id, "input-1")
 
-    assert published == {
-        "project_input_ref": "input-1",
-        "filename": "来源结构 A.pdb",
-        "size": 5,
-        "content_digest": _ATOM_DIGEST,
-    }
+    assert published == ProjectInputDescriptor(
+        project_input_ref="input-1",
+        filename="来源结构 A.pdb",
+        size=5,
+        content_digest=_ATOM_DIGEST,
+    )
     assert recovered == published
     assert payload == b"ATOM\n"
 
@@ -59,8 +63,8 @@ def test_project_input_publication_is_immutable_as_one_snapshot(
         )
 
     recovered, payload = projects.read_input(project.id, "input-1")
-    assert recovered["filename"] == "first.pdb"
-    assert recovered["content_digest"] == _ATOM_DIGEST
+    assert recovered.filename == "first.pdb"
+    assert recovered.content_digest == _ATOM_DIGEST
     assert payload == b"ATOM\n"
 
 
@@ -81,10 +85,10 @@ def test_canonical_seed_uses_the_same_durable_input_descriptor(
     )
 
     assert installed is not None
-    assert recovered == {
-        "project_input_ref": "3GB1.pdb",
-        "filename": "3GB1-source.pdb",
-        "size": 5,
-        "content_digest": _ATOM_DIGEST,
-    }
+    assert recovered == ProjectInputDescriptor(
+        project_input_ref="3GB1.pdb",
+        filename="3GB1-source.pdb",
+        size=5,
+        content_digest=_ATOM_DIGEST,
+    )
     assert payload == b"ATOM\n"

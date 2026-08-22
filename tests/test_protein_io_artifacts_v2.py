@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 from pathlib import Path
 from typing import Any
@@ -9,21 +13,26 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunError,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
+)
+from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.server import create_app
-from core.project_objects import ProjectObjectStore
-from core.workflow_v2 import WorkflowEdge
+from core.execution.environment import admit_environment_configuration
+from core.run_execution_v2 import (
+    V2RunError,
+    V2RunService,
+)
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from protein_workbench_public.bootstrap import create_application
+from core.project.objects import ProjectObjectStore
+from core.workflow.document import WorkflowEdge
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from protein_workbench_public import artifact_content_disposition
 from tests.fixtures.protein_io_sources.package import (
@@ -37,7 +46,7 @@ def _run_import_export(
     value_kind: str,
     payload: bytes,
 ) -> tuple[V2RunService, str, dict[str, Any], tuple[dict[str, Any], ...]]:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     projects = ProjectManager(
         tmp_path / "projects",
         cache_root=tmp_path / "cache",
@@ -91,7 +100,7 @@ def _run_import_export(
         project.id,
         workflow=workflow,
     )
-    compiled = authoring.require_compiled(
+    compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -103,7 +112,7 @@ def _run_import_export(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
     )
     receipt = service.start_background(
         project.id,
@@ -114,8 +123,8 @@ def _run_import_export(
     return (
         service,
         project.id,
-        service.projection(project.id, receipt["run_id"]),
-        service.public_events(project.id, receipt["run_id"]),
+        public_run_projection(service, project.id, receipt["run_id"]),
+        public_run_events(service, project.id, receipt["run_id"]),
     )
 
 
@@ -176,7 +185,7 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
         payload=b">source\nACDEFG\n",
     )
     service.shutdown()
-    original_catalog = build_discovered_frozen_catalog()
+    original_catalog = build_frozen_catalog(module_registrations())
     active_catalog = builtin_frozen_catalog()
     assert original_catalog.contract_digest != active_catalog.contract_digest
     assert original_catalog.get_contract(
@@ -222,7 +231,7 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
         str(tmp_path / "runs"),
     )
     with TestClient(
-        create_app(frozen_catalog_override=active_catalog)
+        create_application(frozen_catalog_override=active_catalog)
     ) as client:
         with pytest.raises(V2RunError) as service_rejected:
             client.app.state.run_execution_v2.artifact(
@@ -299,7 +308,7 @@ def test_artifact_route_returns_exact_utf8_filename_provenance(
         str(tmp_path / "runs"),
     )
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=builtin_frozen_catalog(),
             _install_canonical_seed=False,
         )
@@ -400,7 +409,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         project.id,
         workflow=workflow,
     )
-    compiled = authoring.require_compiled(
+    compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -412,7 +421,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        admit_environment_configuration(catalog, {}),
     )
 
     projections = []
@@ -423,9 +432,11 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             workflow_commit_id=committed.workflow_commit_id,
             client_request_id=f"fifteen-pdb-{suffix}",
         )
-        projections.append(service.projection(project.id, receipt["run_id"]))
+        projections.append(
+            public_run_projection(service, project.id, receipt["run_id"])
+        )
         event_sets.append(
-            service.public_events(project.id, receipt["run_id"])
+            public_run_events(service, project.id, receipt["run_id"])
         )
     service.shutdown()
 

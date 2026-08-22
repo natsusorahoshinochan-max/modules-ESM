@@ -13,8 +13,12 @@ from typing import Any, cast
 
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
-from core import ReadinessResult, RunResources
-from datatypes import CandidateDataReference, ResolvedStructureResidueAxis
+from core.operation import (
+    OperationResources,
+    ReadinessResult,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.structure import ResolvedStructureResidueAxis
 
 from .domain import DSSPAnnotation
 
@@ -263,7 +267,7 @@ class MkdsspAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources

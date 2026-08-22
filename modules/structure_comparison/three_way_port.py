@@ -6,8 +6,16 @@ import math
 import re
 from typing import Any, cast
 
-from core import BehaviorReference, PortTypeDefinition
-from datatypes import CandidateDataReference, ExactContractReference
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+)
 
 from .contracts import (
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
@@ -196,7 +204,7 @@ def validate_three_way_consistency(value: object) -> None:
 
 
 def _candidate_to_wire(value: CandidateDataReference) -> dict[str, object]:
-    return value.to_public()
+    return _candidate_data_reference_to_canonical(value)
 
 
 def _method_to_wire(value: ExactContractReference) -> dict[str, str]:
@@ -292,7 +300,7 @@ def _confidence_from_wire(value: object) -> ThreeWayConfidenceEvidence:
     )
     return ThreeWayConfidenceEvidence(
         role=raw["role"],
-        subject=CandidateDataReference.from_public(raw["subject"]),
+        subject=_candidate_data_reference_from_canonical(raw["subject"]),
         method=_method_from_wire(raw["method"]),
         mean_residue_plddt=raw["mean_residue_plddt"],
         eligible=raw["eligible"],
@@ -319,8 +327,8 @@ def _edge_from_wire(value: object) -> ThreeWayComparisonEdge:
     )
     return ThreeWayComparisonEdge(
         edge_id=raw["edge_id"],
-        subject=CandidateDataReference.from_public(raw["subject"]),
-        reference=CandidateDataReference.from_public(raw["reference"]),
+        subject=_candidate_data_reference_from_canonical(raw["subject"]),
+        reference=_candidate_data_reference_from_canonical(raw["reference"]),
         alignment_evidence_content_digest=raw["alignment_evidence_content_digest"],
         alignment_method=_method_from_wire(raw["alignment_method"]),
         normalization_length=raw["normalization_length"],
@@ -366,12 +374,16 @@ def three_way_consistency_from_wire(value: object) -> ThreeWayConsistencyEvidenc
     if not isinstance(raw["confidences"], list) or not isinstance(raw["edges"], list):
         raise ValueError("three-way evidence collections are invalid")
     result = ThreeWayConsistencyEvidence(
-        input_structure=CandidateDataReference.from_public(raw["input_structure"]),
-        sequence_parent=CandidateDataReference.from_public(raw["sequence_parent"]),
-        esmfold2_structure=CandidateDataReference.from_public(
+        input_structure=_candidate_data_reference_from_canonical(
+            raw["input_structure"]
+        ),
+        sequence_parent=_candidate_data_reference_from_canonical(
+            raw["sequence_parent"]
+        ),
+        esmfold2_structure=_candidate_data_reference_from_canonical(
             raw["esmfold2_structure"]
         ),
-        simplefold_structure=CandidateDataReference.from_public(
+        simplefold_structure=_candidate_data_reference_from_canonical(
             raw["simplefold_structure"]
         ),
         classification_method=_method_from_wire(raw["classification_method"]),

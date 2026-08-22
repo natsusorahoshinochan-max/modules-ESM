@@ -4,14 +4,25 @@ from __future__ import annotations
 
 import json
 
-from core import BehaviorReference, PortTypeDefinition, builtin_frozen_catalog
-from core.port_types import canonical_json_bytes
-from datatypes import (
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.catalog.port_contract import (
+    canonical_json_bytes,
+)
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
-    ResidueTrack,
     validate_canonical_function_annotations,
+)
+from datatypes.residue import ResidueTrack
+from core.catalog.port_contract import (
+    _function_annotation_to_canonical,
 )
 
 from .prompts import validate_protein_prompt
@@ -71,7 +82,8 @@ def _annotations_to_wire(value: object) -> object:
     annotations = validate_canonical_function_annotations(value)
     return {
         "annotations": [
-            annotation.to_record() for annotation in annotations
+            _function_annotation_to_canonical(annotation)
+            for annotation in annotations
         ],
     }
 

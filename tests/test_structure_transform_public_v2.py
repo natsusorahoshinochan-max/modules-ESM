@@ -8,7 +8,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from core.server import create_app
+from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import (
     encode_project_input_content,
     prepare_rest_request,
@@ -56,7 +56,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
         root.mkdir()
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
 
-    with TestClient(create_app(_install_canonical_seed=False)) as client:
+    with TestClient(create_application(_install_canonical_seed=False)) as client:
         def public_request(
             operation_id: str,
             request: dict[str, Any],

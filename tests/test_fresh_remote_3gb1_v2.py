@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -831,8 +833,12 @@ def test_fresh_canonical_3gb1_public_run() -> None:
             started.json()["run_id"],
             timeout_seconds=75 * 60,
         )
-        projection = service.projection(PROJECT_ID, started.json()["run_id"])
-        events = service.public_events(PROJECT_ID, projection["run_id"])
+        projection = public_run_projection(
+            service,
+            PROJECT_ID,
+            started.json()["run_id"],
+        )
+        events = public_run_events(service, PROJECT_ID, projection["run_id"])
 
         assert projection["workflow_commit_id"] == commit["workflow_commit_id"]
         assert projection["workflow_digest"] == commit["workflow_digest"]

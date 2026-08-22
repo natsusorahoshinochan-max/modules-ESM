@@ -7,28 +7,47 @@ import json
 import math
 from typing import Any, cast
 
-from core import (
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    PortTypeDefinition,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
+    ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.operation import (
+    OperationContext,
+    ReadinessCheckInput,
     ReadinessResult,
     ScientificOperation,
-    ScientificOperationFactory,
-    builtin_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
-from datatypes import CandidateDataReference, ResidueLayout, ResidueTrack
-from datatypes.protein import validate_residue_layout
+from core.catalog.port_contract import (
+    canonical_json_bytes,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.residue import (
+    ResidueLayout,
+    ResidueTrack,
+)
+from datatypes.residue import validate_residue_layout
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+)
 
 from .adapter import (
     MKDSSP_BINARY,
@@ -187,7 +206,7 @@ def _validate_annotation(value: object) -> None:
 def _annotation_to_wire(value: object) -> object:
     assert type(value) is DSSPAnnotation
     return {
-        "subject": value.subject.to_public(),
+        "subject": _candidate_data_reference_to_canonical(value.subject),
         "layout": _wire_value(_LAYOUT_CODEC, value.layout),
         "secondary_structure": list(value.secondary_structure),
         "sasa": list(value.sasa),
@@ -205,7 +224,7 @@ def _annotation_from_wire(value: object) -> object:
         raise ValueError("DSSP annotation wire value is not closed")
     layout = _decode_value(_LAYOUT_CODEC, value["layout"])
     annotation = DSSPAnnotation(
-        subject=CandidateDataReference.from_public(value["subject"]),
+        subject=_candidate_data_reference_from_canonical(value["subject"]),
         layout=layout,
         secondary_structure=tuple(value["secondary_structure"]),
         sasa=_validate_sasa(tuple(value["sasa"]), length=layout.length),
@@ -233,7 +252,7 @@ def _track_to_wire(kind: str):
     def encode(value: object) -> object:
         assert type(value) is StructureAnnotationTrack
         return {
-            "subject": value.subject.to_public(),
+            "subject": _candidate_data_reference_to_canonical(value.subject),
             "layout": _wire_value(_LAYOUT_CODEC, value.layout),
             "track": _wire_value(
                 _TRACK_CODEC,
@@ -259,7 +278,7 @@ def _track_from_wire(kind: str):
         if kind == "sasa":
             values = _validate_sasa(values, length=layout.length)
         annotation_track = StructureAnnotationTrack(
-            subject=CandidateDataReference.from_public(value["subject"]),
+            subject=_candidate_data_reference_from_canonical(value["subject"]),
             layout=layout,
             values=values,
         )
@@ -489,6 +508,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         produced = (
             ProducedObservationDefinition(
                 output_port="scores",
+                output_partition="default",
                 metric=ContractIdentity(
                     "metric",
                     "structure_annotation.secondary_structure_agreement",
@@ -526,6 +546,18 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         method=method,
         binding_parameters={},
+        environment_fields=(
+            (
+                EnvironmentFieldDeclaration("dssp_binary", "filesystem_path"),
+                EnvironmentFieldDeclaration(
+                    "dssp_timeout_seconds",
+                    "json_value",
+                    required=False,
+                ),
+            )
+            if is_dssp
+            else ()
+        ),
         execution_route=execution_route,
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(

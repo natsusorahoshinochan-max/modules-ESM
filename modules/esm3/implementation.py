@@ -6,9 +6,6 @@ from collections.abc import Mapping
 import hashlib
 from typing import Any, cast
 
-from core.catalog.builtins import (
-    builtin_frozen_catalog,
-)
 from core.operation import (
     AdmittedPort,
     CandidatePairingIntent,
@@ -27,26 +24,17 @@ from datatypes.prompt import ProteinPrompt
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from datatypes.prediction import (
-    ConfidenceFact,
-    ConfidenceFactCollection,
+    PendingConfidenceFact,
     PredictionResidueAxis,
-    prediction_key,
 )
 from modules.structure_prediction.port_types import (
-    PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+    confidence_output_identity_intent,
 )
 
 from .adapter import (
     ESM3CallParameters,
     ESM3Confidence,
     ESM3GenerationAdapter,
-)
-
-
-_BUILTINS = builtin_frozen_catalog()
-_STRUCTURE_PORT_TYPE = _BUILTINS.require_port_type(
-    "protein.structure",
-    "4.0.0",
 )
 
 
@@ -131,7 +119,6 @@ class ESM3GenerationOperation:
         effective_call_seed: int | None,
         effective_num_steps: int,
         effective_num_steps_by_track: Mapping[str, int] | None = None,
-        prediction_key: str | None = None,
     ) -> dict[str, Any]:
         requested = cls._requested_parameters(parameters)
         steps_by_track = (
@@ -162,8 +149,6 @@ class ESM3GenerationOperation:
                     ),
                 }
             )
-        if prediction_key is not None:
-            metadata["prediction_key"] = prediction_key
         return metadata
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -200,8 +185,9 @@ class ESM3GenerationOperation:
         )
 
     @staticmethod
-    def _confidence_fact(
+    def _pending_confidence_fact(
         *,
+        candidate_id: str,
         output_role: str,
         output_slot: int,
         structure: ProteinStructure,
@@ -209,27 +195,17 @@ class ESM3GenerationOperation:
         prompt_reference: ExactPortValueReference,
         sequence: ProteinSequence,
         confidence: ESM3Confidence,
-    ) -> tuple[str, ConfidenceFact]:
+    ) -> PendingConfidenceFact:
         prediction_axis = PredictionResidueAxis(
             source=prompt_reference,
             layout=prompt.target_layout,
             sequence=sequence,
         )
-        structure_content_digest = _STRUCTURE_PORT_TYPE.content_digest(
-            structure
-        )
-        prediction_axis_content_digest = (
-            PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(prediction_axis)
-        )
-        key = prediction_key(
+        return PendingConfidenceFact(
+            candidate_id=candidate_id,
             output_role=output_role,
             output_slot=output_slot,
-            structure_content_digest=structure_content_digest,
-            prediction_axis_content_digest=prediction_axis_content_digest,
-        )
-        return key, ConfidenceFact(
-            prediction_key=key,
-            structure_content_digest=structure_content_digest,
+            structure=structure,
             prediction_axis=prediction_axis,
             plddt_per_residue=confidence.plddt_per_residue,
             ptm=confidence.ptm,
@@ -265,7 +241,7 @@ class ESM3GenerationOperation:
         self._require_sequence_mask(prompt)
         candidates: list[Candidate] = []
         reconstructions: list[Candidate] = []
-        reconstruction_facts: list[ConfidenceFact] = []
+        reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
             call_seed = _derived_call_seed(
@@ -296,7 +272,9 @@ class ESM3GenerationOperation:
             )
             candidates.append(candidate)
             if result.reconstruction is not None:
-                key, fact = self._confidence_fact(
+                reconstruction_id = f"reconstructed-structure-{sample_index}"
+                fact = self._pending_confidence_fact(
+                    candidate_id=reconstruction_id,
                     output_role="sequence_reconstruction_candidates",
                     output_slot=len(reconstructions),
                     structure=result.reconstruction,
@@ -306,7 +284,7 @@ class ESM3GenerationOperation:
                     confidence=cast(ESM3Confidence, result.confidence),
                 )
                 reconstruction = Candidate(
-                    f"reconstructed-structure-{sample_index}",
+                    reconstruction_id,
                     result.reconstruction,
                     [candidate.candidate_id],
                     self._candidate_metadata(
@@ -318,7 +296,6 @@ class ESM3GenerationOperation:
                         call_track="sequence",
                         effective_call_seed=result.effective_call_seed,
                         effective_num_steps=result.effective_num_steps,
-                        prediction_key=key,
                     ),
                 )
                 reconstructions.append(reconstruction)
@@ -338,9 +315,9 @@ class ESM3GenerationOperation:
                     reconstructions,
                 )
             )
-            outputs["confidence_facts"] = ConfidenceFactCollection(
+            outputs["confidence_facts"] = confidence_output_identity_intent(
                 observation_method=self._method,
-                entries=tuple(reconstruction_facts),
+                pending_facts=tuple(reconstruction_facts),
             )
         return outputs
 
@@ -356,7 +333,7 @@ class ESM3GenerationOperation:
     ) -> dict[str, Any]:
         self._require_assigned_prompt_sequence(prompt)
         candidates: list[Candidate] = []
-        confidence_facts: list[ConfidenceFact] = []
+        confidence_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
             result = self._adapter.generate_structure(
@@ -369,7 +346,9 @@ class ESM3GenerationOperation:
                     "structure",
                 ),
             )
-            key, fact = self._confidence_fact(
+            candidate_id = f"structure-{sample_index}"
+            fact = self._pending_confidence_fact(
+                candidate_id=candidate_id,
                 output_role="structure_candidates",
                 output_slot=len(candidates),
                 structure=result.structure,
@@ -379,7 +358,7 @@ class ESM3GenerationOperation:
                 confidence=result.confidence,
             )
             candidate = Candidate(
-                f"structure-{sample_index}",
+                candidate_id,
                 result.structure,
                 [],
                 self._candidate_metadata(
@@ -391,7 +370,6 @@ class ESM3GenerationOperation:
                     call_track="structure",
                     effective_call_seed=result.effective_call_seed,
                     effective_num_steps=result.effective_num_steps,
-                    prediction_key=key,
                 ),
             )
             candidates.append(candidate)
@@ -402,9 +380,9 @@ class ESM3GenerationOperation:
                 "protein.structure",
                 candidates,
             ),
-            "confidence_facts": ConfidenceFactCollection(
+            "confidence_facts": confidence_output_identity_intent(
                 observation_method=self._method,
-                entries=tuple(confidence_facts),
+                pending_facts=tuple(confidence_facts),
             ),
         }
 
@@ -422,9 +400,9 @@ class ESM3GenerationOperation:
         sequence_candidates: list[Candidate] = []
         structure_candidates: list[Candidate] = []
         pairing_entries: list[CandidatePairingIntentEntry] = []
-        confidence_facts: list[ConfidenceFact] = []
+        confidence_facts: list[PendingConfidenceFact] = []
         reconstruction_candidates: list[Candidate] = []
-        reconstruction_facts: list[ConfidenceFact] = []
+        reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
             result = self._adapter.generate_pair(
@@ -461,22 +439,24 @@ class ESM3GenerationOperation:
                 ),
             )
             if result.sequence.reconstruction is not None:
-                reconstruction_key, reconstruction_fact = (
-                    self._confidence_fact(
-                        output_role="sequence_reconstruction_candidates",
-                        output_slot=len(reconstruction_candidates),
-                        structure=result.sequence.reconstruction,
-                        prompt=prompt,
-                        prompt_reference=prompt_reference,
-                        sequence=result.sequence.sequence,
-                        confidence=cast(
-                            ESM3Confidence,
-                            result.sequence.confidence,
-                        ),
-                    )
+                reconstruction_id = (
+                    f"reconstructed-structure-{sample_index}"
+                )
+                reconstruction_fact = self._pending_confidence_fact(
+                    candidate_id=reconstruction_id,
+                    output_role="sequence_reconstruction_candidates",
+                    output_slot=len(reconstruction_candidates),
+                    structure=result.sequence.reconstruction,
+                    prompt=prompt,
+                    prompt_reference=prompt_reference,
+                    sequence=result.sequence.sequence,
+                    confidence=cast(
+                        ESM3Confidence,
+                        result.sequence.confidence,
+                    ),
                 )
                 reconstruction = Candidate(
-                    f"reconstructed-structure-{sample_index}",
+                    reconstruction_id,
                     result.sequence.reconstruction,
                     [sequence_candidate.candidate_id],
                     self._candidate_metadata(
@@ -492,12 +472,13 @@ class ESM3GenerationOperation:
                         effective_num_steps=(
                             result.sequence.effective_num_steps
                         ),
-                        prediction_key=reconstruction_key,
                     ),
                 )
                 reconstruction_candidates.append(reconstruction)
                 reconstruction_facts.append(reconstruction_fact)
-            structure_key, structure_fact = self._confidence_fact(
+            structure_id = f"structure-{sample_index}"
+            structure_fact = self._pending_confidence_fact(
+                candidate_id=structure_id,
                 output_role="structure_candidates",
                 output_slot=len(structure_candidates),
                 structure=result.structure.structure,
@@ -507,7 +488,7 @@ class ESM3GenerationOperation:
                 confidence=result.structure.confidence,
             )
             structure_candidate = Candidate(
-                f"structure-{sample_index}",
+                structure_id,
                 result.structure.structure,
                 [sequence_candidate.candidate_id],
                 self._candidate_metadata(
@@ -527,7 +508,6 @@ class ESM3GenerationOperation:
                         "sequence": result.sequence.effective_num_steps,
                         "structure": result.structure.effective_num_steps,
                     },
-                    prediction_key=structure_key,
                 ),
             )
             sequence_candidates.append(sequence_candidate)
@@ -551,9 +531,9 @@ class ESM3GenerationOperation:
                 structure_candidates,
             ),
             "counterpart_pairs": CandidatePairingIntent(pairing_entries),
-            "confidence_facts": ConfidenceFactCollection(
+            "confidence_facts": confidence_output_identity_intent(
                 observation_method=self._method,
-                entries=tuple(confidence_facts),
+                pending_facts=tuple(confidence_facts),
             ),
         }
         if reconstruction_candidates:
@@ -566,8 +546,8 @@ class ESM3GenerationOperation:
             )
             outputs[
                 "sequence_reconstruction_confidence_facts"
-            ] = ConfidenceFactCollection(
+            ] = confidence_output_identity_intent(
                 observation_method=self._method,
-                entries=tuple(reconstruction_facts),
+                pending_facts=tuple(reconstruction_facts),
             )
         return outputs

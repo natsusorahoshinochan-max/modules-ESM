@@ -5,9 +5,17 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from core import BehaviorReference, PortTypeDefinition, builtin_frozen_catalog
-from core.port_types import canonical_json_bytes
-from datatypes import ResidueTrack
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.catalog.port_contract import (
+    canonical_json_bytes,
+)
+from datatypes.residue import ResidueTrack
 
 from .domain import AlignedResidueTrack, TrackKind, validate_track
 

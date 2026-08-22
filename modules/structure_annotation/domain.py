@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from datatypes import CandidateDataReference, ResidueLayout
+from datatypes.candidate import CandidateDataReference
+from datatypes.residue import ResidueLayout
 
 
 @dataclass(frozen=True, slots=True)

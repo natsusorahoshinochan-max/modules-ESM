@@ -386,7 +386,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Invoke the real local Engine; a fixture cannot satisfy this gate."""
-    from modules.folding import adapter as folding_adapter
+    import modules.folding.adapter as folding_adapter
     from modules.folding.adapter import (
         LOCAL_ESMC_ARTIFACT_SHA256,
         LOCAL_ESMC_REVISION,

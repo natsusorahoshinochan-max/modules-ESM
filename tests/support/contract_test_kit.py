@@ -24,6 +24,11 @@ from core.catalog.port_contract import (
 from core.project.manager import ProjectManager
 from core.scoring.selection import ObservationSelector, SelectionObjective
 from core.execution.environment import admit_environment_configuration
+from core.execution.ledger import PublishedOutput
+from protein_workbench_public.ledger_codec import (
+    encode_event,
+    encode_run_projection,
+)
 from core.run_execution_v2 import (
     V2RunError,
     V2RunService,
@@ -208,13 +213,13 @@ class ModulePackageContractReport:
 
 def _decode_published_value(
     catalog: Any,
-    output: Mapping[str, Any],
+    output: PublishedOutput,
     canonical_bytes: bytes,
 ) -> Any:
-    reference = output["port_type"]
+    reference = output.port_type
     port_type = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
+        reference.contract_id,
+        reference.contract_version,
     )
     return port_type.decode(canonical_bytes)
 
@@ -390,37 +395,30 @@ def _verify_case(
         )
         service.shutdown()
         projection = service.projection(project.id, receipt["run_id"])
-        (
-            _,
-            _,
-            _,
-            _,
-            events,
-            terminal,
-        ) = service.replay_window(project.id, receipt["run_id"], None)
-        if not terminal:
+        replay = service.replay(project.id, receipt["run_id"], None)
+        if not replay.terminal:
             raise ModulePackageConformanceError(
                 f"{case.case_id} replay did not reach the durable terminal fact"
             )
-        if projection["status"] != "succeeded":
+        if projection.status != "succeeded":
             raise ModulePackageConformanceError(
                 f"{case.case_id} execution did not succeed"
             )
         outputs = {
-            output["output_port"]: output
-            for output in projection["outputs"]
-            if output["node_id"] == "contract-test-node"
+            output.output_port: output
+            for output in projection.outputs
+            if output.node_id == "contract-test-node"
         }
         canonical_values = {
             port_name: tuple(
                 service.typed_value(
                     project.id,
                     receipt["run_id"],
-                    output["node_id"],
-                    output["output_port"],
+                    output.node_id,
+                    output.output_port,
                     value_index,
                 )[1]
-                for value_index in range(output["value_count"])
+                for value_index in range(output.value_count)
             )
             for port_name, output in outputs.items()
         }
@@ -484,9 +482,9 @@ def _verify_case(
                     f"{case.case_id} Observation output {port_name!r} is invalid"
                 )
         artifacts_by_port = {
-            artifact["output_port"]: artifact
-            for artifact in projection["artifact_index"]
-            if artifact["node_id"] == "contract-test-node"
+            artifact.output_port: artifact
+            for artifact in projection.artifacts
+            if artifact.node_id == "contract-test-node"
         }
         for port_name, expected_body in case.expected_artifacts.items():
             artifact = artifacts_by_port.get(port_name)
@@ -497,14 +495,14 @@ def _verify_case(
             _, body = service.artifact(
                 project.id,
                 receipt["run_id"],
-                artifact["artifact_reference"],
+                artifact.artifact_reference,
             )
             if body != expected_body:
                 raise ModulePackageConformanceError(
                     f"{case.case_id} artifact {port_name!r} did not match"
                 )
         result_identities = tuple(
-            sorted({output["result_identity"] for output in outputs.values()})
+            sorted({output.result_identity for output in outputs.values()})
         )
         if (
             (outputs and len(result_identities) != 1)
@@ -513,11 +511,11 @@ def _verify_case(
                 for identity in result_identities
             )
             or any(
-                output["producer_provenance"]
+                output.producer_provenance
                 != {
                     "producer_run_id": receipt["run_id"],
-                    "producer_result_identity": output["result_identity"],
-                    "output_port": output["output_port"],
+                    "producer_result_identity": output.result_identity,
+                    "output_port": output.output_port,
                 }
                 for output in outputs.values()
             )
@@ -525,7 +523,7 @@ def _verify_case(
             raise ModulePackageConformanceError(
                 f"{case.case_id} Result Identity or provenance is incomplete"
             )
-        sequences = tuple(event["sequence"] for event in events)
+        sequences = tuple(fact.sequence for fact in replay.events)
         if (
             tuple(sorted(sequences)) != sequences
             or len(sequences) != len(set(sequences))
@@ -533,7 +531,17 @@ def _verify_case(
             raise ModulePackageConformanceError(
                 f"{case.case_id} replay contains gaps in ordering or duplicates"
             )
-        event_types = tuple(event["event"]["type"] for event in events)
+        public_events = tuple(
+            encode_event(
+                project_id=project.id,
+                run_id=receipt["run_id"],
+                fact=fact,
+            )
+            for fact in replay.events
+        )
+        event_types = tuple(
+            event["event"]["type"] for event in public_events
+        )
         required_events = {
             "node_attempt_started",
             "operation_attempt_started",
@@ -556,7 +564,10 @@ def _verify_case(
                 f"{case.case_id} replay lacks execution provenance"
             )
         public_evidence = json.dumps(
-            {"projection": projection, "events": events},
+            {
+                "projection": encode_run_projection(projection),
+                "events": public_events,
+            },
             ensure_ascii=False,
             sort_keys=True,
         )
@@ -567,7 +578,7 @@ def _verify_case(
                 )
         return ModulePackageCaseReport(
             case_id=case.case_id,
-            status=projection["status"],
+            status=projection.status,
             result_identities=result_identities,
             output_ports=tuple(sorted(outputs)),
             artifact_ports=tuple(sorted(artifacts_by_port)),

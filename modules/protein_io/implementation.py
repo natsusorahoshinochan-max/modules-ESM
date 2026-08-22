@@ -6,18 +6,18 @@ import re
 import string
 from typing import Any
 
-from core import (
+from core.operation import (
+    OperationResources,
     ArtifactPayload,
     EngineInvocationProvenance,
     OperationCall,
-    RunResources,
 )
-from datatypes import (
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
-    ProteinSequence,
-    ProteinStructure,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 
 
 _ASCII_UPPER_TRANSLATION = str.maketrans(
@@ -33,7 +33,7 @@ def _native_pdb_bytes(structure: ProteinStructure) -> bytes:
 class SequenceImportImplementation:
     """Parse one immutable Project-scoped FASTA value."""
 
-    def __init__(self, run_resources: RunResources) -> None:
+    def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -42,7 +42,7 @@ class SequenceImportImplementation:
         descriptor, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
             invocation_provenance=EngineInvocationProvenance(
-                project_input_filename=descriptor["filename"]
+                project_input_filename=descriptor.filename
             )
         ):
             try:
@@ -87,7 +87,7 @@ class SequenceImportImplementation:
 class StructureImportImplementation:
     """Parse one immutable Project-scoped PDB value."""
 
-    def __init__(self, run_resources: RunResources) -> None:
+    def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -96,7 +96,7 @@ class StructureImportImplementation:
         descriptor, payload = self._run_resources.read_project_input(reference)
         with self._run_resources.engine_invocation(
             invocation_provenance=EngineInvocationProvenance(
-                project_input_filename=descriptor["filename"]
+                project_input_filename=descriptor.filename
             )
         ):
             try:
@@ -126,7 +126,7 @@ class StructureImportImplementation:
 class SequenceExportImplementation:
     """Serialize one validated ProteinSequence without exposing a path."""
 
-    def __init__(self, run_resources: RunResources) -> None:
+    def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -155,7 +155,7 @@ class SequenceExportImplementation:
 class StructureExportImplementation:
     """Serialize one ProteinStructure without changing its PDB text."""
 
-    def __init__(self, run_resources: RunResources) -> None:
+    def __init__(self, run_resources: OperationResources) -> None:
         self._run_resources = run_resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:

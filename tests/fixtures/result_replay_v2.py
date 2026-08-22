@@ -6,10 +6,15 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
-from core.port_types import FrozenCatalog, PortValueError
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.catalog.port_contract import (
+    PortValueError,
+)
 from core.operation import AdmittedPort
-from core.value_admission import admitted_port_values
-from core.workflow_v2 import ExecutionPlanNode
+from tests.support.output_admission import admit_fixture_port
+from core.workflow.plan import ExecutionPlanNode
 
 
 def admitted_replay_outputs(
@@ -19,29 +24,25 @@ def admitted_replay_outputs(
     outputs: Mapping[str, Any],
 ) -> Mapping[tuple[str, str], AdmittedPort]:
     """Admit fixture outputs once, as a conforming Cache source would."""
-    declarations = {
-        name: port.declaration
-        for name, port in node._runtime.output_ports.items()
-    }
+    ports = node._runtime.output_ports
     candidate_data_port_types = {
         definition.type_id: definition
         for definition in catalog.port_types
     }
-    if set(outputs) - set(declarations):
+    if set(outputs) - set(ports):
         raise PortValueError("Replay fixture supplied an unknown output Port")
 
     snapshots: dict[tuple[str, str], AdmittedPort] = {}
     for output_port, supplied in outputs.items():
-        declaration = declarations[output_port]
-        port_type = node._runtime.output_ports[output_port].port_type
+        port = ports[output_port]
         values = (
             tuple(supplied)
-            if declaration["multiplicity"] == "many"
+            if port.multiplicity == "many"
             else (supplied,)
         )
-        snapshots[(node.node_id, output_port)] = admitted_port_values(
-            port_type=port_type,
-            multiplicity=declaration["multiplicity"],
+        snapshots[(node.node_id, output_port)] = admit_fixture_port(
+            port_type=port.port_type,
+            multiplicity=port.multiplicity,
             values=values,
             candidate_data_port_types=candidate_data_port_types,
         )
