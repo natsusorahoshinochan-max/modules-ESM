@@ -233,10 +233,6 @@ class ProteinMPNNDesignImplementation:
                     reference_sequence=reference,
                     engine_role=f"design_parent_{parent_index}",
                 )
-                if len(sequences) != count:
-                    raise RuntimeError(
-                        "ProteinMPNN design returned an incomplete child set"
-                    )
                 for sample_index, sequence in enumerate(sequences):
                     candidates.append(
                         Candidate(
@@ -260,19 +256,6 @@ class ProteinMPNNDesignImplementation:
                     )
         finally:
             self._adapter.close()
-        if len(candidates) != len(parents) * count:
-            raise RuntimeError("ProteinMPNN design children are incomplete")
-        for parent_candidate, _, _, _ in parents:
-            parent_ids = (parent_candidate.candidate_id,)
-            children = [
-                candidate
-                for candidate in candidates
-                if candidate.parent_ids == parent_ids
-            ]
-            if len(children) != count:
-                raise RuntimeError(
-                    "ProteinMPNN design parent relationship is incomplete"
-                )
         return {
             "sequence_candidates": CandidateCollection(
                 "proteinmpnn-sequence-candidates",

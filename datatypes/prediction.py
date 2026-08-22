@@ -130,19 +130,6 @@ class PendingConfidenceFact:
     ptm: float | None
     pae: tuple[tuple[float, ...], ...] | None
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "plddt_per_residue",
-            tuple(self.plddt_per_residue),
-        )
-        if self.pae is not None:
-            object.__setattr__(
-                self,
-                "pae",
-                tuple(tuple(row) for row in self.pae),
-            )
-
 
 @dataclass(frozen=True, slots=True)
 class PendingConfidenceFactCollection:
@@ -150,23 +137,6 @@ class PendingConfidenceFactCollection:
 
     observation_method: ExactContractReference
     entries: tuple[PendingConfidenceFact, ...]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.observation_method) is not ExactContractReference
-            or self.observation_method.contract_kind != "method"
-        ):
-            raise TypeError(
-                "pending confidence facts require one exact Method"
-            )
-        entries = tuple(self.entries)
-        if not entries or any(
-            type(entry) is not PendingConfidenceFact for entry in entries
-        ):
-            raise TypeError(
-                "pending confidence facts require typed nonempty entries"
-            )
-        object.__setattr__(self, "entries", entries)
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,8 +156,6 @@ def prediction_axis_reference(
     axis_content_digest: str,
 ) -> ResidueAxisReference:
     """Project one prediction axis using its codec-owned exact identity."""
-    if type(axis) is not PredictionResidueAxis:
-        raise TypeError("axis must be a PredictionResidueAxis")
     return ResidueAxisReference(
         axis_kind="prediction_input",
         axis_contract=axis_contract,

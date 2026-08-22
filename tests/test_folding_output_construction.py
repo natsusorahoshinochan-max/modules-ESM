@@ -18,7 +18,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from modules.folding._output_construction import (
     CompletedFoldingSample,
-    CompletedFoldingSampleBatch,
     FoldingOutputConstruction,
 )
 from tests.fixtures.scientific_operation import (
@@ -76,7 +75,6 @@ def _parents(
 
 def _construction(
     *sequences: ProteinSequence,
-    sample_count: int = 2,
 ) -> FoldingOutputConstruction:
     collection, references = _parents(*sequences)
     return FoldingOutputConstruction(
@@ -86,7 +84,6 @@ def _construction(
             value_content_digests=("sha256:" + ("e" * 64),),
             candidate_data=references,
         ),
-        sample_count=sample_count,
         observation_method=_METHOD,
     )
 
@@ -105,7 +102,7 @@ def _sample(parent_slot: int, sample_slot: int) -> CompletedFoldingSample:
     )
 
 
-def test_shared_output_construction_closes_and_canonicalizes_one_population(
+def test_shared_output_construction_publishes_one_population(
 ) -> None:
     construction = _construction(
         ProteinSequence("AG", ("Q:-2A", "Q:10")),
@@ -113,13 +110,11 @@ def test_shared_output_construction_closes_and_canonicalizes_one_population(
     )
 
     outputs = construction.construct(
-        CompletedFoldingSampleBatch(
-            (
-                _sample(1, 1),
-                _sample(0, 1),
-                _sample(1, 0),
-                _sample(0, 0),
-            )
+        (
+            _sample(0, 0),
+            _sample(0, 1),
+            _sample(1, 0),
+            _sample(1, 1),
         )
     )
 
@@ -177,24 +172,6 @@ def test_shared_output_construction_closes_and_canonicalizes_one_population(
 
 
 @pytest.mark.parametrize(
-    "samples",
-    (
-        (_sample(0, 0),),
-        (_sample(0, 0), _sample(0, 0), _sample(0, 1)),
-        (_sample(0, 0), _sample(0, 1), _sample(1, 0)),
-    ),
-    ids=("missing", "duplicate", "extra"),
-)
-def test_shared_output_construction_rejects_non_closed_sample_batches(
-    samples: tuple[CompletedFoldingSample, ...],
-) -> None:
-    construction = _construction(ProteinSequence("AG"))
-
-    with pytest.raises(ValueError, match="parent/sample slot"):
-        construction.construct(CompletedFoldingSampleBatch(samples))
-
-
-@pytest.mark.parametrize(
     "sequence",
     (
         ProteinSequence("AX", ("A:1", "A:2")),
@@ -219,7 +196,6 @@ def test_shared_parent_intake_rejects_an_empty_collection() -> None:
                 value_content_digests=("sha256:" + ("e" * 64),),
                 candidate_data=references,
             ),
-            sample_count=1,
             observation_method=_METHOD,
         )
 
@@ -267,6 +243,5 @@ def test_shared_parent_intake_rejects_an_admitted_structure_collection(
     ):
         FoldingOutputConstruction(
             parent_record=parent_record,
-            sample_count=1,
             observation_method=_METHOD,
         )

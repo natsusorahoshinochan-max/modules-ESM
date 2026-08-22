@@ -33,7 +33,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from modules.folding._output_construction import (
     CompletedFoldingSample,
-    CompletedFoldingSampleBatch,
     FoldingOutputConstruction,
 )
 from modules.structure_prediction.port_types import (
@@ -299,7 +298,6 @@ def test_confidence_identity_sources_encode_once_and_preserve_canonical_fact(
     )
     construction = FoldingOutputConstruction(
         parent_record=parent_record,
-        sample_count=1,
         observation_method=method,
     )
     structure = ProteinStructure(
@@ -347,9 +345,7 @@ def test_confidence_identity_sources_encode_once_and_preserve_canonical_fact(
     )
 
     calls = _count_port_codec_calls(monkeypatch)
-    raw_outputs = construction.construct(
-        CompletedFoldingSampleBatch((sample,))
-    )
+    raw_outputs = construction.construct((sample,))
     admitted = admit_node_output(
         node_plan=_candidate_output_plan(
             method=method,

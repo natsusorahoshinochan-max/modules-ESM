@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, cast
 
 from core.operation import (
     OperationResources,
@@ -298,11 +298,10 @@ class SecondaryStructureAgreementOperation:
                 for expected_value, observed_value in compared
             ) / len(compared)
             produced = self._produced_observation
-            profile = produced.context_profile
-            if not isinstance(profile, PairwiseContextProfile):
-                raise TypeError(
-                    "Secondary-structure agreement requires pairwise Context"
-                )
+            profile = cast(
+                PairwiseContextProfile,
+                produced.context_profile,
+            )
             observation = ScoreObservation(
                 subject=subject_reference,
                 metric=produced.metric,

@@ -140,8 +140,7 @@ class ProteinSolImplementation:
         profile = produced.context_profile
         if isinstance(profile, IntrinsicContextProfile):
             return IntrinsicObservationContext()
-        if not isinstance(profile, CalibrationContextProfile):
-            raise TypeError("Protein-Sol requires intrinsic or calibration Context")
+        profile = cast(CalibrationContextProfile, profile)
         return CalibrationObservationContext(
             calibration_metric=profile.calibration_metric,
             calibration_value=profile.calibration_value,

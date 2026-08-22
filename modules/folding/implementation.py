@@ -22,7 +22,6 @@ from datatypes.observation import (
 from datatypes.structure import ResolvedStructureResidueAxis
 from ._output_construction import (
     CompletedFoldingSample,
-    CompletedFoldingSampleBatch,
     FoldingOutputConstruction,
 )
 from .adapter import (
@@ -69,7 +68,6 @@ class ESMFold2FoldingImplementation:
         sample_count = call.node_parameters["num_samples"]
         construction = FoldingOutputConstruction(
             parent_record=call.inputs["sequence_candidates"],
-            sample_count=sample_count,
             observation_method=self._method,
         )
 
@@ -108,9 +106,7 @@ class ESMFold2FoldingImplementation:
                         ),
                     )
                 )
-        return construction.construct(
-            CompletedFoldingSampleBatch(tuple(completed_samples))
-        )
+        return construction.construct(tuple(completed_samples))
 
 
 class SimpleFoldFoldingImplementation:
@@ -145,7 +141,6 @@ class SimpleFoldFoldingImplementation:
         num_steps = call.binding_parameters["num_steps"]
         construction = FoldingOutputConstruction(
             parent_record=call.inputs["sequence_candidates"],
-            sample_count=sample_count,
             observation_method=self._method,
         )
         completed_samples: list[CompletedFoldingSample] = []
@@ -175,9 +170,7 @@ class SimpleFoldFoldingImplementation:
                         num_steps=num_steps,
                     )
                 )
-        return construction.construct(
-            CompletedFoldingSampleBatch(tuple(completed_samples))
-        )
+        return construction.construct(tuple(completed_samples))
 
 
 class SimpleFoldConfidenceImplementation:

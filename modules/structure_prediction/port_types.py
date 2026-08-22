@@ -184,13 +184,6 @@ def _validate_prediction_residue_axis(value: object) -> None:
         raise ValueError(
             "prediction residue axis must be a PredictionResidueAxis"
         )
-    normalized = PredictionResidueAxis(
-        source=value.source,
-        layout=value.layout,
-        sequence=value.sequence,
-    )
-    if normalized != value:
-        raise ValueError("prediction residue axis is not in canonical form")
     if (
         type(value.source) is ExactPortValueReference
         and value.source.port_type not in _ALLOWED_SCALAR_SOURCES
@@ -412,10 +405,7 @@ def _materialize_confidence_output_identity(
     relation: object,
     identities: EncodedOutputIdentities,
 ) -> ResolvedOutputIdentity:
-    if type(relation) is not PendingConfidenceFactCollection:
-        raise TypeError(
-            "confidence output identity requires pending confidence facts"
-        )
+    pending_facts = cast(PendingConfidenceFactCollection, relation)
     materialized = tuple(
         materialize_confidence_fact(
             pending,
@@ -429,10 +419,10 @@ def _materialize_confidence_output_identity(
                 f"prediction-axis:{index}"
             ).content_digest,
         )
-        for index, pending in enumerate(relation.entries)
+        for index, pending in enumerate(pending_facts.entries)
     )
     collection = ConfidenceFactCollection(
-        observation_method=relation.observation_method,
+        observation_method=pending_facts.observation_method,
         entries=tuple(item.fact for item in materialized),
     )
     axes_by_key = {
