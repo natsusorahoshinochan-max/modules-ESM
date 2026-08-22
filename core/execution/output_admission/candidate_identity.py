@@ -10,10 +10,10 @@ from typing import Any
 from core.catalog.port_contract import (
     PortValueError,
     _candidate_data_reference_to_canonical,
-    _observation_context_to_canonical,
     _residue_axis_reference_to_canonical,
     canonical_json_bytes,
     canonical_sha256,
+    observation_context_canonical,
 )
 from core.operation import (
     AdmittedPort,
@@ -248,7 +248,7 @@ def _score_collection_id(
                         "contract_version": score.method.contract_version,
                         "contract_digest": score.method.contract_digest,
                     },
-                    "context": _observation_context_to_canonical(score.context),
+                    "context": observation_context_canonical(score.context),
                     "residue_axis": (
                         None
                         if score.residue_axis is None

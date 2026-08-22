@@ -6,9 +6,6 @@ from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
-from protein_workbench_public.scientific_codec import (
-    encode_observation_context,
-)
 
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -30,6 +27,7 @@ from core.catalog.model import (
 from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
+    observation_context_canonical,
 )
 from core.operation import (
     CandidatePairingIntent,
@@ -310,7 +308,7 @@ def test_pairwise_context_is_typed_canonical_and_part_of_observation_identity() 
     )
 
     assert decoded.entries == (observation,)
-    assert encode_observation_context(context) == {
+    assert observation_context_canonical(context) == {
         "kind": "pairwise",
         "subject": {
             "role": "subject",

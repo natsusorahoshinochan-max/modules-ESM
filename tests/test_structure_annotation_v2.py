@@ -15,9 +15,7 @@ from typing import Any
 import pytest
 from core.catalog.port_contract import (
     _candidate_data_reference_to_canonical,
-)
-from protein_workbench_public.scientific_codec import (
-    encode_observation_context,
+    observation_context_canonical,
 )
 
 from core.project.manager import ProjectManager
@@ -2380,7 +2378,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
     assert observation.method.contract_id == (
         "structure_annotation.secondary_structure_agreement.method"
     )
-    assert encode_observation_context(observation.context) == {
+    assert observation_context_canonical(observation.context) == {
         "kind": "pairwise",
         "subject": {
             "role": "subject",

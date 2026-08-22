@@ -8,14 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from protein_workbench_public.scientific_codec import (
-    encode_observation_context,
-)
 
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
 )
+from core.catalog.port_contract import observation_context_canonical
 from core.operation import (
     ReadinessResult,
 )
@@ -436,7 +434,7 @@ def test_calibration_context_is_typed_and_round_trips_with_observation() -> None
     )
 
     assert decoded.entries == (observation,)
-    assert encode_observation_context(decoded.entries[0].context) == {
+    assert observation_context_canonical(decoded.entries[0].context) == {
         "kind": "calibration",
         "calibration_metric": "population_scaled_solubility",
         "calibration_value": 0.446,
@@ -516,7 +514,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
 
     validate_schema(
         "#/$defs/ObservationContextSelector",
-        encode_observation_context(objective.context_selector),
+        observation_context_canonical(objective.context_selector),
     )
 
     candidates = CandidateCollection(
@@ -803,7 +801,7 @@ def test_protein_sol_one_method_publishes_three_calibrated_metrics(
         entry.method.contract_id for entry in scores.entries
     } == {"solubility.protein_sol.sequence_prediction_2017"}
     contexts = {
-        entry.metric.contract_id: encode_observation_context(entry.context)
+        entry.metric.contract_id: observation_context_canonical(entry.context)
         for entry in scores.entries
     }
     assert contexts["solubility.protein_sol_percent"] == {

@@ -148,7 +148,7 @@ def _pairwise_participant_to_canonical(
     }
 
 
-def _observation_context_to_canonical(
+def observation_context_canonical(
     value: (
         IntrinsicObservationContext
         | CalibrationObservationContext

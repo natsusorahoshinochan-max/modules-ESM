@@ -10,14 +10,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from protein_workbench_public.scientific_codec import (
-    encode_observation_context,
-)
 
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
 )
+from core.catalog.port_contract import observation_context_canonical
 from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
@@ -315,7 +313,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         for candidate_id in candidate_ids
     }
     assert all(
-        encode_observation_context(entry.context) == {"kind": "intrinsic"}
+        observation_context_canonical(entry.context) == {"kind": "intrinsic"}
         for entry in scores.entries
         if entry.metric.contract_id == "solubility.protein_sol_pi"
     )
