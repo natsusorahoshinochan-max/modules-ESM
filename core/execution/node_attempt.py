@@ -7,10 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, cast
 import uuid
 
-from core.catalog.port_contract import (
-    PortValueError,
-    canonical_sha256,
-)
+from core.catalog.port_contract import canonical_sha256
 from core.catalog.model import CatalogAvailabilityProjection
 from core.execution._node_attempt_errors import (
     _binding_error,
@@ -178,11 +175,7 @@ class _NodeAttempt:
         resolved: dict[str, tuple[ProjectInputDescriptor, bytes]] = {}
         identities: list[Mapping[str, Any]] = []
         for parameter_name in node._runtime.project_input_parameters:
-            reference = node.node_parameters.get(parameter_name)
-            if not isinstance(reference, str):
-                raise PortValueError(
-                    f"Project input parameter {parameter_name!r} is invalid"
-                )
+            reference = node.node_parameters[parameter_name]
             descriptor, payload = self._projects.read_input(
                 project_id,
                 reference,

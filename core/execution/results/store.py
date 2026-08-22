@@ -486,11 +486,9 @@ class ResultStore:
             value = manifest.values[value_index]
             payload = self._read_reference(project_id, value)
         except (
-            IndexError,
             ObjectIntegrityError,
             OSError,
             StoragePathError,
-            TypeError,
             ValueError,
         ) as error:
             raise ResultIntegrityError(output.value_manifest_reference) from error

@@ -58,10 +58,6 @@ def _admitted_value(
     )
     candidate_references: dict[str, CandidateDataReference] = {}
     for reference in references:
-        if type(reference) is not CandidateDataReference:
-            raise PortValueError(
-                "Port admission projected a non-Candidate Data Reference"
-            )
         existing = candidate_references.get(reference.candidate_id)
         if existing is not None and existing != reference:
             raise PortValueError(

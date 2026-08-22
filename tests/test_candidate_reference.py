@@ -4,7 +4,6 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from core.operation import AdmittedValue
 from datatypes.candidate import CandidateDataReference
 from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
@@ -87,22 +86,6 @@ def test__candidate_data_reference_from_canonical_requires_exact_fields(
 ) -> None:
     with pytest.raises(ValueError, match="exact fields"):
         _candidate_data_reference_from_canonical(public)
-
-
-def test_admitted_value_admits_only_candidate_data_references() -> None:
-    with pytest.raises(TypeError, match="CandidateDataReference"):
-        AdmittedValue(
-            value="candidate fixture",
-            canonical_bytes=b"candidate fixture",
-            content_digest="sha256:" + ("1" * 64),
-            candidate_data=(
-                {
-                    "candidate_id": "candidate-1",
-                    "data_type_id": "protein.sequence",
-                    "content_digest": "sha256:" + ("2" * 64),
-                },
-            ),  # type: ignore[arg-type]
-        )
 
 
 def test_candidate_data_reference_has_one_datatype_import_path() -> None:

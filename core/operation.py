@@ -84,13 +84,6 @@ class EncodedOutputIdentity:
     port_type: ExactContractReference
     content_digest: str
 
-    def __post_init__(self) -> None:
-        if (
-            type(self.port_type) is not ExactContractReference
-            or self.port_type.contract_kind != "port_type"
-        ):
-            raise TypeError("encoded output identity requires an exact Port Type")
-
 
 @dataclass(frozen=True, slots=True)
 class EncodedOutputIdentities:
@@ -105,10 +98,6 @@ class EncodedOutputIdentities:
 
     def __post_init__(self) -> None:
         entries = tuple(self.entries)
-        if any(type(entry) is not EncodedOutputIdentity for entry in entries):
-            raise TypeError(
-                "encoded output identities require exact identity facts"
-            )
         by_id = {entry.identity_id: entry for entry in entries}
         if len(by_id) != len(entries):
             raise ValueError("encoded output identities contain a duplicate ID")
@@ -143,24 +132,13 @@ class ResolvedOutputIdentity:
 
     def __post_init__(self) -> None:
         candidate_metadata = tuple(self.candidate_metadata)
-        if any(
-            type(item) is not CandidateMetadataIdentity
-            for item in candidate_metadata
-        ):
-            raise TypeError(
-                "resolved output Candidate metadata must use typed identities"
-            )
         object.__setattr__(self, "candidate_metadata", candidate_metadata)
         if self.scientific_axes is not None:
-            scientific_axes = tuple(self.scientific_axes)
-            if any(
-                type(axis) is not ResidueAxisReference
-                for axis in scientific_axes
-            ):
-                raise TypeError(
-                    "resolved output scientific axes must be exact references"
-                )
-            object.__setattr__(self, "scientific_axes", scientific_axes)
+            object.__setattr__(
+                self,
+                "scientific_axes",
+                tuple(self.scientific_axes),
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,13 +150,6 @@ class OutputIdentityIntent:
 
     def __post_init__(self) -> None:
         sources = tuple(self.identity_sources)
-        if any(type(source) is not OutputIdentitySource for source in sources):
-            raise TypeError(
-                "output identity intent requires typed identity sources"
-            )
-        identity_ids = tuple(source.identity_id for source in sources)
-        if len(identity_ids) != len(set(identity_ids)):
-            raise ValueError("output identity intent contains duplicate source IDs")
         object.__setattr__(self, "identity_sources", sources)
 
 
@@ -372,37 +343,10 @@ class AdmittedValue:
     def __post_init__(self) -> None:
         object.__setattr__(self, "value", _freeze_container(self.value))
         object.__setattr__(self, "canonical_bytes", bytes(self.canonical_bytes))
-        candidate_data = tuple(self.candidate_data)
-        if any(
-            type(reference) is not CandidateDataReference
-            for reference in candidate_data
-        ):
-            raise TypeError(
-                "candidate_data entries must be CandidateDataReference values"
-            )
-        object.__setattr__(self, "candidate_data", candidate_data)
-        scientific_axes = tuple(self.scientific_axes)
-        if any(
-            type(reference) is not ResidueAxisReference
-            for reference in scientific_axes
-        ):
-            raise TypeError(
-                "scientific_axes entries must be ResidueAxisReference values"
-            )
-        object.__setattr__(self, "scientific_axes", scientific_axes)
-        observation_methods = tuple(self.observation_methods)
-        if any(
-            type(reference) is not ExactContractReference
-            or reference.contract_kind != "method"
-            for reference in observation_methods
-        ):
-            raise TypeError(
-                "observation_methods entries must be exact Method references"
-            )
+        object.__setattr__(self, "candidate_data", tuple(self.candidate_data))
+        object.__setattr__(self, "scientific_axes", tuple(self.scientific_axes))
         object.__setattr__(
-            self,
-            "observation_methods",
-            observation_methods,
+            self, "observation_methods", tuple(self.observation_methods)
         )
 
 
@@ -421,12 +365,7 @@ class AdmittedPort:
             "port_type",
             MappingProxyType(dict(self.port_type)),
         )
-        values = tuple(self.values)
-        if any(type(value) is not AdmittedValue for value in values):
-            raise TypeError("values must contain exact AdmittedValue records")
-        if self.multiplicity not in {"one", "many"}:
-            raise ValueError("multiplicity must be one or many")
-        object.__setattr__(self, "values", values)
+        object.__setattr__(self, "values", tuple(self.values))
 
     @property
     def value(self) -> Any:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Any
-import json
 
 from core.execution._run_runtime_registry import _RunRegistry
 from core.execution.ledger import (
@@ -123,7 +122,7 @@ class _RunQueries:
                 "size": value_reference.size,
             }
         }
-        return json.loads(json.dumps(metadata)), value_bytes
+        return metadata, value_bytes
 
     def artifact(
         self,
