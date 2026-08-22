@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import re
-from typing import Any
+from typing import Any, cast
 import uuid
 
 from core.execution.ledger import (
@@ -16,6 +15,7 @@ from core.execution.ledger import (
 )
 from core.operation import AdmittedPort
 from core.scoring.selection import (
+    ContextSelector,
     PairwiseContextSelector,
     SelectionError,
     observation_selector_provenance_from_facts,
@@ -30,27 +30,13 @@ from datatypes.observation import (
 )
 
 
-_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
-
-
-def _selection_error(error: BaseException) -> StructuredError:
-    error_type = type(error).__name__
-    if (
-        len(error_type) > 128
-        or _PUBLIC_IDENTIFIER.fullmatch(error_type) is None
-    ):
-        error_type = "Exception"
-    details = (
-        {"reason": str(error)}
-        if isinstance(error, SelectionError)
-        else {"exception_type": error_type}
-    )
+def _selection_error(error: SelectionError) -> StructuredError:
     return StructuredError(
         code="selection_failed",
         message="Workflow selection failed safely",
         retryable=False,
         correlation_id=f"incident-{uuid.uuid4().hex}",
-        details=details,
+        details={"reason": str(error)},
     )
 
 
@@ -63,7 +49,7 @@ def _exact_reference(reference: Any) -> ExactContractReference:
     )
 
 
-def _context_selector_evidence(value: object) -> ContextSelectorEvidence:
+def _context_selector_evidence(value: ContextSelector) -> ContextSelectorEvidence:
     if isinstance(value, IntrinsicObservationContext):
         return ContextSelectorEvidence(kind="intrinsic")
     if isinstance(value, CalibrationObservationContext):
@@ -74,15 +60,14 @@ def _context_selector_evidence(value: object) -> ContextSelectorEvidence:
             calibration_unit=value.calibration_unit,
             population_id=value.population_id,
         )
-    if isinstance(value, PairwiseContextSelector):
-        return ContextSelectorEvidence(
-            kind="pairwise",
-            subject_role=value.subject_role,
-            reference_role=value.reference_role,
-            pairing_mode=value.pairing_mode,
-            normalization=value.normalization,
-        )
-    raise TypeError("Selection Context selector is not current")
+    pairwise = cast(PairwiseContextSelector, value)
+    return ContextSelectorEvidence(
+        kind="pairwise",
+        subject_role=pairwise.subject_role,
+        reference_role=pairwise.reference_role,
+        pairing_mode=pairwise.pairing_mode,
+        normalization=pairwise.normalization,
+    )
 
 
 def selection_consumer_result(
@@ -93,34 +78,14 @@ def selection_consumer_result(
     resolved_objectives = node._runtime.selection_objectives
     resolved_selectors = node._runtime.observation_selectors
     if resolved_selectors:
-        candidate_references = {
-            selector.candidate_input for selector in resolved_selectors
-        }
+        candidate_reference = resolved_selectors[0].candidate_input
     else:
-        candidate_references = {
-            objective.candidate_input for objective in resolved_objectives
-        }
-    if len(candidate_references) != 1:
-        raise SelectionError(
-            "Selection consumer objectives do not share one Candidate input"
-        )
-    output_port = node._runtime.selection_candidate_output_port
-    resolved = (
-        values.get((node.node_id, output_port))
-        if isinstance(output_port, str)
-        else None
+        candidate_reference = resolved_objectives[0].candidate_input
+    output_port = cast(str, node._runtime.selection_candidate_output_port)
+    selected = cast(
+        CandidateCollection,
+        values[(node.node_id, output_port)].value,
     )
-    if (
-        resolved is None
-        or resolved.multiplicity != "one"
-        or type(resolved.value) is not CandidateCollection
-    ):
-        raise SelectionError(
-            "Selection consumer output did not resolve to one exact "
-            "CandidateCollection"
-        )
-    selected = resolved.value
-    candidate_reference = next(iter(candidate_references))
     if resolved_selectors:
         observation_selectors = tuple(
             ObservationSelectorEvidence(

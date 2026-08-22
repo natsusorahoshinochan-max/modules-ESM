@@ -9,9 +9,6 @@ from types import MappingProxyType
 from typing import Any, TypeAlias
 
 from core.parameters.model import AdmittedParameterValues
-from core.catalog.port_contract import (
-    canonical_json_bytes,
-)
 from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
@@ -146,7 +143,6 @@ class SelectionObjective:
                 "Selection Objective missing policy must be error"
             )
         frozen_parameters = freeze_i_json(self.utility_parameters)
-        canonical_json_bytes(frozen_parameters)
         object.__setattr__(self, "utility_parameters", frozen_parameters)
 
 @dataclass(frozen=True, slots=True)
@@ -233,9 +229,6 @@ class SelectionProvenance:
     """Typed effective provenance for one Selection conclusion."""
 
     objectives: tuple[SelectionObjectiveProvenance, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "objectives", tuple(self.objectives))
 
 
 @dataclass(frozen=True, slots=True)
