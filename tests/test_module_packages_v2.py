@@ -1089,7 +1089,6 @@ def test_dangling_contract_reference_fails_closed() -> None:
 
 def test_expected_contract_digest_conflict_fails_closed() -> None:
     target = _method("synthetic.target")
-    wrong_digest = "sha256:" + ("f" * 64)
     mismatch = _method(
         "synthetic.mismatch",
         algorithm_identity={
@@ -1097,7 +1096,7 @@ def test_expected_contract_digest_conflict_fails_closed() -> None:
                 "method",
                 "synthetic.target",
                 "2.1.0",
-                wrong_digest,
+                "not-the-target-digest",
             )
         },
     )

@@ -48,20 +48,9 @@ ContractKind = Literal[
     "port_type",
     "utility_transform",
 ]
-_CONTRACT_KINDS = frozenset(
-    {
-        "binding",
-        "method",
-        "metric",
-        "node_type",
-        "port_type",
-        "utility_transform",
-    }
-)
 _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
-_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SCIENTIFIC_COLLECTION_PORT_TYPE_VERSIONS = {
     "candidate.collection": CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
     "score.collection": SCORE_COLLECTION_PORT_TYPE_VERSION,
@@ -140,21 +129,6 @@ class ContractIdentity:
     contract_id: str
     contract_version: str
     expected_digest: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.contract_kind not in _CONTRACT_KINDS:
-            raise CatalogBuildError(
-                f"unknown contract kind {self.contract_kind!r}"
-            )
-        _require_identifier(self.contract_id, "contract_id")
-        _require_version(self.contract_version, "contract_version")
-        if (
-            self.expected_digest is not None
-            and _DIGEST.fullmatch(self.expected_digest) is None
-        ):
-            raise CatalogBuildError(
-                "expected_digest must use sha256:<64 lowercase hex>"
-            )
 
     @property
     def key(self) -> tuple[str, str, str]:
