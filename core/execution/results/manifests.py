@@ -182,6 +182,7 @@ def _decode_port_manifest(encoded: bytes) -> _PortValueManifest:
     if (
         multiplicity not in {"one", "many"}
         or not isinstance(values, list)
+        or (multiplicity == "one" and len(values) != 1)
     ):
         raise ValueError("Port Value Manifest is invalid")
     return _PortValueManifest(

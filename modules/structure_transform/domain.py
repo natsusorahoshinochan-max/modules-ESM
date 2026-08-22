@@ -83,17 +83,6 @@ class PendingCandidateNormalizationFactCollection:
 
     entries: tuple[PendingCandidateNormalizationFact, ...]
 
-    def __post_init__(self) -> None:
-        entries = tuple(self.entries)
-        if not entries or any(
-            type(entry) is not PendingCandidateNormalizationFact
-            for entry in entries
-        ):
-            raise TypeError(
-                "pending normalization facts require typed nonempty entries"
-            )
-        object.__setattr__(self, "entries", entries)
-
 
 @dataclass(frozen=True, slots=True)
 class MaterializedCandidateNormalizationFact:

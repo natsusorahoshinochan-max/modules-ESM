@@ -297,10 +297,7 @@ def _materialize_candidate_normalization_output_identity(
     relation: object,
     identities: EncodedOutputIdentities,
 ) -> ResolvedOutputIdentity:
-    if type(relation) is not PendingCandidateNormalizationFactCollection:
-        raise TypeError(
-            "normalization output identity requires pending normalization facts"
-        )
+    pending_facts = cast(PendingCandidateNormalizationFactCollection, relation)
     materialized = tuple(
         materialize_candidate_normalization_fact(
             pending,
@@ -311,7 +308,7 @@ def _materialize_candidate_normalization_output_identity(
                 f"normalizations:{index}"
             ).content_digest,
         )
-        for index, pending in enumerate(relation.entries)
+        for index, pending in enumerate(pending_facts.entries)
     )
     return ResolvedOutputIdentity(
         value=CandidateNormalizationFactCollection(

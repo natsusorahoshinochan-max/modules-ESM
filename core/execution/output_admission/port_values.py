@@ -92,8 +92,6 @@ def _snapshot(
     multiplicity: PortMultiplicity,
     values: tuple[AdmittedValue, ...],
 ) -> AdmittedPort:
-    if multiplicity == "one" and len(values) != 1:
-        raise PortValueError("Port with one multiplicity requires one value")
     content_digest = (
         values[0].content_digest
         if len(values) == 1
