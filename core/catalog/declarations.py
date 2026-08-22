@@ -456,15 +456,10 @@ class AvailabilityDeclaration:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(self.prerequisites, Mapping):
-            raise CatalogBuildError("Availability prerequisites must be an object")
         object.__setattr__(
             self,
             "prerequisites",
-            _freeze_declaration(
-                self.prerequisites,
-                path="$.availability.prerequisites",
-            ),
+            _freeze_declaration(self.prerequisites),
         )
 
     def descriptor(self) -> dict[str, Any]:
@@ -486,15 +481,10 @@ class ReadinessDeclaration:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(self.prerequisites, Mapping):
-            raise CatalogBuildError("Readiness prerequisites must be an object")
         object.__setattr__(
             self,
             "prerequisites",
-            _freeze_declaration(
-                self.prerequisites,
-                path="$.readiness.prerequisites",
-            ),
+            _freeze_declaration(self.prerequisites),
         )
 
     def descriptor(self) -> dict[str, Any]:
@@ -516,21 +506,6 @@ class EnvironmentFieldDeclaration:
     ]
     required: bool = True
 
-    def __post_init__(self) -> None:
-        _require_identifier(self.name, "Environment field name")
-        if self.name in {"provider_client", "client_factory"}:
-            raise CatalogBuildError(
-                "Environment declarations cannot contain caller-owned objects"
-            )
-        if self.value_category not in {
-            "json_value",
-            "filesystem_path",
-            "credential_handle",
-        }:
-            raise CatalogBuildError(
-                "Environment field value_category is unknown"
-            )
-
     def descriptor(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -551,106 +526,13 @@ class ObservationPropagationDefinition:
     schema_version: str = "2.1.0"
 
     def __post_init__(self) -> None:
-        _require_schema_version(
-            self.schema_version,
-            "Observation propagation",
-        )
-        if self.mode not in {"pass_through", "union", "filter"}:
-            raise CatalogBuildError(
-                "unknown Observation propagation mode"
+        object.__setattr__(self, "input_ports", tuple(self.input_ports))
+        if self.filter is not None:
+            object.__setattr__(
+                self,
+                "filter",
+                _freeze_declaration(self.filter),
             )
-        _require_identifier(self.output_port, "output_port")
-        input_ports = tuple(self.input_ports)
-        if (
-            not input_ports
-            or any(not isinstance(name, str) for name in input_ports)
-            or len(input_ports) != len(set(input_ports))
-        ):
-            raise CatalogBuildError(
-                "Observation propagation input Ports must be unique"
-            )
-        for input_port in input_ports:
-            _require_identifier(input_port, "input_port")
-        if (
-            self.mode in {"pass_through", "filter"}
-            and len(input_ports) != 1
-        ):
-            raise CatalogBuildError(
-                f"{self.mode} Observation propagation requires one input Port"
-            )
-        if self.mode == "union" and len(input_ports) < 2:
-            raise CatalogBuildError(
-                "union Observation propagation requires at least two input Ports"
-            )
-        if self.absent_input_policy not in {"reject", "ignore"}:
-            raise CatalogBuildError(
-                "unknown Observation propagation absent input policy"
-            )
-        if (
-            self.absent_input_policy == "ignore"
-            and self.mode != "union"
-        ):
-            raise CatalogBuildError(
-                "only union Observation propagation may ignore absent inputs"
-            )
-        if self.mode == "filter":
-            if not isinstance(self.filter, Mapping) or not self.filter:
-                raise CatalogBuildError(
-                    "filter Observation propagation requires an exact filter"
-                )
-            unknown = set(self.filter) - {
-                "source_partition",
-                "metric",
-                "method",
-                "context_profile",
-            }
-            if unknown:
-                raise CatalogBuildError(
-                    "Observation propagation filter contains unknown fields"
-                )
-            source_partition = self.filter.get("source_partition")
-            if source_partition is not None:
-                _require_identifier(
-                    source_partition,
-                    "filter source_partition",
-                )
-            for name, contract_kind in (
-                ("metric", "metric"),
-                ("method", "method"),
-            ):
-                reference = self.filter.get(name)
-                if (
-                    reference is not None
-                    and (
-                        not isinstance(reference, ContractIdentity)
-                        or reference.contract_kind != contract_kind
-                    )
-                ):
-                    raise CatalogBuildError(
-                        f"Observation propagation filter {name} must be an "
-                        f"exact {contract_kind} contract reference"
-                    )
-            context_profile = self.filter.get("context_profile")
-            if (
-                context_profile is not None
-                and not isinstance(context_profile, Mapping)
-            ):
-                raise CatalogBuildError(
-                    "Observation propagation filter context_profile must be "
-                    "an object"
-                )
-            frozen_filter = _freeze_declaration(
-                self.filter,
-                path="$.observation_propagation.filter",
-            )
-        elif self.filter is not None:
-            raise CatalogBuildError(
-                "only filter Observation propagation accepts a filter"
-            )
-        else:
-            frozen_filter = None
-        object.__setattr__(self, "input_ports", input_ports)
-        object.__setattr__(self, "filter", frozen_filter)
 
     def descriptor_template(self) -> dict[str, Any]:
         descriptor = {
@@ -676,31 +558,6 @@ class SelectionObjectiveConsumptionDefinition:
     objective_ids_parameter: str | None = None
     schema_version: str = "2.1.0"
 
-    def __post_init__(self) -> None:
-        _require_schema_version(
-            self.schema_version,
-            "Selection Objective consumption",
-        )
-        if (self.objective_id_parameter is None) == (
-            self.objective_ids_parameter is None
-        ):
-            raise CatalogBuildError(
-                "Selection Objective consumption requires exactly one scalar "
-                "or ordered-list selector parameter"
-            )
-        for field_name in (
-            "candidate_input_port",
-            "score_collection_input_port",
-            "candidate_output_port",
-        ):
-            _require_identifier(getattr(self, field_name), field_name)
-        selector_name = (
-            self.objective_id_parameter
-            if self.objective_id_parameter is not None
-            else self.objective_ids_parameter
-        )
-        _require_identifier(selector_name, "objective selector parameter")
-
     def descriptor_template(self) -> dict[str, str]:
         descriptor = {
             "schema_version": self.schema_version,
@@ -724,19 +581,6 @@ class ObservationSelectorConsumptionDefinition:
     candidate_output_port: str
     selector_id_parameter: str
     schema_version: str = "2.1.0"
-
-    def __post_init__(self) -> None:
-        _require_schema_version(
-            self.schema_version,
-            "Observation Selector consumption",
-        )
-        for field_name in (
-            "candidate_input_port",
-            "score_collection_input_port",
-            "candidate_output_port",
-            "selector_id_parameter",
-        ):
-            _require_identifier(getattr(self, field_name), field_name)
 
     def descriptor_template(self) -> dict[str, str]:
         return {
@@ -775,110 +619,11 @@ class ProducedObservationDefinition:
     method_port: str | None = None
 
     def __post_init__(self) -> None:
-        _require_identifier(self.output_port, "output_port")
-        if self.metric.contract_kind != "metric":
-            raise CatalogBuildError("Produced Observation must reference a Metric")
-        if not isinstance(self.context_profile, Mapping):
-            raise CatalogBuildError("context_profile must be an object")
         object.__setattr__(
             self,
             "context_profile",
-            _freeze_declaration(
-                self.context_profile,
-                path="$.produced_observation.context_profile",
-            ),
+            _freeze_declaration(self.context_profile),
         )
-        _require_identifier(self.subject_grain, "subject_grain")
-        _require_identifier(self.source_role, "source_role")
-        if self.subject_direction not in {"input", "output"}:
-            raise CatalogBuildError(
-                "Produced Observation subject_direction must be input or output"
-            )
-        _require_identifier(self.subject_port, "subject_port")
-        if self.guaranteed_multiplicity not in {
-            "one",
-            "one_or_more",
-            "zero_or_more",
-        }:
-            raise CatalogBuildError(
-                "unknown Produced Observation guaranteed multiplicity"
-            )
-        _require_identifier(self.output_partition, "output_partition")
-        if (self.reference_direction is None) != (
-            self.reference_port is None
-        ):
-            raise CatalogBuildError(
-                "Produced Observation must declare both reference direction "
-                "and reference Port"
-            )
-        if self.reference_direction is not None:
-            if self.reference_direction not in {"input", "output"}:
-                raise CatalogBuildError(
-                    "Produced Observation reference_direction must be input "
-                    "or output"
-                )
-            _require_identifier(self.reference_port, "reference_port")
-        context_kind = self.context_profile.get("kind")
-        if context_kind == "pairwise" and self.reference_port is None:
-            raise CatalogBuildError(
-                "pairwise Produced Observation requires an exact reference "
-                "Candidate source"
-            )
-        if context_kind != "pairwise" and self.reference_port is not None:
-            raise CatalogBuildError(
-                "only pairwise Produced Observations declare a reference source"
-            )
-        if (self.pairing_direction is None) != (self.pairing_port is None):
-            raise CatalogBuildError(
-                "Produced Observation must declare both pairing direction and "
-                "pairing Port"
-            )
-        if self.pairing_direction is not None:
-            if self.pairing_direction not in {"input", "output"}:
-                raise CatalogBuildError(
-                    "Produced Observation pairing_direction must be input or "
-                    "output"
-                )
-            _require_identifier(self.pairing_port, "pairing_port")
-        pairing_mode = self.context_profile.get("pairing_mode")
-        if (
-            context_kind == "pairwise"
-            and pairing_mode == "per_subject_counterpart"
-            and self.pairing_port is None
-        ):
-            raise CatalogBuildError(
-                "per-subject Produced Observation requires an explicit "
-                "Candidate pairing source"
-            )
-        if (
-            pairing_mode != "per_subject_counterpart"
-            and self.pairing_port is not None
-        ):
-            raise CatalogBuildError(
-                "only per-subject Produced Observations declare a pairing source"
-            )
-        if (self.axis_direction is None) != (self.axis_port is None):
-            raise CatalogBuildError(
-                "Produced Observation must declare both axis direction and "
-                "axis Port"
-            )
-        if self.axis_direction is not None:
-            if self.axis_direction not in {"input", "output"}:
-                raise CatalogBuildError(
-                    "Produced Observation axis_direction must be input or output"
-                )
-            _require_identifier(self.axis_port, "axis_port")
-        if (self.method_direction is None) != (self.method_port is None):
-            raise CatalogBuildError(
-                "Produced Observation must declare both Method direction and "
-                "Method Port"
-            )
-        if self.method_direction is not None:
-            if self.method_direction not in {"input", "output"}:
-                raise CatalogBuildError(
-                    "Produced Observation method_direction must be input or output"
-                )
-            _require_identifier(self.method_port, "method_port")
 
     def descriptor_template(self) -> dict[str, Any]:
         return {
@@ -937,75 +682,20 @@ class ExecutionBindingDefinition:
     environment_fields: tuple[EnvironmentFieldDeclaration, ...] = ()
 
     def __post_init__(self) -> None:
-        _require_identifier(self.binding_id, "binding_id")
-        _require_version(self.version, "Binding version")
-        if self.node_type.contract_kind != "node_type":
-            raise CatalogBuildError("Binding node_type must reference a Node Type")
-        if self.method.contract_kind != "method":
-            raise CatalogBuildError("Binding method must reference a Method")
-        if not isinstance(self.binding_parameters, Mapping):
-            raise CatalogBuildError("binding_parameters must be an object")
-        if self.execution_route not in {"adapter", "direct"}:
-            raise CatalogBuildError("execution_route must be adapter or direct")
-        if self.execution_route == "adapter" and self.adapter_behavior is None:
-            raise CatalogBuildError(
-                "adapter route requires an explicit Adapter behavior"
-            )
-        if self.execution_route == "direct" and self.adapter_behavior is not None:
-            raise CatalogBuildError(
-                "direct route must not declare an Adapter behavior"
-            )
-        if not isinstance(self.implementation_identity, Mapping):
-            raise CatalogBuildError("implementation_identity must be an object")
-        environment_fields = tuple(self.environment_fields)
-        if (
-            any(
-                type(declaration) is not EnvironmentFieldDeclaration
-                for declaration in environment_fields
-            )
-            or len({declaration.name for declaration in environment_fields})
-            != len(environment_fields)
-        ):
-            raise CatalogBuildError(
-                "environment_fields must contain unique typed declarations"
-            )
-        randomness_parameters = tuple(self.effective_randomness_parameters)
-        if any(
-            not isinstance(parameter, str) or not parameter
-            for parameter in randomness_parameters
-        ) or len(set(randomness_parameters)) != len(randomness_parameters):
-            raise CatalogBuildError(
-                "effective_randomness_parameters must contain unique names"
-            )
-        for parameter in randomness_parameters:
-            _require_identifier(
-                parameter,
-                "effective randomness parameter",
-            )
-        if (
-            self.effective_randomness_resolver is not None
-            and not randomness_parameters
-        ):
-            raise CatalogBuildError(
-                "effective randomness resolver requires declared parameters"
-            )
         object.__setattr__(
             self,
             "effective_randomness_parameters",
-            randomness_parameters,
+            tuple(self.effective_randomness_parameters),
         )
         object.__setattr__(
             self,
             "environment_fields",
-            environment_fields,
+            tuple(self.environment_fields),
         )
         object.__setattr__(
             self,
             "binding_parameters",
-            _freeze_declaration(
-                self.binding_parameters,
-                path="$.binding_parameters",
-            ),
+            _freeze_declaration(self.binding_parameters),
         )
         object.__setattr__(
             self,
@@ -1018,35 +708,13 @@ class ExecutionBindingDefinition:
         object.__setattr__(
             self,
             "implementation_identity",
-            _freeze_declaration(
-                self.implementation_identity,
-                path="$.implementation_identity",
-            ),
+            _freeze_declaration(self.implementation_identity),
         )
-        observations = tuple(self.produced_observations)
-        if (
-            observations
-            and self.observation_propagation is not None
-        ):
-            raise CatalogBuildError(
-                "Binding must declare fixed Produced Observations or controlled "
-                "Observation propagation, not both"
-            )
-        if len(
-            {
-                (
-                    observation.output_port,
-                    observation.output_partition,
-                    observation.metric.key,
-                    canonical_json_bytes(
-                        _thaw_declaration(observation.context_profile)
-                    ),
-                )
-                for observation in observations
-            }
-        ) != len(observations):
-            raise CatalogBuildError("duplicate Produced Observation declaration")
-        object.__setattr__(self, "produced_observations", observations)
+        object.__setattr__(
+            self,
+            "produced_observations",
+            tuple(self.produced_observations),
+        )
 
     @property
     def identity(self) -> ContractIdentity:

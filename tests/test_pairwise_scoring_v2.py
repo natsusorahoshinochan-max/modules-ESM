@@ -26,7 +26,6 @@ from core.catalog.model import (
 )
 from core.catalog.port_contract import (
     BehaviorReference,
-    CatalogBuildError,
     observation_context_canonical,
 )
 from core.operation import (
@@ -1123,19 +1122,6 @@ def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() ->
         "input_ports": ("fixed_scores", "paired_scores"),
         "filter": None,
     }
-
-    with pytest.raises(CatalogBuildError, match="at least two"):
-        ObservationPropagationDefinition(
-            mode="union",
-            output_port="scores",
-            input_ports=("scores",),
-        )
-
-    with pytest.raises(CatalogBuildError, match="both reference"):
-        replace(produced, reference_port=None)
-
-    with pytest.raises(CatalogBuildError, match="both pairing"):
-        replace(produced, pairing_port=None)
 
     propagation_public = {
         **propagation.descriptor_template(),

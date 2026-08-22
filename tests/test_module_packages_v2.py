@@ -690,12 +690,38 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
             {"subject_port": "value"},
             "subject must use exact candidate.collection@4.0.0",
         ),
+        (
+            {
+                "context_profile": {
+                    "kind": "pairwise",
+                    "subject_role": "subject",
+                    "reference_role": "reference",
+                    "pairing_mode": "fixed_reference",
+                    "normalization": "none",
+                },
+            },
+            "reference contradicts its Context",
+        ),
+        (
+            {
+                "context_profile": {
+                    "kind": "pairwise",
+                    "subject_role": "subject",
+                    "reference_role": "reference",
+                    "pairing_mode": "per_subject_counterpart",
+                    "normalization": "none",
+                },
+                "reference_direction": "input",
+                "reference_port": "candidate_subjects",
+            },
+            "pairing contradicts its Context",
+        ),
     ],
 )
 def test_binding_rejects_incompatible_produced_observation_ports(
     tmp_path: Path,
     monkeypatch,
-    changes: dict[str, str],
+    changes: dict[str, object],
     message: str,
 ) -> None:
     root_name = _write_registration_package(tmp_path)
@@ -722,7 +748,7 @@ def test_binding_rejects_incompatible_produced_observation_ports(
         _forget_package(root_name)
 
 
-def test_binding_rejects_many_valued_observation_propagation_inputs(
+def test_binding_rejects_invalid_observation_propagation_inputs(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -761,6 +787,21 @@ def test_binding_rejects_many_valued_observation_propagation_inputs(
         with pytest.raises(
             CatalogBuildError,
             match="propagation inputs must use multiplicity one",
+        ):
+            build_frozen_catalog(
+                (replace(registration, bindings=(invalid_binding,)),)
+            )
+        invalid_binding = replace(
+            invalid_binding,
+            observation_propagation=ObservationPropagationDefinition(
+                mode="union",
+                output_port="scores",
+                input_ports=("value",),
+            ),
+        )
+        with pytest.raises(
+            CatalogBuildError,
+            match="mode requires unique input Ports",
         ):
             build_frozen_catalog(
                 (replace(registration, bindings=(invalid_binding,)),)
@@ -1511,12 +1552,18 @@ def test_adapter_binding_requires_an_explicit_adapter_behavior(
     importlib.invalidate_caches()
 
     try:
-        binding = _load_registration(root_name).bindings[0]
+        registration = _load_registration(root_name)
+        binding = replace(
+            registration.bindings[0],
+            execution_route="adapter",
+        )
         with pytest.raises(
             CatalogBuildError,
-            match="adapter route requires an explicit Adapter behavior",
+            match="execution route and Adapter behavior are inconsistent",
         ):
-            replace(binding, execution_route="adapter")
+            build_frozen_catalog(
+                (replace(registration, bindings=(binding,)),)
+            )
     finally:
         _forget_package(root_name)
 

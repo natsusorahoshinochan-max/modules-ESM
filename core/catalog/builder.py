@@ -14,8 +14,11 @@ from .declarations import (
     MetricDefinition,
     NodeTypeDefinition,
     ModulePackageRegistration,
+    ObservationPropagationDefinition,
+    ProducedObservationDefinition,
     UtilityTransformDefinition,
     _SCIENTIFIC_COLLECTION_PORT_TYPE_VERSIONS,
+    _require_identifier,
 )
 from .definition_resource import (
     _load_definition_resource,
@@ -135,6 +138,136 @@ def _validate_observation_context_profile(
         raise CatalogBuildError(
             f"Binding {binding_id} Produced Observation context_profile "
             "does not satisfy Metric observation_context_schema"
+        )
+
+
+def _validate_binding_relationships(
+    binding: ExecutionBindingDefinition,
+) -> None:
+    environment_names = [item.name for item in binding.environment_fields]
+    if len(set(environment_names)) != len(environment_names):
+        raise CatalogBuildError("Environment field names must be unique")
+    randomness = binding.effective_randomness_parameters
+    if len(set(randomness)) != len(randomness):
+        raise CatalogBuildError("effective randomness parameters must be unique")
+    if binding.effective_randomness_resolver is not None and not randomness:
+        raise CatalogBuildError(
+            "effective randomness resolver requires declared parameters"
+        )
+    route_is_complete = (
+        binding.execution_route == "adapter"
+        and binding.adapter_behavior is not None
+    ) or (
+        binding.execution_route == "direct"
+        and binding.adapter_behavior is None
+    )
+    if not route_is_complete:
+        raise CatalogBuildError(
+            "execution route and Adapter behavior are inconsistent"
+        )
+    if binding.produced_observations and binding.observation_propagation:
+        raise CatalogBuildError(
+            "fixed Produced Observations and propagation are mutually exclusive"
+        )
+    identities = {
+        (
+            item.output_port,
+            item.output_partition,
+            item.metric.key,
+            canonical_json_bytes(_template_json(item.context_profile)),
+        )
+        for item in binding.produced_observations
+    }
+    if len(identities) != len(binding.produced_observations):
+        raise CatalogBuildError("duplicate Produced Observation declaration")
+
+
+def _validate_produced_observation_relationships(
+    observation: ProducedObservationDefinition,
+) -> None:
+    _require_identifier(observation.output_partition, "output_partition")
+    if observation.guaranteed_multiplicity not in {
+        "one",
+        "one_or_more",
+        "zero_or_more",
+    }:
+        raise CatalogBuildError("unknown Produced Observation multiplicity")
+    sources = (
+        (observation.reference_direction, observation.reference_port),
+        (observation.pairing_direction, observation.pairing_port),
+        (observation.axis_direction, observation.axis_port),
+        (observation.method_direction, observation.method_port),
+    )
+    if any(
+        (direction is None) != (port is None)
+        or direction not in {None, "input", "output"}
+        for direction, port in sources
+    ):
+        raise CatalogBuildError(
+            "Produced Observation source direction and Port must be paired"
+        )
+    context_kind = observation.context_profile.get("kind")
+    if (context_kind == "pairwise") != (
+        observation.reference_port is not None
+    ):
+        raise CatalogBuildError(
+            "Produced Observation reference contradicts its Context"
+        )
+    per_subject = (
+        context_kind == "pairwise"
+        and observation.context_profile.get("pairing_mode")
+        == "per_subject_counterpart"
+    )
+    if per_subject != (observation.pairing_port is not None):
+        raise CatalogBuildError(
+            "Produced Observation pairing contradicts its Context"
+        )
+
+
+def _validate_propagation_relationships(
+    propagation: ObservationPropagationDefinition,
+) -> None:
+    inputs = propagation.input_ports
+    valid_count = (
+        propagation.mode in {"pass_through", "filter"} and len(inputs) == 1
+    ) or (propagation.mode == "union" and len(inputs) >= 2)
+    if len(set(inputs)) != len(inputs) or not valid_count:
+        raise CatalogBuildError(
+            "Observation propagation mode requires unique input Ports"
+        )
+    if propagation.absent_input_policy not in {"reject", "ignore"} or (
+        propagation.absent_input_policy == "ignore"
+        and propagation.mode != "union"
+    ):
+        raise CatalogBuildError("invalid Observation propagation absence policy")
+    filter_definition = propagation.filter
+    if propagation.mode != "filter":
+        if filter_definition is not None:
+            raise CatalogBuildError("only filter propagation accepts a filter")
+        return
+    if not filter_definition or set(filter_definition) - {
+        "source_partition",
+        "metric",
+        "method",
+        "context_profile",
+    }:
+        raise CatalogBuildError("Observation propagation filter is not closed")
+    source_partition = filter_definition.get("source_partition")
+    if source_partition is not None:
+        _require_identifier(source_partition, "filter source_partition")
+    for name, contract_kind in (("metric", "metric"), ("method", "method")):
+        reference = filter_definition.get(name)
+        if reference is not None and (
+            not isinstance(reference, ContractIdentity)
+            or reference.contract_kind != contract_kind
+        ):
+            raise CatalogBuildError(
+                f"Observation propagation filter {name} must be exact"
+            )
+    context = filter_definition.get("context_profile")
+    if context is not None and not isinstance(context, Mapping):
+        raise CatalogBuildError(
+            "Observation propagation Context filter must be an object"
         )
 
 
@@ -351,6 +484,7 @@ def build_frozen_catalog(
                     f"Binding {binding.binding_id} effective randomness must "
                     "resolve from exactly one parameter scope"
                 )
+            _validate_binding_relationships(binding)
             output_names = {output.name for output in node_definition.outputs}
             input_names = {input_port.name for input_port in node_definition.inputs}
             outputs_by_name = {
@@ -363,6 +497,13 @@ def build_frozen_catalog(
             }
             consumption = binding.selection_objective_consumption
             if consumption is not None:
+                if (consumption.objective_id_parameter is None) == (
+                    consumption.objective_ids_parameter is None
+                ):
+                    raise CatalogBuildError(
+                        f"Binding {binding.binding_id} Selection Objective "
+                        "consumption requires exactly one selector parameter"
+                    )
                 selector_parameter = (
                     consumption.objective_id_parameter
                     if consumption.objective_id_parameter is not None
@@ -447,6 +588,7 @@ def build_frozen_catalog(
                         "candidate.collection output Port"
                     )
             for observation in binding.produced_observations:
+                _validate_produced_observation_relationships(observation)
                 if observation.output_port not in output_names:
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
@@ -665,6 +807,7 @@ def build_frozen_catalog(
                         )
             propagation = binding.observation_propagation
             if propagation is not None:
+                _validate_propagation_relationships(propagation)
                 output_declaration = outputs_by_name.get(
                     propagation.output_port
                 )

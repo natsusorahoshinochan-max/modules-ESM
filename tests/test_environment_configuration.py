@@ -4,7 +4,6 @@ from types import SimpleNamespace
 import pytest
 
 from core.catalog.declarations import (
-    CatalogBuildError,
     EnvironmentFieldDeclaration,
 )
 from core.catalog.model import CatalogContract, FrozenCatalog
@@ -106,11 +105,3 @@ def test_environment_configuration_rejects_values_outside_the_declaration(
             _catalog(),
             {("test.binding", "1.0.0"): {"values": values}},
         )
-
-
-@pytest.mark.parametrize("name", ("provider_client", "client_factory"))
-def test_environment_declaration_rejects_caller_owned_provider_objects(
-    name: str,
-) -> None:
-    with pytest.raises(CatalogBuildError, match="caller-owned objects"):
-        EnvironmentFieldDeclaration(name, "json_value")
