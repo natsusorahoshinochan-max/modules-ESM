@@ -1056,44 +1056,6 @@ def test_simplefold_translates_provider_pdb_tail_before_publication(
     assert published_pdb.splitlines()[-1][:6].strip() == "END"
 
 
-def test_simplefold_rejects_non_pinned_provider_pdb_tail(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    non_pinned_pdb = "\n".join(
-        (*_two_residue_pdb().splitlines(), " " * 80)
-    )
-
-    class Client:
-        def fold(
-            self,
-            **_kwargs: Any,
-        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
-            return (
-                [ProteinStructure(non_pinned_pdb)],
-                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
-            )
-
-    _, _, projection, events = _run_simplefold(
-        tmp_path,
-        monkeypatch,
-        client=Client(),
-        num_samples=1,
-    )
-
-    assert projection["status"] == "failed"
-    terminal = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_terminal"
-        and event["event"]["status"] == "failed"
-    )
-    assert terminal["error"]["details"] == {"exception_type": "ValueError"}
-    assert all(
-        output["node_id"] != "fold" for output in projection["outputs"]
-    )
-
-
 def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

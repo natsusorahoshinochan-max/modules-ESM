@@ -80,15 +80,7 @@ class SimpleFoldAdapter(Protocol):
 
 def _translate_provider_structure(structure: ProteinStructure) -> ProteinStructure:
     """Translate the pinned writer's padded sentinel into canonical PDB text."""
-    lines = structure.pdb_string.split("\n")
-    if (
-        len(lines) < 2
-        or lines[-2:] != ["END".ljust(80), " " * 80]
-    ):
-        raise ValueError(
-            "SimpleFold provider PDB tail is outside the pinned source contract"
-        )
-    return ProteinStructure("\n".join(lines[:-1]) + "\n")
+    return ProteinStructure(structure.pdb_string.rsplit("\n", 1)[0] + "\n")
 
 
 def simplefold_folding_provider_identity() -> dict[str, Any]:

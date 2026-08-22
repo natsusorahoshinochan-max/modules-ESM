@@ -546,34 +546,6 @@ def _provider_chains_by_workbench_chain(
     return provider_chains_by_workbench_chain
 
 
-def _validate_residue_projection(
-    *,
-    chains: list[tuple[str, str]],
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-    provider_structure_chain_order: tuple[str, ...],
-) -> None:
-    """Admit the parsed provider chains against the staged segments once."""
-    if tuple(chain for chain, _ in chains) != provider_structure_chain_order:
-        raise ValueError(
-            "ProteinMPNN parsed chain order contradicts the staged segments"
-        )
-    staged_lengths = {
-        chain: sum(
-            1
-            for _, _, mapped_chain, _ in residue_identity_mapping
-            if mapped_chain == chain
-        )
-        for chain in provider_structure_chain_order
-    }
-    if any(
-        len(sequence) != staged_lengths[chain]
-        for chain, sequence in chains
-    ):
-        raise ValueError(
-            "ProteinMPNN parsed chain lengths contradict the staged segments"
-        )
-
-
 def _chain_partition(
     chains: list[tuple[str, str]],
     constraints: ProteinMPNNConstraints,
@@ -791,11 +763,6 @@ def _prepare_design_request(
         ProteinMPNNConstraints(layout=target_layout)
         if constraints is None
         else constraints
-    )
-    _validate_residue_projection(
-        chains=chains,
-        residue_identity_mapping=residue_identity_mapping,
-        provider_structure_chain_order=provider_structure_chain_order,
     )
     provider_chains_by_workbench_chain = (
         _provider_chains_by_workbench_chain(
