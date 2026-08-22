@@ -19,6 +19,7 @@ from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
 )
+from datatypes.residue import residue_identity_chain
 
 if TYPE_CHECKING:
     from core.scoring.observation_plan import ResolvedProducedObservation
@@ -195,16 +196,79 @@ class ProviderResidueProjection:
                 raise TypeError("provider chain orders require nonempty strings")
             object.__setattr__(self, field_name, values)
         entries = tuple(self.entries)
-        if any(
-            type(entry) is not ProviderResidueProjectionEntry
-            for entry in entries
-        ):
-            raise TypeError(
-                "provider residue projection entries require exact typed values"
-            )
         object.__setattr__(self, "entries", entries)
         if self.position_semantics != "one_based_chain_local":
             raise ValueError("provider residue position semantics are unsupported")
+        workbench_order = self.workbench_chain_order
+        structure_order = self.provider_structure_chain_order
+        provider_order = self.provider_chain_order
+        if (
+            not entries
+            or not workbench_order
+            or not structure_order
+            or not provider_order
+            or len(set(workbench_order)) != len(workbench_order)
+            or len(set(structure_order)) != len(structure_order)
+            or len(set(provider_order)) != len(provider_order)
+            or set(structure_order) != set(provider_order)
+        ):
+            raise ValueError("provider residue projection is incomplete")
+        residue_ids: set[str] = set()
+        provider_positions: set[tuple[str, int]] = set()
+        observed_workbench_chains: set[str] = set()
+        observed_provider_chains: set[str] = set()
+        workbench_segment_order: list[str] = []
+        current_segment = -1
+        current_position = 0
+        for entry in entries:
+            chain = residue_identity_chain(
+                entry.residue_id,
+                subject="provider projection residue identity",
+            )
+            coordinate = (entry.provider_chain_id, entry.provider_position)
+            if (
+                chain not in workbench_order
+                or entry.provider_chain_id not in provider_order
+                or entry.segment_index < current_segment
+                or entry.segment_index > current_segment + 1
+                or entry.segment_index >= len(structure_order)
+                or entry.provider_chain_id
+                != structure_order[entry.segment_index]
+                or entry.residue_id in residue_ids
+                or coordinate in provider_positions
+            ):
+                raise ValueError("provider residue projection is inconsistent")
+            if entry.segment_index != current_segment:
+                if entry.provider_position != 1:
+                    raise ValueError(
+                        "provider residue projection must begin at position 1"
+                    )
+                current_segment = entry.segment_index
+                current_position = 1
+                workbench_segment_order.append(chain)
+            elif (
+                entry.provider_position != current_position + 1
+                or workbench_segment_order[-1] != chain
+            ):
+                raise ValueError("provider residue projection is not contiguous")
+            else:
+                current_position = entry.provider_position
+            residue_ids.add(entry.residue_id)
+            provider_positions.add(coordinate)
+            observed_workbench_chains.add(chain)
+            observed_provider_chains.add(entry.provider_chain_id)
+        collapsed_workbench_order = tuple(
+            chain
+            for index, chain in enumerate(workbench_segment_order)
+            if index == 0 or chain != workbench_segment_order[index - 1]
+        )
+        if (
+            observed_workbench_chains != set(workbench_order)
+            or observed_provider_chains != set(structure_order)
+            or current_segment != len(structure_order) - 1
+            or collapsed_workbench_order != workbench_order
+        ):
+            raise ValueError("provider residue projection closure is incomplete")
 
 
 @dataclass(frozen=True, slots=True)

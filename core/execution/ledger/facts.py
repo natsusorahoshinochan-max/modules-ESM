@@ -15,7 +15,6 @@ from core.scoring.selection import SelectionInput
 from core.execution.ledger.transitions import PlanNodeEvidence
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json
-from datatypes.residue import residue_identity_chain
 
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}")
@@ -48,9 +47,7 @@ def _validate_reference(
     expected_kind: str | None = None,
 ) -> None:
     if (
-        type(reference) is not ExactContractReference
-        or reference.contract_kind
-        not in {
+        reference.contract_kind not in {
             "binding",
             "method",
             "metric",
@@ -74,8 +71,7 @@ def _validate_error(error: StructuredError | None) -> None:
     if error is None:
         return
     if (
-        type(error) is not StructuredError
-        or not _valid_identifier(error.code)
+        not _valid_identifier(error.code)
         or type(error.message) is not str
         or not 1 <= len(error.message) <= 2048
         or type(error.retryable) is not bool
@@ -89,8 +85,6 @@ def _validate_invocation_provenance(
 ) -> None:
     if provenance is None:
         return
-    if type(provenance) is not EngineInvocationProvenance:
-        raise ValueError("Engine invocation provenance is invalid")
     randomness = provenance.effective_randomness
     if randomness is not None and (
         randomness.control not in {"exact_seed", "provider_uncontrolled"}
@@ -112,83 +106,6 @@ def _validate_invocation_provenance(
         )
     ):
         raise ValueError("Engine invocation input filename is invalid")
-    projection = provenance.provider_residue_projection
-    if projection is None:
-        return
-    if projection.position_semantics != "one_based_chain_local":
-        raise ValueError("Engine invocation residue projection is invalid")
-    workbench_order = projection.workbench_chain_order
-    structure_order = projection.provider_structure_chain_order
-    provider_order = projection.provider_chain_order
-    if (
-        not workbench_order
-        or not structure_order
-        or not provider_order
-        or len(set(workbench_order)) != len(workbench_order)
-        or len(set(structure_order)) != len(structure_order)
-        or len(set(provider_order)) != len(provider_order)
-        or set(structure_order) != set(provider_order)
-        or not projection.entries
-    ):
-        raise ValueError("Engine invocation residue projection is invalid")
-    residue_ids: set[str] = set()
-    provider_positions: set[tuple[str, int]] = set()
-    observed_workbench_chains: set[str] = set()
-    observed_provider_chains: set[str] = set()
-    workbench_segment_order: list[str] = []
-    current_segment = -1
-    current_position = 0
-    for entry in projection.entries:
-        chain = residue_identity_chain(
-            entry.residue_id,
-            subject="provider projection residue identity",
-        )
-        coordinate = (entry.provider_chain_id, entry.provider_position)
-        if (
-            chain not in workbench_order
-            or entry.provider_chain_id not in provider_order
-            or type(entry.segment_index) is not int
-            or entry.segment_index < current_segment
-            or entry.segment_index > current_segment + 1
-            or entry.segment_index >= len(structure_order)
-            or entry.provider_chain_id != structure_order[entry.segment_index]
-            or type(entry.provider_position) is not int
-            or entry.provider_position < 1
-            or entry.residue_id in residue_ids
-            or coordinate in provider_positions
-        ):
-            raise ValueError("Engine invocation residue projection is invalid")
-        if entry.segment_index != current_segment:
-            if entry.provider_position != 1:
-                raise ValueError(
-                    "Engine invocation residue projection is invalid"
-                )
-            current_segment = entry.segment_index
-            current_position = 1
-            workbench_segment_order.append(chain)
-        elif (
-            entry.provider_position != current_position + 1
-            or workbench_segment_order[-1] != chain
-        ):
-            raise ValueError("Engine invocation residue projection is invalid")
-        else:
-            current_position = entry.provider_position
-        residue_ids.add(entry.residue_id)
-        provider_positions.add(coordinate)
-        observed_workbench_chains.add(chain)
-        observed_provider_chains.add(entry.provider_chain_id)
-    collapsed_workbench_order = tuple(
-        chain
-        for index, chain in enumerate(workbench_segment_order)
-        if index == 0 or chain != workbench_segment_order[index - 1]
-    )
-    if (
-        observed_workbench_chains != set(workbench_order)
-        or observed_provider_chains != set(structure_order)
-        or current_segment != len(structure_order) - 1
-        or collapsed_workbench_order != workbench_order
-    ):
-        raise ValueError("Engine invocation residue projection is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -489,16 +406,12 @@ class Fact:
 
 def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
     """Validate the closed typed plan evidence retained by a Run scope."""
-    if type(nodes) is not tuple:
-        raise ValueError("Run plan evidence is invalid")
     node_ids = tuple(node.node_id for node in nodes)
     if len(set(node_ids)) != len(node_ids):
         raise ValueError("Run plan evidence is invalid")
     for node in nodes:
         if (
-            type(node) is not PlanNodeEvidence
-            or not _valid_identifier(node.node_id)
-            or type(node.dependencies) is not tuple
+            not _valid_identifier(node.node_id)
             or node.dependencies != tuple(sorted(set(node.dependencies)))
             or any(dependency not in node_ids for dependency in node.dependencies)
             or not _valid_digest(node.result_identity_plan_facts_digest)
@@ -510,9 +423,7 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
         if node.node_type is not None:
             _validate_reference(node.node_type, expected_kind="node_type")
         if (
-            type(node.required_input_sources) is not tuple
-            or node.required_input_sources
-            != tuple(
+            node.required_input_sources != tuple(
                 sorted(
                     set(node.required_input_sources),
                     key=lambda item: item.input_port,
@@ -523,7 +434,6 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
         for required_input in node.required_input_sources:
             if (
                 not _valid_identifier(required_input.input_port)
-                or type(required_input.sources) is not tuple
                 or not required_input.sources
                 or required_input.sources
                 != tuple(
@@ -546,7 +456,6 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
                 not _valid_identifier(output.output_port)
                 or output.output_port in output_names
                 or output.artifact_kind not in {"candidate", "standalone"}
-                or type(output.accepted_media_types) is not tuple
                 or not output.accepted_media_types
                 or any(
                     type(media_type) is not str
@@ -568,8 +477,7 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
 
 def _validate_published_output(output: PublishedOutput) -> None:
     if (
-        type(output) is not PublishedOutput
-        or not _valid_identifier(output.node_id)
+        not _valid_identifier(output.node_id)
         or not _valid_identifier(output.output_port)
         or not _valid_digest(output.content_digest)
         or not _valid_digest(output.result_identity)
@@ -583,8 +491,7 @@ def _validate_published_output(output: PublishedOutput) -> None:
 
 def _validate_artifact(artifact: PublishedArtifact) -> None:
     if (
-        type(artifact) is not PublishedArtifact
-        or artifact.artifact_kind not in {"candidate", "standalone"}
+        artifact.artifact_kind not in {"candidate", "standalone"}
         or type(artifact.artifact_reference) is not str
         or not artifact.artifact_reference
         or not _valid_identifier(artifact.node_id)
@@ -604,8 +511,7 @@ def _validate_artifact(artifact: PublishedArtifact) -> None:
 
 def _validate_selection_input(value: SelectionInput) -> None:
     if (
-        type(value) is not SelectionInput
-        or not _valid_identifier(value.node_id)
+        not _valid_identifier(value.node_id)
         or not _valid_identifier(value.output_port)
     ):
         raise ValueError("Selection input evidence is invalid")
@@ -626,10 +532,7 @@ def _valid_finite_number(value: object, *, positive: bool = False) -> bool:
 
 
 def _validate_selection_context(value: ContextSelectorEvidence) -> None:
-    if (
-        type(value) is not ContextSelectorEvidence
-        or type(value.kind) is not str
-    ):
+    if type(value.kind) is not str:
         raise ValueError("Selection Context evidence is invalid")
     calibration_fields = (
         value.calibration_metric,
@@ -681,8 +584,7 @@ def _validate_selection_objective(
     value: SelectionObjectiveEvidence,
 ) -> None:
     if (
-        type(value) is not SelectionObjectiveEvidence
-        or not _valid_identifier(value.objective_id)
+        not _valid_identifier(value.objective_id)
         or not _valid_identifier(value.source_partition)
         or not isinstance(value.utility_parameters, Mapping)
         or not _valid_finite_number(value.declared_weight, positive=True)
@@ -707,8 +609,7 @@ def _validate_observation_selector(
     value: ObservationSelectorEvidence,
 ) -> None:
     if (
-        type(value) is not ObservationSelectorEvidence
-        or not _valid_identifier(value.selector_id)
+        not _valid_identifier(value.selector_id)
         or not _valid_identifier(value.source_partition)
         or value.match_cardinality != "exactly_one"
         or value.missing_policy != "error"
@@ -723,18 +624,14 @@ def _validate_observation_selector(
 
 def _validate_selection_result(value: SelectionResult) -> None:
     if (
-        type(value) is not SelectionResult
-        or not _valid_identifier(value.selection_node_id)
+        not _valid_identifier(value.selection_node_id)
         or not _valid_identifier(value.selected_collection_id)
-        or type(value.selected_candidate_ids) is not tuple
         or any(
             not _valid_identifier(candidate_id)
             for candidate_id in value.selected_candidate_ids
         )
         or value.selected_candidate_ids
         != tuple(dict.fromkeys(value.selected_candidate_ids))
-        or type(value.objectives) is not tuple
-        or type(value.observation_selectors) is not tuple
         or bool(value.objectives) == bool(value.observation_selectors)
     ):
         raise ValueError("Selection result is invalid")
@@ -810,9 +707,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
                     payload.catalog_contract_digest,
                 )
             )
-            or type(payload.resolved_contracts) is not tuple
-            or type(payload.resolved_contract_roots) is not tuple
-            or type(payload.selection_terminal_keys) is not tuple
             or payload.selection_terminal_keys
             != tuple(dict.fromkeys(payload.selection_terminal_keys))
         ):
@@ -825,8 +719,7 @@ def validate_fact_payload(payload: FactPayload) -> None:
         if payload.derived_from is not None:
             derived = payload.derived_from
             if (
-                type(derived) is not DerivedRunReference
-                or not _valid_identifier(derived.source_run_id)
+                not _valid_identifier(derived.source_run_id)
                 or derived.policy not in {"retry_failed", "force_selected"}
                 or derived.selected_node_ids
                 != tuple(dict.fromkeys(derived.selected_node_ids))
@@ -923,13 +816,9 @@ def validate_fact_payload(payload: FactPayload) -> None:
         if (
             not _valid_identifier(payload.node_id)
             or not _valid_digest(payload.result_identity)
-            or type(payload.node_result_manifest)
-            is not ImmutableObjectReference
             or not _valid_digest(payload.node_result_manifest.content_digest)
             or type(payload.node_result_manifest.size) is not int
             or payload.node_result_manifest.size < 0
-            or type(payload.outputs) is not tuple
-            or type(payload.artifacts) is not tuple
         ):
             raise ValueError("Typed Output publication is invalid")
         for output in payload.outputs:

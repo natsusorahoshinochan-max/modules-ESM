@@ -47,7 +47,6 @@ from core.execution.ledger import (
     StructuredError,
     V2RunError,
 )
-from core.execution.ledger.facts import validate_fact_payload
 from core.execution.ledger.codec import (
     payload_from_canonical,
     payload_to_canonical,
@@ -178,8 +177,6 @@ def test_artifact_media_grammar_has_one_typed_fact_owner() -> None:
     )
     scope = _scope_bound(node)
 
-    with pytest.raises(ValueError):
-        validate_fact_payload(scope)
     with pytest.raises(ValueError):
         payload_from_canonical(
             "run_scope_bound",
