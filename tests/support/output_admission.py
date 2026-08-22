@@ -63,7 +63,14 @@ def normalize_fixture_outputs(
     normalized = _normalize_candidate_outputs(
         result_identity=result_identity,
         inputs=inputs,
-        outputs=outputs,
+        outputs={
+            output_port: (
+                tuple(value)
+                if isinstance(value, (list, tuple))
+                else (value,)
+            )
+            for output_port, value in outputs.items()
+        },
         candidate_data_port_types={
             "protein.sequence": object(),
             "protein.structure": object(),
@@ -71,4 +78,13 @@ def normalize_fixture_outputs(
         identity_encoder=_FixtureIdentityEncoder(),
         observation_propagation=observation_propagation,
     )
-    return normalized.values
+    return {
+        output_port: (
+            list(normalized.values[output_port])
+            if isinstance(value, list)
+            else normalized.values[output_port]
+            if isinstance(value, tuple)
+            else normalized.values[output_port][0]
+        )
+        for output_port, value in outputs.items()
+    }

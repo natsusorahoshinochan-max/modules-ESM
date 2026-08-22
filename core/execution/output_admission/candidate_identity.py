@@ -61,10 +61,6 @@ _RUNTIME_METADATA_KEYS = frozenset(
 )
 
 
-def _output_values(value: Any) -> tuple[Any, ...]:
-    return tuple(value) if isinstance(value, (list, tuple)) else (value,)
-
-
 def _candidate_values(value: Any) -> tuple[Candidate, ...]:
     if type(value) is Candidate:
         return (value,)
@@ -89,7 +85,7 @@ class _CandidateOutput:
 
 @dataclass(frozen=True, slots=True)
 class _NormalizedCandidateOutputs:
-    values: Mapping[str, Any]
+    values: Mapping[str, tuple[Any, ...]]
     candidate_data: Mapping[str, CandidateDataReference]
 
 
@@ -210,7 +206,7 @@ def _normalize_candidate_outputs(
     *,
     result_identity: str,
     inputs: Mapping[str, AdmittedPort],
-    outputs: Mapping[str, Any],
+    outputs: Mapping[str, tuple[Any, ...]],
     candidate_data_port_types: Mapping[str, Any],
     identity_encoder: _FreshOutputIdentityEncoder,
     candidate_metadata: tuple[CandidateMetadataIdentity, ...] = (),
@@ -266,9 +262,7 @@ def _normalize_candidate_outputs(
         fields[metadata.field_name] = metadata.value
 
     for output_port in sorted(outputs):
-        for value_index, value in enumerate(
-            _output_values(outputs[output_port])
-        ):
+        for value_index, value in enumerate(outputs[output_port]):
             for sample_index, candidate in enumerate(
                 _candidate_values(value)
             ):
@@ -639,18 +633,12 @@ def _normalize_candidate_outputs(
             )
         return value
 
-    normalized_outputs: dict[str, Any] = {}
-    for output_port, supplied in outputs.items():
-        values = tuple(
+    normalized_outputs: dict[str, tuple[Any, ...]] = {}
+    for output_port, values in outputs.items():
+        normalized_outputs[output_port] = tuple(
             normalize_value(output_port, index, value)
-            for index, value in enumerate(_output_values(supplied))
+            for index, value in enumerate(values)
         )
-        if isinstance(supplied, list):
-            normalized_outputs[output_port] = list(values)
-        elif isinstance(supplied, tuple):
-            normalized_outputs[output_port] = values
-        else:
-            normalized_outputs[output_port] = values[0]
     candidate_data: dict[str, CandidateDataReference] = {}
     for raw_candidate_id, candidate in normalized_candidates.items():
         data_type_id = _candidate_data_type_id(candidate.data)

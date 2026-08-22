@@ -138,7 +138,7 @@ class AdmittedNodeOutput:
 
 @dataclass(frozen=True, slots=True)
 class _ResolvedIdentityOutputs:
-    values: Mapping[str, Any]
+    values: Mapping[str, tuple[Any, ...]]
     candidate_metadata: tuple[CandidateMetadataIdentity, ...]
     scientific_axes: Mapping[
         tuple[str, int],
@@ -152,7 +152,7 @@ def _resolve_identity_intents(
     raw_outputs: Mapping[str, Any],
     identity_encoder: _FreshOutputIdentityEncoder,
 ) -> _ResolvedIdentityOutputs:
-    resolved_outputs: dict[str, Any] = {}
+    resolved_outputs: dict[str, tuple[Any, ...]] = {}
     candidate_metadata: list[CandidateMetadataIdentity] = []
     scientific_axes: dict[
         tuple[str, int],
@@ -186,14 +186,7 @@ def _resolve_identity_intents(
             scientific_axes[(output_port, value_index)] = (
                 resolved.scientific_axes
             )
-        if declaration.multiplicity == "many":
-            resolved_outputs[output_port] = (
-                list(materialized_values)
-                if isinstance(supplied, list)
-                else tuple(materialized_values)
-            )
-        else:
-            resolved_outputs[output_port] = materialized_values[0]
+        resolved_outputs[output_port] = tuple(materialized_values)
     return _ResolvedIdentityOutputs(
         values=MappingProxyType(resolved_outputs),
         candidate_metadata=tuple(candidate_metadata),
@@ -280,12 +273,7 @@ def admit_node_output(
     for output_port, declaration in declarations.items():
         if output_port not in normalized.values:
             continue
-        supplied = normalized.values[output_port]
-        values = (
-            tuple(supplied)
-            if declaration.multiplicity == "many"
-            else (supplied,)
-        )
+        values = normalized.values[output_port]
         value_projections: list[_FreshValueProjections | None] = []
         for value_index, value in enumerate(values):
             candidates = _candidate_values(value)
