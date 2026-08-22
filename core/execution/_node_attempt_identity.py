@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from types import MappingProxyType
-from typing import Any
+from typing import Any, cast
 
-from core.catalog.port_contract import canonical_json_bytes, canonical_sha256
+from core.catalog.port_contract import canonical_sha256
 from core.execution.output_admission import NodeOutputPlan, OutputPortPlan
 from core.execution.output_admission.artifacts import (
     ArtifactOutputDeclaration,
@@ -15,30 +14,7 @@ from core.execution.output_admission.artifacts import (
 from core.operation import AdmittedPort
 from core.workflow.plan import ExecutionPlanNode
 from datatypes.exact_reference import ExactContractReference
-
-
-def _plain_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            str(key): _plain_json(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, tuple):
-        return [_plain_json(item) for item in value]
-    if isinstance(value, list):
-        return [_plain_json(item) for item in value]
-    return value
-
-
-def _freeze_runtime_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType({
-            str(key): _freeze_runtime_json(item)
-            for key, item in value.items()
-        })
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_runtime_json(item) for item in value)
-    return value
+from datatypes.i_json import freeze_i_json, thaw_i_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,24 +28,16 @@ def _resolve_effective_randomness(
     node: ExecutionPlanNode,
     inputs: Mapping[str, AdmittedPort],
 ) -> _EffectiveRandomnessSnapshot:
-    node_parameters = _plain_json(node.node_parameters)
-    binding_parameters = _plain_json(node.binding_parameters)
+    node_parameters = thaw_i_json(node.node_parameters)
+    binding_parameters = thaw_i_json(node.binding_parameters)
     declared_randomness = node._runtime.effective_randomness_parameters
     if declared_randomness:
         resolver = node._runtime.effective_randomness_resolver
         if resolver is None:
             resolved_randomness: Mapping[str, Any] = {
-                parameter_name: (
-                    node_parameters[parameter_name]
-                    if parameter_name in node_parameters
-                    and parameter_name not in binding_parameters
-                    else (
-                        binding_parameters[parameter_name]
-                        if parameter_name in binding_parameters
-                        and parameter_name not in node_parameters
-                        else {"resolution": "unresolved"}
-                    )
-                )
+                parameter_name: node_parameters[parameter_name]
+                if parameter_name in node_parameters
+                else binding_parameters[parameter_name]
                 for parameter_name in declared_randomness
             }
         else:
@@ -78,24 +46,17 @@ def _resolve_effective_randomness(
                 node_parameters=node_parameters,
                 binding_parameters=binding_parameters,
             )
-            if (
-                not isinstance(resolved_randomness, Mapping)
-                or set(resolved_randomness) != set(declared_randomness)
-            ):
+            if set(resolved_randomness) != set(declared_randomness):
                 raise ValueError(
                     "effective randomness resolver must return every "
                     "declared parameter exactly once"
                 )
         effective_randomness = {}
         for parameter_name in declared_randomness:
-            resolved_value = _plain_json(
+            resolved_value = thaw_i_json(
                 resolved_randomness[parameter_name]
             )
-            effective_randomness[parameter_name] = (
-                {"resolution": "unresolved"}
-                if resolved_value is None
-                else resolved_value
-            )
+            effective_randomness[parameter_name] = resolved_value
             if (
                 parameter_name in node_parameters
                 and parameter_name not in binding_parameters
@@ -108,17 +69,21 @@ def _resolve_effective_randomness(
                 binding_parameters[parameter_name] = resolved_value
     else:
         effective_randomness = {}
-    canonical_json_bytes(
-        {
-            "effective_randomness": effective_randomness,
-            "node_parameters": node_parameters,
-            "binding_parameters": binding_parameters,
-        }
+    snapshot = cast(
+        Mapping[str, Mapping[str, Any]],
+        freeze_i_json(
+            {
+                "effective_randomness": effective_randomness,
+                "node_parameters": node_parameters,
+                "binding_parameters": binding_parameters,
+            },
+            path="effective_randomness_snapshot",
+        ),
     )
     return _EffectiveRandomnessSnapshot(
-        effective_randomness=_freeze_runtime_json(effective_randomness),
-        node_parameters=_freeze_runtime_json(node_parameters),
-        binding_parameters=_freeze_runtime_json(binding_parameters),
+        effective_randomness=snapshot["effective_randomness"],
+        node_parameters=snapshot["node_parameters"],
+        binding_parameters=snapshot["binding_parameters"],
     )
 
 
@@ -136,10 +101,10 @@ def result_identity_descriptor(
         if effective_randomness_snapshot is not None
         else _resolve_effective_randomness(node, inputs)
     )
-    resolved_node_parameters = _plain_json(
+    resolved_node_parameters = thaw_i_json(
         randomness_snapshot.node_parameters
     )
-    resolved_binding_parameters = _plain_json(
+    resolved_binding_parameters = thaw_i_json(
         randomness_snapshot.binding_parameters
     )
     for parameter_name in plan_facts.node_parameter_indirections:
@@ -147,7 +112,7 @@ def result_identity_descriptor(
     for parameter_name in node._runtime.project_input_parameters:
         resolved_node_parameters.pop(parameter_name, None)
     declared_randomness = node._runtime.effective_randomness_parameters
-    effective_randomness = _plain_json(
+    effective_randomness = thaw_i_json(
         randomness_snapshot.effective_randomness
     )
     if declared_randomness:

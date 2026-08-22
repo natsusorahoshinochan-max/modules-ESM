@@ -193,11 +193,6 @@ class V2RunService:
         inputs: dict[str, AdmittedPort] = {}
         for port_name, admitted in admitted_inputs.items():
             declaration = node._runtime.input_ports[port_name]
-            if declaration.multiplicity == "one" and len(admitted) != 1:
-                raise RuntimeError(
-                    "Execution Plan one-valued input Port "
-                    f"{port_name!r} resolved to {len(admitted)} admitted values"
-                )
             inputs[port_name] = combine_admitted_port(
                 port_type=declaration.reference.canonical_projection(),
                 multiplicity=declaration.multiplicity,

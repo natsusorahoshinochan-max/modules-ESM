@@ -18,7 +18,6 @@ from core.execution._node_attempt_identity import (
     _EffectiveRandomnessSnapshot,
     _exact_reference,
     _node_output_plan,
-    _plain_json,
     _resolve_effective_randomness,
     _result_identity,
     result_contract_metadata,
@@ -53,6 +52,7 @@ from core.operation import (
 )
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 from core.workflow.plan import ExecutionPlanNode
+from datatypes.i_json import thaw_i_json
 
 
 def _utc_now() -> datetime:
@@ -141,7 +141,7 @@ class _NodeAttempt:
             {
                 "schema_namespace": "protein-workbench-readiness/v2",
                 "binding": node.binding.canonical_projection(),
-                "declaration": _plain_json(declaration.descriptor()),
+                "declaration": thaw_i_json(declaration.descriptor()),
             }
         )
         ledger.record(
