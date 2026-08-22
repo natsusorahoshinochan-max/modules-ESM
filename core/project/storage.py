@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import tempfile
 
@@ -24,27 +24,6 @@ def validate_identifier(value: str, field: str) -> str:
     if not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value):
         raise StoragePathError(field, f"Invalid {field}")
     return value
-
-
-def validate_relative_path(
-    value: str,
-    field: str,
-    *,
-    allow_nested: bool = True,
-) -> tuple[str, ...]:
-    """Return the path parts supplied through the public Interface."""
-    if not isinstance(value, str) or not value:
-        raise StoragePathError(field, f"Invalid {field}")
-    relative = PurePosixPath(value)
-    parts = relative.parts
-    if (
-        relative.is_absolute()
-        or not parts
-        or any(part in {"", ".", ".."} for part in parts)
-        or (not allow_nested and len(parts) != 1)
-    ):
-        raise StoragePathError(field, f"Invalid {field}")
-    return parts
 
 
 def contained_path(

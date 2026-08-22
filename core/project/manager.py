@@ -15,10 +15,8 @@ from typing import Any, Mapping
 
 from core.project.storage import (
     StoragePathError,
-    contained_path,
     replace_file,
     validate_identifier,
-    validate_relative_path,
     write_new_file,
 )
 
@@ -87,7 +85,7 @@ class ProjectManager:
 
     def _project_storage_root(self, project_id: str) -> Path:
         safe_project_id = validate_identifier(project_id, "project_id")
-        return contained_path(self._root_dir, safe_project_id)
+        return self._root_dir / safe_project_id
 
     @staticmethod
     def _validate_input_filename(filename: str) -> str:
@@ -133,10 +131,7 @@ class ProjectManager:
         *,
         filename: str,
     ) -> ProjectInputDescriptor:
-        if (
-            type(payload) is not bytes
-            or len(payload) > MAX_PROJECT_INPUT_BYTES
-        ):
+        if len(payload) > MAX_PROJECT_INPUT_BYTES:
             raise ValueError("Project input payload is invalid or too large")
         safe_filename = cls._validate_input_filename(filename)
         return ProjectInputDescriptor(
@@ -159,10 +154,7 @@ class ProjectManager:
             payload,
             filename=filename,
         )
-        inputs_dir = contained_path(
-            project_dir,
-            "inputs",
-        )
+        inputs_dir = project_dir / "inputs"
         inputs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         destination = inputs_dir / input_reference
         if destination.exists():
@@ -222,15 +214,11 @@ class ProjectManager:
             input_reference,
             "project_input_ref",
         )
-        input_dir = contained_path(
-            self._project_storage_root(project_id),
-            "inputs",
-            safe_reference,
+        input_dir = (
+            self._project_storage_root(project_id) / "inputs" / safe_reference
         )
         raw = json.loads(
-            contained_path(input_dir, "descriptor.json").read_text(
-                encoding="utf-8"
-            )
+            (input_dir / "descriptor.json").read_text(encoding="utf-8")
         )
         if (
             not isinstance(raw, dict)
@@ -258,7 +246,7 @@ class ProjectManager:
             size=raw["size"],
             content_digest=raw["content_digest"],
         )
-        payload_path = contained_path(input_dir, "payload")
+        payload_path = input_dir / "payload"
         payload = payload_path.read_bytes()
         if (
             len(payload) != descriptor.size
@@ -271,60 +259,36 @@ class ProjectManager:
     def result_cache_storage_root(self, project_id: str) -> Path:
         """Return the Project scope assigned to the Result replay owner."""
         if self._cache_root is None:
-            return contained_path(
-                self._project_storage_root(project_id),
-                "cache",
-            )
-        return contained_path(
-            self._cache_root,
-            validate_identifier(project_id, "project_id"),
-        )
+            return self._project_storage_root(project_id) / "cache"
+        return self._cache_root / validate_identifier(project_id, "project_id")
 
     def _result_storage_root(self, project_id: str) -> Path:
         if self._output_root is None:
-            return contained_path(
-                self._project_storage_root(project_id),
-                "outputs",
-            )
-        return contained_path(
-            self._output_root,
-            validate_identifier(project_id, "project_id"),
-        )
+            return self._project_storage_root(project_id) / "outputs"
+        return self._output_root / validate_identifier(project_id, "project_id")
 
     def run_output_storage_root(self, project_id: str, run_id: str) -> Path:
         """Return the Project/run scope assigned to Result publication."""
         safe_run_id = validate_identifier(run_id, "run_id")
-        return contained_path(
-            self._result_storage_root(project_id),
-            safe_run_id,
-        )
+        return self._result_storage_root(project_id) / safe_run_id
 
     def _object_storage_root(self, project_id: str) -> Path:
-        return contained_path(self._result_storage_root(project_id), "objects")
+        return self._result_storage_root(project_id) / "objects"
 
     def workflow_storage_root(self, project_id: str) -> Path:
         """Return the Project scope assigned to Workflow Authoring."""
-        return contained_path(
-            self._project_storage_root(project_id),
-            "workflow-v2",
-        )
+        return self._project_storage_root(project_id) / "workflow-v2"
 
     def run_storage_root(self, project_id: str) -> Path:
         """Return the Project scope assigned to Run Runtime."""
         if self._run_root is None:
-            return contained_path(
-                self._project_storage_root(project_id),
-                "runs",
-            )
-        return contained_path(
-            self._run_root,
-            validate_identifier(project_id, "project_id"),
-        )
+            return self._project_storage_root(project_id) / "runs"
+        return self._run_root / validate_identifier(project_id, "project_id")
 
     def run_storage_directory(self, project_id: str, run_id: str) -> Path:
         """Return one exact Run Runtime storage scope."""
         safe_run_id = validate_identifier(run_id, "run_id")
-        return contained_path(self.run_storage_root(project_id), safe_run_id)
+        return self.run_storage_root(project_id) / safe_run_id
 
     def stored_run_ids(self, project_id: str) -> tuple[str, ...]:
         """List exact Run identities in the Project's Runtime scope."""
@@ -367,7 +331,7 @@ class ProjectManager:
         safe_node_id = validate_identifier(node_id, "node_id")
         run_dir = self.run_storage_directory(project_id, run_id)
         return RunContext(
-            temp_dir=str(contained_path(run_dir, "temp", safe_node_id)),
+            temp_dir=str(run_dir / "temp" / safe_node_id),
         )
 
     def _ensure_dir(self, project_id: str) -> Path:
@@ -428,10 +392,9 @@ class ProjectManager:
 
         input_payloads: dict[str, tuple[str, bytes]] = {}
         for reference, source_value in input_sources.items():
-            reference_parts = validate_relative_path(
+            safe_reference = validate_identifier(
                 reference,
                 "canonical_v2_input",
-                allow_nested=False,
             )
             source = Path(source_value)
             if not source.is_file():
@@ -439,7 +402,7 @@ class ProjectManager:
                     f"Canonical v2 input source is unavailable: {reference}"
                 )
             try:
-                input_payloads[reference_parts[0]] = (
+                input_payloads[safe_reference] = (
                     source.name,
                     source.read_bytes(),
                 )
@@ -494,10 +457,7 @@ class ProjectManager:
 
     def load_meta(self, project_id: str) -> ProjectMeta | None:
         """Load exactly one closed v2 Project metadata document."""
-        path = contained_path(
-            self._project_storage_root(project_id),
-            "project.json",
-        )
+        path = self._project_storage_root(project_id) / "project.json"
         if not path.exists():
             return None
         if not path.is_file():

@@ -18,7 +18,7 @@ from core.project.manager import (
     ProjectMeta,
     ProtectedProjectError,
 )
-from core.project.storage import contained_path, write_new_file
+from core.project.storage import write_new_file
 from core.workflow.compiler import (
     CompilationRequest,
     WorkflowCompileError,
@@ -167,10 +167,7 @@ class WorkflowAuthoringService:
         return project
 
     def _record_directory(self, project_id: str, collection: str) -> Path:
-        return contained_path(
-            self._projects.workflow_storage_root(project_id),
-            collection,
-        )
+        return self._projects.workflow_storage_root(project_id) / collection
 
     @staticmethod
     def _record_name(revision: int) -> str:
@@ -202,10 +199,10 @@ class WorkflowAuthoringService:
         collection: str,
         revision: int,
     ) -> Mapping[str, Any]:
-        path = contained_path(
-            self._projects.workflow_storage_root(project_id),
-            collection,
-            self._record_name(revision),
+        path = (
+            self._projects.workflow_storage_root(project_id)
+            / collection
+            / self._record_name(revision)
         )
         payload = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
