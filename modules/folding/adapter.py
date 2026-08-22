@@ -9,7 +9,6 @@ import importlib.metadata
 import importlib.util
 import json
 import math
-import os
 from pathlib import Path
 from typing import Any, cast, Iterable, Protocol, TYPE_CHECKING
 
@@ -131,8 +130,7 @@ def local_runtime_structurally_available() -> bool:
 
 def remote_readiness(environment: Mapping[str, Any]) -> bool:
     return (
-        environment.get("endpoint_id") == "biohub"
-        and environment.get("credential_handle") is not None
+        environment["endpoint_id"] == "biohub"
         and _remote_provider_installation_is_exact()
     )
 
@@ -169,13 +167,8 @@ def _configured_directory(
     environment: Mapping[str, object],
     key: str,
 ) -> Path:
-    raw = environment.get(key)
-    if not isinstance(raw, (str, os.PathLike)):
-        raise LocalESMFold2RuntimeUnavailable(
-            f"local ESMFold2 {key} is not configured"
-        )
     try:
-        path = Path(raw).resolve(strict=True)
+        path = cast(Path, environment[key]).resolve(strict=True)
     except OSError as error:
         raise LocalESMFold2RuntimeUnavailable(
             f"local ESMFold2 {key} is unavailable"
@@ -243,15 +236,15 @@ def resolve_local_runtime(
             "local ESMFold2 Torch runtime is not exact"
         )
     if (
-        environment.get("model_snapshot_revision")
+        environment["model_snapshot_revision"]
         != LOCAL_ESMFOLD2_REVISION
-        or environment.get("language_model_snapshot_revision")
+        or environment["language_model_snapshot_revision"]
         != LOCAL_ESMC_REVISION
     ):
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 snapshot revision is not exact"
         )
-    if environment.get("device") != LOCAL_DEVICE:
+    if environment["device"] != LOCAL_DEVICE:
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 device does not match the Binding"
         )

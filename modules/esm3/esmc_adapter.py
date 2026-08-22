@@ -79,11 +79,8 @@ def normalize_representation(
 
 
 def environment_ready(environment: Mapping[str, Any]) -> bool:
-    """Require the exact endpoint declaration and an opaque credential."""
-    return (
-        environment.get("endpoint_id") == "biohub"
-        and environment.get("credential_handle") is not None
-    )
+    """Require the exact endpoint declared by this Binding."""
+    return environment["endpoint_id"] == "biohub"
 
 
 class BiohubESMCAdapter:

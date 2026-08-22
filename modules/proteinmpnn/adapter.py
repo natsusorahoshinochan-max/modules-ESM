@@ -158,19 +158,13 @@ def proteinmpnn_readiness(
             proof_source="direct-observation",
             reason_code="proteinmpnn_runtime_unavailable",
         )
-    if environment.get("device") != PROTEINMPNN_DEVICE:
+    if environment["device"] != PROTEINMPNN_DEVICE:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
             reason_code="proteinmpnn_runtime_unavailable",
         )
-    provider_root = environment.get("provider_root")
-    if not isinstance(provider_root, Path):
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
+    provider_root = cast(Path, environment["provider_root"])
     readiness = check_proteinmpnn_readiness(
         provider_root,
     )

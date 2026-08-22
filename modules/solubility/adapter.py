@@ -203,12 +203,12 @@ class SolubilityReadinessUnavailable(RuntimeError):
 
 
 def _regular_file_sha256(
-    path: object,
+    path: Path,
     *,
     executable: bool = False,
     provider_name: str = "SoluProt",
 ) -> str:
-    if not isinstance(path, Path) or not path.is_file():
+    if not path.is_file():
         raise SolubilityReadinessUnavailable(
             f"configured {provider_name} asset is unavailable"
         )
@@ -229,7 +229,7 @@ def _regular_file_sha256(
 
 
 def _require_digest(
-    path: object,
+    path: Path,
     expected: str,
     *,
     executable: bool = False,
@@ -246,11 +246,11 @@ def _require_digest(
         raise SolubilityReadinessUnavailable(
             f"configured {provider_name} asset identity changed"
         )
-    return cast(Path, path)
+    return path
 
 
 def _validate_python_runtime(
-    path: object,
+    path: Path,
     *,
     site_packages_root: Path,
 ) -> Path:
@@ -301,12 +301,8 @@ print(json.dumps({{
             "configured SoluProt Python identity is unavailable"
         ) from error
     if (
-        not isinstance(identity, dict)
-        or set(identity) != {"python", "site", "distributions"}
-        or identity["python"] != SOLUPROT_PYTHON_VERSION
-        or not isinstance(identity["site"], str)
+        identity["python"] != SOLUPROT_PYTHON_VERSION
         or Path(identity["site"]).resolve() != site_packages_root.resolve()
-        or not isinstance(identity["distributions"], dict)
         or identity["distributions"] != SOLUPROT_RUNTIME_VERSIONS
     ):
         raise SolubilityReadinessUnavailable(
@@ -315,11 +311,10 @@ print(json.dumps({{
     return python_path
 
 
-def _validate_perl_runtime(path: object) -> Path:
+def _validate_perl_runtime(path: Path) -> Path:
     """Attest the exact interpreter selected by TMHMM's env shebang."""
     if (
-        not isinstance(path, Path)
-        or path.resolve() != Path("/usr/bin/perl").resolve()
+        path.resolve() != Path("/usr/bin/perl").resolve()
     ):
         raise SolubilityReadinessUnavailable(
             "configured SoluProt Perl is unavailable"
@@ -382,14 +377,11 @@ def validate_soluprot_environment(
     mode: SoluProtMode,
 ) -> None:
     """Validate one Binding's exact assets without importing/loading a model."""
-    python_executable = environment.get("python_executable")
-    wheel_path = environment.get("wheel_path")
-    site_packages_root = environment.get("site_packages_root")
-    usearch_executable = environment.get("usearch_executable")
-    if (
-        not isinstance(site_packages_root, Path)
-        or not site_packages_root.is_dir()
-    ):
+    python_executable = cast(Path, environment["python_executable"])
+    wheel_path = cast(Path, environment["wheel_path"])
+    site_packages_root = cast(Path, environment["site_packages_root"])
+    usearch_executable = cast(Path, environment["usearch_executable"])
+    if not site_packages_root.is_dir():
         raise SolubilityReadinessUnavailable(
             "configured SoluProt package root is unavailable"
         )
@@ -410,11 +402,8 @@ def validate_soluprot_environment(
         executable=True,
     )
     if mode == "full":
-        tmhmm_root = environment.get("tmhmm_root")
-        if (
-            not isinstance(tmhmm_root, Path)
-            or not tmhmm_root.is_dir()
-        ):
+        tmhmm_root = cast(Path, environment["tmhmm_root"])
+        if not tmhmm_root.is_dir():
             raise SolubilityReadinessUnavailable(
                 "configured SoluProt TMHMM root is unavailable"
             )
@@ -428,7 +417,7 @@ def validate_soluprot_environment(
                     "bin/tmhmmformat.pl",
                 },
             )
-        _validate_perl_runtime(environment.get("perl_executable"))
+        _validate_perl_runtime(cast(Path, environment["perl_executable"]))
 
 
 def soluprot_readiness(
@@ -615,7 +604,7 @@ def parse_soluprot_output(
 
 
 def _validate_executable_runtime(
-    path: object,
+    path: Path,
     *,
     expected_path: Path,
     expected_sha256: str,
@@ -624,8 +613,7 @@ def _validate_executable_runtime(
     runtime_name: str,
 ) -> Path:
     if (
-        not isinstance(path, Path)
-        or path.resolve() != expected_path.resolve()
+        path.resolve() != expected_path.resolve()
     ):
         raise SolubilityReadinessUnavailable(
             f"configured Protein-Sol {runtime_name} is unavailable"
@@ -670,11 +658,8 @@ def validate_protein_sol_environment(
     environment: Mapping[str, Any],
 ) -> None:
     """Attest the exact upstream dependency tree without executing it."""
-    source_root = environment.get("source_root")
-    if (
-        not isinstance(source_root, Path)
-        or not source_root.is_dir()
-    ):
+    source_root = cast(Path, environment["source_root"])
+    if not source_root.is_dir():
         raise SolubilityReadinessUnavailable(
             "configured Protein-Sol source root is unavailable"
         )
@@ -685,7 +670,7 @@ def validate_protein_sol_environment(
             provider_name="Protein-Sol",
         )
     _validate_executable_runtime(
-        environment.get("bash_executable"),
+        cast(Path, environment["bash_executable"]),
         expected_path=Path("/bin/bash"),
         expected_sha256=PROTEIN_SOL_BASH_SHA256,
         version_command=("--version",),
@@ -693,7 +678,7 @@ def validate_protein_sol_environment(
         runtime_name="Bash",
     )
     _validate_executable_runtime(
-        environment.get("perl_executable"),
+        cast(Path, environment["perl_executable"]),
         expected_path=Path("/usr/bin/perl"),
         expected_sha256=PROTEIN_SOL_PERL_SHA256,
         version_command=("-e", "print $^V"),

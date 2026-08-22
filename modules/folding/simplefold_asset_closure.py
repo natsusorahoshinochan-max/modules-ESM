@@ -181,8 +181,8 @@ def _sha256_file(path: Path) -> str:
 
 
 def _configured_root(environment: Mapping[str, Any], key: str) -> Path:
-    root = environment.get(key)
-    if not isinstance(root, Path) or not root.is_dir():
+    root = cast(Path, environment[key])
+    if not root.is_dir():
         raise SimpleFoldAssetClosureAdmissionError(
             f"SimpleFold closure root is unavailable: {key}"
         )

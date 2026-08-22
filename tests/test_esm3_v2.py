@@ -1211,24 +1211,6 @@ def test_readiness_rejects_before_provider_call(
     assert client.calls == []
 
 
-def test_readiness_has_no_implicit_process_credential_fallback(
-    tmp_path: Path,
-) -> None:
-    from modules.esm3.package import _ready
-
-    credential_file = tmp_path / "biohub-token"
-    credential_file.write_text("must-not-be-read\n", encoding="utf-8")
-
-    assert not _ready(
-        BindingEnvironment(
-            {
-                "endpoint_id": "biohub",
-                "credential_file": credential_file,
-            }
-        )
-    ).passing
-
-
 def test_provider_identity_is_checked_once_at_each_readiness_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

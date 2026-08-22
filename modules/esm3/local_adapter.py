@@ -121,13 +121,8 @@ def _snapshot_artifact_source(
 
 
 def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
-    value = environment.get(key)
-    if not isinstance(value, (str, os.PathLike)):
-        raise LocalESM3RuntimeUnavailable(
-            f"local ESM-3 {key} is not configured"
-        )
     try:
-        path = Path(value).resolve(strict=True)
+        path = cast(Path, environment[key]).resolve(strict=True)
     except OSError as error:
         raise LocalESM3RuntimeUnavailable(
             f"local ESM-3 {key} is unavailable"
@@ -142,8 +137,7 @@ def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
 def _validated_performance_settings(
     environment: Mapping[str, Any],
 ) -> dict[str, Any]:
-    raw = environment.get("performance_settings", {})
-    if not isinstance(raw, Mapping) or dict(raw) != dict(
+    if dict(environment["performance_settings"]) != dict(
         LOCAL_ESM3_PERFORMANCE_SETTINGS
     ):
         raise LocalESM3RuntimeUnavailable(
@@ -181,7 +175,7 @@ def resolve_local_runtime(
         )
     validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     if (
-        environment.get("model_snapshot_revision")
+        environment["model_snapshot_revision"]
         != LOCAL_ESM3_SNAPSHOT_REVISION
     ):
         raise LocalESM3RuntimeUnavailable(
@@ -189,7 +183,7 @@ def resolve_local_runtime(
         )
     snapshot_path = _configured_path(environment, "model_snapshot_path")
     runtime_directory = _configured_path(environment, "runtime_directory")
-    device = _validate_device(environment.get("device"))
+    device = _validate_device(environment["device"])
     performance_settings = _validated_performance_settings(environment)
     artifact_sources: dict[str, Path] = {}
     for relative_path, expected_digest in LOCAL_ESM3_WEIGHT_SHA256.items():

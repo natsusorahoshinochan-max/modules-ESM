@@ -78,7 +78,7 @@ def simplefold_confidence_runtime_structurally_available() -> bool:
 def simplefold_confidence_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    if environment.get("device") != (
+    if environment["device"] != (
         simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
     ):
         return ReadinessResult(

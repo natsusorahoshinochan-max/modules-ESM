@@ -404,8 +404,7 @@ def _local_available() -> AvailabilityResult:
 def _ready(check_input: BindingEnvironment) -> ReadinessResult:
     environment = check_input.values
     return ReadinessResult(
-        environment.get("endpoint_id") == "biohub"
-        and environment.get("credential_handle") is not None
+        environment["endpoint_id"] == "biohub"
         and _provider_installation_is_exact()
     )
 

@@ -46,10 +46,9 @@ def mkdssp_provider_identity() -> dict[str, str]:
 
 def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Attest the configured executable without performing annotation work."""
-    path = environment.get("dssp_binary")
+    path = cast(Path, environment["dssp_binary"])
     if (
-        not isinstance(path, Path)
-        or not os.path.isfile(path)
+        not os.path.isfile(path)
         or not os.access(path, os.X_OK)
     ):
         return ReadinessResult(
@@ -272,12 +271,7 @@ class MkdsspAdapter:
         self._resources = resources
 
     def _timeout(self) -> int:
-        timeout = self._environment.get("dssp_timeout_seconds", 30)
-        if type(timeout) is not int or not 1 <= timeout <= 300:
-            raise ValueError(
-                "trusted DSSP timeout must be an integer from 1 to 300"
-            )
-        return timeout
+        return cast(int, self._environment.get("dssp_timeout_seconds", 30))
 
     def annotate(
         self,

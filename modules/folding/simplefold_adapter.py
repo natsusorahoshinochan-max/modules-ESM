@@ -92,7 +92,7 @@ def simplefold_runtime_structurally_available() -> bool:
 def simplefold_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    if environment.get("device") != simplefold_contract.SIMPLEFOLD_DEVICE:
+    if environment["device"] != simplefold_contract.SIMPLEFOLD_DEVICE:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
