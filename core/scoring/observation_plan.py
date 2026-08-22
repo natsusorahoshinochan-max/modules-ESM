@@ -149,15 +149,6 @@ class ResolvedMetricFacts:
     requires_residue_axis: bool
     structure_alignment_evidence: StructureAlignmentEvidencePlan | None = None
 
-    def __post_init__(self) -> None:
-        if (
-            type(self.reference) is not ExactContractReference
-            or self.reference.contract_kind != "metric"
-        ):
-            raise ObservationPlanError(
-                "Resolved Metric facts require an exact Metric reference"
-            )
-
 
 @dataclass(frozen=True, slots=True)
 class ResolvedProducedObservation:
@@ -182,13 +173,6 @@ class ResolvedProducedObservation:
     method_port: str | None = None
 
     def __post_init__(self) -> None:
-        if (
-            type(self.metric) is not ExactContractReference
-            or self.metric.contract_kind != "metric"
-        ):
-            raise ObservationPlanError(
-                "Produced Observation requires an exact Metric reference"
-            )
         object.__setattr__(
             self,
             "context_profile",
@@ -206,14 +190,6 @@ class ObservationPropagationFilter:
     context_profile: ObservationContextProfile | None = None
 
     def __post_init__(self) -> None:
-        if self.metric is not None and self.metric.contract_kind != "metric":
-            raise ObservationPlanError(
-                "Observation propagation filter requires a Metric reference"
-            )
-        if self.method is not None and self.method.contract_kind != "method":
-            raise ObservationPlanError(
-                "Observation propagation filter requires a Method reference"
-            )
         if self.context_profile is not None:
             object.__setattr__(
                 self,
@@ -233,20 +209,7 @@ class ObservationPropagationPlan:
     absent_input_policy: AbsentInputPolicy = "reject"
 
     def __post_init__(self) -> None:
-        input_ports = tuple(self.input_ports)
-        if not input_ports:
-            raise ObservationPlanError(
-                "Observation propagation requires an input Port"
-            )
-        if self.mode == "filter" and self.filter is None:
-            raise ObservationPlanError(
-                "Filter propagation requires an exact filter"
-            )
-        if self.mode != "filter" and self.filter is not None:
-            raise ObservationPlanError(
-                "Only filter propagation accepts a filter"
-            )
-        object.__setattr__(self, "input_ports", input_ports)
+        object.__setattr__(self, "input_ports", tuple(self.input_ports))
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,24 +225,8 @@ class ProducedObservationPlan:
     propagation: ObservationPropagationPlan | None = None
 
     def __post_init__(self) -> None:
-        if (
-            type(self.binding_method) is not ExactContractReference
-            or self.binding_method.contract_kind != "method"
-        ):
-            raise ObservationPlanError(
-                "Produced Observation plan requires an exact Binding Method"
-            )
         observations = tuple(self.observations)
         facts = dict(self.metric_facts)
-        required_metrics = {observation.metric for observation in observations}
-        if set(facts) != required_metrics:
-            raise ObservationPlanError(
-                "Produced Observation Metric facts are not an exact closure"
-            )
-        if any(facts[reference].reference != reference for reference in facts):
-            raise ObservationPlanError(
-                "Produced Observation Metric fact identity is inconsistent"
-            )
         object.__setattr__(self, "observations", observations)
         object.__setattr__(self, "metric_facts", MappingProxyType(facts))
 
