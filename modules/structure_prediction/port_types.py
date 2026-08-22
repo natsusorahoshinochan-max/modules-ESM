@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 from core.catalog.builtins import (
     builtin_frozen_catalog,
@@ -28,8 +28,6 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
     validate_canonical_identifier,
 )
-from datatypes.residue import ResidueLayout
-from datatypes.sequence import ProteinSequence
 from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
     _candidate_data_reference_to_canonical,
@@ -64,9 +62,6 @@ _CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
-_DecodedValue = TypeVar("_DecodedValue")
-
-
 def _wire_value(codec: PortTypeDefinition, value: object) -> object:
     return json.loads(codec.encode(value))["value"]
 
@@ -74,9 +69,8 @@ def _wire_value(codec: PortTypeDefinition, value: object) -> object:
 def _decode_value(
     codec: PortTypeDefinition,
     value: object,
-    expected_type: type[_DecodedValue],
-) -> _DecodedValue:
-    decoded = codec.decode(
+) -> object:
+    return codec.decode(
         canonical_json_bytes(
             {
                 "schema_namespace": "protein-workbench-port-value/v2",
@@ -86,11 +80,6 @@ def _decode_value(
             }
         )
     )
-    if type(decoded) is not expected_type:
-        raise ValueError(
-            f"{codec.type_id} codec returned the wrong canonical value type"
-        )
-    return decoded
 
 
 def _closed_dict(
@@ -222,23 +211,13 @@ def _prediction_axis_to_wire(value: object) -> object:
 
 
 def _prediction_axis_from_wire(value: object) -> object:
-    decoded = _closed_dict(
-        value,
-        {"source", "layout", "sequence"},
-        subject="prediction residue axis",
-    )
     return PredictionResidueAxis(
-        source=_source_from_wire(decoded["source"]),
-        layout=_decode_value(
-            _LAYOUT_CODEC,
-            decoded["layout"],
-            ResidueLayout,
-        ),
-        sequence=_decode_value(
-            _SEQUENCE_CODEC,
-            decoded["sequence"],
-            ProteinSequence,
-        ),
+        **{
+            **value,
+            "source": _source_from_wire(value["source"]),
+            "layout": _decode_value(_LAYOUT_CODEC, value["layout"]),
+            "sequence": _decode_value(_SEQUENCE_CODEC, value["sequence"]),
+        }
     )
 
 
@@ -300,35 +279,11 @@ PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
 )
 
 
-def _validate_confidence_fact(value: object) -> ConfidenceFact:
-    if type(value) is not ConfidenceFact:
-        raise ValueError("confidence fact must be a ConfidenceFact")
-    normalized = ConfidenceFact(
-        prediction_key=value.prediction_key,
-        structure_content_digest=value.structure_content_digest,
-        prediction_axis=value.prediction_axis,
-        plddt_per_residue=value.plddt_per_residue,
-        ptm=value.ptm,
-        pae=value.pae,
-    )
-    if normalized != value:
-        raise ValueError("confidence fact is not in canonical form")
-    return value
-
-
 def _validate_confidence_facts(value: object) -> None:
     if type(value) is not ConfidenceFactCollection:
         raise ValueError(
             "confidence facts must be a ConfidenceFactCollection"
         )
-    for entry in value.entries:
-        _validate_confidence_fact(entry)
-    normalized = ConfidenceFactCollection(
-        observation_method=value.observation_method,
-        entries=value.entries,
-    )
-    if normalized != value:
-        raise ValueError("confidence facts are not in canonical key order")
 
 
 def _confidence_fact_to_wire(value: ConfidenceFact) -> dict[str, object]:
@@ -347,44 +302,20 @@ def _confidence_fact_to_wire(value: ConfidenceFact) -> dict[str, object]:
 
 
 def _confidence_fact_from_wire(value: object) -> ConfidenceFact:
-    decoded = _closed_dict(
-        value,
-        {
-            "prediction_key",
-            "structure_content_digest",
-            "prediction_axis",
-            "plddt_per_residue",
-            "ptm",
-            "pae",
-        },
-        subject="confidence fact",
-    )
-    if (
-        type(decoded["prediction_key"]) is not str
-        or type(decoded["structure_content_digest"]) is not str
-        or not isinstance(decoded["plddt_per_residue"], list)
-        or decoded["pae"] is not None
-        and not isinstance(decoded["pae"], list)
-    ):
-        raise ValueError("confidence fact wire fields are invalid")
-    pae = decoded["pae"]
-    if pae is not None and any(not isinstance(row, list) for row in pae):
-        raise ValueError("confidence fact PAE wire value is invalid")
     return ConfidenceFact(
-        prediction_key=decoded["prediction_key"],
-        structure_content_digest=decoded["structure_content_digest"],
-        prediction_axis=_decode_value(
-            PREDICTION_RESIDUE_AXIS_PORT_TYPE,
-            decoded["prediction_axis"],
-            PredictionResidueAxis,
-        ),
-        plddt_per_residue=tuple(decoded["plddt_per_residue"]),
-        ptm=decoded["ptm"],
-        pae=(
-            None
-            if pae is None
-            else tuple(tuple(row) for row in pae)
-        ),
+        **{
+            **value,
+            "prediction_axis": _decode_value(
+                PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+                value["prediction_axis"],
+            ),
+            "plddt_per_residue": tuple(value["plddt_per_residue"]),
+            "pae": (
+                None
+                if value["pae"] is None
+                else tuple(tuple(row) for row in value["pae"])
+            ),
+        }
     )
 
 
@@ -399,15 +330,8 @@ def _confidence_facts_to_wire(value: object) -> object:
 
 
 def _confidence_facts_from_wire(value: object) -> object:
-    decoded = _closed_dict(
-        value,
-        {"observation_method", "entries"},
-        subject="confidence facts",
-    )
-    if not isinstance(decoded["entries"], list) or not decoded["entries"]:
-        raise ValueError("confidence fact entries must be a nonempty list")
     entries = tuple(
-        _confidence_fact_from_wire(item) for item in decoded["entries"]
+        _confidence_fact_from_wire(item) for item in value["entries"]
     )
     keys = tuple(entry.prediction_key for entry in entries)
     if keys != tuple(sorted(keys)) or len(keys) != len(set(keys)):
@@ -415,11 +339,14 @@ def _confidence_facts_from_wire(value: object) -> object:
             "confidence fact entries must use unique canonical key order"
         )
     return ConfidenceFactCollection(
-        observation_method=_reference_from_wire(
-            decoded["observation_method"],
-            expected_kind="method",
-        ),
-        entries=entries,
+        **{
+            **value,
+            "observation_method": _reference_from_wire(
+                value["observation_method"],
+                expected_kind="method",
+            ),
+            "entries": entries,
+        }
     )
 
 
