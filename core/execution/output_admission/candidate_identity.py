@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from types import MappingProxyType
 from typing import Any
 
 from core.catalog.port_contract import (
@@ -152,7 +151,7 @@ def _propagated_candidate_reference_index(
                     "propagated Candidate references"
                 )
             by_candidate_id[reference.candidate_id] = reference
-    return output_port, MappingProxyType(by_candidate_id)
+    return output_port, by_candidate_id
 
 
 def _score_collection_id(
@@ -238,9 +237,7 @@ def _normalize_candidate_outputs(
                     )
                 input_pairing_references[reference.candidate_id] = reference
     propagated_output_port: str | None = None
-    propagated_references: Mapping[str, CandidateDataReference] = (
-        MappingProxyType({})
-    )
+    propagated_references: Mapping[str, CandidateDataReference] = {}
     if observation_propagation is not None:
         propagated_output_port, propagated_references = (
             _propagated_candidate_reference_index(
@@ -250,7 +247,7 @@ def _normalize_candidate_outputs(
         )
     normalized_ids: dict[str, str] = {}
     normalized_candidates: dict[str, Candidate] = {}
-    normalized_candidate_digests: dict[str, str] = {}
+    normalized_candidate_references: dict[str, CandidateDataReference] = {}
     output_candidates: dict[str, _CandidateOutput] = {}
     metadata_by_candidate: dict[str, dict[str, str]] = {}
     for metadata in candidate_metadata:
@@ -316,20 +313,13 @@ def _normalize_candidate_outputs(
                     "lineage, content, or metadata"
                 )
             normalized_ids[raw_candidate_id] = raw_candidate_id
-            normalized_candidates[raw_candidate_id] = Candidate(
-                candidate_id=candidate.candidate_id,
-                data=candidate.data,
-                parent_ids=list(candidate.parent_ids),
-                metadata=dict(candidate.metadata),
-            )
+            normalized_candidates[raw_candidate_id] = input_candidate
             reference = input_candidate_references.get(raw_candidate_id)
             if reference is None:
                 raise PortValueError(
                     "Candidate pass-through lacks admitted content identity"
                 )
-            normalized_candidate_digests[raw_candidate_id] = (
-                reference.content_digest
-            )
+            normalized_candidate_references[raw_candidate_id] = reference
             return
 
         parents: list[str] = []
@@ -404,7 +394,13 @@ def _normalize_candidate_outputs(
                 "content_digest": content_digest,
             },
         )
-        normalized_candidate_digests[raw_candidate_id] = content_digest
+        normalized_candidate_references[raw_candidate_id] = (
+            CandidateDataReference(
+                candidate_id=normalized_id,
+                data_type_id=type_id,
+                content_digest=content_digest,
+            )
+        )
 
     for raw_candidate_id in output_candidates:
         resolve_candidate(raw_candidate_id)
@@ -485,17 +481,7 @@ def _normalize_candidate_outputs(
     def normalized_output_candidate_reference(
         raw_candidate_id: str,
     ) -> CandidateDataReference:
-        candidate = normalized_candidates[raw_candidate_id]
-        data_type_id = _candidate_data_type_id(candidate.data)
-        if data_type_id is None:
-            raise PortValueError(
-                "Candidate pairing output has no canonical data type identity"
-            )
-        return CandidateDataReference(
-            candidate_id=candidate.candidate_id,
-            data_type_id=data_type_id,
-            content_digest=normalized_candidate_digests[raw_candidate_id],
-        )
+        return normalized_candidate_references[raw_candidate_id]
 
     def project_pairing_intent(
         value: CandidatePairingIntent,
@@ -639,19 +625,11 @@ def _normalize_candidate_outputs(
             normalize_value(output_port, index, value)
             for index, value in enumerate(values)
         )
-    candidate_data: dict[str, CandidateDataReference] = {}
-    for raw_candidate_id, candidate in normalized_candidates.items():
-        data_type_id = _candidate_data_type_id(candidate.data)
-        if data_type_id is None:
-            raise PortValueError(
-                "Candidate data has no registered content identity"
-            )
-        candidate_data[candidate.candidate_id] = CandidateDataReference(
-            candidate_id=candidate.candidate_id,
-            data_type_id=data_type_id,
-            content_digest=normalized_candidate_digests[raw_candidate_id],
-        )
+    candidate_data = {
+        reference.candidate_id: reference
+        for reference in normalized_candidate_references.values()
+    }
     return _NormalizedCandidateOutputs(
-        values=MappingProxyType(normalized_outputs),
-        candidate_data=MappingProxyType(candidate_data),
+        values=normalized_outputs,
+        candidate_data=candidate_data,
     )
