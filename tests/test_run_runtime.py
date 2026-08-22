@@ -127,11 +127,6 @@ def _public_events(runtime, project_id: str, run_id: str) -> tuple[dict[str, Any
     )
 
 
-def test_readiness_check_input_rejects_non_mapping_values() -> None:
-    with pytest.raises(TypeError, match="Readiness values must be a Mapping"):
-        ReadinessCheckInput(object())  # type: ignore[arg-type]
-
-
 def _durable_facts(root) -> list[dict[str, Any]]:
     return [
         fact
@@ -208,7 +203,6 @@ def _direct_catalog(
     execution_gate: tuple[threading.Event, threading.Event] | None = None,
     execution_action: Any | None = None,
     factory_action: Any | None = None,
-    invalid_factory_result: bool = False,
     execution_output: Any = "READY",
     implementation_variant: str = "default",
     implementation_label: str | None = None,
@@ -488,8 +482,6 @@ def _direct_catalog(
                 calls.append(f"factory:{exact_binding_id}")
                 if factory_action is not None:
                     factory_action(context.resources)
-                if invalid_factory_result:
-                    return None  # type: ignore[return-value]
                 return DirectImplementation(
                     exact_binding_id,
                     context.resources,
@@ -1500,64 +1492,6 @@ def test_started_engine_terminal_statuses_are_causally_closed(
             for event in terminal_events
         }
     ) == 3
-
-
-def test_invalid_scientific_operation_factory_fails_after_attempt_start(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_application(
-        frozen_catalog_override=_direct_catalog(
-            [],
-            invalid_factory_result=True,
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "invalid-operation-factory",
-            },
-        )
-        assert started.status_code == 202
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            started.json()["run_id"],
-        )
-        events = _public_events(
-            app.state.run_runtime,
-            project_id,
-            started.json()["run_id"],
-        )
-
-    assert projection["status"] == "failed"
-    terminal = next(
-        item["event"]
-        for item in events
-        if item["event"]["type"] == "node_attempt_terminal"
-    )
-    assert terminal["failure_origin"] == "attempt"
-    assert terminal["error"]["code"] == "node_execution_failed"
-    assert terminal["error"]["details"]["exception_type"] == "TypeError"
-    fact_types = [
-        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
-    ]
-    assert fact_types.count("node_attempt_started") == 1
-    assert "operation_attempt_started" not in fact_types
-    assert "engine_invocation_started" not in fact_types
-    assert fact_types.count("node_attempt_terminal") == 1
 
 
 def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(

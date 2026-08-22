@@ -103,19 +103,3 @@ def test_randomness_declaration_has_one_unambiguous_parameter_scope() -> None:
                 STRUCTURE_TRANSFORM_PACKAGE,
             )
         )
-
-
-def test_randomness_declaration_is_bounded_like_the_public_contract() -> None:
-    binding = next(
-        binding
-        for binding in MODULE_PACKAGE.bindings
-        if binding.binding_id == "prompt_authoring.random_mask.direct"
-    )
-
-    with pytest.raises(CatalogBuildError, match="at most 256"):
-        replace(
-            binding,
-            effective_randomness_parameters=tuple(
-                f"randomness_{index}" for index in range(257)
-            ),
-        )

@@ -267,8 +267,6 @@ class BindingEnvironment(Mapping[str, Any]):
     values: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.values, Mapping):
-            raise TypeError("Binding Environment values must be a Mapping")
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
 
     def __getitem__(self, key: str) -> Any:
@@ -288,8 +286,6 @@ class ReadinessCheckInput:
     values: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.values, Mapping):
-            raise TypeError("Readiness values must be a Mapping")
         object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
 
 
@@ -302,8 +298,6 @@ class ReadinessResult:
     reason_code: str = "prerequisite_unavailable"
 
     def __post_init__(self) -> None:
-        if type(self.passing) is not bool:
-            raise TypeError("Readiness conclusion must be boolean")
         if any(
             not isinstance(value, str)
             or len(value) > 128
@@ -518,8 +512,6 @@ class OperationContext:
             "observation_selectors",
             tuple(self.observation_selectors),
         )
-        if type(self.environment) is not BindingEnvironment:
-            raise TypeError("environment must be an admitted BindingEnvironment")
 
 
 @dataclass(frozen=True, slots=True)
@@ -532,11 +524,6 @@ class OperationCall:
     effective_randomness: Mapping[str, Any]
 
     def __post_init__(self) -> None:
-        if any(
-            type(port_name) is not str or type(record) is not AdmittedPort
-            for port_name, record in self.inputs.items()
-        ):
-            raise TypeError("inputs must contain complete AdmittedPort records")
         object.__setattr__(
             self,
             "inputs",

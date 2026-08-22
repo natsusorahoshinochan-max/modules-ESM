@@ -53,7 +53,6 @@ from core.operation import (
     OperationCall,
     OperationContext,
     ReadinessCheckInput,
-    ReadinessResult,
 )
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 from core.workflow.plan import ExecutionPlanNode
@@ -141,8 +140,6 @@ class _NodeAttempt:
         )
         observed_at = _utc_now()
         result = declaration.check(ReadinessCheckInput(environment.values))
-        if not isinstance(result, ReadinessResult):
-            raise TypeError("Readiness checker must return ReadinessResult")
         readiness_digest = canonical_sha256(
             {
                 "schema_namespace": "protein-workbench-readiness/v2",
@@ -429,18 +426,12 @@ class _NodeAttempt:
                 resources=resources,
             )
         )
-        execute_candidate = getattr(implementation, "execute", None)
-        if not callable(execute_candidate):
-            raise TypeError(
-                "Scientific Operation factory must return an "
-                "object with callable execute(OperationCall)"
-            )
         if self._ledger.cancellation_requested:
             return self._cleanup_before_operation_attempt(
                 state,
                 outcome="cancelled",
             )
-        return implementation, execute_candidate, operation_call
+        return implementation, implementation.execute, operation_call
 
     def _commit_execution_error(
         self,

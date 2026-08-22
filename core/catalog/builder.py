@@ -8,7 +8,6 @@ from typing import Any
 
 from .builtins import builtin_port_types as repository_builtin_port_types
 from .declarations import (
-    AvailabilityResult,
     CatalogDefinition,
     ContractIdentity,
     ExecutionBindingDefinition,
@@ -821,11 +820,6 @@ def build_frozen_catalog(
         _, binding = bindings_by_key[key]
         contract = resolved[key]
         availability = binding.availability.check()
-        if not isinstance(availability, AvailabilityResult):
-            raise CatalogBuildError(
-                f"Availability checker for {binding.binding_id} returned "
-                "an invalid conclusion"
-            )
         availability_snapshots.append(
             CatalogAvailabilityProjection(
                 binding=ExactContractReference(

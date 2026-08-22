@@ -25,13 +25,6 @@ class ExecutionTermination(RuntimeError):
     """A bounded terminal conclusion reported by a started engine seam."""
 
     def __init__(self, status: str) -> None:
-        if status not in {
-            "failed",
-            "cancelled",
-            "interrupted",
-            "outcome_unknown",
-        }:
-            raise ValueError("Execution terminal status is invalid")
         self.status = status
         super().__init__("Execution terminated without public diagnostics")
 
