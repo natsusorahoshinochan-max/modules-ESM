@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
@@ -14,7 +14,6 @@ from core.execution.output_admission.artifacts import (
 )
 from core.operation import AdmittedPort
 from core.workflow.plan import ExecutionPlanNode
-from datatypes.candidate import Candidate, CandidateCollection
 from datatypes.exact_reference import ExactContractReference
 
 
@@ -221,74 +220,6 @@ def _result_identity(
             resolved_resource_inputs=resolved_resource_inputs,
             effective_randomness_snapshot=effective_randomness_snapshot,
         )
-    )
-
-
-def _contains_unresolved_identity(value: Any) -> bool:
-    if isinstance(value, Mapping):
-        if value.get("identity_complete") is False:
-            return True
-        return any(
-            _contains_unresolved_identity(item)
-            for item in value.values()
-        )
-    if isinstance(value, (list, tuple)):
-        return any(_contains_unresolved_identity(item) for item in value)
-    if is_dataclass(value) and not isinstance(value, type):
-        return any(
-            _contains_unresolved_identity(getattr(value, item.name))
-            for item in fields(value)
-        )
-    return (
-        isinstance(value, str)
-        and value.strip().lower()
-        in {"unknown", "unresolved", "latest", "unspecified"}
-    )
-
-
-def _candidate_values(value: Any) -> tuple[Candidate, ...]:
-    if type(value) is Candidate:
-        return (value,)
-    if type(value) is CandidateCollection:
-        return value.items
-    if isinstance(value, (list, tuple)):
-        return tuple(
-            candidate
-            for item in value
-            for candidate in _candidate_values(item)
-        )
-    return ()
-
-
-def _result_identity_is_cache_safe(
-    node: ExecutionPlanNode,
-    inputs: Mapping[str, AdmittedPort],
-    *,
-    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
-    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
-) -> bool:
-    if _contains_unresolved_identity(
-        node.result_identity_plan_facts.canonical_projection()
-    ):
-        return False
-    if any(
-        _contains_unresolved_identity(admitted.value)
-        for admitted in inputs.values()
-    ):
-        return False
-    if _contains_unresolved_identity(
-        result_identity_descriptor(
-            node,
-            inputs,
-            resolved_resource_inputs=resolved_resource_inputs,
-            effective_randomness_snapshot=effective_randomness_snapshot,
-        )
-    ):
-        return False
-    return all(
-        not _contains_unresolved_identity(candidate.candidate_id)
-        for admitted in inputs.values()
-        for candidate in _candidate_values(admitted.value)
     )
 
 

@@ -21,7 +21,6 @@ from core.execution._node_attempt_identity import (
     _plain_json,
     _resolve_effective_randomness,
     _result_identity,
-    _result_identity_is_cache_safe,
     result_contract_metadata,
     result_identity_descriptor,
 )
@@ -228,12 +227,6 @@ class _NodeAttempt:
         state.cache_eligible = (
             state.node._runtime.cacheable
             and state.node._runtime.deterministic
-            and _result_identity_is_cache_safe(
-                state.node,
-                state.inputs,
-                resolved_resource_inputs=state.resource_identities,
-                effective_randomness_snapshot=effective_randomness,
-            )
         )
         if state.cache_eligible:
             return _result_identity(

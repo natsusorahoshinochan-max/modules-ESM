@@ -210,7 +210,6 @@ def _direct_catalog(
     implementation_label: str | None = None,
     deterministic: bool = True,
     execution_route: Literal["adapter", "direct"] = "adapter",
-    source_identity: Mapping[str, Any] | None = None,
     node_parameter_declarations: Mapping[str, Any] | None = None,
     node_title: str = "Deterministic direct test Node",
     effective_randomness_parameters: tuple[str, ...] = (),
@@ -230,11 +229,7 @@ def _direct_catalog(
             "model_identity": {"kind": "none"},
             "checkpoint_identity": {"kind": "none"},
             "featurization_identity": {"kind": "none"},
-            "source_identity": (
-                dict(source_identity)
-                if source_identity is not None
-                else {"kind": "contract-test"}
-            ),
+            "source_identity": {"kind": "contract-test"},
             "scale_contract": {"kind": "identity"},
         },
     )
@@ -618,7 +613,6 @@ def _pipeline_catalog(
     terminating_source_nodes: Mapping[str, str] | None = None,
     optional_sink_input: bool = False,
     cacheable: bool = False,
-    unresolved_port_identity: bool = False,
     candidate_digest_probe: bool = False,
     execution_gates: (
         Mapping[str, tuple[threading.Event, threading.Event]] | None
@@ -650,14 +644,7 @@ def _pipeline_catalog(
         codec=BehaviorReference(
             "test.canonical_text/codec",
             "2.1.0",
-            {
-                "normalization": "strip-and-lowercase",
-                **(
-                    {"identity_complete": False}
-                    if unresolved_port_identity
-                    else {}
-                ),
-            },
+            {"normalization": "strip-and-lowercase"},
         ),
         content_identity=BehaviorReference(
             "test.canonical_text/content",
