@@ -25,18 +25,20 @@ from core.catalog.model import (
 )
 from core.catalog.port_contract import (
     BehaviorReference,
+    canonical_sha256,
 )
 from core.operation import (
     OperationCall,
     OperationContext,
     ReadinessResult,
 )
-from core.run_execution_v2 import (
+from core.execution.node_attempt import (
     ExecutionTermination,
+    result_contract_metadata,
+    result_identity_descriptor,
 )
 from core.execution.results import ProjectReplayIndex
 from protein_workbench_public.bootstrap import create_application
-import core.run_execution_v2 as run_execution_v2
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -121,11 +123,11 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
             "canonical_projection",
             canonical_projection,
         )
-        descriptor = run_execution_v2._result_identity_descriptor(
+        descriptor = result_identity_descriptor(
             node,
             {},
         )
-        cache_metadata = run_execution_v2._result_contract_metadata(node)
+        cache_metadata = result_contract_metadata(node)
         ledger_plan_facts = app.state.run_execution_v2._plan_evidence(plan)[0]
 
     assert descriptor["result_identity_plan_facts"] == expected_projection
@@ -133,7 +135,7 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
         "result_identity_plan_facts": expected_projection,
     }
     assert ledger_plan_facts.result_identity_plan_facts_digest == (
-        run_execution_v2.canonical_sha256(expected_projection)
+        canonical_sha256(expected_projection)
     )
     assert observed_calls == [plan_facts, plan_facts, plan_facts]
 
@@ -171,7 +173,7 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
-        descriptor = run_execution_v2._result_identity_descriptor(
+        descriptor = result_identity_descriptor(
             compiled.execution_plan.nodes[0],
             {},
         )

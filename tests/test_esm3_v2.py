@@ -1589,11 +1589,11 @@ def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import core.run_execution_v2 as run_execution_v2
+    import core.execution._node_attempt_identity as node_attempt_identity
 
     descriptors: list[dict[str, Any]] = []
     result_identity_descriptor = (
-        run_execution_v2._result_identity_descriptor
+        node_attempt_identity.result_identity_descriptor
     )
 
     def capture_result_identity(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -1603,8 +1603,8 @@ def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
         return descriptor
 
     monkeypatch.setattr(
-        run_execution_v2,
-        "_result_identity_descriptor",
+        node_attempt_identity,
+        "result_identity_descriptor",
         capture_result_identity,
     )
     _, _, projection, events = run_generation(

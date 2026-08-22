@@ -6,16 +6,13 @@ import base64
 import binascii
 from collections.abc import Callable, Iterator, Mapping
 from copy import deepcopy
-from contextlib import contextmanager
-from dataclasses import dataclass, field, fields, is_dataclass, replace
-from datetime import datetime, timezone
+from dataclasses import dataclass, field, replace
 import json
-import logging
 from pathlib import Path
 import re
 import threading
 from types import MappingProxyType
-from typing import Any, Literal, Protocol, cast
+from typing import Any, Literal
 import uuid
 
 from core.catalog.port_contract import (
@@ -23,42 +20,27 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     AdmittedPort,
-    EngineInvocationProvenance,
     InvocationRandomness,
-    OperationCall,
-    OperationContext,
     ProviderResidueProjection,
     ProviderResidueProjectionEntry,
-    ReadinessCheckInput,
-    ReadinessResult,
 )
 from core.execution.environment import EnvironmentConfiguration
+from core.execution.node_attempt import AttemptSpec, NodeAttempt
 from core.execution.ledger import (
     ArtifactOutputEvidence,
     AvailabilityBinding,
     CancellationDecision,
     ContextSelectorEvidence,
     DerivedRunReference,
-    EngineInvocationConclusion,
-    EngineInvocationStart,
     FilesystemLedgerStore,
     Fact,
     Ledger,
     LedgerStore,
-    ImmutableObjectReference,
-    LedgerAcknowledgement,
-    NodeAttemptStart,
-    NodeFailurePublication,
-    NodeSuccessPublication,
-    NodeTerminationPublication,
     ObservationSelectorEvidence,
-    OperationAttemptStart,
     PlanNodeEvidence,
     PlanRequiredInputEvidence,
     PlanValueSourceEvidence,
-    PublishedArtifact,
     PublishedOutput,
-    ReadinessAttestation,
     ReplayWindow,
     RunCursor,
     RunAdmission,
@@ -76,26 +58,14 @@ from core.execution.ledger import (
     run_cursor,
     run_timestamp,
 )
-from core.execution.output_admission import (
-    AdmittedNodeOutput,
-    NodeOutputPlan,
-    OutputPortPlan,
-    admit_node_output,
-)
-from core.execution.output_admission.artifacts import (
-    AdmittedArtifactPublicationPlan,
-    ArtifactOutputDeclaration,
-)
 from core.execution.output_admission.candidate_identity import (
     _validate_input_candidate_identities,
 )
 from core.execution.output_admission.port_values import combine_admitted_port
-from core.execution.resources import CancellationControl, RunResources
+from core.execution.resources import CancellationControl
 from core.execution.results import (
     ResultIntegrityError,
     ResultStore,
-    ResultStoreWriteError,
-    StoredNodeResult,
 )
 from core.catalog.model import (
     FrozenCatalog,
@@ -103,11 +73,8 @@ from core.catalog.model import (
 from core.catalog.port_contract import (
     ContractResolutionError,
     PortTypeDefinition,
-    PortValueError,
-    canonical_json_bytes,
-    canonical_sha256,
 )
-from core.project.manager import ProjectInputDescriptor, ProjectManager
+from core.project.manager import ProjectManager
 from core.scoring.selection import (
     PairwiseContextSelector,
     SelectionError,
@@ -145,82 +112,9 @@ from datatypes.observation import (
 from datatypes.residue import residue_identity_chain
 
 
-_LOGGER = logging.getLogger(__name__)
-
-
-RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
-MAX_ARTIFACTS_PER_RUN = 2_048
-MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
-_ATTEMPT_TERMINALS = frozenset(
-    {
-        "succeeded",
-        "failed",
-        "cancelled",
-        "interrupted",
-        "outcome_unknown",
-    }
-)
-_DISPOSITION_OUTCOMES = frozenset(
-    {"succeeded", "failed", "blocked", "cancelled", "interrupted"}
-)
-
-
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def _execution_error(error: BaseException) -> StructuredError:
-    error_type = type(error).__name__
-    if (
-        len(error_type) > 128
-        or _PUBLIC_IDENTIFIER.fullmatch(error_type) is None
-    ):
-        error_type = "Exception"
-    return StructuredError(
-        code="node_execution_failed",
-        message="Node execution failed safely",
-        retryable=False,
-        correlation_id=f"incident-{uuid.uuid4().hex}",
-        details={"exception_type": error_type},
-    )
-
-
-def _binding_error(error: V2RunError) -> StructuredError:
-    """Preserve one failed Binding gate without inventing an Operation."""
-    return StructuredError(
-        code=error.code,
-        message=str(error),
-        retryable={
-            "binding_unavailable": False,
-            "readiness_rejected": True,
-        }[error.code],
-        correlation_id=f"incident-{uuid.uuid4().hex}",
-        details=error.details,
-    )
-
-
-def _publication_error(
-    *,
-    node_id: str,
-    stage: Literal[
-        "typed_value_object",
-        "artifact_object",
-        "manifest",
-    ],
-) -> StructuredError:
-    return StructuredError(
-        code="node_publication_failed",
-        message="Node result publication failed",
-        retryable=False,
-        correlation_id=f"incident-{uuid.uuid4().hex}",
-        details={
-            "node_id": node_id,
-            "publication_stage": stage,
-        },
-    )
 
 
 def _selection_error(error: BaseException) -> StructuredError:
@@ -242,1123 +136,6 @@ def _selection_error(error: BaseException) -> StructuredError:
         correlation_id=f"incident-{uuid.uuid4().hex}",
         details=details,
     )
-
-
-class ExecutionTermination(RuntimeError):
-    """A bounded terminal conclusion reported by a started engine seam."""
-
-    def __init__(self, status: str) -> None:
-        if status not in {
-            "failed",
-            "cancelled",
-            "interrupted",
-            "outcome_unknown",
-        }:
-            raise ValueError("Execution terminal status is invalid")
-        self.status = status
-        super().__init__("Execution terminated without public diagnostics")
-
-
-class _ArtifactCapacityError(RuntimeError):
-    """A restored result cannot fit the current Run publication bounds."""
-
-
-@dataclass(frozen=True, slots=True)
-class _CommittedNodeOutcome:
-    """The only Node Execution Attempt outcome visible to Run scheduling."""
-
-    disposition: Literal[
-        "succeeded",
-        "failed",
-        "cancelled",
-        "interrupted",
-        "blocked",
-    ]
-    admitted_outputs: Mapping[
-        tuple[str, str],
-        AdmittedPort,
-    ] = field(default_factory=dict)
-    artifacts: tuple[Mapping[str, Any], ...] = ()
-
-
-@dataclass(slots=True)
-class _NodeExecutionAttemptState:
-    """Closed internal state for one Node Execution Attempt lifecycle."""
-
-    node: ExecutionPlanNode
-    node_attempt_id: str
-    operation_attempt_id: str
-    inputs: Mapping[str, AdmittedPort]
-    project_inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]]
-    resource_identities: tuple[Mapping[str, Any], ...]
-    effective_randomness: _EffectiveRandomnessSnapshot
-    result_identity: str | None
-    cache_eligible: bool = False
-    resolution: Literal["executed", "cache_replayed"] = "executed"
-    resources: RunResources | None = None
-    operation_started: bool = False
-    admitted_node_output: AdmittedNodeOutput | None = None
-    stored_result: StoredNodeResult | None = None
-    admitted_outputs: Mapping[
-        tuple[str, str],
-        AdmittedPort,
-    ] = field(default_factory=dict)
-    artifact_publication_plan: AdmittedArtifactPublicationPlan = field(
-        default_factory=lambda: AdmittedArtifactPublicationPlan((), ())
-    )
-
-
-class _NodeExecutionAttemptModule:
-    """Own each schedulable Node Execution Attempt behind one interface."""
-
-    def __init__(
-        self,
-        *,
-        projects: ProjectManager,
-        environment: EnvironmentConfiguration,
-        result_store: ResultStore,
-        project_id: str,
-        run_id: str,
-        execution_plan: ExecutionPlan,
-        ledger: Ledger,
-        run_record: _RunRecord,
-        availability_by_binding: Mapping[
-            tuple[str, str],
-            Mapping[str, Any],
-        ],
-    ) -> None:
-        self._projects = projects
-        self._environment = environment
-        self._project_id = project_id
-        self._run_id = run_id
-        self._execution_plan = execution_plan
-        self._ledger = ledger
-        self._run_record = run_record
-        self._availability_by_binding = availability_by_binding
-        self._readiness_failures: dict[
-            tuple[str, str],
-            V2RunError | None,
-        ] = {}
-        self._result_store = result_store
-
-    @staticmethod
-    def _disposition_for_status(
-        status: Literal[
-            "failed",
-            "cancelled",
-            "interrupted",
-            "outcome_unknown",
-        ],
-    ) -> Literal["failed", "cancelled", "interrupted"]:
-        return "interrupted" if status == "outcome_unknown" else status
-
-    def _record_failure(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        public_error: StructuredError,
-        failure_origin: Literal["binding", "operation", "publication"],
-        only_if_active: bool = False,
-    ) -> _CommittedNodeOutcome | None:
-        transition = NodeFailurePublication(
-                node_id=state.node.node_id,
-                node_attempt_id=state.node_attempt_id,
-                operation_attempt_id=(
-                    state.operation_attempt_id
-                    if state.operation_started
-                    else None
-                ),
-                resolution=state.resolution,
-                error=public_error,
-                failure_origin=failure_origin,
-        )
-        acknowledged = (
-            self._ledger.record_if_active(transition)
-            if only_if_active
-            else self._ledger.record(transition)
-        )
-        if acknowledged is None:
-            return None
-        return _CommittedNodeOutcome(disposition="failed")
-
-    def _commit_failure(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        public_error: StructuredError,
-        failure_origin: Literal["binding", "operation", "publication"],
-    ) -> _CommittedNodeOutcome:
-        committed = self._record_failure(
-            state,
-            public_error=public_error,
-            failure_origin=failure_origin,
-        )
-        if committed is None:
-            raise RuntimeError("Required Node failure was not acknowledged")
-        return committed
-
-    def _record_termination(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        status: Literal["cancelled", "interrupted", "outcome_unknown"],
-        public_error: StructuredError | None,
-        operation_status: Literal[
-            "succeeded",
-            "cancelled",
-            "interrupted",
-            "outcome_unknown",
-        ]
-        | None = None,
-    ) -> _CommittedNodeOutcome:
-        self._ledger.record(
-            NodeTerminationPublication(
-                node_id=state.node.node_id,
-                status=status,
-                node_attempt_id=state.node_attempt_id,
-                operation_attempt_id=(
-                    state.operation_attempt_id
-                    if state.operation_started
-                    else None
-                ),
-                operation_status=(
-                    operation_status
-                    if operation_status is not None
-                    else status
-                    if state.operation_started
-                    else None
-                ),
-                resolution=state.resolution,
-                error=public_error,
-            )
-        )
-        return _CommittedNodeOutcome(
-            disposition=self._disposition_for_status(status)
-        )
-
-    def _commit_termination(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        status: Literal["cancelled", "interrupted", "outcome_unknown"],
-        public_error: StructuredError | None,
-    ) -> _CommittedNodeOutcome:
-        return self._record_termination(
-            state,
-            status=status,
-            public_error=public_error,
-        )
-
-    def _commit_unstarted(
-        self,
-        *,
-        node_id: str,
-        outcome: Literal["cancelled", "interrupted"],
-    ) -> _CommittedNodeOutcome:
-        self._ledger.record(
-            UnstartedNodeConclusion(
-                node_id=node_id,
-                outcome=outcome,
-            )
-        )
-        return _CommittedNodeOutcome(disposition=outcome)
-
-    def _begin_attempt(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> Literal["cancelled", "interrupted"] | None:
-        acknowledged = self._ledger.record_if_active(
-            NodeAttemptStart(
-                node_id=state.node.node_id,
-                node_attempt_id=state.node_attempt_id,
-            )
-        )
-        return (
-            None
-            if acknowledged is not None
-            else self._pending_cancellation_outcome()
-        )
-
-    def _pending_cancellation_outcome(
-        self,
-    ) -> Literal["cancelled", "interrupted"]:
-        return (
-            "interrupted"
-            if self._run_record.cancellation.cleanup_error is not None
-            else "cancelled"
-        )
-
-    def _stage_success(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> StoredNodeResult:
-        if state.stored_result is not None:
-            return state.stored_result
-        if (
-            state.result_identity is None
-            or state.admitted_node_output is None
-        ):
-            raise RuntimeError(
-                "Node Execution Attempt success lacks a complete admitted result"
-            )
-        stored = self._result_store.store(
-            project_id=self._project_id,
-            materialization_run_id=self._run_id,
-            admitted_output=state.admitted_node_output,
-            result_contract_metadata=_result_contract_metadata(state.node),
-        )
-        state.stored_result = stored
-        return stored
-
-    def _record_success(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        stored_result: StoredNodeResult,
-        only_if_active: bool = False,
-    ) -> tuple[_CommittedNodeOutcome, LedgerAcknowledgement] | None:
-        if state.result_identity is None:
-            raise RuntimeError(
-                "Node Execution Attempt success lacks a Result Identity"
-            )
-        published_outputs = tuple(
-            PublishedOutput(
-                node_id=output.node_id,
-                output_port=output.output_port,
-                port_type=output.port_type,
-                content_digest=output.content_digest,
-                result_identity=stored_result.result_identity,
-                materialization={
-                    "run_id": output.materialization_run_id,
-                    "resolution": output.resolution,
-                },
-                producer_provenance={
-                    "producer_run_id": output.producer_run_id,
-                    "producer_result_identity": stored_result.result_identity,
-                    "output_port": output.output_port,
-                },
-                value_count=output.value_count,
-                value_manifest_reference=output.value_manifest.content_digest,
-            )
-            for output in stored_result.published_outputs
-        )
-        published_artifacts = tuple(
-            PublishedArtifact(
-                artifact_reference=artifact.artifact_reference,
-                artifact_kind=artifact.artifact_kind,
-                node_id=artifact.node_id,
-                output_port=artifact.output_port,
-                media_type=artifact.media_type,
-                filename=artifact.filename,
-                size=artifact.body.size,
-                content_digest=artifact.body.content_digest,
-                candidate_id=artifact.candidate_id,
-            )
-            for artifact in stored_result.artifacts
-        )
-        transition = NodeSuccessPublication(
-                node_id=state.node.node_id,
-                node_attempt_id=state.node_attempt_id,
-                operation_attempt_id=(
-                    state.operation_attempt_id
-                    if state.operation_started
-                    else None
-                ),
-                resolution=state.resolution,
-                result_identity=state.result_identity,
-                node_result_manifest=ImmutableObjectReference(
-                    content_digest=(
-                        stored_result.node_result_manifest.content_digest
-                    ),
-                    size=stored_result.node_result_manifest.size,
-                ),
-                outputs=published_outputs,
-                artifacts=published_artifacts,
-                nonempty_output_ports=tuple(
-                    sorted(
-                        output_port
-                        for (node_id, output_port), admitted in (
-                            state.admitted_outputs.items()
-                        )
-                        if node_id == state.node.node_id and admitted
-                    )
-                ),
-        )
-        acknowledged = (
-            self._ledger.record_if_active(transition)
-            if only_if_active
-            else self._ledger.record(transition)
-        )
-        if acknowledged is None:
-            return None
-        artifacts = tuple(
-            {
-                "artifact_reference": artifact.artifact_reference,
-                "artifact_kind": artifact.artifact_kind,
-                "node_id": artifact.node_id,
-                "output_port": artifact.output_port,
-                "media_type": artifact.media_type,
-                "filename": artifact.filename,
-                "size": artifact.body.size,
-                "content_digest": artifact.body.content_digest,
-                **(
-                    {"candidate_id": artifact.candidate_id}
-                    if artifact.candidate_id is not None
-                    else {}
-                ),
-            }
-            for artifact in stored_result.artifacts
-        )
-        return (
-            _CommittedNodeOutcome(
-                disposition="succeeded",
-                admitted_outputs=state.admitted_outputs,
-                artifacts=artifacts,
-            ),
-            acknowledged,
-        )
-
-    def _record_committed_cancellation(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> _CommittedNodeOutcome | None:
-        if not self._ledger.cancellation_requested:
-            return None
-        resources = state.resources
-        if resources is None:
-            raise RuntimeError(
-                "Started Node Execution Attempt lacks owned Run resources"
-            )
-        cancellation = resources._cancellation_control
-        if cancellation is not None:
-            cancellation.wait_for_cleanup()
-        if cancellation is not None and cancellation.cleanup_error is not None:
-            if not state.operation_started:
-                return self._record_termination(
-                    state,
-                    status="interrupted",
-                    public_error=_execution_error(cancellation.cleanup_error),
-                )
-            return self._record_failure(
-                state,
-                public_error=_execution_error(cancellation.cleanup_error),
-                failure_origin="publication",
-            )
-        return self._record_termination(
-            state,
-            status="cancelled",
-            public_error=None,
-            operation_status=(
-                "succeeded" if state.operation_started else None
-            ),
-        )
-
-    def _commit_success(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> _CommittedNodeOutcome:
-        try:
-            stored_result = self._stage_success(state)
-        except ResultStoreWriteError as error:
-            failed = self._record_failure(
-                state,
-                public_error=_publication_error(
-                    node_id=state.node.node_id,
-                    stage=error.stage,
-                ),
-                failure_origin="publication",
-                only_if_active=True,
-            )
-            if failed is not None:
-                return failed
-            cancelled = self._record_committed_cancellation(state)
-            if cancelled is None:
-                raise RuntimeError(
-                    "Node outcome lost its cancellation ordering decision"
-                )
-            return cancelled
-
-        recorded = self._record_success(
-            state,
-            stored_result=stored_result,
-            only_if_active=True,
-        )
-        if recorded is None:
-            cancelled = self._record_committed_cancellation(state)
-            if cancelled is None:
-                raise RuntimeError(
-                    "Node outcome lost its cancellation ordering decision"
-                )
-            return cancelled
-        committed, acknowledgement = recorded
-        if (
-            committed.disposition == "succeeded"
-            and state.resolution == "executed"
-            and state.cache_eligible
-        ):
-            try:
-                self._result_store.index_committed_result(
-                    stored_result,
-                    acknowledgement,
-                )
-            except OSError:
-                _LOGGER.warning(
-                    "Committed Result replay index publication is unavailable"
-                )
-        return committed
-
-    def _attest_readiness(
-        self,
-        *,
-        node: ExecutionPlanNode,
-        ledger: Ledger,
-    ) -> None:
-        binding_id = node.binding.contract_id
-        binding_version = node.binding.contract_version
-        declaration = node._runtime.readiness_declaration
-        environment = self._environment.for_binding(
-            binding_id,
-            binding_version,
-        )
-        observed_at = _utc_now()
-        result = declaration.check(ReadinessCheckInput(environment.values))
-        if not isinstance(result, ReadinessResult):
-            raise TypeError("Readiness checker must return ReadinessResult")
-        readiness_digest = canonical_sha256(
-            {
-                "schema_namespace": "protein-workbench-readiness/v2",
-                "binding": node.binding.canonical_projection(),
-                "declaration": _plain_json(declaration.descriptor()),
-            }
-        )
-        ledger.record(
-            ReadinessAttestation(
-                binding=_exact_contract_reference(node.binding),
-                readiness_contract_digest=readiness_digest,
-                observed_at=run_timestamp(observed_at),
-                conclusion="passing" if result.passing else "failing",
-                proof_source=result.proof_source,
-            )
-        )
-        if not result.passing:
-            raise V2RunError(
-                "readiness_rejected",
-                "Selected Binding is not ready for this Run",
-                details={
-                    "binding": node.binding.canonical_projection(),
-                    "reason_code": result.reason_code,
-                },
-            )
-
-    def _inputs_for(
-        self,
-        node: ExecutionPlanNode,
-        values: Mapping[
-            tuple[str, str],
-            AdmittedPort,
-        ],
-    ) -> Mapping[str, AdmittedPort]:
-        declarations = node._runtime.input_ports
-        admitted_inputs: dict[str, list[Any]] = {}
-        for port_name, sources in node._runtime.input_sources.items():
-            for source_reference in sources:
-                source = values.get(
-                    (
-                        source_reference.node_id,
-                        source_reference.output_port,
-                    )
-                )
-                if source is None or not source.values:
-                    continue
-                admitted_inputs.setdefault(port_name, []).extend(
-                    source.values
-                )
-
-        inputs: dict[str, AdmittedPort] = {}
-        for port_name, admitted in admitted_inputs.items():
-            declaration = declarations[port_name]
-            if (
-                declaration.multiplicity == "one"
-                and len(admitted) != 1
-            ):
-                raise RuntimeError(
-                    "Execution Plan one-valued input Port "
-                    f"{port_name!r} resolved to {len(admitted)} "
-                    "admitted values"
-                )
-            inputs[port_name] = combine_admitted_port(
-                port_type=declaration.reference.canonical_projection(),
-                multiplicity=declaration.multiplicity,
-                values=tuple(admitted),
-            )
-        _validate_input_candidate_identities(inputs)
-        return MappingProxyType(inputs)
-
-    def _resolve_project_inputs(
-        self,
-        project_id: str,
-        node: ExecutionPlanNode,
-    ) -> tuple[
-        dict[str, tuple[ProjectInputDescriptor, bytes]],
-        tuple[Mapping[str, Any], ...],
-    ]:
-        """Resolve declared Project resources before Result Identity lookup."""
-        resolved: dict[str, tuple[ProjectInputDescriptor, bytes]] = {}
-        identities: list[Mapping[str, Any]] = []
-        for parameter_name in node._runtime.project_input_parameters:
-            reference = node.node_parameters.get(parameter_name)
-            if not isinstance(reference, str):
-                raise PortValueError(
-                    f"Project input parameter {parameter_name!r} is invalid"
-                )
-            descriptor, payload = self._projects.read_input(
-                project_id,
-                reference,
-            )
-            resolved[reference] = (descriptor, payload)
-            identities.append(
-                {
-                    "resource_kind": "project_input",
-                    "parameter_name": parameter_name,
-                    "content_digest": descriptor.content_digest,
-                    "size": descriptor.size,
-                }
-            )
-        return resolved, tuple(identities)
-
-    def _require_artifact_capacity(
-        self,
-        *,
-        plan: AdmittedArtifactPublicationPlan,
-        committed_artifacts: tuple[Mapping[str, Any], ...],
-        replayed: bool,
-    ) -> None:
-        if (
-            len(committed_artifacts) + len(plan.publications)
-            > MAX_ARTIFACTS_PER_RUN
-        ):
-            if replayed:
-                raise _ArtifactCapacityError
-            raise PortValueError("Run artifact count exceeds the public bound")
-        if (
-            sum(artifact["size"] for artifact in committed_artifacts)
-            + sum(len(publication.body) for publication in plan.publications)
-            > MAX_ARTIFACT_BYTES_PER_RUN
-        ):
-            if replayed:
-                raise _ArtifactCapacityError
-            raise PortValueError("Run artifact bytes exceed the public bound")
-
-
-    def _prepare(
-        self,
-        node: ExecutionPlanNode,
-        *,
-        committed_values: Mapping[
-            tuple[str, str],
-            AdmittedPort,
-        ],
-    ) -> _NodeExecutionAttemptState:
-        inputs = self._inputs_for(node, committed_values)
-        project_inputs, resource_identities = (
-            self._resolve_project_inputs(self._project_id, node)
-        )
-        effective_randomness = _resolve_effective_randomness(node, inputs)
-        return _NodeExecutionAttemptState(
-            node=node,
-            node_attempt_id=f"node-attempt-{uuid.uuid4().hex}",
-            operation_attempt_id=f"operation-{uuid.uuid4().hex}",
-            inputs=inputs,
-            project_inputs=project_inputs,
-            resource_identities=resource_identities,
-            effective_randomness=effective_randomness,
-            result_identity=None,
-        )
-
-    def _resolve_result_identity(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> None:
-        state.cache_eligible = (
-            state.node._runtime.cacheable
-            and state.node._runtime.deterministic
-            and _result_identity_is_cache_safe(
-                state.node,
-                state.inputs,
-                resolved_resource_inputs=state.resource_identities,
-                effective_randomness_snapshot=state.effective_randomness,
-            )
-        )
-        if state.cache_eligible:
-            state.result_identity = _result_identity(
-                state.node,
-                state.inputs,
-                resolved_resource_inputs=state.resource_identities,
-                effective_randomness_snapshot=state.effective_randomness,
-            )
-
-    def _cache_outcome(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        cache_bypassed: bool,
-        committed_artifacts: tuple[Mapping[str, Any], ...],
-    ) -> _CommittedNodeOutcome | None:
-        if (
-            not state.cache_eligible
-            or cache_bypassed
-            or state.result_identity is None
-        ):
-            return None
-        try:
-            replayed = self._result_store.lookup_replay(
-                project_id=self._project_id,
-                materialization_run_id=self._run_id,
-                node_plan=_node_output_plan(
-                    self._execution_plan,
-                    state.node,
-                ),
-                result_identity=state.result_identity,
-                result_contract_metadata=_result_contract_metadata(
-                    state.node,
-                ),
-            )
-            if replayed is None:
-                return None
-            state.resolution = "cache_replayed"
-            state.stored_result = replayed
-            admitted_node_output = replayed.admitted_output
-            state.admitted_node_output = admitted_node_output
-            state.admitted_outputs = dict(
-                admitted_node_output.runtime_ports
-            )
-            state.artifact_publication_plan = (
-                admitted_node_output.artifact_publication_plan
-            )
-            self._require_artifact_capacity(
-                plan=state.artifact_publication_plan,
-                committed_artifacts=committed_artifacts,
-                replayed=True,
-            )
-        except _ArtifactCapacityError:
-            state.resolution = "cache_replayed"
-            return self._commit_failure(
-                state,
-                public_error=_publication_error(
-                    node_id=state.node.node_id,
-                    stage="artifact_object",
-                ),
-                failure_origin="publication",
-            )
-        state.resources = RunResources(
-            project_id=self._project_id,
-            run_id=self._run_id,
-            node_id=state.node.node_id,
-            _projects=self._projects,
-            _cancellation_control=self._run_record.cancellation,
-        )
-        return self._commit_success(state)
-
-    def _readiness_failure(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> V2RunError | None:
-        if state.node._runtime.execution_route != "adapter":
-            return None
-        binding_key = (
-            state.node.binding.contract_id,
-            state.node.binding.contract_version,
-        )
-        if binding_key not in self._readiness_failures:
-            availability = self._availability_by_binding[binding_key]
-            readiness_error: V2RunError | None = None
-            if availability["available"] is not True:
-                readiness_error = V2RunError(
-                    "binding_unavailable",
-                    "Selected Binding is unavailable",
-                    details={
-                        "binding": state.node.binding.canonical_projection(),
-                        "reason_code": availability["reason"]["code"],
-                    },
-                )
-            else:
-                try:
-                    self._attest_readiness(
-                        node=state.node,
-                        ledger=self._ledger,
-                    )
-                except V2RunError as error:
-                    if error.code != "readiness_rejected":
-                        raise
-                    readiness_error = error
-            self._readiness_failures[binding_key] = readiness_error
-        return self._readiness_failures[binding_key]
-
-    def _owned_resources(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> RunResources:
-        return RunResources(
-            project_id=self._project_id,
-            run_id=self._run_id,
-            node_id=state.node.node_id,
-            _projects=self._projects,
-            _invocation_recorder=_OperationInvocationRecorder(
-                ledger=self._ledger,
-                operation_attempt_id=state.operation_attempt_id,
-                default_engine_identity=state.node.method.contract_digest,
-            ),
-            _cancellation_control=self._run_record.cancellation,
-            _project_inputs=state.project_inputs,
-            _project_input_identities=state.resource_identities,
-        )
-
-    def _cleanup_before_operation_attempt(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        outcome: Literal["cancelled", "interrupted"],
-    ) -> _CommittedNodeOutcome:
-        resources = state.resources
-        if resources is None:
-            raise RuntimeError(
-                "Node Execution Attempt cleanup lacks owned Run resources"
-            )
-        if self._ledger.cancellation_requested:
-            self._run_record.cancellation.wait_for_cleanup()
-        try:
-            resources.cleanup_temporary_work()
-        except BaseException as cleanup_error:
-            outcome = "interrupted"
-        if self._run_record.cancellation.cleanup_error is not None:
-            outcome = "interrupted"
-        return self._commit_termination(
-            state,
-            status=outcome,
-            public_error=(
-                _execution_error(self._run_record.cancellation.cleanup_error)
-                if self._run_record.cancellation.cleanup_error is not None
-                else None
-            ),
-        )
-
-    def _build_operation(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> tuple[
-        Any,
-        Callable[[OperationCall], Mapping[str, Any]],
-        OperationCall,
-    ] | _CommittedNodeOutcome:
-        resources = self._owned_resources(state)
-        state.resources = resources
-        operation_call = OperationCall(
-            inputs=state.inputs,
-            node_parameters=state.effective_randomness.node_parameters,
-            binding_parameters=state.effective_randomness.binding_parameters,
-            effective_randomness=(
-                state.effective_randomness.effective_randomness
-            ),
-        )
-        try:
-            environment = self._environment.for_binding(
-                state.node.binding.contract_id,
-                state.node.binding.contract_version,
-            )
-            implementation = state.node._runtime.factory.build(
-                OperationContext(
-                    method=_exact_reference(state.node.method),
-                    produced_observations=(
-                        state.node._runtime.produced_observation_plan.observations
-                    ),
-                    selection_objectives=(
-                        state.node._runtime.selection_objectives
-                    ),
-                    observation_selectors=(
-                        state.node._runtime.observation_selectors
-                    ),
-                    environment=environment,
-                    resources=resources,
-                )
-            )
-            execute_candidate = getattr(implementation, "execute", None)
-            if not callable(execute_candidate):
-                raise TypeError(
-                    "Scientific Operation factory must return an "
-                    "object with callable execute(OperationCall)"
-                )
-        except BaseException as error:
-            try:
-                resources.cleanup_temporary_work()
-            except BaseException as cleanup_error:
-                error.add_note(
-                    "Run workspace cleanup also failed: "
-                    f"{type(cleanup_error).__name__}"
-                )
-            raise
-        if self._ledger.cancellation_requested:
-            return self._cleanup_before_operation_attempt(
-                state,
-                outcome="cancelled",
-            )
-        return implementation, execute_candidate, operation_call
-
-    def _start_operation(
-        self,
-        state: _NodeExecutionAttemptState,
-    ) -> Literal["cancelled", "interrupted"] | None:
-        acknowledged = self._ledger.record_if_active(
-            OperationAttemptStart(
-                operation_attempt_id=state.operation_attempt_id,
-                node_attempt_id=state.node_attempt_id,
-            )
-        )
-        if acknowledged is None:
-            return self._pending_cancellation_outcome()
-        else:
-            state.operation_started = True
-        return None
-
-    def _run_operation(
-        self,
-        state: _NodeExecutionAttemptState,
-        *,
-        operation_execute: Callable[
-            [OperationCall],
-            Mapping[str, Any],
-        ],
-        operation_call: OperationCall,
-        committed_artifacts: tuple[Mapping[str, Any], ...],
-    ) -> _CommittedNodeOutcome:
-        resources = state.resources
-        if resources is None:
-            raise RuntimeError(
-                "Started Operation Attempt lacks owned Run resources"
-            )
-        body_error: BaseException | None = None
-        try:
-            raw_outputs = operation_execute(operation_call)
-            if self._ledger.cancellation_requested:
-                raise ExecutionTermination("cancelled")
-            if state.result_identity is None:
-                state.result_identity = _result_identity(
-                    state.node,
-                    state.inputs,
-                    resolved_resource_inputs=resources.result_identity_inputs,
-                    effective_randomness_snapshot=state.effective_randomness,
-                )
-            admitted_node_output = admit_node_output(
-                node_plan=_node_output_plan(
-                    self._execution_plan,
-                    state.node,
-                ),
-                admitted_inputs=state.inputs,
-                raw_outputs=raw_outputs,
-                result_identity=state.result_identity,
-            )
-            state.admitted_node_output = admitted_node_output
-            state.admitted_outputs = dict(
-                admitted_node_output.runtime_ports
-            )
-            state.artifact_publication_plan = (
-                admitted_node_output.artifact_publication_plan
-            )
-            self._require_artifact_capacity(
-                plan=state.artifact_publication_plan,
-                committed_artifacts=committed_artifacts,
-                replayed=False,
-            )
-            if self._ledger.cancellation_requested:
-                raise ExecutionTermination("cancelled")
-        except BaseException as error:
-            body_error = error
-        finally:
-            try:
-                resources.cleanup_temporary_work()
-            except BaseException as cleanup_error:
-                if body_error is not None:
-                    body_error.add_note(
-                        "Run workspace cleanup also failed: "
-                        f"{type(cleanup_error).__name__}"
-                    )
-                else:
-                    body_error = cleanup_error
-            cancellation_cleanup_error = (
-                self._run_record.cancellation.cleanup_error
-            )
-            if cancellation_cleanup_error is not None:
-                if (
-                    body_error is not None
-                    and body_error is not cancellation_cleanup_error
-                ):
-                    cancellation_cleanup_error.add_note(
-                        "Execution also terminated before cleanup: "
-                        f"{type(body_error).__name__}"
-                    )
-                body_error = cancellation_cleanup_error
-        if body_error is not None:
-            if self._ledger.cancellation_requested:
-                self._run_record.cancellation.wait_for_cleanup()
-            if (
-                isinstance(body_error, V2RunError)
-                and body_error.code == "evidence_unavailable"
-            ):
-                self._ledger.retain_evidence_unavailable(body_error)
-                raise body_error
-            terminal_status = (
-                "failed"
-                if self._run_record.cancellation.cleanup_error is not None
-                else "cancelled"
-                if self._ledger.cancellation_requested
-                else body_error.status
-                if isinstance(body_error, ExecutionTermination)
-                else "failed"
-            )
-            public_error = _execution_error(body_error)
-            if terminal_status == "failed":
-                return self._commit_failure(
-                    state,
-                    public_error=public_error,
-                    failure_origin="operation",
-                )
-            return self._commit_termination(
-                state,
-                status=cast(
-                    Literal[
-                        "cancelled",
-                        "interrupted",
-                        "outcome_unknown",
-                    ],
-                    terminal_status,
-                ),
-                public_error=public_error,
-            )
-        return self._commit_success(state)
-
-    def execute(
-        self,
-        node: ExecutionPlanNode,
-        *,
-        committed_values: Mapping[
-            tuple[str, str],
-            AdmittedPort,
-        ],
-        committed_artifacts: tuple[Mapping[str, Any], ...],
-        cache_bypassed: bool,
-    ) -> _CommittedNodeOutcome:
-        """Execute one schedulable Node Execution Attempt lifecycle."""
-        state = self._prepare(node, committed_values=committed_values)
-        cancellation = self._begin_attempt(state)
-        if cancellation is not None:
-            return self._commit_unstarted(
-                node_id=state.node.node_id,
-                outcome=cancellation,
-            )
-        self._resolve_result_identity(state)
-        if self._ledger.cancellation_requested:
-            return self._commit_termination(
-                state,
-                status=self._pending_cancellation_outcome(),
-                public_error=None,
-            )
-        replayed = self._cache_outcome(
-            state,
-            cache_bypassed=cache_bypassed,
-            committed_artifacts=committed_artifacts,
-        )
-        if replayed is not None:
-            return replayed
-        if self._ledger.cancellation_requested:
-            return self._commit_termination(
-                state,
-                status=self._pending_cancellation_outcome(),
-                public_error=None,
-            )
-
-        readiness_error = self._readiness_failure(state)
-        if self._ledger.cancellation_requested:
-            return self._commit_termination(
-                state,
-                status=self._pending_cancellation_outcome(),
-                public_error=None,
-            )
-        if readiness_error is not None:
-            return self._commit_failure(
-                state,
-                public_error=_binding_error(readiness_error),
-                failure_origin="binding",
-            )
-
-        operation = self._build_operation(state)
-        if isinstance(operation, _CommittedNodeOutcome):
-            return operation
-        _, operation_execute, operation_call = operation
-        cancellation = self._start_operation(state)
-        if cancellation is not None:
-            return self._cleanup_before_operation_attempt(
-                state,
-                outcome=cancellation,
-            )
-        return self._run_operation(
-            state,
-            operation_execute=operation_execute,
-            operation_call=operation_call,
-            committed_artifacts=committed_artifacts,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class _OperationInvocationRecorder:
-    ledger: Ledger
-    operation_attempt_id: str
-    default_engine_identity: str
-
-    @contextmanager
-    def invoke(
-        self,
-        *,
-        engine_role: str,
-        parent_invocation_id: str | None,
-        invocation_provenance: EngineInvocationProvenance | None,
-    ):
-        invocation_id = f"invocation-{uuid.uuid4().hex}"
-        acknowledged = self.ledger.record_if_active(
-            EngineInvocationStart(
-                invocation_id=invocation_id,
-                operation_attempt_id=self.operation_attempt_id,
-                engine_role=engine_role,
-                engine_identity=self.default_engine_identity,
-                parent_invocation_id=parent_invocation_id,
-                provenance=invocation_provenance,
-            )
-        )
-        if acknowledged is None:
-            raise ExecutionTermination("cancelled")
-        try:
-            yield invocation_id
-        except BaseException as error:
-            terminal_status = (
-                error.status
-                if isinstance(error, ExecutionTermination)
-                else "failed"
-            )
-            self.ledger.record(
-                EngineInvocationConclusion(
-                    invocation_id=invocation_id,
-                    status=terminal_status,
-                    error=_execution_error(error),
-                )
-            )
-            raise
-        else:
-            self.ledger.record(
-                EngineInvocationConclusion(
-                    invocation_id=invocation_id,
-                    status="succeeded",
-                )
-            )
-            if self.ledger.cancellation_requested:
-                raise ExecutionTermination("cancelled")
 
 
 @dataclass(slots=True)
@@ -1524,184 +301,6 @@ def _run_catalog_digest(
     return persisted_catalog_digest
 
 
-def _plain_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return {
-            str(key): _plain_json(item)
-            for key, item in value.items()
-        }
-    if isinstance(value, tuple):
-        return [_plain_json(item) for item in value]
-    if isinstance(value, list):
-        return [_plain_json(item) for item in value]
-    return value
-
-
-def _freeze_runtime_json(value: Any) -> Any:
-    if isinstance(value, Mapping):
-        return MappingProxyType({
-            str(key): _freeze_runtime_json(item)
-            for key, item in value.items()
-        })
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_runtime_json(item) for item in value)
-    return value
-
-
-@dataclass(frozen=True, slots=True)
-class _EffectiveRandomnessSnapshot:
-    effective_randomness: Mapping[str, Any]
-    node_parameters: Mapping[str, Any]
-    binding_parameters: Mapping[str, Any]
-
-
-def _resolve_effective_randomness(
-    node: ExecutionPlanNode,
-    inputs: Mapping[str, AdmittedPort],
-) -> _EffectiveRandomnessSnapshot:
-    node_parameters = _plain_json(node.node_parameters)
-    binding_parameters = _plain_json(node.binding_parameters)
-    declared_randomness = node._runtime.effective_randomness_parameters
-    if declared_randomness:
-        resolver = node._runtime.effective_randomness_resolver
-        if resolver is None:
-            resolved_randomness: Mapping[str, Any] = {
-                parameter_name: (
-                    node_parameters[parameter_name]
-                    if parameter_name in node_parameters
-                    and parameter_name not in binding_parameters
-                    else (
-                        binding_parameters[parameter_name]
-                        if parameter_name in binding_parameters
-                        and parameter_name not in node_parameters
-                        else {"resolution": "unresolved"}
-                    )
-                )
-                for parameter_name in declared_randomness
-            }
-        else:
-            resolved_randomness = resolver.resolve(
-                inputs=inputs,
-                node_parameters=node_parameters,
-                binding_parameters=binding_parameters,
-            )
-            if (
-                not isinstance(resolved_randomness, Mapping)
-                or set(resolved_randomness) != set(declared_randomness)
-            ):
-                raise ValueError(
-                    "effective randomness resolver must return every "
-                    "declared parameter exactly once"
-                )
-        effective_randomness = {}
-        for parameter_name in declared_randomness:
-            resolved_value = _plain_json(
-                resolved_randomness[parameter_name]
-            )
-            effective_randomness[parameter_name] = (
-                {"resolution": "unresolved"}
-                if resolved_value is None
-                else resolved_value
-            )
-            if (
-                parameter_name in node_parameters
-                and parameter_name not in binding_parameters
-            ):
-                node_parameters[parameter_name] = resolved_value
-            elif (
-                parameter_name in binding_parameters
-                and parameter_name not in node_parameters
-            ):
-                binding_parameters[parameter_name] = resolved_value
-    else:
-        effective_randomness = {}
-    canonical_json_bytes(
-        {
-            "effective_randomness": effective_randomness,
-            "node_parameters": node_parameters,
-            "binding_parameters": binding_parameters,
-        }
-    )
-    return _EffectiveRandomnessSnapshot(
-        effective_randomness=_freeze_runtime_json(effective_randomness),
-        node_parameters=_freeze_runtime_json(node_parameters),
-        binding_parameters=_freeze_runtime_json(binding_parameters),
-    )
-
-
-def _result_identity_descriptor(
-    node: ExecutionPlanNode,
-    inputs: Mapping[str, AdmittedPort],
-    *,
-    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
-    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
-) -> dict[str, Any]:
-    """Build the closed scientific identity of one resolved Node result."""
-    plan_facts = node.result_identity_plan_facts
-    canonical_plan_facts = plan_facts.canonical_projection()
-    static_facts = canonical_plan_facts["identity_facts"]
-    declared_inputs = {
-        port["input_port"]: port
-        for port in static_facts["input_contracts"]
-    }
-    input_identities: list[dict[str, Any]] = []
-    for port_name in sorted(inputs):
-        declaration = declared_inputs[port_name]
-        admitted = inputs[port_name]
-        input_identities.append(
-            {
-                "input_port": port_name,
-                "port_type": declaration["port_type"],
-                "multiplicity": declaration["multiplicity"],
-                "value_content_digests": list(
-                    admitted.value_content_digests
-                ),
-            }
-        )
-    randomness_snapshot = (
-        effective_randomness_snapshot
-        if effective_randomness_snapshot is not None
-        else _resolve_effective_randomness(node, inputs)
-    )
-    resolved_node_parameters = _plain_json(
-        randomness_snapshot.node_parameters
-    )
-    resolved_binding_parameters = _plain_json(
-        randomness_snapshot.binding_parameters
-    )
-    for parameter_name in plan_facts.node_parameter_indirections:
-        resolved_node_parameters.pop(parameter_name, None)
-    for parameter_name in node._runtime.project_input_parameters:
-        resolved_node_parameters.pop(parameter_name, None)
-    declared_randomness = node._runtime.effective_randomness_parameters
-    if declared_randomness:
-        effective_randomness = _plain_json(
-            randomness_snapshot.effective_randomness
-        )
-        for parameter_name in declared_randomness:
-            resolved_node_parameters.pop(parameter_name, None)
-            resolved_binding_parameters.pop(parameter_name, None)
-    else:
-        effective_randomness = _plain_json(
-            randomness_snapshot.effective_randomness
-        )
-    descriptor = {
-        "schema_namespace": RESULT_IDENTITY_NAMESPACE,
-        "result_identity_plan_facts": canonical_plan_facts,
-        "inputs": input_identities,
-        "node_parameters": resolved_node_parameters,
-        "binding_parameters": resolved_binding_parameters,
-        "determinism": {
-            "deterministic": node._runtime.deterministic,
-            "effective_randomness": effective_randomness,
-        },
-    }
-    if resolved_resource_inputs:
-        descriptor["resolved_resource_inputs"] = [
-            _plain_json(identity)
-            for identity in resolved_resource_inputs
-        ]
-    return descriptor
 
 
 def _exact_reference(reference: Any) -> ExactContractReference:
@@ -1713,53 +312,6 @@ def _exact_reference(reference: Any) -> ExactContractReference:
     )
 
 
-def _node_output_plan(
-    execution_plan: ExecutionPlan,
-    node: ExecutionPlanNode,
-) -> NodeOutputPlan:
-    """Project compiler-owned typed facts into the Output Admission seam."""
-    return NodeOutputPlan(
-        node_id=node.node_id,
-        producing_method=_exact_reference(node.method),
-        output_ports={
-            output_port: OutputPortPlan(
-                required=declaration.required,
-                multiplicity=declaration.multiplicity,
-                port_type=declaration.port_type,
-            )
-            for output_port, declaration in node._runtime.output_ports.items()
-        },
-        candidate_data_port_types=(
-            execution_plan._runtime.candidate_data_port_types
-        ),
-        produced_observations=node._runtime.produced_observation_plan,
-        artifact_outputs=tuple(
-            ArtifactOutputDeclaration(
-                output_port=declaration.output_port,
-                artifact_kind=declaration.artifact_kind,
-                artifact_media_type=declaration.artifact_media_type,
-                accepted_media_types=declaration.accepted_media_types,
-            )
-            for declaration in node._runtime.artifact_outputs
-        ),
-    )
-
-
-def _result_identity(
-    node: ExecutionPlanNode,
-    inputs: Mapping[str, AdmittedPort],
-    *,
-    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
-    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
-) -> str:
-    return canonical_sha256(
-        _result_identity_descriptor(
-            node,
-            inputs,
-            resolved_resource_inputs=resolved_resource_inputs,
-            effective_randomness_snapshot=effective_randomness_snapshot,
-        )
-    )
 
 
 def _context_selector_evidence(value: object) -> ContextSelectorEvidence:
@@ -1878,80 +430,6 @@ def _selection_consumer_result(
     )
 
 
-def _contains_unresolved_identity(value: Any) -> bool:
-    if isinstance(value, Mapping):
-        if value.get("identity_complete") is False:
-            return True
-        return any(
-            _contains_unresolved_identity(item)
-            for item in value.values()
-        )
-    if isinstance(value, (list, tuple)):
-        return any(_contains_unresolved_identity(item) for item in value)
-    if is_dataclass(value) and not isinstance(value, type):
-        return any(
-            _contains_unresolved_identity(getattr(value, item.name))
-            for item in fields(value)
-        )
-    return (
-        isinstance(value, str)
-        and value.strip().lower()
-        in {"unknown", "unresolved", "latest", "unspecified"}
-    )
-
-
-def _candidate_values(value: Any) -> tuple[Candidate, ...]:
-    if type(value) is Candidate:
-        return (value,)
-    if type(value) is CandidateCollection:
-        return value.items
-    if isinstance(value, (list, tuple)):
-        return tuple(
-            candidate
-            for item in value
-            for candidate in _candidate_values(item)
-        )
-    return ()
-
-
-def _result_identity_is_cache_safe(
-    node: ExecutionPlanNode,
-    inputs: Mapping[str, AdmittedPort],
-    *,
-    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
-    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
-) -> bool:
-    if _contains_unresolved_identity(
-        node.result_identity_plan_facts.canonical_projection()
-    ):
-        return False
-    if any(
-        _contains_unresolved_identity(admitted.value)
-        for admitted in inputs.values()
-    ):
-        return False
-    if _contains_unresolved_identity(
-        _result_identity_descriptor(
-            node,
-            inputs,
-            resolved_resource_inputs=resolved_resource_inputs,
-            effective_randomness_snapshot=effective_randomness_snapshot,
-        )
-    ):
-        return False
-    return all(
-        not _contains_unresolved_identity(candidate.candidate_id)
-        for admitted in inputs.values()
-        for candidate in _candidate_values(admitted.value)
-    )
-
-
-def _result_contract_metadata(
-    node: ExecutionPlanNode,
-) -> dict[str, Any]:
-    return (
-        node.result_identity_plan_facts.cache_contract_metadata()
-    )
 
 
 class V2RunService:
@@ -2238,6 +716,41 @@ class V2RunService:
             blockers.update(reference.node_id for reference in sources)
         return tuple(sorted(blockers))
 
+    @staticmethod
+    def _admitted_inputs_for(
+        node: ExecutionPlanNode,
+        values: Mapping[tuple[str, str], AdmittedPort],
+    ) -> Mapping[str, AdmittedPort]:
+        """Combine already-admitted upstream values for one planned Node."""
+        admitted_inputs: dict[str, list[Any]] = {}
+        for port_name, sources in node._runtime.input_sources.items():
+            for source_reference in sources:
+                source = values.get(
+                    (
+                        source_reference.node_id,
+                        source_reference.output_port,
+                    )
+                )
+                if source is None or not source.values:
+                    continue
+                admitted_inputs.setdefault(port_name, []).extend(source.values)
+
+        inputs: dict[str, AdmittedPort] = {}
+        for port_name, admitted in admitted_inputs.items():
+            declaration = node._runtime.input_ports[port_name]
+            if declaration.multiplicity == "one" and len(admitted) != 1:
+                raise RuntimeError(
+                    "Execution Plan one-valued input Port "
+                    f"{port_name!r} resolved to {len(admitted)} admitted values"
+                )
+            inputs[port_name] = combine_admitted_port(
+                port_type=declaration.reference.canonical_projection(),
+                multiplicity=declaration.multiplicity,
+                values=tuple(admitted),
+            )
+        _validate_input_candidate_identities(inputs)
+        return MappingProxyType(inputs)
+
     def start(
         self,
         project_id: str,
@@ -2367,20 +880,17 @@ class V2RunService:
         )
         ledger.record(RunStart(started_at=run_timestamp()))
 
-        all_artifacts: list[dict[str, Any]] = []
+        committed_artifact_count = 0
+        committed_artifact_bytes = 0
         record = _RunRecord(
             compiled=compiled,
             ledger=ledger,
         )
-        attempts = _NodeExecutionAttemptModule(
+        attempts = NodeAttempt(
             projects=self._projects,
             environment=self._environment,
             result_store=self._result_store,
-            project_id=project_id,
-            run_id=run_id,
-            execution_plan=plan,
             ledger=ledger,
-            run_record=record,
             availability_by_binding=availability_by_binding,
         )
 
@@ -2437,14 +947,31 @@ class V2RunService:
             if concluded_before_scheduling:
                 continue
             committed = attempts.execute(
-                node,
-                committed_values=committed_values,
-                committed_artifacts=tuple(all_artifacts),
-                cache_bypassed=node.node_id in _cache_bypass_nodes,
+                AttemptSpec(
+                    project_id=project_id,
+                    run_id=run_id,
+                    node=node,
+                    candidate_data_port_types=(
+                        plan._runtime.candidate_data_port_types
+                    ),
+                    admitted_inputs=self._admitted_inputs_for(
+                        node,
+                        committed_values,
+                    ),
+                    cancellation=record.cancellation,
+                    committed_artifact_count=committed_artifact_count,
+                    committed_artifact_bytes=committed_artifact_bytes,
+                    cache_bypassed=node.node_id in _cache_bypass_nodes,
+                )
             )
             if committed.disposition == "succeeded":
                 committed_values.update(committed.admitted_outputs)
-                all_artifacts.extend(committed.artifacts)
+                committed_artifact_count += (
+                    committed.published_artifact_count
+                )
+                committed_artifact_bytes += (
+                    committed.published_artifact_bytes
+                )
         selection_conclusions: tuple[SelectionConclusion, ...] = ()
         if ledger.selection_consumer_ids and ledger.all_dispositions_succeeded:
             selection_consumers = {

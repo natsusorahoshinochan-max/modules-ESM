@@ -28,6 +28,7 @@ EXECUTION_PLAN_NAMESPACE = "protein-workbench-execution-plan/v3"
 RESULT_IDENTITY_PLAN_FACTS_NAMESPACE = (
     "protein-workbench-result-identity-plan-facts/v1"
 )
+RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +98,53 @@ class ResultIdentityPlanFacts:
         return {
             "result_identity_plan_facts": self.canonical_projection()
         }
+
+    def result_identity_projection(
+        self,
+        *,
+        input_value_content_digests: Mapping[str, tuple[str, ...]],
+        node_parameters: Mapping[str, Any],
+        binding_parameters: Mapping[str, Any],
+        deterministic: bool,
+        effective_randomness: Mapping[str, Any],
+        resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
+    ) -> dict[str, Any]:
+        """Build the canonical scientific identity for one resolved result."""
+        canonical_plan_facts = self.canonical_projection()
+        declared_inputs = {
+            port["input_port"]: port
+            for port in canonical_plan_facts["identity_facts"][
+                "input_contracts"
+            ]
+        }
+        descriptor: dict[str, Any] = {
+            "schema_namespace": RESULT_IDENTITY_NAMESPACE,
+            "result_identity_plan_facts": canonical_plan_facts,
+            "inputs": [
+                {
+                    "input_port": port_name,
+                    "port_type": declared_inputs[port_name]["port_type"],
+                    "multiplicity": declared_inputs[port_name][
+                        "multiplicity"
+                    ],
+                    "value_content_digests": list(
+                        input_value_content_digests[port_name]
+                    ),
+                }
+                for port_name in sorted(input_value_content_digests)
+            ],
+            "node_parameters": _thaw_json(node_parameters),
+            "binding_parameters": _thaw_json(binding_parameters),
+            "determinism": {
+                "deterministic": deterministic,
+                "effective_randomness": _thaw_json(effective_randomness),
+            },
+        }
+        if resolved_resource_inputs:
+            descriptor["resolved_resource_inputs"] = _thaw_json(
+                resolved_resource_inputs
+            )
+        return descriptor
 
     @property
     def digest(self) -> str:

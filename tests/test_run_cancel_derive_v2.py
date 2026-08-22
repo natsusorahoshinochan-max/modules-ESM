@@ -20,7 +20,7 @@ from core.operation import (
 )
 from core.execution.results import ProjectReplayIndex, ReplayIndexEntry
 from core.project.objects import ProjectObjectStore
-from core.run_execution_v2 import (
+from core.execution.node_attempt import (
     ExecutionTermination,
 )
 import core.run_execution_v2 as run_execution_v2

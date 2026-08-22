@@ -20,6 +20,8 @@ from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
 )
+from core.catalog.port_contract import canonical_sha256
+from core.execution.node_attempt import result_identity_descriptor
 from core.operation import (
     ReadinessResult,
 )
@@ -38,7 +40,6 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-import core.run_execution_v2 as run_execution_v2
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import (
     Candidate,
@@ -502,7 +503,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
             for node in compiled.execution_plan.nodes
             if node.node_type.contract_id == "folding.fold"
         )
-        return run_execution_v2._result_identity_descriptor(
+        return result_identity_descriptor(
             plan_node,
             {"sequence_candidates": admitted_parents},
         )
@@ -533,9 +534,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
     }
     assert first["determinism"]["effective_randomness"] == {}
     assert second["determinism"]["effective_randomness"] == {}
-    assert run_execution_v2.canonical_sha256(first) != (
-        run_execution_v2.canonical_sha256(second)
-    )
+    assert canonical_sha256(first) != canonical_sha256(second)
     assert local["node_parameters"] == {"num_samples": 1}
     assert local["determinism"]["effective_randomness"] == {
         "effective_seed": 1603,

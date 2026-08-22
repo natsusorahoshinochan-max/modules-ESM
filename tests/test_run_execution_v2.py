@@ -17,7 +17,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
-from core.execution.resources import RunResources
+from core.execution.resources import CancellationControl, RunResources
+import core.execution.node_attempt as node_attempt
 from core.execution.ledger import (
     NodeAttemptTerminal,
     NodeDisposition,
@@ -50,7 +51,7 @@ from core.operation import (
     ResolvedOutputIdentity,
 )
 from core.parameters.contract import admit_declarations
-from core.run_execution_v2 import ExecutionTermination
+from core.execution.node_attempt import ExecutionTermination
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from protein_workbench_public.bootstrap import create_application
 import core.run_execution_v2 as run_execution_v2
@@ -2120,19 +2121,11 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
                 started_at="2026-08-21T00:00:00Z",
             )
         )
-        record = run_execution_v2._RunRecord(
-            compiled=compiled,
-            ledger=ledger,
-        )
-        attempts = run_execution_v2._NodeExecutionAttemptModule(
+        attempts = node_attempt.NodeAttempt(
             projects=service._projects,
             environment=service._environment,
             result_store=service._result_store,
-            project_id=project_id,
-            run_id=run_id,
-            execution_plan=plan,
             ledger=ledger,
-            run_record=record,
             availability_by_binding={
                 (
                     node.binding.contract_id,
@@ -2142,14 +2135,24 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         )
 
         outcome = attempts.execute(
-            node,
-            committed_values={},
-            committed_artifacts=(),
-            cache_bypassed=False,
+            node_attempt.AttemptSpec(
+                project_id=project_id,
+                run_id=run_id,
+                node=node,
+                candidate_data_port_types=(
+                    plan._runtime.candidate_data_port_types
+                ),
+                admitted_inputs={},
+                cancellation=CancellationControl(),
+                committed_artifact_count=0,
+                committed_artifact_bytes=0,
+                cache_bypassed=False,
+            )
         )
 
     assert outcome.disposition == "succeeded"
-    assert outcome.artifacts == ()
+    assert outcome.published_artifact_count == 0
+    assert outcome.published_artifact_bytes == 0
     assert outcome.admitted_outputs[("direct", "text")].value == "READY"
     assert [type(event.payload) for event in ledger.events()[-3:]] == [
         OperationAttemptTerminal,
@@ -3273,8 +3276,8 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 1)
-    monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACT_BYTES_PER_RUN", 8)
+    monkeypatch.setattr(node_attempt, "MAX_ARTIFACTS_PER_RUN", 1)
+    monkeypatch.setattr(node_attempt, "MAX_ARTIFACT_BYTES_PER_RUN", 8)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
@@ -3313,7 +3316,7 @@ def test_run_artifact_count_and_aggregate_size_are_bounded(
         if fact["fact_type"] == "operation_attempt_terminal"
     )["payload"]["status"] == "failed"
 
-    monkeypatch.setattr(run_execution_v2, "MAX_ARTIFACTS_PER_RUN", 2)
+    monkeypatch.setattr(node_attempt, "MAX_ARTIFACTS_PER_RUN", 2)
     aggregate_root = tmp_path / "aggregate-runs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(aggregate_root))
     aggregate_limited = create_application(
