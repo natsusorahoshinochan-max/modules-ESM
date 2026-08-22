@@ -91,7 +91,7 @@ class _RunQueries:
                 },
             )
         try:
-            value = self._result_store.read_typed_value(
+            value_bytes, value_reference = self._result_store.read_typed_value(
                 project_id,
                 descriptor,
                 value_index,
@@ -119,11 +119,11 @@ class _RunQueries:
                 ),
                 "value_index": value_index,
                 "value_count": descriptor.value_count,
-                "value_content_digest": value.content_digest,
-                "size": value.size,
+                "value_content_digest": value_reference.content_digest,
+                "size": value_reference.size,
             }
         }
-        return json.loads(json.dumps(metadata)), value.canonical_bytes
+        return json.loads(json.dumps(metadata)), value_bytes
 
     def artifact(
         self,

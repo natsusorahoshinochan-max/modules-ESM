@@ -266,12 +266,12 @@ def test_restore_and_reads_use_the_result_store_interface(
     summary = next(
         output for output in stored.outputs if output.output_port == "summary"
     )
-    value = store.read_typed_value(
+    value_bytes, _ = store.read_typed_value(
         project_id,
         summary,
         0,
     )
-    assert value.canonical_bytes == admitted.ports["summary"].values[
+    assert value_bytes == admitted.ports["summary"].values[
         0
     ].canonical_bytes
 

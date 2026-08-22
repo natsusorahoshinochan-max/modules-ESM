@@ -10,7 +10,6 @@ from core.execution.results.store import (
     ResultStore,
     ResultStoreWriteError,
     StoredNodeResult,
-    TypedValueRead,
 )
 
 __all__ = [
@@ -21,5 +20,4 @@ __all__ = [
     "ResultStore",
     "ResultStoreWriteError",
     "StoredNodeResult",
-    "TypedValueRead",
 ]

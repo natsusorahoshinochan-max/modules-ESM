@@ -81,15 +81,6 @@ class StoredNodeResult:
     artifacts: tuple[PublishedArtifact, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class TypedValueRead:
-    """One exact canonical value read through published Ledger evidence."""
-
-    canonical_bytes: bytes
-    content_digest: str
-    size: int
-
-
 class ResultStore:
     """The sole owner of Node/Port manifests and project replay restoration."""
 
@@ -499,7 +490,7 @@ class ResultStore:
         project_id: str,
         output: PublishedOutput,
         value_index: int,
-    ) -> TypedValueRead:
+    ) -> tuple[bytes, StoredObject]:
         """Read one canonical value authorized by published Ledger evidence."""
         try:
             encoded = self._objects.read(
@@ -526,11 +517,7 @@ class ResultStore:
             ValueError,
         ) as error:
             raise ResultIntegrityError(output.value_manifest_reference) from error
-        return TypedValueRead(
-            canonical_bytes=payload,
-            content_digest=value.content_digest,
-            size=value.size,
-        )
+        return payload, value
 
     def read_artifact(
         self,
