@@ -69,18 +69,6 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
 
     captured: dict[str, int] = {}
 
-    class ModelWrapper:
-        device = "cpu"
-
-        def __init__(self, **_kwargs: Any) -> None:
-            pass
-
-        def from_pretrained_folding_model(self) -> object:
-            return object()
-
-        def from_pretrained_plddt_model(self) -> object:
-            return object()
-
     class InferenceWrapper:
         def __init__(self, **kwargs: Any) -> None:
             captured["num_steps"] = kwargs["num_steps"]
@@ -101,7 +89,6 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
         ),
         "utils.esm_utils": ModuleType("utils.esm_utils"),
     }
-    modules["simplefold.wrapper"].ModelWrapper = ModelWrapper
     modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
     modules["simplefold.utils.boltz_utils"].process_structure = object()
     modules["simplefold.utils.boltz_utils"].to_pdb = object()
@@ -130,16 +117,13 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     with pytest.raises(StopAfterInferenceConstruction):
         simplefold_runtime.fold_sequence(
             ProteinSequence("AG", ("A:1", "A:2")),
-            model_name="simplefold_100M",
             num_steps=75,
             num_samples=1,
-            project_dir=str(tmp_path / "project"),
+            staging_directory=tmp_path / "project",
             effective_seed=1603,
             staged_model_root=model_root,
             staged_esm2_source_root=esm2_source_root,
             staged_esm2_model_root=esm2_model_root,
-            required_device="cpu",
-            record_evidence=False,
         )
 
     assert captured == {"num_steps": 75}
@@ -163,18 +147,6 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
     class LanguageModel:
         def __del__(self) -> None:
             lifecycle["language_model_released"] = True
-
-    class ModelWrapper:
-        device = "cpu"
-
-        def __init__(self, **_kwargs: Any) -> None:
-            pass
-
-        def from_pretrained_folding_model(self) -> object:
-            raise AssertionError("copying checkpoint loader must not be used")
-
-        def from_pretrained_plddt_model(self) -> object:
-            raise AssertionError("copying checkpoint loader must not be used")
 
     class InferenceWrapper:
         def __init__(self, **_kwargs: Any) -> None:
@@ -266,7 +238,6 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
         ),
         "utils.esm_utils": ModuleType("utils.esm_utils"),
     }
-    modules["simplefold.wrapper"].ModelWrapper = ModelWrapper
     modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
     modules["simplefold.utils.boltz_utils"].process_structure = object()
     modules["simplefold.utils.boltz_utils"].to_pdb = object()
@@ -299,16 +270,13 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
     with pytest.raises(StopAfterStagedModelLoad):
         simplefold_runtime.fold_sequence(
             ProteinSequence("AG", ("A:1", "A:2")),
-            model_name="simplefold_100M",
             num_steps=50,
             num_samples=1,
-            project_dir=str(tmp_path / "project"),
+            staging_directory=tmp_path / "project",
             effective_seed=1603,
             staged_model_root=model_root,
             staged_esm2_source_root=esm2_source_root,
             staged_esm2_model_root=esm2_model_root,
-            required_device="cpu",
-            record_evidence=False,
         )
 
     assert loaded_checkpoints == [
@@ -603,7 +571,7 @@ def _simplefold_environment(
             num_steps=kwargs["num_steps"],
             num_samples=kwargs["num_samples"],
             effective_seed=kwargs["effective_seed"],
-            staging_directory=Path(kwargs["project_dir"]),
+            staging_directory=kwargs["staging_directory"],
         )
 
     monkeypatch.setattr(

@@ -47,13 +47,6 @@ class SimpleFoldConfidenceAdapterResult:
 
     per_residue_plddt: tuple[float | None, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "per_residue_plddt",
-            tuple(self.per_residue_plddt),
-        )
-
 
 class SimpleFoldConfidenceAdapter(Protocol):
     """Resolved-axis existing-structure confidence Operation boundary."""
@@ -251,7 +244,6 @@ def _native_existing_structure_confidence(
                 process_one_inference_structure,
             )
             from simplefold.utils.esm_utils import _af2_to_esm, esm_registry
-            from simplefold.wrapper import ModelWrapper
 
             esm_registry["esm2_3B"] = partial(
                 _load_representation_only_esm2,
@@ -290,19 +282,9 @@ def _native_existing_structure_confidence(
             record_file.write_text(
                 json.dumps(asdict(target.record), sort_keys=True)
             )
-            wrapper = ModelWrapper(
-                simplefold_model="simplefold_1.6B",
-                plddt=True,
-                ckpt_dir=str(model_dir),
-                backend="torch",
-            )
-            device = wrapper.device
-            if str(device) != (
+            device = torch.device(
                 simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
-            ):
-                raise RuntimeError(
-                    "SimpleFold confidence provider device changed"
-                )
+            )
             esm_model, esm_dict = esm_registry["esm2_3B"]()
             esm_model = esm_model.to(device).eval()
             af2_to_esm = _af2_to_esm(esm_dict).to(device)

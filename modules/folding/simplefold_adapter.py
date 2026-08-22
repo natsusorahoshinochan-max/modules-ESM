@@ -45,13 +45,6 @@ class SimpleFoldSampleResult:
     structure: ProteinStructure
     per_residue_plddt: tuple[float, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "per_residue_plddt",
-            tuple(self.per_residue_plddt),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class SimpleFoldAdapterResult:
@@ -59,9 +52,6 @@ class SimpleFoldAdapterResult:
 
     samples: tuple[SimpleFoldSampleResult, ...]
     effective_call_seed: int
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "samples", tuple(self.samples))
 
 
 class SimpleFoldAdapter(Protocol):
@@ -180,16 +170,13 @@ class LocalSimpleFoldAdapter:
                 _SimpleFoldNativeResult,
                 fold_sequence(
                     sequence=sequence,
-                    model_name=simplefold_contract.SIMPLEFOLD_MODEL,
                     num_steps=num_steps,
                     num_samples=num_samples,
-                    project_dir=str(staging_directory),
+                    staging_directory=staging_directory,
                     effective_seed=effective_seed,
                     staged_model_root=configured["model_root"],
                     staged_esm2_source_root=configured["esm2_source_root"],
                     staged_esm2_model_root=configured["esm2_model_root"],
-                    required_device=simplefold_contract.SIMPLEFOLD_DEVICE,
-                    record_evidence=False,
                 ),
             )
 
