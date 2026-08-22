@@ -134,8 +134,6 @@ def normalizations_to_wire(value: object) -> object:
 
 def normalizations_from_wire(
     value: object,
-    *,
-    require_nonempty: bool = True,
 ) -> ModifiedResidueNormalizationCollection:
     if not isinstance(value, dict) or set(value) != {"entries"}:
         raise ValueError("modified-residue normalization wire value is invalid")
@@ -187,9 +185,7 @@ def normalizations_from_wire(
                 atom_mappings=tuple(decoded_mappings),
             )
         )
-    result = ModifiedResidueNormalizationCollection(entries=decoded)
-    validate_normalizations(result, require_nonempty=require_nonempty)
-    return result
+    return ModifiedResidueNormalizationCollection(entries=decoded)
 
 
 MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE = PortTypeDefinition(

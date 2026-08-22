@@ -78,12 +78,11 @@ def _validate_annotations(value: object) -> None:
     validate_canonical_function_annotations(value)
 
 
-def _annotations_to_wire(value: object) -> object:
-    annotations = validate_canonical_function_annotations(value)
+def _annotations_to_wire(value: FunctionAnnotations) -> object:
     return {
         "annotations": [
             _function_annotation_to_canonical(annotation)
-            for annotation in annotations
+            for annotation in value.annotations
         ],
     }
 
@@ -111,9 +110,7 @@ def _annotations_from_wire(value: object) -> object:
                 overlap_policy=raw["overlap_policy"],
             )
         )
-    result = FunctionAnnotations(annotations)
-    validate_canonical_function_annotations(result)
-    return result
+    return FunctionAnnotations(annotations)
 
 
 def _track_to_wire(track: ResidueTrack | None) -> object:
@@ -133,8 +130,7 @@ def _validate_prompt(value: object) -> None:
     validate_protein_prompt(value)
 
 
-def _prompt_to_wire(value: object) -> object:
-    prompt = validate_protein_prompt(value)
+def _prompt_to_wire(prompt: ProteinPrompt) -> object:
     return {
         "target_layout": _wire_value(
             _LAYOUT_CODEC,
@@ -158,7 +154,7 @@ def _prompt_to_wire(value: object) -> object:
 def _prompt_from_wire(value: object) -> object:
     if not isinstance(value, dict) or set(value) != _PROMPT_FIELDS:
         raise ValueError("ProteinPrompt wire value is not closed")
-    prompt = ProteinPrompt(
+    return ProteinPrompt(
         target_layout=_decode_value(
             _LAYOUT_CODEC,
             value["target_layout"],
@@ -176,7 +172,6 @@ def _prompt_from_wire(value: object) -> object:
             value["function_annotations"]
         ),
     )
-    return validate_protein_prompt(prompt)
 
 
 FUNCTION_ANNOTATIONS_PORT_TYPE = PortTypeDefinition(

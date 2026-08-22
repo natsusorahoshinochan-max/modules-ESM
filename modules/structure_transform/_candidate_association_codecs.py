@@ -22,8 +22,6 @@ from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
 )
-from datatypes.structure import ResolvedStructureResidueAxis
-
 from ._normalization_codec import (
     MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
     NORMALIZATION_VERSION,
@@ -35,9 +33,9 @@ from ._resolved_axis_codec import (
     RESOLVED_AXIS_PORT_TYPE,
     RESOLVED_AXIS_VERSION,
     _STRUCTURE_CODEC,
+    _axis_from_wire,
+    _axis_to_wire,
     _closed_dict,
-    _decode_value,
-    _wire_value,
     validate_resolved_axis,
 )
 from .domain import (
@@ -136,17 +134,12 @@ def _candidate_normalizations_from_wire(value: object) -> object:
         entries.append(
             CandidateModifiedResidueNormalizationAssociation(
                 subject=_candidate_data_reference_from_canonical(item["subject"]),
-                normalizations=normalizations_from_wire(
-                    item["normalizations"],
-                    require_nonempty=False,
-                ),
+                normalizations=normalizations_from_wire(item["normalizations"]),
             )
         )
-    result = CandidateModifiedResidueNormalizationAssociations(
+    return CandidateModifiedResidueNormalizationAssociations(
         entries=tuple(entries)
     )
-    validate_candidate_normalization_associations(result)
-    return result
 
 
 def validate_candidate_resolved_axis_associations(value: object) -> None:
@@ -176,10 +169,7 @@ def _candidate_axes_to_wire(value: object) -> object:
         "entries": [
             {
                 "subject": _candidate_data_reference_to_canonical(entry.subject),
-                "residue_axis": _wire_value(
-                    RESOLVED_AXIS_PORT_TYPE,
-                    entry.residue_axis,
-                ),
+                "residue_axis": _axis_to_wire(entry.residue_axis),
             }
             for entry in value.entries
         ]
@@ -201,12 +191,7 @@ def _candidate_axes_from_wire(value: object) -> object:
             {"subject", "residue_axis"},
             subject="Candidate residue-axis association",
         )
-        residue_axis = _decode_value(
-            RESOLVED_AXIS_PORT_TYPE,
-            item["residue_axis"],
-        )
-        if type(residue_axis) is not ResolvedStructureResidueAxis:
-            raise ValueError("Candidate residue axis has the wrong runtime type")
+        residue_axis = _axis_from_wire(item["residue_axis"])
         entries.append(
             CandidateResolvedResidueAxisAssociation(
                 subject=_candidate_data_reference_from_canonical(item["subject"]),
@@ -310,9 +295,7 @@ def _normalization_facts_from_wire(value: object) -> object:
         raise ValueError(
             "candidate normalization fact entries are not canonically ordered"
         )
-    result = CandidateNormalizationFactCollection(tuple(entries))
-    _validate_normalization_facts(result)
-    return result
+    return CandidateNormalizationFactCollection(tuple(entries))
 
 
 def candidate_normalization_output_identity_intent(

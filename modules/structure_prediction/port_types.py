@@ -227,7 +227,7 @@ def _prediction_axis_from_wire(value: object) -> object:
         {"source", "layout", "sequence"},
         subject="prediction residue axis",
     )
-    result = PredictionResidueAxis(
+    return PredictionResidueAxis(
         source=_source_from_wire(decoded["source"]),
         layout=_decode_value(
             _LAYOUT_CODEC,
@@ -240,8 +240,6 @@ def _prediction_axis_from_wire(value: object) -> object:
             ProteinSequence,
         ),
     )
-    _validate_prediction_residue_axis(result)
-    return result
 
 
 def _prediction_axis_candidate_data_references(
@@ -372,7 +370,7 @@ def _confidence_fact_from_wire(value: object) -> ConfidenceFact:
     pae = decoded["pae"]
     if pae is not None and any(not isinstance(row, list) for row in pae):
         raise ValueError("confidence fact PAE wire value is invalid")
-    result = ConfidenceFact(
+    return ConfidenceFact(
         prediction_key=decoded["prediction_key"],
         structure_content_digest=decoded["structure_content_digest"],
         prediction_axis=_decode_value(
@@ -388,7 +386,6 @@ def _confidence_fact_from_wire(value: object) -> ConfidenceFact:
             else tuple(tuple(row) for row in pae)
         ),
     )
-    return _validate_confidence_fact(result)
 
 
 def _confidence_facts_to_wire(value: object) -> object:
@@ -417,15 +414,13 @@ def _confidence_facts_from_wire(value: object) -> object:
         raise ValueError(
             "confidence fact entries must use unique canonical key order"
         )
-    result = ConfidenceFactCollection(
+    return ConfidenceFactCollection(
         observation_method=_reference_from_wire(
             decoded["observation_method"],
             expected_kind="method",
         ),
         entries=entries,
     )
-    _validate_confidence_facts(result)
-    return result
 
 
 def _confidence_axis_references(

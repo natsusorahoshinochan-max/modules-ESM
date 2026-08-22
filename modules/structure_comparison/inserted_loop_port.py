@@ -525,11 +525,9 @@ def inserted_loop_evaluation_from_wire(
     raw = _closed(value, {"schema_version", "entries"}, name="inserted-loop evidence")
     if raw["schema_version"] != VERSION or not isinstance(raw["entries"], list):
         raise ValueError("inserted-loop evidence schema is not current")
-    result = InsertedLoopEvaluationCollection(
+    return InsertedLoopEvaluationCollection(
         tuple(_entry_from_wire(item) for item in raw["entries"])
     )
-    validate_inserted_loop_evaluation(result)
-    return result
 
 
 def _candidate_data_references(

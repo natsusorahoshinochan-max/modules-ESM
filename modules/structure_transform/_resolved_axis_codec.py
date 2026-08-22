@@ -418,7 +418,7 @@ def _closed_dict(
     return value
 
 
-def _axis_from_wire(value: object) -> object:
+def _axis_from_wire(value: object) -> ResolvedStructureResidueAxis:
     decoded = _closed_dict(
         value,
         {
@@ -565,7 +565,7 @@ def _axis_from_wire(value: object) -> object:
             )
         )
 
-    result = ResolvedStructureResidueAxis(
+    return ResolvedStructureResidueAxis(
         structure=_decode_value(_STRUCTURE_CODEC, decoded["structure"]),
         layout=_decode_value(_LAYOUT_CODEC, decoded["layout"]),
         sequence=decoded["sequence"],
@@ -573,15 +573,12 @@ def _axis_from_wire(value: object) -> object:
         segments=tuple(segments),
         component_dispositions=tuple(dispositions),
         modified_residue_normalizations=normalizations_from_wire(
-            decoded["modified_residue_normalizations"],
-            require_nonempty=False,
+            decoded["modified_residue_normalizations"]
         ),
         residue_coordinates=tuple(residue_coordinates),
         ca_coordinate_mask=tuple(decoded["ca_coordinate_mask"]),
         complete_backbone_mask=tuple(decoded["complete_backbone_mask"]),
     )
-    validate_resolved_axis(result)
-    return result
 
 
 RESOLVED_AXIS_PORT_TYPE = PortTypeDefinition(

@@ -373,7 +373,7 @@ def three_way_consistency_from_wire(value: object) -> ThreeWayConsistencyEvidenc
     )
     if not isinstance(raw["confidences"], list) or not isinstance(raw["edges"], list):
         raise ValueError("three-way evidence collections are invalid")
-    result = ThreeWayConsistencyEvidence(
+    return ThreeWayConsistencyEvidence(
         input_structure=_candidate_data_reference_from_canonical(
             raw["input_structure"]
         ),
@@ -397,8 +397,6 @@ def three_way_consistency_from_wire(value: object) -> ThreeWayConsistencyEvidenc
         classification=raw["classification"],
         subreason=raw["subreason"],
     )
-    validate_three_way_consistency(result)
-    return result
 
 
 def _candidate_data_references(

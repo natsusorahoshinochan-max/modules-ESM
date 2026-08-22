@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from core.catalog.builtins import (
     builtin_frozen_catalog,
@@ -73,22 +72,14 @@ def _validator(kind: TrackKind):
     return validate
 
 
-def _to_wire(kind: TrackKind):
-    def encode(value: object) -> object:
-        aligned = validate_track(
-            value,
-            kind=kind,
-            subject=f"{kind.value} track",
-        )
-        return {
-            "layout": _wire_value(_LAYOUT_CODEC, aligned.layout),
-            "track": _wire_value(
-                _TRACK_CODEC,
-                ResidueTrack(list(aligned.values), None),
-            ),
-        }
-
-    return encode
+def _to_wire(aligned: AlignedResidueTrack) -> object:
+    return {
+        "layout": _wire_value(_LAYOUT_CODEC, aligned.layout),
+        "track": _wire_value(
+            _TRACK_CODEC,
+            ResidueTrack(list(aligned.values), None),
+        ),
+    }
 
 
 def _from_wire(kind: TrackKind):
@@ -99,14 +90,7 @@ def _from_wire(kind: TrackKind):
         track = _decode_value(_TRACK_CODEC, value["track"])
         if type(track) is not ResidueTrack or track.sentinel is not None:
             raise ValueError("aligned residue track must use null semantics")
-        return validate_track(
-            AlignedResidueTrack(
-                layout=layout,
-                values=tuple(track.values),
-            ),
-            kind=kind,
-            subject=f"{kind.value} track",
-        )
+        return AlignedResidueTrack(layout=layout, values=tuple(track.values))
 
     return decode
 
@@ -155,7 +139,7 @@ def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
             },
         ),
         runtime_validator=_validator(kind),
-        runtime_to_wire=_to_wire(kind),
+        runtime_to_wire=_to_wire,
         runtime_from_wire=_from_wire(kind),
     )
 
