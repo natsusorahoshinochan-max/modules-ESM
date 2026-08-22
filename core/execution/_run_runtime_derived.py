@@ -82,40 +82,6 @@ class _DerivedRunStarter:
                 },
             )
         plan = compiled.execution_plan
-        source_scope = source.ledger.run_scope
-        if source_scope is None:
-            raise RuntimeError("Source Run Ledger has no admitted scope")
-        if (
-            plan.workflow_commit_revision
-            != source_projection.workflow_commit_revision
-            or plan.workflow_digest
-            != source_projection.workflow_digest
-            or source_scope.workflow_commit_id
-            != source_projection.workflow_commit_id
-            or plan.contract_lock_digest
-            != source_scope.contract_lock_digest
-            or plan.execution_plan_digest
-            != source_scope.execution_plan_digest
-            or plan.catalog_contract_digest
-            != source_scope.catalog_contract_digest
-        ):
-            raise V2RunError(
-                "contract_digest_mismatch",
-                "Retained Execution Plan no longer matches the source Run",
-                details={
-                    "issues": [
-                        {
-                            "code": "source_execution_plan_identity_mismatch",
-                            "severity": "error",
-                            "message": (
-                                "Derived Run requires the exact immutable "
-                                "source Execution Plan identity"
-                            ),
-                            "field_path": ["source_run_id"],
-                        }
-                    ]
-                },
-            )
         plan_node_ids = tuple(node.node_id for node in plan.nodes)
         selected = frozenset(node_ids)
         if (
