@@ -1668,7 +1668,7 @@ class PortTypeDefinition:
                 value = self.runtime_from_wire(payload["value"])
             except PortValueError:
                 raise
-            except (TypeError, ValueError) as error:
+            except (KeyError, TypeError, ValueError) as error:
                 raise PortValueError(
                     f"{self.type_id}@{self.version} could not decode its value: "
                     f"{error}"

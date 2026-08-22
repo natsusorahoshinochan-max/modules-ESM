@@ -35,7 +35,6 @@ from ._resolved_axis_codec import (
     _STRUCTURE_CODEC,
     _axis_from_wire,
     _axis_to_wire,
-    _closed_dict,
     validate_resolved_axis,
 )
 from .domain import (
@@ -115,30 +114,24 @@ def _candidate_normalizations_to_wire(value: object) -> object:
 
 
 def _candidate_normalizations_from_wire(value: object) -> object:
-    decoded = _closed_dict(
-        value,
-        {"entries"},
-        subject="Candidate normalization associations",
-    )
-    if not isinstance(decoded["entries"], list):
-        raise ValueError(
-            "Candidate normalization association entries must be a list"
-        )
-    entries: list[CandidateModifiedResidueNormalizationAssociation] = []
-    for item in decoded["entries"]:
-        item = _closed_dict(
-            item,
-            {"subject", "normalizations"},
-            subject="Candidate normalization association",
-        )
-        entries.append(
-            CandidateModifiedResidueNormalizationAssociation(
-                subject=_candidate_data_reference_from_canonical(item["subject"]),
-                normalizations=normalizations_from_wire(item["normalizations"]),
-            )
-        )
     return CandidateModifiedResidueNormalizationAssociations(
-        entries=tuple(entries)
+        **{
+            **value,
+            "entries": tuple(
+                CandidateModifiedResidueNormalizationAssociation(
+                    **{
+                        **item,
+                        "subject": _candidate_data_reference_from_canonical(
+                            item["subject"]
+                        ),
+                        "normalizations": normalizations_from_wire(
+                            item["normalizations"]
+                        ),
+                    }
+                )
+                for item in value["entries"]
+            ),
+        }
     )
 
 
@@ -177,28 +170,23 @@ def _candidate_axes_to_wire(value: object) -> object:
 
 
 def _candidate_axes_from_wire(value: object) -> object:
-    decoded = _closed_dict(
-        value,
-        {"entries"},
-        subject="Candidate residue-axis associations",
+    return CandidateResolvedResidueAxisAssociations(
+        **{
+            **value,
+            "entries": tuple(
+                CandidateResolvedResidueAxisAssociation(
+                    **{
+                        **item,
+                        "subject": _candidate_data_reference_from_canonical(
+                            item["subject"]
+                        ),
+                        "residue_axis": _axis_from_wire(item["residue_axis"]),
+                    }
+                )
+                for item in value["entries"]
+            ),
+        }
     )
-    if not isinstance(decoded["entries"], list):
-        raise ValueError("Candidate residue-axis entries must be a list")
-    entries: list[CandidateResolvedResidueAxisAssociation] = []
-    for item in decoded["entries"]:
-        item = _closed_dict(
-            item,
-            {"subject", "residue_axis"},
-            subject="Candidate residue-axis association",
-        )
-        residue_axis = _axis_from_wire(item["residue_axis"])
-        entries.append(
-            CandidateResolvedResidueAxisAssociation(
-                subject=_candidate_data_reference_from_canonical(item["subject"]),
-                residue_axis=residue_axis,
-            )
-        )
-    return CandidateResolvedResidueAxisAssociations(entries=tuple(entries))
 
 
 def _candidate_axis_references(
@@ -260,42 +248,23 @@ def _normalization_facts_to_wire(value: object) -> object:
 
 
 def _normalization_facts_from_wire(value: object) -> object:
-    decoded = _closed_dict(
-        value,
-        {"entries"},
-        subject="candidate normalization facts",
+    entries = tuple(
+        CandidateNormalizationFact(
+            **{
+                **item,
+                "normalizations": normalizations_from_wire(
+                    item["normalizations"]
+                ),
+            }
+        )
+        for item in value["entries"]
     )
-    if not isinstance(decoded["entries"], list):
-        raise ValueError("candidate normalization fact entries must be a list")
-    entries: list[CandidateNormalizationFact] = []
-    for item in decoded["entries"]:
-        item = _closed_dict(
-            item,
-            {
-                "normalization_key",
-                "structure_content_digest",
-                "normalizations",
-            },
-            subject="candidate normalization fact",
-        )
-        if (
-            type(item["normalization_key"]) is not str
-            or type(item["structure_content_digest"]) is not str
-        ):
-            raise ValueError("candidate normalization fact fields are invalid")
-        entries.append(
-            CandidateNormalizationFact(
-                normalization_key=item["normalization_key"],
-                structure_content_digest=item["structure_content_digest"],
-                normalizations=normalizations_from_wire(item["normalizations"]),
-            )
-        )
-    keys = [entry.normalization_key for entry in entries]
-    if len(set(keys)) != len(keys) or keys != sorted(keys):
+    keys = tuple(entry.normalization_key for entry in entries)
+    if keys != tuple(sorted(keys)):
         raise ValueError(
             "candidate normalization fact entries are not canonically ordered"
         )
-    return CandidateNormalizationFactCollection(tuple(entries))
+    return CandidateNormalizationFactCollection(**{**value, "entries": entries})
 
 
 def candidate_normalization_output_identity_intent(

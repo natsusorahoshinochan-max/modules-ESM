@@ -407,177 +407,53 @@ def _axis_to_wire(value: object) -> object:
     }
 
 
-def _closed_dict(
-    value: object,
-    fields: set[str],
-    *,
-    subject: str,
-) -> dict:
-    if not isinstance(value, dict) or set(value) != fields:
-        raise ValueError(f"{subject} is not a closed object")
-    return value
-
-
 def _axis_from_wire(value: object) -> ResolvedStructureResidueAxis:
-    decoded = _closed_dict(
-        value,
-        {
-            "structure",
-            "layout",
-            "sequence",
-            "residue_names",
-            "segments",
-            "component_dispositions",
-            "modified_residue_normalizations",
-            "residue_coordinates",
-            "ca_coordinate_mask",
-            "complete_backbone_mask",
-        },
-        subject="resolved residue axis",
-    )
-    list_fields = (
-        "residue_names",
-        "segments",
-        "component_dispositions",
-        "residue_coordinates",
-        "ca_coordinate_mask",
-        "complete_backbone_mask",
-    )
-    if (
-        type(decoded["sequence"]) is not str
-        or any(not isinstance(decoded[field], list) for field in list_fields)
-    ):
-        raise ValueError("resolved residue axis wire fields are invalid")
-
-    segments: list[StructureAxisSegment] = []
-    for item in decoded["segments"]:
-        item = _closed_dict(
-            item,
-            {"segment_index", "chain_id", "residue_ids"},
-            subject="resolved residue axis segment",
-        )
-        if (
-            type(item["segment_index"]) is not int
-            or type(item["chain_id"]) is not str
-            or not isinstance(item["residue_ids"], list)
-            or any(type(residue_id) is not str for residue_id in item["residue_ids"])
-        ):
-            raise ValueError("resolved residue axis segment fields are invalid")
-        segments.append(
-            StructureAxisSegment(
-                segment_index=item["segment_index"],
-                chain_id=item["chain_id"],
-                residue_ids=tuple(item["residue_ids"]),
-            )
-        )
-
-    dispositions: list[StructureComponentDisposition] = []
-    for item in decoded["component_dispositions"]:
-        item = _closed_dict(
-            item,
-            {
-                "component_id",
-                "observed_residue_id",
-                "record_type",
-                "component_role",
-                "disposition",
-                "parent_residue_ids",
-                "parent_sequence",
-                "normalization_source",
-            },
-            subject="resolved residue axis component disposition",
-        )
-        if (
-            any(
-                type(item[field]) is not str
-                for field in (
-                    "component_id",
-                    "observed_residue_id",
-                    "record_type",
-                    "component_role",
-                    "disposition",
-                    "parent_sequence",
-                )
-            )
-            or item["normalization_source"] is not None
-            and type(item["normalization_source"]) is not str
-            or not isinstance(item["parent_residue_ids"], list)
-            or any(
-                type(parent_id) is not str
-                for parent_id in item["parent_residue_ids"]
-            )
-        ):
-            raise ValueError(
-                "resolved residue axis component disposition fields are invalid"
-            )
-        dispositions.append(
-            StructureComponentDisposition(
-                component_id=item["component_id"],
-                observed_residue_id=item["observed_residue_id"],
-                record_type=item["record_type"],
-                component_role=item["component_role"],
-                disposition=item["disposition"],
-                parent_residue_ids=tuple(item["parent_residue_ids"]),
-                parent_sequence=item["parent_sequence"],
-                normalization_source=item["normalization_source"],
-            )
-        )
-
-    residue_coordinates: list[StructureResidueCoordinates] = []
-    for item in decoded["residue_coordinates"]:
-        item = _closed_dict(
-            item,
-            {"residue_id", "atom_coordinates"},
-            subject="resolved residue axis residue coordinates",
-        )
-        if (
-            type(item["residue_id"]) is not str
-            or not isinstance(item["atom_coordinates"], list)
-        ):
-            raise ValueError("resolved residue coordinate fields are invalid")
-        atoms: list[StructureAtomCoordinate] = []
-        for atom in item["atom_coordinates"]:
-            atom = _closed_dict(
-                atom,
-                {"atom_name", "coordinate"},
-                subject="resolved residue axis atom coordinate",
-            )
-            if (
-                type(atom["atom_name"]) is not str
-                or not isinstance(atom["coordinate"], list)
-                or len(atom["coordinate"]) != 3
-                or any(
-                    type(coordinate) not in (int, float)
-                    for coordinate in atom["coordinate"]
-                )
-            ):
-                raise ValueError("resolved residue atom coordinate fields are invalid")
-            atoms.append(
-                StructureAtomCoordinate(
-                    atom_name=atom["atom_name"],
-                    coordinate=tuple(atom["coordinate"]),
-                )
-            )
-        residue_coordinates.append(
-            StructureResidueCoordinates(
-                residue_id=item["residue_id"],
-                atom_coordinates=tuple(atoms),
-            )
-        )
-
     return ResolvedStructureResidueAxis(
-        structure=_decode_value(_STRUCTURE_CODEC, decoded["structure"]),
-        layout=_decode_value(_LAYOUT_CODEC, decoded["layout"]),
-        sequence=decoded["sequence"],
-        residue_names=tuple(decoded["residue_names"]),
-        segments=tuple(segments),
-        component_dispositions=tuple(dispositions),
-        modified_residue_normalizations=normalizations_from_wire(
-            decoded["modified_residue_normalizations"]
-        ),
-        residue_coordinates=tuple(residue_coordinates),
-        ca_coordinate_mask=tuple(decoded["ca_coordinate_mask"]),
-        complete_backbone_mask=tuple(decoded["complete_backbone_mask"]),
+        **{
+            **value,
+            "structure": _decode_value(_STRUCTURE_CODEC, value["structure"]),
+            "layout": _decode_value(_LAYOUT_CODEC, value["layout"]),
+            "residue_names": tuple(value["residue_names"]),
+            "segments": tuple(
+                StructureAxisSegment(
+                    **{**item, "residue_ids": tuple(item["residue_ids"])}
+                )
+                for item in value["segments"]
+            ),
+            "component_dispositions": tuple(
+                StructureComponentDisposition(
+                    **{
+                        **item,
+                        "parent_residue_ids": tuple(
+                            item["parent_residue_ids"]
+                        ),
+                    }
+                )
+                for item in value["component_dispositions"]
+            ),
+            "modified_residue_normalizations": normalizations_from_wire(
+                value["modified_residue_normalizations"]
+            ),
+            "residue_coordinates": tuple(
+                StructureResidueCoordinates(
+                    **{
+                        **item,
+                        "atom_coordinates": tuple(
+                            StructureAtomCoordinate(
+                                **{
+                                    **atom,
+                                    "coordinate": tuple(atom["coordinate"]),
+                                }
+                            )
+                            for atom in item["atom_coordinates"]
+                        ),
+                    }
+                )
+                for item in value["residue_coordinates"]
+            ),
+            "ca_coordinate_mask": tuple(value["ca_coordinate_mask"]),
+            "complete_backbone_mask": tuple(value["complete_backbone_mask"]),
+        }
     )
 
 

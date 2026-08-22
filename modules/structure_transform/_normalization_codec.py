@@ -135,57 +135,26 @@ def normalizations_to_wire(value: object) -> object:
 def normalizations_from_wire(
     value: object,
 ) -> ModifiedResidueNormalizationCollection:
-    if not isinstance(value, dict) or set(value) != {"entries"}:
-        raise ValueError("modified-residue normalization wire value is invalid")
-    entries = value["entries"]
-    if not isinstance(entries, list):
-        raise ValueError("modified-residue normalization entries are invalid")
-    decoded: list[ModifiedResidueNormalization] = []
-    for entry in entries:
-        if not isinstance(entry, dict) or set(entry) != {
-            "component_id",
-            "observed_residue_id",
-            "parent_residue_ids",
-            "parent_sequence",
-            "atom_mappings",
-        }:
-            raise ValueError("modified-residue normalization entry is invalid")
-        mappings = entry["atom_mappings"]
-        if (
-            type(entry["component_id"]) is not str
-            or type(entry["observed_residue_id"]) is not str
-            or not isinstance(entry["parent_residue_ids"], list)
-            or any(
-                type(parent_id) is not str
-                for parent_id in entry["parent_residue_ids"]
-            )
-            or type(entry["parent_sequence"]) is not str
-            or not isinstance(mappings, list)
-        ):
-            raise ValueError("modified-residue atom mappings are invalid")
-        decoded_mappings: list[ModifiedResidueAtomMapping] = []
-        for mapping in mappings:
-            if (
-                not isinstance(mapping, dict)
-                or set(mapping) != {
-                    "source_atom_name",
-                    "parent_residue_id",
-                    "parent_atom_name",
-                }
-                or any(type(item) is not str for item in mapping.values())
-            ):
-                raise ValueError("modified-residue atom mapping is invalid")
-            decoded_mappings.append(ModifiedResidueAtomMapping(**mapping))
-        decoded.append(
-            ModifiedResidueNormalization(
-                component_id=entry["component_id"],
-                observed_residue_id=entry["observed_residue_id"],
-                parent_residue_ids=tuple(entry["parent_residue_ids"]),
-                parent_sequence=entry["parent_sequence"],
-                atom_mappings=tuple(decoded_mappings),
-            )
-        )
-    return ModifiedResidueNormalizationCollection(entries=decoded)
+    return ModifiedResidueNormalizationCollection(
+        **{
+            **value,
+            "entries": tuple(
+                ModifiedResidueNormalization(
+                    **{
+                        **entry,
+                        "parent_residue_ids": tuple(
+                            entry["parent_residue_ids"]
+                        ),
+                        "atom_mappings": tuple(
+                            ModifiedResidueAtomMapping(**mapping)
+                            for mapping in entry["atom_mappings"]
+                        ),
+                    }
+                )
+                for entry in value["entries"]
+            ),
+        }
+    )
 
 
 MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE = PortTypeDefinition(
