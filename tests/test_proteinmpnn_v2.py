@@ -35,10 +35,9 @@ from core.execution.environment import (
     admit_environment_configuration,
 )
 from core.run_execution_v2 import (
-    ResultReplayHit,
-    ResultReplaySource,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
@@ -98,7 +97,6 @@ from modules.structure_transform.domain import (
 )
 from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
-from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
@@ -608,7 +606,6 @@ def _run(
     edges: tuple[WorkflowEdge, ...],
     registrations: tuple[Any, ...],
     environment: Any | None = None,
-    result_replay_source: ResultReplaySource | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog(registrations)
     projects = ProjectManager(
@@ -639,7 +636,7 @@ def _run(
         catalog,
         authoring,
         admitted_environment,
-        result_replay_source,
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -1504,134 +1501,6 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
         and event["status"] == "succeeded"
         for event in public_events
     )
-
-
-def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from modules.proteinmpnn.package import (
-        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
-    )
-    from tests.fixtures.proteinmpnn_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
-
-    catalog = build_frozen_catalog(
-        (
-            PROTEINMPNN_PACKAGE,
-            SOURCE_PACKAGE,
-            STRUCTURE_TRANSFORM_PACKAGE,
-        )
-    )
-
-    def reference(
-        contract_kind: str,
-        contract_id: str,
-        version: str,
-    ) -> ExactContractReference:
-        contract = catalog.require_contract(
-            contract_kind,
-            contract_id,
-            version,
-        )
-        return ExactContractReference(
-            contract_kind=contract_kind,
-            contract_id=contract_id,
-            contract_version=version,
-            contract_digest=contract.contract_digest,
-        )
-
-    class Replay(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
-            if kwargs["node"].node_id != "score":
-                return None
-            subjects = kwargs["inputs"]["sequence_candidates"].value
-            assert type(subjects) is CandidateCollection
-            subject = subjects.items[0]
-            subject_reference = CandidateDataReference(
-                candidate_id=subject.candidate_id,
-                data_type_id="protein.sequence",
-                content_digest=catalog.require_port_type(
-                    "protein.sequence",
-                    "3.0.0",
-                ).content_digest(subject.data),
-            )
-            axes = kwargs["inputs"]["structure_residue_axes"].scientific_axes
-            assert len(axes) == 1
-            outputs = {
-                "scores": ScoreCollection(
-                    "canonical-binary32-replay",
-                    [
-                        ScoreObservation(
-                            subject=subject_reference,
-                            metric=reference(
-                                "metric",
-                                "proteinmpnn.native_sequence_nll",
-                                "3.0.0",
-                            ),
-                            method=reference(
-                                "method",
-                                "proteinmpnn.score.v_48_020_8907e667",
-                                "6.0.0",
-                            ),
-                            context=IntrinsicObservationContext(),
-                            source_partition="default",
-                            value=1.0,
-                            residue_axis=axes[0],
-                        )
-                    ],
-                )
-            }
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="canonical-replay-provider",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=catalog,
-                    node=kwargs["node"],
-                    outputs=outputs,
-                ),
-            )
-
-    provider = _ControlledProteinMPNNProvider()
-    _install_test_provider(monkeypatch, provider)
-    nodes, edges = _score_workflow()
-    run_catalog, service, projection, events = _run(
-        tmp_path,
-        nodes=nodes,
-        edges=edges,
-        registrations=(
-            PROTEINMPNN_PACKAGE,
-            SOURCE_PACKAGE,
-            STRUCTURE_TRANSFORM_PACKAGE,
-        ),
-        environment=_proteinmpnn_environment(),
-        result_replay_source=Replay(),
-    )
-
-    assert projection["status"] == "succeeded", events
-    assert provider.parsed == []
-    assert provider.requests == []
-    score_output = next(
-        output
-        for output in projection["outputs"]
-        if output["node_id"] == "score"
-    )
-    scores = _decode_output(
-        run_catalog,
-        service,
-        projection,
-        score_output,
-    )
-    assert type(scores) is ScoreCollection
-    assert scores.entries[0].value == 1.0
-    score_disposition = next(
-        disposition
-        for disposition in projection["node_dispositions"]
-        if disposition["node_id"] == "score"
-    )
-    assert score_disposition["outcome"] == "succeeded"
-    assert score_disposition["resolution"] == "cache_replayed"
 
 
 def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
@@ -2602,6 +2471,7 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
             catalog,
             authoring,
             _proteinmpnn_environment(catalog),
+            result_store(projects),
         )
         receipt = service.start_background(
             project.id,

@@ -33,6 +33,7 @@ from core.run_execution_v2 import (
     V2RunError,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
@@ -386,6 +387,7 @@ def _verify_case(
                 }
             }
         ),
+        result_store(project_manager),
     )
     try:
         receipt = service.start_background(

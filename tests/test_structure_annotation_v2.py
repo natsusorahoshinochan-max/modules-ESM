@@ -32,10 +32,10 @@ from core.operation import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import (
-    ResultReplaySource,
     V2RunError,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
@@ -1255,7 +1255,6 @@ def _run_dssp(
     pdb_text: str,
     dssp_output: str | None,
     configured_binary: str | None = None,
-    result_replay_source: ResultReplaySource | None = None,
     binary_version: str = "4.6.1",
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...], str]:
     binary = _fake_dssp_binary(
@@ -1368,7 +1367,7 @@ def _run_dssp(
                 }
             },
         ),
-        result_replay_source,
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -2272,6 +2271,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(projects),
     )
     receipt = service.start(
         project.id,

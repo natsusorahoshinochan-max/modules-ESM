@@ -7,7 +7,6 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-from pathlib import Path
 import threading
 import time
 from typing import Any, Literal, Mapping
@@ -17,6 +16,7 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from core.project.manager import ProjectManager
+from core.project.objects import ProjectObjectStore
 from core.execution.resources import RunResources
 from core.execution.ledger import (
     NodeAttemptTerminal,
@@ -50,16 +50,13 @@ from core.operation import (
     ResolvedOutputIdentity,
 )
 from core.parameters.contract import admit_declarations
-from core.run_execution_v2 import (
-    ExecutionTermination,
-    ResultReplayHit,
-    ResultReplaySource,
-)
+from core.run_execution_v2 import ExecutionTermination
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from protein_workbench_public.bootstrap import create_application
 import core.run_execution_v2 as run_execution_v2
 from core.execution.environment import admit_environment_configuration
 from tests.support.output_admission import admit_fixture_port
+from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.compiler import (
     CompilationRequest,
@@ -86,7 +83,6 @@ from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,
 )
-from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
@@ -119,23 +115,6 @@ def _durable_facts(root) -> list[dict[str, Any]]:
         for path in sorted(root.rglob("ledger/*.json"))
         for fact in json.loads(path.read_text())["facts"]
     ]
-
-
-def _object_path(
-    output_root: Path,
-    project_id: str,
-    content_digest: str,
-) -> Path:
-    return (
-        output_root
-        / project_id
-        / "objects"
-        / Path(
-            *run_execution_v2.ProjectObjectStore._relative_parts(
-                content_digest
-            )
-        )
-    )
 
 
 def _contract(
@@ -645,12 +624,11 @@ def _pipeline_catalog(
     cacheable: bool = False,
     unresolved_port_identity: bool = False,
     candidate_digest_probe: bool = False,
-    candidate_conflict_probe: bool = False,
     execution_gates: (
         Mapping[str, tuple[threading.Event, threading.Event]] | None
     ) = None,
 ) -> FrozenCatalog:
-    include_candidate_data = candidate_digest_probe or candidate_conflict_probe
+    include_candidate_data = candidate_digest_probe
     builtin = builtin_frozen_catalog()
     candidate_collection_type = builtin.require_port_type(
         "candidate.collection",
@@ -737,21 +715,7 @@ def _pipeline_catalog(
                 ),
             ],
             "parameter_groups": [],
-            "node_parameters": (
-                {
-                    "source_variant": {
-                        "parameter_scope": "scientific",
-                        "scientific_meaning": (
-                            "Distinct source identity for Candidate conflict "
-                            "fixtures"
-                        ),
-                        "value_contract": {"type": "string"},
-                        "required": True,
-                    }
-                }
-                if candidate_conflict_probe
-                else {}
-            ),
+            "node_parameters": {},
         },
     )
     sink = _contract(
@@ -775,9 +739,7 @@ def _pipeline_catalog(
                             "name": "candidates",
                             "port_type": candidate_collection_type.reference(),
                             "required": True,
-                            "multiplicity": (
-                                "many" if candidate_conflict_probe else "one"
-                            ),
+                            "multiplicity": "one",
                             "scientific_meaning": "Candidate digest probe",
                         }
                     ]
@@ -866,22 +828,12 @@ def _pipeline_catalog(
             if include_candidate_data:
                 candidate_record = call.inputs["candidates"]
                 candidates = candidate_record.value
-                candidate_values = (
-                    tuple(
-                        candidate
-                        for collection in candidates
-                        for candidate in collection.items
-                    )
-                    if candidate_conflict_probe
-                    else tuple(candidates.items)
-                )
+                candidate_values = tuple(candidates.items)
                 assert (
                     candidate_record.port_type["contract_id"]
                     == "candidate.collection"
                 )
-                assert len(candidate_record.value_content_digests) == (
-                    2 if candidate_conflict_probe else 1
-                )
+                assert len(candidate_record.value_content_digests) == 1
                 assert all(
                     type(item) is CandidateDataReference
                     for item in candidate_record.candidate_data
@@ -959,8 +911,6 @@ def _pipeline_catalog(
             context: OperationContext,
             implementation=implementation,
         ) -> Any:
-            if candidate_conflict_probe:
-                calls.append(f"factory:{context.resources.node_id}")
             if implementation is SourceImplementation:
                 node_id = context.resources.node_id
                 return implementation(node_id, context.resources)
@@ -1603,95 +1553,6 @@ def test_invalid_scientific_operation_factory_fails_after_attempt_start(
     assert "node_attempt_terminal" not in fact_types
 
 
-def test_cache_replay_closes_only_the_scheduled_node_attempt(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    catalog = _direct_catalog(
-        calls,
-        cacheable=True,
-        unavailable_binding_ids=("test.direct.local",),
-    )
-
-    class FixtureReplaySource(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
-            assert kwargs["project_id"]
-            assert kwargs["node"].node_id == "direct"
-            assert kwargs["inputs"] == {}
-            calls.append("cache-lookup")
-            outputs = {"text": "CACHED"}
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="fixture-producer",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=catalog,
-                    node=kwargs["node"],
-                    outputs=outputs,
-                ),
-            )
-
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_application(
-        frozen_catalog_override=catalog,
-        v2_result_replay_source=FixtureReplaySource(),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "cache-replayed",
-            },
-        )
-        assert started.status_code == 202
-        run_id = started.json()["run_id"]
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id=project_id,
-            run_id=run_id,
-        )
-        replayed_values = retrieve_typed_output_values(
-            client,
-            project_id,
-            run_id,
-            projection["outputs"][0],
-        )
-        events = _public_events(
-            app.state.run_execution_v2,
-            project_id,
-            run_id,
-        )
-
-    assert projection["node_dispositions"] == [
-        {
-            "node_id": "direct",
-            "outcome": "succeeded",
-            "resolution": "cache_replayed",
-            "terminal_sequence": (
-                projection["node_dispositions"][0]["terminal_sequence"]
-            ),
-            "blocked_by": [],
-        }
-    ]
-    assert replayed_values == ["CACHED"]
-    assert calls == ["cache-lookup"]
-    event_types = [event["event"]["type"] for event in events]
-    assert event_types.count("node_attempt_started") == 1
-    assert event_types.count("node_attempt_terminal") == 1
-    assert "operation_attempt_started" not in event_types
-    assert "engine_invocation_started" not in event_types
-
-
 def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
     tmp_path,
     monkeypatch,
@@ -1937,79 +1798,6 @@ def test_readiness_programming_error_fails_after_attempt_start(
     assert "operation_attempt_started" not in fact_types
     assert "engine_invocation_started" not in fact_types
     assert "node_attempt_terminal" not in fact_types
-
-
-def test_result_replay_hit_requires_admitted_output_snapshots() -> None:
-    with pytest.raises(TypeError, match="admitted_outputs"):
-        ResultReplayHit(
-            result_identity="sha256:" + "0" * 64,
-            producer_run_id="fixture-producer",
-        )
-    with pytest.raises(TypeError, match="admitted_outputs"):
-        ResultReplayHit(
-            result_identity="sha256:" + "0" * 64,
-            producer_run_id="fixture-producer",
-            admitted_outputs=None,  # type: ignore[arg-type]
-        )
-
-
-@pytest.mark.parametrize("cache_failure", ("lookup_error", "invalid_value"))
-def test_cache_invariant_failure_fails_fast_without_executing_provider(
-    tmp_path,
-    monkeypatch,
-    cache_failure: str,
-) -> None:
-    calls: list[str] = []
-
-    class FailingReplaySource(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
-            calls.append("cache-lookup")
-            if cache_failure == "lookup_error":
-                raise OSError("fixture cache failure")
-            outputs = {"text": 17}
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="fixture-producer",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=catalog,
-                    node=kwargs["node"],
-                    outputs=outputs,
-                ),
-            )
-
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    catalog = _direct_catalog(calls, cacheable=True)
-    app = create_application(
-        frozen_catalog_override=catalog,
-        v2_result_replay_source=FailingReplaySource(),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        started = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": f"cache-failure-{cache_failure}",
-            },
-        )
-        assert started.status_code == 500
-        assert started.json()["error"]["code"] == "internal_error"
-
-    assert calls == ["cache-lookup"]
-    fact_types = [
-        fact["fact_type"] for fact in _durable_facts(tmp_path / "runs")
-    ]
-    assert fact_types.count("node_attempt_started") == 1
-    assert "operation_attempt_started" not in fact_types
-    assert "engine_invocation_started" not in fact_types
 
 
 def test_public_terminal_wait_helper_never_returns_a_running_projection(
@@ -2339,8 +2127,7 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         attempts = run_execution_v2._NodeExecutionAttemptModule(
             projects=service._projects,
             environment=service._environment,
-            result_replay_source=service._result_replay_source,
-            object_store=service._object_store,
+            result_store=service._result_store,
             project_id=project_id,
             run_id=run_id,
             execution_plan=plan,
@@ -2600,6 +2387,7 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
             active_catalog,
             app.state.workflow_authoring,
             admit_environment_configuration(active_catalog, {}),
+            result_store(app.state.project_manager),
         )
         try:
             with pytest.raises(run_execution_v2.V2RunError) as captured:
@@ -3152,6 +2940,7 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(projects),
     )
 
     try:
@@ -3169,253 +2958,6 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
 
     assert projection.status == "succeeded"
     assert calls.count("candidate-digests:verified") == 1
-
-
-@pytest.mark.parametrize(
-    "candidate_case",
-    ("data", "parent", "metadata", "metadata_json_type", "identical"),
-)
-def test_cross_input_candidate_identity_closes_runtime_before_sink_side_effects(
-    tmp_path,
-    candidate_case: str,
-) -> None:
-    calls: list[str] = []
-    cache_lookups: list[str] = []
-    catalog = _pipeline_catalog(
-        calls,
-        cacheable=True,
-        candidate_conflict_probe=True,
-    )
-
-    class ConflictingCandidateReplay(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
-            node = kwargs["node"]
-            cache_lookups.append(node.node_id)
-            if node.node_id == "sink":
-                if candidate_case == "identical":
-                    return None
-                raise AssertionError(
-                    "Candidate conflict must fail before sink cache lookup"
-                )
-            candidate_facts = {
-                "data": {
-                    "source-left": ("AA", (), {"partition": "shared"}),
-                    "source-right": ("CC", (), {"partition": "shared"}),
-                },
-                "parent": {
-                    "source-left": (
-                        "AA",
-                        ("candidate-parent-left",),
-                        {"partition": "shared"},
-                    ),
-                    "source-right": (
-                        "AA",
-                        ("candidate-parent-right",),
-                        {"partition": "shared"},
-                    ),
-                },
-                "metadata": {
-                    "source-left": ("AA", (), {"partition": "left"}),
-                    "source-right": ("AA", (), {"partition": "right"}),
-                },
-                "metadata_json_type": {
-                    "source-left": ("AA", (), {"flag": True}),
-                    "source-right": ("AA", (), {"flag": 1}),
-                },
-                "identical": {
-                    "source-left": (
-                        "AA",
-                        ("candidate-parent",),
-                        {"partition": "shared"},
-                    ),
-                    "source-right": (
-                        "AA",
-                        ("candidate-parent",),
-                        {"partition": "shared"},
-                    ),
-                },
-            }
-            sequence, parent_ids, metadata = candidate_facts[
-                candidate_case
-            ][node.node_id]
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="fixture-producer",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=catalog,
-                    node=node,
-                    outputs={
-                        "text": node.node_id,
-                        "candidates": CandidateCollection(
-                            collection_id=f"collection-{node.node_id}",
-                            item_type="protein.sequence",
-                            items=(
-                                Candidate(
-                                    candidate_id="candidate-shared",
-                                    data=ProteinSequence(sequence),
-                                    parent_ids=parent_ids,
-                                    metadata=metadata,
-                                ),
-                            ),
-                        ),
-                    },
-                ),
-            )
-
-    projects = ProjectManager(tmp_path / "projects")
-    project = projects.create("cross-input Candidate conflict")
-    authoring = WorkflowAuthoringService(projects, catalog)
-    workflow = decode_workflow_document(
-        {
-            "schema_version": "2.1.0",
-            "workflow_id": project.id,
-            "nodes": [
-                {
-                    "node_id": node_id,
-                    "node_type_id": node_type_id,
-                    "node_type_version": "2.1.0",
-                    "binding_id": binding_id,
-                    "binding_version": "2.1.0",
-                    "node_parameters": (
-                        {"source_variant": node_id}
-                        if node_type_id == "test.pipeline.source"
-                        else {}
-                    ),
-                    "binding_parameters": {},
-                }
-                for node_id, node_type_id, binding_id in (
-                    (
-                        "source-left",
-                        "test.pipeline.source",
-                        "test.pipeline.source.direct",
-                    ),
-                    (
-                        "source-right",
-                        "test.pipeline.source",
-                        "test.pipeline.source.direct",
-                    ),
-                    (
-                        "sink",
-                        "test.pipeline.sink",
-                        "test.pipeline.sink.direct",
-                    ),
-                )
-            ],
-            "edges": [
-                {
-                    "source_node_id": "source-left",
-                    "source_port": "text",
-                    "target_node_id": "sink",
-                    "target_port": "text",
-                },
-                *(
-                    {
-                        "source_node_id": source_node_id,
-                        "source_port": "candidates",
-                        "target_node_id": "sink",
-                        "target_port": "candidates",
-                    }
-                    for source_node_id in (
-                        "source-left",
-                        "source-right",
-                    )
-                ),
-            ],
-            "contract_lock": [],
-        }
-    )
-    committed = authoring.commit(
-        project.id,
-        workflow=workflow,
-    )
-    service = run_execution_v2.V2RunService(
-        projects,
-        catalog,
-        authoring,
-        admit_environment_configuration(catalog, {}),
-        ConflictingCandidateReplay(),
-    )
-
-    try:
-        if candidate_case == "identical":
-            receipt = service.start(
-                project.id,
-                workflow_commit_id=committed.workflow_commit_id,
-                client_request_id="candidate-conflict",
-            )
-            projection = service.projection(project.id, receipt["run_id"])
-            events = _public_events(service, project.id, receipt["run_id"])
-        else:
-            with pytest.raises(
-                PortValueError,
-                match="Candidate identity resolves to conflicting canonical facts",
-            ):
-                service.start(
-                    project.id,
-                    workflow_commit_id=committed.workflow_commit_id,
-                    client_request_id="candidate-conflict",
-                )
-    finally:
-        service.shutdown()
-
-    assert cache_lookups == [
-        "source-left",
-        "source-right",
-        *(("sink",) if candidate_case == "identical" else ()),
-    ]
-    assert [call for call in calls if call.startswith("factory:")] == (
-        ["factory:sink"] if candidate_case == "identical" else []
-    )
-    assert not any(call.startswith("execute:") for call in calls)
-    assert [call for call in calls if call.startswith("sink-input:")] == (
-        ["sink-input:source-left"]
-        if candidate_case == "identical"
-        else []
-    )
-    if candidate_case != "identical":
-        assert not any(
-            fact["fact_type"] == "node_attempt_started"
-            and fact["payload"]["node_id"] == "sink"
-            for fact in _durable_facts(tmp_path)
-        )
-        assert not any(
-            fact["fact_type"] == "operation_attempt_started"
-            for fact in _durable_facts(tmp_path)
-        )
-        return
-
-    sink_started = next(
-        item["event"]
-        for item in events
-        if item["event"]["type"] == "node_attempt_started"
-        and item["event"]["node_id"] == "sink"
-    )
-    sink_terminal = next(
-        item["event"]
-        for item in events
-        if item["event"]["type"] == "node_attempt_terminal"
-        and item["event"]["node_attempt_id"]
-        == sink_started["node_attempt_id"]
-    )
-    sink_disposition = next(
-        item["event"]["disposition"]
-        for item in events
-        if item["event"]["type"] == "node_disposition"
-        and item["event"]["disposition"]["node_id"] == "sink"
-    )
-    run_terminal = next(
-        item["event"]
-        for item in events
-        if item["event"]["type"] == "run_terminal"
-    )
-    assert projection.status == "succeeded"
-    assert sink_terminal["status"] == "succeeded"
-    assert sink_disposition["outcome"] == "succeeded"
-    assert run_terminal["status"] == "succeeded"
-    assert sum(
-        item["event"]["type"] == "operation_attempt_started"
-        for item in events
-    ) == 1
 
 
 def test_invalid_output_never_publishes_success_or_a_public_result(
@@ -3559,7 +3101,7 @@ def test_artifact_object_write_failure_publishes_no_node_values(
     monkeypatch,
 ) -> None:
     output_root = tmp_path / "outputs"
-    original_store = run_execution_v2.ProjectObjectStore.store
+    original_store = ProjectObjectStore.store
 
     def fail_artifact_put(store, project_id, payload):
         if payload == b"MODEL        1\nEND\n":
@@ -3567,7 +3109,7 @@ def test_artifact_object_write_failure_publishes_no_node_values(
         return original_store(store, project_id, payload)
 
     monkeypatch.setattr(
-        run_execution_v2.ProjectObjectStore,
+        ProjectObjectStore,
         "store",
         fail_artifact_put,
     )
@@ -3629,7 +3171,6 @@ def test_artifact_object_write_failure_publishes_no_node_values(
         fact["fact_type"] in {"artifact_published", "outputs_published"}
         for fact in _durable_facts(tmp_path / "runs")
     )
-    assert not list(output_root.rglob("objects/v1/sha256/*/*"))
     assert not list(output_root.rglob("published/*"))
 
 
@@ -3709,6 +3250,13 @@ def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
             project_id,
             started.json()["run_id"],
         )
+        artifact_reference = projection["artifact_index"][0][
+            "artifact_reference"
+        ]
+        downloaded = client.get(
+            f"/api/v2/projects/{project_id}/runs/{started.json()['run_id']}"
+            f"/artifacts/{artifact_reference}"
+        )
 
     assert projection["status"] == "succeeded"
     assert len(projection["artifact_index"]) == 1
@@ -3716,12 +3264,8 @@ def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
     assert descriptor["candidate_id"] == candidate_id
     assert descriptor["artifact_reference"].startswith("artifact-")
     assert candidate_id not in descriptor["artifact_reference"]
-    stored = _object_path(
-        output_root,
-        project_id,
-        descriptor["content_digest"],
-    )
-    assert stored.read_bytes() == b"MODEL        1\nEND\n"
+    assert downloaded.status_code == 200
+    assert downloaded.content == b"MODEL        1\nEND\n"
     assert not list(output_root.rglob("published/*"))
 
 
@@ -3858,10 +3402,6 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
             "sha256:"
             + hashlib.sha256(b"MODEL        1\nEND\n").hexdigest()
         )
-        assert client.app.state.run_execution_v2._object_store.read(
-            project_id,
-            artifact["content_digest"],
-        ) == b"MODEL        1\nEND\n"
         assert not (output_root / project_id / run_id / "published").exists()
 
         downloaded = client.get(

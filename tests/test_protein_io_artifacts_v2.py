@@ -25,6 +25,7 @@ from core.run_execution_v2 import (
     V2RunError,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -113,6 +114,7 @@ def _run_import_export(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(projects),
     )
     receipt = service.start_background(
         project.id,
@@ -422,6 +424,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(projects),
     )
 
     projections = []

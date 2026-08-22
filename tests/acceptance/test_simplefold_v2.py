@@ -16,6 +16,7 @@ from core.catalog.builder import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import V2RunService
+from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -142,7 +143,13 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
             },
         }
     })
-    service = V2RunService(projects, catalog, authoring, environment)
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        environment,
+        result_store(projects),
+    )
     try:
         receipt = service.start_background(
             project.id,

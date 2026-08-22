@@ -20,6 +20,7 @@ from core.catalog.builder import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import V2RunService
+from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -190,6 +191,7 @@ def test_local_protein_sol_golden_multiple_metrics(
                 }
             },
         ),
+        result_store(projects),
     )
     try:
         receipt = service.start(

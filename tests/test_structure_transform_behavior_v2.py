@@ -15,6 +15,7 @@ from core.catalog.builder import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import V2RunService
+from tests.support.result_store import result_store
 from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
@@ -140,6 +141,7 @@ def _run_transform(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(projects),
     )
     receipt = service.start(
         project.id,
@@ -276,6 +278,7 @@ def _run_candidate_transform(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(projects),
     )
     receipt = service.start(
         project.id,

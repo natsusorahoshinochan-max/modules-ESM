@@ -16,11 +16,10 @@ from core.catalog.declarations import ModulePackageRegistration
 from core.catalog.model import FrozenCatalog
 from core.execution.environment import admit_environment_configuration
 from core.execution.ledger import LedgerStore
+from core.execution.results import ProjectReplayIndex, ResultStore
 from core.project.manager import ProjectManager
-from core.run_execution_v2 import (
-    ResultReplaySource,
-    V2RunService,
-)
+from core.project.objects import ProjectObjectStore
+from core.run_execution_v2 import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
 from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS
 from modules.esm3.package import MODULE_PACKAGE as ESM3
@@ -73,7 +72,6 @@ def create_application(
     v2_environment_configuration: (
         Mapping[tuple[str, str], Mapping[str, Any]] | None
     ) = None,
-    v2_result_replay_source: ResultReplaySource | None = None,
     _v2_ledger_transaction_store: LedgerStore | None = None,
     _v2_wait_for_workers_on_shutdown: bool = True,
     _install_canonical_seed: bool | None = None,
@@ -126,12 +124,16 @@ def create_application(
             else v2_environment_configuration
         ),
     )
+    result_store = ResultStore(
+        ProjectObjectStore(projects),
+        ProjectReplayIndex(projects),
+    )
     runtime = V2RunService(
         projects,
         catalog,
         authoring,
         environment,
-        v2_result_replay_source,
+        result_store,
         _v2_ledger_transaction_store,
     )
     return create_http_app(

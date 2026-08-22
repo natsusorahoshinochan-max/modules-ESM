@@ -18,17 +18,16 @@ from core.operation import (
     ReadinessCheckInput,
     ReadinessResult,
 )
+from core.execution.results import ProjectReplayIndex, ReplayIndexEntry
+from core.project.objects import ProjectObjectStore
 from core.run_execution_v2 import (
     ExecutionTermination,
-    ResultReplayHit,
-    ResultReplaySource,
 )
 import core.run_execution_v2 as run_execution_v2
 from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public import validate_error, validate_response
 from protein_workbench_public.ledger_codec import encode_event
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
-from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.test_run_execution_v2 import (
     _artifact_catalog,
     _commit_artifact_node,
@@ -483,52 +482,30 @@ def test_run_terminal_precedence_uses_durable_node_dispositions(
     } == {"direct-0": first_outcome, "direct-1": "cancelled"}
 
 
-class _ControllableReplay(ResultReplaySource):
-    def __init__(self, catalog: Any) -> None:
-        self.catalog = catalog
-        self.enabled = False
-        self.lookups: list[str] = []
-
-    def lookup(self, *, node, **kwargs):
-        self.lookups.append(node.node_id)
-        if self.enabled:
-            outputs = {"text": "READY"}
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="fixture-producer",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=self.catalog,
-                    node=node,
-                    outputs=outputs,
-                ),
-            )
-        return None
-
-
-class _BlockingCacheMiss(ResultReplaySource):
-    def __init__(self) -> None:
-        self.entered = threading.Event()
-        self.release = threading.Event()
-
-    def lookup(self, **kwargs):
-        del kwargs
-        self.entered.set()
-        assert self.release.wait(timeout=2)
-        return None
-
-
 def test_cancel_during_cache_lookup_closes_only_the_node_attempt(
     tmp_path,
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    replay = _BlockingCacheMiss()
+    entered = threading.Event()
+    release = threading.Event()
+    original_lookup = ProjectReplayIndex.lookup
+
+    def blocking_lookup(
+        replay_index: ProjectReplayIndex,
+        project_id: str,
+        result_identity: str,
+    ) -> ReplayIndexEntry | None:
+        entered.set()
+        assert release.wait(timeout=2)
+        return original_lookup(replay_index, project_id, result_identity)
+
+    monkeypatch.setattr(ProjectReplayIndex, "lookup", blocking_lookup)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
-        v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -539,12 +516,12 @@ def test_cancel_during_cache_lookup_closes_only_the_node_attempt(
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
         receipt = _start(client, project_id, committed, "cancel-cache-lookup")
-        assert replay.entered.wait(timeout=2)
+        assert entered.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
             json={},
         )
-        replay.release.set()
+        release.set()
         projection = _wait_terminal(client, project_id, receipt["run_id"])
 
     assert cancelled.status_code == 200
@@ -626,13 +603,11 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         cacheable=True,
         execution_gate=(entered, release),
     )
-    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_application(
         frozen_catalog_override=catalog,
-        v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -649,7 +624,6 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         source_events = _public_events(app, project_id, source["run_id"])
         source_bytes = json.dumps(source_events, sort_keys=True)
 
-        replay.enabled = True
         release.set()
         derived_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
@@ -675,7 +649,11 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         _public_events(app, project_id, source["run_id"]),
         sort_keys=True,
     ) == source_bytes
-    assert replay.lookups == ["direct"]
+    assert calls.count("execute:test.direct.local") == 2
+    assert [
+        item["resolution"]
+        for item in derived_projection["node_dispositions"]
+    ] == ["executed"]
     derived_events = _public_events(app, project_id, derived["run_id"])
     for identity_kind, source_ids in _terminal_ids(source_events).items():
         assert source_ids.isdisjoint(
@@ -693,13 +671,11 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
 ) -> None:
     calls: list[str] = []
     catalog = _direct_catalog(calls, cacheable=True)
-    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_application(
         frozen_catalog_override=catalog,
-        v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -715,8 +691,6 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
         source = _start(client, project_id, committed, "source-success")
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         source_events = _public_events(app, project_id, source["run_id"])
-        replay.enabled = True
-        replay.lookups.clear()
 
         forced_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
@@ -738,7 +712,6 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
     assert source_projection["status"] == "succeeded"
     assert forced_projection["status"] == "succeeded"
     assert forced_projection["derived_from_run_id"] == source["run_id"]
-    assert replay.lookups == ["direct-1"]
     assert {
         item["node_id"]: item["resolution"]
         for item in forced_projection["node_dispositions"]
@@ -770,13 +743,11 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
 ) -> None:
     calls: list[str] = []
     catalog = _pipeline_catalog(calls, cacheable=True)
-    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
     app = create_application(
         frozen_catalog_override=catalog,
-        v2_result_replay_source=replay,
     )
 
     with TestClient(app) as client:
@@ -788,8 +759,6 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
             source["run_id"],
         )["status"] == "succeeded"
         calls.clear()
-        replay.enabled = True
-        replay.lookups.clear()
         forced_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
@@ -804,7 +773,6 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
         projection = _wait_terminal(client, project_id, forced["run_id"])
 
     assert projection["status"] == "succeeded"
-    assert replay.lookups == []
     assert "execute:source" in calls
     assert "sink-input:ready" in calls
     assert projection["derived_from_run_id"] == source["run_id"]
@@ -1141,7 +1109,7 @@ def test_cancel_during_artifact_materialization_keeps_object_unpublished(
 ) -> None:
     entered = threading.Event()
     release = threading.Event()
-    original_store = run_execution_v2.ProjectObjectStore.store
+    original_store = ProjectObjectStore.store
 
     def hold_artifact_object(store, project_id, payload):
         stored = original_store(store, project_id, payload)
@@ -1151,7 +1119,7 @@ def test_cancel_during_artifact_materialization_keeps_object_unpublished(
         return stored
 
     monkeypatch.setattr(
-        run_execution_v2.ProjectObjectStore,
+        ProjectObjectStore,
         "store",
         hold_artifact_object,
     )

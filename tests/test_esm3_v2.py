@@ -25,10 +25,10 @@ from core.operation import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import (
-    ResultReplaySource,
     V2RunError,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
@@ -416,7 +416,13 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
             }
         },
     )
-    service = V2RunService(projects, catalog, authoring, environment)
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        environment,
+        result_store(projects),
+    )
     try:
         receipt = service.start_background(
             project.id,

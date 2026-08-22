@@ -34,6 +34,7 @@ from core.run_execution_v2 import (
     V2RunError,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
@@ -529,6 +530,7 @@ def _run_single_node(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(projects),
     )
     receipt = service.start_background(
         project.id,

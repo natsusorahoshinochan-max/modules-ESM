@@ -21,6 +21,7 @@ from core.operation import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import V2RunService
+from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     verify_module_package_contract,
@@ -709,6 +710,7 @@ def _run_protein_sol(
                 }
             },
         ),
+        result_store(projects),
     )
     projections: list[dict[str, Any]] = []
     event_groups: list[tuple[dict[str, Any], ...]] = []

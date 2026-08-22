@@ -18,9 +18,9 @@ from core.catalog.model import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import (
-    ResultReplaySource,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -123,7 +123,6 @@ def run_generation(
     num_samples: int,
     sequence: str | None = None,
     environment_overrides: dict[str, Any] | None = None,
-    result_replay_source: ResultReplaySource | None = None,
     generation_parameters: dict[str, Any] | None = None,
     binding_route: str = "biohub_medium",
     sequence_mask_residue_ids: tuple[str, ...] = (),
@@ -342,7 +341,7 @@ def run_generation(
         catalog,
         authoring,
         environment,
-        result_replay_source,
+        result_store(projects),
     )
     with _installed_test_client(binding_route, client):
         try:
@@ -490,7 +489,13 @@ def run_generation_from_prompt_fixture(
             }
         }
     )
-    service = V2RunService(projects, catalog, authoring, environment)
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        environment,
+        result_store(projects),
+    )
     with _installed_test_client(binding_route, client):
         try:
             receipt = service.start_background(

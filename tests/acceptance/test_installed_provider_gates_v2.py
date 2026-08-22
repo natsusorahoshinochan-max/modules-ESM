@@ -14,6 +14,7 @@ import pytest
 
 from tests.acceptance.conftest import PROJECT_ROOT
 from tests.acceptance.retained_evidence import retain_service_run
+from tests.support.result_store import result_store
 
 
 BIOHUB_ESM3_GATE_BINDINGS = (
@@ -261,6 +262,7 @@ def _run_rich_esm3_generation(
                 }
             }
         ),
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -963,6 +965,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
                 }
             },
         ),
+        result_store(projects),
     )
     try:
         receipt = service.start_background(

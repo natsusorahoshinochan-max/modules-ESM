@@ -23,10 +23,10 @@ from core.operation import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import (
-    ResultReplaySource,
     V2RunError,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -239,7 +239,6 @@ def _run_confidence(
     monkeypatch: pytest.MonkeyPatch,
     *,
     client: Any,
-    result_replay_source: ResultReplaySource | None = None,
     environment_values: dict[str, Any] | None = None,
     pdb_string: str | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
@@ -345,7 +344,7 @@ def _run_confidence(
         catalog,
         authoring,
         environment,
-        result_replay_source,
+        result_store(projects),
     )
     try:
         receipt = service.start_background(

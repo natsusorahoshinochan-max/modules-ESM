@@ -109,33 +109,6 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
             )
             assert response.headers["x-value-index"] == "0"
             assert response.headers["x-value-count"] == "1"
-            encoded_manifest = (
-                app.state.run_execution_v2._object_store.read(
-                    project_id,
-                    descriptor["value_manifest_reference"],
-                )
-            )
-            manifest = json.loads(encoded_manifest)
-            assert manifest == {
-                "schema_namespace": (
-                    "protein-workbench-port-value-manifest/v1"
-                ),
-                "port_type": descriptor["port_type"],
-                "multiplicity": "one",
-                "content_digest": descriptor["content_digest"],
-                "value_count": 1,
-                "values": [
-                    {
-                        "index": 0,
-                        "content_digest": response.headers["digest"],
-                        "size": len(response.content),
-                        "object": {
-                            "content_digest": response.headers["digest"],
-                            "size": len(response.content),
-                        },
-                    }
-                ],
-            }
 
         events = public_run_events(app.state.run_execution_v2, project_id, run_id)
         assert "ready" not in json.dumps(events)

@@ -228,7 +228,7 @@ def _closed_admitted_node_output(
     )
 
 
-def _restored_node_output(
+def restore_node_output(
     *,
     plan: NodeOutputPlan,
     result_identity: str,

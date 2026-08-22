@@ -15,7 +15,6 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.run_execution_v2 import (
-    ResultReplaySource,
     V2RunError,
 )
 

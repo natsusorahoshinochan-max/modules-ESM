@@ -25,10 +25,10 @@ from core.operation import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import (
-    ResultReplaySource,
     V2RunError,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     verify_module_package_contract,
@@ -149,7 +149,6 @@ def _run_fold(
     route: str,
     client: Any,
     environment_overrides: dict[str, Any] | None = None,
-    result_replay_source: ResultReplaySource | None = None,
     source_sequence: str = "AG",
     num_samples: int = 1,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
@@ -265,7 +264,7 @@ def _run_fold(
         catalog,
         authoring,
         environment,
-        result_replay_source,
+        result_store(projects),
     )
     with ExitStack() as stack:
         if client is not None:

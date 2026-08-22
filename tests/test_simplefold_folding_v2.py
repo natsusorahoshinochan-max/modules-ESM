@@ -25,10 +25,9 @@ from core.operation import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.run_execution_v2 import (
-    ResultReplayHit,
-    ResultReplaySource,
     V2RunService,
 )
+from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -41,7 +40,6 @@ from datatypes.candidate import (
 )
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
-from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
@@ -434,7 +432,6 @@ def _run_simplefold(
     *,
     client: Any,
     num_samples: int = 2,
-    result_replay_source: ResultReplaySource | None = None,
     environment_values: dict[str, Any] | None = None,
     project_id: str = "simplefold",
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
@@ -547,7 +544,7 @@ def _run_simplefold(
         catalog,
         authoring,
         environment,
-        result_replay_source,
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -1162,118 +1159,6 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
 
     assert original == renamed
     assert original != changed_content
-
-
-def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.structure_prediction.package import (
-        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
-    )
-    from modules.structure_transform.package import (
-        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
-    )
-    from tests.fixtures.folding_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
-
-    class Client:
-        def __init__(self) -> None:
-            self.staging: list[Path] = []
-
-        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
-            staging = kwargs["staging_directory"]
-            assert not (staging / "fixed-provider-name").exists()
-            (staging / "fixed-provider-name").write_text("owned")
-            self.staging.append(staging)
-            return (
-                [ProteinStructure(_upstream_simplefold_serialized_pdb())],
-                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
-            )
-
-    cached_source = CandidateCollection(
-        "fixture-sequences",
-        "protein.sequence",
-        [
-            Candidate(
-                "fixture-sequence",
-                ProteinSequence("AG", ["A:1", "A:2"]),
-                [],
-                {"source": "independent-literal"},
-            )
-        ],
-    )
-    replay_catalog = build_frozen_catalog(
-        (
-            FOLDING_PACKAGE,
-            SOURCE_PACKAGE,
-            STRUCTURE_PREDICTION_PACKAGE,
-            STRUCTURE_TRANSFORM_PACKAGE,
-        )
-    )
-
-    class SourceReplay(ResultReplaySource):
-        def __init__(self) -> None:
-            self.node_ids: list[str] = []
-
-        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
-            node_id = kwargs["node"].node_id
-            self.node_ids.append(node_id)
-            if node_id == "materialize-confidence":
-                return None
-            assert node_id == "source"
-            outputs = {"sequence_candidates": cached_source}
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="cached-source-run",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=replay_catalog,
-                    node=kwargs["node"],
-                    outputs=outputs,
-                ),
-            )
-
-    client = Client()
-    replay = SourceReplay()
-    first_catalog, first_service, first_projection, _ = _run_simplefold(
-        tmp_path,
-        monkeypatch,
-        client=client,
-        num_samples=1,
-        result_replay_source=replay,
-    )
-
-    def candidate_id(
-        catalog: Any,
-        service: V2RunService,
-        projection: dict[str, Any],
-    ) -> str:
-        output = next(
-            item
-            for item in projection["outputs"]
-            if item["node_id"] == "fold"
-            and item["output_port"] == "structure_candidates"
-        )
-        return _decode_output(
-            catalog,
-            service,
-            projection,
-            output,
-        ).items[0].candidate_id
-
-    assert first_projection["status"] == "succeeded"
-    assert candidate_id(first_catalog, first_service, first_projection)
-    dispositions = {
-        item["node_id"]: item
-        for item in first_projection["node_dispositions"]
-    }
-    assert dispositions["source"]["resolution"] == "cache_replayed"
-    assert dispositions["fold"]["resolution"] == "executed"
-    assert len(client.staging) == 1
-    assert all(not path.exists() for path in client.staging)
-    assert replay.node_ids == ["source", "materialize-confidence"]
 
 
 def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(

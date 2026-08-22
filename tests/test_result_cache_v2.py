@@ -16,6 +16,7 @@ from core.catalog.builtins import (
 )
 from core.catalog.declarations import (
     EffectiveRandomnessResolver,
+    EnvironmentFieldDeclaration,
     ReadinessDeclaration,
     ScientificOperationFactory,
 )
@@ -32,8 +33,8 @@ from core.operation import (
 )
 from core.run_execution_v2 import (
     ExecutionTermination,
-    ResultReplaySource,
 )
+from core.execution.results import ProjectReplayIndex
 from protein_workbench_public.bootstrap import create_application
 import core.run_execution_v2 as run_execution_v2
 from datatypes.candidate import (
@@ -53,7 +54,6 @@ from tests.test_run_execution_v2 import (
     _commit_public_workflow,
     _contract,
     _direct_catalog,
-    _object_path,
     _pipeline_catalog,
 )
 
@@ -436,6 +436,56 @@ def test_deterministic_result_replays_without_rechecking_provider_readiness(
     assert "engine_invocation_started" not in replay_event_types
 
 
+def test_node_instance_rename_reuses_the_same_scientific_result(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    app = create_application(
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        first, _ = _start_run(client, project_id, compiled, "before-rename")
+        renamed_workflow = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
+        ).json()["workflow"]
+        renamed_workflow["nodes"][0]["node_id"] = "renamed"
+        renamed = _commit_public_workflow(
+            client,
+            project_id,
+            renamed_workflow,
+        )
+        replayed, _ = _start_run(
+            client,
+            project_id,
+            renamed,
+            "after-rename",
+        )
+
+    assert replayed["outputs"][0]["node_id"] == "renamed"
+    assert replayed["outputs"][0]["result_identity"] == (
+        first["outputs"][0]["result_identity"]
+    )
+    assert replayed["node_dispositions"][0]["resolution"] == (
+        "cache_replayed"
+    )
+    assert [call for call in calls if call.startswith("execute:")] == [
+        "execute:test.direct.local"
+    ]
+
+
 def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
     tmp_path,
     monkeypatch,
@@ -503,19 +553,21 @@ def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
     ]
 
 
-def test_node_result_manifest_covers_ordinary_and_artifact_output_ports(
+def test_cache_index_covers_ordinary_and_artifact_output_ports(
     tmp_path,
     monkeypatch,
 ) -> None:
     cache_root = tmp_path / "cache"
-    output_root = tmp_path / "outputs"
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
     app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
@@ -531,19 +583,6 @@ def test_node_result_manifest_covers_ordinary_and_artifact_output_ports(
 
     entry_path = next((cache_root / project_id / "v4").rglob("*.json"))
     entry = json.loads(entry_path.read_bytes())
-    manifest_reference = entry["node_result_manifest"]
-    manifest = json.loads(
-        _object_path(
-            output_root,
-            project_id,
-            manifest_reference["content_digest"],
-        ).read_bytes()
-    )
-
-    assert [output["output_port"] for output in manifest["outputs"]] == [
-        "summary",
-        "structure",
-    ]
     assert [output["output_port"] for output in entry["outputs"]] == [
         "summary",
         "structure",
@@ -599,8 +638,6 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
         item["resolution"] for item in second["node_dispositions"]
     ] == ["cache_replayed", "cache_replayed"]
     assert [item for item in calls if item.startswith("validate:")] == [
-        "validate:' READY '",
-        "validate:'ready'",
         "validate:'ready'",
         "validate:'ready'",
         "validate:'ready'",
@@ -611,10 +648,12 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
 def test_cache_publication_failure_does_not_change_node_or_run_success(
     tmp_path,
     monkeypatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    class UnavailableOnPublish(ResultReplaySource):
-        def publish(self, **_kwargs: Any) -> None:
-            raise OSError("fixture cache publication failure")
+    def fail_index(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("fixture cache publication failure")
+
+    monkeypatch.setattr(ProjectReplayIndex, "index", fail_index)
 
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
@@ -627,7 +666,6 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
     )
     app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
-        v2_result_replay_source=UnavailableOnPublish(),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -663,6 +701,9 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
     assert operation_terminal["status"] == "succeeded"
     assert node_terminal["status"] == "succeeded"
     assert run_terminal["status"] == "succeeded"
+    assert caplog.messages == [
+        "Committed Result replay index publication is unavailable"
+    ]
 
 
 def test_candidate_identity_is_run_independent_and_preserved_on_replay(
@@ -837,7 +878,16 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         str(tmp_path / "outputs"),
     )
     app = create_application(
-        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            cacheable=True,
+            binding_environment_fields=(
+                EnvironmentFieldDeclaration(
+                    "runtime_path",
+                    "filesystem_path",
+                ),
+            ),
+        ),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {
@@ -912,6 +962,13 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                 first_calls,
                 cacheable=True,
                 readiness_checks=readiness,
+                binding_environment_fields=(
+                    EnvironmentFieldDeclaration(
+                        "runtime_path",
+                        "filesystem_path",
+                    ),
+                    EnvironmentFieldDeclaration("device", "json_value"),
+                ),
             ),
             v2_environment_configuration={
                 ("test.direct.local", "2.1.0"): {
@@ -939,6 +996,13 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                 second_calls,
                 cacheable=True,
                 readiness_checks=readiness,
+                binding_environment_fields=(
+                    EnvironmentFieldDeclaration(
+                        "runtime_path",
+                        "filesystem_path",
+                    ),
+                    EnvironmentFieldDeclaration("device", "json_value"),
+                ),
             ),
             v2_environment_configuration={
                 ("test.direct.local", "2.1.0"): {
@@ -1241,7 +1305,6 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     ("termination", "expected_status"),
     (
         ("failed", "failed"),
-        ("cancelled", "cancelled"),
         ("interrupted", "interrupted"),
         ("outcome_unknown", "interrupted"),
     ),

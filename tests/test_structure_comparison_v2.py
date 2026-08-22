@@ -22,6 +22,7 @@ from core.catalog.port_contract import (
 from core.execution.environment import admit_environment_configuration
 from core.execution.ledger.projections import RunProjection
 from core.run_execution_v2 import V2RunService
+from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
@@ -1638,6 +1639,7 @@ def _run_inserted_loop_failure_case(
         catalog,
         authoring,
         admit_environment_configuration(catalog, {}),
+        result_store(manager),
     )
     try:
         receipt = service.start_background(

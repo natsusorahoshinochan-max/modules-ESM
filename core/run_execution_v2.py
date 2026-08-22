@@ -18,12 +18,6 @@ from types import MappingProxyType
 from typing import Any, Literal, Protocol, cast
 import uuid
 
-from protein_workbench_public import (
-    ProtocolValidationError,
-    validate_event,
-    validate_schema,
-)
-
 from core.catalog.port_contract import (
     is_valid_artifact_media_type,
 )
@@ -52,6 +46,7 @@ from core.execution.ledger import (
     Ledger,
     LedgerStore,
     ImmutableObjectReference,
+    LedgerAcknowledgement,
     NodeAttemptStart,
     NodeFailurePublication,
     NodeSuccessPublication,
@@ -81,10 +76,10 @@ from core.execution.ledger import (
     run_cursor,
     run_timestamp,
 )
-from core.execution.output_admission.admission import (
+from core.execution.output_admission import (
+    AdmittedNodeOutput,
     NodeOutputPlan,
     OutputPortPlan,
-    _restored_node_output,
     admit_node_output,
 )
 from core.execution.output_admission.artifacts import (
@@ -94,11 +89,14 @@ from core.execution.output_admission.artifacts import (
 from core.execution.output_admission.candidate_identity import (
     _validate_input_candidate_identities,
 )
-from core.execution.output_admission.port_values import (
-    combine_admitted_port,
-    restore_admitted_port,
-)
+from core.execution.output_admission.port_values import combine_admitted_port
 from core.execution.resources import CancellationControl, RunResources
+from core.execution.results import (
+    ResultIntegrityError,
+    ResultStore,
+    ResultStoreWriteError,
+    StoredNodeResult,
+)
 from core.catalog.model import (
     FrozenCatalog,
 )
@@ -110,7 +108,6 @@ from core.catalog.port_contract import (
     canonical_sha256,
 )
 from core.project.manager import ProjectInputDescriptor, ProjectManager
-from core.project.objects import ObjectIntegrityError, ProjectObjectStore
 from core.scoring.selection import (
     PairwiseContextSelector,
     SelectionError,
@@ -122,7 +119,6 @@ from core.project.storage import (
     replace_file,
     validate_identifier,
     validate_relative_path,
-    write_new_file,
     write_new_file_durable,
 )
 from core.workflow.authoring import (
@@ -153,18 +149,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
-RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v4"
-PORT_VALUE_MANIFEST_NAMESPACE = (
-    "protein-workbench-port-value-manifest/v1"
-)
-NODE_RESULT_MANIFEST_NAMESPACE = (
-    "protein-workbench-node-result-manifest/v1"
-)
 MAX_ARTIFACTS_PER_RUN = 2_048
 MAX_ARTIFACT_BYTES_PER_RUN = 256 * 1024 * 1024
-MAX_PORT_VALUE_MANIFEST_BYTES = 32 * 1024 * 1024
-MAX_NODE_RESULT_MANIFEST_BYTES = 4 * 1024 * 1024
-MAX_RESULT_CACHE_ENTRY_BYTES = 4 * 1024 * 1024
 MAX_BACKGROUND_RUNS = 8
 FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
 _PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
@@ -180,18 +166,6 @@ _ATTEMPT_TERMINALS = frozenset(
 _DISPOSITION_OUTCOMES = frozenset(
     {"succeeded", "failed", "blocked", "cancelled", "interrupted"}
 )
-
-
-def _is_immutable_object_descriptor(value: Any) -> bool:
-    return (
-        isinstance(value, Mapping)
-        and set(value) == {"content_digest", "size"}
-        and isinstance(value["content_digest"], str)
-        and re.fullmatch(r"sha256:[0-9a-f]{64}", value["content_digest"])
-        is not None
-        and type(value["size"]) is int
-        and value["size"] >= 0
-    )
 
 
 def _utc_now() -> datetime:
@@ -270,71 +244,6 @@ def _selection_error(error: BaseException) -> StructuredError:
     )
 
 
-class ResultReplaySource:
-    """Optional typed Result replay boundary."""
-
-    def lookup(
-        self,
-        *,
-        project_id: str,
-        execution_plan: ExecutionPlan,
-        node: ExecutionPlanNode,
-        inputs: Mapping[str, AdmittedPort],
-        result_identity: str,
-    ) -> ResultReplayHit | None:
-        del project_id, execution_plan, node, inputs, result_identity
-        return None
-
-    def publish(
-        self,
-        *,
-        project_id: str,
-        node: ExecutionPlanNode,
-        result_identity: str,
-        producer_run_id: str,
-        node_result_manifest: Mapping[str, Any],
-        node_result_manifest_reference: Mapping[str, Any],
-    ) -> None:
-        del (
-            project_id,
-            node,
-            result_identity,
-            producer_run_id,
-            node_result_manifest,
-            node_result_manifest_reference,
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class ResultReplayHit:
-    """One identity-bound canonical replay with durable producer provenance."""
-
-    result_identity: str
-    producer_run_id: str
-    admitted_outputs: Mapping[
-        tuple[str, str],
-        AdmittedPort,
-    ]
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.admitted_outputs, Mapping) or any(
-            not isinstance(key, tuple)
-            or len(key) != 2
-            or not all(isinstance(part, str) for part in key)
-            or not isinstance(snapshot, AdmittedPort)
-            for key, snapshot in self.admitted_outputs.items()
-        ):
-            raise TypeError(
-                "Result replay admitted_outputs must contain canonical "
-                "AdmittedPort snapshots"
-            )
-        object.__setattr__(
-            self,
-            "admitted_outputs",
-            MappingProxyType(dict(self.admitted_outputs)),
-        )
-
-
 class ExecutionTermination(RuntimeError):
     """A bounded terminal conclusion reported by a started engine seam."""
 
@@ -350,23 +259,8 @@ class ExecutionTermination(RuntimeError):
         super().__init__("Execution terminated without public diagnostics")
 
 
-class NodePublicationError(RuntimeError):
-    """One bounded immutable-object publication stage failed."""
-
-    def __init__(
-        self,
-        stage: Literal[
-            "typed_value_object",
-            "artifact_object",
-            "manifest",
-        ],
-    ) -> None:
-        self.stage = stage
-        super().__init__("Node result publication failed")
-
-
-class ResultCachePublicationError(RuntimeError):
-    """Optional Cache indexing failed after committed Node success."""
+class _ArtifactCapacityError(RuntimeError):
+    """A restored result cannot fit the current Run publication bounds."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -403,8 +297,8 @@ class _NodeExecutionAttemptState:
     resolution: Literal["executed", "cache_replayed"] = "executed"
     resources: RunResources | None = None
     operation_started: bool = False
-    producer_run_id: str | None = None
-    admitted_output_descriptors: tuple[Mapping[str, Any], ...] = ()
+    admitted_node_output: AdmittedNodeOutput | None = None
+    stored_result: StoredNodeResult | None = None
     admitted_outputs: Mapping[
         tuple[str, str],
         AdmittedPort,
@@ -412,125 +306,6 @@ class _NodeExecutionAttemptState:
     artifact_publication_plan: AdmittedArtifactPublicationPlan = field(
         default_factory=lambda: AdmittedArtifactPublicationPlan((), ())
     )
-
-
-def _load_node_result_manifest(
-    object_store: ProjectObjectStore,
-    project_id: str,
-    reference: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Load one current immutable Node Result Manifest exactly once."""
-    if (
-        not _is_immutable_object_descriptor(reference)
-        or reference["size"] > MAX_NODE_RESULT_MANIFEST_BYTES
-    ):
-        raise RuntimeError("Node Result Manifest reference is invalid")
-    encoded = object_store.read(
-        project_id,
-        reference["content_digest"],
-    )
-    manifest = json.loads(encoded)
-    if (
-        encoded != canonical_json_bytes(manifest)
-        or not isinstance(manifest, dict)
-        or set(manifest)
-        != {
-            "schema_namespace",
-            "result_identity",
-            "result_contract_metadata",
-            "outputs",
-        }
-        or manifest["schema_namespace"] != NODE_RESULT_MANIFEST_NAMESPACE
-        or not isinstance(manifest["result_identity"], str)
-        or re.fullmatch(
-            r"sha256:[0-9a-f]{64}",
-            manifest["result_identity"],
-        )
-        is None
-        or not isinstance(manifest["result_contract_metadata"], dict)
-        or not isinstance(manifest["outputs"], list)
-    ):
-        raise RuntimeError("Node Result Manifest contract is invalid")
-    seen_ports: set[str] = set()
-    for output in manifest["outputs"]:
-        if (
-            not isinstance(output, dict)
-            or set(output) != {"output_port", "port_type", "value_manifest"}
-            or not isinstance(output["output_port"], str)
-            or output["output_port"] in seen_ports
-            or not _is_immutable_object_descriptor(output["value_manifest"])
-        ):
-            raise RuntimeError("Node Result Manifest output is invalid")
-        try:
-            validate_identifier(output["output_port"], "output_port")
-            validate_schema("#/$defs/ContractReference", output["port_type"])
-        except (ProtocolValidationError, StoragePathError) as error:
-            raise RuntimeError(
-                "Node Result Manifest output is invalid"
-            ) from error
-        if output["port_type"]["contract_kind"] != "port_type":
-            raise RuntimeError("Node Result Manifest output is invalid")
-        seen_ports.add(output["output_port"])
-    return manifest
-
-
-def _decode_port_value_manifest(encoded: bytes) -> dict[str, Any]:
-    """Validate one canonical current Port Value Manifest exactly once."""
-    try:
-        manifest = json.loads(encoded)
-        if (
-            encoded != canonical_json_bytes(manifest)
-            or not isinstance(manifest, dict)
-            or set(manifest)
-            != {
-                "schema_namespace",
-                "port_type",
-                "multiplicity",
-                "content_digest",
-                "value_count",
-                "values",
-            }
-            or manifest["schema_namespace"]
-            != PORT_VALUE_MANIFEST_NAMESPACE
-            or manifest["multiplicity"] not in {"one", "many"}
-            or not isinstance(manifest["content_digest"], str)
-            or re.fullmatch(
-                r"sha256:[0-9a-f]{64}",
-                manifest["content_digest"],
-            )
-            is None
-            or type(manifest["value_count"]) is not int
-            or manifest["value_count"] < 0
-            or not isinstance(manifest["values"], list)
-            or len(manifest["values"]) != manifest["value_count"]
-        ):
-            raise RuntimeError("Current Port Value Manifest is invalid")
-        validate_schema("#/$defs/ContractReference", manifest["port_type"])
-        if manifest["port_type"]["contract_kind"] != "port_type":
-            raise RuntimeError("Current Port Value Manifest is invalid")
-        for index, value in enumerate(manifest["values"]):
-            if (
-                not isinstance(value, dict)
-                or set(value)
-                != {"index", "content_digest", "size", "object"}
-                or value["index"] != index
-                or not _is_immutable_object_descriptor(value["object"])
-                or value["object"]
-                != {
-                    "content_digest": value["content_digest"],
-                    "size": value["size"],
-                }
-            ):
-                raise RuntimeError("Current Port Value Manifest is invalid")
-    except (
-        json.JSONDecodeError,
-        ProtocolValidationError,
-        TypeError,
-        UnicodeDecodeError,
-        ValueError,
-    ) as error:
-        raise RuntimeError("Current Port Value Manifest is invalid") from error
-    return manifest
 
 
 class _NodeExecutionAttemptModule:
@@ -541,8 +316,7 @@ class _NodeExecutionAttemptModule:
         *,
         projects: ProjectManager,
         environment: EnvironmentConfiguration,
-        result_replay_source: ResultReplaySource,
-        object_store: ProjectObjectStore,
+        result_store: ResultStore,
         project_id: str,
         run_id: str,
         execution_plan: ExecutionPlan,
@@ -565,119 +339,7 @@ class _NodeExecutionAttemptModule:
             tuple[str, str],
             V2RunError | None,
         ] = {}
-        self._result_replay_source = result_replay_source
-        self._object_store = object_store
-
-    def _persist_artifacts(
-        self,
-        *,
-        project_id: str,
-        node_id: str,
-        plan: AdmittedArtifactPublicationPlan,
-    ) -> list[dict[str, Any]]:
-        artifacts: list[dict[str, Any]] = []
-        for publication in plan.publications:
-            try:
-                stored = self._object_store.store(
-                    project_id,
-                    publication.body,
-                )
-            except (ObjectIntegrityError, OSError, StoragePathError) as error:
-                raise NodePublicationError("artifact_object") from error
-            descriptor = {
-                "artifact_reference": f"artifact-{uuid.uuid4().hex}",
-                "artifact_kind": publication.artifact_kind,
-                "node_id": node_id,
-                "output_port": publication.output_port,
-                "media_type": publication.media_type,
-                "filename": publication.filename,
-                "size": stored.size,
-                "content_digest": stored.content_digest,
-            }
-            if publication.candidate_id is not None:
-                descriptor["candidate_id"] = publication.candidate_id
-            artifacts.append(descriptor)
-        return artifacts
-
-    def _publish_port_value_manifests(
-        self,
-        *,
-        project_id: str,
-        node_id: str,
-        descriptors: list[dict[str, Any]],
-        admitted_outputs: Mapping[tuple[str, str], AdmittedPort],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        published: list[dict[str, Any]] = []
-        result_outputs: list[dict[str, Any]] = []
-        for descriptor in descriptors:
-            snapshot = admitted_outputs[(node_id, descriptor["output_port"])]
-            value_entries: list[dict[str, Any]] = []
-            for index, value in enumerate(snapshot.values):
-                try:
-                    stored = self._object_store.store(
-                        project_id,
-                        value.canonical_bytes,
-                    )
-                except (
-                    ObjectIntegrityError,
-                    OSError,
-                    StoragePathError,
-                ) as error:
-                    raise NodePublicationError(
-                        "typed_value_object"
-                    ) from error
-                if stored.content_digest != value.content_digest:
-                    raise NodePublicationError("typed_value_object")
-                value_entries.append(
-                    {
-                        "index": index,
-                        "content_digest": value.content_digest,
-                        "size": stored.size,
-                        "object": {
-                            "content_digest": stored.content_digest,
-                            "size": stored.size,
-                        },
-                    }
-                )
-            manifest = {
-                "schema_namespace": PORT_VALUE_MANIFEST_NAMESPACE,
-                "port_type": dict(snapshot.port_type),
-                "multiplicity": snapshot.multiplicity,
-                "content_digest": snapshot.content_digest,
-                "value_count": len(snapshot.values),
-                "values": value_entries,
-            }
-            try:
-                manifest_object = self._object_store.store(
-                    project_id,
-                    canonical_json_bytes(manifest),
-                )
-            except (
-                ObjectIntegrityError,
-                OSError,
-                StoragePathError,
-            ) as error:
-                raise NodePublicationError("manifest") from error
-            published.append(
-                {
-                    **descriptor,
-                    "value_count": len(snapshot.values),
-                    "value_manifest_reference": (
-                        manifest_object.content_digest
-                    ),
-                }
-            )
-            result_outputs.append(
-                {
-                    "output_port": descriptor["output_port"],
-                    "port_type": dict(snapshot.port_type),
-                    "value_manifest": {
-                        "content_digest": manifest_object.content_digest,
-                        "size": manifest_object.size,
-                    },
-                }
-            )
-        return published, result_outputs
+        self._result_store = result_store
 
     @staticmethod
     def _disposition_for_status(
@@ -826,135 +488,73 @@ class _NodeExecutionAttemptModule:
             else "cancelled"
         )
 
-    def _materialize_success(
+    def _stage_success(
         self,
         state: _NodeExecutionAttemptState,
-    ) -> tuple[
-        list[dict[str, Any]],
-        list[dict[str, Any]],
-        dict[str, Any],
-        dict[str, Any],
-    ]:
-        if state.result_identity is None or state.producer_run_id is None:
+    ) -> StoredNodeResult:
+        if state.stored_result is not None:
+            return state.stored_result
+        if (
+            state.result_identity is None
+            or state.admitted_node_output is None
+        ):
             raise RuntimeError(
-                "Node Execution Attempt success lacks complete Result identity"
+                "Node Execution Attempt success lacks a complete admitted result"
             )
-        admitted_descriptors = [
-            dict(output) for output in state.admitted_output_descriptors
-        ]
-        artifact_output_ports = set(
-            state.artifact_publication_plan.artifact_output_ports
-        )
-        typed_descriptor_bases = [
-            descriptor
-            for descriptor in admitted_descriptors
-            if descriptor["output_port"] not in artifact_output_ports
-        ]
-        artifacts = self._persist_artifacts(
+        stored = self._result_store.store(
             project_id=self._project_id,
-            node_id=state.node.node_id,
-            plan=state.artifact_publication_plan,
+            materialization_run_id=self._run_id,
+            admitted_output=state.admitted_node_output,
+            result_contract_metadata=_result_contract_metadata(state.node),
         )
-        published_descriptors, result_outputs = (
-            self._publish_port_value_manifests(
-                project_id=self._project_id,
-                node_id=state.node.node_id,
-                descriptors=admitted_descriptors,
-                admitted_outputs=state.admitted_outputs,
-            )
-        )
-        published_by_port = {
-            descriptor["output_port"]: descriptor
-            for descriptor in published_descriptors
-        }
-        typed_descriptors = [
-            published_by_port[descriptor["output_port"]]
-            for descriptor in typed_descriptor_bases
-        ]
-        node_result_manifest = {
-            "schema_namespace": NODE_RESULT_MANIFEST_NAMESPACE,
-            "result_identity": state.result_identity,
-            "result_contract_metadata": _result_contract_metadata(
-                state.node,
-            ),
-            "outputs": result_outputs,
-        }
-        node_result_manifest_bytes = canonical_json_bytes(
-            node_result_manifest
-        )
-        if len(node_result_manifest_bytes) > MAX_NODE_RESULT_MANIFEST_BYTES:
-            raise NodePublicationError("manifest")
-        try:
-            manifest_object = self._object_store.store(
-                self._project_id,
-                node_result_manifest_bytes,
-            )
-        except (
-            ObjectIntegrityError,
-            OSError,
-            StoragePathError,
-        ) as error:
-            raise NodePublicationError("manifest") from error
-        return (
-            _with_result_provenance(
-                typed_descriptors,
-                result_identity=state.result_identity,
-                current_run_id=self._run_id,
-                producer_run_id=state.producer_run_id,
-                resolution=state.resolution,
-            ),
-            artifacts,
-            node_result_manifest,
-            {
-                "content_digest": manifest_object.content_digest,
-                "size": manifest_object.size,
-            },
-        )
+        state.stored_result = stored
+        return stored
 
     def _record_success(
         self,
         state: _NodeExecutionAttemptState,
         *,
-        typed_descriptors: list[dict[str, Any]],
-        artifacts: list[dict[str, Any]],
-        node_result_manifest_reference: Mapping[str, Any],
+        stored_result: StoredNodeResult,
         only_if_active: bool = False,
-    ) -> _CommittedNodeOutcome | None:
+    ) -> tuple[_CommittedNodeOutcome, LedgerAcknowledgement] | None:
         if state.result_identity is None:
             raise RuntimeError(
                 "Node Execution Attempt success lacks a Result Identity"
             )
         published_outputs = tuple(
             PublishedOutput(
-                node_id=descriptor["node_id"],
-                output_port=descriptor["output_port"],
-                port_type=_exact_reference_from_catalog(
-                    descriptor["port_type"]
-                ),
-                content_digest=descriptor["content_digest"],
-                result_identity=descriptor["result_identity"],
-                materialization=descriptor["materialization"],
-                producer_provenance=descriptor["producer_provenance"],
-                value_count=descriptor["value_count"],
-                value_manifest_reference=descriptor[
-                    "value_manifest_reference"
-                ],
+                node_id=output.node_id,
+                output_port=output.output_port,
+                port_type=output.port_type,
+                content_digest=output.content_digest,
+                result_identity=stored_result.result_identity,
+                materialization={
+                    "run_id": output.materialization_run_id,
+                    "resolution": output.resolution,
+                },
+                producer_provenance={
+                    "producer_run_id": output.producer_run_id,
+                    "producer_result_identity": stored_result.result_identity,
+                    "output_port": output.output_port,
+                },
+                value_count=output.value_count,
+                value_manifest_reference=output.value_manifest.content_digest,
             )
-            for descriptor in typed_descriptors
+            for output in stored_result.published_outputs
         )
         published_artifacts = tuple(
             PublishedArtifact(
-                artifact_reference=artifact["artifact_reference"],
-                artifact_kind=artifact["artifact_kind"],
-                node_id=artifact["node_id"],
-                output_port=artifact["output_port"],
-                media_type=artifact["media_type"],
-                filename=artifact["filename"],
-                size=artifact["size"],
-                content_digest=artifact["content_digest"],
-                candidate_id=artifact.get("candidate_id"),
+                artifact_reference=artifact.artifact_reference,
+                artifact_kind=artifact.artifact_kind,
+                node_id=artifact.node_id,
+                output_port=artifact.output_port,
+                media_type=artifact.media_type,
+                filename=artifact.filename,
+                size=artifact.body.size,
+                content_digest=artifact.body.content_digest,
+                candidate_id=artifact.candidate_id,
             )
-            for artifact in artifacts
+            for artifact in stored_result.artifacts
         )
         transition = NodeSuccessPublication(
                 node_id=state.node.node_id,
@@ -967,10 +567,10 @@ class _NodeExecutionAttemptModule:
                 resolution=state.resolution,
                 result_identity=state.result_identity,
                 node_result_manifest=ImmutableObjectReference(
-                    content_digest=node_result_manifest_reference[
-                        "content_digest"
-                    ],
-                    size=node_result_manifest_reference["size"],
+                    content_digest=(
+                        stored_result.node_result_manifest.content_digest
+                    ),
+                    size=stored_result.node_result_manifest.size,
                 ),
                 outputs=published_outputs,
                 artifacts=published_artifacts,
@@ -991,10 +591,31 @@ class _NodeExecutionAttemptModule:
         )
         if acknowledged is None:
             return None
-        return _CommittedNodeOutcome(
-            disposition="succeeded",
-            admitted_outputs=state.admitted_outputs,
-            artifacts=tuple(artifacts),
+        artifacts = tuple(
+            {
+                "artifact_reference": artifact.artifact_reference,
+                "artifact_kind": artifact.artifact_kind,
+                "node_id": artifact.node_id,
+                "output_port": artifact.output_port,
+                "media_type": artifact.media_type,
+                "filename": artifact.filename,
+                "size": artifact.body.size,
+                "content_digest": artifact.body.content_digest,
+                **(
+                    {"candidate_id": artifact.candidate_id}
+                    if artifact.candidate_id is not None
+                    else {}
+                ),
+            }
+            for artifact in stored_result.artifacts
+        )
+        return (
+            _CommittedNodeOutcome(
+                disposition="succeeded",
+                admitted_outputs=state.admitted_outputs,
+                artifacts=artifacts,
+            ),
+            acknowledged,
         )
 
     def _record_committed_cancellation(
@@ -1036,72 +657,54 @@ class _NodeExecutionAttemptModule:
         self,
         state: _NodeExecutionAttemptState,
     ) -> _CommittedNodeOutcome:
-        typed_descriptors: list[dict[str, Any]] = []
-        artifacts: list[dict[str, Any]] = []
-        node_result_manifest: dict[str, Any] = {}
-        node_result_manifest_reference: dict[str, Any] = {}
-        publication_error: NodePublicationError | None = None
         try:
-            (
-                typed_descriptors,
-                artifacts,
-                node_result_manifest,
-                node_result_manifest_reference,
-            ) = self._materialize_success(state)
-        except NodePublicationError as error:
-            publication_error = error
-
-        if publication_error is not None:
-            committed = self._record_failure(
-                    state,
-                    public_error=_publication_error(
-                        node_id=state.node.node_id,
-                        stage=publication_error.stage,
-                    ),
-                    failure_origin="publication",
-                    only_if_active=True,
-                )
-        else:
-            committed = self._record_success(
+            stored_result = self._stage_success(state)
+        except ResultStoreWriteError as error:
+            failed = self._record_failure(
                 state,
-                typed_descriptors=typed_descriptors,
-                artifacts=artifacts,
-                node_result_manifest_reference=node_result_manifest_reference,
+                public_error=_publication_error(
+                    node_id=state.node.node_id,
+                    stage=error.stage,
+                ),
+                failure_origin="publication",
                 only_if_active=True,
             )
-        if committed is None:
+            if failed is not None:
+                return failed
             cancelled = self._record_committed_cancellation(state)
             if cancelled is None:
                 raise RuntimeError(
                     "Node outcome lost its cancellation ordering decision"
                 )
             return cancelled
+
+        recorded = self._record_success(
+            state,
+            stored_result=stored_result,
+            only_if_active=True,
+        )
+        if recorded is None:
+            cancelled = self._record_committed_cancellation(state)
+            if cancelled is None:
+                raise RuntimeError(
+                    "Node outcome lost its cancellation ordering decision"
+                )
+            return cancelled
+        committed, acknowledgement = recorded
         if (
             committed.disposition == "succeeded"
             and state.resolution == "executed"
             and state.cache_eligible
         ):
-            if state.result_identity is None:
-                raise RuntimeError(
-                    "Cache-eligible success lacks a Result Identity"
-                )
             try:
-                self._result_replay_source.publish(
-                    project_id=self._project_id,
-                    node=state.node,
-                    result_identity=state.result_identity,
-                    producer_run_id=self._run_id,
-                    node_result_manifest=node_result_manifest,
-                    node_result_manifest_reference=(
-                        node_result_manifest_reference
-                    ),
+                self._result_store.index_committed_result(
+                    stored_result,
+                    acknowledgement,
                 )
-            except (
-                OSError,
-                ResultCachePublicationError,
-                StoragePathError,
-            ):
-                pass
+            except OSError:
+                _LOGGER.warning(
+                    "Committed Result replay index publication is unavailable"
+                )
         return committed
 
     def _attest_readiness(
@@ -1235,7 +838,7 @@ class _NodeExecutionAttemptModule:
             > MAX_ARTIFACTS_PER_RUN
         ):
             if replayed:
-                raise NodePublicationError("artifact_object")
+                raise _ArtifactCapacityError
             raise PortValueError("Run artifact count exceeds the public bound")
         if (
             sum(artifact["size"] for artifact in committed_artifacts)
@@ -1243,7 +846,7 @@ class _NodeExecutionAttemptModule:
             > MAX_ARTIFACT_BYTES_PER_RUN
         ):
             if replayed:
-                raise NodePublicationError("artifact_object")
+                raise _ArtifactCapacityError
             raise PortValueError("Run artifact bytes exceed the public bound")
 
 
@@ -1308,34 +911,26 @@ class _NodeExecutionAttemptModule:
         ):
             return None
         try:
-            replayed = self._result_replay_source.lookup(
+            replayed = self._result_store.lookup_replay(
                 project_id=self._project_id,
-                execution_plan=self._execution_plan,
-                node=state.node,
-                inputs=state.inputs,
+                materialization_run_id=self._run_id,
+                node_plan=_node_output_plan(
+                    self._execution_plan,
+                    state.node,
+                ),
                 result_identity=state.result_identity,
+                result_contract_metadata=_result_contract_metadata(
+                    state.node,
+                ),
             )
             if replayed is None:
                 return None
             state.resolution = "cache_replayed"
-            state.producer_run_id = replayed.producer_run_id
-            admitted_node_output = _restored_node_output(
-                plan=_node_output_plan(self._execution_plan, state.node),
-                result_identity=state.result_identity,
-                ports={
-                    output_port: admitted
-                    for (node_id, output_port), admitted in (
-                        replayed.admitted_outputs.items()
-                    )
-                    if node_id == state.node.node_id
-                },
-            )
+            state.stored_result = replayed
+            admitted_node_output = replayed.admitted_output
+            state.admitted_node_output = admitted_node_output
             state.admitted_outputs = dict(
                 admitted_node_output.runtime_ports
-            )
-            state.admitted_output_descriptors = tuple(
-                descriptor.to_mapping()
-                for descriptor in admitted_node_output.evidence_descriptors
             )
             state.artifact_publication_plan = (
                 admitted_node_output.artifact_publication_plan
@@ -1345,13 +940,13 @@ class _NodeExecutionAttemptModule:
                 committed_artifacts=committed_artifacts,
                 replayed=True,
             )
-        except NodePublicationError as error:
+        except _ArtifactCapacityError:
             state.resolution = "cache_replayed"
             return self._commit_failure(
                 state,
                 public_error=_publication_error(
                     node_id=state.node.node_id,
-                    stage=error.stage,
+                    stage="artifact_object",
                 ),
                 failure_origin="publication",
             )
@@ -1561,10 +1156,7 @@ class _NodeExecutionAttemptModule:
                 raw_outputs=raw_outputs,
                 result_identity=state.result_identity,
             )
-            state.admitted_output_descriptors = tuple(
-                descriptor.to_mapping()
-                for descriptor in admitted_node_output.evidence_descriptors
-            )
+            state.admitted_node_output = admitted_node_output
             state.admitted_outputs = dict(
                 admitted_node_output.runtime_ports
             )
@@ -1641,7 +1233,6 @@ class _NodeExecutionAttemptModule:
                 ),
                 public_error=public_error,
             )
-        state.producer_run_id = self._run_id
         return self._commit_success(state)
 
     def execute(
@@ -2038,19 +1629,6 @@ def _resolve_effective_randomness(
     )
 
 
-def _read_bounded_file(
-    root: Path,
-    parts: tuple[str, ...],
-    *,
-    field: str,
-    maximum_size: int,
-) -> bytes:
-    payload = root.joinpath(*parts).read_bytes()
-    if len(payload) > maximum_size:
-        raise StoragePathError(field, f"Invalid {field}")
-    return payload
-
-
 def _result_identity_descriptor(
     node: ExecutionPlanNode,
     inputs: Mapping[str, AdmittedPort],
@@ -2376,288 +1954,6 @@ def _result_contract_metadata(
     )
 
 
-def _with_result_provenance(
-    outputs: list[dict[str, Any]],
-    *,
-    result_identity: str,
-    current_run_id: str,
-    producer_run_id: str,
-    resolution: str,
-) -> list[dict[str, Any]]:
-    return [
-        {
-            **output,
-            "result_identity": result_identity,
-            "materialization": {
-                "run_id": current_run_id,
-                "resolution": resolution,
-            },
-            "producer_provenance": {
-                "producer_run_id": producer_run_id,
-                "producer_result_identity": result_identity,
-                "output_port": output["output_port"],
-            },
-        }
-        for output in outputs
-    ]
-
-
-def _admitted_output_from_manifest(
-    *,
-    object_store: ProjectObjectStore,
-    project_id: str,
-    execution_plan: ExecutionPlan,
-    node: ExecutionPlanNode,
-    output: Mapping[str, Any],
-) -> AdmittedPort:
-    """Materialize one committed Port manifest through its exact codec."""
-    output_port = output["output_port"]
-    declaration = node._runtime.output_ports[output_port]
-    reference = output["value_manifest"]
-    if reference["size"] > MAX_PORT_VALUE_MANIFEST_BYTES:
-        raise RuntimeError("Current Port Value Manifest is invalid")
-    encoded = object_store.read(
-        project_id,
-        reference["content_digest"],
-    )
-    manifest = _decode_port_value_manifest(encoded)
-    if (
-        manifest["port_type"] != output["port_type"]
-        or manifest["port_type"]
-        != declaration.reference.canonical_projection()
-        or manifest["multiplicity"] != declaration.multiplicity
-    ):
-        raise RuntimeError("Current Port Value Manifest is invalid")
-    canonical_values: list[bytes] = []
-    for value in manifest["values"]:
-        canonical_values.append(
-            object_store.read(
-                project_id,
-                value["content_digest"],
-            )
-        )
-    port_type = node._runtime.output_ports[output_port].port_type
-    admitted = restore_admitted_port(
-        port_type=port_type,
-        multiplicity=declaration.multiplicity,
-        canonical_values=tuple(canonical_values),
-        candidate_data_port_types=(
-            execution_plan._runtime.candidate_data_port_types
-        ),
-    )
-    if admitted.content_digest != manifest["content_digest"]:
-        raise RuntimeError("Current Port Value Manifest is invalid")
-    return admitted
-
-
-class _ProjectResultCache(ResultReplaySource):
-    """Project-owned reference-only replay index over committed Results."""
-
-    def __init__(
-        self,
-        projects: ProjectManager,
-        object_store: ProjectObjectStore,
-    ) -> None:
-        self._projects = projects
-        self._object_store = object_store
-
-    @staticmethod
-    def _relative_parts(result_identity: str) -> tuple[str, ...]:
-        prefix, separator, digest = result_identity.partition(":")
-        if (
-            prefix != "sha256"
-            or separator != ":"
-            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
-        ):
-            raise PortValueError("Result Identity is not a canonical digest")
-        return ("v4", "results", f"{digest}.json")
-
-    def _load_entry(
-        self,
-        project_id: str,
-        result_identity: str,
-    ) -> dict[str, Any] | None:
-        root = self._projects.result_cache_storage_root(project_id)
-        parts = self._relative_parts(result_identity)
-        try:
-            encoded = _read_bounded_file(
-                root,
-                parts,
-                field="result_cache_entry",
-                maximum_size=MAX_RESULT_CACHE_ENTRY_BYTES,
-            )
-        except FileNotFoundError:
-            return None
-        return json.loads(encoded)
-
-    def _admitted_output_from_manifest(
-        self,
-        *,
-        project_id: str,
-        execution_plan: ExecutionPlan,
-        node: ExecutionPlanNode,
-        output: Mapping[str, Any],
-    ) -> AdmittedPort:
-        return _admitted_output_from_manifest(
-            object_store=self._object_store,
-            project_id=project_id,
-            execution_plan=execution_plan,
-            node=node,
-            output=output,
-        )
-
-    def lookup(
-        self,
-        *,
-        project_id: str,
-        execution_plan: ExecutionPlan,
-        node: ExecutionPlanNode,
-        inputs: Mapping[str, Any],
-        result_identity: str,
-    ) -> ResultReplayHit | None:
-        del inputs
-        entry = self._load_entry(project_id, result_identity)
-        if entry is None:
-            return None
-        if entry["result_contract_metadata"] != _result_contract_metadata(
-            node,
-        ):
-            return None
-        node_result = _load_node_result_manifest(
-            self._object_store,
-            project_id,
-            entry["node_result_manifest"],
-        )
-        if (
-            node_result["result_identity"] != result_identity
-            or node_result["result_contract_metadata"]
-            != entry["result_contract_metadata"]
-        ):
-            return None
-        expected_cache_outputs = [
-            {
-                "output_port": output["output_port"],
-                "value_manifest": output["value_manifest"],
-            }
-            for output in node_result["outputs"]
-        ]
-        if entry["outputs"] != expected_cache_outputs:
-            raise RuntimeError("Current Result Cache entry is invalid")
-        declarations = node._runtime.output_ports
-        produced_ports = [
-            output["output_port"] for output in node_result["outputs"]
-        ]
-        if produced_ports != [
-            port_name
-            for port_name in declarations
-            if port_name in produced_ports
-        ]:
-            raise RuntimeError("Current Node Result Manifest is invalid")
-        admitted_outputs: dict[
-            tuple[str, str],
-            AdmittedPort,
-        ] = {}
-        for output in node_result["outputs"]:
-            if output["output_port"] not in declarations:
-                raise RuntimeError("Current Node Result Manifest is invalid")
-            admitted = self._admitted_output_from_manifest(
-                project_id=project_id,
-                execution_plan=execution_plan,
-                node=node,
-                output=output,
-            )
-            admitted_outputs[(node.node_id, output["output_port"])] = (
-                admitted
-            )
-        if any(
-            declaration["required"] is True and port_name not in produced_ports
-            for port_name, declaration in declarations.items()
-        ):
-            raise RuntimeError("Current Node Result Manifest is incomplete")
-        return ResultReplayHit(
-            result_identity=result_identity,
-            producer_run_id=entry["producer"]["producer_run_id"],
-            admitted_outputs=MappingProxyType(admitted_outputs),
-        )
-
-    def _entry(
-        self,
-        *,
-        node: ExecutionPlanNode,
-        result_identity: str,
-        producer_run_id: str,
-        node_result_manifest: Mapping[str, Any],
-        node_result_manifest_reference: Mapping[str, Any],
-    ) -> dict[str, Any]:
-        if (
-            node_result_manifest["result_identity"] != result_identity
-            or node_result_manifest["result_contract_metadata"]
-            != _result_contract_metadata(node)
-        ):
-            raise RuntimeError(
-                "Committed Node Result Manifest diverged from its identity"
-            )
-        return {
-            "schema_namespace": RESULT_CACHE_ENTRY_NAMESPACE,
-            "result_identity": result_identity,
-            "result_contract_metadata": _result_contract_metadata(
-                node,
-            ),
-            "producer": {
-                "producer_run_id": producer_run_id,
-                "producer_node_id": node.node_id,
-            },
-            "node_result_manifest": dict(node_result_manifest_reference),
-            "outputs": [
-                {
-                    "output_port": output["output_port"],
-                    "value_manifest": dict(output["value_manifest"]),
-                }
-                for output in node_result_manifest["outputs"]
-            ],
-        }
-
-    def publish(
-        self,
-        *,
-        project_id: str,
-        node: ExecutionPlanNode,
-        result_identity: str,
-        producer_run_id: str,
-        node_result_manifest: Mapping[str, Any],
-        node_result_manifest_reference: Mapping[str, Any],
-    ) -> None:
-        entry = self._entry(
-            node=node,
-            result_identity=result_identity,
-            producer_run_id=producer_run_id,
-            node_result_manifest=node_result_manifest,
-            node_result_manifest_reference=node_result_manifest_reference,
-        )
-        try:
-            existing = self._load_entry(project_id, result_identity)
-        except RuntimeError as error:
-            raise ResultCachePublicationError(
-                "Current Result Cache entry cannot be indexed"
-            ) from error
-        if existing is not None:
-            return
-        root = self._projects.result_cache_storage_root(project_id)
-        encoded_entry = canonical_json_bytes(entry)
-        if len(encoded_entry) > MAX_RESULT_CACHE_ENTRY_BYTES:
-            raise ResultCachePublicationError(
-                "Current Result Cache entry exceeds its contract"
-            )
-        try:
-            write_new_file(
-                root,
-                self._relative_parts(result_identity),
-                encoded_entry,
-            )
-        except FileExistsError:
-            return
-
-
 class V2RunService:
     """Execute compiled direct Nodes behind readiness and durable evidence."""
 
@@ -2667,22 +1963,14 @@ class V2RunService:
         catalog: FrozenCatalog,
         authoring: WorkflowAuthoringService,
         environment: EnvironmentConfiguration,
-        result_replay_source: ResultReplaySource | None = None,
+        result_store: ResultStore,
         ledger_transaction_store: LedgerStore | None = None,
     ) -> None:
         self._projects = projects
         self._catalog = catalog
         self._authoring = authoring
         self._environment = environment
-        self._object_store = ProjectObjectStore(projects)
-        self._project_result_cache = _ProjectResultCache(
-            projects,
-            self._object_store,
-        )
-        self._result_replay_source = (
-            result_replay_source
-            or self._project_result_cache
-        )
+        self._result_store = result_store
         self._ledger_transaction_store = ledger_transaction_store
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._damaged_runs: dict[tuple[str, str], RunCursor] = {}
@@ -2796,7 +2084,6 @@ class V2RunService:
                 ContractResolutionError,
                 KeyError,
                 OSError,
-                ProtocolValidationError,
                 RuntimeError,
                 StoragePathError,
                 TypeError,
@@ -3088,8 +2375,7 @@ class V2RunService:
         attempts = _NodeExecutionAttemptModule(
             projects=self._projects,
             environment=self._environment,
-            result_replay_source=self._result_replay_source,
-            object_store=self._object_store,
+            result_store=self._result_store,
             project_id=project_id,
             run_id=run_id,
             execution_plan=plan,
@@ -3542,51 +2828,18 @@ class V2RunService:
                     "value_index": value_index,
                 },
             )
-        manifest_reference = descriptor.value_manifest_reference
         try:
-            encoded_manifest = self._object_store.read(
+            value = self._result_store.read_typed_value(
                 project_id,
-                manifest_reference,
+                descriptor,
+                value_index,
             )
-            manifest = _decode_port_value_manifest(encoded_manifest)
-            if (
-                manifest["port_type"]
-                != {
-                    "contract_kind": descriptor.port_type.contract_kind,
-                    "contract_id": descriptor.port_type.contract_id,
-                    "contract_version": descriptor.port_type.contract_version,
-                    "contract_digest": descriptor.port_type.contract_digest,
-                }
-                or manifest["content_digest"]
-                != descriptor.content_digest
-                or manifest["value_count"] != descriptor.value_count
-            ):
-                raise ValueError("Port Value Manifest contract is invalid")
-            entry = manifest["values"][value_index]
-        except (
-            ObjectIntegrityError,
-            RuntimeError,
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-            TypeError,
-            ValueError,
-        ) as error:
+        except ResultIntegrityError as error:
             raise self._typed_value_integrity_error(
                 descriptor,
                 value_index,
-                expected_digest=manifest_reference,
-            ) from error
-        try:
-            payload = self._object_store.read(
-                project_id,
-                entry["content_digest"],
-            )
-        except ObjectIntegrityError as error:
-            raise self._typed_value_integrity_error(
-                descriptor,
-                value_index,
-                expected_digest=entry["content_digest"],
-                expected_size=entry["size"],
+                expected_digest=error.content_digest,
+                expected_size=error.expected_size,
             ) from error
         metadata = {
             "typed_value": {
@@ -3599,14 +2852,14 @@ class V2RunService:
                     "contract_digest": descriptor.port_type.contract_digest,
                 },
                 "port_content_digest": descriptor.content_digest,
-                "value_manifest_reference": manifest_reference,
+                "value_manifest_reference": descriptor.value_manifest_reference,
                 "value_index": value_index,
                 "value_count": descriptor.value_count,
-                "value_content_digest": entry["content_digest"],
-                "size": entry["size"],
+                "value_content_digest": value.content_digest,
+                "size": value.size,
             }
         }
-        return json.loads(json.dumps(metadata)), payload
+        return json.loads(json.dumps(metadata)), value.canonical_bytes
 
     def artifact(
         self,
@@ -3633,11 +2886,11 @@ class V2RunService:
                 },
             )
         try:
-            payload = self._object_store.read(
+            payload = self._result_store.read_artifact(
                 project_id,
-                descriptor.content_digest,
+                descriptor,
             )
-        except ObjectIntegrityError as error:
+        except ResultIntegrityError as error:
             raise V2RunError(
                 "artifact_integrity_mismatch",
                 "Artifact integrity validation failed",
