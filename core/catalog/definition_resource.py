@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import resources
-from pathlib import PurePosixPath
 from typing import Any, Literal
 
 import yaml
@@ -26,10 +25,6 @@ from .declarations import (
 from .port_contract import CatalogBuildError, is_valid_artifact_media_type
 
 
-_DEFINITION_RESOURCE_SUFFIXES = frozenset({".yaml", ".yml"})
-_NON_PRODUCTION_RESOURCE_PARTS = frozenset(
-    {"fixture", "fixtures", "test", "tests"}
-)
 _METRIC_VALUE_SHAPES = {
     "scalar",
     "per_residue",
@@ -52,24 +47,6 @@ class DefinitionResource:
 
     resource: str
 
-    def __post_init__(self) -> None:
-        path = PurePosixPath(self.resource)
-        if (
-            not self.resource
-            or path.is_absolute()
-            or ".." in path.parts
-            or "." in path.parts
-            or path.suffix not in _DEFINITION_RESOURCE_SUFFIXES
-        ):
-            raise CatalogBuildError(
-                "Definition resource must be one relative package-local YAML path"
-            )
-        if _NON_PRODUCTION_RESOURCE_PARTS.intersection(path.parts):
-            raise CatalogBuildError(
-                "package-local tests and fixtures cannot enter production "
-                "registration"
-            )
-
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
     pass
@@ -83,20 +60,9 @@ def _construct_unique_mapping(
     pairs = loader.construct_pairs(node, deep=deep)
     result: dict[Any, Any] = {}
     for key, value in pairs:
-        try:
-            duplicate = key in result
-        except TypeError as error:
-            raise CatalogBuildError(
-                "YAML object keys must be scalar and hashable"
-            ) from error
-        if duplicate:
+        if key in result:
             raise CatalogBuildError(f"duplicate YAML object key {key!r}")
-        try:
-            result[key] = value
-        except TypeError as error:
-            raise CatalogBuildError(
-                "YAML object keys must be scalar and hashable"
-            ) from error
+        result[key] = value
     return result
 
 
@@ -184,11 +150,6 @@ def _parse_port(
         raise CatalogBuildError(
             f"{resource_name}.multiplicity must be one or many"
         )
-    meaning = port["scientific_meaning"]
-    if not isinstance(meaning, str) or not 1 <= len(meaning) <= 2048:
-        raise CatalogBuildError(
-            f"{resource_name}.scientific_meaning must be non-empty"
-        )
     artifact_kind = port.get("artifact_kind")
     artifact_media_type = port.get("artifact_media_type")
     if artifact_kind is not None and (
@@ -210,7 +171,7 @@ def _parse_port(
         port_type=reference,
         required=port["required"],
         multiplicity=port["multiplicity"],
-        scientific_meaning=meaning,
+        scientific_meaning=port["scientific_meaning"],
         artifact_kind=artifact_kind,
         artifact_media_type=artifact_media_type,
     )
@@ -238,13 +199,6 @@ def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
     _require_schema_version(node["schema_version"], "Node Definition")
     _require_identifier(node["node_type_id"], "node_type_id")
     _require_version(node["version"], "Node Type version")
-    for field_name, limit in (("title", 256), ("summary", 4096)):
-        value = node[field_name]
-        if not isinstance(value, str) or not 1 <= len(value) <= limit:
-            raise CatalogBuildError(
-                f"Node Definition {field_name} must be non-empty"
-            )
-    _require_identifier(node["category"], "Node Type category")
     if not isinstance(node["inputs"], list) or not isinstance(
         node["outputs"],
         list,
@@ -295,17 +249,6 @@ def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
             )
         constrained_ports.update(ports)
         input_constraints.append(tuple(ports))
-    if not isinstance(node["parameter_groups"], list):
-        raise CatalogBuildError("parameter_groups must be an array")
-    if not all(
-        isinstance(group, dict)
-        for group in node["parameter_groups"]
-    ):
-        raise CatalogBuildError(
-            "each parameter_groups item must be an object"
-        )
-    if not isinstance(node["node_parameters"], dict):
-        raise CatalogBuildError("node_parameters must be an object")
     parameter_contract = _admit_parameter_declarations(
         node["node_parameters"],
         path=f"node_type:{node['node_type_id']}@{node['version']}.node_parameters",
@@ -350,16 +293,8 @@ def _parse_metric_definition(raw: Any, resource_name: str) -> MetricDefinition:
     _require_schema_version(metric["schema_version"], "Metric Definition")
     _require_identifier(metric["metric_id"], "metric_id")
     _require_version(metric["version"], "Metric version")
-    for field_name, limit in (
-        ("title", 256),
-        ("description", 4096),
-        ("unit", 128),
-    ):
-        value = metric[field_name]
-        if not isinstance(value, str) or not 1 <= len(value) <= limit:
-            raise CatalogBuildError(
-                f"Metric Definition {field_name} must be non-empty"
-            )
+    if not isinstance(metric["unit"], str) or not metric["unit"]:
+        raise CatalogBuildError("Metric Definition unit must be non-empty")
     _require_identifier(metric["value_shape"], "value_shape")
     _require_identifier(metric["granularity"], "granularity")
     if metric["direction"] not in {
@@ -447,17 +382,11 @@ def _load_definition_resource(
     *,
     kind: Literal["metric", "node_type"],
 ) -> CatalogDefinition:
-    try:
-        package_root = resources.files(registration.package_module)
-        target = package_root.joinpath(resource_reference.resource)
-        if not target.is_file():
-            raise FileNotFoundError(resource_reference.resource)
-        content = target.read_text(encoding="utf-8")
-    except (FileNotFoundError, ModuleNotFoundError, OSError) as error:
-        raise CatalogBuildError(
-            f"{registration.package_id} cannot load explicit Definition "
-            f"resource {resource_reference.resource!r}"
-        ) from error
+    content = (
+        resources.files(registration.package_module)
+        .joinpath(resource_reference.resource)
+        .read_text(encoding="utf-8")
+    )
     try:
         raw = yaml.load(content, Loader=_UniqueKeySafeLoader)
     except yaml.YAMLError as error:
