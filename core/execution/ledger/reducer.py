@@ -11,7 +11,6 @@ from core.execution.ledger.facts import (
     NodeDisposition,
     ReadinessAttested,
     SelectionTerminal,
-    StructuredError,
 )
 
 
@@ -26,7 +25,6 @@ class NodeAttemptState:
 class OperationAttemptState:
     node_attempt_id: str
     terminal: AttemptStatus | None = None
-    error: StructuredError | None = None
 
 
 @dataclass(slots=True)
@@ -34,7 +32,6 @@ class InvocationState:
     operation_attempt_id: str
     parent_invocation_id: str | None
     terminal: AttemptStatus | None = None
-    error: StructuredError | None = None
 
 
 @dataclass(slots=True)
@@ -51,14 +48,11 @@ class LedgerReducerState:
     operations: dict[str, OperationAttemptState]
     invocations: dict[str, InvocationState]
     dispositions: dict[str, NodeDisposition]
-    outputs_published: set[str]
     nonempty_output_ports: dict[str, set[str]]
     run_admitted: bool
     run_started: bool
-    selection_required: bool
     expected_selection_terminal_keys: tuple[str, ...]
     selection_terminals: list[SelectionTerminal]
-    selection_terminal_keys: set[str]
     run_terminal: bool
     cancellation_sequence: int | None
 
@@ -67,10 +61,10 @@ class LedgerReducerState:
         return cls(
             facts=[], availability_by_binding={}, readiness_by_binding={},
             node_attempts={}, node_attempt_by_node={}, operations={},
-            invocations={}, dispositions={}, outputs_published=set(),
+            invocations={}, dispositions={},
             nonempty_output_ports={}, run_admitted=False, run_started=False,
-            selection_required=False, expected_selection_terminal_keys=(),
-            selection_terminals=[], selection_terminal_keys=set(),
+            expected_selection_terminal_keys=(),
+            selection_terminals=[],
             run_terminal=False, cancellation_sequence=None,
         )
 
@@ -91,19 +85,16 @@ class LedgerReducerState:
                 key: replace(value) for key, value in self.invocations.items()
             },
             dispositions=dict(self.dispositions),
-            outputs_published=set(self.outputs_published),
             nonempty_output_ports={
                 key: set(value)
                 for key, value in self.nonempty_output_ports.items()
             },
             run_admitted=self.run_admitted,
             run_started=self.run_started,
-            selection_required=self.selection_required,
             expected_selection_terminal_keys=(
                 self.expected_selection_terminal_keys
             ),
             selection_terminals=list(self.selection_terminals),
-            selection_terminal_keys=set(self.selection_terminal_keys),
             run_terminal=self.run_terminal,
             cancellation_sequence=self.cancellation_sequence,
         )

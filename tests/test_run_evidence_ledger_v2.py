@@ -144,7 +144,6 @@ def test_run_scope_codec_accepts_semantic_node_identifiers() -> None:
         resolved_contracts=(binding,),
         resolved_contract_roots=(binding,),
         plan_nodes=(node,),
-        selection_required=False,
         selection_terminal_keys=(),
     )
 

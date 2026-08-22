@@ -780,7 +780,6 @@ def payload_to_canonical(payload: FactPayload) -> dict[str, Any]:
             "plan_nodes": [
                 _plan_node_to_canonical(item) for item in payload.plan_nodes
             ],
-            "selection_required": payload.selection_required,
             "selection_terminal_keys": list(payload.selection_terminal_keys),
         }
         if payload.derived_from is not None:
@@ -841,7 +840,7 @@ def _payload_from_canonical(kind: str, value: object) -> FactPayload:
         derived = v.get("derived_from")
         return RunScopeBound(
             project_id=v["project_id"], run_id=v["run_id"], workflow_commit_id=v["workflow_commit_id"], workflow_commit_revision=v["workflow_commit_revision"], workflow_digest=v["workflow_digest"], contract_lock_digest=v["contract_lock_digest"], execution_plan_digest=v["execution_plan_digest"], catalog_contract_digest=v["catalog_contract_digest"],
-            resolved_contracts=tuple(_reference_from_canonical(item) for item in v["resolved_contracts"]), resolved_contract_roots=tuple(_reference_from_canonical(item) for item in v["resolved_contract_roots"]), plan_nodes=_plan_evidence_from_canonical(v["plan_nodes"]), selection_required=v["selection_required"], selection_terminal_keys=tuple(v["selection_terminal_keys"]),
+            resolved_contracts=tuple(_reference_from_canonical(item) for item in v["resolved_contracts"]), resolved_contract_roots=tuple(_reference_from_canonical(item) for item in v["resolved_contract_roots"]), plan_nodes=_plan_evidence_from_canonical(v["plan_nodes"]), selection_terminal_keys=tuple(v["selection_terminal_keys"]),
             derived_from=(DerivedRunReference(source_run_id=derived["source_run_id"], policy=derived["policy"], selected_node_ids=tuple(derived["selected_node_ids"]), forced_node_ids=tuple(derived["forced_node_ids"])) if isinstance(derived, Mapping) else None),
         )
     if kind == "availability_bound": return AvailabilityBound(_reference_from_canonical(v["binding"]), v["catalog_observed_at"], v["available"])

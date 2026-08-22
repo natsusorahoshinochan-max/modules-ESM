@@ -70,12 +70,10 @@ from core.execution.ledger.transitions import (
 from core.project.manager import ProjectManager
 from core.project.storage import (
     StoragePathError,
-    validate_identifier,
 )
 from datatypes.exact_reference import ExactContractReference
 
 
-READINESS_ATTESTATION_NAMESPACE = "protein-workbench-readiness-attestation/v2"
 MAX_LEDGER_TRANSACTION_BYTES = 4 * 1024 * 1024
 
 _LedgerTransition: TypeAlias = (
@@ -133,6 +131,16 @@ def _typed_run_terminal_status(
     if "cancelled" in outcomes:
         return "cancelled"
     return "succeeded"
+
+
+def _selection_result_keys(
+    terminals: Iterable[SelectionTerminal],
+) -> set[str]:
+    return {
+        terminal.result.selection_node_id
+        for terminal in terminals
+        if terminal.result is not None
+    }
 
 
 def _utc_now() -> datetime:
@@ -234,20 +242,6 @@ class Ledger:
         )
         self._expected_contract_roots = expected_contract_roots
         self._expected_resolved_contracts = expected_resolved_contracts
-        self._result_identity_plan_facts_digests = {
-            node.node_id: node.result_identity_plan_facts_digest
-            for node in plan_nodes
-        }
-        self._node_types = {
-            node.node_id: (
-                node.node_type if node.node_type is not None else None
-            )
-            for node in plan_nodes
-        }
-        self._artifact_outputs = {
-            node.node_id: node.artifact_outputs
-            for node in plan_nodes
-        }
         self._selection_consumer_ids = tuple(
             node.node_id for node in plan_nodes if node.selection_consumer
         )
@@ -513,7 +507,6 @@ class Ledger:
                     resolved_contracts=scope.resolved_contracts,
                     resolved_contract_roots=scope.resolved_contract_roots,
                     plan_nodes=self.plan_nodes,
-                    selection_required=bool(self._selection_consumer_ids),
                     selection_terminal_keys=self._selection_consumer_ids,
                     derived_from=scope.derived_from,
                 ),
@@ -703,19 +696,10 @@ class Ledger:
         if self._state.run_terminal:
             raise self._causal_error()
         if isinstance(payload, RunScopeBound):
-            try:
-                workflow_commit_id = validate_identifier(
-                    payload.workflow_commit_id,
-                    "workflow_commit_id",
-                )
-            except StoragePathError as error:
-                raise self._causal_error() from error
             if (
                 self._state.facts
                 or payload.project_id != self._project_id
                 or payload.run_id != self._run_id
-                or workflow_commit_id != payload.workflow_commit_id
-                or payload.workflow_commit_revision < 1
                 or payload.plan_nodes != self.plan_nodes
                 or tuple(
                     _typed_reference_key(reference)
@@ -777,8 +761,6 @@ class Ledger:
                 }
                 or payload.contract_lock_digest
                 != contract_lock_digest(payload.resolved_contracts)
-                or payload.selection_required
-                != bool(self._selection_consumer_ids)
                 or payload.selection_terminal_keys
                 != self._selection_consumer_ids
             ):
@@ -968,7 +950,7 @@ class Ledger:
                 or attempt is None
                 or attempt.terminal is not None
                 or node_id in self._state.dispositions
-                or node_id in self._state.outputs_published
+                or node_id in self._state.nonempty_output_ports
             ):
                 raise self._causal_error()
             child_operations = [
@@ -1005,12 +987,12 @@ class Ledger:
                         or (
                             payload.status == "succeeded"
                             and attempt.node_id
-                            not in self._state.outputs_published
+                            not in self._state.nonempty_output_ports
                         )
                         or (
                             payload.status == "failed"
                             and attempt.node_id
-                            in self._state.outputs_published
+                            in self._state.nonempty_output_ports
                         )
                     )
                 )
@@ -1172,7 +1154,7 @@ class Ledger:
             )
             if (
                 not self._state.run_started
-                or not self._state.selection_required
+                or not self._state.expected_selection_terminal_keys
                 or set(self._state.dispositions) != set(self._plan_nodes)
                 or any(
                     disposition.outcome != "succeeded"
@@ -1183,7 +1165,9 @@ class Ledger:
                     and (
                         selection_key
                         not in self._state.expected_selection_terminal_keys
-                        or selection_key in self._state.selection_terminal_keys
+                        or selection_key in _selection_result_keys(
+                            self._state.selection_terminals
+                        )
                     )
                 )
                 or (
@@ -1231,12 +1215,14 @@ class Ledger:
                     for invocation in self._state.invocations.values()
                 )
                 or (
-                    self._state.selection_required
+                    self._state.expected_selection_terminal_keys
                     and not outcomes.intersection(
                         {"failed", "interrupted", "cancelled"}
                     )
                     and payload.status == "succeeded"
-                    and self._state.selection_terminal_keys
+                    and _selection_result_keys(
+                        self._state.selection_terminals
+                    )
                     != set(self._state.expected_selection_terminal_keys)
                 )
                 or payload.status != expected_status
@@ -1247,7 +1233,6 @@ class Ledger:
 
     def _apply(self, payload: FactPayload) -> None:
         if isinstance(payload, RunScopeBound):
-            self._state.selection_required = payload.selection_required
             self._state.expected_selection_terminal_keys = (
                 payload.selection_terminal_keys
             )
@@ -1284,17 +1269,14 @@ class Ledger:
         elif isinstance(payload, EngineInvocationTerminal):
             invocation = self._state.invocations[payload.invocation_id]
             invocation.terminal = payload.status
-            invocation.error = payload.error
         elif isinstance(payload, OperationAttemptTerminal):
             operation = self._state.operations[payload.operation_attempt_id]
             operation.terminal = payload.status
-            operation.error = payload.error
         elif isinstance(payload, NodeAttemptTerminal):
             attempt = self._state.node_attempts[payload.node_attempt_id]
             attempt.terminal = payload.status
             attempt.resolution = payload.resolution
         elif isinstance(payload, OutputsPublished):
-            self._state.outputs_published.add(payload.node_id)
             self._state.nonempty_output_ports[payload.node_id] = {
                 output.output_port
                 for output in payload.outputs
@@ -1304,10 +1286,6 @@ class Ledger:
             self._state.dispositions[payload.node_id] = payload
         elif isinstance(payload, SelectionTerminal):
             self._state.selection_terminals.append(payload)
-            if payload.result is not None:
-                self._state.selection_terminal_keys.add(
-                    payload.result.selection_node_id
-                )
         elif isinstance(payload, RunTerminal):
             self._state.run_terminal = True
 

@@ -328,7 +328,6 @@ class RunScopeBound:
     resolved_contracts: tuple[ExactContractReference, ...]
     resolved_contract_roots: tuple[ExactContractReference, ...]
     plan_nodes: tuple[PlanNodeEvidence, ...]
-    selection_required: bool
     selection_terminal_keys: tuple[str, ...]
     derived_from: DerivedRunReference | None = None
 
@@ -808,7 +807,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             )
             or type(payload.resolved_contracts) is not tuple
             or type(payload.resolved_contract_roots) is not tuple
-            or type(payload.selection_required) is not bool
             or type(payload.selection_terminal_keys) is not tuple
             or payload.selection_terminal_keys
             != tuple(dict.fromkeys(payload.selection_terminal_keys))

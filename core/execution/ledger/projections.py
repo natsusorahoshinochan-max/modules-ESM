@@ -215,7 +215,7 @@ def project_run(
         outputs=outputs,
         artifacts=artifacts,
         selection_results=(
-            tuple(selection_results) if scope.selection_required else None
+            tuple(selection_results) if scope.selection_terminal_keys else None
         ),
         selection_error=selection_error,
         terminal_sequence=terminal_sequence,
