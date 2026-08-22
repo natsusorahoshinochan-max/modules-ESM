@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import importlib
 import importlib.util
 import json
@@ -219,6 +220,7 @@ def _native_existing_structure_confidence(
     import torch
 
     from .simplefold_runtime import (
+        _load_reviewed_plddt_models,
         _restore_process_cwd,
         _setup_simplefold_imports,
     )
@@ -294,7 +296,6 @@ def _native_existing_structure_confidence(
                 ckpt_dir=str(model_dir),
                 backend="torch",
             )
-            plddt_models = wrapper.from_pretrained_plddt_model()
             device = wrapper.device
             if str(device) != (
                 simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
@@ -321,6 +322,14 @@ def _native_existing_structure_confidence(
                 esm_model,
                 esm_dict,
                 af2_to_esm,
+            )
+            esm_model = None
+            esm_dict = None
+            af2_to_esm = None
+            gc.collect()
+            plddt_models = _load_reviewed_plddt_models(
+                model_dir,
+                device,
             )
             raw_coordinates = torch.zeros_like(batch["coords"])
             atom_mask = torch.zeros_like(

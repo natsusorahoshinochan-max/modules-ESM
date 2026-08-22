@@ -334,6 +334,48 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
     assert all(module["assign"] is True for module in loaded_modules)
 
 
+def test_simplefold_confidence_loads_only_the_two_plddt_modules(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    loaded: list[tuple[str, str]] = []
+
+    def load_module(
+        *,
+        config_path: Path,
+        checkpoint_path: Path,
+        device: object,
+    ) -> object:
+        assert str(device) == "cpu"
+        loaded.append((str(config_path), checkpoint_path.name))
+        return object()
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "_load_reviewed_torch_module",
+        load_module,
+    )
+
+    result = simplefold_runtime._load_reviewed_plddt_models(
+        tmp_path,
+        "cpu",
+    )
+
+    assert loaded == [
+        (
+            "configs/model/architecture/plddt_module.yaml",
+            "plddt.ckpt",
+        ),
+        (
+            "configs/model/architecture/foldingdit_1.6B.yaml",
+            "simplefold_1.6B.ckpt",
+        ),
+    ]
+    assert set(result) == {"plddt_out_module", "plddt_latent_module"}
+
+
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
     registrations = {
         registration.package_id: registration

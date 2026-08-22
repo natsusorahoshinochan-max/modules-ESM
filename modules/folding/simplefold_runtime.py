@@ -146,6 +146,15 @@ def _load_reviewed_folding_models(
         checkpoint_path=model_dir / "simplefold_100M.ckpt",
         device=device,
     )
+    return folding_model, _load_reviewed_plddt_models(model_dir, device)
+
+
+def _load_reviewed_plddt_models(
+    model_dir: Path,
+    device: Any,
+) -> dict[str, Any]:
+    """Load only the exact pLDDT output and latent modules."""
+    architecture_root = Path("configs/model/architecture")
     plddt_out_module = _load_reviewed_torch_module(
         config_path=architecture_root / "plddt_module.yaml",
         checkpoint_path=model_dir / "plddt.ckpt",
@@ -156,7 +165,7 @@ def _load_reviewed_folding_models(
         checkpoint_path=model_dir / "simplefold_1.6B.ckpt",
         device=device,
     )
-    return folding_model, {
+    return {
         "plddt_out_module": plddt_out_module,
         "plddt_latent_module": plddt_latent_module,
     }
