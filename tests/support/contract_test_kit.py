@@ -29,6 +29,7 @@ from protein_workbench_public.ledger_codec import (
     encode_event,
     encode_run_projection,
 )
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunError,
     V2RunService,
@@ -379,13 +380,17 @@ def _verify_case(
         project_manager,
         catalog,
         authoring,
-        admit_environment_configuration(
-            catalog,
-            {
-                (case.binding_id, case.binding_version): {
-                    "values": dict(case.environment_values),
-                }
-            }
+        NodeAttemptFactory(
+            project_manager,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (case.binding_id, case.binding_version): {
+                        "values": dict(case.environment_values),
+                    }
+                },
+            ),
+            result_store(project_manager),
         ),
         result_store(project_manager),
     )

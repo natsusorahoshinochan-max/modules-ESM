@@ -24,6 +24,7 @@ from core.operation import (
     ReadinessCheckInput,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunError,
     V2RunService,
@@ -420,7 +421,11 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         projects,
         catalog,
         authoring,
-        environment,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
         result_store(projects),
     )
     try:

@@ -38,6 +38,7 @@ from core.execution.ledger import (
     RunScopeBinding,
     RunStart,
     V2RunError,
+    run_timestamp,
 )
 from core.catalog.builtins import (
     builtin_frozen_catalog,
@@ -2120,25 +2121,16 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
                 resolved_contract_roots=contract_roots,
             )
         )
-        availability = next(
-            snapshot
-            for snapshot in catalog.availability
-            if (
-                snapshot["binding"]["contract_id"],
-                snapshot["binding"]["contract_version"],
-            )
-            == (
-                node.binding.contract_id,
-                node.binding.contract_version,
-            )
+        availability = catalog.require_availability(
+            _exact_contract_reference(node.binding)
         )
         ledger.record(
             AvailabilityBinding(
                 binding=_exact_contract_reference(
                     node.binding
                 ),
-                catalog_observed_at=availability["observed_at"],
-                available=availability["available"],
+                catalog_observed_at=run_timestamp(availability.observed_at),
+                available=availability.result.is_available,
             )
         )
         ledger.record(
@@ -2152,13 +2144,15 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
                 started_at="2026-08-21T00:00:00Z",
             )
         )
-        attempts = node_attempt.NodeAttempt(
-            projects=projects,
-            environment=admit_environment_configuration(
+        attempt_results = result_store(projects)
+        attempts = node_attempt.NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
                 catalog,
                 environment_configuration,
             ),
-            result_store=result_store(projects),
+            attempt_results,
+        ).create(
             ledger=ledger,
             availability_by_binding={
                 (
@@ -2423,7 +2417,11 @@ def test_run_rejects_a_resolved_plan_from_another_catalog_generation(
             app.state.project_manager,
             active_catalog,
             app.state.workflow_authoring,
-            admit_environment_configuration(active_catalog, {}),
+            node_attempt.NodeAttemptFactory(
+                app.state.project_manager,
+                admit_environment_configuration(active_catalog, {}),
+                result_store(app.state.project_manager),
+            ),
             result_store(app.state.project_manager),
         )
         try:
@@ -2976,7 +2974,11 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        node_attempt.NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
         result_store(projects),
     )
 

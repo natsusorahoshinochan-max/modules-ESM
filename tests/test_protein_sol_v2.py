@@ -20,6 +20,7 @@ from core.operation import (
     ReadinessResult,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
@@ -700,15 +701,19 @@ def _run_protein_sol(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(
-            catalog,
-            {
-                ("solubility.protein_sol.local", "5.0.0"): {
-                    "values": _protein_sol_admitted_environment(
-                        private_runtime_path="/must/not/publish"
-                    ),
-                }
-            },
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    ("solubility.protein_sol.local", "5.0.0"): {
+                        "values": _protein_sol_admitted_environment(
+                            private_runtime_path="/must/not/publish"
+                        ),
+                    }
+                },
+            ),
+            result_store(projects),
         ),
         result_store(projects),
     )

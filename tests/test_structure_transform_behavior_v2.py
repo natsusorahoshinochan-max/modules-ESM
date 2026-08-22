@@ -14,6 +14,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
 from core.workflow.authoring import (
@@ -140,7 +141,11 @@ def _run_transform(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
         result_store(projects),
     )
     receipt = service.start(
@@ -277,7 +282,11 @@ def _run_candidate_transform(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
         result_store(projects),
     )
     receipt = service.start(

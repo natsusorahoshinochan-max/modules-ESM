@@ -21,6 +21,7 @@ from core.catalog.port_contract import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.execution.ledger.projections import RunProjection
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
@@ -1638,7 +1639,11 @@ def _run_inserted_loop_failure_case(
         manager,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        NodeAttemptFactory(
+            manager,
+            admit_environment_configuration(catalog, {}),
+            result_store(manager),
+        ),
         result_store(manager),
     )
     try:

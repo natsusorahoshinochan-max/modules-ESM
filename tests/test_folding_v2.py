@@ -26,6 +26,7 @@ from core.operation import (
     ReadinessResult,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunError,
     V2RunService,
@@ -264,7 +265,11 @@ def _run_fold(
         projects,
         catalog,
         authoring,
-        environment,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
         result_store(projects),
     )
     with ExitStack() as stack:

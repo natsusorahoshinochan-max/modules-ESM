@@ -16,6 +16,7 @@ from core.catalog.declarations import ModulePackageRegistration
 from core.catalog.model import FrozenCatalog
 from core.execution.environment import admit_environment_configuration
 from core.execution.ledger import LedgerStore
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.results import ProjectReplayIndex, ResultStore
 from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
@@ -128,11 +129,16 @@ def create_application(
         ProjectObjectStore(projects),
         ProjectReplayIndex(projects),
     )
+    node_attempt_factory = NodeAttemptFactory(
+        projects,
+        environment,
+        result_store,
+    )
     runtime = V2RunService(
         projects,
         catalog,
         authoring,
-        environment,
+        node_attempt_factory,
         result_store,
         _v2_ledger_transaction_store,
     )

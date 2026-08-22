@@ -16,6 +16,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
@@ -110,9 +111,13 @@ def _run(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(
-            catalog,
-            _environment(binding_id, binding_version),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                _environment(binding_id, binding_version),
+            ),
+            result_store(projects),
         ),
         result_store(projects),
     )

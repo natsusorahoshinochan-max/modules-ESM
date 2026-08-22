@@ -30,6 +30,7 @@ from core.operation import (
     OperationCall,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunError,
     V2RunService,
@@ -529,7 +530,11 @@ def _run_single_node(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
         result_store(projects),
     )
     receipt = service.start_background(

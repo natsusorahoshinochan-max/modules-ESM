@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
-from typing import Any, Literal, cast
+from typing import Any, Literal, Protocol, cast
 import uuid
 
 from core.catalog.port_contract import (
     PortValueError,
     canonical_sha256,
 )
+from core.catalog.model import CatalogAvailabilityProjection
 from core.execution._node_attempt_errors import (
     _binding_error,
     _execution_error,
@@ -70,7 +71,15 @@ def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class NodeAttempt:
+class NodeAttemptExecutor(Protocol):
+    """The sole Run Runtime view of a Node Attempt lifecycle."""
+
+    def execute(self, spec: AttemptSpec) -> AttemptOutcome:
+        """Execute one schedulable Node lifecycle."""
+        ...
+
+
+class _NodeAttempt:
     """Own each schedulable Node Execution Attempt behind one interface."""
 
     def __init__(
@@ -82,7 +91,7 @@ class NodeAttempt:
         ledger: Ledger,
         availability_by_binding: Mapping[
             tuple[str, str],
-            Mapping[str, Any],
+            CatalogAvailabilityProjection,
         ],
     ) -> None:
         self._projects = projects
@@ -349,13 +358,13 @@ class NodeAttempt:
         if binding_key not in self._readiness_failures:
             availability = self._availability_by_binding[binding_key]
             readiness_error: V2RunError | None = None
-            if availability["available"] is not True:
+            if not availability.result.is_available:
                 readiness_error = V2RunError(
                     "binding_unavailable",
                     "Selected Binding is unavailable",
                     details={
                         "binding": state.node.binding.canonical_projection(),
-                        "reason_code": availability["reason"]["code"],
+                        "reason_code": availability.result.code,
                     },
                 )
             else:
@@ -679,11 +688,45 @@ class NodeAttempt:
         )
 
 
+class NodeAttemptFactory:
+    """Construct the package-owned Node Attempt implementation per Run."""
+
+    __slots__ = ("_environment", "_projects", "_result_store")
+
+    def __init__(
+        self,
+        projects: ProjectManager,
+        environment: EnvironmentConfiguration,
+        result_store: ResultStore,
+    ) -> None:
+        self._projects = projects
+        self._environment = environment
+        self._result_store = result_store
+
+    def create(
+        self,
+        *,
+        ledger: Ledger,
+        availability_by_binding: Mapping[
+            tuple[str, str],
+            CatalogAvailabilityProjection,
+        ],
+    ) -> NodeAttemptExecutor:
+        return _NodeAttempt(
+            projects=self._projects,
+            environment=self._environment,
+            result_store=self._result_store,
+            ledger=ledger,
+            availability_by_binding=availability_by_binding,
+        )
+
+
 __all__ = [
     "AttemptOutcome",
     "AttemptSpec",
     "ExecutionTermination",
-    "NodeAttempt",
+    "NodeAttemptExecutor",
+    "NodeAttemptFactory",
     "result_contract_metadata",
     "result_identity_descriptor",
 ]

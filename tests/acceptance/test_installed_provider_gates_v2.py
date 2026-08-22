@@ -166,6 +166,7 @@ def _run_rich_esm3_generation(
         build_frozen_catalog,
     )
     from core.execution.environment import admit_environment_configuration
+    from core.execution.node_attempt import NodeAttemptFactory
     from core.execution.runtime import V2RunService
     from core.workflow.authoring import WorkflowAuthoringService
     from core.workflow.document import (
@@ -251,16 +252,20 @@ def _run_rich_esm3_generation(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(
-            catalog,
-            {
-                (binding_id, BIOHUB_ESM3_GATE_VERSION): {
-                    "values": {
-                        "endpoint_id": "biohub",
-                        "credential_handle": credential_handle,
-                    },
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (binding_id, BIOHUB_ESM3_GATE_VERSION): {
+                        "values": {
+                            "endpoint_id": "biohub",
+                            "credential_handle": credential_handle,
+                        },
+                    }
                 }
-            }
+            ),
+            result_store(projects),
         ),
         result_store(projects),
     )
@@ -844,6 +849,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
         build_frozen_catalog,
     )
     from core.execution.environment import admit_environment_configuration
+    from core.execution.node_attempt import NodeAttemptFactory
     from core.execution.runtime import V2RunService
     from core.workflow.authoring import WorkflowAuthoringService
     from core.workflow.document import (
@@ -957,13 +963,17 @@ def test_mkdssp_executes_exact_method_through_public_run(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(
-            catalog,
-            {
-                (binding_id, "7.0.0"): {
-                    "values": {"dssp_binary": str(binary)},
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (binding_id, "7.0.0"): {
+                        "values": {"dssp_binary": str(binary)},
+                    }
                 }
-            },
+            ),
+            result_store(projects),
         ),
         result_store(projects),
     )

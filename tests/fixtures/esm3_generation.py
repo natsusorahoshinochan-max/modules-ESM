@@ -17,6 +17,7 @@ from core.catalog.model import (
     FrozenCatalog,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunService,
 )
@@ -340,7 +341,11 @@ def run_generation(
         projects,
         catalog,
         authoring,
-        environment,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
         result_store(projects),
     )
     with _installed_test_client(binding_route, client):
@@ -493,7 +498,11 @@ def run_generation_from_prompt_fixture(
         projects,
         catalog,
         authoring,
-        environment,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
         result_store(projects),
     )
     with _installed_test_client(binding_route, client):

@@ -9,7 +9,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 import uuid
 
-from core.catalog.model import FrozenCatalog
+from core.catalog.model import CatalogAvailabilityProjection, FrozenCatalog
 from core.execution._run_runtime_derived import _DerivedRunStarter
 from core.execution._run_runtime_evidence import (
     _exact_contract_reference,
@@ -23,7 +23,6 @@ from core.execution._run_runtime_selection import (
     _selection_error,
     selection_consumer_result,
 )
-from core.execution.environment import EnvironmentConfiguration
 from core.execution.ledger import (
     AvailabilityBinding,
     CancellationDecision,
@@ -45,7 +44,7 @@ from core.execution.ledger import (
     run_cursor,
     run_timestamp,
 )
-from core.execution.node_attempt import AttemptSpec, NodeAttempt
+from core.execution.node_attempt import AttemptSpec, NodeAttemptFactory
 from core.execution.output_admission.candidate_identity import (
     _validate_input_candidate_identities,
 )
@@ -74,14 +73,14 @@ class V2RunService:
         projects: ProjectManager,
         catalog: FrozenCatalog,
         authoring: WorkflowAuthoringService,
-        environment: EnvironmentConfiguration,
+        node_attempt_factory: NodeAttemptFactory,
         result_store: ResultStore,
         ledger_transaction_store: LedgerStore | None = None,
     ) -> None:
         self._projects = projects
         self._catalog = catalog
         self._authoring = authoring
-        self._environment = environment
+        self._node_attempt_factory = node_attempt_factory
         self._result_store = result_store
         self._ledger_transaction_store = ledger_transaction_store
         self._registry = _RunRegistry(
@@ -145,28 +144,6 @@ class V2RunService:
                 self._workers.discard(worker)
             self._reserved_projects.discard(project_id)
             self._worker_condition.notify_all()
-
-    def _availability(
-        self,
-        node: ExecutionPlanNode,
-    ) -> Mapping[str, Any]:
-        binding_id = node.binding.contract_id
-        version = node.binding.contract_version
-        for snapshot in self._catalog.availability:
-            reference = snapshot["binding"]
-            if (
-                reference["contract_id"],
-                reference["contract_version"],
-            ) == (binding_id, version):
-                return snapshot
-        raise V2RunError(
-            "binding_unavailable",
-            "Selected Binding has no Availability snapshot",
-            details={
-                "binding": node.binding.canonical_projection(),
-                "reason_code": "availability_missing",
-            },
-        )
 
     @staticmethod
     def _required_input_blockers(
@@ -350,16 +327,20 @@ class V2RunService:
             )
         availability_by_binding: dict[
             tuple[str, str],
-            Mapping[str, Any],
+            CatalogAvailabilityProjection,
         ] = {}
         for binding_key, node in distinct.items():
-            availability = self._availability(node)
+            availability = self._catalog.require_availability(
+                _exact_contract_reference(node.binding)
+            )
             availability_by_binding[binding_key] = availability
             ledger.record(
                 AvailabilityBinding(
-                    binding=_exact_contract_reference(node.binding),
-                    catalog_observed_at=availability["observed_at"],
-                    available=availability["available"],
+                    binding=availability.binding,
+                    catalog_observed_at=run_timestamp(
+                        availability.observed_at
+                    ),
+                    available=availability.result.is_available,
                 )
             )
         admitted = ledger.record(
@@ -376,10 +357,7 @@ class V2RunService:
             compiled=compiled,
             ledger=ledger,
         )
-        attempts = NodeAttempt(
-            projects=self._projects,
-            environment=self._environment,
-            result_store=self._result_store,
+        attempts = self._node_attempt_factory.create(
             ledger=ledger,
             availability_by_binding=availability_by_binding,
         )

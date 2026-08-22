@@ -8,7 +8,11 @@ from datetime import datetime, timezone
 import pytest
 
 from core.catalog.declarations import CatalogContract
-from core.catalog.model import CatalogContractProjection, FrozenCatalog
+from core.catalog.model import (
+    CatalogAvailabilityProjection,
+    CatalogContractProjection,
+    FrozenCatalog,
+)
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 from protein_workbench_public.catalog_codec import encode_catalog_projection
 
@@ -105,6 +109,22 @@ def test_catalog_projection_exposes_typed_canonical_facts_only() -> None:
     assert not hasattr(catalog.port_types[0], "public_contract")
     with pytest.raises(TypeError):
         projection.contracts[0].descriptor["contract_id"] = "mutated"
+
+
+def test_catalog_resolves_exact_typed_binding_availability() -> None:
+    catalog = _catalog()
+    binding = next(
+        contract.reference
+        for contract in catalog.projection().contracts
+        if contract.reference.contract_kind == "binding"
+    )
+
+    observation = catalog.require_availability(binding)
+
+    assert type(observation) is CatalogAvailabilityProjection
+    assert observation.binding == binding
+    assert observation.observed_at == OBSERVED_AT
+    assert observation.result.is_available is True
 
 
 def test_public_codec_assembles_the_exact_catalog_wire() -> None:

@@ -401,6 +401,19 @@ class FrozenCatalog:
                 f"Unknown Binding readiness {binding_id}@{binding_version}"
             ) from error
 
+    def require_availability(
+        self,
+        binding: ExactContractReference,
+    ) -> CatalogAvailabilityProjection:
+        """Return the typed startup observation for one exact Binding."""
+        for observation in self.projection().availability:
+            if observation.binding == binding:
+                return observation
+        raise CatalogBuildError(
+            "Unknown Binding Availability "
+            f"{binding.contract_id}@{binding.contract_version}"
+        )
+
     def get_effective_randomness_resolver(
         self,
         binding_id: str,

@@ -21,6 +21,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunError,
     V2RunService,
@@ -113,7 +114,11 @@ def _run_import_export(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
         result_store(projects),
     )
     receipt = service.start_background(
@@ -423,7 +428,11 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
         result_store(projects),
     )
 

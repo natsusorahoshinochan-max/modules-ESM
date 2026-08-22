@@ -23,6 +23,7 @@ from core.operation import (
     ReadinessResult,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
 from tests.support.contract_test_kit import (
@@ -803,16 +804,20 @@ def _run_soluprot(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(
-            catalog,
-            {
-                (f"solubility.soluprot_{mode}.local", "5.0.0"): {
-                    "values": _soluprot_admitted_environment(
-                        private_runtime_path="/must/not/publish",
-                        include_tm=mode == "full",
-                    ),
-                }
-            },
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (f"solubility.soluprot_{mode}.local", "5.0.0"): {
+                        "values": _soluprot_admitted_environment(
+                            private_runtime_path="/must/not/publish",
+                            include_tm=mode == "full",
+                        ),
+                    }
+                },
+            ),
+            result_store(projects),
         ),
         result_store(projects),
     )

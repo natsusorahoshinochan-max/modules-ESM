@@ -31,6 +31,7 @@ from core.operation import (
     OperationCall,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunError,
     V2RunService,
@@ -1354,18 +1355,22 @@ def _run_dssp(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(
-            catalog,
-            {
-                (
-                    "structure_annotation.dssp_compute.mkdssp_local",
-                    "7.0.0",
-                ): {
-                    "values": {
-                        "dssp_binary": configured_binary or str(binary)
-                    },
-                }
-            },
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (
+                        "structure_annotation.dssp_compute.mkdssp_local",
+                        "7.0.0",
+                    ): {
+                        "values": {
+                            "dssp_binary": configured_binary or str(binary)
+                        },
+                    }
+                },
+            ),
+            result_store(projects),
         ),
         result_store(projects),
     )
@@ -2270,7 +2275,11 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         projects,
         catalog,
         authoring,
-        admit_environment_configuration(catalog, {}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
         result_store(projects),
     )
     receipt = service.start(

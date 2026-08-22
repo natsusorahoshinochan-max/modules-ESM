@@ -34,6 +34,7 @@ from core.execution.environment import (
     EnvironmentConfiguration,
     admit_environment_configuration,
 )
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import (
     V2RunService,
 )
@@ -635,7 +636,11 @@ def _run(
         projects,
         catalog,
         authoring,
-        admitted_environment,
+        NodeAttemptFactory(
+            projects,
+            admitted_environment,
+            result_store(projects),
+        ),
         result_store(projects),
     )
     try:
@@ -2470,7 +2475,11 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
             projects,
             catalog,
             authoring,
-            _proteinmpnn_environment(catalog),
+            NodeAttemptFactory(
+                projects,
+                _proteinmpnn_environment(catalog),
+                result_store(projects),
+            ),
             result_store(projects),
         )
         receipt = service.start_background(

@@ -18,6 +18,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
 from core.workflow.authoring import WorkflowAuthoringService
@@ -263,7 +264,11 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         projects,
         catalog,
         authoring,
-        environment,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
         result_store(projects),
     )
     try:
