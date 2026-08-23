@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from core.execution.ledger.facts import (
     EngineInvocationStarted,
@@ -140,9 +140,7 @@ def project_run(
     facts: Sequence[Fact],
     cursor: RunCursor,
 ) -> RunProjection:
-    if not facts or not isinstance(facts[0].payload, RunScopeBound):
-        raise ValueError("Run Ledger scope is unavailable")
-    scope = facts[0].payload
+    scope = cast(RunScopeBound, facts[0].payload)
     dispositions: list[NodeDispositionProjection] = []
     published_by_node: dict[
         str,

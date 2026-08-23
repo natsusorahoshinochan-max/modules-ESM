@@ -66,8 +66,6 @@ class CancellationControl:
         *,
         fallback: Callable[[], None] | None,
     ) -> int:
-        if type(process_group) is not int:
-            raise ValueError("Process-group identity must be an integer")
         with self._condition:
             self._next_registration += 1
             registration = self._next_registration
@@ -188,13 +186,11 @@ class RunResources:
     run_id: str
     node_id: str
     _projects: ProjectManager = field(repr=False, compare=False)
-    _invocation_recorder: _InvocationRecorder | None = field(
-        default=None,
+    _invocation_recorder: _InvocationRecorder = field(
         repr=False,
         compare=False,
     )
-    _cancellation_control: CancellationControl | None = field(
-        default=None,
+    _cancellation_control: CancellationControl = field(
         repr=False,
         compare=False,
     )
@@ -213,12 +209,7 @@ class RunResources:
         input_reference: str,
     ) -> tuple[ProjectInputDescriptor, bytes]:
         """Read one declared input from this Run's exact Project scope."""
-        try:
-            return self._project_inputs[input_reference]
-        except KeyError as error:
-            raise RuntimeError(
-                "Project input access was not declared by the Node contract"
-            ) from error
+        return self._project_inputs[input_reference]
 
     @property
     def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]:
@@ -248,8 +239,6 @@ class RunResources:
         fallback: Callable[[], None] | None = None,
     ):
         """Register one isolated process group for Run cancellation."""
-        if self._cancellation_control is None:
-            raise RuntimeError("Run cancellation control is unavailable")
         registration = self._cancellation_control.register_process_group(
             process_group,
             fallback=fallback,
@@ -268,8 +257,6 @@ class RunResources:
         invocation_provenance: EngineInvocationProvenance | None = None,
     ):
         """Record one explicit crossing of a scientific engine boundary."""
-        if self._invocation_recorder is None:
-            raise RuntimeError("Engine Invocation is unavailable")
         with self._invocation_recorder.invoke(
             engine_role=engine_role,
             parent_invocation_id=parent_invocation_id,

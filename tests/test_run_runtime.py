@@ -182,6 +182,7 @@ def test_operation_cannot_override_plan_owned_engine_identity(tmp_path) -> None:
         node_id="node-1",
         _projects=ProjectManager(tmp_path / "projects"),
         _invocation_recorder=Recorder(),
+        _cancellation_control=CancellationControl(),
     )
 
     with pytest.raises(TypeError, match="engine_identity"):
