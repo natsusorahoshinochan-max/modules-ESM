@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 import json
 import re
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from core.catalog.port_contract import canonical_json_bytes
 from core.project.objects import StoredObject
@@ -144,16 +144,11 @@ def _exact_reference(value: object) -> ExactContractReference:
     }
     if not isinstance(value, Mapping) or set(value) != fields:
         raise ValueError("exact Contract reference is invalid")
-    kind = _require_identifier(value["contract_kind"], "contract_kind")
-    contract_id = _require_identifier(value["contract_id"], "contract_id")
-    version = value["contract_version"]
-    if type(version) is not str or not version or len(version) > 128:
-        raise ValueError("contract_version is invalid")
     return ExactContractReference(
-        kind,
-        contract_id,
-        version,
-        _require_digest(value["contract_digest"], "contract_digest"),
+        cast(str, value["contract_kind"]),
+        cast(str, value["contract_id"]),
+        cast(str, value["contract_version"]),
+        cast(str, value["contract_digest"]),
     )
 
 

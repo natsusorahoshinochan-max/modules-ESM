@@ -28,9 +28,6 @@ def _canonical_sha256(value: object) -> str:
 
 _CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PREDICTION_KEY = re.compile(r"^prediction-[0-9a-f]{64}$")
-_SEMANTIC_VERSION = re.compile(
-    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
-)
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
 
 def _require_content_digest(value: object, *, field_name: str) -> str:
@@ -292,19 +289,6 @@ class ConfidenceFactCollection:
             raise TypeError(
                 "observation_method must be one exact Method reference"
             )
-        validate_canonical_identifier(method.contract_id, "Method contract_id")
-        if (
-            type(method.contract_version) is not str
-            or _SEMANTIC_VERSION.fullmatch(method.contract_version) is None
-        ):
-            raise ValueError(
-                "observation Method contract_version must be semantic"
-            )
-        _require_content_digest(
-            method.contract_digest,
-            field_name="observation Method contract_digest",
-        )
-
         raw_entries = self.entries
         if type(raw_entries) not in {list, tuple} or not raw_entries:
             raise ValueError(

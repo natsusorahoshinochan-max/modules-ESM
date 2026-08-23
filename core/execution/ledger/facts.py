@@ -18,9 +18,6 @@ from datatypes.i_json import freeze_i_json
 
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}")
-_SEMANTIC_VERSION = re.compile(
-    r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?"
-)
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -41,29 +38,12 @@ def _valid_timestamp(value: object) -> bool:
         return False
 
 
-def _validate_reference(
+def _require_reference_kind(
     reference: ExactContractReference,
     *,
-    expected_kind: str | None = None,
+    expected_kind: str,
 ) -> None:
-    if (
-        reference.contract_kind not in {
-            "binding",
-            "method",
-            "metric",
-            "node_type",
-            "port_type",
-            "utility_transform",
-        }
-        or (
-            expected_kind is not None
-            and reference.contract_kind != expected_kind
-        )
-        or not _valid_identifier(reference.contract_id)
-        or type(reference.contract_version) is not str
-        or _SEMANTIC_VERSION.fullmatch(reference.contract_version) is None
-        or not _valid_digest(reference.contract_digest)
-    ):
+    if reference.contract_kind != expected_kind:
         raise ValueError("Run Ledger contract reference is invalid")
 
 
@@ -419,9 +399,12 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
             or type(node.selection_consumer) is not bool
         ):
             raise ValueError("Run plan evidence is invalid")
-        _validate_reference(node.binding, expected_kind="binding")
+        _require_reference_kind(node.binding, expected_kind="binding")
         if node.node_type is not None:
-            _validate_reference(node.node_type, expected_kind="node_type")
+            _require_reference_kind(
+                node.node_type,
+                expected_kind="node_type",
+            )
         if (
             node.required_input_sources != tuple(
                 sorted(
@@ -471,7 +454,10 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
                 )
             ):
                 raise ValueError("Run plan Artifact output is invalid")
-            _validate_reference(output.port_type, expected_kind="port_type")
+            _require_reference_kind(
+                output.port_type,
+                expected_kind="port_type",
+            )
             output_names.add(output.output_port)
 
 
@@ -486,7 +472,7 @@ def _validate_published_output(output: PublishedOutput) -> None:
         or not _valid_digest(output.value_manifest_reference)
     ):
         raise ValueError("Run Ledger Typed Output is invalid")
-    _validate_reference(output.port_type, expected_kind="port_type")
+    _require_reference_kind(output.port_type, expected_kind="port_type")
 
 
 def _validate_artifact(artifact: PublishedArtifact) -> None:
@@ -596,9 +582,9 @@ def _validate_selection_objective(
         raise ValueError("Selection Objective evidence is invalid")
     _validate_selection_input(value.candidate_input)
     _validate_selection_input(value.score_collection_input)
-    _validate_reference(value.metric, expected_kind="metric")
-    _validate_reference(value.method, expected_kind="method")
-    _validate_reference(
+    _require_reference_kind(value.metric, expected_kind="metric")
+    _require_reference_kind(value.method, expected_kind="method")
+    _require_reference_kind(
         value.utility_transform,
         expected_kind="utility_transform",
     )
@@ -617,8 +603,8 @@ def _validate_observation_selector(
         raise ValueError("Observation Selector evidence is invalid")
     _validate_selection_input(value.candidate_input)
     _validate_selection_input(value.score_collection_input)
-    _validate_reference(value.metric, expected_kind="metric")
-    _validate_reference(value.method, expected_kind="method")
+    _require_reference_kind(value.metric, expected_kind="metric")
+    _require_reference_kind(value.method, expected_kind="method")
     _validate_selection_context(value.context_selector)
 
 
@@ -635,7 +621,7 @@ def _validate_selection_result(value: SelectionResult) -> None:
         or bool(value.objectives) == bool(value.observation_selectors)
     ):
         raise ValueError("Selection result is invalid")
-    _validate_reference(value.selection_method, expected_kind="method")
+    _require_reference_kind(value.selection_method, expected_kind="method")
     _validate_selection_input(value.candidate_input)
     if value.objectives:
         for objective in value.objectives:
@@ -711,11 +697,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             != tuple(dict.fromkeys(payload.selection_terminal_keys))
         ):
             raise ValueError("Run scope fact is invalid")
-        for reference in (
-            *payload.resolved_contracts,
-            *payload.resolved_contract_roots,
-        ):
-            _validate_reference(reference)
         if payload.derived_from is not None:
             derived = payload.derived_from
             if (
@@ -736,7 +717,7 @@ def validate_fact_payload(payload: FactPayload) -> None:
                 raise ValueError("Derived Run evidence is invalid")
         return
     if isinstance(payload, AvailabilityBound):
-        _validate_reference(payload.binding, expected_kind="binding")
+        _require_reference_kind(payload.binding, expected_kind="binding")
         if (
             not _valid_timestamp(payload.catalog_observed_at)
             or type(payload.available) is not bool
@@ -744,7 +725,7 @@ def validate_fact_payload(payload: FactPayload) -> None:
             raise ValueError("Availability evidence is invalid")
         return
     if isinstance(payload, ReadinessAttested):
-        _validate_reference(payload.binding, expected_kind="binding")
+        _require_reference_kind(payload.binding, expected_kind="binding")
         if (
             not _valid_digest(payload.readiness_contract_digest)
             or not _valid_timestamp(payload.observed_at)

@@ -342,7 +342,7 @@ def admitted_port_fixture(
         port_type=ExactContractReference(
             "port_type",
             port_type_id,
-            "fixture",
+            "1.0.0",
             "sha256:" + ("0" * 64),
         ),
         multiplicity=multiplicity,

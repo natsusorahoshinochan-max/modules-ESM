@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any, cast
 
 from core.catalog.builtins import (
@@ -24,7 +23,6 @@ from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
     ResidueAxisReference,
-    validate_canonical_identifier,
 )
 from core.catalog.port_contract import (
     _candidate_data_reference_from_canonical,
@@ -56,10 +54,6 @@ _ALLOWED_SCALAR_SOURCES = {
     ExactContractReference(**_SEQUENCE_CODEC.reference()),
     ExactContractReference(**PROTEIN_PROMPT_PORT_TYPE.reference()),
 }
-_CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-_SEMANTIC_VERSION = re.compile(
-    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
-)
 def _closed_dict(
     value: object,
     fields: set[str],
@@ -95,21 +89,11 @@ def _reference_from_wire(
         },
         subject="exact contract reference",
     )
-    if any(type(item) is not str for item in decoded.values()):
-        raise ValueError("exact contract reference fields must be text")
     reference = ExactContractReference(**decoded)
     if reference.contract_kind != expected_kind:
         raise ValueError(
             f"exact contract reference must identify one {expected_kind}"
         )
-    validate_canonical_identifier(
-        reference.contract_id,
-        "exact contract reference id",
-    )
-    if _SEMANTIC_VERSION.fullmatch(reference.contract_version) is None:
-        raise ValueError("exact contract reference version must be semantic")
-    if _CONTENT_DIGEST.fullmatch(reference.contract_digest) is None:
-        raise ValueError("exact contract reference digest is invalid")
     return reference
 
 

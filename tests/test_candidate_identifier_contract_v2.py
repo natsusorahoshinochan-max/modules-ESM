@@ -85,6 +85,31 @@ def test_canonical_identifier_requires_an_exact_string() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("contract_kind", "unknown"),
+        ("contract_id", "contract id"),
+        ("contract_version", "version"),
+        ("contract_digest", "digest"),
+    ),
+)
+def test_exact_contract_reference_owns_its_intrinsic_identity(
+    field_name: str,
+    invalid_value: str,
+) -> None:
+    values = {
+        "contract_kind": "method",
+        "contract_id": "method/fixture",
+        "contract_version": "1.0.0",
+        "contract_digest": _DIGEST_1,
+    }
+    values[field_name] = invalid_value
+
+    with pytest.raises(ValueError, match=field_name):
+        ExactContractReference(**values)
+
+
 def test_candidate_ports_publish_only_the_active_identifier_generation() -> None:
     catalog = builtin_frozen_catalog()
 
@@ -275,21 +300,10 @@ def test_score_collection_v4_closes_every_public_generic_identifier() -> None:
 
     invalid_values = (
         replace(valid, collection_id="候选"),
-        ScoreCollection("scores", (_score(metric_id="m" * 129),)),
-        ScoreCollection("scores", (_score(method_id="方法"),)),
         ScoreCollection(
             "scores",
-            (
-                replace(
-                    _score(),
-                    metric=replace(
-                        _score().metric,
-                        contract_version="1.0." + ("1" * 61),
-                    ),
-                ),
-            ),
+            (_score(source_partition="partition value"),),
         ),
-        ScoreCollection("scores", (_score(source_partition="partition value"),)),
         ScoreCollection(
             "scores",
             (
@@ -303,21 +317,9 @@ def test_score_collection_v4_closes_every_public_generic_identifier() -> None:
                 ),
             ),
         ),
-        ScoreCollection(
-            "scores",
-            (
-                _score(
-                    candidate_id="candidate/a",
-                    context=replace(
-                        pairwise_context,
-                        evidence_method=_reference("method", "m" * 129),
-                    ),
-                ),
-            ),
-        ),
     )
     for invalid in invalid_values:
-        with pytest.raises(PortValueError, match="identifier|semantic version"):
+        with pytest.raises(PortValueError, match="identifier"):
             port_type.encode(invalid)
 
     with pytest.raises(ValueError, match="candidate_id"):

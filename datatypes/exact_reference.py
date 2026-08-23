@@ -12,6 +12,20 @@ from datatypes.residue import ResidueLayout
 _CANONICAL_IDENTIFIER = re.compile(
     r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}$"
 )
+_SEMANTIC_VERSION = re.compile(
+    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+)
+_CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_CONTRACT_KINDS = frozenset(
+    {
+        "binding",
+        "method",
+        "metric",
+        "node_type",
+        "port_type",
+        "utility_transform",
+    }
+)
 
 
 def validate_canonical_identifier(
@@ -36,6 +50,26 @@ class ExactContractReference:
     contract_id: str
     contract_version: str
     contract_digest: str
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.contract_kind) is not str
+            or self.contract_kind not in _CONTRACT_KINDS
+        ):
+            raise ValueError("contract_kind is not a contract kind")
+        validate_canonical_identifier(self.contract_id, "contract_id")
+        if (
+            type(self.contract_version) is not str
+            or _SEMANTIC_VERSION.fullmatch(self.contract_version) is None
+        ):
+            raise ValueError("contract_version must be semantic")
+        if (
+            type(self.contract_digest) is not str
+            or _CONTENT_DIGEST.fullmatch(self.contract_digest) is None
+        ):
+            raise ValueError(
+                "contract_digest must be a canonical sha256 digest"
+            )
 
     @property
     def key(self) -> tuple[str, str, str]:

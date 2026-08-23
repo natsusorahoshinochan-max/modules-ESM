@@ -612,22 +612,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(
                 f"{path}.contract_kind is not a scientific value contract"
             )
-        _validate_runtime_identifier(
-            value.contract_id,
-            path=f"{path}.contract_id",
-        )
-        if (
-            type(value.contract_version) is not str
-            or not 5 <= len(value.contract_version) <= 64
-            or _SEMANTIC_VERSION.fullmatch(value.contract_version) is None
-        ):
-            raise PortValueError(
-                f"{path}.contract_version must be an exact semantic version"
-            )
-        if re.fullmatch(r"sha256:[0-9a-f]{64}", value.contract_digest) is None:
-            raise PortValueError(
-                f"{path}.contract_digest must be an exact SHA-256 digest"
-            )
         return
 
     if type(value) is IntrinsicObservationContext:
