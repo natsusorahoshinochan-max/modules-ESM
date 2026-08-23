@@ -24,7 +24,7 @@ from ._output_construction import (
     CompletedFoldingSample,
     FoldingOutputConstruction,
 )
-from .adapter import (
+from .domain import (
     ESMFold2Adapter,
 )
 from .simplefold_adapter import (

@@ -74,7 +74,7 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     )
 
     from esm.sdk.forge import SequenceStructureForgeInferenceClient
-    from modules.folding.adapter import REMOTE_ESMFOLD2_MODEL
+    from modules.folding.esmfold2_contract import REMOTE_ESMFOLD2_MODEL
 
     delegate = SequenceStructureForgeInferenceClient(
         model=REMOTE_ESMFOLD2_MODEL,
@@ -231,8 +231,8 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         MolecularComplexMetadata,
         MolecularComplexResult,
     )
-    from modules.folding.adapter import (
-        TRANSFORMERS_REVISION,
+    from modules.folding.esmfold2_contract import TRANSFORMERS_REVISION
+    from modules.folding.esmfold2_local import (
         transformers_esmfold2_runtime_is_exact,
     )
 
@@ -386,22 +386,22 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Invoke the real local Engine; a fixture cannot satisfy this gate."""
-    import modules.folding.adapter as folding_adapter
-    from modules.folding.adapter import (
+    import esm.models.esmfold2 as esmfold2
+    from modules.folding.esmfold2_contract import (
         LOCAL_ESMC_ARTIFACT_SHA256,
         LOCAL_ESMC_REVISION,
         LOCAL_ESMFOLD2_ARTIFACT_SHA256,
         LOCAL_ESMFOLD2_REVISION,
     )
 
-    real_local_input_builder = folding_adapter._local_input_builder
+    real_local_input_builder = esmfold2.ESMFold2InputBuilder
     provider_calls: list[dict[str, Any]] = []
 
     def recording_local_input_builder(
-        builder_type: type,
-        runtime: Any,
+        *,
+        ccd_cache: Path,
     ) -> Any:
-        delegate = real_local_input_builder(builder_type, runtime)
+        delegate = real_local_input_builder(ccd_cache=ccd_cache)
 
         class RecordingBuilder:
             def fold(
@@ -431,8 +431,8 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         return RecordingBuilder()
 
     monkeypatch.setattr(
-        folding_adapter,
-        "_local_input_builder",
+        esmfold2,
+        "ESMFold2InputBuilder",
         recording_local_input_builder,
     )
 
@@ -451,15 +451,12 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         "required locked local ESMFold2 assets are unavailable: "
         + ", ".join(missing)
     )
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
     environment = {
         "model_snapshot_path": model_snapshot,
         "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
         "language_model_snapshot_path": language_snapshot,
         "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
         "device": "cpu",
-        "runtime_directory": runtime_directory,
     }
     service, catalog, projection, events = _run_fold(
         tmp_path,

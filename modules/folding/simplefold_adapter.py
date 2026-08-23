@@ -132,7 +132,7 @@ def _decode_fold_result(
                 float(value) for value in entry["per_residue"]
             ),
         )
-        for entry in scores
+        for entry in sorted(scores, key=lambda item: item["sample_index"])
     )
 
 

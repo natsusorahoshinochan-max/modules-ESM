@@ -498,7 +498,7 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
 def test_biohub_esmfold2_executes_exact_method(
     tmp_path: Path,
 ) -> None:
-    from modules.folding.adapter import REMOTE_ESMFOLD2_MODEL
+    from modules.folding.esmfold2_contract import REMOTE_ESMFOLD2_MODEL
     from modules.esm3.credentials import read_biohub_token
     from tests.acceptance.test_esmfold2_v2 import _fold_outputs
     from tests.test_folding_v2 import _run_fold
@@ -559,7 +559,7 @@ def test_biohub_esmfold2_executes_exact_method(
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
-    from modules.folding.adapter import (
+    from modules.folding.esmfold2_contract import (
         LOCAL_ESMC_REVISION,
         LOCAL_ESMFOLD2_REVISION,
     )
@@ -572,8 +572,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     esmc_model_root = _required_absolute_path(
         "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT"
     )
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
     service, catalog, projection, events = _run_fold(
         tmp_path,
         route="local",
@@ -584,7 +582,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
             "language_model_snapshot_path": esmc_model_root,
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
             "device": "cpu",
-            "runtime_directory": runtime_directory,
         },
         source_sequence="AG",
     )

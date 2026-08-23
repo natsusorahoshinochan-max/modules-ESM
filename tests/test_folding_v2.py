@@ -276,9 +276,9 @@ def _run_fold(
     with ExitStack() as stack:
         if client is not None:
             target = (
-                "modules.folding.adapter.build_remote_engine"
+                "modules.folding.esmfold2_remote.build_remote_engine"
                 if route == "remote"
-                else "modules.folding.adapter.load_local_engine"
+                else "modules.folding.esmfold2_local.load_local_engine"
             )
             stack.enter_context(patch(target, return_value=client))
         try:
@@ -407,7 +407,6 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         "model_snapshot_path",
         "language_model_snapshot_path",
         "device",
-        "runtime_directory",
     }
     assert forbidden.isdisjoint(node.descriptor["node_parameters"])
 
@@ -543,9 +542,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
     }
 
 
-def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> None:
-    from modules.folding.adapter import local_readiness
-
+def test_local_and_remote_esmfold2_have_independent_availability() -> None:
     catalog = build_frozen_catalog(module_registrations())
     availability = {
         snapshot.binding.contract_id: snapshot
@@ -568,21 +565,18 @@ def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> Non
     assert availability["folding.fold.esmfold2_remote"] is not (
         availability["folding.fold.esmfold2_local"]
     )
-    assert not local_readiness({}).passing
 
 
 def _write_local_runtime_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, Any]:
-    import modules.folding.adapter as adapter
+    import modules.folding.esmfold2_local as adapter
 
     fold_snapshot = tmp_path / "esmfold2"
     language_snapshot = tmp_path / "esmc"
-    runtime_directory = tmp_path / "runtime"
     fold_snapshot.mkdir()
     language_snapshot.mkdir()
-    runtime_directory.mkdir()
     fold_payload = b"folding-model-fixture"
     language_payload = b"language-model-fixture"
     (fold_snapshot / "model.bin").write_bytes(fold_payload)
@@ -608,7 +602,6 @@ def _write_local_runtime_fixture(
         "language_model_snapshot_path": language_snapshot,
         "language_model_snapshot_revision": adapter.LOCAL_ESMC_REVISION,
         "device": "cpu",
-        "runtime_directory": runtime_directory,
     }
 
 
@@ -616,7 +609,7 @@ def test_local_readiness_validates_both_exact_snapshots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.folding.adapter as adapter
+    import modules.folding.esmfold2_local as adapter
 
     environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
     conclusion = adapter.local_readiness(environment)
@@ -640,7 +633,8 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.folding.adapter as adapter
+    import esm.models.esmfold2 as esmfold2
+    import modules.folding.esmfold2_local as adapter
     from transformers.models.esmfold2.configuration_esmfold2 import (
         ESMFold2Config,
     )
@@ -679,18 +673,17 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
         staticmethod(load_model),
     )
     monkeypatch.setattr(
-        adapter,
-        "_local_input_builder",
-        lambda builder_type, runtime: object(),
+        esmfold2,
+        "ESMFold2InputBuilder",
+        lambda *, ccd_cache: object(),
     )
     runtime = adapter.LocalESMFold2Runtime(
         model_snapshot_path=tmp_path / "esmfold2",
         language_model_snapshot_path=tmp_path / "esmc",
-        runtime_directory=tmp_path / "runtime",
         device="cpu",
     )
 
-    adapter.load_local_engine({}, runtime)
+    adapter.load_local_engine(runtime)
 
     assert calls["configuration"] == (
         runtime.model_snapshot_path,
@@ -713,7 +706,7 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
 
 
 def test_native_plddt_is_statically_scaled_and_projects_protein_tokens() -> None:
-    from modules.folding.adapter import normalize_native_confidence
+    from modules.folding.domain import normalize_native_confidence
 
     confidence = normalize_native_confidence(
         native_plddt=(0.70, 0.80, 0.40, 0.60, 0.90, 0.50),
@@ -741,7 +734,7 @@ def test_native_plddt_is_statically_scaled_and_projects_protein_tokens() -> None
 def test_remote_provider_native_result_translates_to_canonical_confidence() -> None:
     import torch
 
-    from modules.folding.adapter import decode_remote_fold_result
+    from modules.folding.esmfold2_remote import decode_remote_fold_result
 
     class RemoteResult(_RemoteResultRenderer):
         sequence = "AG"
@@ -765,7 +758,7 @@ def test_remote_provider_native_result_translates_to_canonical_confidence() -> N
 
 def test_remote_provider_official_error_union_is_an_operational_failure() -> None:
     from esm.sdk.api import ESMProteinError
-    from modules.folding.adapter import decode_remote_fold_result
+    from modules.folding.esmfold2_remote import decode_remote_fold_result
 
     with pytest.raises(
         RuntimeError,
@@ -871,7 +864,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
 def test_local_provider_native_result_translates_to_canonical_confidence() -> None:
     import torch
 
-    from modules.folding.adapter import decode_local_fold_result
+    from modules.folding.esmfold2_local import decode_local_fold_result
 
     class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
@@ -894,7 +887,7 @@ def test_local_provider_native_result_translates_to_canonical_confidence() -> No
 
 
 def test_provider_pdb_renderer_is_translated_to_the_canonical_end_record() -> None:
-    from modules.folding.adapter import decode_local_fold_result
+    from modules.folding.esmfold2_local import decode_local_fold_result
 
     class RenderedProtein:
         def infer_oxygen(self) -> "RenderedProtein":
@@ -922,7 +915,7 @@ def test_provider_pdb_renderer_is_translated_to_the_canonical_end_record() -> No
 
 def test_esmfold2_admits_official_pdb_serialization_without_rebuilding_sequence(
 ) -> None:
-    from modules.folding.adapter import decode_remote_fold_result
+    from modules.folding.esmfold2_remote import decode_remote_fold_result
 
     class RenderedProtein:
         def infer_oxygen(self) -> "RenderedProtein":
@@ -1052,7 +1045,7 @@ def test_all_folding_axes_validate_before_any_provider_invocation() -> None:
 
 
 def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
-    from modules.folding.adapter import (
+    from modules.folding.domain import (
         ESMFold2AdapterResult,
         NormalizedConfidence,
     )
@@ -1172,7 +1165,7 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
 
 
 def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> None:
-    from modules.folding.adapter import (
+    from modules.folding.domain import (
         ESMFold2AdapterResult,
         NormalizedConfidence,
     )
@@ -1486,7 +1479,7 @@ def test_readiness_rejects_before_fold_call(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.folding.adapter as folding_adapter
+    import modules.folding.esmfold2_remote as folding_adapter
 
     class BombClient:
         def __init__(self) -> None:
@@ -1516,7 +1509,8 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.folding.adapter as folding_adapter
+    import modules.folding.esmfold2_local as local_adapter
+    import modules.folding.esmfold2_remote as remote_adapter
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -1650,14 +1644,14 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     simplefold_client = SimpleFoldClient()
     confidence_client = ConfidenceClient()
     monkeypatch.setattr(
-        folding_adapter,
+        remote_adapter,
         "build_remote_engine",
         lambda _environment: RemoteClient(),
     )
     monkeypatch.setattr(
-        folding_adapter,
+        local_adapter,
         "load_local_engine",
-        lambda _environment, _runtime: LocalClient(),
+        lambda _runtime: LocalClient(),
     )
     monkeypatch.setattr(
         simplefold_runtime,

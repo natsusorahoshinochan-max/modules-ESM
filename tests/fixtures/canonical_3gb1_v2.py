@@ -316,7 +316,7 @@ def controlled_environment(
         lambda **_kwargs: esm3,
     )
     monkeypatch.setattr(
-        "modules.folding.adapter.build_remote_engine",
+        "modules.folding.esmfold2_remote.build_remote_engine",
         lambda _environment: folding,
     )
     return {

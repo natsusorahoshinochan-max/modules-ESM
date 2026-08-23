@@ -27,7 +27,7 @@ from datatypes.structure import (
 )
 
 from . import simplefold_contract
-from .adapter import normalize_residue_plddt
+from .domain import normalize_residue_plddt
 from .simplefold_asset_closure import (
     BoundSimpleFoldProviderAssetClosure,
     SimpleFoldAssetClosureAdmissionError,

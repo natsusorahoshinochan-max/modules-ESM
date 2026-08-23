@@ -652,7 +652,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     )
     folding = _ControlledESMFold2(normalized.pdb_string)
     monkeypatch.setattr(
-        "modules.folding.adapter.build_remote_engine",
+        "modules.folding.esmfold2_remote.build_remote_engine",
         lambda _environment: folding,
     )
 

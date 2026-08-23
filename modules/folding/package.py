@@ -43,8 +43,7 @@ from .contracts import (
     SIMPLEFOLD_FOLD_METHOD,
 )
 
-from .adapter import (
-    BiohubESMFold2Adapter,
+from .esmfold2_contract import (
     ESM_SDK_REVISION,
     LOCAL_DEVICE,
     LOCAL_ESMC_ARTIFACT_SHA256,
@@ -55,11 +54,16 @@ from .adapter import (
     LOCAL_ESMFOLD2_MODEL,
     LOCAL_ESMFOLD2_REVISION,
     LOCAL_TORCH_VERSION,
-    LocalESMFold2Adapter,
     REMOTE_ESMFOLD2_MODEL,
     TRANSFORMERS_REVISION,
+)
+from .esmfold2_local import (
+    LocalESMFold2Adapter,
     local_readiness,
     local_runtime_structurally_available,
+)
+from .esmfold2_remote import (
+    BiohubESMFold2Adapter,
     remote_readiness,
     remote_runtime_structurally_available,
 )
@@ -97,7 +101,6 @@ _LOCAL_ESMFOLD2_ENVIRONMENT_FIELDS = (
         "language_model_snapshot_path",
         "filesystem_path",
     ),
-    EnvironmentFieldDeclaration("runtime_directory", "filesystem_path"),
     EnvironmentFieldDeclaration("device", "json_value"),
 )
 _SIMPLEFOLD_ENVIRONMENT_FIELDS = (
@@ -359,9 +362,6 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                 "device": {
                     "source": "trusted_environment_configuration",
                     "exact_value": LOCAL_DEVICE,
-                },
-                "runtime_directory": {
-                    "source": "trusted_environment_configuration",
                 },
             },
             check=_local_ready,

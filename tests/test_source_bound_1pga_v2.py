@@ -143,7 +143,7 @@ def _provider_free_simplefold_environment(
             num_steps=kwargs["num_steps"],
             num_samples=kwargs["num_samples"],
             effective_seed=kwargs["effective_seed"],
-            staging_directory=Path(kwargs["project_dir"]),
+            staging_directory=kwargs["staging_directory"],
         ),
     )
 
@@ -339,7 +339,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     esmfold2 = _ControlledESMFold2(source_text)
     simplefold = _ControlledSimpleFold(source_text)
     monkeypatch.setattr(
-        "modules.folding.adapter.build_remote_engine",
+        "modules.folding.esmfold2_remote.build_remote_engine",
         lambda _environment: esmfold2,
     )
     environment = {
@@ -716,7 +716,7 @@ def test_source_bound_1pga_public_classification_contract(
         plddt=simplefold_plddt,
     )
     monkeypatch.setattr(
-        "modules.folding.adapter.build_remote_engine",
+        "modules.folding.esmfold2_remote.build_remote_engine",
         lambda _environment: esmfold2,
     )
     environment = {
