@@ -462,14 +462,44 @@ def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
         "structure_annotation.secondary_structure_track",
         "4.0.0",
     )]
+    sasa_type = port_types[(
+        "structure_annotation.sasa_track",
+        "4.0.0",
+    )]
 
-    assert annotation_type.decode(annotation_type.encode(annotation)) == annotation
+    decoded_annotation = annotation_type.decode(
+        annotation_type.encode(annotation)
+    )
+    assert decoded_annotation == annotation
+    assert all(
+        value is None or type(value) is float
+        for value in decoded_annotation.sasa
+    )
     track = StructureAnnotationTrack(
         subject=subject,
         layout=layout,
         values=annotation.secondary_structure,
     )
     assert secondary_type.decode(secondary_type.encode(track)) == track
+    sasa_track = StructureAnnotationTrack(
+        subject=subject,
+        layout=layout,
+        values=annotation.sasa,
+    )
+    decoded_sasa_track = sasa_type.decode(sasa_type.encode(sasa_track))
+    assert decoded_sasa_track == sasa_track
+    assert all(
+        value is None or type(value) is float
+        for value in decoded_sasa_track.values
+    )
+    invalid_annotation = json.loads(annotation_type.encode(annotation))
+    invalid_annotation["value"]["sasa"][0] = True
+    with pytest.raises(PortValueError, match="nullable non-negative"):
+        annotation_type.decode(canonical_json_bytes(invalid_annotation))
+    invalid_sasa_track = json.loads(sasa_type.encode(sasa_track))
+    invalid_sasa_track["value"]["track"]["fields"]["values"][0] = "14.5"
+    with pytest.raises(PortValueError, match="nullable non-negative"):
+        sasa_type.decode(canonical_json_bytes(invalid_sasa_track))
     wire = json.loads(secondary_type.encode(track))["value"]
     assert wire["track"]["fields"]["values"] == ["G", "_", "C", "E"]
 

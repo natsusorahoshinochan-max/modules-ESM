@@ -73,9 +73,9 @@ def _validate_sasa(values: object, *, length: int) -> None:
         if value is None:
             continue
         if (
-            type(value) not in {int, float}
-            or not math.isfinite(float(value))
-            or float(value) < 0
+            type(value) is not float
+            or not math.isfinite(value)
+            or value < 0
         ):
             raise ValueError("SASA values must be nullable non-negative numbers")
 
@@ -116,7 +116,10 @@ def _annotation_from_wire(value: object) -> object:
         subject=_candidate_data_reference_from_canonical(value["subject"]),
         layout=layout,
         secondary_structure=tuple(value["secondary_structure"]),
-        sasa=tuple(value["sasa"]),
+        sasa=tuple(
+            float(item) if type(item) is int else item
+            for item in value["sasa"]
+        ),
     )
 
 
@@ -146,18 +149,27 @@ def _track_to_wire(value: StructureAnnotationTrack) -> object:
     }
 
 
-def _track_from_wire(value: object) -> object:
+def _track_from_wire(value: object, *, sasa: bool = False) -> object:
     if (
         not isinstance(value, dict)
         or set(value) != {"subject", "layout", "track"}
     ):
         raise ValueError("annotation track wire value is not closed")
     track = _TRACK_CODEC.from_wire(value["track"])
+    values = tuple(track.values)
+    if sasa:
+        values = tuple(
+            float(item) if type(item) is int else item for item in values
+        )
     return StructureAnnotationTrack(
         subject=_candidate_data_reference_from_canonical(value["subject"]),
         layout=_LAYOUT_CODEC.from_wire(value["layout"]),
-        values=tuple(track.values),
+        values=values,
     )
+
+
+def _sasa_track_from_wire(value: object) -> object:
+    return _track_from_wire(value, sasa=True)
 
 
 def _port_type(
@@ -249,7 +261,7 @@ STRUCTURE_ANNOTATION_PORT_TYPES = (
         kind="sasa_track",
         validator=_validate_sasa_track,
         to_wire=_track_to_wire,
-        from_wire=_track_from_wire,
+        from_wire=_sasa_track_from_wire,
         quantity_contract=_ABSOLUTE_SASA_QUANTITY_CONTRACT,
     ),
 )
