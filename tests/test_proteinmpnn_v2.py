@@ -1174,8 +1174,12 @@ def _controlled_adapter(
     resources: _AdapterResources | None = None,
 ) -> LocalProteinMPNNAdapter:
     class ControlledAdapter(LocalProteinMPNNAdapter):
-        def _provider(self, staging_directory: Path) -> Any:
-            del staging_directory
+        def _provider(
+            self,
+            staging_directory: Path,
+            resident_models: dict[object, object],
+        ) -> Any:
+            del staging_directory, resident_models
             return provider
 
     return ControlledAdapter(
