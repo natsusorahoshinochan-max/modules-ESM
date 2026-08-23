@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TypedDict
+from typing import cast, TypedDict
 
 from datatypes.prompt import (
     FunctionAnnotation,
@@ -66,10 +66,10 @@ def _insertions_by_boundary(
             )
         previous_boundary = after_index
         inserted_ids = tuple(inserted)
+        unique_inserted_ids = set(inserted_ids)
         if (
-            len(set(inserted_ids)) != len(inserted_ids)
-            or set(inserted_ids) & source_set
-            or set(inserted_ids) & inserted_set
+            unique_inserted_ids & source_set
+            or unique_inserted_ids & inserted_set
         ):
             raise ValueError(
                 f"insertions[{index}] contains duplicate residue identities"
@@ -78,7 +78,7 @@ def _insertions_by_boundary(
             raise ValueError(
                 f"insertions[{index}] residue identity crosses its boundary chain"
             )
-        inserted_set.update(inserted_ids)
+        inserted_set.update(unique_inserted_ids)
         boundaries[after_index] = inserted_ids
     return boundaries
 
@@ -134,13 +134,9 @@ def insert_masked_residues(
 ) -> tuple[ProteinPrompt, ResidueMap]:
     """Insert explicit identities at exact adjacent source boundaries."""
     source = prompt
-    source_layout = source.target_layout
-    assert source_layout is not None
-    source_ids = tuple(source_layout.residue_ids or ())
+    source_layout = cast(ResidueLayout, source.target_layout)
+    source_ids = tuple(source_layout.residue_ids)
     boundaries = _insertions_by_boundary(source_ids, insertions)
-    inserted_count = sum(len(items) for items in boundaries.values())
-    if source_layout.length + inserted_count > 2_000_000:
-        raise ValueError("inserted layout exceeds the supported residue bound")
 
     target_ids: list[str] = []
     for source_index, residue_id in enumerate(source_ids):

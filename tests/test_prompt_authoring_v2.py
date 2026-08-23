@@ -6,8 +6,6 @@ from protein_workbench_public.bootstrap import module_registrations
 
 from pathlib import Path
 
-import pytest
-
 from core.catalog.builder import (
     build_frozen_catalog,
 )
@@ -29,7 +27,6 @@ from datatypes.residue import (
     ResidueTrack,
 )
 from modules.prompt_authoring.domain import AlignedResidueTrack
-import modules.prompt_authoring.domain as prompt_domain
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -44,22 +41,6 @@ from tests.fixtures.prompt_authoring_v2 import (
     VERSION,
     wire_value,
 )
-
-
-def test_prompt_residue_map_retains_its_supported_layout_bound(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(prompt_domain, "_MAX_RESIDUES", 1)
-    layout = ResidueLayout("A", 2, ["A:1", "A:2"])
-    residue_map = ResidueMap(
-        layout,
-        layout,
-        [(0, 0, "match"), (1, 1, "match")],
-    )
-
-    with pytest.raises(ValueError, match="supported range"):
-        prompt_domain.validate_residue_map(residue_map)
-
 
 def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None:
     registrations = {

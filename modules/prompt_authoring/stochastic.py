@@ -56,7 +56,7 @@ def _copy_track(track: ResidueTrack | None) -> ResidueTrack | None:
     return (
         None
         if track is None
-        else ResidueTrack(list(track.values), track.sentinel)
+        else ResidueTrack(list(track.values), None)
     )
 
 
@@ -110,7 +110,7 @@ def resolve_random_mask_effective_randomness(
         "eligible_residue_ids"
     ]
     target_layout = cast(ResidueLayout, source.target_layout)
-    residue_ids = tuple(target_layout.residue_ids or ())
+    residue_ids = tuple(target_layout.residue_ids)
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
@@ -145,7 +145,7 @@ def random_mask_prompt(
     """Clear exactly ``count`` seeded assigned values on one declared track."""
     source = prompt
     target_layout = cast(ResidueLayout, source.target_layout)
-    residue_ids = tuple(target_layout.residue_ids or ())
+    residue_ids = tuple(target_layout.residue_ids)
     residue_index = {
         residue_id: index for index, residue_id in enumerate(residue_ids)
     }
@@ -196,8 +196,6 @@ def resolve_random_insert_effective_randomness(
         "eligible_chain_ids"
     ]
     source_layout = cast(ResidueLayout, source.target_layout)
-    if source_layout.length + count > 2_000_000:
-        raise ValueError("inserted layout exceeds the supported residue bound")
     chain_order = tuple(source_layout.chain_id.split(","))
     if set(declared_eligibility) - set(chain_order):
         raise ValueError("eligible_chain_ids contains an unknown chain")
@@ -206,7 +204,7 @@ def resolve_random_insert_effective_randomness(
         raise ValueError("no eligible chain-local insertion boundary exists")
     populated_chains = {
         residue_chain(residue_id)
-        for residue_id in source_layout.residue_ids or ()
+        for residue_id in source_layout.residue_ids
     }
     if any(chain_id not in populated_chains for chain_id in eligibility):
         raise ValueError("eligible chain has no residue boundary")
@@ -228,7 +226,7 @@ def random_insert_masked(
     source = prompt
     selected_chains = eligible_chain_ids
     source_layout = cast(ResidueLayout, source.target_layout)
-    source_ids = tuple(source_layout.residue_ids or ())
+    source_ids = tuple(source_layout.residue_ids)
     chain_order = tuple(source_layout.chain_id.split(","))
 
     positions_by_chain: dict[str, list[int]] = {
@@ -287,7 +285,7 @@ def random_insert_masked(
     inserted_ids: dict[int, str] = {}
     for chain_id, _position, ordinal in selections:
         residue_id = f"{chain_id}:masked.{effective_seed}.{ordinal}"
-        if residue_id in source_ids or residue_id in inserted_ids.values():
+        if residue_id in source_ids:
             raise ValueError("generated inserted residue identity collides")
         inserted_ids[ordinal] = residue_id
 
@@ -325,8 +323,7 @@ def random_insert_masked(
         target_ids.append(source_ids[source_position])
         mappings.append((source_position, target_position, "match"))
         for attribute, values in target_values_by_attribute.items():
-            track = getattr(source, attribute)
-            assert track is not None
+            track = cast(ResidueTrack, getattr(source, attribute))
             values.append(track.values[source_position])
 
     target_layout = ResidueLayout(

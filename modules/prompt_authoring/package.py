@@ -46,61 +46,55 @@ from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
 _PACKAGE_VERSION = "2.1.0"
-_DEFAULT_METHOD_VERSION = "2.1.0"
-_METHOD_VERSIONS = {
-    "prompt_from_structure": "3.0.0",
+_OPERATIONS = {
+    "add_function_annotation": (
+        AddFunctionAnnotationImplementation, "3.0.0", "2.1.0"
+    ),
+    "assemble_protein_prompt": (
+        AssembleProteinPromptImplementation, "3.0.0", "2.1.0"
+    ),
+    "build_residue_layout": (
+        BuildResidueLayoutImplementation, "3.0.0", "2.1.0"
+    ),
+    "edit_residue_layout": (
+        EditResidueLayoutImplementation, "3.0.0", "2.1.0"
+    ),
+    "insert_masked_residues": (
+        InsertMaskedResiduesImplementation, "3.0.0", "2.1.0"
+    ),
+    "map_residue_track": (
+        MapResidueTrackImplementation, "3.0.0", "2.1.0"
+    ),
+    "override_protein_prompt_track": (
+        OverrideProteinPromptTrackImplementation, "3.0.0", "2.1.0"
+    ),
+    "override_residue_track": (
+        OverrideResidueTrackImplementation, "3.0.0", "2.1.0"
+    ),
+    "prompt_from_structure": (
+        PromptFromStructureImplementation, "5.0.0", "3.0.0"
+    ),
+    "random_insert_masked": (
+        RandomInsertMaskedImplementation, "3.0.0", "2.1.0"
+    ),
+    "random_mask": (RandomMaskImplementation, "3.0.0", "2.1.0"),
+    "update_prompt_sequence": (
+        UpdatePromptSequenceImplementation, "3.0.0", "2.1.0"
+    ),
 }
-_DEFAULT_NODE_BINDING_VERSION = "3.0.0"
-_NODE_BINDING_VERSIONS = {
-    "prompt_from_structure": "5.0.0",
-}
-_OPERATIONS = (
-    "add_function_annotation",
-    "assemble_protein_prompt",
-    "build_residue_layout",
-    "edit_residue_layout",
-    "insert_masked_residues",
-    "map_residue_track",
-    "override_protein_prompt_track",
-    "override_residue_track",
-    "prompt_from_structure",
-    "random_insert_masked",
-    "random_mask",
-    "update_prompt_sequence",
-)
-_IMPLEMENTATIONS = {
-    "add_function_annotation": AddFunctionAnnotationImplementation,
-    "assemble_protein_prompt": AssembleProteinPromptImplementation,
-    "build_residue_layout": BuildResidueLayoutImplementation,
-    "edit_residue_layout": EditResidueLayoutImplementation,
-    "insert_masked_residues": InsertMaskedResiduesImplementation,
-    "map_residue_track": MapResidueTrackImplementation,
-    "override_protein_prompt_track": OverrideProteinPromptTrackImplementation,
-    "override_residue_track": OverrideResidueTrackImplementation,
-    "prompt_from_structure": PromptFromStructureImplementation,
-    "random_insert_masked": RandomInsertMaskedImplementation,
-    "random_mask": RandomMaskImplementation,
-    "update_prompt_sequence": UpdatePromptSequenceImplementation,
-}
-
-
-def _available() -> AvailabilityResult:
-    return AvailabilityResult.available()
 
 
 def _build(operation: str):
+    implementation = _OPERATIONS[operation][0]
+
     def factory(context: OperationContext) -> ScientificOperation:
-        implementation = _IMPLEMENTATIONS[operation]
         return implementation(context.resources)
 
     return factory
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    binding_version = _NODE_BINDING_VERSIONS.get(
-        operation,
-        _DEFAULT_NODE_BINDING_VERSION,
-    )
+    _implementation, binding_version, method_version = _OPERATIONS[operation]
     randomness_parameters = {
         "random_mask": (
             "effective_seed",
@@ -129,7 +123,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         method=ContractIdentity(
             "method",
             f"prompt_authoring.{operation}.method",
-            _METHOD_VERSIONS.get(operation, _DEFAULT_METHOD_VERSION),
+            method_version,
         ),
         binding_parameters={},
         execution_route="direct",
@@ -148,7 +142,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 {"observation": "startup"},
             ),
             prerequisites={},
-            check=_available,
+            check=AvailabilityResult.available,
         ),
         deterministic=True,
         cacheable=True,

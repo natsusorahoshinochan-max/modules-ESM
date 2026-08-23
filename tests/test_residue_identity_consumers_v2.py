@@ -23,7 +23,9 @@ from modules.proteinmpnn.domain import (
     ProteinMPNNConstraints,
     validate_proteinmpnn_constraints,
 )
-from modules.prompt_authoring.annotations import validate_function_annotations
+from modules.prompt_authoring.annotations import (
+    require_function_annotation_layout,
+)
 
 
 def test_signed_residue_identities_address_constraints_and_annotations() -> None:
@@ -51,7 +53,8 @@ def test_signed_residue_identities_address_constraints_and_annotations() -> None
         ),
     ))
 
-    assert validate_function_annotations(annotations, layout) == annotations
+    validate_canonical_function_annotations(annotations)
+    assert require_function_annotation_layout(annotations, layout) == annotations
 
     catalog = build_frozen_catalog(module_registrations())
     constraints_type = catalog.require_port_type(
@@ -119,8 +122,9 @@ def test_function_annotation_provenance_remains_closed_and_layout_bound() -> Non
             overlap_policy="reject",
         ),
     ))
+    validate_canonical_function_annotations(absent)
     with pytest.raises(ValueError, match="do not correspond"):
-        validate_function_annotations(absent, layout)
+        require_function_annotation_layout(absent, layout)
 
 
 def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> None:

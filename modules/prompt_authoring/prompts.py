@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from datatypes.prompt import (
     FunctionAnnotations,
     ProteinPrompt,
+    validate_canonical_function_annotations,
 )
 from datatypes.residue import (
     ResidueLayout,
@@ -14,17 +16,14 @@ from datatypes.residue import (
 )
 from datatypes.sequence import ProteinSequence
 
-from .annotations import (
-    require_function_annotation_layout,
-    validate_function_annotations,
-)
+from .annotations import require_function_annotation_layout
 from .domain import (
+    _validate_track_values,
     AlignedResidueTrack,
     TrackOverrideDeclaration,
     TrackKind,
     override_track,
     validate_layout,
-    validate_track,
 )
 
 
@@ -52,7 +51,7 @@ def _copy_track(track: ResidueTrack | None) -> ResidueTrack | None:
     return (
         None
         if track is None
-        else ResidueTrack(list(track.values), track.sentinel)
+        else ResidueTrack(list(track.values), None)
     )
 
 
@@ -120,17 +119,18 @@ def validate_protein_prompt(value: object) -> ProteinPrompt:
     for name, (track, kind) in prompt_tracks.items():
         if track is None:
             continue
-        if type(track) is not ResidueTrack or track.sentinel is not None:
+        if type(track) is not ResidueTrack:
             raise ValueError(
-                f"protein_prompt {name} must use explicit JSON null semantics"
+                f"protein_prompt {name} must be a ResidueTrack"
             )
-        validate_track(
-            AlignedResidueTrack(target, tuple(track.values)),
+        _validate_track_values(
+            track.values,
+            layout=target,
             kind=kind,
             subject=f"protein_prompt {name}",
-            expected_layout=target,
         )
-    validate_function_annotations(value.function_annotations, target)
+    validate_canonical_function_annotations(value.function_annotations)
+    require_function_annotation_layout(value.function_annotations, target)
     return value
 
 
@@ -140,8 +140,7 @@ def update_prompt_sequence(
 ) -> ProteinPrompt:
     """Replace only sequence assignments on one canonical Prompt layout."""
     source = prompt
-    target = prompt.target_layout
-    assert target is not None
+    target = cast(ResidueLayout, prompt.target_layout)
     if len(sequence.sequence) != target.length:
         raise ValueError(
             "sequence length must equal the protein_prompt target layout"
@@ -149,7 +148,7 @@ def update_prompt_sequence(
     if (
         sequence.residue_ids is not None
         and tuple(sequence.residue_ids)
-        != tuple(target.residue_ids or ())
+        != tuple(target.residue_ids)
     ):
         raise ValueError(
             "sequence residue identities must equal the protein_prompt layout"
@@ -184,8 +183,7 @@ def override_protein_prompt_track(
     selected = getattr(source, attribute)
     if selected is None:
         raise ValueError(f"protein_prompt has no {track} track to override")
-    layout = source.target_layout
-    assert layout is not None
+    layout = cast(ResidueLayout, source.target_layout)
     changed = override_track(
         AlignedResidueTrack(layout, tuple(selected.values)),
         layout,
