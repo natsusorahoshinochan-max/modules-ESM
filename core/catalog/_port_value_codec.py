@@ -135,7 +135,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise _errors.PortValueError(
                 f"{path}.data must be a registered Candidate value"
             )
-        _validate_domain_value(value.data, path=f"{path}.data")
         try:
             validate_candidate_parent_ids(value, subject=path)
         except ValueError as error:
