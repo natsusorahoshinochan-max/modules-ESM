@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 from core.catalog.declarations import (
     ContractIdentity,
@@ -14,7 +14,6 @@ from core.catalog.declarations import (
     NodeTypeDefinition,
     ProducedObservationDefinition,
 )
-from core.catalog.model import FrozenCatalog
 from core.catalog.port_contract import canonical_json_bytes
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
@@ -24,6 +23,7 @@ from core.scoring.selection import (
 )
 from core.workflow.compiler import WorkflowCompileError
 from core.workflow.document import (
+    ContractLockEntry,
     WorkflowDocument,
     WorkflowNodeInstance,
 )
@@ -41,8 +41,8 @@ def _port_map(
 @dataclass(frozen=True, slots=True)
 class _ObservationCapability:
     source_partition: str
-    metric: ExactContractReference
-    method: ExactContractReference | None
+    metric: ContractLockEntry
+    method: ContractLockEntry | None
     context_profile: Mapping[str, Any]
     subject_grain: str
     source_role: str
@@ -53,6 +53,7 @@ class _ObservationCapability:
 
 
 type _AdmittedInputSource = tuple[int, SelectionInput]
+type _LockedContracts = Mapping[tuple[str, str, str], ContractLockEntry]
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,9 +63,26 @@ class _AdmittedWorkflowGraph:
     node_order: tuple[str, ...]
 
 
+def _same_exact_contract(
+    locked: ContractLockEntry | None,
+    reference: ExactContractReference | None,
+) -> bool:
+    if locked is None or reference is None:
+        return locked is None and reference is None
+    return (
+        locked.key == reference.key
+        and locked.contract_digest == reference.contract_digest
+    )
+
+
 def _validate_static_semantics(
     workflow: WorkflowDocument,
-    catalog: FrozenCatalog,
+    *,
+    plan_nodes: Mapping[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ],
+    lock_by_key: _LockedContracts,
     admitted_node_parameters: Mapping[str, AdmittedParameterValues],
 ) -> _AdmittedWorkflowGraph:
     nodes_by_id: dict[str, WorkflowNodeInstance] = {}
@@ -92,22 +110,8 @@ def _validate_static_semantics(
                 "Workflow Edge references a Node outside the Workflow",
                 field_path=("edges", index),
             )
-        source_definition = cast(
-            NodeTypeDefinition,
-            catalog.require_contract(
-            "node_type",
-            source.node_type_id,
-            source.node_type_version,
-            ).definition,
-        )
-        target_definition = cast(
-            NodeTypeDefinition,
-            catalog.require_contract(
-            "node_type",
-            target.node_type_id,
-            target.node_type_version,
-            ).definition,
-        )
+        source_definition = plan_nodes[source.node_id][0]
+        target_definition = plan_nodes[target.node_id][0]
         source_port = _port_map(source_definition, "outputs").get(
             edge.source_port
         )
@@ -165,27 +169,8 @@ def _validate_static_semantics(
         adjacency[source.node_id].append(target.node_id)
         indegree[target.node_id] += 1
 
-    plan_nodes: dict[
-        str,
-        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
-    ] = {}
     for index, node in enumerate(workflow.nodes):
-        node_definition = cast(
-            NodeTypeDefinition,
-            catalog.require_contract(
-            "node_type",
-            node.node_type_id,
-            node.node_type_version,
-            ).definition,
-        )
-        binding = cast(
-            ExecutionBindingDefinition,
-            catalog.require_contract(
-            "binding",
-            node.binding_id,
-            node.binding_version,
-            ).definition,
-        )
+        node_definition, binding = plan_nodes[node.node_id]
         if binding.node_type.key != node_definition.identity.key:
             raise WorkflowCompileError(
                 "binding_ownership_mismatch",
@@ -216,8 +201,6 @@ def _validate_static_semantics(
                     node_id=node.node_id,
                     field_path=("nodes", index),
                 )
-        plan_nodes[node.node_id] = (node_definition, binding)
-
     queue = deque(
         node.node_id for node in workflow.nodes if indegree[node.node_id] == 0
     )
@@ -243,7 +226,7 @@ def _validate_static_semantics(
     )
     capabilities = _derive_observation_capabilities(
         graph,
-        catalog=catalog,
+        lock_by_key=lock_by_key,
         plan_nodes=plan_nodes,
     )
     _validate_selection_objectives(
@@ -348,8 +331,8 @@ def _validate_selection_objectives(
             capability
             for capability in output_capabilities
             if capability.source_partition == objective.source_partition
-            and capability.metric == objective.metric
-            and capability.method == objective.method
+            and _same_exact_contract(capability.metric, objective.metric)
+            and _same_exact_contract(capability.method, objective.method)
             and capability.context_profile == requested_context
             and capability.subject_grain == "candidate"
             and capability.source_role == "subject"
@@ -368,10 +351,13 @@ def _validate_selection_objectives(
         if len(produced) != 1:
             if any(
                 capability.source_partition == objective.source_partition
-                and capability.metric == objective.metric
+                and _same_exact_contract(capability.metric, objective.metric)
                 and capability.context_profile == requested_context
                 and capability.subject_source == objective.candidate_input
-                and capability.method != objective.method
+                and not _same_exact_contract(
+                    capability.method,
+                    objective.method,
+                )
                 for capability in output_capabilities
             ):
                 raise WorkflowCompileError(
@@ -461,8 +447,8 @@ def _validate_observation_selectors(
             capability
             for capability in output_capabilities
             if capability.source_partition == selector.source_partition
-            and capability.metric == selector.metric
-            and capability.method == selector.method
+            and _same_exact_contract(capability.metric, selector.metric)
+            and _same_exact_contract(capability.method, selector.method)
             and capability.context_profile == requested_context
             and capability.subject_grain == "candidate"
             and capability.source_role == "subject"
@@ -472,13 +458,16 @@ def _validate_observation_selectors(
         if len(produced) != 1:
             if any(
                 capability.source_partition == selector.source_partition
-                and capability.metric == selector.metric
+                and _same_exact_contract(capability.metric, selector.metric)
                 and capability.context_profile == requested_context
                 and capability.subject_grain == "candidate"
                 and capability.source_role == "subject"
                 and capability.guaranteed_multiplicity == "one"
                 and capability.subject_source == selector.candidate_input
-                and capability.method != selector.method
+                and not _same_exact_contract(
+                    capability.method,
+                    selector.method,
+                )
                 for capability in output_capabilities
             ):
                 raise WorkflowCompileError(
@@ -742,7 +731,7 @@ def _capability_source(
 def _capability_matches_filter(
     capability: _ObservationCapability,
     filter_descriptor: Mapping[str, Any],
-    catalog: FrozenCatalog,
+    lock_by_key: _LockedContracts,
 ) -> bool:
     source_partition = filter_descriptor.get("source_partition")
     metric = filter_descriptor.get("metric")
@@ -752,11 +741,11 @@ def _capability_matches_filter(
         (source_partition is None or capability.source_partition == source_partition)
         and (
             metric is None
-            or capability.metric == catalog.require_reference(*metric.key)
+            or capability.metric == lock_by_key[metric.key]
         )
         and (
             method is None
-            or capability.method == catalog.require_reference(*method.key)
+            or capability.method == lock_by_key[method.key]
         )
         and (
             context_profile is None
@@ -784,24 +773,14 @@ def _produced_observation_method(
     )
     if source is None:
         return None
-    source_plan = plan_nodes.get(source.node_id)
-    if source_plan is None:
-        return None
-    return source_plan[1].method
+    return plan_nodes[source.node_id][1].method
 
 
 def _capability_canonical(
     capability: _ObservationCapability,
 ) -> dict[str, Any]:
-    def reference(value: ExactContractReference | None) -> Any:
-        if value is None:
-            return None
-        return {
-            "contract_kind": value.contract_kind,
-            "contract_id": value.contract_id,
-            "contract_version": value.contract_version,
-            "contract_digest": value.contract_digest,
-        }
+    def reference(value: ContractLockEntry | None) -> Any:
+        return None if value is None else value.canonical_projection()
 
     def source(value: SelectionInput | None) -> Any:
         return None if value is None else selection_input_canonical(value)
@@ -822,7 +801,7 @@ def _capability_canonical(
 def _derive_observation_capabilities(
     graph: _AdmittedWorkflowGraph,
     *,
-    catalog: FrozenCatalog,
+    lock_by_key: _LockedContracts,
     plan_nodes: Mapping[
         str,
         tuple[NodeTypeDefinition, ExecutionBindingDefinition],
@@ -845,9 +824,9 @@ def _derive_observation_capabilities(
             )
             capability = _ObservationCapability(
                 source_partition=declaration.output_partition,
-                metric=catalog.require_reference(*declaration.metric.key),
+                metric=lock_by_key[declaration.metric.key],
                 method=(
-                    catalog.require_reference(*observation_method.key)
+                    lock_by_key[observation_method.key]
                     if observation_method is not None
                     else None
                 ),
@@ -896,7 +875,7 @@ def _derive_observation_capabilities(
                 if _capability_matches_filter(
                     capability,
                     propagation.filter,
-                    catalog,
+                    lock_by_key,
                 )
             ]
         unique: dict[bytes, _ObservationCapability] = {}

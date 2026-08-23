@@ -246,6 +246,10 @@ def compile(
         str,
         tuple[AdmittedParameterValues, AdmittedParameterValues],
     ] = {}
+    plan_nodes: dict[
+        str,
+        tuple[NodeTypeDefinition, ExecutionBindingDefinition],
+    ] = {}
     for index, node in enumerate(workflow.nodes):
         node_type_contract = resolved_by_key[
             ("node_type", node.node_type_id, node.node_type_version)
@@ -261,6 +265,7 @@ def compile(
             ExecutionBindingDefinition,
             binding_contract.definition,
         )
+        plan_nodes[node.node_id] = (node_definition, binding_definition)
         admitted_parameters[node.node_id] = (
             _admit_parameter_values(
                 node.node_parameters,
@@ -300,8 +305,9 @@ def compile(
     }
     graph = _validate_static_semantics(
         workflow,
-        catalog,
-        {
+        plan_nodes=plan_nodes,
+        lock_by_key=lock_by_key,
+        admitted_node_parameters={
             node_id: values[0]
             for node_id, values in admitted_parameters.items()
         },
@@ -335,11 +341,7 @@ def compile(
         binding = resolved_by_key[
             ("binding", node.binding_id, node.binding_version)
         ]
-        node_definition = cast(NodeTypeDefinition, node_type_contract.definition)
-        binding_definition = cast(
-            ExecutionBindingDefinition,
-            binding.definition,
-        )
+        node_definition, binding_definition = plan_nodes[node_id]
         method_key = binding_definition.method.key
         method_contract = resolved_by_key[method_key]
         normalized_node_parameters, normalized_binding_parameters = (
