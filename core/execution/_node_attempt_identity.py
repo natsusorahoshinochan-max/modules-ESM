@@ -86,7 +86,7 @@ def _result_identity_descriptor(
     inputs: Mapping[str, AdmittedPort],
     *,
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot,
-    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
+    resolved_resource_inputs: tuple[Mapping[str, Any], ...],
 ) -> dict[str, Any]:
     """Build the closed scientific identity of one resolved Node result."""
     plan_facts = node.result_identity_plan_facts
@@ -165,7 +165,7 @@ def _result_identity(
     inputs: Mapping[str, AdmittedPort],
     *,
     effective_randomness_snapshot: _EffectiveRandomnessSnapshot,
-    resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
+    resolved_resource_inputs: tuple[Mapping[str, Any], ...],
 ) -> str:
     return canonical_sha256(
         _result_identity_descriptor(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from datatypes.i_json import FrozenList, freeze_i_json
 
@@ -202,8 +202,8 @@ def validate_residue_map(
         value.target_layout,
         subject=f"{subject} target layout",
     )
-    source_ids = tuple(source.residue_ids or ())
-    target_ids = tuple(target.residue_ids or ())
+    source_ids = tuple(cast(tuple[str, ...], source.residue_ids))
+    target_ids = tuple(cast(tuple[str, ...], target.residue_ids))
     common_ids = set(source_ids) & set(target_ids)
     covered_sources: set[int] = set()
     covered_targets: set[int] = set()

@@ -63,7 +63,7 @@ class ResultIdentityPlanFacts:
     """Immutable compile-resolved static facts for one Result Identity."""
 
     identity_facts: Mapping[str, Any]
-    node_parameter_indirections: tuple[str, ...] = ()
+    node_parameter_indirections: tuple[str, ...]
 
     def identity_projection(self) -> dict[str, Any]:
         """Return one isolated canonical projection shared by runtime users."""
@@ -93,7 +93,7 @@ class ResultIdentityPlanFacts:
         binding_parameters: Mapping[str, Any],
         deterministic: bool,
         effective_randomness: Mapping[str, Any],
-        resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
+        resolved_resource_inputs: tuple[Mapping[str, Any], ...],
     ) -> dict[str, Any]:
         """Build the canonical scientific identity for one resolved result."""
         canonical_plan_facts = self.canonical_projection()
@@ -221,5 +221,5 @@ class ExecutionPlan:
     node_order: tuple[str, ...]
     resolved_contracts: tuple[ContractLockEntry, ...]
     _runtime: _ExecutionPlanRuntime = field(repr=False, compare=False)
-    observation_selectors: tuple[ObservationSelector, ...] = ()
-    selection_objectives: tuple[SelectionObjective, ...] = ()
+    observation_selectors: tuple[ObservationSelector, ...]
+    selection_objectives: tuple[SelectionObjective, ...]

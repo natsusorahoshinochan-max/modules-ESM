@@ -127,6 +127,7 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
         descriptor = _result_identity_descriptor(
             node,
             {},
+            resolved_resource_inputs=(),
             effective_randomness_snapshot=_resolve_effective_randomness(
                 node,
                 {},
@@ -181,6 +182,7 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
         descriptor = _result_identity_descriptor(
             compiled.execution_plan.nodes[0],
             {},
+            resolved_resource_inputs=(),
             effective_randomness_snapshot=_resolve_effective_randomness(
                 compiled.execution_plan.nodes[0],
                 {},

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import hashlib
 import math
 import re
+from typing import cast
 
 import rfc8785
 
@@ -106,7 +107,7 @@ class PredictionResidueAxis:
         if (
             self.sequence.residue_ids is None
             or tuple(self.sequence.residue_ids)
-            != tuple(self.layout.residue_ids or ())
+            != tuple(cast(tuple[str, ...], self.layout.residue_ids))
         ):
             raise ValueError(
                 "prediction sequence residue identities must exactly equal "
