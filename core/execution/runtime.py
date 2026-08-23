@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import threading
-from types import MappingProxyType
 from typing import Any, Literal, cast
 import uuid
 
@@ -197,7 +196,7 @@ class V2RunService:
                 multiplicity=declaration.multiplicity,
                 values=tuple(admitted),
             )
-        return MappingProxyType(inputs)
+        return inputs
 
     def start(
         self,
@@ -245,6 +244,11 @@ class V2RunService:
         workflow_commit_revision = plan.workflow_commit_revision
         run_id = f"run-{uuid.uuid4().hex}"
         admitted_plan_evidence = plan_evidence(plan)
+        resolved_contracts = tuple(
+            _exact_contract_reference(entry)
+            for entry in plan.resolved_contracts
+        )
+        resolved_contract_roots = _execution_plan_contract_roots(plan)
         try:
             ledger = Ledger(
                 self._projects,
@@ -252,13 +256,8 @@ class V2RunService:
                 run_id,
                 admitted_plan_evidence,
                 self._ledger_transaction_store,
-                expected_resolved_contracts=tuple(
-                    _exact_contract_reference(entry)
-                    for entry in plan.resolved_contracts
-                ),
-                expected_contract_roots=tuple(
-                    _execution_plan_contract_roots(plan)
-                ),
+                expected_resolved_contracts=resolved_contracts,
+                expected_contract_roots=resolved_contract_roots,
             )
         except (OSError, StoragePathError) as error:
             raise V2RunError(
@@ -274,13 +273,8 @@ class V2RunService:
                 contract_lock_digest=plan.contract_lock_digest,
                 execution_plan_digest=plan.execution_plan_digest,
                 catalog_contract_digest=plan.catalog_contract_digest,
-                resolved_contract_roots=tuple(
-                    _execution_plan_contract_roots(plan)
-                ),
-                resolved_contracts=tuple(
-                    _exact_contract_reference(entry)
-                    for entry in plan.resolved_contracts
-                ),
+                resolved_contract_roots=resolved_contract_roots,
+                resolved_contracts=resolved_contracts,
                 derived_from=_derived_from,
             )
         )
@@ -358,7 +352,7 @@ class V2RunService:
                     NodeDisposition(
                         node_id=node.node_id,
                         outcome="blocked",
-                        blocked_by=tuple(blocked_by),
+                        blocked_by=blocked_by,
                     )
                 )
                 if acknowledged is None:
