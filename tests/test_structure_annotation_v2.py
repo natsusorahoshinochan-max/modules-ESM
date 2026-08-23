@@ -22,9 +22,7 @@ from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-)
+from core.catalog.errors import PortValueError
 from core.operation import (
     OperationCall,
 )

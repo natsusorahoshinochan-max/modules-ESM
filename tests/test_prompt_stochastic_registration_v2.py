@@ -11,9 +11,7 @@ import pytest
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.catalog.port_contract import (
-    CatalogBuildError,
-)
+from core.catalog.errors import CatalogBuildError
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,

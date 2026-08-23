@@ -22,11 +22,11 @@ from core.parameters.model import (
     ParameterContract,
 )
 from core.catalog.model import FrozenCatalog
-from core.catalog.port_contract import (
+from core.catalog.errors import (
     CatalogBuildError,
     ContractResolutionError,
-    canonical_sha256,
 )
+from core.catalog.port_contract import canonical_sha256
 from core.scoring.selection import (
     observation_selector_canonical,
     selection_objective_canonical,

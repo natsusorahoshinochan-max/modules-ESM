@@ -56,9 +56,7 @@ from core.scoring.selection import (
     selection_input_canonical,
     selection_provenance_canonical,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-)
+from core.catalog.errors import PortValueError
 from tests.support.application import create_application
 from core.workflow.compiler import WorkflowCompileError
 from core.workflow.document import WorkflowDocumentError

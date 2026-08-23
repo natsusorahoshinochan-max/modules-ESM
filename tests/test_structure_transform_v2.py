@@ -17,10 +17,8 @@ from core.catalog.builder import (
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-    canonical_json_bytes,
-)
+from core.catalog.errors import PortValueError
+from core.catalog.port_contract import canonical_json_bytes
 from core.operation import (
     OperationCall,
 )

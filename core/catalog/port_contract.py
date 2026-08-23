@@ -13,6 +13,7 @@ from typing import Any, Callable, cast
 
 import rfc8785
 
+from core.catalog import errors as _errors
 from core.operation import EncodedOutputIdentities, ResolvedOutputIdentity
 from datatypes.candidate import (
     Candidate,
@@ -217,61 +218,6 @@ _SEMANTIC_VERSION = re.compile(
 )
 
 
-class CatalogBuildError(ValueError):
-    """A malformed stable contract prevented atomic Catalog publication."""
-
-
-class UnknownPortTypeError(LookupError):
-    """An exact Port Type identity is not present in the FrozenCatalog."""
-
-
-class ContractResolutionError(LookupError):
-    """An exact Contract identity cannot resolve in the active Catalog."""
-
-
-class UnknownContractError(ContractResolutionError):
-    """No active Catalog contract has the requested logical identity."""
-
-    def __init__(
-        self,
-        contract_kind: str,
-        contract_id: str,
-        requested_version: str,
-    ) -> None:
-        self.contract_kind = contract_kind
-        self.contract_id = contract_id
-        self.requested_version = requested_version
-        super().__init__(
-            f"Unknown contract {contract_kind}:"
-            f"{contract_id}@{requested_version}"
-        )
-
-
-class InactiveContractGenerationError(ContractResolutionError):
-    """A logical contract exists, but its requested version is not active."""
-
-    def __init__(
-        self,
-        contract_kind: str,
-        contract_id: str,
-        requested_version: str,
-        active_version: str,
-    ) -> None:
-        self.contract_kind = contract_kind
-        self.contract_id = contract_id
-        self.requested_version = requested_version
-        self.active_version = active_version
-        super().__init__(
-            f"Requested contract version {contract_kind}:"
-            f"{contract_id}@{requested_version} is not active; active version is "
-            f"{active_version}"
-        )
-
-
-class PortValueError(ValueError):
-    """A runtime Port value violates its nominal validation or codec contract."""
-
-
 def _require_single_active_contract_version(
     identities: Iterable[tuple[str, str, str]],
 ) -> None:
@@ -280,7 +226,7 @@ def _require_single_active_contract_version(
         logical_identity = (contract_kind, contract_id)
         active_version = active_versions.get(logical_identity)
         if active_version is not None and active_version != contract_version:
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "multiple active versions for contract "
                 f"{contract_kind}:{contract_id}: "
                 f"{active_version} and {contract_version}"
@@ -292,7 +238,7 @@ def _validate_identifier(value: str, field_name: str) -> None:
     try:
         validate_canonical_identifier(value, field_name)
     except ValueError as error:
-        raise CatalogBuildError(
+        raise _errors.CatalogBuildError(
             f"{field_name} must be a versioned identifier"
         ) from error
 
@@ -301,7 +247,9 @@ def _validate_runtime_identifier(value: object, *, path: str) -> None:
     try:
         validate_canonical_identifier(value, path)
     except ValueError as error:
-        raise PortValueError(f"{path} must be a canonical identifier") from error
+        raise _errors.PortValueError(
+            f"{path} must be a canonical identifier"
+        ) from error
 
 
 def _validate_version(value: str, field_name: str) -> None:
@@ -310,7 +258,9 @@ def _validate_version(value: str, field_name: str) -> None:
         or not 5 <= len(value) <= 64
         or _SEMANTIC_VERSION.fullmatch(value) is None
     ):
-        raise CatalogBuildError(f"{field_name} must be an exact semantic version")
+        raise _errors.CatalogBuildError(
+            f"{field_name} must be an exact semantic version"
+        )
 
 
 def _validate_i_json(value: Any, *, path: str = "$") -> None:
@@ -319,19 +269,21 @@ def _validate_i_json(value: Any, *, path: str = "$") -> None:
             try:
                 value.encode("utf-8")
             except UnicodeEncodeError as error:
-                raise CatalogBuildError(
+                raise _errors.CatalogBuildError(
                     f"{path} contains a non-Unicode scalar value"
                 ) from error
         return
     if isinstance(value, int):
         if not -_I_JSON_INTEGER_LIMIT <= value <= _I_JSON_INTEGER_LIMIT:
-            raise CatalogBuildError(f"{path} is outside the I-JSON integer domain")
+            raise _errors.CatalogBuildError(
+                f"{path} is outside the I-JSON integer domain"
+            )
         return
     if isinstance(value, float):
         if not math.isfinite(value):
-            raise CatalogBuildError(f"{path} must not contain NaN or Infinity")
+            raise _errors.CatalogBuildError(f"{path} must not contain NaN or Infinity")
         if value == 0.0 and math.copysign(1.0, value) < 0:
-            raise CatalogBuildError(f"{path} must not contain negative zero")
+            raise _errors.CatalogBuildError(f"{path} must not contain negative zero")
         return
     if isinstance(value, list):
         for index, item in enumerate(value):
@@ -340,11 +292,11 @@ def _validate_i_json(value: Any, *, path: str = "$") -> None:
     if isinstance(value, Mapping):
         for key, item in value.items():
             if not isinstance(key, str):
-                raise CatalogBuildError(f"{path} has a non-string object key")
+                raise _errors.CatalogBuildError(f"{path} has a non-string object key")
             _validate_i_json(key, path=f"{path}.<key>")
             _validate_i_json(item, path=f"{path}.{key}")
         return
-    raise CatalogBuildError(
+    raise _errors.CatalogBuildError(
         f"{path} contains a value that cannot be represented in I-JSON"
     )
 
@@ -356,7 +308,9 @@ def canonical_json_bytes(value: Any) -> bytes:
     try:
         return rfc8785.dumps(projected)
     except (rfc8785.CanonicalizationError, UnicodeError) as error:
-        raise CatalogBuildError("value cannot be canonicalized with RFC 8785") from error
+        raise _errors.CatalogBuildError(
+            "value cannot be canonicalized with RFC 8785"
+        ) from error
 
 
 def _freeze_validated_i_json(value: Any) -> Any:
@@ -426,28 +380,28 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         try:
             validate_protein_sequence(value, subject=path)
         except (TypeError, ValueError) as error:
-            raise PortValueError(str(error)) from error
+            raise _errors.PortValueError(str(error)) from error
         return
 
     if type(value) is ProteinStructure:
         try:
             validate_protein_structure(value, subject=path)
         except (TypeError, ValueError) as error:
-            raise PortValueError(str(error)) from error
+            raise _errors.PortValueError(str(error)) from error
         return
 
     if type(value) is ResidueLayout:
         try:
             validate_residue_layout(value, subject=path)
         except (TypeError, ValueError) as error:
-            raise PortValueError(str(error)) from error
+            raise _errors.PortValueError(str(error)) from error
         return
 
     if type(value) is ResidueMap:
         try:
             validate_residue_map(value, subject=path)
         except (TypeError, ValueError) as error:
-            raise PortValueError(str(error)) from error
+            raise _errors.PortValueError(str(error)) from error
         return
 
     if type(value) is Candidate:
@@ -456,12 +410,14 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             path=f"{path}.candidate_id",
         )
         if type(value.data) not in (ProteinSequence, ProteinStructure):
-            raise PortValueError(f"{path}.data must be a registered Candidate value")
+            raise _errors.PortValueError(
+                f"{path}.data must be a registered Candidate value"
+            )
         _validate_domain_value(value.data, path=f"{path}.data")
         try:
             validate_candidate_parent_ids(value, subject=path)
         except ValueError as error:
-            raise PortValueError(str(error)) from error
+            raise _errors.PortValueError(str(error)) from error
         return
 
     if type(value) is CandidateCollection:
@@ -475,13 +431,13 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         }
         expected_candidate_type = expected_candidate_types.get(value.item_type)
         if expected_candidate_type is None:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.item_type must name a supported Candidate data type"
             )
         for index, candidate in enumerate(value.items):
             _validate_domain_value(candidate, path=f"{path}.items[{index}]")
             if type(candidate.data) is not expected_candidate_type:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"{path}.items[{index}].data mismatches "
                     f"item_type {value.item_type}"
                 )
@@ -491,19 +447,19 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                 subject=path,
             )
         except ValueError as error:
-            raise PortValueError(str(error)) from error
+            raise _errors.PortValueError(str(error)) from error
         return
 
     if type(value) is IntrinsicObservationContext:
         if value.kind != "intrinsic":
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} must use the fixed intrinsic Observation Context"
             )
         return
 
     if type(value) is CalibrationObservationContext:
         if value.kind != "calibration":
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} must use the calibration Observation Context"
             )
         for name in (
@@ -524,7 +480,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                 and math.copysign(1.0, value.calibration_value) < 0
             )
         ):
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.calibration_value must be a finite canonical number"
             )
         return
@@ -542,18 +498,18 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                     known_reference is not None
                     and known_reference != participant
                 ):
-                    raise PortValueError(
+                    raise _errors.PortValueError(
                         f"{path} reuses one Candidate identity with "
                         "conflicting exact data reference"
                     )
                 candidate_references[participant.candidate_id] = participant
             if entry.subject in subjects:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"{path} contains multiple counterparts for one subject"
                 )
             subjects.add(entry.subject)
             if entry.reference in references:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"{path} reuses one counterpart for multiple subjects"
                 )
             references.add(entry.reference)
@@ -561,24 +517,24 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
 
     if type(value) is PairwiseObservationContext:
         if value.kind != "pairwise":
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} must use the pairwise Observation Context"
             )
         if value.subject.role != "subject":
-            raise PortValueError(f"{path}.subject must use the subject role")
+            raise _errors.PortValueError(f"{path}.subject must use the subject role")
         if value.reference.role != "reference":
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.reference must use the reference role"
             )
         if value.subject.candidate_id == value.reference.candidate_id:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} subject and reference identities must differ"
             )
         if value.pairing_mode not in {
             "fixed_reference",
             "per_subject_counterpart",
         }:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.pairing_mode is not a controlled pairing mode"
             )
         _validate_runtime_identifier(
@@ -589,11 +545,11 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
 
     if type(value) is ScoreObservation:
         if value.metric.contract_kind != "metric":
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.metric must be an exact metric reference"
             )
         if value.method.contract_kind != "method":
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.method must be an exact method reference"
             )
         _validate_domain_value(value.context, path=f"{path}.context")
@@ -610,7 +566,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             type(value.context) is PairwiseObservationContext
             and value.context.subject.candidate != value.subject
         ):
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.context subject identity must match exact subject"
             )
         return
@@ -633,11 +589,11 @@ def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
             if item is value.sentinel:
                 continue
             if isinstance(item, bool) or not isinstance(item, (int, float)):
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"$.value.values[{index}] must be numeric or the sentinel"
                 )
             if item < 0:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"$.value.values[{index}] must be non-negative"
                 )
 
@@ -646,11 +602,11 @@ def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
             if item is value.sentinel:
                 continue
             if type(item) is not str:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"$.value.values[{index}] must be text or the sentinel"
                 )
             if len(item) != 1:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"$.value.values[{index}] must be one canonical code"
                 )
 
@@ -659,8 +615,8 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
     if value is None or isinstance(value, (str, bool, int, float)):
         try:
             _validate_i_json(value, path=path)
-        except CatalogBuildError as error:
-            raise PortValueError(str(error)) from error
+        except _errors.CatalogBuildError as error:
+            raise _errors.PortValueError(str(error)) from error
         return value
     if isinstance(value, (list, FrozenList)):
         return [
@@ -676,7 +632,7 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
         }
     if isinstance(value, Mapping):
         if any(type(key) is not str for key in value):
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} contains a non-string I-JSON object key"
             )
         entries = [
@@ -692,7 +648,7 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
         value_type = type(value)
         tag = _TAG_BY_DATACLASS.get(value_type)
         if tag is None:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} uses an unregistered runtime value class "
                 f"{value_type.__name__}"
             )
@@ -706,7 +662,7 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
                 for item in fields(value)
             },
         }
-    raise PortValueError(
+    raise _errors.PortValueError(
         f"{path} contains an unsupported runtime value "
         f"{type(value).__name__}"
     )
@@ -721,7 +677,7 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
             for index, item in enumerate(value)
         ]
     if not isinstance(value, dict):
-        raise PortValueError(f"{path} is not a valid canonical value")
+        raise _errors.PortValueError(f"{path} is not a valid canonical value")
     if set(value) == {"$tuple"} and isinstance(value["$tuple"], list):
         return tuple(
             _wire_to_value(item, path=f"{path}[{index}]")
@@ -732,29 +688,31 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
         encoded_keys: list[bytes] = []
         for index, entry in enumerate(value["$map"]):
             if not isinstance(entry, list) or len(entry) != 2:
-                raise PortValueError(f"{path}.$map[{index}] must be a key/value pair")
+                raise _errors.PortValueError(
+                    f"{path}.$map[{index}] must be a key/value pair"
+                )
             encoded_keys.append(canonical_json_bytes(entry[0]))
         if encoded_keys != sorted(encoded_keys) or len(encoded_keys) != len(
             set(encoded_keys)
         ):
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path}.$map entries are not in unique canonical key order"
             )
         for index, entry in enumerate(value["$map"]):
             key = _wire_to_value(entry[0], path=f"{path}.$map[{index}][0]")
             item = _wire_to_value(entry[1], path=f"{path}.$map[{index}][1]")
             if type(key) is not str:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"{path}.$map contains a non-string I-JSON object key"
                 )
             try:
                 if key in result:
-                    raise PortValueError(
+                    raise _errors.PortValueError(
                         f"{path}.$map contains a duplicate decoded key"
                     )
                 result[key] = item
             except TypeError as error:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"{path}.$map contains an unhashable key"
                 ) from error
         return result
@@ -763,10 +721,10 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
         raw_fields = value["fields"]
         value_type = _DATACLASS_BY_TAG.get(tag)
         if value_type is None or not isinstance(raw_fields, dict):
-            raise PortValueError(f"{path} names an unknown runtime value kind")
+            raise _errors.PortValueError(f"{path} names an unknown runtime value kind")
         expected_fields = {item.name for item in fields(value_type)}
         if set(raw_fields) != expected_fields:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} fields do not match the complete {tag} contract"
             )
         decoded_fields = {
@@ -776,40 +734,44 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
         try:
             return value_type(**decoded_fields)
         except (TypeError, ValueError) as error:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{path} is not a valid {tag} value: {error}"
             ) from error
-    raise PortValueError(f"{path} contains a malformed canonical value object")
+    raise _errors.PortValueError(f"{path} contains a malformed canonical value object")
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
         if key in result:
-            raise PortValueError(f"duplicate JSON object key {key!r}")
+            raise _errors.PortValueError(f"duplicate JSON object key {key!r}")
         result[key] = value
     return result
 
 
 def _parse_canonical_json(encoded: bytes) -> Any:
     if not isinstance(encoded, bytes):
-        raise PortValueError("canonical codec input must be bytes")
+        raise _errors.PortValueError("canonical codec input must be bytes")
     try:
         payload = json.loads(
             encoded.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=lambda value: (_ for _ in ()).throw(
-                PortValueError(f"non-I-JSON numeric value {value}")
+                _errors.PortValueError(f"non-I-JSON numeric value {value}")
             ),
         )
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise PortValueError("canonical codec input is malformed UTF-8 JSON") from error
+        raise _errors.PortValueError(
+            "canonical codec input is malformed UTF-8 JSON"
+        ) from error
     try:
         canonical = canonical_json_bytes(payload)
-    except CatalogBuildError as error:
-        raise PortValueError(str(error)) from error
+    except _errors.CatalogBuildError as error:
+        raise _errors.PortValueError(str(error)) from error
     if encoded != canonical:
-        raise PortValueError("codec input is valid JSON but not canonical RFC 8785 bytes")
+        raise _errors.PortValueError(
+            "codec input is valid JSON but not canonical RFC 8785 bytes"
+        )
     return payload
 
 
@@ -916,7 +878,7 @@ class PortTypeDefinition:
         for source_role, source_port_type in source_port_types.items():
             _validate_identifier(source_role, "output identity source role")
             if type(source_port_type) is not PortTypeDefinition:
-                raise CatalogBuildError(
+                raise _errors.CatalogBuildError(
                     "output identity source roles require exact Port Types"
                 )
         object.__setattr__(
@@ -927,14 +889,14 @@ class PortTypeDefinition:
         if (self.output_identity_materialization is None) != (
             self.runtime_output_identity_materializer is None
         ):
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "output identity materialization declaration and runtime must "
                 "be provided together"
             )
         if (self.output_identity_materialization is None) != (
             not source_port_types
         ):
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "output identity materialization requires exact source Port "
                 "roles"
             )
@@ -945,7 +907,7 @@ class PortTypeDefinition:
             )
             != self.output_identity_materialization.descriptor()
         ):
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "output identity materialization must be declared by the "
                 "Port validator behavior"
             )
@@ -959,27 +921,27 @@ class PortTypeDefinition:
                 for source_role, source_port_type in source_port_types.items()
             }
         ):
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "output identity source roles must declare exact Port references"
             )
         if (self.candidate_data_projection is None) != (
             self.runtime_candidate_data_projection is None
         ):
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "candidate_data_projection declaration and runtime must be "
                 "provided together"
             )
         if (self.scientific_axis_projection is None) != (
             self.runtime_scientific_axis_projection is None
         ):
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "scientific_axis_projection declaration and runtime must be "
                 "provided together"
             )
         if (self.observation_method_projection is None) != (
             self.runtime_observation_method_projection is None
         ):
-            raise CatalogBuildError(
+            raise _errors.CatalogBuildError(
                 "observation_method_projection declaration and runtime must "
                 "be provided together"
             )
@@ -1096,7 +1058,7 @@ class PortTypeDefinition:
         """Resolve one data-only fresh identity relation for this Port."""
         materializer = self.runtime_output_identity_materializer
         if materializer is None:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"Port Type {self.type_id}@{self.version} does not own output "
                 "identity materialization"
             )
@@ -1116,7 +1078,7 @@ class PortTypeDefinition:
         )
         if any(behavior is not None for behavior in custom_behaviors):
             if not all(behavior is not None for behavior in custom_behaviors):
-                raise CatalogBuildError(
+                raise _errors.CatalogBuildError(
                     f"{self.type_id}@{self.version} has an incomplete runtime "
                     "validator/codec declaration"
                 )
@@ -1128,7 +1090,7 @@ class PortTypeDefinition:
                 not isinstance(value_kind, str)
                 or value_kind not in _VALUE_TYPE_BY_KIND
             ):
-                raise CatalogBuildError(
+                raise _errors.CatalogBuildError(
                     f"{self.type_id}@{self.version} has no installed "
                     "validator behavior"
                 )
@@ -1137,7 +1099,7 @@ class PortTypeDefinition:
         value_kind = self.value_kind
         expected_type = _VALUE_TYPE_BY_KIND[value_kind]
         if type(value) is not expected_type:
-            raise PortValueError(
+            raise _errors.PortValueError(
                 f"{self.type_id}@{self.version} requires {expected_type.__name__}, "
                 f"got {type(value).__name__}"
             )
@@ -1148,10 +1110,10 @@ class PortTypeDefinition:
         if self.runtime_validator is not None:
             try:
                 self.runtime_validator(value)
-            except PortValueError:
+            except _errors.PortValueError:
                 raise
             except (TypeError, ValueError) as error:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"{self.type_id}@{self.version} rejected its runtime value: "
                     f"{error}"
                 ) from error
@@ -1177,18 +1139,18 @@ class PortTypeDefinition:
                     "value": wire_value,
                 }
             )
-        except CatalogBuildError as error:
-            raise PortValueError(str(error)) from error
+        except _errors.CatalogBuildError as error:
+            raise _errors.PortValueError(str(error)) from error
 
     def from_wire(self, wire_value: Any) -> Any:
         """Admit one nested wire value through its nominal decoder."""
         if self.runtime_from_wire is not None:
             try:
                 value = self.runtime_from_wire(wire_value)
-            except PortValueError:
+            except _errors.PortValueError:
                 raise
             except (KeyError, TypeError, ValueError) as error:
-                raise PortValueError(
+                raise _errors.PortValueError(
                     f"{self.type_id}@{self.version} could not decode its value: "
                     f"{error}"
                 ) from error
@@ -1206,14 +1168,18 @@ class PortTypeDefinition:
             "port_type_version",
             "value",
         }:
-            raise PortValueError("canonical Port value envelope is not closed")
+            raise _errors.PortValueError("canonical Port value envelope is not closed")
         if payload["schema_namespace"] != PORT_VALUE_NAMESPACE:
-            raise PortValueError("canonical Port value namespace does not match")
+            raise _errors.PortValueError(
+                "canonical Port value namespace does not match"
+            )
         if (
             payload["port_type_id"],
             payload["port_type_version"],
         ) != (self.type_id, self.version):
-            raise PortValueError("canonical Port value nominal identity does not match")
+            raise _errors.PortValueError(
+                "canonical Port value nominal identity does not match"
+            )
         return self.from_wire(payload["value"])
 
     def content_digest(self, value: Any) -> str:

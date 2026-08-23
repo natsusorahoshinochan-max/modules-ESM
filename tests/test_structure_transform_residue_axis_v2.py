@@ -8,9 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from core.catalog.port_contract import (
-    PortValueError,
-)
+from core.catalog.errors import PortValueError
 from datatypes.structure import ProteinStructure
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from modules.structure_transform.residue_axis import resolve_residue_axis

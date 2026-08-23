@@ -27,10 +27,8 @@ from core.catalog.declarations import (
     ScientificOperationFactory,
 )
 from core.catalog.model import CatalogAvailabilityProjection
-from core.catalog.port_contract import (
-    BehaviorReference,
-    CatalogBuildError,
-)
+from core.catalog.errors import CatalogBuildError
+from core.catalog.port_contract import BehaviorReference
 from core.operation import ReadinessResult
 from tests.support.application import create_application
 from tests.support.protocol import validate_response

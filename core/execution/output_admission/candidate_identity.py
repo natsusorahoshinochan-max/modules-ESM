@@ -6,8 +6,8 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
+from core.catalog.errors import PortValueError
 from core.catalog.port_contract import (
-    PortValueError,
     _candidate_data_reference_to_canonical,
     _residue_axis_reference_to_canonical,
     canonical_sha256,

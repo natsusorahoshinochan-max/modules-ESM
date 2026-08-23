@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import hashlib
 from typing import Any
 
+from core.catalog.errors import PortValueError
 from core.catalog.port_contract import (
-    PortValueError,
     _exact_contract_reference_to_canonical,
     canonical_sha256,
 )

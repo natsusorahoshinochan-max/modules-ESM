@@ -18,10 +18,8 @@ from starlette.websockets import WebSocketDisconnect
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.catalog.port_contract import (
-    CatalogBuildError,
-    PortTypeDefinition,
-)
+from core.catalog.errors import CatalogBuildError
+from core.catalog.port_contract import PortTypeDefinition
 from tests.support.contract_test_kit import (
     ModulePackageConformanceError,
     verify_module_package_contract,

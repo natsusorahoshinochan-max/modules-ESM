@@ -20,11 +20,11 @@ from core.catalog.builder import (
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
-from core.catalog.port_contract import (
-    BehaviorReference,
+from core.catalog.errors import (
     CatalogBuildError,
     PortValueError,
 )
+from core.catalog.port_contract import BehaviorReference
 from core.operation import (
     ArtifactPayload,
     OperationCall,

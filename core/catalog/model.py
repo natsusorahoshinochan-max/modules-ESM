@@ -19,14 +19,16 @@ from .declarations import (
     _freeze_declaration,
     _thaw_declaration,
 )
+from core.catalog.errors import (
+    CatalogBuildError,
+    UnknownPortTypeError,
+    ContractResolutionError,
+    UnknownContractError,
+    InactiveContractGenerationError,
+)
 from .port_contract import (
     CATALOG_NAMESPACE,
-    CatalogBuildError,
-    ContractResolutionError,
-    InactiveContractGenerationError,
     PortTypeDefinition,
-    UnknownContractError,
-    UnknownPortTypeError,
     canonical_json_bytes,
 )
 

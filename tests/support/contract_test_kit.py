@@ -17,7 +17,7 @@ from core.catalog.builder import (
 from core.catalog.declarations import (
     ModulePackageRegistration,
 )
-from core.catalog.port_contract import (
+from core.catalog.errors import (
     CatalogBuildError,
     PortValueError,
 )

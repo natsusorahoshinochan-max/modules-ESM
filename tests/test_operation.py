@@ -9,11 +9,13 @@ from core.operation import (
     CandidatePairingIntentEntry,
     OperationCall,
 )
+from core.catalog.errors import (
+    CatalogBuildError,
+    PortValueError,
+)
 from core.catalog.port_contract import (
     BehaviorReference,
-    CatalogBuildError,
     PortTypeDefinition,
-    PortValueError,
     canonical_sha256,
 )
 from core.scoring.observation_admission import (

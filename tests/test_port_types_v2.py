@@ -12,12 +12,14 @@ import re
 from fastapi.testclient import TestClient
 import pytest
 
+from core.catalog.errors import (
+    CatalogBuildError,
+    UnknownPortTypeError,
+    PortValueError,
+)
 from core.catalog.port_contract import (
     BehaviorReference,
-    CatalogBuildError,
     PortTypeDefinition,
-    PortValueError,
-    UnknownPortTypeError,
     canonical_json_bytes,
     canonical_sha256,
 )

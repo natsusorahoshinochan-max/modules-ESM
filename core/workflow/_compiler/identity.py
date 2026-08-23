@@ -10,7 +10,7 @@ from core.catalog.declarations import (
     NodeTypeDefinition,
 )
 from core.catalog.model import FrozenCatalog, result_identity_contract
-from core.catalog.port_contract import ContractResolutionError
+from core.catalog.errors import ContractResolutionError
 from core.scoring.selection import (
     ObservationSelector,
     ResolvedObservationSelector,

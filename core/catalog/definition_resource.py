@@ -22,7 +22,8 @@ from .declarations import (
     _require_schema_version,
     _require_version,
 )
-from .port_contract import CatalogBuildError, is_valid_artifact_media_type
+from core.catalog.errors import CatalogBuildError
+from .port_contract import is_valid_artifact_media_type
 
 
 _METRIC_VALUE_SHAPES = {

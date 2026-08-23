@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from core.catalog.model import FrozenCatalog
-from core.catalog.port_contract import (
+from core.catalog.errors import (
     CatalogBuildError,
     ContractResolutionError,
-    InactiveContractGenerationError,
     UnknownContractError,
+    InactiveContractGenerationError,
 )
 from core.scoring.selection import SelectionObjective
 from core.workflow.compiler import WorkflowCompileError

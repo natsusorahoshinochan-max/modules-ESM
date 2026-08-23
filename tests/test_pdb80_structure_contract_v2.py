@@ -9,9 +9,7 @@ import pytest
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-)
+from core.catalog.errors import PortValueError
 from datatypes.structure import ProteinStructure
 
 

@@ -52,9 +52,7 @@ from core.scoring.selection import (
     SelectionObjective,
     context_selector_canonical,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-)
+from core.catalog.errors import PortValueError
 from tests.support.output_admission import normalize_fixture_outputs
 from tests.support.catalog import (
     binding_availability,

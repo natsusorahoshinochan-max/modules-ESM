@@ -11,9 +11,7 @@ import threading
 
 import pytest
 
-from core.catalog.port_contract import (
-    PortValueError,
-)
+from core.catalog.errors import PortValueError
 from core.operation import (
     OperationCall,
 )

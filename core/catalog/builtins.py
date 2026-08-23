@@ -12,12 +12,12 @@ from datatypes.observation import (
 )
 
 from .model import FrozenCatalog
+from core.catalog.errors import PortValueError
 from .port_contract import (
     PORT_TYPE_VERSION,
     PORT_VALUE_NAMESPACE,
     BehaviorReference,
     PortTypeDefinition,
-    PortValueError,
     _BUILTIN_PORT_TYPE_VERSIONS,
 )
 

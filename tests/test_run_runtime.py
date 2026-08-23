@@ -51,10 +51,10 @@ from core.catalog.model import (
     CatalogContract,
     FrozenCatalog,
 )
+from core.catalog.errors import PortValueError
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    PortValueError,
 )
 from core.operation import (
     ArtifactPayload,

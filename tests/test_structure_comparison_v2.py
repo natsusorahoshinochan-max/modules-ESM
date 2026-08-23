@@ -16,9 +16,7 @@ from core.catalog.builder import (
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-)
+from core.catalog.errors import PortValueError
 from core.execution.environment import admit_environment_configuration
 from core.execution.ledger.projections import RunProjection
 from core.execution.node_attempt import NodeAttemptFactory

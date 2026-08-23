@@ -25,11 +25,11 @@ from .definition_resource import (
     _load_definition_resource,
 )
 from .model import CatalogAvailabilityProjection, CatalogContract, FrozenCatalog
+from core.catalog.errors import CatalogBuildError
 from .port_contract import (
     CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
     CANDIDATE_PAIRING_PORT_TYPE_VERSION,
     SCORE_COLLECTION_PORT_TYPE_VERSION,
-    CatalogBuildError,
     PortTypeDefinition,
     _require_single_active_contract_version,
     canonical_json_bytes,

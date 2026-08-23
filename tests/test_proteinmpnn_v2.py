@@ -24,9 +24,7 @@ from core.catalog.builtins import (
 from core.catalog.declarations import (
     ContractIdentity,
 )
-from core.catalog.port_contract import (
-    CatalogBuildError,
-)
+from core.catalog.errors import CatalogBuildError
 from core.operation import (
     OperationCall,
 )

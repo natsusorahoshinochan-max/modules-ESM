@@ -20,10 +20,12 @@ from core.catalog.model import (
     CatalogContract,
     FrozenCatalog,
 )
-from core.catalog.port_contract import (
-    BehaviorReference,
+from core.catalog.errors import (
     CatalogBuildError,
+    UnknownContractError,
+    InactiveContractGenerationError,
 )
+from core.catalog.port_contract import BehaviorReference
 from tests.support.catalog import (
     binding_availability,
     catalog_contract,
@@ -53,10 +55,6 @@ from protein_workbench_public.workflow_codec import (
     decode_workflow_document,
     encode_workflow_commit_receipt,
     encode_workflow_document,
-)
-from core.catalog.port_contract import (
-    InactiveContractGenerationError,
-    UnknownContractError,
 )
 from tests.support.application import create_application
 from tests.support.protocol import validate_error, validate_response

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.catalog.port_contract import PortValueError
+from core.catalog.errors import PortValueError
 from core.execution.output_admission.artifacts import (
     AdmittedArtifactPublicationPlan,
     ArtifactOutputDeclaration,

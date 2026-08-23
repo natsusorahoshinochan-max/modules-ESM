@@ -27,13 +27,13 @@ from datatypes.exact_reference import (
     validate_canonical_identifier,
 )
 
+from core.catalog.errors import CatalogBuildError
 from .port_contract import (
     CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
     CANDIDATE_PAIRING_PORT_TYPE_VERSION,
     CONTRACT_NAMESPACE,
     SCORE_COLLECTION_PORT_TYPE_VERSION,
     BehaviorReference,
-    CatalogBuildError,
     PortTypeDefinition,
     canonical_json_bytes,
 )
