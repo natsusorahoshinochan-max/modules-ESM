@@ -308,6 +308,12 @@ class OperationResources(Protocol):
 
     def cleanup_temporary_work(self) -> None: ...
 
+    def local_provider(
+        self,
+        provider_id: str,
+        release: Callable[[], None],
+    ) -> ContextManager[None]: ...
+
     def cancellable_process_group(
         self,
         process_group: int,

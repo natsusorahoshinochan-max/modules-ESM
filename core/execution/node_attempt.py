@@ -42,7 +42,7 @@ from core.execution.ledger import (
     run_timestamp,
 )
 from core.execution.output_admission.admission import admit_node_output
-from core.execution.resources import RunResources
+from core.execution.resources import LocalProviderMemory, RunResources
 from core.execution.results.store import ResultStore
 from core.operation import (
     OperationCall,
@@ -75,6 +75,7 @@ class _NodeAttempt:
         environment: EnvironmentConfiguration,
         result_store: ResultStore,
         ledger: Ledger,
+        local_provider_memory: LocalProviderMemory,
         availability_by_binding: Mapping[
             tuple[str, str],
             CatalogAvailabilityProjection,
@@ -89,6 +90,7 @@ class _NodeAttempt:
             V2RunError | None,
         ] = {}
         self._result_store = result_store
+        self._local_provider_memory = local_provider_memory
         self._publication = _AttemptPublication(
             ledger=ledger,
             result_store=result_store,
@@ -316,6 +318,7 @@ class _NodeAttempt:
                 default_engine_identity=state.node.method.contract_digest,
             ),
             _cancellation_control=state.cancellation,
+            _local_provider_memory=self._local_provider_memory,
             _project_inputs=state.project_inputs,
             _project_input_identities=state.resource_identities,
         )
@@ -622,7 +625,12 @@ class _NodeAttempt:
 class NodeAttemptFactory:
     """Construct the package-owned Node Attempt implementation per Run."""
 
-    __slots__ = ("_environment", "_projects", "_result_store")
+    __slots__ = (
+        "_environment",
+        "_local_provider_memory",
+        "_projects",
+        "_result_store",
+    )
 
     def __init__(
         self,
@@ -633,6 +641,7 @@ class NodeAttemptFactory:
         self._projects = projects
         self._environment = environment
         self._result_store = result_store
+        self._local_provider_memory = LocalProviderMemory()
 
     def create(
         self,
@@ -648,6 +657,7 @@ class NodeAttemptFactory:
             environment=self._environment,
             result_store=self._result_store,
             ledger=ledger,
+            local_provider_memory=self._local_provider_memory,
             availability_by_binding=availability_by_binding,
         )
 

@@ -78,6 +78,15 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
     bash_executable = tmp_path / "bash"
 
     class Resources:
+        @staticmethod
+        @contextmanager
+        def local_provider(
+            provider_id: str,
+            release: Any,
+        ):
+            assert provider_id == "protein-sol"
+            yield
+
         @contextmanager
         def temporary_directory(self, *, prefix: str):
             assert prefix == "protein-sol-"

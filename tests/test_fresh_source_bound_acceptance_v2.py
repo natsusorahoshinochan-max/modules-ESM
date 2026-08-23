@@ -995,10 +995,8 @@ def _observe_fresh_2emo_lifecycle(
     import modules.solubility.protein_sol as solubility_adapter
 
     original_load = proteinmpnn_runtime._load_model
-    original_close = proteinmpnn_adapter.LocalProteinMPNNAdapter.close
-    original_predict = solubility_adapter.LocalProteinSolAdapter.predict
+    original_run = solubility_adapter._run_local_process
     load_count = 0
-    released = False
     protein_sol_entered_after_release = False
 
     def counted_load(*args: Any, **kwargs: Any) -> Any:
@@ -1006,57 +1004,20 @@ def _observe_fresh_2emo_lifecycle(
         load_count += 1
         return original_load(*args, **kwargs)
 
-    def observed_close(adapter: Any) -> None:
-        nonlocal released
-        original_close(adapter)
-        released = True
-
-    def observed_predict(adapter: Any, *args: Any, **kwargs: Any) -> Any:
+    def observed_run(*args: Any, **kwargs: Any) -> Any:
         nonlocal protein_sol_entered_after_release
-        if not released:
+        if proteinmpnn_adapter._RESIDENT_MODELS:
             raise RuntimeError("ProteinMPNN must release before Protein-Sol")
         protein_sol_entered_after_release = True
-        return original_predict(adapter, *args, **kwargs)
+        return original_run(*args, **kwargs)
 
     monkeypatch.setattr(proteinmpnn_runtime, "_load_model", counted_load)
     monkeypatch.setattr(
-        proteinmpnn_adapter.LocalProteinMPNNAdapter,
-        "close",
-        observed_close,
-    )
-    monkeypatch.setattr(
-        solubility_adapter.LocalProteinSolAdapter,
-        "predict",
-        observed_predict,
+        solubility_adapter,
+        "_run_local_process",
+        observed_run,
     )
     return lambda: (load_count, protein_sol_entered_after_release)
-
-
-def test_fresh_2emo_observer_rejects_protein_sol_before_release(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.proteinmpnn.adapter as proteinmpnn_adapter
-    import modules.solubility.protein_sol as solubility_adapter
-
-    monkeypatch.setattr(
-        proteinmpnn_adapter.LocalProteinMPNNAdapter,
-        "close",
-        lambda _adapter: None,
-    )
-    monkeypatch.setattr(
-        solubility_adapter.LocalProteinSolAdapter,
-        "predict",
-        lambda _adapter, *_args, **_kwargs: None,
-    )
-    observed = _observe_fresh_2emo_lifecycle(monkeypatch)
-
-    with pytest.raises(RuntimeError, match="before Protein-Sol"):
-        solubility_adapter.LocalProteinSolAdapter.predict(object())
-
-    proteinmpnn_adapter.LocalProteinMPNNAdapter.close(object())
-    solubility_adapter.LocalProteinSolAdapter.predict(object())
-    assert observed() == (0, True)
-
 
 @pytest.mark.acceptance
 @pytest.mark.live_provider

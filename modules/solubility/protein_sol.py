@@ -272,6 +272,13 @@ class LocalProteinSolAdapter:
         subjects: Sequence[SequenceSolubilitySubject],
     ) -> tuple[ProteinSolPrediction, ...]:
         """Run and translate values with exact subject association."""
+        with self.resources.local_provider("protein-sol", lambda: None):
+            return self._predict(subjects)
+
+    def _predict(
+        self,
+        subjects: Sequence[SequenceSolubilitySubject],
+    ) -> tuple[ProteinSolPrediction, ...]:
         provider_sequences = tuple(
             subject.sequence.sequence for subject in subjects
         )

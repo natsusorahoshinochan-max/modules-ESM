@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 import importlib.metadata
 from pathlib import Path
@@ -353,6 +354,21 @@ class LocalProteinMPNNAdapter:
             model_cache=self._resident_models,
         )
 
+    @contextmanager
+    def _provider_execution(
+        self,
+        *,
+        prefix: str,
+    ) -> Iterator[ProteinMPNNProvider]:
+        with self._resources.local_provider(
+            "proteinmpnn",
+            self._resident_models.clear,
+        ):
+            with self._resources.temporary_directory(
+                prefix=prefix,
+            ) as staging_directory:
+                yield self._provider(staging_directory)
+
     def design(
         self,
         *,
@@ -366,10 +382,9 @@ class LocalProteinMPNNAdapter:
         engine_role: str,
     ) -> tuple[ProteinSequence, ...]:
         """Run one design call and admit its provider-native result."""
-        with self._resources.temporary_directory(
+        with self._provider_execution(
             prefix="proteinmpnn-design-"
-        ) as staging_directory:
-            provider = self._provider(staging_directory)
+        ) as provider:
             request = _prepare_local_design_request(
                 provider=provider,
                 residue_axis=residue_axis,
@@ -406,10 +421,9 @@ class LocalProteinMPNNAdapter:
         sequence: ProteinSequence,
     ) -> float:
         """Run one exact sequence scoring call and admit its native scale."""
-        with self._resources.temporary_directory(
+        with self._provider_execution(
             prefix="proteinmpnn-score-"
-        ) as staging_directory:
-            provider = self._provider(staging_directory)
+        ) as provider:
             request = _prepare_local_scoring_request(
                 provider=provider,
                 residue_axis=residue_axis,

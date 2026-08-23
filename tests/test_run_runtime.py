@@ -193,6 +193,43 @@ def test_operation_cannot_override_plan_owned_engine_identity(tmp_path) -> None:
     assert recorded == []
 
 
+def test_local_provider_memory_serializes_complete_provider_use() -> None:
+    from core.execution.resources import LocalProviderMemory
+
+    memory = LocalProviderMemory()
+    first_entered = threading.Event()
+    release_first = threading.Event()
+    second_attempted = threading.Event()
+    second_entered = threading.Event()
+    releases: list[str] = []
+
+    def use_first() -> None:
+        with memory.use("first", lambda: releases.append("first")):
+            first_entered.set()
+            release_first.wait()
+
+    def use_second() -> None:
+        second_attempted.set()
+        with memory.use("second", lambda: releases.append("second")):
+            second_entered.set()
+
+    first = threading.Thread(target=use_first)
+    second = threading.Thread(target=use_second)
+    first.start()
+    assert first_entered.wait(1)
+    second.start()
+    assert second_attempted.wait(1)
+    assert not second_entered.is_set()
+    release_first.set()
+    first.join(1)
+    second.join(1)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert second_entered.is_set()
+    assert releases == ["first"]
+
+
 def _direct_catalog(
     calls: list[str],
     *,

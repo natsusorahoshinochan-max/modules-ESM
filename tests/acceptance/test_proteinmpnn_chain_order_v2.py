@@ -36,6 +36,15 @@ class _RunResources:
         self._root = root
         self.invocations: list[dict[str, object]] = []
 
+    @staticmethod
+    @contextmanager
+    def local_provider(
+        provider_id: str,
+        release: object,
+    ) -> Iterator[None]:
+        assert provider_id == "proteinmpnn"
+        yield
+
     @contextmanager
     def temporary_directory(self, *, prefix: str) -> Iterator[Path]:
         with TemporaryDirectory(prefix=prefix, dir=self._root) as path:

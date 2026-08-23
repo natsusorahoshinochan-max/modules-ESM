@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import os
@@ -27,6 +27,27 @@ class _InvocationRecorder(Protocol):
         parent_invocation_id: str | None,
         invocation_provenance: EngineInvocationProvenance | None,
     ) -> ContextManager[str]: ...
+
+
+class LocalProviderMemory:
+    """Keep memory resident only for the active local Provider."""
+
+    def __init__(self) -> None:
+        self._active: tuple[str, Callable[[], None]] | None = None
+        self._lock = threading.Lock()
+
+    @contextmanager
+    def use(
+        self,
+        provider_id: str,
+        release: Callable[[], None],
+    ) -> Iterator[None]:
+        with self._lock:
+            if self._active is None or self._active[0] != provider_id:
+                if self._active is not None:
+                    self._active[1]()
+                self._active = (provider_id, release)
+            yield
 
 
 def _signal_process_group(
@@ -194,6 +215,11 @@ class RunResources:
         repr=False,
         compare=False,
     )
+    _local_provider_memory: LocalProviderMemory = field(
+        default_factory=LocalProviderMemory,
+        repr=False,
+        compare=False,
+    )
     _project_inputs: Mapping[
         str,
         tuple[ProjectInputDescriptor, bytes],
@@ -230,6 +256,13 @@ class RunResources:
             self.run_id,
             self.node_id,
         ).cleanup_temporary_work()
+
+    def local_provider(
+        self,
+        provider_id: str,
+        release: Callable[[], None],
+    ) -> ContextManager[None]:
+        return self._local_provider_memory.use(provider_id, release)
 
     @contextmanager
     def cancellable_process_group(
