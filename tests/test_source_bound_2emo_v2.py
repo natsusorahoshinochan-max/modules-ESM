@@ -43,7 +43,6 @@ from datatypes.observation import (
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 from modules.folding.esmfold2_contract import REMOTE_ESMFOLD2_MODEL
-from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from modules.structure_comparison.contracts import (
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
@@ -601,7 +600,6 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     solubilities: list[float],
     expected_passing: int,
 ) -> None:
-    import modules.proteinmpnn.package as proteinmpnn_package
     import modules.solubility.protein_sol as solubility_adapter
 
     for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
@@ -611,19 +609,9 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
 
     proteinmpnn = _ControlledProteinMPNN()
 
-    def build_proteinmpnn_adapter(**kwargs: Any) -> LocalProteinMPNNAdapter:
-        return LocalProteinMPNNAdapter(
-            environment=kwargs["environment"],
-            resources=kwargs["resources"],
-            provider_factory=(
-                lambda _environment, _directory, _models: proteinmpnn
-            ),
-        )
-
     monkeypatch.setattr(
-        proteinmpnn_package,
-        "LocalProteinMPNNAdapter",
-        build_proteinmpnn_adapter,
+        "modules.proteinmpnn.adapter._provider_for_environment",
+        lambda _environment, _directory, _models: proteinmpnn,
     )
     prepared_sequences: list[str] = []
 

@@ -39,7 +39,6 @@ from datatypes.observation import (
     PairwiseCandidateMapping,
     ScoreCollection,
 )
-from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
@@ -455,14 +454,8 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
     folding = ControlledFoldingClient()
     proteinmpnn = ControlledProteinMPNNProvider()
     monkeypatch.setattr(
-        "modules.proteinmpnn.package.LocalProteinMPNNAdapter",
-        lambda **kwargs: LocalProteinMPNNAdapter(
-            environment=kwargs["environment"],
-            resources=kwargs["resources"],
-            provider_factory=(
-                lambda _environment, _directory, _models: proteinmpnn
-            ),
-        ),
+        "modules.proteinmpnn.adapter._provider_for_environment",
+        lambda _environment, _directory, _models: proteinmpnn,
     )
     catalog = controlled_catalog()
     assert catalog.contract_digest == (

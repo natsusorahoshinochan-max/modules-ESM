@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import importlib.metadata
-import os
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,12 +39,6 @@ _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
-_INSTALLED_GATE_RESIDENT_MODELS: dict[
-    tuple[str, float, Path],
-    tuple[Any, Any],
-] = {}
-
-
 @dataclass(frozen=True, slots=True)
 class _ProviderStructureProjection:
     pdb_string: str
@@ -336,28 +329,20 @@ class LocalProteinMPNNAdapter:
         *,
         environment: Mapping[str, Any],
         resources: OperationResources,
-        provider_factory: Callable[
-            [
-                Mapping[str, Any],
-                Path,
-                dict[tuple[str, float, Path], tuple[Any, Any]],
-            ],
-            ProteinMPNNProvider,
-        ] = _provider_for_environment,
     ) -> None:
         self._environment = environment
         self._resources = resources
-        self._provider_factory = provider_factory
-        if (
-            os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
-            == "installed-proteinmpnn"
-        ):
-            self._resident_models = _INSTALLED_GATE_RESIDENT_MODELS
-        else:
-            self._resident_models: dict[
-                tuple[str, float, Path],
-                tuple[Any, Any],
-            ] = {}
+        self._resident_models: dict[
+            tuple[str, float, Path],
+            tuple[Any, Any],
+        ] = {}
+
+    def _provider(self, staging_directory: Path) -> ProteinMPNNProvider:
+        return _provider_for_environment(
+            self._environment,
+            staging_directory,
+            self._resident_models,
+        )
 
     def design(
         self,
@@ -375,11 +360,7 @@ class LocalProteinMPNNAdapter:
         with self._resources.temporary_directory(
             prefix="proteinmpnn-design-"
         ) as staging_directory:
-            provider = self._provider_factory(
-                self._environment,
-                staging_directory,
-                self._resident_models,
-            )
+            provider = self._provider(staging_directory)
             request = _prepare_local_design_request(
                 provider=provider,
                 residue_axis=residue_axis,
@@ -419,11 +400,7 @@ class LocalProteinMPNNAdapter:
         with self._resources.temporary_directory(
             prefix="proteinmpnn-score-"
         ) as staging_directory:
-            provider = self._provider_factory(
-                self._environment,
-                staging_directory,
-                self._resident_models,
-            )
+            provider = self._provider(staging_directory)
             request = _prepare_local_scoring_request(
                 provider=provider,
                 residue_axis=residue_axis,
@@ -445,5 +422,4 @@ class LocalProteinMPNNAdapter:
 
     def close(self) -> None:
         """Release operation-scoped resident models after the Operation."""
-        if self._resident_models is not _INSTALLED_GATE_RESIDENT_MODELS:
-            self._resident_models.clear()
+        self._resident_models.clear()

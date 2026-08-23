@@ -1171,10 +1171,14 @@ def _controlled_adapter(
     *,
     resources: _AdapterResources | None = None,
 ) -> LocalProteinMPNNAdapter:
-    return LocalProteinMPNNAdapter(
+    class ControlledAdapter(LocalProteinMPNNAdapter):
+        def _provider(self, staging_directory: Path) -> Any:
+            del staging_directory
+            return provider
+
+    return ControlledAdapter(
         environment={},
         resources=resources or _AdapterResources(),
-        provider_factory=lambda _environment, _directory, _models: provider,
     )
 
 
@@ -1276,18 +1280,9 @@ def _install_test_provider(
     monkeypatch: pytest.MonkeyPatch,
     provider: Any,
 ) -> None:
-    def build(**kwargs: Any) -> Any:
-        return LocalProteinMPNNAdapter(
-            environment=kwargs["environment"],
-            resources=kwargs["resources"],
-            provider_factory=(
-                lambda _environment, _directory, _models: provider
-            ),
-        )
-
     monkeypatch.setattr(
-        "modules.proteinmpnn.package.LocalProteinMPNNAdapter",
-        build,
+        "modules.proteinmpnn.adapter._provider_for_environment",
+        lambda _environment, _directory, _models: provider,
     )
 
 
@@ -4316,52 +4311,3 @@ def test_exact_design_seed_is_independent_of_resident_model_load_history(
     second_warm_design = warm_provider.design(Request())
 
     assert cold_design == first_warm_design == second_warm_design
-
-
-def test_installed_gate_reuses_one_resident_model_across_adapters(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.proteinmpnn.adapter as adapter_module
-    import modules.proteinmpnn.provider_runtime as provider_runtime
-
-    constructed: list[object] = []
-
-    def load_model(
-        model_name: str,
-        backbone_noise: float,
-        provider_root: Path | None,
-    ) -> tuple[object, object]:
-        model = object()
-        constructed.append(model)
-        return model, (model_name, backbone_noise, provider_root)
-
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_VERIFICATION_TIER",
-        "installed-proteinmpnn",
-    )
-    monkeypatch.setattr(provider_runtime, "_load_model", load_model)
-    adapter_module._INSTALLED_GATE_RESIDENT_MODELS.clear()
-    first_adapter = LocalProteinMPNNAdapter(
-        environment={},
-        resources=_AdapterResources(),
-    )
-    second_adapter = LocalProteinMPNNAdapter(
-        environment={},
-        resources=_AdapterResources(),
-    )
-    first_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=tmp_path,
-        model_cache=first_adapter._resident_models,
-    )
-    second_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=tmp_path,
-        model_cache=second_adapter._resident_models,
-    )
-
-    first = first_provider._resident_model("v_48_020", 0.0)
-    second = second_provider._resident_model("v_48_020", 0.0)
-
-    assert first is second
-    assert len(constructed) == 1
-    adapter_module._INSTALLED_GATE_RESIDENT_MODELS.clear()
