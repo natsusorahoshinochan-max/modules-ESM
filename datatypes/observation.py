@@ -212,6 +212,7 @@ class ScoreCollection:
 
     def __post_init__(self) -> None:
         entries = _ordered_list(self.entries, field_name="entries")
+        unique: list[ScoreObservation] = []
         by_identity: dict[tuple[object, ...], ScoreObservation] = {}
         for entry in entries:
             if type(entry) is not ScoreObservation:
@@ -221,6 +222,7 @@ class ScoreCollection:
             existing = by_identity.get(entry.identity)
             if existing is None:
                 by_identity[entry.identity] = entry
+                unique.append(entry)
                 continue
             if not i_json_values_equal(existing.value, entry.value):
                 raise ValueError(
@@ -232,7 +234,7 @@ class ScoreCollection:
                     "Score Collection contains an Observation identity "
                     "partition collision"
                 )
-        object.__setattr__(self, "entries", entries)
+        object.__setattr__(self, "entries", FrozenList(unique))
 
     def __len__(self) -> int:
         return len(self.entries)
