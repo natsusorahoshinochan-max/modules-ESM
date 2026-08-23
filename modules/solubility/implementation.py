@@ -23,11 +23,9 @@ from datatypes.observation import (
 )
 from datatypes.sequence import ProteinSequence
 
-from .adapter import (
-    LocalProteinSolAdapter,
-    LocalSoluProtAdapter,
-    SequenceSolubilitySubject,
-)
+from .domain import SequenceSolubilitySubject
+from .protein_sol import LocalProteinSolAdapter
+from .soluprot import LocalSoluProtAdapter
 
 
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")

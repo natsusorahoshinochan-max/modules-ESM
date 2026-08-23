@@ -25,9 +25,7 @@ from core.operation import (
     ScientificOperation,
 )
 
-from .adapter import (
-    LocalProteinSolAdapter,
-    LocalSoluProtAdapter,
+from .protein_sol import (
     PROTEIN_SOL_ARCHIVE_SHA256,
     PROTEIN_SOL_BASH_SHA256,
     PROTEIN_SOL_BASH_VERSION,
@@ -37,6 +35,10 @@ from .adapter import (
     PROTEIN_SOL_PERL_VERSION,
     PROTEIN_SOL_RELEASE,
     PROTEIN_SOL_SOURCE_SHA256,
+    LocalProteinSolAdapter,
+    protein_sol_readiness,
+)
+from .soluprot import (
     SOLUPROT_DATABASE_SHA256,
     SOLUPROT_CODE_SHA256,
     SOLUPROT_FEATURES_SHA256,
@@ -51,8 +53,8 @@ from .adapter import (
     SOLUPROT_TMHMM_SHA256,
     SOLUPROT_USEARCH_SHA256,
     SOLUPROT_PORT_VERSION,
+    LocalSoluProtAdapter,
     SoluProtMode,
-    protein_sol_readiness,
     soluprot_readiness,
 )
 

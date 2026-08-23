@@ -602,7 +602,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     expected_passing: int,
 ) -> None:
     import modules.proteinmpnn.package as proteinmpnn_package
-    import modules.solubility.adapter as solubility_adapter
+    import modules.solubility.protein_sol as solubility_adapter
 
     for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
         path = tmp_path / name.lower()

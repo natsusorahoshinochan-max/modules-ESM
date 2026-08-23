@@ -208,7 +208,7 @@ def test_model_backed_soluprot_golden_methods(
     mode: str,
     expected: float,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.soluprot as adapter
 
     recorded: list[dict[str, Any]] = []
     original_invoke = adapter.invoke_soluprot

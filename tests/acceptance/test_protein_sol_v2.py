@@ -104,7 +104,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.protein_sol as adapter
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,

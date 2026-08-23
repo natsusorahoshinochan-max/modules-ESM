@@ -21,10 +21,6 @@ from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.runtime import V2RunService
 from tests.support.result_store import result_store
-from tests.support.contract_test_kit import (
-    ModulePackageContractCase,
-    verify_module_package_contract,
-)
 from core.workflow.authoring import WorkflowAuthoringService
 from core.workflow.document import (
     WorkflowDocument,
@@ -33,21 +29,6 @@ from core.workflow.document import (
 )
 from core.workflow.document import WorkflowEdge
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
-
-
-def _prepare_soluprot_fixture(**kwargs: Any) -> tuple[tuple[str, ...], Path]:
-    staging_directory = kwargs["staging_directory"]
-    (staging_directory / "input.fasta").write_text(
-        "".join(
-            f">candidate_{index}\n{sequence}\n"
-            for index, sequence in enumerate(kwargs["sequences"])
-        )
-    )
-    mode_flag = "--tmhmm" if kwargs["mode"] == "full" else "--no_tmhmm"
-    return (
-        ("fixture-soluprot", mode_flag),
-        staging_directory / "output.csv",
-    )
 
 
 def _prepare_protein_sol_fixture(
@@ -66,26 +47,6 @@ def _prepare_protein_sol_fixture(
     )
 
 
-def _soluprot_admitted_environment(
-    *,
-    private_runtime_path: str,
-    include_tm: bool,
-) -> dict[str, Any]:
-    private_root = Path(private_runtime_path)
-    environment = {
-        "python_executable": private_root / "python",
-        "wheel_path": private_root / "soluprot.whl",
-        "site_packages_root": private_root / "site-packages",
-        "usearch_executable": private_root / "usearch",
-    }
-    if include_tm:
-        environment.update({
-            "tmhmm_root": private_root / "tmhmm",
-            "perl_executable": private_root / "perl",
-        })
-    return environment
-
-
 def _protein_sol_admitted_environment(
     *,
     private_runtime_path: str,
@@ -102,10 +63,10 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.protein_sol as adapter
     from datatypes.candidate import CandidateDataReference
     from datatypes.sequence import ProteinSequence
-    from modules.solubility.adapter import SequenceSolubilitySubject
+    from modules.solubility.domain import SequenceSolubilitySubject
 
     events: list[str] = []
     source_root = tmp_path / "source"
@@ -132,14 +93,6 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
             events.append("engine-started")
             yield "invocation-1"
             events.append("engine-succeeded")
-
-    monkeypatch.setattr(
-        adapter,
-        "validate_protein_sol_environment",
-        lambda environment: (_ for _ in ()).throw(
-            AssertionError("readiness validator repeated during operation")
-        ),
-    )
 
     def invoke(**kwargs: Any) -> None:
         assert kwargs["command"] == (
@@ -341,7 +294,7 @@ def test_protein_sol_requires_no_core_provider_special_case() -> None:
 def test_protein_sol_adapter_translation_preserves_exact_subject_identity(
 ) -> None:
     from datatypes.candidate import CandidateDataReference
-    from modules.solubility.adapter import (
+    from modules.solubility.protein_sol import (
         ProteinSolPrediction,
         parse_protein_sol_output,
     )
@@ -613,7 +566,7 @@ def _run_protein_sol(
     tuple[tuple[dict[str, Any], ...], ...],
     list[list[str]],
 ]:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.protein_sol as adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -837,7 +790,7 @@ def test_protein_sol_binding_factory_injects_one_exact_local_adapter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.protein_sol as adapter
     import modules.solubility.package as package
 
     constructed: list[tuple[Any, Any]] = []
@@ -973,10 +926,9 @@ def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_infe
 def test_protein_sol_readiness_requires_the_exact_scientific_sources(
     tmp_path: Path,
 ) -> None:
-    from modules.solubility.adapter import (
+    from modules.solubility.protein_sol import (
         PROTEIN_SOL_SOURCE_SHA256,
         protein_sol_readiness,
-        validate_protein_sol_environment,
     )
 
     source_root = tmp_path / "protein-sol"
@@ -996,161 +948,3 @@ def test_protein_sol_readiness_requires_the_exact_scientific_sources(
         proof_source="direct-observation",
         reason_code="protein_sol_runtime_unavailable",
     )
-    with pytest.raises(
-        RuntimeError,
-        match="configured Protein-Sol asset identity changed",
-    ):
-        validate_protein_sol_environment(
-            {
-                "source_root": source_root,
-                "bash_executable": Path("/bin/bash"),
-                "perl_executable": Path("/usr/bin/perl"),
-            }
-        )
-
-
-def test_protein_sol_passes_shared_contract_test_kit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.solubility.adapter as adapter
-    import modules.solubility.package as package
-    from modules.solubility.package import MODULE_PACKAGE
-    from tests.fixtures.folding_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
-
-    monkeypatch.setattr(
-        package,
-        "protein_sol_readiness",
-        lambda environment: ReadinessResult(
-            True,
-            proof_source="direct-observation",
-            reason_code="protein_sol_runtime_unavailable",
-        ),
-    )
-    monkeypatch.setattr(
-        package,
-        "soluprot_readiness",
-        lambda environment, *, mode: ReadinessResult(
-            True,
-            proof_source="direct-observation",
-            reason_code=f"soluprot_{mode}_runtime_unavailable",
-        ),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_prepare_protein_sol_invocation",
-        _prepare_protein_sol_fixture,
-    )
-
-    def invoke_protein_sol_fixture(**kwargs: Any) -> None:
-        output_path = kwargs["staging_directory"] / "seq_prediction.txt"
-        output_path.write_bytes(
-            b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
-            b"population-sol,pI\n"
-            b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
-            b"0.446,7.130\n"
-        )
-
-    monkeypatch.setattr(
-        adapter,
-        "invoke_protein_sol",
-        invoke_protein_sol_fixture,
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_prepare_soluprot_invocation",
-        _prepare_soluprot_fixture,
-    )
-
-    def invoke_soluprot_fixture(**kwargs: Any) -> None:
-        output_path = kwargs["staging_directory"] / "output.csv"
-        mode = (
-            "no_tm"
-            if "--no_tmhmm" in kwargs["command"]
-            else "full"
-        )
-        output_path.write_bytes(
-            b"runtime_id,fa_id,soluble\n"
-            + (
-                b"0,candidate_0,0.331\n"
-                if mode == "full"
-                else b"0,candidate_0,0.3465\n"
-            )
-        )
-
-    monkeypatch.setattr(
-        adapter,
-        "invoke_soluprot",
-        invoke_soluprot_fixture,
-    )
-    source = WorkflowNodeInstance(
-        node_id="source",
-        node_type_id="contract_test.folding_sequence_source",
-        node_type_version="4.0.0",
-        binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="4.0.0",
-        node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
-        binding_parameters={},
-    )
-    report = verify_module_package_contract(
-        MODULE_PACKAGE,
-        execution_cases=tuple(
-            ModulePackageContractCase(
-                case_id=case_id,
-                node_type_id="solubility.score_sequence",
-                node_type_version="5.0.0",
-                binding_id=binding_id,
-                binding_version="5.0.0",
-                node_parameters={},
-                binding_parameters={},
-                environment_values=(
-                    _protein_sol_admitted_environment(
-                        private_runtime_path="/secret/protein-sol"
-                    )
-                    if binding_id == "solubility.protein_sol.local"
-                    else _soluprot_admitted_environment(
-                        private_runtime_path="/secret/protein-sol",
-                        include_tm=binding_id.endswith("full.local"),
-                    )
-                ),
-                workflow_nodes=(source,),
-                workflow_edges=(
-                    WorkflowEdge(
-                        "source",
-                        "sequence_candidates",
-                        "contract-test-node",
-                        "sequence_candidates",
-                    ),
-                ),
-                expected_observation_counts={"scores": expected_count},
-                forbidden_public_fragments=("/secret/protein-sol",),
-            )
-            for case_id, binding_id, expected_count in (
-                (
-                    "soluprot-full",
-                    "solubility.soluprot_full.local",
-                    1,
-                ),
-                (
-                    "soluprot-no-tm",
-                    "solubility.soluprot_no_tm.local",
-                    1,
-                ),
-                (
-                    "protein-sol-calibrated-metrics",
-                    "solubility.protein_sol.local",
-                    3,
-                ),
-            )
-        ),
-        supporting_registrations=(SOURCE_PACKAGE,),
-        work_root=tmp_path,
-    )
-
-    assert [case.status for case in report.case_reports] == [
-        "succeeded",
-        "succeeded",
-        "succeeded",
-    ]

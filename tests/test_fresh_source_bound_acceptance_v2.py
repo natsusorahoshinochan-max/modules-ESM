@@ -992,7 +992,7 @@ def _observe_fresh_2emo_lifecycle(
 ) -> Callable[[], tuple[int, bool]]:
     import modules.proteinmpnn.adapter as proteinmpnn_adapter
     import modules.proteinmpnn.provider_runtime as proteinmpnn_runtime
-    import modules.solubility.adapter as solubility_adapter
+    import modules.solubility.protein_sol as solubility_adapter
 
     original_load = proteinmpnn_runtime._load_model
     original_close = proteinmpnn_adapter.LocalProteinMPNNAdapter.close
@@ -1036,7 +1036,7 @@ def test_fresh_2emo_observer_rejects_protein_sol_before_release(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.proteinmpnn.adapter as proteinmpnn_adapter
-    import modules.solubility.adapter as solubility_adapter
+    import modules.solubility.protein_sol as solubility_adapter
 
     monkeypatch.setattr(
         proteinmpnn_adapter.LocalProteinMPNNAdapter,

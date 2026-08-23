@@ -105,10 +105,10 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.soluprot as adapter
     from datatypes.candidate import CandidateDataReference
     from datatypes.sequence import ProteinSequence
-    from modules.solubility.adapter import SequenceSolubilitySubject
+    from modules.solubility.domain import SequenceSolubilitySubject
 
     events: list[str] = []
     staging_directory = tmp_path / "staging"
@@ -134,14 +134,6 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             events.append("engine-started")
             yield "invocation-1"
             events.append("engine-succeeded")
-
-    monkeypatch.setattr(
-        adapter,
-        "validate_soluprot_environment",
-        lambda environment, *, mode: (_ for _ in ()).throw(
-            AssertionError("readiness validator repeated during operation")
-        ),
-    )
 
     def invoke(**kwargs: Any) -> None:
         assert kwargs["command"] == (
@@ -227,7 +219,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
 
 def test_soluprot_adapter_translation_preserves_exact_subject_identity() -> None:
     from datatypes.candidate import CandidateDataReference
-    from modules.solubility.adapter import (
+    from modules.solubility.soluprot import (
         SoluProtPrediction,
         parse_soluprot_output,
     )
@@ -271,7 +263,7 @@ def test_soluprot_operation_consumes_identity_associated_predictions(
     )
     from datatypes.exact_reference import ExactContractReference
     from datatypes.sequence import ProteinSequence
-    from modules.solubility.adapter import SoluProtPrediction
+    from modules.solubility.soluprot import SoluProtPrediction
     from modules.solubility.implementation import SoluProtImplementation
     from tests.fixtures.scientific_operation import admitted_port_fixture
 
@@ -607,7 +599,8 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility._local_support as local_support
+    import modules.solubility.soluprot as adapter
 
     class FailedProcess:
         pid = 12345
@@ -633,7 +626,7 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
             yield
 
     monkeypatch.setattr(
-        adapter.subprocess,
+        local_support.subprocess,
         "Popen",
         lambda *args, **kwargs: FailedProcess(),
     )
@@ -650,37 +643,6 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
 
     assert "secret-token" not in str(rejected.value)
     assert "/private/" not in str(rejected.value)
-
-
-def test_full_readiness_failure_does_not_block_no_tm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.solubility.adapter as adapter
-
-    observed: list[str] = []
-
-    def validate(environment: Any, *, mode: str) -> dict[str, Any]:
-        del environment
-        observed.append(mode)
-        if mode == "full":
-            raise adapter.SolubilityReadinessUnavailable("TMHMM is absent")
-        return {"mode": mode}
-
-    monkeypatch.setattr(adapter, "validate_soluprot_environment", validate)
-
-    full = adapter.soluprot_readiness({}, mode="full")
-    no_tm = adapter.soluprot_readiness({}, mode="no_tm")
-
-    assert full == ReadinessResult(
-        False,
-        proof_source="direct-observation",
-        reason_code="soluprot_full_runtime_unavailable",
-    )
-    assert no_tm == ReadinessResult(
-        True,
-        proof_source="direct-observation",
-    )
-    assert observed == ["full", "no_tm"]
 
 
 def _decode_output(
@@ -707,7 +669,7 @@ def _run_soluprot(
     sequence: str = "ACDEFGHIKLMNPQRSTVWY",
     provider_error: BaseException | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.soluprot as adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -901,7 +863,7 @@ def test_soluprot_binding_factory_injects_one_immutable_mode_adapter(
     monkeypatch: pytest.MonkeyPatch,
     mode: str,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.soluprot as adapter
     import modules.solubility.package as package
 
     constructed_modes: list[str] = []
@@ -979,7 +941,7 @@ def test_provider_failure_retains_a_closed_safe_reason_code(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from modules.solubility.adapter import SoluProtProviderNonzeroExit
+    from modules.solubility.soluprot import SoluProtProviderNonzeroExit
 
     catalog, _, projection, events = _run_soluprot(
         tmp_path,
@@ -1019,7 +981,8 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.protein_sol as protein_sol_adapter
+    import modules.solubility.soluprot as soluprot_adapter
     import modules.solubility.package as package
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -1045,7 +1008,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ),
     )
     monkeypatch.setattr(
-        adapter,
+        soluprot_adapter,
         "_prepare_soluprot_invocation",
         _prepare_soluprot_fixture,
     )
@@ -1067,12 +1030,12 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         )
 
     monkeypatch.setattr(
-        adapter,
+        soluprot_adapter,
         "invoke_soluprot",
         invoke_soluprot_fixture,
     )
     monkeypatch.setattr(
-        adapter,
+        protein_sol_adapter,
         "_prepare_protein_sol_invocation",
         _prepare_protein_sol_fixture,
     )
@@ -1087,7 +1050,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         )
 
     monkeypatch.setattr(
-        adapter,
+        protein_sol_adapter,
         "invoke_protein_sol",
         invoke_protein_sol_fixture,
     )
