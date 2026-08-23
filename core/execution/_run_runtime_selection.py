@@ -122,7 +122,7 @@ def selection_consumer_result(
                     objective.context_selector
                 ),
                 utility_transform=objective.utility_transform,
-                utility_parameters=dict(objective.utility_parameters),
+                utility_parameters=objective.utility_parameters,
                 declared_weight=objective.declared_weight,
                 effective_weight=objective.effective_weight,
                 match_cardinality=objective.match_cardinality,

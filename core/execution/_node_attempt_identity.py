@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from types import MappingProxyType
+from typing import Any
 
 from core.catalog.canonical import canonical_sha256
 from core.execution.output_admission.admission import (
@@ -31,8 +32,8 @@ def _resolve_effective_randomness(
     node: ExecutionPlanNode,
     inputs: Mapping[str, AdmittedPort],
 ) -> _EffectiveRandomnessSnapshot:
-    node_parameters = thaw_i_json(node.node_parameters)
-    binding_parameters = thaw_i_json(node.binding_parameters)
+    node_parameters = dict(node.node_parameters)
+    binding_parameters = dict(node.binding_parameters)
     declared_randomness = node._runtime.effective_randomness_parameters
     if declared_randomness:
         resolver = node._runtime.effective_randomness_resolver
@@ -56,8 +57,9 @@ def _resolve_effective_randomness(
                 )
         effective_randomness = {}
         for parameter_name in declared_randomness:
-            resolved_value = thaw_i_json(
-                resolved_randomness[parameter_name]
+            resolved_value = freeze_i_json(
+                resolved_randomness[parameter_name],
+                path=f"effective_randomness.{parameter_name}",
             )
             effective_randomness[parameter_name] = resolved_value
             if (
@@ -72,21 +74,10 @@ def _resolve_effective_randomness(
                 binding_parameters[parameter_name] = resolved_value
     else:
         effective_randomness = {}
-    snapshot = cast(
-        Mapping[str, Mapping[str, Any]],
-        freeze_i_json(
-            {
-                "effective_randomness": effective_randomness,
-                "node_parameters": node_parameters,
-                "binding_parameters": binding_parameters,
-            },
-            path="effective_randomness_snapshot",
-        ),
-    )
     return _EffectiveRandomnessSnapshot(
-        effective_randomness=snapshot["effective_randomness"],
-        node_parameters=snapshot["node_parameters"],
-        binding_parameters=snapshot["binding_parameters"],
+        effective_randomness=MappingProxyType(effective_randomness),
+        node_parameters=MappingProxyType(node_parameters),
+        binding_parameters=MappingProxyType(binding_parameters),
     )
 
 
@@ -94,21 +85,16 @@ def result_identity_descriptor(
     node: ExecutionPlanNode,
     inputs: Mapping[str, AdmittedPort],
     *,
+    effective_randomness_snapshot: _EffectiveRandomnessSnapshot,
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
-    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> dict[str, Any]:
     """Build the closed scientific identity of one resolved Node result."""
     plan_facts = node.result_identity_plan_facts
-    randomness_snapshot = (
-        effective_randomness_snapshot
-        if effective_randomness_snapshot is not None
-        else _resolve_effective_randomness(node, inputs)
-    )
     resolved_node_parameters = thaw_i_json(
-        randomness_snapshot.node_parameters
+        effective_randomness_snapshot.node_parameters
     )
     resolved_binding_parameters = thaw_i_json(
-        randomness_snapshot.binding_parameters
+        effective_randomness_snapshot.binding_parameters
     )
     for parameter_name in plan_facts.node_parameter_indirections:
         resolved_node_parameters.pop(parameter_name, None)
@@ -116,7 +102,7 @@ def result_identity_descriptor(
         resolved_node_parameters.pop(parameter_name, None)
     declared_randomness = node._runtime.effective_randomness_parameters
     effective_randomness = thaw_i_json(
-        randomness_snapshot.effective_randomness
+        effective_randomness_snapshot.effective_randomness
     )
     if declared_randomness:
         for parameter_name in declared_randomness:
@@ -178,8 +164,8 @@ def _result_identity(
     node: ExecutionPlanNode,
     inputs: Mapping[str, AdmittedPort],
     *,
+    effective_randomness_snapshot: _EffectiveRandomnessSnapshot,
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
-    effective_randomness_snapshot: _EffectiveRandomnessSnapshot | None = None,
 ) -> str:
     return canonical_sha256(
         result_identity_descriptor(

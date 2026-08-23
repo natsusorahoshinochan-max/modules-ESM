@@ -2,29 +2,19 @@
 
 from __future__ import annotations
 
-import re
 from typing import Literal
 import uuid
 
 from core.execution.ledger import StructuredError, V2RunError
 
 
-_PUBLIC_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]*$")
-
-
 def _execution_error(error: BaseException) -> StructuredError:
-    error_type = type(error).__name__
-    if (
-        len(error_type) > 128
-        or _PUBLIC_IDENTIFIER.fullmatch(error_type) is None
-    ):
-        error_type = "Exception"
     return StructuredError(
         code="node_execution_failed",
         message="Node execution failed safely",
         retryable=False,
         correlation_id=f"incident-{uuid.uuid4().hex}",
-        details={"exception_type": error_type},
+        details={"exception_type": type(error).__name__},
     )
 
 

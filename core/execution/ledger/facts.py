@@ -175,19 +175,11 @@ class SelectionObjectiveEvidence:
     method: ExactContractReference
     context_selector: ContextSelectorEvidence
     utility_transform: ExactContractReference
-    utility_parameters: object
+    utility_parameters: Mapping[str, object]
     declared_weight: float
     effective_weight: float
     match_cardinality: str
     missing_policy: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "utility_parameters",
-            freeze_i_json(self.utility_parameters),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class ObservationSelectorEvidence:
@@ -572,7 +564,6 @@ def _validate_selection_objective(
     if (
         not _valid_identifier(value.objective_id)
         or not _valid_identifier(value.source_partition)
-        or not isinstance(value.utility_parameters, Mapping)
         or not _valid_finite_number(value.declared_weight, positive=True)
         or not _valid_finite_number(value.effective_weight, positive=True)
         or float(value.effective_weight) > 1.0

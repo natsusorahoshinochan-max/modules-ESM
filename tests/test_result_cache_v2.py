@@ -30,6 +30,7 @@ from core.operation import (
     OperationContext,
     ReadinessResult,
 )
+from core.execution._node_attempt_identity import _resolve_effective_randomness
 from core.execution.node_attempt import (
     ExecutionTermination,
     result_contract_metadata,
@@ -126,6 +127,10 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
         descriptor = result_identity_descriptor(
             node,
             {},
+            effective_randomness_snapshot=_resolve_effective_randomness(
+                node,
+                {},
+            ),
         )
         cache_metadata = result_contract_metadata(node)
         ledger_plan_facts = plan_evidence(plan)[0]
@@ -176,6 +181,10 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
         descriptor = result_identity_descriptor(
             compiled.execution_plan.nodes[0],
             {},
+            effective_randomness_snapshot=_resolve_effective_randomness(
+                compiled.execution_plan.nodes[0],
+                {},
+            ),
         )
 
     assert descriptor["node_parameters"] == {parameter_name: 17}

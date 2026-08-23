@@ -60,7 +60,7 @@ from core.operation import (
 )
 from core.scoring.selection import SelectionInput
 from datatypes.exact_reference import ExactContractReference
-from datatypes.i_json import thaw_i_json
+from datatypes.i_json import freeze_i_json, thaw_i_json
 
 
 TRANSACTION_NAMESPACE = "protein-workbench-run-ledger-transaction/v5"
@@ -508,6 +508,9 @@ def _objective_from_canonical(value: object) -> SelectionObjectiveEvidence:
         "effective_weight", "match_cardinality", "missing_policy",
     }
     raw = _mapping(value, fields)
+    utility_parameters = raw["utility_parameters"]
+    if not isinstance(utility_parameters, Mapping):
+        raise ValueError("Selection Objective evidence is invalid")
     return SelectionObjectiveEvidence(
         objective_id=cast(str, raw["objective_id"]),
         candidate_input=_selection_input_from_canonical(raw["candidate_input"]),
@@ -517,7 +520,13 @@ def _objective_from_canonical(value: object) -> SelectionObjectiveEvidence:
         method=_reference_from_canonical(raw["method"]),
         context_selector=_context_from_canonical(raw["context_selector"]),
         utility_transform=_reference_from_canonical(raw["utility_transform"]),
-        utility_parameters=raw["utility_parameters"],
+        utility_parameters=cast(
+            Mapping[str, object],
+            freeze_i_json(
+                utility_parameters,
+                path="selection_objective.utility_parameters",
+            ),
+        ),
         declared_weight=cast(float, raw["declared_weight"]),
         effective_weight=cast(float, raw["effective_weight"]),
         match_cardinality=cast(str, raw["match_cardinality"]),
