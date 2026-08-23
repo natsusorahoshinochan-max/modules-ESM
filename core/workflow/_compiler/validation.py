@@ -51,11 +51,22 @@ class _ObservationCapability:
     reference_source: SelectionInput | None
     pairing_source: SelectionInput | None
 
+
+type _AdmittedInputSource = tuple[int, SelectionInput]
+
+
+@dataclass(frozen=True, slots=True)
+class _AdmittedWorkflowGraph:
+    nodes_by_id: Mapping[str, WorkflowNodeInstance]
+    input_sources: dict[str, dict[str, tuple[_AdmittedInputSource, ...]]]
+    node_order: tuple[str, ...]
+
+
 def _validate_static_semantics(
     workflow: WorkflowDocument,
     catalog: FrozenCatalog,
     admitted_node_parameters: Mapping[str, AdmittedParameterValues],
-) -> tuple[str, ...]:
+) -> _AdmittedWorkflowGraph:
     nodes_by_id: dict[str, WorkflowNodeInstance] = {}
     for index, node in enumerate(workflow.nodes):
         if node.node_id in nodes_by_id:
@@ -67,7 +78,9 @@ def _validate_static_semantics(
             )
         nodes_by_id[node.node_id] = node
 
-    incoming: dict[tuple[str, str], int] = {}
+    input_sources: dict[str, dict[str, tuple[_AdmittedInputSource, ...]]] = {
+        node_id: {} for node_id in nodes_by_id
+    }
     adjacency = {node_id: [] for node_id in nodes_by_id}
     indegree = {node_id: 0 for node_id in nodes_by_id}
     for index, edge in enumerate(workflow.edges):
@@ -135,10 +148,12 @@ def _validate_static_semantics(
                 node_id=target.node_id,
                 field_path=("edges", index),
             )
-        incoming_key = (target.node_id, edge.target_port)
-        incoming[incoming_key] = incoming.get(incoming_key, 0) + 1
+        source_fact = (index, SelectionInput(source.node_id, edge.source_port))
+        existing_sources = input_sources[target.node_id].get(edge.target_port, ())
+        target_sources = (*existing_sources, source_fact)
+        input_sources[target.node_id][edge.target_port] = target_sources
         if (
-            incoming[incoming_key] > 1
+            len(target_sources) > 1
             and target_port.multiplicity != "many"
         ):
             raise WorkflowCompileError(
@@ -181,7 +196,7 @@ def _validate_static_semantics(
         for port in node_definition.inputs:
             if (
                 port.required
-                and incoming.get((node.node_id, port.name), 0) == 0
+                and not input_sources[node.node_id].get(port.name)
             ):
                 raise WorkflowCompileError(
                     "required_input_missing",
@@ -191,7 +206,7 @@ def _validate_static_semantics(
                 )
         for constraint in node_definition.input_constraints:
             connected = sum(
-                incoming.get((node.node_id, port_name), 0)
+                len(input_sources[node.node_id].get(port_name, ()))
                 for port_name in constraint
             )
             if connected != 1:
@@ -221,36 +236,41 @@ def _validate_static_semantics(
             field_path=("edges",),
         )
 
+    graph = _AdmittedWorkflowGraph(
+        nodes_by_id=nodes_by_id,
+        input_sources=input_sources,
+        node_order=tuple(order),
+    )
     capabilities = _derive_observation_capabilities(
-        workflow,
+        graph,
         catalog=catalog,
         plan_nodes=plan_nodes,
-        node_order=tuple(order),
     )
     _validate_selection_objectives(
         workflow,
-        nodes_by_id=nodes_by_id,
+        graph=graph,
         plan_nodes=plan_nodes,
         capabilities=capabilities,
     )
     _validate_observation_selectors(
         workflow,
-        nodes_by_id=nodes_by_id,
+        graph=graph,
         plan_nodes=plan_nodes,
         capabilities=capabilities,
     )
     _validate_selection_objective_consumers(
         workflow,
+        graph=graph,
         plan_nodes=plan_nodes,
         admitted_node_parameters=admitted_node_parameters,
     )
 
-    return tuple(order)
+    return graph
 
 def _validate_selection_objectives(
     workflow: WorkflowDocument,
     *,
-    nodes_by_id: Mapping[str, WorkflowNodeInstance],
+    graph: _AdmittedWorkflowGraph,
     plan_nodes: Mapping[
         str,
         tuple[NodeTypeDefinition, ExecutionBindingDefinition],
@@ -291,7 +311,7 @@ def _validate_selection_objectives(
                 "score.collection",
             ),
         ):
-            node = nodes_by_id.get(input_reference.node_id)
+            node = graph.nodes_by_id.get(input_reference.node_id)
             if node is None:
                 raise WorkflowCompileError(
                     "invalid_selection_objective",
@@ -372,7 +392,7 @@ def _validate_selection_objectives(
 def _validate_observation_selectors(
     workflow: WorkflowDocument,
     *,
-    nodes_by_id: Mapping[str, WorkflowNodeInstance],
+    graph: _AdmittedWorkflowGraph,
     plan_nodes: Mapping[
         str,
         tuple[NodeTypeDefinition, ExecutionBindingDefinition],
@@ -404,7 +424,7 @@ def _validate_observation_selectors(
                 "score.collection",
             ),
         ):
-            node = nodes_by_id.get(input_reference.node_id)
+            node = graph.nodes_by_id.get(input_reference.node_id)
             if node is None:
                 raise WorkflowCompileError(
                     "invalid_observation_selector",
@@ -476,34 +496,25 @@ def _validate_observation_selectors(
             )
 
 def _connected_source(
-    workflow: WorkflowDocument,
+    graph: _AdmittedWorkflowGraph,
     *,
     node_id: str,
     input_port: str,
 ) -> SelectionInput | None:
-    sources = [
-        SelectionInput(edge.source_node_id, edge.source_port)
-        for edge in workflow.edges
-        if edge.target_node_id == node_id
-        and edge.target_port == input_port
-    ]
-    return sources[0] if len(sources) == 1 else None
+    sources = graph.input_sources[node_id].get(input_port, ())
+    return sources[0][1] if len(sources) == 1 else None
 
 def _connected_source_field_path(
-    workflow: WorkflowDocument,
+    graph: _AdmittedWorkflowGraph,
     *,
     node_id: str,
     input_port: str,
     expected_node_id: str,
 ) -> tuple[str | int, ...]:
-    edge_index, edge = next(
-        (index, edge)
-        for index, edge in enumerate(workflow.edges)
-        if edge.target_node_id == node_id and edge.target_port == input_port
-    )
+    edge_index, source = graph.input_sources[node_id][input_port][0]
     field_name = (
         "source_node_id"
-        if edge.source_node_id != expected_node_id
+        if source.node_id != expected_node_id
         else "source_port"
     )
     return ("edges", edge_index, field_name)
@@ -511,6 +522,7 @@ def _connected_source_field_path(
 def _validate_selection_objective_consumers(
     workflow: WorkflowDocument,
     *,
+    graph: _AdmittedWorkflowGraph,
     plan_nodes: Mapping[
         str,
         tuple[NodeTypeDefinition, ExecutionBindingDefinition],
@@ -569,7 +581,7 @@ def _validate_selection_objective_consumers(
                 ),
             ):
                 connected = _connected_source(
-                    workflow,
+                    graph,
                     node_id=node_id,
                     input_port=port_name,
                 )
@@ -580,7 +592,7 @@ def _validate_selection_objective_consumers(
                         "Workflow Observation Selector source",
                         node_id=node_id,
                         field_path=_connected_source_field_path(
-                            workflow,
+                            graph,
                             node_id=node_id,
                             input_port=port_name,
                             expected_node_id=reference.node_id,
@@ -632,7 +644,7 @@ def _validate_selection_objective_consumers(
             ),
         ):
             connected = _connected_source(
-                workflow,
+                graph,
                 node_id=node_id,
                 input_port=port_name,
             )
@@ -661,7 +673,7 @@ def _validate_selection_objective_consumers(
                     )
                     if len(expected_sources) != 1
                     else _connected_source_field_path(
-                        workflow,
+                        graph,
                         node_id=node_id,
                         input_port=port_name,
                         expected_node_id=next(iter(expected_sources))[0],
@@ -711,7 +723,7 @@ def _validate_selection_objective_consumers(
             )
 
 def _capability_source(
-    workflow: WorkflowDocument,
+    graph: _AdmittedWorkflowGraph,
     *,
     node_id: str,
     direction: str | None,
@@ -722,7 +734,7 @@ def _capability_source(
     if direction == "output":
         return SelectionInput(node_id, port)
     return _connected_source(
-        workflow,
+        graph,
         node_id=node_id,
         input_port=port,
     )
@@ -753,7 +765,7 @@ def _capability_matches_filter(
     )
 
 def _produced_observation_method(
-    workflow: WorkflowDocument,
+    graph: _AdmittedWorkflowGraph,
     *,
     node_id: str,
     declaration: ProducedObservationDefinition,
@@ -766,7 +778,7 @@ def _produced_observation_method(
     if declaration.method_direction != "input":
         return binding_method
     source = _connected_source(
-        workflow,
+        graph,
         node_id=node_id,
         input_port=declaration.method_port,
     )
@@ -808,25 +820,24 @@ def _capability_canonical(
     }
 
 def _derive_observation_capabilities(
-    workflow: WorkflowDocument,
+    graph: _AdmittedWorkflowGraph,
     *,
     catalog: FrozenCatalog,
     plan_nodes: Mapping[
         str,
         tuple[NodeTypeDefinition, ExecutionBindingDefinition],
     ],
-    node_order: tuple[str, ...],
 ) -> dict[tuple[str, str], tuple[_ObservationCapability, ...]]:
     """Derive exact output capabilities from closed fixed/propagation contracts."""
     capabilities: dict[
         tuple[str, str],
         tuple[_ObservationCapability, ...],
     ] = {}
-    for node_id in node_order:
+    for node_id in graph.node_order:
         _, binding = plan_nodes[node_id]
         for declaration in binding.produced_observations:
             observation_method = _produced_observation_method(
-                workflow,
+                graph,
                 node_id=node_id,
                 declaration=declaration,
                 binding_method=binding.method,
@@ -845,19 +856,19 @@ def _derive_observation_capabilities(
                 source_role=declaration.source_role,
                 guaranteed_multiplicity=declaration.guaranteed_multiplicity,
                 subject_source=_capability_source(
-                    workflow,
+                    graph,
                     node_id=node_id,
                     direction=declaration.subject_direction,
                     port=declaration.subject_port,
                 ),
                 reference_source=_capability_source(
-                    workflow,
+                    graph,
                     node_id=node_id,
                     direction=declaration.reference_direction,
                     port=declaration.reference_port,
                 ),
                 pairing_source=_capability_source(
-                    workflow,
+                    graph,
                     node_id=node_id,
                     direction=declaration.pairing_direction,
                     port=declaration.pairing_port,
@@ -871,16 +882,10 @@ def _derive_observation_capabilities(
             continue
         propagated: list[_ObservationCapability] = []
         for input_port in propagation.input_ports:
-            sources = [
-                edge
-                for edge in workflow.edges
-                if edge.target_node_id == node_id
-                and edge.target_port == input_port
-            ]
-            for edge in sources:
+            for _, source in graph.input_sources[node_id].get(input_port, ()):
                 propagated.extend(
                     capabilities.get(
-                        (edge.source_node_id, edge.source_port),
+                        (source.node_id, source.output_port),
                         (),
                     )
                 )

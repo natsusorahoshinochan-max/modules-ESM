@@ -298,7 +298,7 @@ def compile(
         )
         for index, objective in enumerate(workflow.selection_objectives)
     }
-    node_order = _validate_static_semantics(
+    graph = _validate_static_semantics(
         workflow,
         catalog,
         {
@@ -327,8 +327,8 @@ def compile(
         for item in resolved_workflow_selectors
     }
     nodes: list[ExecutionPlanNode] = []
-    for node_id in node_order:
-        node = next(item for item in workflow.nodes if item.node_id == node_id)
+    for node_id in graph.node_order:
+        node = graph.nodes_by_id[node_id]
         node_type_contract = resolved_by_key[
             ("node_type", node.node_type_id, node.node_type_version)
         ]
@@ -384,22 +384,15 @@ def compile(
 
         input_ports = resolved_ports(node_definition.inputs)
         output_ports = resolved_ports(node_definition.outputs)
-        input_sources: dict[
-            str,
-            list[_ExecutionPlanValueSource],
-        ] = {}
-        for edge in workflow.edges:
-            if edge.target_node_id != node.node_id:
-                continue
-            input_sources.setdefault(edge.target_port, []).append(
-                _ExecutionPlanValueSource(
-                    edge.source_node_id,
-                    edge.source_port,
-                )
-            )
         frozen_input_sources = {
-            port_name: tuple(sources)
-            for port_name, sources in input_sources.items()
+            port_name: tuple(
+                _ExecutionPlanValueSource(
+                    source.node_id,
+                    source.output_port,
+                )
+                for _, source in admitted_sources
+            )
+            for port_name, admitted_sources in graph.input_sources[node_id].items()
         }
         required_port_names = {
             name
@@ -525,7 +518,7 @@ def compile(
         "workflow_digest": workflow.digest,
         "catalog_contract_digest": catalog.contract_digest,
         "contract_lock_digest": workflow.contract_lock_digest,
-        "node_order": list(node_order),
+        "node_order": list(graph.node_order),
         "nodes": [
             {
                 "node_id": node.node_id,
@@ -565,7 +558,7 @@ def compile(
         execution_plan_digest=execution_plan_digest,
         nodes=tuple(nodes),
         edges=workflow.edges,
-        node_order=node_order,
+        node_order=graph.node_order,
         resolved_contracts=resolved_contracts,
         _runtime=_ExecutionPlanRuntime(
             candidate_data_port_types=candidate_data_port_types,
