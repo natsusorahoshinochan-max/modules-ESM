@@ -1182,28 +1182,7 @@ class PortTypeDefinition:
         declaration = self.validator.parameters.get("artifact_publication")
         if declaration is None:
             return None
-        if (
-            not isinstance(declaration, Mapping)
-            or set(declaration) != {"media_types"}
-            or not isinstance(declaration["media_types"], tuple)
-        ):
-            raise CatalogBuildError(
-                f"{self.type_id}@{self.version} has an invalid artifact "
-                "publication declaration"
-            )
-        media_types = tuple(declaration["media_types"])
-        if (
-            not media_types
-            or tuple(sorted(set(media_types))) != media_types
-            or any(
-                not is_valid_artifact_media_type(media_type)
-                for media_type in media_types
-            )
-        ):
-            raise CatalogBuildError(
-                f"{self.type_id}@{self.version} has invalid artifact media types"
-            )
-        return media_types
+        return cast(tuple[str, ...], declaration["media_types"])
 
     @property
     def descriptor_bytes(self) -> bytes:
@@ -1278,12 +1257,7 @@ class PortTypeDefinition:
     @property
     def value_kind(self) -> str:
         """Return the stable runtime value kind declared by the validator."""
-        value_kind = self.validator.parameters.get("accepted_value_kind")
-        if not isinstance(value_kind, str) or value_kind not in _VALUE_TYPE_BY_KIND:
-            raise PortValueError(
-                f"{self.type_id}@{self.version} has no installed validator behavior"
-            )
-        return value_kind
+        return cast(str, self.validator.parameters["accepted_value_kind"])
 
     def validate_runtime_contract(self) -> None:
         """Require a complete installed runtime behind stable behavior IDs."""
@@ -1298,20 +1272,28 @@ class PortTypeDefinition:
                     f"{self.type_id}@{self.version} has an incomplete runtime "
                     "validator/codec declaration"
                 )
-            return
-        try:
-            self.value_kind
-        except PortValueError as error:
-            raise CatalogBuildError(str(error)) from error
+        else:
+            value_kind = self.validator.parameters.get(
+                "accepted_value_kind"
+            )
+            if (
+                not isinstance(value_kind, str)
+                or value_kind not in _VALUE_TYPE_BY_KIND
+            ):
+                raise CatalogBuildError(
+                    f"{self.type_id}@{self.version} has no installed "
+                    "validator behavior"
+                )
 
     def _validate_builtin(self, value: Any) -> None:
-        expected_type = _VALUE_TYPE_BY_KIND[self.value_kind]
+        value_kind = self.value_kind
+        expected_type = _VALUE_TYPE_BY_KIND[value_kind]
         if type(value) is not expected_type:
             raise PortValueError(
                 f"{self.type_id}@{self.version} requires {expected_type.__name__}, "
                 f"got {type(value).__name__}"
             )
-        _validate_builtin_semantics(self.value_kind, value)
+        _validate_builtin_semantics(value_kind, value)
 
     def validate(self, value: Any) -> None:
         """Validate one complete runtime value through this nominal contract."""
