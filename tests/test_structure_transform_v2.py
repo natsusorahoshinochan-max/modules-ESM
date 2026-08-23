@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from contextlib import nullcontext
 from dataclasses import replace
 import json
@@ -9,41 +11,54 @@ from pathlib import Path
 
 import pytest
 
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.errors import PortValueError
+from core.catalog.canonical import canonical_json_bytes
+from core.operation import (
+    OperationCall,
+)
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    OperationCall,
-    PortValueError,
-    WorkflowCompileError,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    builtin_frozen_catalog,
-    canonical_json_bytes,
-    compile_workflow,
-    discover_module_packages,
-    relock_workflow,
     verify_module_package_contract,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from core.workflow.errors import WorkflowCompileError
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.residue import (
     ModifiedResidueAtomMapping,
     ModifiedResidueNormalization,
     ModifiedResidueNormalizationCollection,
-    ProteinSequence,
-    ProteinStructure,
     ResidueLayout,
+)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import (
+    ProteinStructure,
     ResolvedStructureResidueAxis,
     StructureAtomCoordinate,
     StructureAxisSegment,
     StructureComponentDisposition,
     StructureResidueCoordinates,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateNormalizationFact,
     CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
@@ -56,14 +71,16 @@ from modules.structure_transform.port_types import (
     MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
 )
 from modules.structure_transform.package import MODULE_PACKAGE
-from modules.structure_transform.implementation import (
+from modules.structure_transform.candidate_transforms import (
     ExtractSequenceCandidatesImplementation,
     SelectCandidateChainsImplementation,
+)
+from modules.structure_transform.projections import (
     extract_backbone,
     extract_sequence,
-    resolve_residue_axis,
     select_chains,
 )
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from tests.fixtures.scientific_operation import admitted_port_fixture
 from tests.fixtures.structure_transform_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -327,6 +344,10 @@ def test_standard_parent_component_is_polymer_independent_of_pdb_record_type(
         STRUCTURE_VERSION,
     )
     assert axis_type.decode(axis_type.encode(axis)) == axis
+    with pytest.raises(PortValueError, match="contradicts its sequence letter"):
+        axis_type.encode(
+            replace(axis, sequence="X", residue_names=("UNK",))
+        )
 
 
 def test_sequence_and_backbone_are_projections_of_the_resolved_axis() -> None:
@@ -503,7 +524,14 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
     )
 
     encoded = port_type.encode(_RESOLVED_AXIS)
-    assert port_type.decode(encoded) == _RESOLVED_AXIS
+    decoded = port_type.decode(encoded)
+    assert decoded == _RESOLVED_AXIS
+    assert all(
+        type(number) is float
+        for residue in decoded.residue_coordinates
+        for atom in residue.atom_coordinates
+        for number in atom.coordinate
+    )
     source_bearing = json.loads(encoded)
     source_bearing["value"]["source"] = "guessed-provenance"
     with pytest.raises(PortValueError, match="could not decode"):
@@ -557,7 +585,7 @@ def test_normalization_codec_runtime_and_wire_domains_are_closed() -> None:
 def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["structure_transform"]
@@ -578,17 +606,16 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         "definitions/resolve_candidate_residue_axes.yaml",
         "definitions/backbone_to_structure.yaml",
     }
-    catalog = build_discovered_frozen_catalog()
-    assert (
-        "port_type",
+    catalog = build_frozen_catalog(module_registrations())
+    assert catalog.get_port_type(
         "structure_transform.backbone_structure",
         "3.0.0",
-    ) not in catalog.owners
-    assert (
+    ) is None
+    assert catalog.get_contract(
         "method",
         "structure_transform.backbone_to_structure.method",
         "3.0.0",
-    ) not in catalog.owners
+    ) is None
     assert catalog.require_contract(
         "method",
         "structure_transform.backbone_to_structure.method",
@@ -597,11 +624,10 @@ def test_structure_transform_publishes_all_exact_transforms_and_bridge() -> None
         f"structure_transform.backbone_structure@{BACKBONE_VERSION}"
     )
     assert {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "structure_transform"
-        in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("structure_transform.")
     } == {
         ("structure_transform.select_chains", STRUCTURE_VERSION),
         (
@@ -832,10 +858,12 @@ def test_full_atom_structure_cannot_enter_a_backbone_port_implicitly() -> None:
     )
 
     with pytest.raises(WorkflowCompileError) as rejected:
-        compile_workflow(
-            relock_workflow(workflow, catalog),
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                lock_workflow(workflow, catalog),
+                1,
+            ),
+            catalog,
         )
 
     assert rejected.value.code == "port_type_mismatch"
@@ -873,10 +901,12 @@ def test_raw_structure_cannot_enter_resolved_axis_projection_nodes(
     )
 
     with pytest.raises(WorkflowCompileError) as rejected:
-        compile_workflow(
-            relock_workflow(workflow, catalog),
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                lock_workflow(workflow, catalog),
+                1,
+            ),
+            catalog,
         )
 
     assert rejected.value.code == "port_type_mismatch"

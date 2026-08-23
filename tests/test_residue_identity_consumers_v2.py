@@ -2,27 +2,30 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import pytest
 
-from core import (
+from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
 )
-from core.workflow_v2 import (
-    WorkflowCompileError,
-    validate_workflow_parameter_values,
-)
-from datatypes import (
+from core.parameters.contract import ParameterValueAdmissionError, admit_values
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
-    ProteinMPNNConstraints,
-    ResidueLayout,
     validate_canonical_function_annotations,
+)
+from datatypes.residue import ResidueLayout
+from modules.proteinmpnn.domain import (
+    ProteinMPNNConstraints,
     validate_proteinmpnn_constraints,
 )
-from modules.proteinmpnn.domain import validate_constraints_against_layout
-from modules.prompt_authoring.annotations import validate_function_annotations
+from modules.prompt_authoring.annotations import (
+    require_function_annotation_layout,
+)
 
 
 def test_signed_residue_identities_address_constraints_and_annotations() -> None:
@@ -50,10 +53,10 @@ def test_signed_residue_identities_address_constraints_and_annotations() -> None
         ),
     ))
 
-    validate_constraints_against_layout(constraints, layout=layout)
-    assert validate_function_annotations(annotations, layout) == annotations
+    validate_canonical_function_annotations(annotations)
+    assert require_function_annotation_layout(annotations, layout) == annotations
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     constraints_type = catalog.require_port_type(
         "proteinmpnn.constraints",
         "4.0.0",
@@ -83,12 +86,11 @@ def test_constraint_addresses_remain_closed_and_layout_bound() -> None:
             )
         )
     with pytest.raises(ValueError, match="is not present in the layout"):
-        validate_constraints_against_layout(
+        validate_proteinmpnn_constraints(
             ProteinMPNNConstraints(
                 layout=layout,
                 fixed_residue_ids=("A:-4",),
-            ),
-            layout=layout,
+            )
         )
 
 
@@ -120,12 +122,13 @@ def test_function_annotation_provenance_remains_closed_and_layout_bound() -> Non
             overlap_policy="reject",
         ),
     ))
+    validate_canonical_function_annotations(absent)
     with pytest.raises(ValueError, match="do not correspond"):
-        validate_function_annotations(absent, layout)
+        require_function_annotation_layout(absent, layout)
 
 
 def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id="signed-residue-addresses",
@@ -172,7 +175,22 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
         contract_lock=(),
     )
 
-    validate_workflow_parameter_values(workflow, catalog)
+    admit_values(
+        catalog.require_contract(
+            "node_type",
+            workflow.nodes[0].node_type_id,
+            workflow.nodes[0].node_type_version,
+        ).definition.parameter_contract,
+        workflow.nodes[0].node_parameters,
+    )
+    admit_values(
+        catalog.require_contract(
+            "node_type",
+            workflow.nodes[1].node_type_id,
+            workflow.nodes[1].node_type_version,
+        ).definition.parameter_contract,
+        workflow.nodes[1].node_parameters,
+    )
 
     invalid = WorkflowDocument(
         schema_version=workflow.schema_version,
@@ -199,5 +217,12 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
         edges=(),
         contract_lock=(),
     )
-    with pytest.raises(WorkflowCompileError, match="must match"):
-        validate_workflow_parameter_values(invalid, catalog)
+    with pytest.raises(ParameterValueAdmissionError, match="must match"):
+        admit_values(
+            catalog.require_contract(
+                "node_type",
+                invalid.nodes[0].node_type_id,
+                invalid.nodes[0].node_type_version,
+            ).definition.parameter_contract,
+            invalid.nodes[0].node_parameters,
+        )

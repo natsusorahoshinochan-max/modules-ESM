@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import core
-import core.server as server
-from core import build_discovered_frozen_catalog, discover_module_packages
-from core.project import ProjectManager
-from protein_workbench_public import encode_project_input_content
+from core.project.manager import ProjectManager
+from tests.support.public_request import encode_project_input_content
+import protein_workbench_public.bootstrap as bootstrap
 
 
 ACCEPTED_MODULE_PACKAGES = {
@@ -31,13 +33,13 @@ ACCEPTED_MODULE_PACKAGES = {
 
 
 def test_production_discovery_is_exactly_the_accepted_package_surface() -> None:
-    registrations = discover_module_packages()
+    registrations = module_registrations()
     assert {registration.package_id for registration in registrations} == (
         ACCEPTED_MODULE_PACKAGES
     )
     assert len(registrations) == 12
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     node_ids = {
         contract.contract_id
         for contract in catalog.contracts
@@ -58,7 +60,7 @@ def test_server_publishes_only_the_frozen_catalog_runtime(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
     )
-    with TestClient(server.create_app()) as client:
+    with TestClient(bootstrap.create_application()) as client:
         assert client.get("/api/v2/catalog").status_code == 200
         for method, path in (
             ("get", "/api/modules"),
@@ -76,34 +78,19 @@ def test_server_publishes_only_the_frozen_catalog_runtime(
             assert response.status_code == 404
         assert hasattr(client.app.state, "frozen_catalog")
         assert not hasattr(client.app.state, "module_registry")
-        assert not hasattr(server, "module_registry")
-        assert not hasattr(server, "type_registry")
-        assert not hasattr(server, "_module_factories")
+        assert not hasattr(bootstrap, "module_registry")
+        assert not hasattr(bootstrap, "type_registry")
+        assert not hasattr(bootstrap, "_module_factories")
 
 
-def test_legacy_persisted_workflow_is_not_adopted_and_run_is_rejected(
+def test_legacy_persisted_run_and_project_are_rejected(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
     project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
-    manager = ProjectManager(project_root, run_root=run_root)
-    workflow_project = manager.create("legacy-workflow")
-    workflow_project_dir = manager.project_dir(workflow_project.id)
-    legacy_workflow_path = workflow_project_dir / "workflow-v2.json"
-    legacy_workflow_path.write_text(
-        json.dumps(
-            {
-                "schema_version": "1.0.0",
-                "workflow_revision": 1,
-                "workflow": {"nodes": [], "edges": []},
-            }
-        ),
-        encoding="utf-8",
-    )
-    legacy_workflow_bytes = legacy_workflow_path.read_bytes()
     project_id = "legacy-project"
-    project_dir = manager.project_dir(project_id)
+    project_dir = project_root / project_id
     project_dir.mkdir(parents=True)
     (project_dir / "project.json").write_text(
         json.dumps(
@@ -115,7 +102,7 @@ def test_legacy_persisted_workflow_is_not_adopted_and_run_is_rejected(
         ),
         encoding="utf-8",
     )
-    legacy_run = manager.run_dir(project_id, "legacy-run")
+    legacy_run = run_root / project_id / "legacy-run"
     legacy_run.mkdir(parents=True)
     (legacy_run / "manifest.json").write_text(
         json.dumps({"schema_version": 1, "status": "completed"}),
@@ -124,28 +111,10 @@ def test_legacy_persisted_workflow_is_not_adopted_and_run_is_rejected(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
 
-    with TestClient(server.create_app()) as client:
-        workflow = client.get(
-            f"/api/v2/projects/{workflow_project.id}/workflow/draft"
-        )
-        assert workflow.status_code == 404
-        assert workflow.json()["error"]["code"] == (
-            "workflow_draft_not_found"
-        )
-        assert workflow.json()["error"]["details"] == {
-            "resource_kind": "workflow_draft",
-            "resource_id": workflow_project.id,
-        }
-        assert legacy_workflow_path.read_bytes() == legacy_workflow_bytes
-
+    with TestClient(bootstrap.create_application()) as client:
         run = client.get(f"/api/v2/projects/{project_id}/runs/legacy-run")
-        assert run.status_code == 400
-        assert run.json()["error"]["code"] == "unsupported_schema_version"
-        assert run.json()["error"]["details"] == {
-            "artifact_kind": "run_evidence",
-            "expected_schema_version": "4.0.0",
-            "received_schema_version": "1",
-        }
+        assert run.status_code == 404
+        assert run.json()["error"]["code"] == "run_not_found"
 
         uploaded = client.post(
             f"/api/v2/projects/{project_id}/inputs",
@@ -161,22 +130,6 @@ def test_legacy_persisted_workflow_is_not_adopted_and_run_is_rejected(
         assert uploaded.json()["error"]["details"]["artifact_kind"] == (
             "project"
         )
-
-
-def test_legacy_runtime_symbols_are_not_public_or_importable() -> None:
-    for name in (
-        "Executor",
-        "ModuleRegistry",
-        "TypeRegistry",
-        "Workflow",
-        "WorkflowModule",
-        "RunManifest",
-    ):
-        assert not hasattr(core, name)
-
-    import datatypes
-
-    assert not hasattr(datatypes, "Score")
 
 
 def test_seed_install_does_not_adopt_or_rewrite_existing_local_data(

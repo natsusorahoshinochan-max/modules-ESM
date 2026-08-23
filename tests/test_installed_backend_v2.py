@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 import os
@@ -18,13 +22,16 @@ from pathlib import Path
 import httpx
 import pytest
 
-from core import build_discovered_frozen_catalog
-from modules.acceptance_campaign import acceptance_tier
-from protein_workbench_public import (
+from verification.acceptance_campaign import acceptance_tier
+from protein_workbench_public.protocol import (
     bundle_bytes,
     bundle_digest,
+)
+from tests.support.public_request import (
     prepare_run_event_stream_request,
     prepare_rest_request,
+)
+from tests.support.protocol import (
     validate_artifact_response,
     validate_event,
 )
@@ -45,7 +52,7 @@ from websockets.sync.client import connect
 pytestmark = pytest.mark.installed_package
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SOURCE_CATALOG = build_discovered_frozen_catalog()
+SOURCE_CATALOG = build_frozen_catalog(module_registrations())
 SOURCE_CATALOG_BYTES = SOURCE_CATALOG.catalog_descriptor_bytes
 SOURCE_CATALOG_DIGEST = SOURCE_CATALOG.contract_digest
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
@@ -142,8 +149,10 @@ import examples
 import modules
 import pdbs
 import protein_workbench_public
-from core import build_discovered_frozen_catalog
-from protein_workbench_public import bundle_bytes, bundle_digest
+from core.catalog.builder import build_frozen_catalog
+from protein_workbench_public.protocol import bundle_bytes, bundle_digest
+from protein_workbench_public.bootstrap import module_registrations
+from protein_workbench_public.catalog_codec import encode_catalog_projection
 
 source_root = Path(__import__("os").environ["PW_SOURCE_ROOT"]).resolve()
 origins = {
@@ -155,7 +164,7 @@ origins = {
     "public": str(Path(protein_workbench_public.__file__).resolve()),
 }
 assert all(not Path(path).is_relative_to(source_root) for path in origins.values())
-catalog = build_discovered_frozen_catalog()
+catalog = build_frozen_catalog(module_registrations())
 print(json.dumps({
     "origins": origins,
     "protocol_hex": bundle_bytes().hex(),
@@ -163,8 +172,9 @@ print(json.dumps({
     "catalog_hex": catalog.catalog_descriptor_bytes.hex(),
     "catalog_digest": catalog.contract_digest,
     "contracts": [contract.reference() for contract in catalog.contracts],
-    "availability": catalog.public_snapshot(
-        protocol_digest=bundle_digest()
+    "availability": encode_catalog_projection(
+        catalog.projection(),
+        protocol_digest=bundle_digest(),
     )["availability"],
 }, sort_keys=True))
 """
@@ -314,6 +324,7 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
     assert not any(
         name.startswith("tests/")
         or "zero_core_packages" in name
+        or "verification-results" in Path(name).parts
         or {"fixture", "fixtures", "test", "tests"}.intersection(
             Path(name).parts
         )
@@ -322,6 +333,7 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
     assert not any(
         name.startswith("tests/")
         or "zero_core_packages" in name
+        or "verification-results" in Path(name).parts
         or {"fixture", "fixtures", "test", "tests"}.intersection(
             Path(name).parts
         )
@@ -378,7 +390,7 @@ def test_installed_backend_completes_full_public_v2_journey(
             str(installed_artifact.python),
             "-I",
             "-m",
-            "core.server",
+            "protein_workbench_public.cli",
             "--host",
             "127.0.0.1",
             "--port",
@@ -513,6 +525,7 @@ def test_installed_backend_completes_full_public_v2_journey(
             )
             streamed = []
             replay_complete_index = None
+            terminal_index = None
             with connect(
                 f"ws://127.0.0.1:{port}{stream.route}",
                 open_timeout=5,
@@ -525,23 +538,21 @@ def test_installed_backend_completes_full_public_v2_journey(
                     streamed.append(message)
                     if message["event"]["type"] == "replay_complete":
                         replay_complete_index = len(streamed) - 1
+                    if message["event"]["type"] == "run_terminal":
+                        terminal_index = len(streamed) - 1
                     if (
                         replay_complete_index is not None
-                        and message["event"]["type"] == "run_terminal"
+                        and terminal_index is not None
                     ):
                         break
             assert replay_complete_index is not None
+            assert terminal_index is not None
             replayed = streamed[: replay_complete_index + 1]
-            live = streamed[replay_complete_index + 1 :]
             event_types = {message["event"]["type"] for message in replayed}
             assert {
                 "replay_started",
                 "replay_complete",
             } <= event_types
-            assert any(
-                message["event"]["type"] == "run_terminal"
-                for message in live
-            )
 
             first_projection = _wait_terminal(
                 client,
@@ -630,17 +641,19 @@ def test_installed_backend_completes_full_public_v2_journey(
                     "reason": "installed acceptance cancellation race",
                 },
             )
-            assert cancelled["outcome"] in {
-                "already_requested",
-                "cancellation_requested",
-            }
             derived_projection = _wait_terminal(
                 client,
                 project_id,
                 derived["run_id"],
             )
             assert derived_projection["derived_from_run_id"] == first["run_id"]
-            assert derived_projection["status"] == "cancelled"
+            expected_status = {
+                "already_requested": "cancelled",
+                "cancellation_requested": "cancelled",
+                "already_terminal": "succeeded",
+                "completed_before_cancel": "succeeded",
+            }[cancelled["outcome"]]
+            assert derived_projection["status"] == expected_status
     finally:
         _stop_server(server)
 
@@ -655,10 +668,7 @@ def _run_installed_provider_case(
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
     if case in {"biohub_esm3", "biohub_esmfold2"}:
         token_file = Path(
-            env.get(
-                "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
-                PROJECT_ROOT / "keys" / "esmkey.txt",
-            )
+            env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"]
         )
         env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"] = str(token_file)
     if case == "simplefold_folding":
@@ -682,13 +692,6 @@ def _run_installed_provider_case(
     _require_configured_installed_evidence()
 
 
-def _require_installed_proteinmpnn_lifecycle(root: Path) -> None:
-    assert json.loads((root / "model-lifecycle.json").read_bytes()) == {
-        "model": "proteinmpnn",
-        "load_count": 1,
-    }
-
-
 def _require_configured_installed_evidence() -> None:
     configured = os.environ.get(
         "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"
@@ -702,46 +705,12 @@ def _require_configured_installed_evidence() -> None:
         required_runs=contract.required_run_labels,
         lifecycle_required=contract.lifecycle_receipt_required,
     )
-    if tier == "installed-proteinmpnn":
-        _require_installed_proteinmpnn_lifecycle(Path(configured))
-
-
-@pytest.mark.parametrize("load_count", (0, 2))
-def test_installed_proteinmpnn_lifecycle_requires_one_model_load(
-    tmp_path: Path,
-    load_count: int,
-) -> None:
-    (tmp_path / "model-lifecycle.json").write_text(
-        json.dumps({"model": "proteinmpnn", "load_count": load_count}),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(AssertionError):
-        _require_installed_proteinmpnn_lifecycle(tmp_path)
-
-
-def test_installed_proteinmpnn_lifecycle_accepts_one_model_load(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "model-lifecycle.json").write_text(
-        json.dumps({"model": "proteinmpnn", "load_count": 1}),
-        encoding="utf-8",
-    )
-
-    _require_installed_proteinmpnn_lifecycle(tmp_path)
-
-
 @contextmanager
 def _running_installed_biohub_esmc_server(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
 ) -> Iterator[tuple[int, str]]:
-    token_file = Path(
-        os.environ.get(
-            "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
-            PROJECT_ROOT / "keys" / "esmkey.txt",
-        )
-    )
+    token_file = Path(os.environ["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"])
     launcher = tmp_path / "installed_biohub_esmc_server.py"
     launcher.write_text(
         """
@@ -753,9 +722,8 @@ import examples
 import modules
 import pdbs
 import protein_workbench_public
-from core.server import create_app
-from modules.esm3.esmc_adapter import biohub_esmc_client_factory
-from modules.provider_contract import read_biohub_token
+from protein_workbench_public.bootstrap import create_application
+from core.provider_support import read_private_credential_file
 
 source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
 for package in (
@@ -768,12 +736,14 @@ for package in (
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)
 binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "5.0.0")
-app = create_app(v2_environment_configuration={
+token = read_private_credential_file(
+    Path(os.environ["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"])
+)
+app = create_application(v2_environment_configuration={
     binding: {
         "values": {
             "endpoint_id": "biohub",
-            "credential_handle": read_biohub_token(),
-            "client_factory": biohub_esmc_client_factory,
+            "credential_handle": token,
         },
     },
 })

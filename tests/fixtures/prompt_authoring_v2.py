@@ -2,22 +2,28 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ResidueLayout
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.residue import ResidueLayout
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -100,11 +106,13 @@ class PreparedPromptOperation:
             self.project_id,
             receipt["run_id"],
         )
-        projection = self.service.projection(
+        projection = public_run_projection(
+            self.service,
             self.project_id,
             receipt["run_id"],
         )
-        events = self.service.public_events(
+        events = public_run_events(
+            self.service,
             self.project_id,
             receipt["run_id"],
         )
@@ -169,17 +177,12 @@ def prepare_operation(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                (binding_id, operation_version): {
-                    "values": {
-                        "credential": (
-                            f"not-result-affecting-{environment_label}"
-                        ),
-                    },
-                }
-            }
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
         ),
+        result_store(projects),
     )
     return PreparedPromptOperation(
         catalog=catalog,

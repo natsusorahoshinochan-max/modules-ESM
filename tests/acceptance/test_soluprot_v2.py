@@ -2,22 +2,28 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -161,13 +167,19 @@ def _run(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                (binding_id, "5.0.0"): {
-                    "values": environment_values,
-                }
-            }
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (binding_id, "5.0.0"): {
+                        "values": environment_values,
+                    }
+                },
+            ),
+            result_store(projects),
         ),
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -179,8 +191,8 @@ def _run(
         return (
             catalog,
             service,
-            service.projection(project.id, receipt["run_id"]),
-            service.public_events(project.id, receipt["run_id"]),
+            public_run_projection(service, project.id, receipt["run_id"]),
+            public_run_events(service, project.id, receipt["run_id"]),
         )
     finally:
         service.shutdown()
@@ -196,12 +208,12 @@ def test_model_backed_soluprot_golden_methods(
     mode: str,
     expected: float,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.soluprot as adapter
 
     recorded: list[dict[str, Any]] = []
-    original_invoke = adapter.invoke_soluprot
+    original_run_process = adapter._run_local_process
 
-    def record_and_delegate(**kwargs: Any) -> None:
+    def record_and_delegate(**kwargs: Any) -> int:
         staging_directory = kwargs["staging_directory"]
         record = {
             "command": tuple(kwargs["command"]),
@@ -210,13 +222,14 @@ def test_model_backed_soluprot_golden_methods(
                 staging_directory / "input.fasta"
             ).read_text(encoding="ascii"),
         }
-        original_invoke(**kwargs)
+        return_code = original_run_process(**kwargs)
         record["raw_output"] = (
             staging_directory / "output.csv"
         ).read_bytes()
         recorded.append(record)
+        return return_code
 
-    monkeypatch.setattr(adapter, "invoke_soluprot", record_and_delegate)
+    monkeypatch.setattr(adapter, "_run_local_process", record_and_delegate)
 
     catalog, service, projection, events = _run(tmp_path, mode=mode)
 

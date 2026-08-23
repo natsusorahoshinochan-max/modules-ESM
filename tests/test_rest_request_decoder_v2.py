@@ -9,11 +9,13 @@ from urllib.parse import quote
 import pytest
 
 import protein_workbench_public.protocol as public_protocol
-from protein_workbench_public import (
-    PreparedRestRequest,
+from protein_workbench_public.protocol import (
     ProtocolValidationError,
     decode_rest_request,
     load_bundle,
+)
+from tests.support.public_request import (
+    PreparedRestRequest,
     prepare_rest_request,
 )
 

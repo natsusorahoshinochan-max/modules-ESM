@@ -20,5 +20,3 @@ Port compatibility is exact nominal identity: both `type_id` and version must
 match. Structural similarity, implicit coercion, and version-range matching do
 not create compatibility; a changed contract receives a new version and any
 conversion is represented by an explicit Node Type.
-
-This decision refines ADR-0003, ADR-0018, and ADR-0023.

@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import base64
 import copy
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 import hashlib
@@ -28,24 +26,6 @@ _CANONICAL_BASE64 = re.compile(
 _BASE64_ALPHABET = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 )
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedRestRequest:
-    """One wire request derived from a bundle operation."""
-
-    method: str
-    route: str
-    json_body: dict[str, Any] | None
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedEventStreamRequest:
-    """One WebSocket request derived from the bundle stream contract."""
-
-    transport: str
-    route: str
-    message_schema: str
 
 
 class ProtocolValidationError(ValueError):
@@ -114,19 +94,6 @@ def _project_input_max_decoded_bytes() -> int:
     return contract["max_decoded_bytes"]
 
 
-def encode_project_input_content(content: bytes) -> str:
-    """Encode opaque Project Input bytes in the bundle's exact JSON form."""
-    if type(content) is not bytes:
-        raise ProtocolValidationError("$.content", "must be bytes")
-    limit = _project_input_max_decoded_bytes()
-    if len(content) > limit:
-        raise ProtocolValidationError(
-            "$.content",
-            f"must contain at most {limit} bytes",
-        )
-    return base64.b64encode(content).decode("ascii")
-
-
 def _validate_project_input_content(
     content_base64: str,
     *,
@@ -161,15 +128,6 @@ def _validate_project_input_content(
             path,
             f"must decode to at most {limit} bytes",
         )
-
-
-def decode_project_input_content(content_base64: str) -> bytes:
-    """Decode only canonical RFC 4648 Project Input content."""
-    _validate_project_input_content(
-        content_base64,
-        path="$.content_base64",
-    )
-    return base64.b64decode(content_base64)
 
 
 def _resolve_schema(reference: str) -> dict[str, Any]:
@@ -368,48 +326,6 @@ def _rest_operation(operation_id: str) -> dict[str, Any]:
     return operation
 
 
-def prepare_rest_request(
-    operation_id: str,
-    payload: dict[str, Any],
-) -> PreparedRestRequest:
-    """Validate and map a combined request model to its declared wire shape."""
-    validate_request(operation_id, payload)
-    operation = _rest_operation(operation_id)
-    path_template, separator, query_template = operation["route"].partition("?")
-    path_fields = re.findall(r"{([A-Za-z0-9_]+)}", path_template)
-    query_fields = re.findall(r"{([A-Za-z0-9_]+)}", query_template)
-
-    def render(template: str) -> str:
-        rendered = template
-        for field in re.findall(r"{([A-Za-z0-9_]+)}", template):
-            rendered = rendered.replace(
-                f"{{{field}}}",
-                quote(str(payload[field]), safe=""),
-            )
-        return rendered
-
-    route = render(path_template)
-    if separator:
-        query_parts = []
-        for part in query_template.split("&"):
-            fields = re.findall(r"{([A-Za-z0-9_]+)}", part)
-            if any(field not in payload for field in fields):
-                continue
-            query_parts.append(render(part))
-        if query_parts:
-            route = f"{route}?{'&'.join(query_parts)}"
-    body = {
-        name: copy.deepcopy(value)
-        for name, value in payload.items()
-        if name not in {*path_fields, *query_fields}
-    }
-    return PreparedRestRequest(
-        method=operation["method"],
-        route=route,
-        json_body=body or None,
-    )
-
-
 def decode_rest_request(
     operation_id: str,
     *,
@@ -484,42 +400,6 @@ def decode_rest_request(
     return combined
 
 
-def prepare_run_event_stream_request(
-    payload: dict[str, Any],
-) -> PreparedEventStreamRequest:
-    """Validate and map a Run Event Stream request from its bundle contract."""
-    stream = _source_bundle().get("run_event_stream")
-    if not isinstance(stream, dict):
-        raise ValueError("Public protocol has no Run Event Stream contract")
-    validate_schema(stream["request_schema"], payload)
-    path_template, separator, query_template = stream["route"].partition("?")
-
-    def render(template: str) -> str:
-        rendered = template
-        for field in re.findall(r"{([A-Za-z0-9_]+)}", template):
-            rendered = rendered.replace(
-                f"{{{field}}}",
-                quote(str(payload[field]), safe=""),
-            )
-        return rendered
-
-    route = render(path_template)
-    if separator:
-        query_parts = []
-        for part in query_template.split("&"):
-            fields = re.findall(r"{([A-Za-z0-9_]+)}", part)
-            if any(field not in payload for field in fields):
-                continue
-            query_parts.append(render(part))
-        if query_parts:
-            route = f"{route}?{'&'.join(query_parts)}"
-    return PreparedEventStreamRequest(
-        transport=stream["transport"],
-        route=route,
-        message_schema=stream["message_schema"],
-    )
-
-
 def decode_run_event_stream_request(
     *,
     path_parameters: Mapping[str, Any],
@@ -570,176 +450,6 @@ def validate_request(operation_id: str, payload: Any) -> None:
     validate_schema(_rest_operation(operation_id)["request_schema"], payload)
 
 
-def validate_event(payload: Any) -> None:
-    """Validate one durable/replay Run Event Stream envelope."""
-    validate_schema("#/$defs/RunEventEnvelope", payload)
-    event = payload["event"]
-    if "error" in event:
-        validate_error(
-            {
-                "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
-                "error": event["error"],
-            }
-        )
-
-
 def artifact_content_disposition(filename: str) -> str:
     """Return the Artifact filename's exact public response representation."""
     return f"attachment; filename*=UTF-8''{quote(filename, safe='')}"
-
-
-def validate_artifact_response(
-    metadata: Any,
-    headers: Mapping[str, str],
-    body: bytes,
-) -> None:
-    """Validate an Artifact Retrieval body against declared public metadata."""
-    validate_schema("#/$defs/ArtifactResponseMetadata", metadata)
-    artifact = metadata["artifact"]
-    expected_disposition = artifact_content_disposition(
-        artifact["filename"]
-    )
-    if metadata["content_disposition"] != expected_disposition:
-        raise ProtocolValidationError(
-            "$.content_disposition",
-            f"must equal {expected_disposition!r}",
-        )
-    observed_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
-    if observed_digest != artifact["content_digest"]:
-        raise ProtocolValidationError(
-            "$.body",
-            (
-                "content digest does not match artifact metadata: "
-                f"{observed_digest} != {artifact['content_digest']}"
-            ),
-        )
-    if len(body) != artifact["size"]:
-        raise ProtocolValidationError(
-            "$.body",
-            f"content size {len(body)} does not match {artifact['size']}",
-        )
-    normalized_headers = {name.lower(): value for name, value in headers.items()}
-    expected_headers = {
-        "content-disposition": metadata["content_disposition"],
-        "content-length": str(artifact["size"]),
-        "content-type": artifact["media_type"],
-        "digest": artifact["content_digest"],
-    }
-    for name, expected in expected_headers.items():
-        observed = normalized_headers.get(name)
-        if observed != expected:
-            raise ProtocolValidationError(
-                f"$.headers.{name}",
-                f"must equal {expected!r}, got {observed!r}",
-            )
-
-
-def validate_typed_value_response(
-    metadata: Any,
-    headers: Mapping[str, str],
-    body: bytes,
-) -> None:
-    """Validate exact canonical Typed Output bytes and declared metadata."""
-    validate_schema("#/$defs/TypedValueResponseMetadata", metadata)
-    typed_value = metadata["typed_value"]
-    observed_digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
-    if observed_digest != typed_value["value_content_digest"]:
-        raise ProtocolValidationError(
-            "$.body",
-            "content digest does not match Typed Output value metadata",
-        )
-    if len(body) != typed_value["size"]:
-        raise ProtocolValidationError(
-            "$.body",
-            "content size does not match Typed Output value metadata",
-        )
-    normalized_headers = {name.lower(): value for name, value in headers.items()}
-    expected_headers = {
-        "content-length": str(typed_value["size"]),
-        "content-type": "application/json",
-        "digest": typed_value["value_content_digest"],
-        "etag": f'"{typed_value["value_content_digest"]}"',
-        "x-port-content-digest": typed_value["port_content_digest"],
-        "x-port-type-kind": typed_value["port_type"]["contract_kind"],
-        "x-port-type-id": typed_value["port_type"]["contract_id"],
-        "x-port-type-version": typed_value["port_type"]["contract_version"],
-        "x-port-type-digest": typed_value["port_type"]["contract_digest"],
-        "x-value-count": str(typed_value["value_count"]),
-        "x-value-index": str(typed_value["value_index"]),
-        "x-value-manifest-reference": typed_value[
-            "value_manifest_reference"
-        ],
-    }
-    for name, expected in expected_headers.items():
-        observed = normalized_headers.get(name)
-        if observed != expected:
-            raise ProtocolValidationError(
-                f"$.headers.{name}",
-                f"must equal {expected!r}, got {observed!r}",
-            )
-
-
-def validate_error(payload: Any, *, status: int | None = None) -> None:
-    """Validate an error envelope and its code-specific closed details."""
-    validate_schema("#/$defs/StructuredErrorEnvelope", payload)
-    error = payload["error"]
-    error_contract = _source_bundle()["structured_errors"]
-    definition = error_contract["vocabulary"].get(error["code"])
-    if definition is None:
-        raise ProtocolValidationError(
-            "$.error.code",
-            f"unknown structured-error code {error['code']!r}",
-        )
-    if status is not None and status != definition["http_status"]:
-        raise ProtocolValidationError(
-            "$.error.code",
-            (
-                f"HTTP status {status} does not match "
-                f"{definition['http_status']} for {error['code']}"
-            ),
-        )
-    if error["retryable"] is not definition["retryable"]:
-        raise ProtocolValidationError(
-            "$.error.retryable",
-            f"must be {definition['retryable']!r} for {error['code']}",
-        )
-    details_bytes = rfc8785.dumps(error["details"])
-    if len(details_bytes) > error_contract["details_max_bytes"]:
-        raise ProtocolValidationError(
-            "$.error.details",
-            f"must be at most {error_contract['details_max_bytes']} canonical bytes",
-        )
-    _validate(
-        error["details"],
-        _resolve_schema(definition["details_schema"]),
-        path="$.error.details",
-    )
-
-
-def validate_response(operation_id: str, status: int, payload: Any) -> None:
-    """Validate one JSON success response through its operation definition."""
-    operation = _rest_operation(operation_id)
-    mapping = operation["status_mapping"].get(
-        str(status),
-        operation["status_mapping"]["default"],
-    )
-    if mapping != "response":
-        validate_error(payload, status=status)
-        return
-    response = operation["response"]
-    if response["kind"] != "json":
-        raise ProtocolValidationError(
-            "$",
-            f"{operation_id} is a binary response; validate its metadata instead",
-        )
-    validate_schema(response["schema"], payload)
-    if (
-        operation_id == "run_projection"
-        and "selection_error" in payload
-    ):
-        validate_error(
-            {
-                "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,
-                "error": payload["selection_error"],
-            }
-        )

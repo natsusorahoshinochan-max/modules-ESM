@@ -29,7 +29,8 @@ def build_artifacts(output_dir: Path) -> tuple[Path, Path]:
     subprocess.run(
         [
             sys.executable,
-            str(PROJECT_ROOT / "scripts" / "build_backend.py"),
+            "-m",
+            "verification.build",
             str(output_dir),
         ],
         cwd=PROJECT_ROOT,
@@ -105,6 +106,11 @@ def installed_artifact(
 
 
 def _copy_external_acceptance_tree(destination: Path) -> Path:
+    destination.mkdir(parents=True)
+    shutil.copy2(
+        PROJECT_ROOT / "pyproject.toml",
+        destination / "pyproject.toml",
+    )
     shutil.copytree(
         PROJECT_ROOT / "tests",
         destination / "tests",

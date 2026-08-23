@@ -5,35 +5,43 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
     UtilityTransformDefinition,
 )
-from datatypes import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    BindingEnvironment,
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.observation import (
     IntrinsicObservationContext,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.sequence import ProteinSequence
 from tests.fixtures.exact_content_identity import exact_content_identity
 
 
@@ -151,17 +159,19 @@ class _LineageSource:
                 item_type="protein.sequence",
                 items=subjects,
             ),
-            "parent_pairing": CandidatePairingIntent([
-                CandidatePairingIntentEntry(
-                    subject_candidate_id=parent.candidate_id,
-                    reference_candidate_id=reference.candidate_id,
+            "parent_pairing": CandidatePairingIntent(
+                tuple(
+                    CandidatePairingIntentEntry(
+                        subject_candidate_id=parent.candidate_id,
+                        reference_candidate_id=reference.candidate_id,
+                    )
+                    for parent, reference in zip(
+                        parents,
+                        references,
+                        strict=True,
+                    )
                 )
-                for parent, reference in zip(
-                    parents,
-                    references,
-                    strict=True,
-                )
-            ]),
+            ),
         }
 
 
@@ -238,7 +248,7 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _ready(check_input: BindingEnvironment) -> ReadinessResult:
     del check_input
     return ReadinessResult(True)
 
@@ -577,7 +587,6 @@ def _utility(partition: str) -> UtilityTransformDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.collection_ops_sources",
     package_version=PACKAGE_VERSION,
     package_module=__package__,

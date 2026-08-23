@@ -2,30 +2,31 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from pathlib import Path
 
-import pytest
-
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
     verify_module_package_contract,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.document import WorkflowNodeInstance
+from core.workflow.document import WorkflowEdge
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueMap,
     ResidueTrack,
 )
 from modules.prompt_authoring.domain import AlignedResidueTrack
-from modules.prompt_authoring import domain as prompt_domain
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -41,26 +42,10 @@ from tests.fixtures.prompt_authoring_v2 import (
     wire_value,
 )
 
-
-def test_prompt_residue_map_retains_its_supported_layout_bound(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(prompt_domain, "_MAX_RESIDUES", 1)
-    layout = ResidueLayout("A", 2, ["A:1", "A:2"])
-    residue_map = ResidueMap(
-        layout,
-        layout,
-        [(0, 0, "match"), (1, 1, "match")],
-    )
-
-    with pytest.raises(ValueError, match="supported range"):
-        prompt_domain.validate_residue_map(residue_map)
-
-
 def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["prompt_authoring"]
@@ -82,14 +67,12 @@ def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None
         "definitions/update_prompt_sequence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     assert {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "prompt_authoring" in catalog.owners[
-            (kind, contract_id, version)
-        ]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("prompt_authoring.")
     } == {
         ("prompt_authoring.add_function_annotation", VERSION),
         ("prompt_authoring.assemble_protein_prompt", VERSION),

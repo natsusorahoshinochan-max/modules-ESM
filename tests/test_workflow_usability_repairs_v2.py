@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_projection
+
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ProteinPrompt, ProteinStructure, ResidueMap
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.prompt import ProteinPrompt
+from datatypes.residue import ResidueMap
+from datatypes.structure import ProteinStructure
 from modules.prompt_authoring.package import (
     MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
 )
@@ -67,14 +75,19 @@ def _run(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
+        result_store(projects),
     )
     receipt = service.start(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id="workflow-usability-repair",
     )
-    projection = service.projection(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
     service.shutdown()
     return catalog, service, projection
 

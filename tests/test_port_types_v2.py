@@ -2,50 +2,65 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+from core.catalog.declarations import ModulePackageRegistration
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import FrozenInstanceError, fields, replace
 import re
 
 from fastapi.testclient import TestClient
 import pytest
 
-from core import (
-    BehaviorReference,
+from core.catalog.errors import (
     CatalogBuildError,
-    FrozenCatalog,
-    PortTypeDefinition,
-    PortValueError,
     UnknownPortTypeError,
-    build_discovered_frozen_catalog,
+    PortValueError,
+)
+from core.catalog.canonical import (
     canonical_json_bytes,
     canonical_sha256,
 )
-from core import builtin_frozen_catalog
-from core.server import create_app
-from datatypes import (
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from tests.support.application import create_application
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    FunctionAnnotations,
-    FunctionAnnotation,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     IntrinsicObservationContext,
-    ModifiedResidueAtomMapping,
-    ModifiedResidueNormalization,
-    ModifiedResidueNormalizationCollection,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
-    ProteinPrompt,
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueLayout,
-    ResidueMap,
-    ResidueTrack,
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.protein import validate_residue_map as validate_canonical_residue_map
-from protein_workbench_public import validate_response
+from datatypes.prompt import (
+    FunctionAnnotations,
+    FunctionAnnotation,
+    ProteinPrompt,
+)
+from datatypes.residue import (
+    ModifiedResidueAtomMapping,
+    ModifiedResidueNormalization,
+    ModifiedResidueNormalizationCollection,
+    ResidueLayout,
+    ResidueMap,
+    ResidueTrack,
+)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
+from datatypes.residue import validate_residue_map as validate_canonical_residue_map
+from tests.support.protocol import validate_response
 
 
 EXPECTED_PORT_TYPE_IDS = {
@@ -77,6 +92,19 @@ EXPECTED_PORT_TYPE_VERSIONS = {
     }.get(type_id, "2.1.0")
     for type_id in EXPECTED_PORT_TYPE_IDS
 }
+
+
+def _port_type_package(
+    *port_types: PortTypeDefinition,
+) -> ModulePackageRegistration:
+    return ModulePackageRegistration(
+        package_id="test.port-types",
+        package_version="1.0.0",
+        package_module=__name__,
+        port_types=port_types,
+    )
+
+
 EXPECTED_PORT_TYPE_DIGESTS = {
     "candidate.collection": (
         "sha256:6319f8276636afb85ef8986f12b60645ca38ff5d1fec72e037345832b62bfc1d"
@@ -127,7 +155,7 @@ EXPECTED_BUILTIN_PORT_TYPE_IDS = EXPECTED_PORT_TYPE_IDS - {
 def test_superseded_structure_alignment_port_type_is_not_active() -> None:
     for catalog in (
         builtin_frozen_catalog(),
-        build_discovered_frozen_catalog(),
+        build_frozen_catalog(module_registrations()),
     ):
         with pytest.raises(UnknownPortTypeError):
             catalog.require_port_type(
@@ -156,6 +184,7 @@ def _typed_observation(value: object) -> ScoreObservation:
             "sha256:" + ("2" * 64),
         ),
         context=IntrinsicObservationContext(),
+        source_partition="default",
         value=value,
 )
 
@@ -168,8 +197,12 @@ PROTEINMPNN_TEST_LAYOUT = ResidueLayout(
 
 
 def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
-    catalog = build_discovered_frozen_catalog()
-    with TestClient(create_app()) as client:
+    catalog = build_frozen_catalog(module_registrations())
+    with TestClient(
+        create_application(
+            frozen_catalog_override=catalog,
+        )
+    ) as client:
         response = client.get("/api/v2/catalog")
 
     assert response.status_code == 200
@@ -190,9 +223,9 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
     }
     expected_availability = {
         (
-            snapshot["binding"]["contract_id"],
-            snapshot["binding"]["contract_version"],
-            snapshot["available"],
+            snapshot.binding.contract_id,
+            snapshot.binding.contract_version,
+            snapshot.result.is_available,
         )
         for snapshot in catalog.availability
     }
@@ -906,9 +939,8 @@ def test_runtime_validators_reject_malformed_complete_values(
 
 
 def test_canonical_constructors_close_domain_invariants_before_encoding() -> None:
-    from core import build_discovered_frozen_catalog
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     sequence = ProteinSequence("MA", ["A:1", "A:2"])
     layout = ResidueLayout("A", 1, ["A:1"])
     with pytest.raises(FrozenInstanceError):
@@ -980,9 +1012,8 @@ def test_canonical_constructors_close_domain_invariants_before_encoding() -> Non
 def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
     constraints: ProteinMPNNConstraints,
 ) -> None:
-    from core import build_discovered_frozen_catalog
 
-    definition = build_discovered_frozen_catalog().require_port_type(
+    definition = build_frozen_catalog(module_registrations()).require_port_type(
         "proteinmpnn.constraints",
         "4.0.0",
     )
@@ -1068,42 +1099,6 @@ def test_behavior_declaration_parameters_are_deeply_immutable() -> None:
     }
     with pytest.raises(TypeError):
         behavior.parameters["schema"]["new_field"] = True
-
-
-def test_direct_connections_require_exact_known_nominal_identity() -> None:
-    catalog = builtin_frozen_catalog()
-
-    assert catalog.directly_compatible(
-        "protein.sequence",
-        "3.0.0",
-        "protein.sequence",
-        "3.0.0",
-    )
-    assert not catalog.directly_compatible(
-        "residue.track",
-        "2.1.0",
-        "residue.track.secondary_structure",
-        "2.1.0",
-    )
-    assert not catalog.directly_compatible(
-        "protein.sequence",
-        "3.0.0",
-        "text",
-        "2.1.0",
-    ), "scientific conversion must be represented by an explicit Node Type"
-
-    for unknown_id, unknown_version in (
-        ("unknown.type", "2.1.0"),
-        ("protein.sequence", "1.0.0"),
-        ("protein.sequence", ">=2"),
-    ):
-        with pytest.raises(UnknownPortTypeError):
-            catalog.directly_compatible(
-                unknown_id,
-                unknown_version,
-                "protein.sequence",
-                "3.0.0",
-            )
 
 
 def test_rfc8785_and_sha256_match_the_published_golden_vector() -> None:
@@ -1245,8 +1240,12 @@ def test_runtime_callables_never_enter_stable_contract_identity() -> None:
 
     source_definition = build_definition()
     installed_definition = build_definition()
-    source_catalog = FrozenCatalog((source_definition,))
-    installed_catalog = FrozenCatalog((installed_definition,))
+    source_catalog = build_frozen_catalog(
+        (_port_type_package(source_definition),)
+    )
+    installed_catalog = build_frozen_catalog(
+        (_port_type_package(installed_definition),)
+    )
 
     assert source_definition.descriptor_bytes == (
         installed_definition.descriptor_bytes
@@ -1301,8 +1300,10 @@ def test_port_type_catalog_build_is_atomic_on_duplicate_identity() -> None:
     original_digest = published.contract_digest
     duplicate = published.require_port_type("text", "2.1.0")
 
-    with pytest.raises(CatalogBuildError, match="duplicate Port Type identity"):
-        FrozenCatalog((*published.port_types, duplicate))
+    with pytest.raises(CatalogBuildError, match="duplicate contract identity"):
+        build_frozen_catalog(
+            (_port_type_package(duplicate),)
+        )
 
     assert published.contract_digest == original_digest
 
@@ -1316,4 +1317,6 @@ def test_direct_catalog_construction_rejects_multiple_active_port_versions() -> 
         CatalogBuildError,
         match="multiple active versions for contract port_type:text",
     ):
-        FrozenCatalog((current, incompatible))
+        build_frozen_catalog(
+            (_port_type_package(incompatible),)
+        )

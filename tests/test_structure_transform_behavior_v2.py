@@ -2,24 +2,36 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowAuthoringError,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import CandidateCollection, ProteinSequence, ProteinStructure
-from modules.structure_transform import CandidateResolvedResidueAxisAssociations
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
+)
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import CandidateCollection
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+from modules.structure_transform.domain import (
+    CandidateResolvedResidueAxisAssociations,
+)
 from modules.structure_transform.package import MODULE_PACKAGE
 from tests.fixtures.proteinmpnn_model_sources.package import (
     MODULE_PACKAGE as CANDIDATE_SOURCE_PACKAGE,
@@ -129,28 +141,20 @@ def _run_transform(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                (
-                    f"structure_transform.{operation}.direct",
-                    operation_version,
-                ): {
-                    "values": {
-                        "irrelevant_runtime_label": (
-                            f"not-result-affecting-{environment_label}"
-                        )
-                    },
-                }
-            }
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
         ),
+        result_store(projects),
     )
     receipt = service.start(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"structure-transform-{operation}-{environment_label}",
     )
-    projection = service.projection(project.id, receipt["run_id"])
-    events = service.public_events(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
+    events = public_run_events(service, project.id, receipt["run_id"])
     service.shutdown()
     return catalog, service, projection, events
 
@@ -278,14 +282,19 @@ def _run_candidate_transform(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
+        result_store(projects),
     )
     receipt = service.start(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id=f"candidate-transform-{operation}",
     )
-    projection = service.projection(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
     service.shutdown()
     return catalog, service, projection
 

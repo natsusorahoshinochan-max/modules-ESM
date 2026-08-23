@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 import threading
@@ -12,33 +16,39 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.operation import (
     ReadinessResult,
-    ResultReplayHit,
-    ResultReplaySource,
+)
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import (
     V2RunService,
-    WorkflowAuthoringService,
+)
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
-    ProteinSequence,
-    ProteinStructure,
 )
-from tests.fixtures.result_replay_v2 import admitted_replay_outputs
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from tests.fixtures.scientific_operation import (
     operation_call,
     operation_context,
 )
-from tests.fixtures.simplefold import build_fixture_simplefold_closure
+from tests.fixtures.simplefold import (
+    build_fixture_simplefold_closure,
+    install_fixture_source_runtime_group,
+)
 
 
 _SIMPLEFOLD_BINDING_VERSION = "10.0.0"
@@ -52,24 +62,12 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     import sys
     from types import ModuleType
 
-    from modules.folding import simplefold_runtime
+    import modules.folding.simplefold_runtime as simplefold_runtime
 
     class StopAfterInferenceConstruction(Exception):
         pass
 
     captured: dict[str, int] = {}
-
-    class ModelWrapper:
-        device = "cpu"
-
-        def __init__(self, **_kwargs: Any) -> None:
-            pass
-
-        def from_pretrained_folding_model(self) -> object:
-            return object()
-
-        def from_pretrained_plddt_model(self) -> object:
-            return object()
 
     class InferenceWrapper:
         def __init__(self, **kwargs: Any) -> None:
@@ -91,7 +89,6 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
         ),
         "utils.esm_utils": ModuleType("utils.esm_utils"),
     }
-    modules["simplefold.wrapper"].ModelWrapper = ModelWrapper
     modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
     modules["simplefold.utils.boltz_utils"].process_structure = object()
     modules["simplefold.utils.boltz_utils"].to_pdb = object()
@@ -120,25 +117,237 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     with pytest.raises(StopAfterInferenceConstruction):
         simplefold_runtime.fold_sequence(
             ProteinSequence("AG", ("A:1", "A:2")),
-            model_name="simplefold_100M",
             num_steps=75,
             num_samples=1,
-            project_dir=str(tmp_path / "project"),
+            staging_directory=tmp_path / "project",
             effective_seed=1603,
             staged_model_root=model_root,
             staged_esm2_source_root=esm2_source_root,
             staged_esm2_model_root=esm2_model_root,
-            required_device="cpu",
-            record_evidence=False,
         )
 
     assert captured == {"num_steps": 75}
 
 
+def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import sys
+    from types import ModuleType
+
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    class StopAfterStagedModelLoad(Exception):
+        pass
+
+    lifecycle: dict[str, bool] = {}
+
+    class LanguageModel:
+        def __del__(self) -> None:
+            lifecycle["language_model_released"] = True
+
+    class InferenceWrapper:
+        def __init__(self, **_kwargs: Any) -> None:
+            self.tokenizer = object()
+            self.featurizer = object()
+            self.processor = object()
+            self.esm_model = LanguageModel()
+            self.esm_dict = object()
+            self.af2_to_esm = object()
+
+        def run_inference(self, *_args: Any) -> object:
+            assert len(loaded_modules) == 3
+            raise StopAfterStagedModelLoad
+
+    loaded_checkpoints: list[tuple[str, dict[str, Any]]] = []
+    loaded_configs: list[str] = []
+    loaded_modules: list[dict[str, Any]] = []
+
+    def load_checkpoint(
+        path: Path,
+        **kwargs: Any,
+    ) -> dict[str, str]:
+        assert lifecycle["features_prepared"] is True
+        assert lifecycle["language_model_released"] is True
+        loaded_checkpoints.append((Path(path).name, kwargs))
+        return {"checkpoint": Path(path).name}
+
+    class LoadedModule:
+        def __init__(self, config: str) -> None:
+            self.config = config
+
+        def load_state_dict(
+            self,
+            checkpoint: dict[str, str],
+            *,
+            strict: bool,
+            assign: bool,
+        ) -> None:
+            loaded_modules.append(
+                {
+                    "config": self.config,
+                    "checkpoint": checkpoint["checkpoint"],
+                    "strict": strict,
+                    "assign": assign,
+                }
+            )
+
+        def to(self, device: object) -> LoadedModule:
+            assert str(device) == "cpu"
+            return self
+
+        def eval(self) -> LoadedModule:
+            return self
+
+    def load_config(path: Path) -> str:
+        config = str(path)
+        loaded_configs.append(config)
+        return config
+
+    def instantiate(config: str) -> LoadedModule:
+        return LoadedModule(config)
+
+    def process_fastas(*, out_dir: Path, **_kwargs: Any) -> None:
+        structures = Path(out_dir) / "structures"
+        records = Path(out_dir) / "records"
+        structures.mkdir(parents=True)
+        records.mkdir(parents=True)
+        (structures / "input.npz").touch()
+        (records / "input.json").write_text("{}")
+
+    def process_one_inference_structure(
+        *_args: Any,
+    ) -> tuple[object, object, object]:
+        lifecycle["features_prepared"] = True
+        return object(), object(), object()
+
+    modules = {
+        "simplefold": ModuleType("simplefold"),
+        "simplefold.utils": ModuleType("simplefold.utils"),
+        "simplefold.wrapper": ModuleType("simplefold.wrapper"),
+        "simplefold.utils.boltz_utils": ModuleType(
+            "simplefold.utils.boltz_utils"
+        ),
+        "simplefold.utils.fasta_utils": ModuleType(
+            "simplefold.utils.fasta_utils"
+        ),
+        "simplefold.utils.datamodule_utils": ModuleType(
+            "simplefold.utils.datamodule_utils"
+        ),
+        "utils.esm_utils": ModuleType("utils.esm_utils"),
+    }
+    modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.utils.boltz_utils"].process_structure = object()
+    modules["simplefold.utils.boltz_utils"].to_pdb = object()
+    modules["simplefold.utils.fasta_utils"].process_fastas = process_fastas
+    modules[
+        "simplefold.utils.datamodule_utils"
+    ].process_one_inference_structure = process_one_inference_structure
+    modules["utils.esm_utils"].esm_registry = {}
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "_setup_simplefold_imports",
+        os.getcwd,
+    )
+    import hydra
+    import omegaconf
+
+    monkeypatch.setattr(simplefold_runtime.torch, "load", load_checkpoint)
+    monkeypatch.setattr(omegaconf.OmegaConf, "load", load_config)
+    monkeypatch.setattr(hydra.utils, "instantiate", instantiate)
+    model_root = tmp_path / "model"
+    esm2_source_root = tmp_path / "esm2-source"
+    esm2_model_root = tmp_path / "esm2-model"
+    for root in (model_root, esm2_source_root, esm2_model_root):
+        root.mkdir()
+    (model_root / "ccd.pkl").write_bytes(b"reviewed-ccd")
+
+    with pytest.raises(StopAfterStagedModelLoad):
+        simplefold_runtime.fold_sequence(
+            ProteinSequence("AG", ("A:1", "A:2")),
+            num_steps=50,
+            num_samples=1,
+            staging_directory=tmp_path / "project",
+            effective_seed=1603,
+            staged_model_root=model_root,
+            staged_esm2_source_root=esm2_source_root,
+            staged_esm2_model_root=esm2_model_root,
+        )
+
+    assert loaded_checkpoints == [
+        (
+            "simplefold_100M.ckpt",
+            {"map_location": "cpu", "weights_only": False, "mmap": True},
+        ),
+        (
+            "plddt.ckpt",
+            {"map_location": "cpu", "weights_only": False, "mmap": True},
+        ),
+        (
+            "simplefold_1.6B.ckpt",
+            {"map_location": "cpu", "weights_only": False, "mmap": True},
+        ),
+    ]
+    assert loaded_configs == [
+        "configs/model/architecture/foldingdit_100M.yaml",
+        "configs/model/architecture/plddt_module.yaml",
+        "configs/model/architecture/foldingdit_1.6B.yaml",
+    ]
+    assert all(module["strict"] is True for module in loaded_modules)
+    assert all(module["assign"] is True for module in loaded_modules)
+
+
+def test_simplefold_confidence_loads_only_the_two_plddt_modules(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    loaded: list[tuple[str, str]] = []
+
+    def load_module(
+        *,
+        config_path: Path,
+        checkpoint_path: Path,
+        device: object,
+    ) -> object:
+        assert str(device) == "cpu"
+        loaded.append((str(config_path), checkpoint_path.name))
+        return object()
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "_load_reviewed_torch_module",
+        load_module,
+    )
+
+    result = simplefold_runtime._load_reviewed_plddt_models(
+        tmp_path,
+        "cpu",
+    )
+
+    assert loaded == [
+        (
+            "configs/model/architecture/plddt_module.yaml",
+            "plddt.ckpt",
+        ),
+        (
+            "configs/model/architecture/foldingdit_1.6B.yaml",
+            "simplefold_1.6B.ckpt",
+        ),
+    ]
+    assert set(result) == {"plddt_out_module", "plddt_latent_module"}
+
+
 def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["folding"]
     assert {
@@ -148,7 +357,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         "definitions/simplefold_confidence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     simplefold = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
@@ -239,7 +448,11 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         True,
         proof_source="direct-observation",
     )
-    assert set(adapter.provider_identity()["artifact_sha256"]) == {
+    identity = (
+        adapter.simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
+        .provider_identity()
+    )
+    assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",
         "plddt.ckpt",
         "simplefold_1.6B.ckpt",
@@ -277,10 +490,10 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         "10.0.0",
     )
     snapshots = {
-        item["binding"]["contract_id"]: item
+        item.binding.contract_id: item
         for item in catalog.availability
     }
-    assert snapshots["folding.fold.simplefold_local"]["available"] is False
+    assert not snapshots["folding.fold.simplefold_local"].result.is_available
     assert {
         "folding.fold.esmfold2_remote",
         "folding.fold.esmfold2_local",
@@ -351,8 +564,26 @@ def _simplefold_environment(
     monkeypatch: pytest.MonkeyPatch,
     client: Any,
 ) -> dict[str, Any]:
+    import modules.folding.simplefold_adapter as adapter
     import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    def fixture_fold_sequence(**kwargs: Any) -> Any:
+        return client.fold(
+            sequence=kwargs["sequence"],
+            num_steps=kwargs["num_steps"],
+            num_samples=kwargs["num_samples"],
+            effective_seed=kwargs["effective_seed"],
+            staging_directory=kwargs["staging_directory"],
+        )
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "fold_sequence",
+        fixture_fold_sequence,
+    )
+    install_fixture_source_runtime_group(monkeypatch, adapter)
 
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -396,8 +627,6 @@ def _simplefold_environment(
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
         "device": contract.SIMPLEFOLD_DEVICE,
-        "provider_client": client,
-        "private_token": "must-never-publish",
     }
 
 
@@ -407,7 +636,6 @@ def _run_simplefold(
     *,
     client: Any,
     num_samples: int = 2,
-    result_replay_source: ResultReplaySource | None = None,
     environment_values: dict[str, Any] | None = None,
     project_id: str = "simplefold",
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
@@ -504,20 +732,27 @@ def _run_simplefold(
             monkeypatch,
             client,
         )
-    environment = EnvironmentConfiguration({
-        (
-            "folding.fold.simplefold_local",
-            _SIMPLEFOLD_BINDING_VERSION,
-        ): {
-            "values": environment_values,
-        }
-    })
+    environment = admit_environment_configuration(
+        catalog,
+        {
+            (
+                "folding.fold.simplefold_local",
+                _SIMPLEFOLD_BINDING_VERSION,
+            ): {
+                "values": environment_values,
+            }
+        },
+    )
     service = V2RunService(
         projects,
         catalog,
         authoring,
-        environment,
-        result_replay_source,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -526,56 +761,11 @@ def _run_simplefold(
             client_request_id="simplefold",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
     return catalog, service, projection, events
-
-
-def test_staging_failure_is_an_operation_failure_before_provider_entry(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.folding.simplefold_asset_closure as asset_closure
-
-    class Client:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def fold(self, **_kwargs: Any) -> Any:
-            self.calls += 1
-            raise AssertionError("Provider entry must not start")
-
-    client = Client()
-    environment = _simplefold_environment(
-        tmp_path / "environment",
-        monkeypatch,
-        client,
-    )
-
-    def fail_staging(_source: Path, _destination: Path) -> None:
-        raise OSError("fixture staging failure")
-
-    monkeypatch.setattr(asset_closure.shutil, "copyfile", fail_staging)
-    _, _, projection, events = _run_simplefold(
-        tmp_path / "run",
-        monkeypatch,
-        client=client,
-        num_samples=1,
-        environment_values=environment,
-    )
-
-    event_types = [event["event"]["type"] for event in events]
-    assert projection["status"] == "failed"
-    assert event_types.count("operation_attempt_started") == 2
-    assert event_types.count("operation_attempt_terminal") == 2
-    assert all(
-        event["event"].get("engine_role") != "fold_parent_0"
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-    )
-    assert client.calls == 0
 
 
 def test_closure_admission_failure_is_a_binding_failure_without_operation(
@@ -838,42 +1028,14 @@ def test_simplefold_translates_provider_pdb_tail_before_publication(
     assert published_pdb.splitlines()[-1][:6].strip() == "END"
 
 
-def test_simplefold_rejects_non_pinned_provider_pdb_tail(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    non_pinned_pdb = "\n".join(
-        (*_two_residue_pdb().splitlines(), " " * 80)
-    )
+def test_simplefold_does_not_discard_an_undocumented_provider_tail() -> None:
+    from modules.folding.simplefold_adapter import _translate_provider_structure
 
-    class Client:
-        def fold(
-            self,
-            **_kwargs: Any,
-        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
-            return (
-                [ProteinStructure(non_pinned_pdb)],
-                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
-            )
-
-    _, _, projection, events = _run_simplefold(
-        tmp_path,
-        monkeypatch,
-        client=Client(),
-        num_samples=1,
-    )
-
-    assert projection["status"] == "failed"
-    terminal = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_terminal"
-        and event["event"]["status"] == "failed"
-    )
-    assert terminal["error"]["details"] == {"exception_type": "ValueError"}
-    assert all(
-        output["node_id"] != "fold" for output in projection["outputs"]
-    )
+    provider_pdb = _upstream_simplefold_serialized_pdb()
+    with pytest.raises(ValueError, match="padded sentinel"):
+        _translate_provider_structure(
+            ProteinStructure(provider_pdb.removesuffix(" " * 80) + "trailer")
+        )
 
 
 def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
@@ -899,6 +1061,12 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
             )
 
     class Resources:
+        @staticmethod
+        @contextmanager
+        def local_provider(provider_id: str):
+            assert provider_id == "simplefold-folding"
+            yield {}
+
         @contextmanager
         def temporary_directory(self, *, prefix: str):
             staging = tmp_path / prefix
@@ -950,7 +1118,8 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
-    from modules.structure_prediction.domain import ConfidenceFactCollection
+    from core.operation import OutputIdentityIntent
+    from datatypes.prediction import PendingConfidenceFactCollection
 
     class Adapter:
         def __init__(self) -> None:
@@ -1009,15 +1178,18 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
                     [parent],
                 )
             },
-            node_parameters={"effective_seed": 1603, "num_samples": 1},
+            node_parameters={"num_samples": 1},
             binding_parameters={"num_steps": 10},
+            effective_randomness={"effective_seed": 1603},
         )
     )
 
     structures = outputs["structure_candidates"]
-    facts = outputs["confidence_facts"]
+    intent = outputs["confidence_facts"]
     assert type(structures) is CandidateCollection
-    assert type(facts) is ConfidenceFactCollection
+    assert type(intent) is OutputIdentityIntent
+    facts = intent.relation
+    assert type(facts) is PendingConfidenceFactCollection
     assert {
         "provider",
         "model",
@@ -1035,9 +1207,7 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
     assert fact.prediction_axis.sequence.residue_ids == ("A:1", "A:2")
     assert fact.prediction_axis.layout.residue_ids == ("A:1", "A:2")
     assert facts.observation_method == context.method
-    assert structures.items[0].metadata["prediction_key"] == (
-        fact.prediction_key
-    )
+    assert "prediction_key" not in structures.items[0].metadata
     assert set(outputs) == {"structure_candidates", "confidence_facts"}
     assert adapter.calls == [
         {
@@ -1118,8 +1288,9 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
                         [parent],
                     )
                 },
-                node_parameters={"effective_seed": 1603, "num_samples": 1},
+                node_parameters={"num_samples": 1},
                 binding_parameters={"num_steps": 10},
+                effective_randomness={"effective_seed": 1603},
             )
         )
         return adapter.seeds[0]
@@ -1130,118 +1301,6 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
 
     assert original == renamed
     assert original != changed_content
-
-
-def test_source_cache_replay_preserves_noncacheable_simplefold_execution(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.structure_prediction.package import (
-        MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
-    )
-    from modules.structure_transform.package import (
-        MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
-    )
-    from tests.fixtures.folding_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
-
-    class Client:
-        def __init__(self) -> None:
-            self.staging: list[Path] = []
-
-        def fold(self, **kwargs: Any) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
-            staging = kwargs["staging_directory"]
-            assert not (staging / "fixed-provider-name").exists()
-            (staging / "fixed-provider-name").write_text("owned")
-            self.staging.append(staging)
-            return (
-                [ProteinStructure(_upstream_simplefold_serialized_pdb())],
-                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
-            )
-
-    cached_source = CandidateCollection(
-        "fixture-sequences",
-        "protein.sequence",
-        [
-            Candidate(
-                "fixture-sequence",
-                ProteinSequence("AG", ["A:1", "A:2"]),
-                [],
-                {"source": "independent-literal"},
-            )
-        ],
-    )
-    replay_catalog = build_frozen_catalog(
-        (
-            FOLDING_PACKAGE,
-            SOURCE_PACKAGE,
-            STRUCTURE_PREDICTION_PACKAGE,
-            STRUCTURE_TRANSFORM_PACKAGE,
-        )
-    )
-
-    class SourceReplay(ResultReplaySource):
-        def __init__(self) -> None:
-            self.node_ids: list[str] = []
-
-        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
-            node_id = kwargs["node"].node_id
-            self.node_ids.append(node_id)
-            if node_id == "materialize-confidence":
-                return None
-            assert node_id == "source"
-            outputs = {"sequence_candidates": cached_source}
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="cached-source-run",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=replay_catalog,
-                    node=kwargs["node"],
-                    outputs=outputs,
-                ),
-            )
-
-    client = Client()
-    replay = SourceReplay()
-    first_catalog, first_service, first_projection, _ = _run_simplefold(
-        tmp_path,
-        monkeypatch,
-        client=client,
-        num_samples=1,
-        result_replay_source=replay,
-    )
-
-    def candidate_id(
-        catalog: Any,
-        service: V2RunService,
-        projection: dict[str, Any],
-    ) -> str:
-        output = next(
-            item
-            for item in projection["outputs"]
-            if item["node_id"] == "fold"
-            and item["output_port"] == "structure_candidates"
-        )
-        return _decode_output(
-            catalog,
-            service,
-            projection,
-            output,
-        ).items[0].candidate_id
-
-    assert first_projection["status"] == "succeeded"
-    assert candidate_id(first_catalog, first_service, first_projection)
-    dispositions = {
-        item["node_id"]: item
-        for item in first_projection["node_dispositions"]
-    }
-    assert dispositions["source"]["resolution"] == "cache_replayed"
-    assert dispositions["fold"]["resolution"] == "executed"
-    assert len(client.staging) == 1
-    assert all(not path.exists() for path in client.staging)
-    assert replay.node_ids == ["source", "materialize-confidence"]
 
 
 def test_concurrent_runs_use_disjoint_live_staging_and_stable_identity(

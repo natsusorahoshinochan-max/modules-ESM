@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
-from core import OperationCall, RunResources
-from datatypes import (
+from core.operation import (
+    OperationResources,
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
-    ProteinMPNNConstraints,
-    ProteinSequence,
     ResidueAxisReference,
-    ResolvedStructureResidueAxis,
+)
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_transform.domain import (
-    CandidateResolvedResidueAxisAssociations,
-)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ResolvedStructureResidueAxis
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 
 from .adapter import LocalProteinMPNNAdapter
 from .domain import (
@@ -31,6 +35,26 @@ from .domain import (
 
 
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
+
+
+def _require_sequence_axis(
+    sequence: ProteinSequence,
+    residue_axis: ResolvedStructureResidueAxis,
+    subject: str,
+) -> None:
+    if not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS or (
+        sequence.residue_ids != residue_axis.layout.residue_ids
+    ):
+        raise ValueError(f"{subject} sequence must use the exact resolved residue axis")
+
+
+class _ResolvedAxisAssociations(Protocol):
+    """Structural view of the admitted resolved-axis capability value."""
+
+    def axis_for(
+        self,
+        subject: CandidateDataReference,
+    ) -> ResolvedStructureResidueAxis: ...
 
 
 def _reference_key(
@@ -58,7 +82,7 @@ def _structure_candidates_with_axes(
     axis_input = call.inputs["structure_residue_axes"]
     collection = cast(CandidateCollection, admitted.value)
     associations = cast(
-        CandidateResolvedResidueAxisAssociations,
+        _ResolvedAxisAssociations,
         axis_input.value,
     )
     if collection.item_type != "protein.structure" or not collection.items:
@@ -101,7 +125,7 @@ def _structure_candidates_with_axes(
 class ProteinMPNNConstraintsImplementation:
     """Author one complete identity-addressed constraint value."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -116,7 +140,7 @@ class ProteinMPNNConstraintsImplementation:
 class ProteinMPNNRandomFixedPositionsImplementation:
     """Choose a stable identity-addressed fixed-residue subset."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -155,13 +179,6 @@ class ProteinMPNNDesignImplementation:
         ).digest()
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
-    @staticmethod
-    def _constraint_digest(call: OperationCall) -> str | None:
-        admitted = call.inputs.get("constraints")
-        if admitted is None:
-            return None
-        return admitted.content_digest
-
     def execute(self, call: OperationCall) -> dict[str, Any]:
         parents = _structure_candidates_with_axes(call)
         seed = call.node_parameters["effective_seed"]
@@ -179,86 +196,63 @@ class ProteinMPNNDesignImplementation:
             ProteinMPNNConstraints | None,
             None if constraint_input is None else constraint_input.value,
         )
-        constraint_digest = self._constraint_digest(call)
+        constraint_digest = (
+            None
+            if constraint_input is None
+            else constraint_input.content_digest
+        )
         candidates: list[Candidate] = []
-        try:
-            for parent_index, (
-                parent_candidate,
-                parent_reference,
-                residue_axis,
-                _axis_reference,
-            ) in enumerate(parents):
-                if reference is not None and (
-                    not set(reference.sequence) <= _CANONICAL_AMINO_ACIDS
-                    or reference.residue_ids
-                    != residue_axis.layout.residue_ids
-                ):
-                    raise ValueError(
-                        "reference sequence must use the exact resolved "
-                        "residue axis"
-                    )
-                if (
-                    constraints is not None
-                    and constraints.layout != residue_axis.layout
-                ):
-                    raise ValueError(
-                        "constraints must use the exact resolved residue axis"
-                    )
-                parent_ids = (parent_candidate.candidate_id,)
-                call_seed = self._call_seed(
-                    seed,
-                    parent_reference.content_digest,
-                    parent_index,
+        for parent_index, (
+            parent_candidate,
+            parent_reference,
+            residue_axis,
+            _axis_reference,
+        ) in enumerate(parents):
+            if reference is not None:
+                _require_sequence_axis(reference, residue_axis, "reference")
+            if (
+                constraints is not None
+                and constraints.layout != residue_axis.layout
+            ):
+                raise ValueError(
+                    "constraints must use the exact resolved residue axis"
                 )
-                sequences = self._adapter.design(
-                    residue_axis=residue_axis,
-                    num_sequences=count,
-                    temperature=temperature,
-                    backbone_noise=noise,
-                    seed=call_seed,
-                    constraints=constraints,
-                    reference_sequence=reference,
-                    engine_role=f"design_parent_{parent_index}",
-                )
-                if len(sequences) != count:
-                    raise RuntimeError(
-                        "ProteinMPNN design returned an incomplete child set"
-                    )
-                for sample_index, sequence in enumerate(sequences):
-                    candidates.append(
-                        Candidate(
-                            (
-                                f"proteinmpnn-parent-{parent_index}-"
-                                f"sample-{sample_index}"
-                            ),
-                            sequence,
-                            parent_ids,
-                            {
-                                "parent_index": parent_index,
-                                "sample_index": sample_index,
-                                "effective_seed": seed,
-                                "effective_call_seed": call_seed,
-                                "num_sequences": count,
-                                "temperature": temperature,
-                                "backbone_noise": noise,
-                                "constraint_digest": constraint_digest,
-                            },
-                        )
-                    )
-        finally:
-            self._adapter.close()
-        if len(candidates) != len(parents) * count:
-            raise RuntimeError("ProteinMPNN design children are incomplete")
-        for parent_candidate, _, _, _ in parents:
             parent_ids = (parent_candidate.candidate_id,)
-            children = [
-                candidate
-                for candidate in candidates
-                if candidate.parent_ids == parent_ids
-            ]
-            if len(children) != count:
-                raise RuntimeError(
-                    "ProteinMPNN design parent relationship is incomplete"
+            call_seed = self._call_seed(
+                seed,
+                parent_reference.content_digest,
+                parent_index,
+            )
+            sequences = self._adapter.design(
+                residue_axis=residue_axis,
+                num_sequences=count,
+                temperature=temperature,
+                backbone_noise=noise,
+                seed=call_seed,
+                constraints=constraints,
+                reference_sequence=reference,
+                engine_role=f"design_parent_{parent_index}",
+            )
+            for sample_index, sequence in enumerate(sequences):
+                candidates.append(
+                    Candidate(
+                        (
+                            f"proteinmpnn-parent-{parent_index}-"
+                            f"sample-{sample_index}"
+                        ),
+                        sequence,
+                        parent_ids,
+                        {
+                            "parent_index": parent_index,
+                            "sample_index": sample_index,
+                            "effective_seed": seed,
+                            "effective_call_seed": call_seed,
+                            "num_sequences": count,
+                            "temperature": temperature,
+                            "backbone_noise": noise,
+                            "constraint_digest": constraint_digest,
+                        },
+                    )
                 )
         return {
             "sequence_candidates": CandidateCollection(
@@ -324,34 +318,26 @@ class ProteinMPNNScoreImplementation:
         )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        try:
-            (
-                _structure_candidate,
-                sequence_candidate,
-                _structure_reference,
-                sequence_reference,
-                residue_axis,
-                axis_reference,
-            ) = self._subject(call)
-            sequence = cast(ProteinSequence, sequence_candidate.data)
-            if (
-                not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS
-                or sequence.residue_ids != residue_axis.layout.residue_ids
-            ):
-                raise ValueError(
-                    "scoring sequence must use the exact resolved residue axis"
-                )
-            score = self._adapter.score(
-                residue_axis=residue_axis,
-                sequence=sequence,
-            )
-        finally:
-            self._adapter.close()
+        (
+            _structure_candidate,
+            sequence_candidate,
+            _structure_reference,
+            sequence_reference,
+            residue_axis,
+            axis_reference,
+        ) = self._subject(call)
+        sequence = cast(ProteinSequence, sequence_candidate.data)
+        _require_sequence_axis(sequence, residue_axis, "scoring")
+        score = self._adapter.score(
+            residue_axis=residue_axis,
+            sequence=sequence,
+        )
         observation = ScoreObservation(
             subject=sequence_reference,
             metric=self._metric,
             method=self._method,
             context=IntrinsicObservationContext(),
+            source_partition="default",
             value=score,
             residue_axis=axis_reference,
         )

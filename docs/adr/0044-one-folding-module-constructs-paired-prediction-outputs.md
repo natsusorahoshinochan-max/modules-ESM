@@ -79,30 +79,15 @@ partially.
 
 Tests cross the shared interface for exact parent admission, multi-parent and
 multi-sample closure, canonical order, axes, lineage, keys, confidence, closed
-metadata, and all-or-nothing failure. Separate Method and Adapter tests retain
+metadata, and all-or-nothing failure. Separate Method and Adapter tests own
 ESMFold2 and SimpleFold parameter, randomness, batching, translation, and real
-Provider semantics. Tests no longer call private helpers owned by another
-Method implementation, duplicate Candidate and Confidence Fact assembly, or
-inject malformed admitted records to demand a second generic validator.
+Provider semantics. Tests use the shared interface rather than another Method's
+private helpers and do not inject malformed admitted records to demand a second
+generic validator.
 
-The implementation replaces the SimpleFold-to-ESMFold2 private-method calls,
-the two Candidate and Confidence Fact assembly paths, scattered axis/key/digest
-helpers, and arbitrary metadata construction. No compatibility helper, generic
-folding runner, alternate publication path, or hypothetical Adapter is
-retained. If the closed output metadata changes active public output semantics,
-the folding Node Type and all three Bindings move together; the exact ESMFold2
-and SimpleFold Method identities remain because their science is unchanged.
-
-The rejected alternatives are leaving publication rules in each Method,
-putting folding-specific source and lineage semantics into
-`structure_prediction`, merging scientifically distinct Methods behind a
-generic runner, widening the module to ESM-3 generation, constructing axes
-from output PDB records, associating outputs by collection position, accepting
-free-form metadata, treating partial samples as publishable outputs, and
-turning in-process output construction into a second durable publication
-authority. Independent value/digest/reference maps and downstream
-revalidation of Plan-normalized parameters are rejected for the same reason.
-
-This decision deepens ADR-0024, ADR-0034, ADR-0035, and ADR-0038 while
-preserving the durable publication ownership in ADR-0039, ADR-0041, and
-ADR-0042.
+The shared module is the sole Candidate and Confidence Fact assembly path. It
+has no compatibility helper, generic folding runner, alternate publication
+path, or hypothetical Adapter. If the closed output metadata changes public
+output semantics, the folding Node Type and all three Bindings move together;
+the exact ESMFold2 and SimpleFold Method identities remain because their science
+is unchanged.

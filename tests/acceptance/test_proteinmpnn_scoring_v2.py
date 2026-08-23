@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 import hashlib
 import os
 from pathlib import Path
@@ -9,18 +11,22 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
-    CandidateCollection,
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import CandidateCollection
+from datatypes.observation import (
     IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
@@ -45,8 +51,8 @@ def _source_node() -> WorkflowNodeInstance:
 def _environment(
     binding_id: str,
     binding_version: str,
-) -> EnvironmentConfiguration:
-    return EnvironmentConfiguration({
+) -> dict[tuple[str, str], dict[str, dict[str, object]]]:
+    return {
         (binding_id, binding_version): {
             "values": {
                 "device": "cpu",
@@ -55,7 +61,7 @@ def _environment(
                 ).resolve(),
             },
         }
-    })
+    }
 
 
 def _run(
@@ -105,7 +111,15 @@ def _run(
         projects,
         catalog,
         authoring,
-        _environment(binding_id, binding_version),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                _environment(binding_id, binding_version),
+            ),
+            result_store(projects),
+        ),
+        result_store(projects),
     )
     receipt = service.start_background(
         project.id,
@@ -116,8 +130,8 @@ def _run(
     return (
         catalog,
         service,
-        service.projection(project.id, receipt["run_id"]),
-        service.public_events(project.id, receipt["run_id"]),
+        public_run_projection(service, project.id, receipt["run_id"]),
+        public_run_events(service, project.id, receipt["run_id"]),
     )
 
 

@@ -8,32 +8,39 @@ import json
 
 import pytest
 
-from core import (
-    OperationCall,
-    PortValueError,
-    canonical_json_bytes,
+from core.catalog.errors import PortValueError
+from core.catalog.canonical import canonical_json_bytes
+from core.execution.output_admission.admission import (
+    NodeOutputPlan,
+    OutputPortPlan,
+    admit_node_output,
 )
-from datatypes import (
+from core.operation import (
+    OperationCall,
+)
+from core.scoring.observation_plan import ProducedObservationPlan
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ModifiedResidueNormalizationCollection,
-    ProteinStructure,
 )
-from modules.structure_transform import (
+from datatypes.exact_reference import ExactContractReference
+from datatypes.residue import ModifiedResidueNormalizationCollection
+from datatypes.structure import ProteinStructure
+from modules.structure_transform.domain import (
     CandidateNormalizationFactCollection,
     CandidateModifiedResidueNormalizationAssociation,
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import (
+from modules.structure_transform.candidate_transforms import (
     MaterializeCandidateNormalizationsImplementation,
     NormalizeCshParentSpanCandidatesImplementation,
     ResolveCandidateResidueAxesImplementation,
-    normalize_csh_parent_span,
-    resolve_residue_axis,
 )
+from modules.structure_transform.csh_normalization import normalize_csh_parent_span
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import (
     CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
@@ -78,11 +85,60 @@ class _RunResources:
         return nullcontext()
 
 
+_NORMALIZATION_METHOD = ExactContractReference(
+    "method",
+    "structure-transform.normalize-csh.fixture",
+    "1.0.0",
+    "sha256:" + "d" * 64,
+)
+
+
+def _admit_normalization_outputs(
+    *,
+    call: OperationCall,
+    raw_outputs: dict[str, object],
+):
+    from core.catalog.builtins import builtin_frozen_catalog
+
+    builtins = builtin_frozen_catalog()
+    structure_type = builtins.require_port_type("protein.structure", "4.0.0")
+    return admit_node_output(
+        node_plan=NodeOutputPlan(
+            node_id="normalize-csh",
+            producing_method=_NORMALIZATION_METHOD,
+            output_ports={
+                "structure_candidates": OutputPortPlan(
+                    required=True,
+                    multiplicity="one",
+                    port_type=builtins.require_port_type(
+                        "candidate.collection",
+                        "4.0.0",
+                    ),
+                ),
+                "normalization_facts": OutputPortPlan(
+                    required=True,
+                    multiplicity="one",
+                    port_type=CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
+                ),
+            },
+            candidate_data_port_types={"protein.structure": structure_type},
+            produced_observations=ProducedObservationPlan(
+                binding_method=_NORMALIZATION_METHOD,
+            ),
+        ),
+        admitted_inputs=call.inputs,
+        raw_outputs=raw_outputs,
+        result_identity="sha256:" + "c" * 64,
+    )
+
+
 def _structure_reference(
     candidate_id: str,
     structure: ProteinStructure,
 ) -> CandidateDataReference:
-    from core import builtin_frozen_catalog
+    from core.catalog.builtins import (
+        builtin_frozen_catalog,
+    )
 
     structure_type = builtin_frozen_catalog().require_port_type(
         "protein.structure",
@@ -202,18 +258,21 @@ def test_candidate_csh_normalization_materializes_after_candidate_admission() ->
         item_type="protein.structure",
         items=(Candidate("raw-csh", raw_structure),),
     )
-    normalized_outputs = NormalizeCshParentSpanCandidatesImplementation(
-        _RunResources()
-    ).execute(
-        _operation_call(
-            inputs={"structure_candidates": candidates},
-            node_parameters={},
-            binding_parameters={},
-            candidate_data={"structure_candidates": (raw_reference,)},
-        )
+    call = _operation_call(
+        inputs={"structure_candidates": candidates},
+        node_parameters={},
+        binding_parameters={},
+        candidate_data={"structure_candidates": (raw_reference,)},
     )
-    normalized = normalized_outputs["structure_candidates"]
-    facts = normalized_outputs["normalization_facts"]
+    raw_outputs = NormalizeCshParentSpanCandidatesImplementation(
+        _RunResources()
+    ).execute(call)
+    admitted = _admit_normalization_outputs(
+        call=call,
+        raw_outputs=raw_outputs,
+    )
+    normalized = admitted.ports["structure_candidates"].value
+    facts = admitted.ports["normalization_facts"].value
 
     assert len(normalized.items) == 1
     assert normalized.items[0].parent_ids == ("raw-csh",)
@@ -263,31 +322,34 @@ def test_candidate_csh_normalization_materializes_after_candidate_admission() ->
 def test_candidate_normalization_facts_reject_noncanonical_wire_order() -> None:
     raw_structure = ProteinStructure(_FIXTURES["csh"]())
     raw_reference = _structure_reference("raw-csh", raw_structure)
-    outputs = NormalizeCshParentSpanCandidatesImplementation(
-        _RunResources()
-    ).execute(
-        _operation_call(
-            inputs={
-                "structure_candidates": CandidateCollection(
-                    collection_id="raw-structures",
-                    item_type="protein.structure",
-                    items=(
-                        Candidate("raw-csh-a", raw_structure),
-                        Candidate("raw-csh-b", raw_structure),
-                    ),
-                )
-            },
-            node_parameters={},
-            binding_parameters={},
-            candidate_data={
-                "structure_candidates": (
-                    replace(raw_reference, candidate_id="raw-csh-a"),
-                    replace(raw_reference, candidate_id="raw-csh-b"),
-                )
-            },
-        )
+    call = _operation_call(
+        inputs={
+            "structure_candidates": CandidateCollection(
+                collection_id="raw-structures",
+                item_type="protein.structure",
+                items=(
+                    Candidate("raw-csh-a", raw_structure),
+                    Candidate("raw-csh-b", raw_structure),
+                ),
+            )
+        },
+        node_parameters={},
+        binding_parameters={},
+        candidate_data={
+            "structure_candidates": (
+                replace(raw_reference, candidate_id="raw-csh-a"),
+                replace(raw_reference, candidate_id="raw-csh-b"),
+            )
+        },
     )
-    facts = outputs["normalization_facts"]
+    raw_outputs = NormalizeCshParentSpanCandidatesImplementation(
+        _RunResources()
+    ).execute(call)
+    outputs = _admit_normalization_outputs(
+        call=call,
+        raw_outputs=raw_outputs,
+    )
+    facts = outputs.ports["normalization_facts"].value
     wire = json.loads(
         CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE.encode(facts)
     )

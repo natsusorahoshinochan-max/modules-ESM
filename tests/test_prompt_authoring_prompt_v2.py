@@ -2,23 +2,27 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from pathlib import Path
 import threading
 
 import pytest
 
-from core import (
+from core.catalog.errors import PortValueError
+from core.operation import (
     OperationCall,
-    PortValueError,
-    WorkflowAuthoringError,
-    build_discovered_frozen_catalog,
-    discover_module_packages,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.authoring import WorkflowAuthoringError
+from core.workflow.document import WorkflowEdge
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueTrack,
 )
@@ -48,7 +52,7 @@ def canonical_annotations(
 def test_prompt_authoring_registers_three_prompt_nodes_once() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["prompt_authoring"]
@@ -60,14 +64,12 @@ def test_prompt_authoring_registers_three_prompt_nodes_once() -> None:
         "definitions/update_prompt_sequence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     assert {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "prompt_authoring" in catalog.owners[
-            (kind, contract_id, version)
-        ]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("prompt_authoring.")
     } >= {
         ("prompt_authoring.assemble_protein_prompt", VERSION),
         ("prompt_authoring.add_function_annotation", VERSION),
@@ -470,13 +472,13 @@ def test_prepared_prompt_operation_waits_for_terminal_projection(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import core.run_execution_v2 as run_execution_v2
+    import core.execution.runtime as run_runtime
     from modules.prompt_authoring.implementation import (
         AddFunctionAnnotationImplementation,
     )
 
     monkeypatch.setattr(
-        run_execution_v2,
+        run_runtime,
         "FAST_RUN_COMPLETION_GRACE_SECONDS",
         0.0,
     )
@@ -600,7 +602,7 @@ def test_sequence_update_rejects_length_identity_and_symbol_drift(
 
 
 def test_prompt_nodes_expose_only_scientific_authoring_parameters() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     expected_inputs = {
         "prompt_authoring.assemble_protein_prompt": {
             "layout",
@@ -657,7 +659,7 @@ def test_prompt_nodes_expose_only_scientific_authoring_parameters() -> None:
 
 
 def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     definition = catalog.require_port_type(
         "function.annotations",
         FUNCTION_ANNOTATION_PORT_VERSION,
@@ -737,7 +739,7 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
 def test_function_annotation_port_rejects_noncanonical_collections(
     annotations: FunctionAnnotations,
 ) -> None:
-    definition = build_discovered_frozen_catalog().require_port_type(
+    definition = build_frozen_catalog(module_registrations()).require_port_type(
         "function.annotations",
         FUNCTION_ANNOTATION_PORT_VERSION,
     )

@@ -2,23 +2,29 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 import json
 import os
 from pathlib import Path
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ScoreCollection
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.observation import ScoreCollection
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -35,8 +41,10 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
 ) -> None:
     """Execute the exact v2 Binding; skips are forbidden by its full gate."""
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.folding.simplefold_adapter import provider_identity
-    from modules.folding.simplefold_contract import SIMPLEFOLD_DEVICE
+    from modules.folding.simplefold_contract import (
+        SIMPLEFOLD_DEVICE,
+        SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+    )
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -120,7 +128,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         project.id,
         workflow=workflow,
     )
-    environment = EnvironmentConfiguration({
+    environment = admit_environment_configuration(catalog, {
         ("folding.fold.simplefold_local", "10.0.0"): {
             "values": {
                 "model_root": Path(
@@ -138,7 +146,17 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
             },
         }
     })
-    service = V2RunService(projects, catalog, authoring, environment)
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
+        result_store(projects),
+    )
     try:
         receipt = service.start_background(
             project.id,
@@ -146,8 +164,8 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
             client_request_id="simplefold-v2-heavy",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
 
@@ -219,7 +237,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         method_ref["contract_id"],
         method_ref["contract_version"],
     )
-    identity = provider_identity()
+    identity = SIMPLEFOLD_FOLDING_ASSET_CLOSURE.provider_identity()
     prerequisites = binding.descriptor["readiness_declaration"][
         "prerequisites"
     ]

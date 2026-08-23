@@ -3,34 +3,110 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+import math
+from typing import Any, cast
 
-from core import (
+from core.catalog.declarations import ExecutionBindingDefinition
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.operation import (
     AdmittedPort,
     AdmittedValue,
-    FrozenCatalog,
-    ObservationSelector,
+    BindingEnvironment,
     OperationCall,
     OperationContext,
-    ResolvedProducedObservation,
+)
+from core.scoring.observation_plan import ResolvedProducedObservation
+from tests.support.output_admission import (
+    admit_fixture_port,
+    resolved_context_profile_fixture,
+)
+from core.scoring.selection import (
+    ObservationSelector,
+    ResolvedObservationSelector,
+    ResolvedSelectionObjective,
+    ResolvedUtilityTransform,
+    rank_candidates_by_weighted_utility,
+    resolve_candidate_utilities_from_facts,
+    SelectionResult,
     SelectionInput,
     SelectionObjective,
 )
-from core.value_admission import admitted_port_values
-from core.scoring_v2 import (
-    rank_candidates_by_weighted_utility,
-    resolve_candidate_utilities_from_facts,
-    resolve_observation_selector_facts,
-    resolve_selection_objective_facts,
-    SelectionResult,
-)
-from datatypes import (
+from core.parameters.contract import admit_values
+from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
-    ScoreCollection,
 )
+from datatypes.observation import ScoreCollection
+
+
+def _resolved_objective(
+    objective: SelectionObjective,
+    catalog: FrozenCatalog,
+    effective_weight: float,
+) -> ResolvedSelectionObjective:
+    utility_contract = catalog.require_contract(
+        "utility_transform",
+        objective.utility_transform.contract_id,
+        objective.utility_transform.contract_version,
+    )
+    return ResolvedSelectionObjective(
+        objective_id=objective.objective_id,
+        candidate_input=objective.candidate_input,
+        score_collection_input=objective.score_collection_input,
+        source_partition=objective.source_partition,
+        metric=objective.metric,
+        method=objective.method,
+        context_selector=objective.context_selector,
+        utility=ResolvedUtilityTransform(
+            reference=objective.utility_transform,
+            parameters=admit_values(
+                utility_contract.definition.parameter_contract,
+                objective.utility_parameters,
+            ),
+                apply=utility_contract.definition.transform,
+        ),
+        declared_weight=objective.weight,
+        effective_weight=effective_weight,
+        match_cardinality=objective.match_cardinality,
+        missing_policy=objective.missing_policy,
+    )
+
+
+def _resolved_objectives(
+    objectives: Sequence[SelectionObjective],
+    catalog: FrozenCatalog,
+) -> tuple[ResolvedSelectionObjective, ...]:
+    declared_total = math.fsum(objective.weight for objective in objectives)
+    return tuple(
+        _resolved_objective(
+            objective,
+            catalog,
+            objective.weight / declared_total,
+        )
+        for objective in objectives
+    )
+
+
+def _resolved_selector(
+    selector: ObservationSelector,
+) -> ResolvedObservationSelector:
+    return ResolvedObservationSelector(
+        selector_id=selector.selector_id,
+        candidate_input=selector.candidate_input,
+        score_collection_input=selector.score_collection_input,
+        source_partition=selector.source_partition,
+        metric=selector.metric,
+        method=selector.method,
+        context_selector=selector.context_selector,
+        match_cardinality=selector.match_cardinality,
+        missing_policy=selector.missing_policy,
+    )
 
 
 def select_admitted_candidates(
@@ -50,7 +126,7 @@ def select_admitted_candidates(
         "4.0.0",
     )
     admitted_candidates = {
-        reference: admitted_port_values(
+        reference: admit_fixture_port(
             port_type=candidate_port_type,
             multiplicity="one",
             values=(collection,),
@@ -60,7 +136,7 @@ def select_admitted_candidates(
     }
     score_port_type = catalog.require_port_type("score.collection", "5.0.0")
     admitted_scores = {
-        reference: admitted_port_values(
+        reference: admit_fixture_port(
             port_type=score_port_type,
             multiplicity="one",
             values=(collection,),
@@ -68,11 +144,8 @@ def select_admitted_candidates(
         ).value
         for reference, collection in score_collection_inputs.items()
     }
-    resolved = tuple(
-        resolve_selection_objective_facts(objective, catalog)
-        for objective in objectives
-    )
-    candidate_reference = resolved[0].objective.candidate_input
+    resolved = _resolved_objectives(objectives, catalog)
+    candidate_reference = resolved[0].candidate_input
     admitted_candidate_input = admitted_candidates[candidate_reference]
     profile = resolve_candidate_utilities_from_facts(
         candidate_inputs={
@@ -128,7 +201,9 @@ def operation_context(
             output_port=declaration["output_port"],
             output_partition=declaration["output_partition"],
             metric=_reference(declaration["metric"]),
-            context_profile=declaration["context_profile"],
+            context_profile=resolved_context_profile_fixture(
+                declaration["context_profile"]
+            ),
             subject_grain=declaration["subject_grain"],
             source_role=declaration["source_role"],
             subject_direction=declaration["subject_direction"],
@@ -149,15 +224,17 @@ def operation_context(
     return OperationContext(
         method=_reference(descriptor["method"]),
         produced_observations=produced_observations,
-        selection_objectives=tuple(
-            resolve_selection_objective_facts(objective, catalog)
-            for objective in selection_objectives
+        selection_objectives=_resolved_objectives(
+            selection_objectives,
+            catalog,
         ),
         observation_selectors=tuple(
-            resolve_observation_selector_facts(selector, catalog)
+            _resolved_selector(selector)
             for selector in observation_selectors
         ),
-        environment={} if environment is None else environment,
+        environment=BindingEnvironment(
+            {} if environment is None else environment
+        ),
         resources=resources,
     )
 
@@ -212,7 +289,7 @@ def operation_call(
                 else (supplied,)
             )
 
-            admitted_inputs[port_name] = admitted_port_values(
+            admitted_inputs[port_name] = admit_fixture_port(
                 port_type=port_type,
                 multiplicity=declaration["multiplicity"],
                 values=values,
@@ -262,12 +339,12 @@ def admitted_port_fixture(
         )
     )
     return AdmittedPort(
-        port_type={
-            "contract_kind": "port_type",
-            "contract_id": port_type_id,
-            "contract_version": "fixture",
-            "contract_digest": "sha256:" + ("0" * 64),
-        },
+        port_type=ExactContractReference(
+            "port_type",
+            port_type_id,
+            "1.0.0",
+            "sha256:" + ("0" * 64),
+        ),
         multiplicity=multiplicity,
         values=admitted_values,
         content_digest=(
@@ -288,7 +365,7 @@ def build_operation(
     selection_objectives: Sequence[SelectionObjective] = (),
     observation_selectors: Sequence[ObservationSelector] = (),
 ) -> Any:
-    """Build an operation through the Catalog's public factory Interface."""
+    """Build an operation from the admitted Binding definition."""
     context = operation_context(
         catalog,
         binding_id,
@@ -298,4 +375,10 @@ def build_operation(
         selection_objectives=selection_objectives,
         observation_selectors=observation_selectors,
     )
-    return catalog.require_factory(binding_id, binding_version).build(context)
+    binding = catalog.require_contract(
+        "binding",
+        binding_id,
+        binding_version,
+    )
+    definition = cast(ExecutionBindingDefinition, binding.definition)
+    return definition.factory.build(context)

@@ -25,8 +25,8 @@ Use Python 3.12, typed code, pytest, Oxlint, and `tsc`. Test current scientific 
 Run focused tests plus:
 
 ```bash
-.venv/bin/python scripts/verify_backend.py routine
-.venv/bin/python scripts/verify_backend.py deterministic-acceptance
+.venv/bin/python -m verification.backend routine
+.venv/bin/python -m verification.backend deterministic-acceptance
 cd frontend && npm run lint && npm run build
 ```
 

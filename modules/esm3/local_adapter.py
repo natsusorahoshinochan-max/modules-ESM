@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from contextlib import ExitStack
+from dataclasses import dataclass
 import hashlib
 import importlib.util
-import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -14,10 +14,11 @@ from types import FunctionType
 from typing import Any, cast
 import weakref
 
-from core import ReadinessResult, RunResources
-from modules.provider_contract import (
-    LOCAL_ESM3_SNAPSHOT_REVISION,
-    LOCAL_ESM3_WEIGHT_SHA256,
+from core.operation import (
+    OperationResources,
+    ReadinessResult,
+)
+from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
 )
@@ -32,6 +33,21 @@ from .adapter import (
 
 LOCAL_ESM3_MODEL = "esm3_sm_open_v1"
 LOCAL_ESM3_SNAPSHOT_SOURCE = "biohub/esm3-sm-open-v1"
+LOCAL_ESM3_SNAPSHOT_REVISION = "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
+LOCAL_ESM3_WEIGHT_SHA256 = {
+    "data/weights/esm3_sm_open_v1.pth": (
+        "5ead5a135c658068db6a4f1b933e72d6110992c4668822e1c0e2dcc53e38acd9"
+    ),
+    "data/weights/esm3_structure_encoder_v0.pth": (
+        "467acbaee703ba3ccde6e75241a912a316952e5ff071355f85c1d33c68704f40"
+    ),
+    "data/weights/esm3_structure_decoder_v0.pth": (
+        "3b726258a44274792b40ce7ea307e10c5da09936368a4ffa2970264d909da65b"
+    ),
+    "data/weights/esm3_function_decoder_v0.pth": (
+        "f76d074efcaccfe21365a4fa96f212dadd66798e1e49d809ab7ffbe025d227c9"
+    ),
+}
 LOCAL_ESM3_DEVICE = "cpu"
 LOCAL_ESM3_TORCH_VERSION = "2.13.0"
 LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
@@ -49,7 +65,7 @@ class LocalESM3Runtime:
     runtime_directory: Path
     device: str
     performance_settings: Mapping[str, Any]
-    artifact_sources: Mapping[str, Path] = field(default_factory=dict)
+    artifact_sources: Mapping[str, Path]
 
 
 def local_runtime_structurally_available() -> bool:
@@ -84,13 +100,8 @@ def _snapshot_artifact_source(
 
 
 def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
-    value = environment.get(key)
-    if not isinstance(value, (str, os.PathLike)):
-        raise LocalESM3RuntimeUnavailable(
-            f"local ESM-3 {key} is not configured"
-        )
     try:
-        path = Path(value).resolve(strict=True)
+        path = cast(Path, environment[key]).resolve(strict=True)
     except OSError as error:
         raise LocalESM3RuntimeUnavailable(
             f"local ESM-3 {key} is unavailable"
@@ -105,8 +116,7 @@ def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
 def _validated_performance_settings(
     environment: Mapping[str, Any],
 ) -> dict[str, Any]:
-    raw = environment.get("performance_settings", {})
-    if not isinstance(raw, Mapping) or dict(raw) != dict(
+    if dict(environment["performance_settings"]) != dict(
         LOCAL_ESM3_PERFORMANCE_SETTINGS
     ):
         raise LocalESM3RuntimeUnavailable(
@@ -138,13 +148,9 @@ def resolve_local_runtime(
     environment: Mapping[str, Any],
 ) -> LocalESM3Runtime:
     """Validate exact artifacts before entering the local Provider."""
-    if not local_runtime_structurally_available():
-        raise LocalESM3RuntimeUnavailable(
-            "exact local ESM-3 runtime is unavailable"
-        )
     validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     if (
-        environment.get("model_snapshot_revision")
+        environment["model_snapshot_revision"]
         != LOCAL_ESM3_SNAPSHOT_REVISION
     ):
         raise LocalESM3RuntimeUnavailable(
@@ -152,7 +158,7 @@ def resolve_local_runtime(
         )
     snapshot_path = _configured_path(environment, "model_snapshot_path")
     runtime_directory = _configured_path(environment, "runtime_directory")
-    device = _validate_device(environment.get("device"))
+    device = _validate_device(environment["device"])
     performance_settings = _validated_performance_settings(environment)
     artifact_sources: dict[str, Path] = {}
     for relative_path, expected_digest in LOCAL_ESM3_WEIGHT_SHA256.items():
@@ -247,14 +253,11 @@ def _bind_builder_to_staged_root(
 
 
 def load_local_esm3_client(
-    environment: Mapping[str, Any],
+    runtime: LocalESM3Runtime,
     *,
     model_name: str,
-    runtime: LocalESM3Runtime | None = None,
 ) -> Any:
     """Load only the exact readiness-validated local model on explicit demand."""
-    if runtime is None:
-        runtime = resolve_local_runtime(environment)
     import torch
     import esm.pretrained as esm_pretrained
 
@@ -293,12 +296,8 @@ def load_local_esm3_client(
 
 def release_local_esm3_client(client: Any) -> None:
     """Release private staged weights owned by an internally loaded client."""
-    cleanup = getattr(client, "_protein_workbench_staged_cleanup", None)
-    staged_root = getattr(client, "_protein_workbench_staged_root", None)
-    if isinstance(staged_root, Path) and staged_root.exists():
-        shutil.rmtree(staged_root)
-    if cleanup is not None and bool(getattr(cleanup, "alive", False)):
-        cleanup.detach()
+    shutil.rmtree(client._protein_workbench_staged_root)
+    client._protein_workbench_staged_cleanup.detach()
 
 
 def call_local_provider(
@@ -331,7 +330,7 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
         model_name: str,
     ) -> None:
         super().__init__(
@@ -341,33 +340,22 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         )
         self._environment = environment
         self._resolved_client: Any | None = None
-        self._owned_local_client: Any | None = None
+        self._provider_lifecycle = ExitStack()
+
+    def __enter__(self) -> LocalESM3Adapter:
+        self._provider_lifecycle.enter_context(
+            self._resources.local_provider("local-esm3")
+        )
+        return self
 
     def _client(self) -> Any:
         if self._resolved_client is not None:
             return self._resolved_client
         runtime = _trusted_local_runtime(self._environment)
-        client = self._environment.get("provider_client")
-        if client is not None:
-            self._resolved_client = client
-            return client
-        client_factory = self._environment.get("client_factory")
-        if client_factory is not None:
-            client = client_factory(
-                model_name=self._model_name,
-                model_snapshot_path=runtime.snapshot_path,
-                device=runtime.device,
-                runtime_directory=runtime.runtime_directory,
-                performance_settings=dict(runtime.performance_settings),
-            )
-            self._resolved_client = client
-            return client
         client = load_local_esm3_client(
-            self._environment,
+            runtime,
             model_name=self._model_name,
-            runtime=runtime,
         )
-        self._owned_local_client = client
         self._resolved_client = client
         return client
 
@@ -418,18 +406,22 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         exception: object,
         traceback: object,
     ) -> None:
-        del exception_type, traceback
-        client = self._owned_local_client
-        self._owned_local_client = None
-        self._resolved_client = None
-        if client is None:
-            return
         try:
-            release_local_esm3_client(client)
-        except BaseException as cleanup_error:
-            if not isinstance(exception, BaseException):
-                raise
-            exception.add_note(
-                "Local ESM-3 staged-weight cleanup also failed: "
-                f"{type(cleanup_error).__name__}"
+            client = self._resolved_client
+            self._resolved_client = None
+            if client is not None:
+                try:
+                    release_local_esm3_client(client)
+                except BaseException as cleanup_error:
+                    if exception is None:
+                        raise
+                    cast(BaseException, exception).add_note(
+                        "Local ESM-3 staged-weight cleanup also failed: "
+                        f"{type(cleanup_error).__name__}"
+                    )
+        finally:
+            self._provider_lifecycle.__exit__(
+                exception_type,
+                exception,
+                traceback,
             )

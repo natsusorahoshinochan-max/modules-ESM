@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from contextlib import nullcontext
 from dataclasses import replace
 import hashlib
@@ -10,52 +14,75 @@ from typing import Any
 
 import pytest
 
-from core import (
-    CatalogBuildError,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.declarations import (
     ContractIdentity,
+)
+from core.catalog.errors import CatalogBuildError
+from core.operation import (
+    BindingEnvironment,
+    OperationCall,
+)
+from core.execution.environment import (
     EnvironmentConfiguration,
+    admit_environment_configuration,
+)
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import (
+    V2RunService,
+)
+from tests.support.result_store import result_store
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    ProjectManager,
-    OperationCall,
-    ResultReplayHit,
-    ResultReplaySource,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    builtin_frozen_catalog,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
-from core.workflow_v2 import (
-    WorkflowCompileError,
-    WorkflowEdge,
-    compile_workflow,
-    relock_workflow,
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
 )
-from datatypes import (
+from core.catalog.canonical import canonical_json_bytes
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from core.workflow.errors import WorkflowCompileError
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
-    ModifiedResidueNormalizationCollection,
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ProteinStructure,
     ResidueAxisReference,
-    ResidueLayout,
-    ResolvedStructureResidueAxis,
+)
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
+)
+from datatypes.residue import (
+    ModifiedResidueNormalizationCollection,
+    ResidueLayout,
+)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import (
+    ProteinStructure,
+    ResolvedStructureResidueAxis,
     StructureAtomCoordinate,
     StructureAxisSegment,
     StructureResidueCoordinates,
 )
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 from modules.proteinmpnn.adapter import (
     LocalProteinMPNNAdapter,
 )
@@ -66,9 +93,8 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
-from tests.fixtures.result_replay_v2 import admitted_replay_outputs
 from tests.fixtures.proteinmpnn_sources.package import _fixture_structure
 from tests.fixtures.scientific_operation import admitted_port_fixture
 
@@ -221,7 +247,7 @@ def _admitted_structure_axis_inputs(
 def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["proteinmpnn"]
@@ -236,12 +262,12 @@ def test_proteinmpnn_is_one_package_with_four_independent_nodes() -> None:
         "definitions/score.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "proteinmpnn" in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("proteinmpnn.")
     }
     assert owned_nodes == {
         ("proteinmpnn.constraints", "4.0.0"),
@@ -529,7 +555,7 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
             STRUCTURE_TRANSFORM_PACKAGE,
         )
     )
-    workflow = relock_workflow(
+    workflow = lock_workflow(
         WorkflowDocument(
             schema_version="2.1.0",
             workflow_id="proteinmpnn-method-mismatch",
@@ -544,10 +570,12 @@ def test_scoring_method_mismatch_fails_compilation_before_provider(
         WorkflowCompileError,
         match="Selected Binding does not belong",
     ):
-        compile_workflow(
-            workflow,
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                workflow,
+                1,
+            ),
+            catalog,
         )
     assert provider.parsed == []
     assert provider.requests == []
@@ -575,8 +603,7 @@ def _run(
     nodes: tuple[WorkflowNodeInstance, ...],
     edges: tuple[WorkflowEdge, ...],
     registrations: tuple[Any, ...],
-    environment: EnvironmentConfiguration | None = None,
-    result_replay_source: ResultReplaySource | None = None,
+    environment: Any | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog(registrations)
     projects = ProjectManager(
@@ -597,12 +624,21 @@ def _run(
             contract_lock=(),
         ),
     )
+    admitted_environment = (
+        environment
+        if isinstance(environment, EnvironmentConfiguration)
+        else admit_environment_configuration(catalog, environment or {})
+    )
     service = V2RunService(
         projects,
         catalog,
         authoring,
-        environment or EnvironmentConfiguration({}),
-        result_replay_source,
+        NodeAttemptFactory(
+            projects,
+            admitted_environment,
+            result_store(projects),
+        ),
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -614,8 +650,8 @@ def _run(
         return (
             catalog,
             service,
-            service.projection(project.id, receipt["run_id"]),
-            service.public_events(project.id, receipt["run_id"]),
+            public_run_projection(service, project.id, receipt["run_id"]),
+            public_run_events(service, project.id, receipt["run_id"]),
         )
     finally:
         service.shutdown()
@@ -924,12 +960,14 @@ def test_constraint_parameter_schema_rejects_public_x_bias() -> None:
         contract_lock=(),
     )
 
-    locked = relock_workflow(workflow, catalog)
+    locked = lock_workflow(workflow, catalog)
     with pytest.raises(WorkflowCompileError) as rejected:
-        compile_workflow(
-            locked,
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                locked,
+                1,
+            ),
+            catalog,
         )
 
     assert rejected.value.field_path[-3:] == (
@@ -1042,6 +1080,11 @@ class _AdapterResources:
         del prefix
         return nullcontext(Path.cwd())
 
+    @staticmethod
+    def local_provider(provider_id: str):
+        assert provider_id == "proteinmpnn"
+        return nullcontext({})
+
     def engine_invocation(self, **kwargs: Any):
         self.invocations.append(kwargs)
         return nullcontext()
@@ -1053,7 +1096,41 @@ class _AdapterResources:
             item = dict(invocation)
             provenance = item.get("invocation_provenance")
             if provenance is not None:
-                item["invocation_provenance"] = provenance.to_public()
+                public: dict[str, Any] = {}
+                randomness = provenance.effective_randomness
+                if randomness is not None:
+                    public_randomness: dict[str, Any] = {
+                        "control": randomness.control,
+                    }
+                    if randomness.effective_seed is not None:
+                        public_randomness["effective_seed"] = (
+                            randomness.effective_seed
+                        )
+                    public["effective_randomness"] = public_randomness
+                projection = provenance.provider_residue_projection
+                if projection is not None:
+                    public["provider_residue_projection"] = {
+                        "position_semantics": projection.position_semantics,
+                        "workbench_chain_order": list(
+                            projection.workbench_chain_order
+                        ),
+                        "provider_structure_chain_order": list(
+                            projection.provider_structure_chain_order
+                        ),
+                        "provider_chain_order": list(
+                            projection.provider_chain_order
+                        ),
+                        "entries": [
+                            {
+                                "residue_id": entry.residue_id,
+                                "segment_index": entry.segment_index,
+                                "provider_chain_id": entry.provider_chain_id,
+                                "provider_position": entry.provider_position,
+                            }
+                            for entry in projection.entries
+                        ],
+                    }
+                item["invocation_provenance"] = public
             plain.append(item)
         return plain
 
@@ -1096,10 +1173,18 @@ def _controlled_adapter(
     *,
     resources: _AdapterResources | None = None,
 ) -> LocalProteinMPNNAdapter:
-    return LocalProteinMPNNAdapter(
+    class ControlledAdapter(LocalProteinMPNNAdapter):
+        def _provider(
+            self,
+            staging_directory: Path,
+            resident_models: dict[object, object],
+        ) -> Any:
+            del staging_directory, resident_models
+            return provider
+
+    return ControlledAdapter(
         environment={},
         resources=resources or _AdapterResources(),
-        provider_factory=lambda _environment, _directory, _models: provider,
     )
 
 
@@ -1163,10 +1248,6 @@ def test_design_operation_joins_axes_by_full_reference_not_collection_order(
                 ),
             )
 
-        @staticmethod
-        def close() -> None:
-            return None
-
     adapter = RecordingAdapter()
     operation = ProteinMPNNDesignImplementation(adapter=adapter)
     output = operation.execute(call(associations))["sequence_candidates"]
@@ -1201,18 +1282,9 @@ def _install_test_provider(
     monkeypatch: pytest.MonkeyPatch,
     provider: Any,
 ) -> None:
-    def build(**kwargs: Any) -> Any:
-        return LocalProteinMPNNAdapter(
-            environment=kwargs["environment"],
-            resources=kwargs["resources"],
-            provider_factory=(
-                lambda _environment, _directory, _models: provider
-            ),
-        )
-
     monkeypatch.setattr(
-        "modules.proteinmpnn.package.LocalProteinMPNNAdapter",
-        build,
+        "modules.proteinmpnn.adapter._LocalProteinMPNNProvider",
+        lambda **_kwargs: provider,
     )
 
 
@@ -1225,14 +1297,13 @@ def _proteinmpnn_provider_root() -> Path:
 
 
 def _proteinmpnn_environment(
-) -> EnvironmentConfiguration:
-    return EnvironmentConfiguration(
-        {
+    catalog: Any | None = None,
+) -> Any:
+    raw = {
             (binding_id, version): {
                 "values": {
                     "device": "cpu",
                     "provider_root": _proteinmpnn_provider_root(),
-                    "private_token": "proteinmpnn-secret-must-not-publish",
                 },
             }
             for binding_id, version in (
@@ -1240,7 +1311,9 @@ def _proteinmpnn_environment(
                 ("proteinmpnn.score.local", "8.0.0"),
             )
         }
-    )
+    if catalog is None:
+        return raw
+    return admit_environment_configuration(catalog, raw)
 
 
 def _score_workflow() -> tuple[
@@ -1432,133 +1505,6 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
     )
 
 
-def test_scoring_replay_preserves_the_canonical_binary32_snapshot(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from modules.proteinmpnn.package import (
-        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
-    )
-    from tests.fixtures.proteinmpnn_sources.package import (
-        MODULE_PACKAGE as SOURCE_PACKAGE,
-    )
-
-    catalog = build_frozen_catalog(
-        (
-            PROTEINMPNN_PACKAGE,
-            SOURCE_PACKAGE,
-            STRUCTURE_TRANSFORM_PACKAGE,
-        )
-    )
-
-    def reference(
-        contract_kind: str,
-        contract_id: str,
-        version: str,
-    ) -> ExactContractReference:
-        contract = catalog.require_contract(
-            contract_kind,
-            contract_id,
-            version,
-        )
-        return ExactContractReference(
-            contract_kind=contract_kind,
-            contract_id=contract_id,
-            contract_version=version,
-            contract_digest=contract.contract_digest,
-        )
-
-    class Replay(ResultReplaySource):
-        def lookup(self, **kwargs: Any) -> ResultReplayHit | None:
-            if kwargs["node"].node_id != "score":
-                return None
-            subjects = kwargs["inputs"]["sequence_candidates"].value
-            assert type(subjects) is CandidateCollection
-            subject = subjects.items[0]
-            subject_reference = CandidateDataReference(
-                candidate_id=subject.candidate_id,
-                data_type_id="protein.sequence",
-                content_digest=catalog.require_port_type(
-                    "protein.sequence",
-                    "3.0.0",
-                ).content_digest(subject.data),
-            )
-            axes = kwargs["inputs"]["structure_residue_axes"].scientific_axes
-            assert len(axes) == 1
-            outputs = {
-                "scores": ScoreCollection(
-                    "canonical-binary32-replay",
-                    [
-                        ScoreObservation(
-                            subject=subject_reference,
-                            metric=reference(
-                                "metric",
-                                "proteinmpnn.native_sequence_nll",
-                                "3.0.0",
-                            ),
-                            method=reference(
-                                "method",
-                                "proteinmpnn.score.v_48_020_8907e667",
-                                "6.0.0",
-                            ),
-                            context=IntrinsicObservationContext(),
-                            value=1.0,
-                            residue_axis=axes[0],
-                        )
-                    ],
-                )
-            }
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="canonical-replay-provider",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=catalog,
-                    node=kwargs["node"],
-                    outputs=outputs,
-                ),
-            )
-
-    provider = _ControlledProteinMPNNProvider()
-    _install_test_provider(monkeypatch, provider)
-    nodes, edges = _score_workflow()
-    run_catalog, service, projection, events = _run(
-        tmp_path,
-        nodes=nodes,
-        edges=edges,
-        registrations=(
-            PROTEINMPNN_PACKAGE,
-            SOURCE_PACKAGE,
-            STRUCTURE_TRANSFORM_PACKAGE,
-        ),
-        environment=_proteinmpnn_environment(),
-        result_replay_source=Replay(),
-    )
-
-    assert projection["status"] == "succeeded", events
-    assert provider.parsed == []
-    assert provider.requests == []
-    score_output = next(
-        output
-        for output in projection["outputs"]
-        if output["node_id"] == "score"
-    )
-    scores = _decode_output(
-        run_catalog,
-        service,
-        projection,
-        score_output,
-    )
-    assert type(scores) is ScoreCollection
-    assert scores.entries[0].value == 1.0
-    score_disposition = next(
-        disposition
-        for disposition in projection["node_dispositions"]
-        if disposition["node_id"] == "score"
-    )
-    assert score_disposition["outcome"] == "succeeded"
-    assert score_disposition["resolution"] == "cache_replayed"
-
-
 def test_scoring_rejects_ambiguous_subjects_before_provider_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1619,15 +1565,11 @@ def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> No
     class TrustingAdapter:
         def __init__(self) -> None:
             self.calls = 0
-            self.close_count = 0
 
         def score(self, **kwargs: Any) -> float:
             del kwargs
             self.calls += 1
             return 2.75
-
-        def close(self) -> None:
-            self.close_count += 1
 
     structure = _fixture_structure(0)
     structure_candidate = Candidate("score-parent", structure)
@@ -1699,7 +1641,6 @@ def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> No
             )
         )
     assert adapter.calls == 0
-    assert adapter.close_count == 1
 
 
 def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -> None:
@@ -1789,10 +1730,10 @@ def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -
 def test_design_projects_canonical_axis_into_provider_safe_structure(
     tmp_path: Path,
 ) -> None:
-    from modules.proteinmpnn.provider_runtime import (
-        _parse_structure,
+    from modules.proteinmpnn.provider_request import (
         _sequence_in_provider_chain_order,
     )
+    from modules.proteinmpnn.provider_runtime import _parse_structure
 
     class ParsingProvider(_ControlledProteinMPNNProvider):
         def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
@@ -2029,11 +1970,10 @@ def test_design_and_score_preserve_same_chain_segment_topology(
 ) -> None:
     import torch
 
-    from modules.proteinmpnn.provider_runtime import (
-        _featurize,
-        _parse_structure,
+    from modules.proteinmpnn.provider_request import (
         _sequence_in_provider_chain_order,
     )
+    from modules.proteinmpnn.provider_runtime import _featurize, _parse_structure
 
     class SegmentProvider(_ControlledProteinMPNNProvider):
         def __init__(self) -> None:
@@ -2526,7 +2466,12 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
             projects,
             catalog,
             authoring,
-            _proteinmpnn_environment(),
+            NodeAttemptFactory(
+                projects,
+                _proteinmpnn_environment(catalog),
+                result_store(projects),
+            ),
+            result_store(projects),
         )
         receipt = service.start_background(
             project.id,
@@ -2534,8 +2479,8 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
             client_request_id=f"score-replay-{id(provider)}",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
         assert projection["status"] == "succeeded", events
         score_output = next(
             output
@@ -2727,6 +2672,7 @@ def test_provider_decoding_requires_missing_backbone_residue_to_be_fixed(
 ) -> None:
     import torch
 
+    import modules.proteinmpnn.provider_request as provider_request
     import modules.proteinmpnn.provider_runtime as provider_runtime
 
     class Model:
@@ -2735,9 +2681,9 @@ def test_provider_decoding_requires_missing_backbone_residue_to_be_fixed(
             return {
                 "S": torch.tensor(
                     [[
-                        provider_runtime._ALPHABET_DICT["A"],
-                        provider_runtime._ALPHABET_DICT["C"],
-                        provider_runtime._ALPHABET_DICT["D"],
+                        provider_request._ALPHABET_DICT["A"],
+                        provider_request._ALPHABET_DICT["C"],
+                        provider_request._ALPHABET_DICT["D"],
                     ]],
                     dtype=torch.int64,
                 )
@@ -2836,7 +2782,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
-    from modules.proteinmpnn.provider_runtime import _ALPHABET_DICT
+    from modules.proteinmpnn.provider_request import _ALPHABET_DICT
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -3491,17 +3437,11 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
         "provider_root": provider_root,
     }
 
-    assert proteinmpnn_readiness(environment).passing is True
     assert proteinmpnn_readiness(
-        {**environment, "device": "cuda"}
-    ).passing is False
-    provider = _ControlledProteinMPNNProvider()
-    provider.provider_contract_identity = "sha256:" + "0" * 64
+        BindingEnvironment(environment)
+    ).passing is True
     assert proteinmpnn_readiness(
-        {
-            "device": "cpu",
-            "provider_client": provider,
-        }
+        BindingEnvironment({**environment, "device": "cuda"})
     ).passing is False
 
 
@@ -3518,10 +3458,6 @@ def test_design_operation_owns_reference_and_constraint_axis_closure() -> None:
             del kwargs
             self.calls += 1
             return (ProteinSequence("AGSTW", TARGET_LAYOUT.residue_ids),)
-
-        @staticmethod
-        def close() -> None:
-            return None
 
     structure = _fixture_structure(0)
     candidate = Candidate("exact-parent", structure)
@@ -4141,9 +4077,8 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             },
             binding_parameters={},
             environment_values={
-                "device": "cpu",
-                "provider_root": _proteinmpnn_provider_root(),
-                "private_token": "ctk-proteinmpnn-secret",
+                    "device": "cpu",
+                    "provider_root": _proteinmpnn_provider_root(),
             },
             workflow_nodes=(source, design_axis_resolver),
             workflow_edges=(
@@ -4184,9 +4119,8 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             node_parameters={},
             binding_parameters={},
             environment_values={
-                "device": "cpu",
-                "provider_root": _proteinmpnn_provider_root(),
-                "private_token": "ctk-proteinmpnn-secret",
+                    "device": "cpu",
+                    "provider_root": _proteinmpnn_provider_root(),
             },
             workflow_nodes=(
                 score_source,
@@ -4280,6 +4214,8 @@ def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(
     monkeypatch.setattr(provider_runtime, "_load_model", load_model)
     provider = provider_runtime._LocalProteinMPNNProvider(
         provider_root=tmp_path,
+        temp_dir=tmp_path,
+        model_cache={},
     )
     first = provider._resident_model("v_48_020", 0.0)
     second = provider._resident_model("v_48_020", 0.0)
@@ -4289,10 +4225,12 @@ def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(
 
 
 def test_exact_score_seed_is_independent_of_resident_model_load_history(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
 
+    import modules.proteinmpnn.provider_request as provider_request
     import modules.proteinmpnn.provider_runtime as provider_runtime
 
     class Request:
@@ -4312,18 +4250,22 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_load_model", load_model)
     monkeypatch.setattr(provider_runtime, "_featurize", lambda *_args: {})
     monkeypatch.setattr(
-        provider_runtime,
+        provider_request,
         "_sequence_in_provider_chain_order",
         lambda *_args: "A",
     )
     monkeypatch.setattr(provider_runtime, "_compute_score", compute_score)
 
     cold_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     cold_score = cold_provider.score(Request(), ProteinSequence("A"))
     warm_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     warm_provider._resident_model("v_48_020", 0.0)
     first_warm_score = warm_provider.score(Request(), ProteinSequence("A"))
@@ -4333,6 +4275,7 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
 
 
 def test_exact_design_seed_is_independent_of_resident_model_load_history(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
@@ -4361,63 +4304,18 @@ def test_exact_design_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_run_design", run_design)
 
     cold_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     cold_design = cold_provider.design(Request())
     warm_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     warm_provider._resident_model("v_48_020", 0.0)
     first_warm_design = warm_provider.design(Request())
     second_warm_design = warm_provider.design(Request())
 
     assert cold_design == first_warm_design == second_warm_design
-
-
-def test_installed_gate_reuses_one_resident_model_across_adapters(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.proteinmpnn.adapter as adapter_module
-    import modules.proteinmpnn.provider_runtime as provider_runtime
-
-    constructed: list[object] = []
-
-    def load_model(
-        model_name: str,
-        backbone_noise: float,
-        provider_root: Path | None,
-    ) -> tuple[object, object]:
-        model = object()
-        constructed.append(model)
-        return model, (model_name, backbone_noise, provider_root)
-
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_VERIFICATION_TIER",
-        "installed-proteinmpnn",
-    )
-    monkeypatch.setattr(provider_runtime, "_load_model", load_model)
-    adapter_module._INSTALLED_GATE_RESIDENT_MODELS.clear()
-    first_adapter = LocalProteinMPNNAdapter(
-        environment={},
-        resources=_AdapterResources(),
-    )
-    second_adapter = LocalProteinMPNNAdapter(
-        environment={},
-        resources=_AdapterResources(),
-    )
-    first_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=tmp_path,
-        model_cache=first_adapter._resident_models,
-    )
-    second_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=tmp_path,
-        model_cache=second_adapter._resident_models,
-    )
-
-    first = first_provider._resident_model("v_48_020", 0.0)
-    second = second_provider._resident_model("v_48_020", 0.0)
-
-    assert first is second
-    assert len(constructed) == 1
-    adapter_module._INSTALLED_GATE_RESIDENT_MODELS.clear()

@@ -4,18 +4,27 @@ from contextlib import contextmanager, nullcontext
 
 import pytest
 
-from core import OperationCall, build_frozen_catalog
-from datatypes import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.operation import (
+    OperationCall,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.prompt import (
     FunctionAnnotations,
     ProteinPrompt,
-    ProteinStructure,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueTrack,
 )
-from modules.structure_annotation import StructureAnnotationTrack
+from datatypes.structure import ProteinStructure
+from modules.structure_annotation.domain import StructureAnnotationTrack
 from modules.structure_annotation.implementation import (
     ApplySASAToPromptOperation,
     ApplySecondaryStructureToPromptOperation,

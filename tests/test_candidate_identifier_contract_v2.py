@@ -6,23 +6,33 @@ from dataclasses import replace
 
 import pytest
 
-from core import PortValueError, UnknownPortTypeError, builtin_frozen_catalog
-from datatypes import (
-    CalibrationObservationContext,
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.errors import (
+    UnknownPortTypeError,
+    PortValueError,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
+    validate_canonical_identifier,
+)
+from datatypes.observation import (
+    CalibrationObservationContext,
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
-    validate_canonical_identifier,
 )
+from datatypes.sequence import ProteinSequence
 
 
 _DIGEST_1 = "sha256:" + ("1" * 64)
@@ -73,6 +83,31 @@ def test_canonical_identifier_requires_an_exact_string() -> None:
             IdentifierSubclass("candidate-1"),
             "candidate_id",
         )
+
+
+@pytest.mark.parametrize(
+    ("field_name", "invalid_value"),
+    (
+        ("contract_kind", "unknown"),
+        ("contract_id", "contract id"),
+        ("contract_version", "version"),
+        ("contract_digest", "digest"),
+    ),
+)
+def test_exact_contract_reference_owns_its_intrinsic_identity(
+    field_name: str,
+    invalid_value: str,
+) -> None:
+    values = {
+        "contract_kind": "method",
+        "contract_id": "method/fixture",
+        "contract_version": "1.0.0",
+        "contract_digest": _DIGEST_1,
+    }
+    values[field_name] = invalid_value
+
+    with pytest.raises(ValueError, match=field_name):
+        ExactContractReference(**values)
 
 
 def test_candidate_ports_publish_only_the_active_identifier_generation() -> None:
@@ -265,21 +300,10 @@ def test_score_collection_v4_closes_every_public_generic_identifier() -> None:
 
     invalid_values = (
         replace(valid, collection_id="候选"),
-        ScoreCollection("scores", (_score(metric_id="m" * 129),)),
-        ScoreCollection("scores", (_score(method_id="方法"),)),
         ScoreCollection(
             "scores",
-            (
-                replace(
-                    _score(),
-                    metric=replace(
-                        _score().metric,
-                        contract_version="1.0." + ("1" * 61),
-                    ),
-                ),
-            ),
+            (_score(source_partition="partition value"),),
         ),
-        ScoreCollection("scores", (_score(source_partition="partition value"),)),
         ScoreCollection(
             "scores",
             (
@@ -293,21 +317,9 @@ def test_score_collection_v4_closes_every_public_generic_identifier() -> None:
                 ),
             ),
         ),
-        ScoreCollection(
-            "scores",
-            (
-                _score(
-                    candidate_id="candidate/a",
-                    context=replace(
-                        pairwise_context,
-                        evidence_method=_reference("method", "m" * 129),
-                    ),
-                ),
-            ),
-        ),
     )
     for invalid in invalid_values:
-        with pytest.raises(PortValueError, match="identifier|semantic version"):
+        with pytest.raises(PortValueError, match="identifier"):
             port_type.encode(invalid)
 
     with pytest.raises(ValueError, match="candidate_id"):
@@ -321,6 +333,7 @@ def test_score_observation_rejects_non_reference_subject_at_construction() -> No
             metric=_reference("metric", "quality"),
             method=_reference("method", "fixture"),
             context=IntrinsicObservationContext(),
+            source_partition="default",
             value=0.5,
         )
 

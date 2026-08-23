@@ -9,16 +9,17 @@ import math
 import re
 from typing import Any, Literal, NotRequired, TypedDict
 
-from datatypes import ResidueLayout, ResidueMap
-from datatypes.protein import (
+from datatypes.residue import (
+    ResidueLayout,
+    ResidueMap,
+)
+from datatypes.residue import (
     residue_identity_chain,
     validate_residue_layout,
-    validate_residue_map as validate_canonical_residue_map,
 )
 
 
 _SECONDARY_STRUCTURE = frozenset({"H", "B", "E", "G", "I", "T", "S", "-"})
-_MAX_RESIDUES = 2_000_000
 
 
 class TrackKind(Enum):
@@ -69,10 +70,7 @@ def residue_chain(residue_id: str) -> str:
 
 def validate_layout(layout: object, *, subject: str) -> ResidueLayout:
     """Validate one identity-complete layout and its contiguous chains."""
-    admitted = validate_residue_layout(layout, subject=subject)
-    if admitted.length > _MAX_RESIDUES:
-        raise ValueError(f"{subject} length is outside the supported range")
-    return admitted
+    return validate_residue_layout(layout, subject=subject)
 
 
 def build_layout(chains: Sequence[ChainDeclaration]) -> ResidueLayout:
@@ -84,8 +82,6 @@ def build_layout(chains: Sequence[ChainDeclaration]) -> ResidueLayout:
         length = raw_chain["length"]
         if chain_id in chain_ids:
             raise ValueError(f"chain {chain_id!r} is declared more than once")
-        if len(residue_ids) + length > _MAX_RESIDUES:
-            raise ValueError("layout exceeds the supported residue bound")
         chain_ids.append(chain_id)
         residue_ids.extend(
             f"{chain_id}:{residue_number}"
@@ -104,8 +100,8 @@ def build_residue_map(
     edits: Sequence[ResidueEditDeclaration],
 ) -> ResidueMap:
     """Reconcile explicit insert/delete declarations into one residue map."""
-    source_ids = tuple(source_layout.residue_ids or ())
-    target_ids = tuple(target_layout.residue_ids or ())
+    source_ids = tuple(source_layout.residue_ids)
+    target_ids = tuple(target_layout.residue_ids)
     source_set = set(source_ids)
     target_set = set(target_ids)
     common = source_set & target_set
@@ -149,13 +145,6 @@ def build_residue_map(
         raise ValueError("edits do not declare the complete target insertions")
     if declared_deletions != expected_deletions:
         raise ValueError("edits do not declare the complete source deletions")
-    if (
-        source_layout.length
-        + len(declared_insertions)
-        - len(declared_deletions)
-        != target_layout.length
-    ):
-        raise ValueError("residue edits produce target length drift")
 
     source_index = {
         residue_id: index for index, residue_id in enumerate(source_ids)
@@ -183,43 +172,35 @@ def build_residue_map(
     )
 
 
-def validate_residue_map(value: object) -> ResidueMap:
-    """Require one complete, one-to-one, identity-preserving residue map."""
-    admitted = validate_canonical_residue_map(value, subject="residue_map")
-    for subject, layout in (
-        ("source layout", admitted.source_layout),
-        ("target layout", admitted.target_layout),
-    ):
-        if layout.length > _MAX_RESIDUES:
-            raise ValueError(f"{subject} length is outside the supported range")
-    return admitted
-
-
 def validate_track(
     track: object,
     *,
     kind: TrackKind,
     subject: str,
-    expected_layout: ResidueLayout | None = None,
 ) -> AlignedResidueTrack:
     """Validate one complete nullable track against one exact layout."""
-    if not isinstance(kind, TrackKind):
-        raise ValueError("track kind must be one closed scientific domain")
     if type(track) is not AlignedResidueTrack:
         raise ValueError(f"{subject} must be an AlignedResidueTrack")
     layout = validate_layout(track.layout, subject=f"{subject} layout")
-    if expected_layout is not None:
-        target = validate_layout(
-            expected_layout,
-            subject=f"{subject} expected layout",
-        )
-        if layout != target:
-            raise ValueError(
-                f"{subject} residue identities do not match the expected layout"
-            )
-    if len(track.values) != layout.length:
+    _validate_track_values(
+        track.values,
+        layout=layout,
+        kind=kind,
+        subject=subject,
+    )
+    return track
+
+
+def _validate_track_values(
+    values: Sequence[object],
+    *,
+    layout: ResidueLayout,
+    kind: TrackKind,
+    subject: str,
+) -> None:
+    if len(values) != layout.length:
         raise ValueError(f"{subject} length does not match its residue layout")
-    for index, item in enumerate(track.values):
+    for index, item in enumerate(values):
         if item is None:
             continue
         if kind is TrackKind.SEQUENCE:
@@ -254,7 +235,6 @@ def validate_track(
                     f"{subject}[{index}] is not nullable absolute SASA in "
                     "square angstroms"
                 )
-    return track
 
 
 def _validate_coordinate(value: object, *, subject: str) -> None:
@@ -319,7 +299,7 @@ def override_track(
         )
     residue_index = {
         residue_id: index
-        for index, residue_id in enumerate(layout.residue_ids or ())
+        for index, residue_id in enumerate(layout.residue_ids)
     }
     touched: set[str] = set()
     values = list(track.values)
@@ -350,33 +330,13 @@ def override_track(
 
 def normalize_replacement(value: object, *, kind: TrackKind) -> object:
     """Normalize public structure authoring values to the domain shape."""
-    if kind is not TrackKind.STRUCTURE:
-        return value
-    if not isinstance(value, Mapping) or set(value) != {"atom_coordinates"}:
+    if kind is not TrackKind.STRUCTURE or not isinstance(value, Mapping):
         return value
     raw_atoms = value["atom_coordinates"]
-    if not isinstance(raw_atoms, Sequence) or isinstance(
-        raw_atoms,
-        (str, bytes, bytearray),
-    ):
-        raise ValueError("atom_coordinates must be an ordered array")
     normalized: dict[str, tuple[object, ...]] = {}
-    for index, raw_atom in enumerate(raw_atoms):
-        if not isinstance(raw_atom, Mapping) or set(raw_atom) != {
-            "atom_name",
-            "coordinates",
-        }:
-            raise ValueError(
-                f"atom_coordinates[{index}] must contain atom_name and coordinates"
-            )
+    for raw_atom in raw_atoms:
         atom_name = raw_atom["atom_name"]
-        coordinates = raw_atom["coordinates"]
-        if not isinstance(atom_name, str) or atom_name in normalized:
-            raise ValueError("atom_coordinates contains an invalid duplicate atom")
-        if not isinstance(coordinates, Sequence) or isinstance(
-            coordinates,
-            (str, bytes, bytearray),
-        ):
-            raise ValueError("coordinates must be one three-item array")
-        normalized[atom_name] = tuple(coordinates)
+        if atom_name in normalized:
+            raise ValueError("atom_coordinates contains a duplicate atom")
+        normalized[atom_name] = tuple(raw_atom["coordinates"])
     return normalized

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 import csv
 import os
 from pathlib import Path
@@ -9,16 +11,21 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.workflow_v2 import WorkflowEdge
+from core.catalog.port_contract import observation_context_canonical
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
 from tests.acceptance.retained_evidence import retain_service_run
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 
@@ -97,16 +104,16 @@ def test_local_protein_sol_golden_multiple_metrics(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.solubility.adapter as adapter
+    import modules.solubility.protein_sol as adapter
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
     )
 
     recorded: list[dict[str, Any]] = []
-    original_invoke = adapter.invoke_protein_sol
+    original_run_process = adapter._run_local_process
 
-    def record_and_delegate(**kwargs: Any) -> None:
+    def record_and_delegate(**kwargs: Any) -> int:
         staging_directory = kwargs["staging_directory"]
         record = {
             "command": tuple(kwargs["command"]),
@@ -114,13 +121,14 @@ def test_local_protein_sol_golden_multiple_metrics(
                 staging_directory / "input.fasta"
             ).read_text(encoding="ascii"),
         }
-        original_invoke(**kwargs)
+        return_code = original_run_process(**kwargs)
         record["raw_output"] = (
             staging_directory / "seq_prediction.txt"
         ).read_bytes()
         recorded.append(record)
+        return return_code
 
-    monkeypatch.setattr(adapter, "invoke_protein_sol", record_and_delegate)
+    monkeypatch.setattr(adapter, "_run_local_process", record_and_delegate)
 
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
     projects = ProjectManager(
@@ -175,13 +183,19 @@ def test_local_protein_sol_golden_multiple_metrics(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                ("solubility.protein_sol.local", "5.0.0"): {
-                    "values": _environment(),
-                }
-            }
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    ("solubility.protein_sol.local", "5.0.0"): {
+                        "values": _environment(),
+                    }
+                },
+            ),
+            result_store(projects),
         ),
+        result_store(projects),
     )
     try:
         receipt = service.start(
@@ -195,8 +209,8 @@ def test_local_protein_sol_golden_multiple_metrics(
             receipt["run_id"],
             timeout_seconds=30,
         )
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
 
@@ -300,7 +314,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         for candidate_id in candidate_ids
     }
     assert all(
-        entry.context.to_public() == {"kind": "intrinsic"}
+        observation_context_canonical(entry.context) == {"kind": "intrinsic"}
         for entry in scores.entries
         if entry.metric.contract_id == "solubility.protein_sol_pi"
     )

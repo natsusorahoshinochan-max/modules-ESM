@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 
-from core import (
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackageContractReport,
     ModulePackageConformanceError,
     ModulePackagePortCase,
     verify_module_package_contract,
 )
-from datatypes import PairwiseObservationContext
-from modules.structure_comparison import implementation
+from datatypes.observation import PairwiseObservationContext
+import modules.structure_comparison.implementation as implementation
 from tests.test_structure_comparison_v2 import (
     COLLECTION_OPS_PACKAGE,
     MODULE_PACKAGE,

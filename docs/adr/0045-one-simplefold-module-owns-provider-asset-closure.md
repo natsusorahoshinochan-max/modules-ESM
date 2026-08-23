@@ -91,19 +91,7 @@ temporary Git checkouts. They prove the two exact memberships, exclusions,
 SHA and source-tree admission, the exclusion of byte count and ETag from
 Readiness identity, staged layout without a second proof, trust-after-admission
 behavior, and causal failure placement. Separate Adapter and real-Provider
-acceptance tests continue to prove the two scientific Methods. The implementation
-replaces duplicate hash, file-set, source-validation, and staging helpers plus
-private cross-module calls; it retains no compatibility helper or alternate path.
-
-The rejected alternatives are taking the union of the two closures, letting each
-Adapter maintain a parallel closure grammar, admitting entire configured
-directories, rejecting irrelevant extra files, rehashing during staging,
-promoting byte count or ETag into scientific identity, querying Git or
-rediscovering the source tree during staging, memoizing proofs across Bindings,
-recording paths or static asset identities per Invocation, staging after an
-Engine Invocation has started, and introducing a generic all-Provider asset
-framework before another Module Package demonstrates the same seam.
-
-This decision refines ADR-0025, ADR-0029, ADR-0032, ADR-0034, and ADR-0041. It
-preserves the distinct folding and existing-structure confidence Methods and the
-Adapter ownership established by ADR-0044.
+acceptance tests prove the two scientific Methods. The shared closure module is
+the sole hash, file-set, source-admission, and staging implementation for these
+Bindings and exposes no compatibility helper or alternate path. Folding and
+existing-structure confidence retain distinct Methods and Adapters.

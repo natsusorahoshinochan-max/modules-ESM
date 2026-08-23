@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from core import PortValueError, builtin_frozen_catalog
-from datatypes import ProteinStructure
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.errors import PortValueError
+from datatypes.structure import ProteinStructure
 
 
 _STRUCTURE_TYPE = builtin_frozen_catalog().require_port_type(

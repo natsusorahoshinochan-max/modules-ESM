@@ -2,41 +2,46 @@
 
 from __future__ import annotations
 
-from core import (
+from collections.abc import Callable
+
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    PortTypeDefinition,
-    ReadinessCheckInput,
-    ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
 )
-from datatypes import ProteinStructure
-
-from .implementation import (
-    BackboneToStructureImplementation,
-    ExtractBackboneImplementation,
+from core.catalog.definition_resource import (
+    DefinitionResource,
+    load_method_definitions,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    OperationResources,
+    ScientificOperation,
+)
+from .candidate_transforms import (
     ExtractSequenceCandidatesImplementation,
-    ExtractSequenceImplementation,
     MaterializeCandidateNormalizationsImplementation,
     NormalizeCshParentSpanCandidatesImplementation,
-    NormalizeCshParentSpanImplementation,
     ProjectSingleResidueAxisImplementation,
     ResolveCandidateResidueAxesImplementation,
-    ResolveResidueAxisImplementation,
     SelectCandidateChainsImplementation,
-    SelectChainsImplementation,
-    validate_backbone_structure,
 )
+from .csh_normalization import NormalizeCshParentSpanImplementation
+from .projections import (
+    BackboneToStructureImplementation,
+    ExtractBackboneImplementation,
+    ExtractSequenceImplementation,
+    SelectChainsImplementation,
+)
+from .residue_axis import ResolveResidueAxisImplementation
 from .port_types import (
+    BACKBONE_STRUCTURE_PORT_TYPE,
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
     CANDIDATE_ASSOCIATION_VERSION,
     CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
@@ -48,8 +53,6 @@ from .port_types import (
 
 
 _PACKAGE_VERSION = "3.0.0"
-_VERSION = "2.1.0"
-_BACKBONE_PORT_VERSION = "4.0.0"
 _CANDIDATE_NODE_VERSION = "4.0.0"
 _STRUCTURE_NODE_VERSION = "4.0.0"
 _NORMALIZE_CSH_NODE_VERSION = "5.0.0"
@@ -97,7 +100,14 @@ _METHOD_VERSIONS = {
     "resolve_residue_axis": _RESOLVE_AXIS_METHOD_VERSION,
     "resolve_candidate_residue_axes": _RESOLVE_AXIS_METHOD_VERSION,
 }
-_IMPLEMENTATIONS = {
+def _available() -> AvailabilityResult:
+    return AvailabilityResult.available()
+
+
+_OPERATION_IMPLEMENTATIONS: dict[
+    str,
+    Callable[[OperationResources], ScientificOperation],
+] = {
     "select_chains": SelectChainsImplementation,
     "select_candidate_chains": SelectCandidateChainsImplementation,
     "extract_backbone": ExtractBackboneImplementation,
@@ -112,164 +122,26 @@ _IMPLEMENTATIONS = {
     ),
     "project_single_residue_axis": ProjectSingleResidueAxisImplementation,
     "resolve_residue_axis": ResolveResidueAxisImplementation,
-    "resolve_candidate_residue_axes": ResolveCandidateResidueAxesImplementation,
+    "resolve_candidate_residue_axes": (
+        ResolveCandidateResidueAxesImplementation
+    ),
     "backbone_to_structure": BackboneToStructureImplementation,
 }
 
 
-def _available() -> AvailabilityResult:
-    return AvailabilityResult.available()
+def _build(
+    operation: str,
+) -> Callable[[OperationContext], ScientificOperation]:
+    implementation = _OPERATION_IMPLEMENTATIONS[operation]
 
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
-
-
-def _build(operation: str):
     def factory(context: OperationContext) -> ScientificOperation:
-        return _IMPLEMENTATIONS[operation](context.resources)
+        return implementation(context.resources)
 
     return factory
 
 
-def _method(operation: str) -> MethodDefinition:
-    algorithm_identity = {
-        "select_chains": {
-            "name": "ordered-exact-pdb-chain-selection",
-            "chain_identity": "one-alphanumeric-PDB-chain-ID",
-            "ordering": "workflow-request-order",
-            "multi_model": "reject",
-            "coordinate_records": ["ATOM", "HETATM"],
-            "polymer_declarations": ["MODRES", "SEQRES"],
-            "declaration_selection": "exact-chain-identity",
-            "chain_breaks": "canonical-TER-per-retained-segment",
-        },
-        "select_candidate_chains": {
-            "name": "candidate-aware-ordered-pdb-chain-selection",
-            "selection": "ordered-exact-pdb-chain-selection",
-            "cardinality": "one-child-per-input-parent",
-            "lineage": "structure-parent-to-structure-child",
-            "ordering": "input-candidate-order",
-        },
-        "extract_backbone": {
-            "name": "resolved-axis-canonical-backbone-projection",
-            "input_population": "resolved-structure-residue-axis",
-            "retained_atoms": ["N", "CA", "C", "O"],
-            "retained_residues": "every-axis-residue",
-            "parent_names": "axis-parent-residue-names",
-            "coordinates": "axis-selected-named-atom-coordinates",
-            "missing_atoms": "axis-complete-backbone-mask-fail-fast",
-            "chain_breaks": "canonical-TER-per-axis-segment",
-            "serialization": "PDB-v3.3-ATOM-occupancy-1-temperature-0",
-        },
-        "extract_sequence": {
-            "name": "resolved-axis-parent-sequence-projection",
-            "input_population": "resolved-structure-residue-axis",
-            "sequence": "exact-axis-parent-sequence",
-            "residue_correspondence": "exact-axis-residue-identities",
-            "raw_PDB_reparse": "forbidden",
-        },
-        "extract_sequence_candidates": {
-            "name": "exact-reference-associated-axis-sequence-projection",
-            "extraction": "resolved-axis-parent-sequence-projection",
-            "cardinality": "one-child-per-input-Candidate",
-            "lineage": "association-subject-to-sequence-child",
-            "association": "exact-CandidateDataReference",
-            "association_join": "complete-exact-reference-bijection",
-            "collection_position": "not-scientific-correspondence",
-        },
-        "normalize_csh_parent_span": {
-            "name": "explicit-CSH-to-SHG-parent-span-normalization",
-            "component": "CSH",
-            "parent_residues": ["SER", "HIS", "GLY"],
-            "parent_numbering": ["observed-1", "observed", "observed+1"],
-            "atom_mapping": "closed-exact-19-atom-map",
-            "provenance": "typed-normalization-output",
-            "missing_or_extra_atoms": "reject",
-            "identity_collision": "reject",
-            "input_TER_at_exact_parent_span": "remove-as-noncovalent-artifact",
-            "output_segment_topology": "continuous-through-expanded-parents",
-            "non_CSH_polymer_declarations": "preserve-exact-record-bytes",
-            "CSH_MODRES_at_normalized_identity": "remove",
-            "CSH_SEQRES": (
-                "require-exact-per-chain-component-count-and-expand-to-SER-HIS-GLY"
-            ),
-            "rewritten_SEQRES": "PDB-v3.3-80-column-13-components-per-record",
-        },
-        "normalize_csh_parent_span_candidates": {
-            "name": "candidate-aware-explicit-CSH-parent-span-normalization",
-            "scalar_normalization": "normalize_csh_parent_span.method@4.0.0",
-            "cardinality": "one-normalized-child-per-input-Candidate",
-            "lineage": "exact-input-structure-parent",
-            "normalization_evidence": "subjectless-output-slot-keyed-facts",
-            "collection_position": "not-scientific-correspondence",
-        },
-        "materialize_candidate_normalizations": {
-            "name": "exact-normalization-fact-Candidate-materialization",
-            "join": "normalization-key-and-admitted-content-digest",
-            "candidate_coverage": "complete-bijection",
-            "association": "exact-CandidateDataReference",
-        },
-        "project_single_residue_axis": {
-            "name": "singleton-exact-reference-residue-axis-projection",
-            "cardinality": "exactly-one-Candidate-and-one-association",
-            "join": "exact-CandidateDataReference",
-        },
-        "resolve_residue_axis": {
-            "name": "resolved-protein-residue-axis",
-            "source_structure": "preserve-exact-PDB-content",
-            "component_classification": "PDB-v3.3-MODRES-SEQRES-and-coordinates",
-            "standard_polymer": (
-                "include-20-parent-residues-independent-of-record-type"
-            ),
-            "unknown_ATOM_polymer": "reject-without-parent-contract",
-            "MSE": "exact-MODRES-MSE-to-MET-at-same-identity",
-            "MSE_SEQRES": "unique-ordered-chain-correspondence",
-            "ordinary_nonpolymer": "exclude-and-record-disposition",
-            "unknown_modified_polymer": "reject",
-            "alternate_locations": "blank-then-A-otherwise-reject",
-            "segment_topology": "explicit-TER-and-chain-boundaries",
-            "coordinate_access": "identity-associated-selected-atoms",
-            "coordinate_masks": ["CA", "complete-N-CA-C-O"],
-            "normalization_provenance": "embedded-typed-records",
-        },
-        "resolve_candidate_residue_axes": {
-            "name": "exact-reference-associated-resolved-residue-axes",
-            "scalar_resolution": "resolved-protein-residue-axis",
-            "association_key": "exact-CandidateDataReference",
-            "collection_position": "not-scientific-correspondence",
-            "candidate_coverage": "complete-no-missing-duplicate-or-extra",
-            "normalization_join": "exact-reference-only",
-            "structure_binding": "candidate-content-digest",
-        },
-        "backbone_to_structure": {
-            "name": "explicit-backbone-to-generic-structure-conversion",
-            "input_contract": (
-                "structure_transform.backbone_structure@4.0.0"
-            ),
-            "output_contract": "protein.structure@4.0.0",
-            "pdb_bytes": "preserved",
-            "atom_generation": "none",
-        },
-    }[operation]
-    return MethodDefinition(
-        method_id=f"structure_transform.{operation}.method",
-        version=_METHOD_VERSIONS.get(operation, _VERSION),
-        algorithm_identity=algorithm_identity,
-        model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
-        featurization_identity={
-            "format": "PDB-v3.3-fixed-columns",
-            "coordinates": "provider-native-decimal-text",
-        },
-        source_identity={"kind": "repository-owned"},
-        scale_contract={"kind": "identity"},
-    )
-
-
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    binding_version = _NODE_BINDING_VERSIONS.get(operation, _VERSION)
+    binding_version = _NODE_BINDING_VERSIONS[operation]
     return ExecutionBindingDefinition(
         binding_id=f"structure_transform.{operation}.direct",
         version=binding_version,
@@ -281,7 +153,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         method=ContractIdentity(
             "method",
             f"structure_transform.{operation}.method",
-            _METHOD_VERSIONS.get(operation, _VERSION),
+            _METHOD_VERSIONS[operation],
         ),
         binding_parameters={},
         execution_route="direct",
@@ -302,15 +174,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             prerequisites={},
             check=_available,
         ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"structure_transform.{operation}/readiness",
-                binding_version,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
-        ),
         deterministic=True,
         cacheable=True,
         implementation_identity={
@@ -320,23 +183,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
 
 
-def _backbone_to_wire(value: object) -> object:
-    assert type(value) is ProteinStructure
-    return {"pdb_string": value.pdb_string}
-
-
-def _backbone_from_wire(value: object) -> object:
-    if (
-        not isinstance(value, dict)
-        or set(value) != {"pdb_string"}
-        or type(value["pdb_string"]) is not str
-    ):
-        raise ValueError("backbone wire value is invalid")
-    return ProteinStructure(pdb_string=value["pdb_string"])
-
-
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="structure_transform",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,
@@ -354,44 +201,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/resolve_candidate_residue_axes.yaml"),
         DefinitionResource("definitions/backbone_to_structure.yaml"),
     ),
-    methods=tuple(_method(operation) for operation in _OPERATIONS),
+    methods=load_method_definitions(
+        __package__,
+        "definitions/methods.yaml",
+    ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(
-        PortTypeDefinition(
-            type_id="structure_transform.backbone_structure",
-            version=_BACKBONE_PORT_VERSION,
-            validator=BehaviorReference(
-                "structure_transform.backbone_structure/validate",
-                _BACKBONE_PORT_VERSION,
-                {
-                    "accepted_value_kind": "protein_structure",
-                    "embedded_structure_contract": "protein.structure@4.0.0",
-                    "record_contract": {
-                        "records": ["ATOM", "TER", "END"],
-                        "atoms": ["N", "CA", "C", "O"],
-                        "alternate_locations": "resolved",
-                        "missing_atoms": "rejected",
-                        "chain_breaks": "TER-terminated",
-                    },
-                },
-            ),
-            codec=BehaviorReference(
-                "structure_transform.backbone_structure/codec",
-                _BACKBONE_PORT_VERSION,
-                {
-                    "canonicalization": "RFC 8785",
-                    "pdb_line_endings": "LF",
-                },
-            ),
-            content_identity=BehaviorReference(
-                "structure_transform.backbone_structure/content",
-                _BACKBONE_PORT_VERSION,
-                {"digest": "SHA-256"},
-            ),
-            runtime_validator=validate_backbone_structure,
-            runtime_to_wire=_backbone_to_wire,
-            runtime_from_wire=_backbone_from_wire,
-        ),
+        BACKBONE_STRUCTURE_PORT_TYPE,
         MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
         RESOLVED_AXIS_PORT_TYPE,
         CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,

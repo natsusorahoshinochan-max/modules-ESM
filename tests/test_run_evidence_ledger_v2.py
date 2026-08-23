@@ -1,1891 +1,1000 @@
-"""Typed transition contracts for the Run Evidence Ledger."""
+"""Direct contracts for the typed Run Evidence Ledger."""
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from collections.abc import Mapping
+from dataclasses import FrozenInstanceError, replace
 import json
-import os
-import stat
-import threading
-from typing import Any, Literal, Mapping
+from pathlib import Path
+from typing import Literal, cast
 
 import pytest
 
-from core import ProjectManager
-import core.run_execution_v2 as run_execution_v2
-import core.storage as storage
+from core.catalog.canonical import (
+    canonical_json_bytes,
+    canonical_sha256,
+)
+from core.execution.ledger import (
+    ArtifactOutputEvidence,
+    AvailabilityBound,
+    ContextSelectorEvidence,
+    EngineInvocationStarted,
+    EngineInvocationTerminal,
+    Fact,
+    FilesystemLedgerStore,
+    ImmutableObjectReference,
+    InMemoryLedgerStore,
+    Ledger,
+    LedgerStore,
+    NodeAttemptStarted,
+    NodeDisposition,
+    NodeFailurePublication,
+    NodeSuccessPublication,
+    NodeTerminationPublication,
+    ObservationSelectorEvidence,
+    OperationAttemptStarted,
+    PlanNodeEvidence,
+    PlanRequiredInputEvidence,
+    PlanValueSourceEvidence,
+    ReadinessAttestation,
+    ReadinessAttested,
+    RunAdmitted,
+    RunClosure,
+    RunCursor,
+    RunScopeBinding,
+    RunScopeBound,
+    RunStarted,
+    SelectionObjectiveEvidence,
+    SelectionResult,
+    SelectionTerminal,
+    StructuredError,
+    V2RunError,
+)
+from core.execution.ledger.codec import (
+    decode_transaction,
+    payload_from_canonical,
+    payload_to_canonical,
+)
+from core.operation import (
+    EngineInvocationProvenance,
+    InvocationRandomness,
+    ProviderResidueProjection,
+    ProviderResidueProjectionEntry,
+)
+from core.project.manager import ProjectManager
+from core.scoring.selection import SelectionInput
+from datatypes.exact_reference import ExactContractReference
 
 
-def _binding_reference(
-    *,
+_CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
+_OBSERVED_AT = "2026-08-21T00:00:00+00:00"
+_STARTED_AT = "2026-08-21T00:00:01+00:00"
+
+
+def _reference(
+    contract_kind: str = "binding",
     contract_id: str = "fixture.binding",
-    digest_marker: str = "8",
-) -> dict[str, str]:
+    marker: str = "8",
+) -> ExactContractReference:
+    return ExactContractReference(
+        contract_kind=contract_kind,
+        contract_id=contract_id,
+        contract_version="1.0.0",
+        contract_digest="sha256:" + marker * 64,
+    )
+
+
+def _reference_key(
+    reference: ExactContractReference,
+) -> tuple[str, str, str, str]:
+    return (
+        reference.contract_kind,
+        reference.contract_id,
+        reference.contract_version,
+        reference.contract_digest,
+    )
+
+
+def _reference_json(reference: ExactContractReference) -> dict[str, str]:
     return {
-        "contract_kind": "binding",
-        "contract_id": contract_id,
-        "contract_version": "1.0.0",
-        "contract_digest": "sha256:" + digest_marker * 64,
+        "contract_kind": reference.contract_kind,
+        "contract_id": reference.contract_id,
+        "contract_version": reference.contract_version,
+        "contract_digest": reference.contract_digest,
     }
 
 
 def _contract_lock_digest(
-    entries: tuple[dict[str, Any], ...],
+    references: tuple[ExactContractReference, ...],
 ) -> str:
-    return run_execution_v2.canonical_sha256(
+    return canonical_sha256(
         {
-            "schema_namespace": run_execution_v2.CONTRACT_LOCK_NAMESPACE,
-            "entries": list(entries),
+            "schema_namespace": _CONTRACT_LOCK_NAMESPACE,
+            "entries": [_reference_json(reference) for reference in references],
         }
-    )
-
-
-def _canonical_contract_references(
-    values: tuple[dict[str, Any] | Mapping[str, Any], ...],
-) -> tuple[dict[str, Any], ...]:
-    by_key = {
-        (
-            value["contract_kind"],
-            value["contract_id"],
-            value["contract_version"],
-            value["contract_digest"],
-        ): dict(value)
-        for value in values
-    }
-    return tuple(by_key[key] for key in sorted(by_key))
-
-
-def _typed_output(node_id: str, output_port: str) -> dict[str, Any]:
-    result_identity = "sha256:" + "6" * 64
-    return {
-        "node_id": node_id,
-        "output_port": output_port,
-        "port_type": {
-            "contract_kind": "port_type",
-            "contract_id": "fixture.value",
-            "contract_version": "1.0.0",
-            "contract_digest": "sha256:" + "9" * 64,
-        },
-        "content_digest": "sha256:" + "a" * 64,
-        "result_identity": result_identity,
-        "materialization": {
-            "run_id": "run-1",
-            "resolution": "cache_replayed",
-        },
-        "producer_provenance": {
-            "producer_run_id": "run-1",
-            "producer_result_identity": result_identity,
-            "output_port": output_port,
-        },
-        "value_count": 1,
-        "value_manifest_reference": "sha256:" + "b" * 64,
-    }
-
-
-def _readiness_attestation(
-    binding: dict[str, str],
-    *,
-    conclusion: Literal["passing", "failing"] = "passing",
-) -> run_execution_v2.ReadinessAttestation:
-    payload = {
-        "binding": binding,
-        "readiness_contract_digest": "sha256:" + "c" * 64,
-        "observed_at": "2026-08-21T00:00:02+00:00",
-        "conclusion": conclusion,
-        "proof_source": "direct-observation",
-    }
-    return run_execution_v2.ReadinessAttestation(
-        **payload,
-        attestation_digest=run_execution_v2.canonical_sha256(
-            {
-                "schema_namespace": (
-                    run_execution_v2.READINESS_ATTESTATION_NAMESPACE
-                ),
-                **payload,
-            }
-        ),
     )
 
 
 def _plan_node(
     *,
     node_id: str = "node-1",
+    execution_route: str = "direct",
+    binding: ExactContractReference | None = None,
     dependencies: tuple[str, ...] = (),
-    required_input_sources: tuple[
-        tuple[str, tuple[tuple[str, str], ...]],
-        ...,
-    ] = (),
-    binding: dict[str, str] | None = None,
-    execution_route: Literal["direct", "adapter"] = "direct",
-    selection_required: bool = False,
-) -> run_execution_v2._PlanNodeEvidence:
-    return run_execution_v2._PlanNodeEvidence(
+    selection_consumer: bool = False,
+) -> PlanNodeEvidence:
+    return PlanNodeEvidence(
         node_id=node_id,
         dependencies=dependencies,
-        required_input_sources=tuple(
-            run_execution_v2._PlanRequiredInputEvidence(
-                input_port=input_port,
-                sources=tuple(
-                    run_execution_v2._PlanValueSourceEvidence(
-                        source_node_id,
-                        output_port,
-                    )
-                    for source_node_id, output_port in sources
-                ),
-            )
-            for input_port, sources in required_input_sources
-        ),
+        required_input_sources=(),
         result_identity_plan_facts_digest="sha256:" + "1" * 64,
-        binding=binding or _binding_reference(),
+        binding=binding or _reference(),
         execution_route=execution_route,
-        selection_consumer=selection_required,
+        selection_consumer=selection_consumer,
     )
 
 
-def _plan_contract_scope(
-    plan_nodes: tuple[run_execution_v2._PlanNodeEvidence, ...],
-) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...], str]:
-    root_values = tuple(
-        reference
-        for node in plan_nodes
-        for reference in (
-            node.binding,
-            *((node.node_type,) if node.node_type is not None else ()),
-        )
+def _scope_bound(node: PlanNodeEvidence) -> RunScopeBound:
+    return RunScopeBound(
+        project_id="project-1",
+        run_id="run-1",
+        workflow_commit_id="workflow-commit-" + "0" * 64,
+        workflow_commit_revision=1,
+        workflow_digest="sha256:" + "3" * 64,
+        contract_lock_digest="sha256:" + "4" * 64,
+        execution_plan_digest="sha256:" + "5" * 64,
+        catalog_contract_digest="sha256:" + "6" * 64,
+        resolved_contracts=(node.binding,),
+        resolved_contract_roots=(node.binding,),
+        plan_nodes=(node,),
+        selection_terminal_keys=(),
     )
-    roots = tuple(
-        dict(reference)
-        for reference in _canonical_contract_references(root_values)
-    )
-    contracts = tuple(
-        dict(reference)
-        for reference in _canonical_contract_references(
-            (
-                *root_values,
-                *(
-                    output["port_type"]
-                    for node in plan_nodes
-                    for output in node.artifact_outputs
+
+
+def test_run_scope_codec_accepts_semantic_node_identifiers() -> None:
+    node = _plan_node(node_id="source:node/1+")
+    scope = _scope_bound(node)
+
+    assert payload_from_canonical(
+        "run_scope_bound",
+        payload_to_canonical(scope),
+    ) == scope
+
+
+def test_artifact_media_grammar_has_one_typed_fact_owner() -> None:
+    invalid_media_type = "not a media type"
+    node = replace(
+        _plan_node(),
+        artifact_outputs=(
+            ArtifactOutputEvidence(
+                output_port="artifact",
+                artifact_kind="standalone",
+                artifact_media_type=invalid_media_type,
+                port_type=_reference(
+                    "port_type",
+                    "fixture.artifact",
+                    "7",
                 ),
-            )
+                accepted_media_types=(invalid_media_type,),
+            ),
+        ),
+    )
+    scope = _scope_bound(node)
+
+    with pytest.raises(ValueError):
+        payload_from_canonical(
+            "run_scope_bound",
+            payload_to_canonical(scope),
+        )
+
+
+def _scope_references(
+    plan_nodes: tuple[PlanNodeEvidence, ...],
+) -> tuple[ExactContractReference, ...]:
+    return tuple(
+        sorted(
+            {node.binding for node in plan_nodes},
+            key=_reference_key,
         )
     )
-    return contracts, roots, _contract_lock_digest(contracts)
+
+
+def _scoped_ledger(
+    tmp_path: Path,
+    *,
+    store: LedgerStore,
+    run_id: str = "run-1",
+    plan_nodes: tuple[PlanNodeEvidence, ...] | None = None,
+) -> tuple[Ledger, ProjectManager]:
+    retained_nodes = plan_nodes or (_plan_node(),)
+    references = _scope_references(retained_nodes)
+    projects = ProjectManager(tmp_path / "projects")
+    ledger = Ledger(
+        projects,
+        "project-1",
+        run_id,
+        retained_nodes,
+        store,
+    )
+    ledger.record(
+        RunScopeBinding(
+            workflow_commit_id="workflow-commit-" + "0" * 64,
+            workflow_commit_revision=1,
+            workflow_digest="sha256:" + "2" * 64,
+            contract_lock_digest=_contract_lock_digest(references),
+            execution_plan_digest="sha256:" + "4" * 64,
+            catalog_contract_digest="sha256:" + "5" * 64,
+            resolved_contracts=references,
+            resolved_contract_roots=references,
+        )
+    )
+    return ledger, projects
 
 
 def _admitted_ledger(
-    tmp_path,
+    tmp_path: Path,
     *,
-    selection_required: bool = False,
-    plan_nodes: tuple[run_execution_v2._PlanNodeEvidence, ...] | None = None,
-    transaction_store: run_execution_v2.LedgerTransactionStore | None = None,
-) -> run_execution_v2._RunEvidenceLedger:
-    retained_plan_nodes = plan_nodes or (
-        _plan_node(selection_required=selection_required),
-    )
-    ledger, workflow_commit_id = _scoped_ledger(
+    store: LedgerStore | None = None,
+    run_id: str = "run-1",
+    plan_nodes: tuple[PlanNodeEvidence, ...] | None = None,
+) -> tuple[Ledger, ProjectManager, LedgerStore]:
+    retained_store = store or InMemoryLedgerStore()
+    retained_nodes = plan_nodes or (_plan_node(),)
+    ledger, projects = _scoped_ledger(
         tmp_path,
-        retained_plan_nodes,
-        transaction_store=transaction_store,
+        store=retained_store,
+        run_id=run_id,
+        plan_nodes=retained_nodes,
     )
-    availability_by_binding = {
-        tuple(node.binding.values()): node.binding for node in retained_plan_nodes
-    }
-    for binding in availability_by_binding.values():
+    for binding in _scope_references(retained_nodes):
         ledger.record(
-            run_execution_v2.AvailabilityBinding(
+            AvailabilityBound(
                 binding=binding,
-                catalog_observed_at="2026-08-21T00:00:00+00:00",
+                catalog_observed_at=_OBSERVED_AT,
                 available=True,
             )
         )
     ledger.record(
-        run_execution_v2.RunAdmission(
-            workflow_commit_id=workflow_commit_id,
+        RunAdmitted(
+            workflow_commit_id="workflow-commit-" + "0" * 64,
             workflow_commit_revision=1,
         )
     )
-    ledger.record(
-        run_execution_v2.RunStart(
-            started_at="2026-08-21T00:00:01+00:00"
-        )
-    )
-    return ledger
+    ledger.record(RunStarted(started_at=_STARTED_AT))
+    return ledger, projects, retained_store
 
 
-def _scoped_ledger(
-    tmp_path,
-    plan_nodes: tuple[run_execution_v2._PlanNodeEvidence, ...],
+def _durable_facts(
+    store: LedgerStore,
+    projects: ProjectManager,
     *,
-    transaction_store: run_execution_v2.LedgerTransactionStore | None = None,
-) -> tuple[run_execution_v2._RunEvidenceLedger, str]:
-    resolved_contracts, resolved_contract_roots, contract_lock_digest = (
-        _plan_contract_scope(plan_nodes)
+    run_id: str = "run-1",
+) -> tuple[Fact, ...]:
+    transactions = store.read_transactions(
+        root=projects.run_storage_directory("project-1", run_id).parent,
+        relative_parts=(run_id, "ledger"),
     )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        plan_nodes,
-        transaction_store,
-        expected_resolved_contracts=resolved_contracts,
-        expected_contract_roots=resolved_contract_roots,
-    )
-    workflow_commit_id = "workflow-commit-" + "0" * 64
-    ledger.record(
-        run_execution_v2.RunScopeBinding(
-            workflow_commit_id=workflow_commit_id,
-            workflow_commit_revision=1,
-            workflow_digest="sha256:" + "2" * 64,
-            contract_lock_digest=contract_lock_digest,
-            execution_plan_digest="sha256:" + "4" * 64,
-            catalog_contract_digest="sha256:" + "5" * 64,
-            resolved_contracts=resolved_contracts,
-            resolved_contract_roots=resolved_contract_roots,
+    facts: list[Fact] = []
+    expected_first_fact_sequence = 1
+    for transaction_sequence, (_, encoded) in enumerate(
+        transactions,
+        start=1,
+    ):
+        transaction = decode_transaction(
+            encoded,
+            expected_project_id="project-1",
+            expected_run_id=run_id,
+            expected_transaction_sequence=transaction_sequence,
+            expected_first_fact_sequence=expected_first_fact_sequence,
         )
-    )
-    return ledger, workflow_commit_id
+        facts.extend(transaction.facts)
+        expected_first_fact_sequence = transaction.last_fact_sequence + 1
+    return tuple(facts)
 
 
-def _operation_failure(
-    ledger: run_execution_v2._RunEvidenceLedger,
-    *,
-    node_id: str,
-) -> None:
-    attempt_id = f"node-attempt-{node_id}"
+def _publish_success(ledger: Ledger, *, node_id: str = "node-1") -> None:
+    node_attempt_id = f"attempt-{node_id}"
+    operation_attempt_id = f"operation-{node_id}"
+    ledger.record(NodeAttemptStarted(node_id, node_attempt_id))
     ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id=node_id,
-            node_attempt_id=attempt_id,
-        )
+        OperationAttemptStarted(operation_attempt_id, node_attempt_id)
     )
     ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id=attempt_id,
-            operation_attempt_id=f"operation-{node_id}",
-        )
-    )
-    ledger.record(
-        run_execution_v2.NodeFailurePublication(
+        NodeSuccessPublication(
             node_id=node_id,
-            node_attempt_id=attempt_id,
-            operation_attempt_id=f"operation-{node_id}",
+            node_attempt_id=node_attempt_id,
+            operation_attempt_id=operation_attempt_id,
             resolution="executed",
-            error=run_execution_v2._public_failure(
-                RuntimeError("fixture operation failed")
+            result_identity="sha256:" + "6" * 64,
+            node_result_manifest=ImmutableObjectReference(
+                content_digest="sha256:" + "7" * 64,
+                size=32,
             ),
-            failure_origin="operation",
+            outputs=(),
+            artifacts=(),
         )
     )
 
 
-def test_unstarted_termination_rejects_started_attempt_fields(tmp_path) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    before = ledger.facts
+def _selection_result(
+    *,
+    observation_selector: bool = False,
+) -> SelectionResult:
+    candidate_input = SelectionInput("source-node", "candidates")
+    score_input = SelectionInput("score-node", "scores")
+    context = ContextSelectorEvidence(kind="intrinsic")
+    objective = SelectionObjectiveEvidence(
+        objective_id="objective-1",
+        candidate_input=candidate_input,
+        score_collection_input=score_input,
+        source_partition="scores.default",
+        metric=_reference("metric", "fixture.metric", "a"),
+        method=_reference("method", "fixture.score-method", "b"),
+        context_selector=context,
+        utility_transform=_reference(
+            "utility_transform",
+            "fixture.utility",
+            "c",
+        ),
+        utility_parameters={},
+        declared_weight=1.0,
+        effective_weight=1.0,
+        match_cardinality="exactly_one",
+        missing_policy="error",
+    )
+    selector = ObservationSelectorEvidence(
+        selector_id="selector-1",
+        candidate_input=candidate_input,
+        score_collection_input=score_input,
+        source_partition="scores.default",
+        metric=_reference("metric", "fixture.metric", "a"),
+        method=_reference("method", "fixture.score-method", "b"),
+        context_selector=context,
+        match_cardinality="exactly_one",
+        missing_policy="error",
+    )
+    return SelectionResult(
+        selection_node_id="node-1",
+        selection_method=_reference(
+            "method",
+            "fixture.selection-method",
+            "d",
+        ),
+        candidate_input=candidate_input,
+        selected_collection_id="selected.collection",
+        selected_candidate_ids=("candidate-1",),
+        objectives=() if observation_selector else (objective,),
+        observation_selectors=(selector,) if observation_selector else (),
+    )
 
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.NodeTerminationPublication(
-                node_id="node-1",
-                status="interrupted",
-                node_attempt_id=None,  # type: ignore[arg-type]
-                operation_attempt_id="operation-other",
-                resolution="cache_replayed",
-                error=run_execution_v2._public_failure(
-                    RuntimeError("fixture interruption")
+
+def test_ledger_retains_closed_typed_facts_and_projection(tmp_path: Path) -> None:
+    ledger, projects, store = _admitted_ledger(tmp_path)
+    facts = _durable_facts(store, projects)
+
+    assert all(type(fact) is Fact for fact in facts)
+    assert isinstance(facts[0].payload, RunScopeBound)
+    assert facts[0].payload.plan_nodes == (_plan_node(),)
+    assert isinstance(ledger.cursor, RunCursor)
+    assert ledger.projection().ledger_cursor == ledger.cursor
+    assert ledger.projection().status == "running"
+
+
+def test_success_publication_is_one_atomic_typed_transition(tmp_path: Path) -> None:
+    ledger, projects, store = _admitted_ledger(tmp_path)
+    assert isinstance(store, InMemoryLedgerStore)
+    transaction_count = len(
+        store.read_transactions(
+            root=projects.run_storage_directory("project-1", "run-1").parent,
+            relative_parts=("run-1", "ledger"),
+        )
+    )
+
+    node_attempt_id = "attempt-node-1"
+    operation_attempt_id = "operation-node-1"
+    ledger.record(NodeAttemptStarted("node-1", node_attempt_id))
+    ledger.record(
+        OperationAttemptStarted(operation_attempt_id, node_attempt_id)
+    )
+    acknowledgement = ledger.record(
+        NodeSuccessPublication(
+            node_id="node-1",
+            node_attempt_id=node_attempt_id,
+            operation_attempt_id=operation_attempt_id,
+            resolution="executed",
+            result_identity="sha256:" + "6" * 64,
+            node_result_manifest=ImmutableObjectReference(
+                content_digest="sha256:" + "7" * 64,
+                size=32,
+            ),
+            outputs=(),
+            artifacts=(),
+        )
+    )
+
+    assert acknowledgement.last_sequence - acknowledgement.first_sequence == 3
+    assert len(
+        store.read_transactions(
+            root=projects.run_storage_directory("project-1", "run-1").parent,
+            relative_parts=("run-1", "ledger"),
+        )
+    ) == transaction_count + 3
+    ledger.record(RunClosure())
+    projection = ledger.projection()
+    assert projection.status == "succeeded"
+    assert projection.node_dispositions[0].outcome == "succeeded"
+
+
+def test_attempt_failure_closes_without_fictitious_operation(
+    tmp_path: Path,
+) -> None:
+    ledger, _, _ = _admitted_ledger(tmp_path)
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
+    error = StructuredError(
+        code="node_execution_failed",
+        message="Node execution failed safely",
+        retryable=False,
+        correlation_id="incident-attempt",
+        details={"exception_type": "PortValueError"},
+    )
+
+    ledger.record(
+        NodeFailurePublication(
+            node_id="node-1",
+            node_attempt_id="attempt-1",
+            operation_attempt_id=None,
+            resolution="executed",
+            error=error,
+            failure_origin="attempt",
+        )
+    )
+
+    terminal = ledger.events()[-2].payload
+    assert terminal.failure_origin == "attempt"
+    assert terminal.error is error
+    assert ledger.projection().node_dispositions[0].outcome == "failed"
+
+
+@pytest.mark.parametrize("store_kind", ("memory", "filesystem"))
+def test_restart_rebuilds_typed_state_from_each_store(
+    tmp_path: Path,
+    store_kind: str,
+) -> None:
+    store: LedgerStore = (
+        InMemoryLedgerStore()
+        if store_kind == "memory"
+        else FilesystemLedgerStore()
+    )
+    ledger, projects, _ = _admitted_ledger(tmp_path, store=store)
+    durable_cursor = ledger.cursor
+
+    reloaded = Ledger.load(projects, "project-1", "run-1", store)
+    assert reloaded is not None
+    assert reloaded.cursor == durable_cursor
+    assert reloaded.projection().status == "running"
+
+    reloaded.reconcile_restart()
+    assert reloaded.projection().status == "interrupted"
+    assert reloaded.terminal is True
+
+
+def test_cursor_replay_is_typed_and_run_scoped(tmp_path: Path) -> None:
+    ledger, _, _ = _admitted_ledger(tmp_path / "first")
+    other, _, _ = _admitted_ledger(
+        tmp_path / "second",
+        run_id="run-2",
+    )
+    cursor = ledger.record(NodeAttemptStarted("node-1", "attempt-1")).cursor
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
+
+    replay = ledger.replay(cursor)
+    assert replay.after_cursor == cursor
+    assert replay.through_cursor == ledger.cursor
+    assert len(replay.events) == 1
+    assert type(replay.events[0]) is Fact
+    assert isinstance(replay.events[0].payload, OperationAttemptStarted)
+
+    with pytest.raises(V2RunError, match="stale or belongs") as captured:
+        other.replay(cursor)
+    assert captured.value.code == "invalid_cursor"
+
+
+def test_cancellation_decision_is_idempotent_and_orders_writers(
+    tmp_path: Path,
+) -> None:
+    ledger, _, _ = _admitted_ledger(tmp_path)
+
+    requested = ledger.request_cancellation(None)
+    repeated = ledger.request_cancellation(requested.cursor)
+
+    assert requested.outcome == "cancellation_requested"
+    assert repeated.outcome == "already_requested"
+    assert repeated.cursor == requested.cursor
+    assert (
+        ledger.record_if_active(NodeAttemptStarted("node-1", "attempt-1"))
+        is None
+    )
+
+
+def test_unstarted_termination_records_durable_outcome(
+    tmp_path: Path,
+) -> None:
+    interrupted, _, _ = _admitted_ledger(tmp_path / "interrupted")
+    interrupted.record(
+        NodeDisposition(
+            node_id="node-1",
+            outcome="interrupted",
+            blocked_by=(),
+        )
+    )
+    assert (
+        interrupted.projection().node_dispositions[0].outcome
+        == "interrupted"
+    )
+
+    cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
+    cancelled.request_cancellation(None)
+    cancelled.record(
+        NodeDisposition(
+            node_id="node-1",
+            outcome="cancelled",
+            blocked_by=(),
+        )
+    )
+    assert cancelled.projection().node_dispositions[0].outcome == "cancelled"
+
+
+def test_active_cancellation_precedes_termination(
+    tmp_path: Path,
+) -> None:
+    cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
+    cancelled.record(NodeAttemptStarted("node-1", "attempt-1"))
+    cancelled.record(OperationAttemptStarted("operation-1", "attempt-1"))
+    cancellation = cancelled.request_cancellation(None)
+    acknowledgement = cancelled.record(
+        NodeTerminationPublication(
+            node_id="node-1",
+            status="cancelled",
+            node_attempt_id="attempt-1",
+            operation_attempt_id="operation-1",
+            operation_status="cancelled",
+        )
+    )
+
+    assert cancellation.decision_sequence < acknowledgement.first_sequence
+    assert cancelled.projection().node_dispositions[0].outcome == "cancelled"
+
+
+def test_engine_invocation_cancellation_is_durable(
+    tmp_path: Path,
+) -> None:
+    cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
+    cancelled.record(NodeAttemptStarted("node-1", "attempt-1"))
+    cancelled.record(OperationAttemptStarted("operation-1", "attempt-1"))
+    cancelled.record(
+        EngineInvocationStarted(
+            invocation_id="invocation-1",
+            operation_attempt_id="operation-1",
+            engine_role="predictor",
+            engine_identity="sha256:" + "d" * 64,
+        )
+    )
+    cancellation = cancelled.request_cancellation(None)
+    acknowledgement = cancelled.record(
+        EngineInvocationTerminal(
+            invocation_id="invocation-1",
+            status="cancelled",
+        )
+    )
+
+    assert cancellation.decision_sequence < acknowledgement.first_sequence
+    assert cancelled.events()[-1].payload.status == "cancelled"
+
+
+@pytest.mark.parametrize("status", ("interrupted", "outcome_unknown"))
+def test_active_non_cancel_termination_does_not_require_cancellation(
+    tmp_path: Path,
+    status: Literal["interrupted", "outcome_unknown"],
+) -> None:
+    ledger, _, _ = _admitted_ledger(tmp_path / status)
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
+
+    ledger.record(
+        NodeTerminationPublication(
+            node_id="node-1",
+            status=status,
+            node_attempt_id="attempt-1",
+            operation_attempt_id="operation-1",
+            operation_status=status,
+        )
+    )
+
+    assert ledger.cancellation_requested is False
+    assert ledger.projection().node_dispositions[0].outcome == "interrupted"
+
+
+def test_provider_readiness_is_recorded(
+    tmp_path: Path,
+) -> None:
+    provider_node = _plan_node(execution_route="adapter")
+    passing, _, _ = _admitted_ledger(
+        tmp_path / "passing",
+        plan_nodes=(provider_node,),
+    )
+    passing.record(
+        ReadinessAttestation(
+            binding=provider_node.binding,
+            readiness_contract_digest="sha256:" + "c" * 64,
+            observed_at="2026-08-21T00:00:02+00:00",
+            conclusion="passing",
+            proof_source="direct-observation",
+        )
+    )
+    passing.record(NodeAttemptStarted("node-1", "attempt-1"))
+    passing.record(OperationAttemptStarted("operation-1", "attempt-1"))
+
+    readiness = next(
+        fact.payload
+        for fact in passing.events()
+        if isinstance(fact.payload, ReadinessAttested)
+    )
+    assert readiness.binding is provider_node.binding
+    assert readiness.attestation_digest.startswith("sha256:")
+
+
+def test_engine_invocation_keeps_typed_scientific_provenance(
+    tmp_path: Path,
+) -> None:
+    ledger, _, _ = _admitted_ledger(tmp_path)
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
+    workbench_chain_order = ["A"]
+    provider_structure_chain_order = ["X"]
+    provider_chain_order = ["X"]
+    entries = [
+        ProviderResidueProjectionEntry(
+            residue_id="A:1",
+            segment_index=0,
+            provider_chain_id="X",
+            provider_position=1,
+        )
+    ]
+    provenance = EngineInvocationProvenance(
+        effective_randomness=InvocationRandomness(
+            control="exact_seed",
+            effective_seed=17,
+        ),
+        provider_residue_projection=ProviderResidueProjection(
+            workbench_chain_order=cast(
+                tuple[str, ...],
+                workbench_chain_order,
+            ),
+            provider_structure_chain_order=cast(
+                tuple[str, ...],
+                provider_structure_chain_order,
+            ),
+            provider_chain_order=cast(
+                tuple[str, ...],
+                provider_chain_order,
+            ),
+            entries=cast(
+                tuple[ProviderResidueProjectionEntry, ...],
+                entries,
+            ),
+        ),
+    )
+
+    acknowledgement = ledger.record(
+        EngineInvocationStarted(
+            invocation_id="invocation-1",
+            operation_attempt_id="operation-1",
+            engine_role="predictor",
+            engine_identity="sha256:" + "d" * 64,
+            provenance=provenance,
+        )
+    )
+    workbench_chain_order.append("B")
+    provider_structure_chain_order.append("Y")
+    provider_chain_order.append("Y")
+    entries.clear()
+
+    assert ledger.events()[-1].payload.provenance is provenance
+    retained_projection = provenance.provider_residue_projection
+    assert retained_projection is not None
+    assert retained_projection.workbench_chain_order == ("A",)
+    assert retained_projection.provider_structure_chain_order == ("X",)
+    assert retained_projection.provider_chain_order == ("X",)
+    assert len(retained_projection.entries) == 1
+    assert ledger.cursor == acknowledgement.cursor
+
+
+def test_required_input_evidence_produces_exact_blocker(tmp_path: Path) -> None:
+    upstream = _plan_node(node_id="upstream")
+    downstream = PlanNodeEvidence(
+        node_id="downstream",
+        dependencies=("upstream",),
+        required_input_sources=(
+            PlanRequiredInputEvidence(
+                input_port="input",
+                sources=(
+                    PlanValueSourceEvidence("upstream", "value"),
                 ),
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_cancellation_is_a_barrier_to_later_attempt_starts(tmp_path) -> None:
-    node_ledger = _admitted_ledger(tmp_path / "node")
-    node_ledger.request_cancellation(None)
-    with pytest.raises(run_execution_v2.V2RunError):
-        node_ledger.record(
-            run_execution_v2.NodeAttemptStart(
-                node_id="node-1",
-                node_attempt_id="node-attempt-1",
-            )
-        )
-
-    operation_ledger = _admitted_ledger(tmp_path / "operation")
-    operation_ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
+            ),
+        ),
+        result_identity_plan_facts_digest="sha256:" + "1" * 64,
+        binding=_reference(contract_id="fixture.downstream", marker="9"),
+        execution_route="direct",
     )
-    operation_ledger.request_cancellation(None)
-    with pytest.raises(run_execution_v2.V2RunError):
-        operation_ledger.record(
-            run_execution_v2.OperationAttemptStart(
-                node_attempt_id="node-attempt-1",
-                operation_attempt_id="operation-1",
-            )
-        )
-
-    invocation_ledger = _admitted_ledger(tmp_path / "invocation")
-    invocation_ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
+    ledger, _, _ = _admitted_ledger(
+        tmp_path,
+        plan_nodes=(upstream, downstream),
     )
-    invocation_ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    invocation_ledger.request_cancellation(None)
-    with pytest.raises(run_execution_v2.V2RunError):
-        invocation_ledger.record(
-            run_execution_v2.EngineInvocationStart(
-                invocation_id="invocation-1",
-                operation_attempt_id="operation-1",
-                engine_role="primary",
-                engine_identity="sha256:" + "6" * 64,
-            )
-        )
+    _publish_success(ledger, node_id="upstream")
 
-
-def test_cancellation_is_a_barrier_to_success_publication(tmp_path) -> None:
-    ledger = _admitted_ledger(tmp_path)
     ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
+        NodeDisposition(
+            node_id="downstream",
+            outcome="blocked",
+            blocked_by=("upstream",),
         )
     )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    ledger.request_cancellation(None)
-    before = ledger.facts
 
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
+    assert ledger.projection().node_dispositions[-1].blocked_by == ("upstream",)
+
+
+def test_failed_durable_ack_does_not_install_staged_facts(tmp_path: Path) -> None:
+    class ControlledStore:
+        def __init__(self) -> None:
+            self.delegate = InMemoryLedgerStore()
+            self.fail = False
+
+        def read_transactions(self, **arguments: object):
+            return self.delegate.read_transactions(**arguments)  # type: ignore[arg-type]
+
+        def publish(self, **arguments: object) -> None:
+            if self.fail:
+                raise OSError("fixture acknowledgement failure")
+            self.delegate.publish(**arguments)  # type: ignore[arg-type]
+
+    store = ControlledStore()
+    ledger, projects, _ = _admitted_ledger(tmp_path, store=store)
+    ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
+    durable_facts = _durable_facts(store, projects)
+    store.fail = True
+
+    with pytest.raises(V2RunError) as captured:
         ledger.record(
-            run_execution_v2.NodeSuccessPublication(
+            NodeSuccessPublication(
                 node_id="node-1",
-                node_attempt_id="node-attempt-1",
+                node_attempt_id="attempt-1",
                 operation_attempt_id="operation-1",
                 resolution="executed",
                 result_identity="sha256:" + "6" * 64,
-                node_result_manifest={
-                    "content_digest": "sha256:" + "7" * 64,
-                    "size": 128,
-                },
+                node_result_manifest=ImmutableObjectReference(
+                    content_digest="sha256:" + "7" * 64,
+                    size=32,
+                ),
                 outputs=(),
                 artifacts=(),
             )
         )
 
     assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
+    assert _durable_facts(store, projects) == durable_facts
 
 
-def test_cancellation_commit_orders_before_a_racing_node_start(tmp_path) -> None:
-    cancellation_entered = threading.Event()
-    release_cancellation = threading.Event()
+@pytest.mark.parametrize(
+    ("mode", "invalid_field"),
+    (
+        ("objective", "result_input"),
+        ("objective", "selection_method"),
+        ("objective", "selected_candidate_id"),
+        ("objective", "objective_id"),
+        ("objective", "objective_input"),
+        ("objective", "source_partition"),
+        ("objective", "metric_kind"),
+        ("objective", "method_kind"),
+        ("objective", "utility_kind"),
+        ("objective", "declared_weight"),
+        ("objective", "effective_weight"),
+        ("objective", "match_cardinality"),
+        ("objective", "missing_policy"),
+        ("objective", "context"),
+        ("objective", "context_normalization"),
+        ("selector", "selector_id"),
+        ("selector", "selector_partition"),
+        ("selector", "selector_metric_kind"),
+        ("selector", "selector_cardinality"),
+        ("selector", "selector_context"),
+        ("selector", "selector_context_unit"),
+    ),
+)
+def test_selection_canonical_decode_rejects_open_nested_grammar(
+    mode: str,
+    invalid_field: str,
+) -> None:
+    terminal = SelectionTerminal(
+        status="succeeded",
+        result=_selection_result(observation_selector=mode == "selector"),
+    )
+    canonical = payload_to_canonical(terminal)
+    assert isinstance(
+        payload_from_canonical("selection_terminal", canonical),
+        SelectionTerminal,
+    )
+    result = canonical["result"]
 
-    class PauseCancellationAcknowledgement:
-        def __init__(self) -> None:
-            self.filesystem = (
-                run_execution_v2.FilesystemLedgerTransactionStore()
+    if invalid_field == "result_input":
+        result["candidate_input"]["node_id"] = "not a canonical id"
+    elif invalid_field == "selection_method":
+        result["selection_method"]["contract_kind"] = "metric"
+    elif invalid_field == "selected_candidate_id":
+        result["selected_candidate_ids"] = ["not a canonical id"]
+    elif invalid_field in {
+        "objective_id",
+        "objective_input",
+        "source_partition",
+        "metric_kind",
+        "method_kind",
+        "utility_kind",
+        "declared_weight",
+        "effective_weight",
+        "match_cardinality",
+        "missing_policy",
+        "context",
+        "context_normalization",
+    }:
+        objective = result["objectives"][0]
+        if invalid_field == "objective_id":
+            objective["objective_id"] = ""
+        elif invalid_field == "objective_input":
+            objective["candidate_input"]["output_port"] = ""
+        elif invalid_field == "source_partition":
+            objective["source_partition"] = "not a canonical partition"
+        elif invalid_field == "metric_kind":
+            objective["metric"]["contract_kind"] = "method"
+        elif invalid_field == "method_kind":
+            objective["method"]["contract_kind"] = "metric"
+        elif invalid_field == "utility_kind":
+            objective["utility_transform"]["contract_kind"] = "metric"
+        elif invalid_field == "declared_weight":
+            objective["declared_weight"] = 0
+        elif invalid_field == "effective_weight":
+            objective["effective_weight"] = 0.5
+        elif invalid_field == "match_cardinality":
+            objective["match_cardinality"] = "many"
+        elif invalid_field == "missing_policy":
+            objective["missing_policy"] = "skip"
+        elif invalid_field == "context":
+            objective["context_selector"] = {
+                "kind": "pairwise",
+                "subject_role": "reference",
+                "reference_role": "subject",
+                "pairing_mode": "fixed_reference",
+                "normalization": "reference-length",
+            }
+        else:
+            objective["context_selector"] = {
+                "kind": "pairwise",
+                "subject_role": "subject",
+                "reference_role": "reference",
+                "pairing_mode": "fixed_reference",
+                "normalization": "not canonical",
+            }
+    else:
+        selector = result["observation_selectors"][0]
+        if invalid_field == "selector_id":
+            selector["selector_id"] = ""
+        elif invalid_field == "selector_partition":
+            selector["source_partition"] = "not a canonical partition"
+        elif invalid_field == "selector_metric_kind":
+            selector["metric"]["contract_kind"] = "method"
+        elif invalid_field == "selector_cardinality":
+            selector["match_cardinality"] = "many"
+        elif invalid_field == "selector_context":
+            selector["context_selector"] = {
+                "kind": "calibration",
+                "calibration_metric": "metric",
+                "calibration_value": "not-a-number",
+                "calibration_unit": "dimensionless",
+                "population_id": "population",
+            }
+        else:
+            selector["context_selector"] = {
+                "kind": "calibration",
+                "calibration_metric": "metric",
+                "calibration_value": 0.5,
+                "calibration_unit": "not canonical",
+                "population_id": "population",
+            }
+
+    with pytest.raises(ValueError):
+        payload_from_canonical("selection_terminal", canonical)
+
+
+def test_restart_rejects_invalid_persisted_selection_grammar(
+    tmp_path: Path,
+) -> None:
+    store = InMemoryLedgerStore()
+    ledger, projects, _ = _admitted_ledger(
+        tmp_path,
+        store=store,
+        plan_nodes=(_plan_node(selection_consumer=True),),
+    )
+    _publish_success(ledger)
+    ledger.record(
+        RunClosure(
+            selections=(
+                SelectionTerminal(
+                    status="succeeded",
+                    result=_selection_result(),
+                ),
+            ),
+        )
+    )
+
+    class InvalidSelectionStore:
+        def read_transactions(
+            self,
+            *,
+            root: Path,
+            relative_parts: tuple[str, ...],
+        ) -> tuple[tuple[str, bytes], ...]:
+            retained = list(
+                store.read_transactions(
+                    root=root,
+                    relative_parts=relative_parts,
+                )
             )
+            name, encoded = retained[-1]
+            raw = json.loads(encoded)
+            selection = next(
+                fact
+                for fact in raw["facts"]
+                if fact["fact_type"] == "selection_terminal"
+            )
+            selection["payload"]["result"]["objectives"][0][
+                "missing_policy"
+            ] = "skip"
+            retained[-1] = (name, canonical_json_bytes(raw))
+            return tuple(retained)
 
-        def publish(self, *, root, relative_parts, payload) -> None:
-            transaction = json.loads(payload)
-            if any(
-                fact["fact_type"] == "cancellation_requested"
-                for fact in transaction["facts"]
-            ):
-                cancellation_entered.set()
-                assert release_cancellation.wait(timeout=2)
-            self.filesystem.publish(
+        def publish(
+            self,
+            *,
+            root: Path,
+            relative_parts: tuple[str, ...],
+            payload: bytes,
+        ) -> None:
+            store.publish(
                 root=root,
                 relative_parts=relative_parts,
                 payload=payload,
             )
 
-    ledger = _admitted_ledger(
-        tmp_path,
-        transaction_store=PauseCancellationAcknowledgement(),
-    )
-    cancellation: dict[str, Any] = {}
-    start_errors: list[run_execution_v2.V2RunError] = []
-
-    cancellation_worker = threading.Thread(
-        target=lambda: cancellation.update(ledger.request_cancellation(None))
-    )
-
-    def start_node() -> None:
-        try:
-            ledger.record(
-                run_execution_v2.NodeAttemptStart(
-                    node_id="node-1",
-                    node_attempt_id="node-attempt-1",
-                )
-            )
-        except run_execution_v2.V2RunError as error:
-            start_errors.append(error)
-
-    cancellation_worker.start()
-    assert cancellation_entered.wait(timeout=2)
-    start_worker = threading.Thread(target=start_node)
-    start_worker.start()
-    release_cancellation.set()
-    cancellation_worker.join(timeout=2)
-    start_worker.join(timeout=2)
-
-    assert not cancellation_worker.is_alive()
-    assert not start_worker.is_alive()
-    assert cancellation["outcome"] == "cancellation_requested"
-    assert [error.code for error in start_errors] == ["evidence_unavailable"]
-    assert not any(
-        fact["fact_type"] == "node_attempt_started"
-        for fact in ledger.facts
-    )
-
-
-def test_ledger_admits_run_through_typed_transitions(tmp_path) -> None:
-    plan_node = _plan_node()
-    resolved_contracts, resolved_contract_roots, contract_lock_digest = (
-        _plan_contract_scope((plan_node,))
-    )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        (plan_node,),
-        expected_resolved_contracts=resolved_contracts,
-        expected_contract_roots=resolved_contract_roots,
-    )
-    workflow_commit_id = "workflow-commit-" + "0" * 64
-
-    ledger.record(
-        run_execution_v2.RunScopeBinding(
-            workflow_commit_id=workflow_commit_id,
-            workflow_commit_revision=1,
-            workflow_digest="sha256:" + "2" * 64,
-            contract_lock_digest=contract_lock_digest,
-            execution_plan_digest="sha256:" + "4" * 64,
-            catalog_contract_digest="sha256:" + "5" * 64,
-            resolved_contracts=resolved_contracts,
-            resolved_contract_roots=resolved_contract_roots,
-        )
-    )
-    ledger.record(
-        run_execution_v2.AvailabilityBinding(
-            binding=_binding_reference(),
-            catalog_observed_at="2026-08-21T00:00:00+00:00",
-            available=True,
-        )
-    )
-    admitted = ledger.record(
-        run_execution_v2.RunAdmission(
-            workflow_commit_id=workflow_commit_id,
-            workflow_commit_revision=1,
-        )
-    )
-    ledger.record(
-        run_execution_v2.RunStart(
-            started_at="2026-08-21T00:00:01+00:00"
-        )
-    )
-
-    assert admitted.last_sequence == 3
-    assert [fact["fact_type"] for fact in ledger.facts] == [
-        "run_scope_bound",
-        "availability_bound",
-        "run_admitted",
-        "run_started",
-    ]
-    assert not hasattr(ledger, "append")
-    assert not hasattr(ledger, "commit")
-
-
-def test_run_admission_requires_one_availability_per_exact_plan_binding(
-    tmp_path,
-) -> None:
-    first_binding = _binding_reference(
-        contract_id="fixture.first",
-        digest_marker="8",
-    )
-    second_binding = _binding_reference(
-        contract_id="fixture.second",
-        digest_marker="9",
-    )
-    plan_nodes = (
-        _plan_node(node_id="first", binding=first_binding),
-        _plan_node(node_id="second", binding=second_binding),
-    )
-    ledger, workflow_commit_id = _scoped_ledger(tmp_path, plan_nodes)
-    ledger.record(
-        run_execution_v2.AvailabilityBinding(
-            binding=first_binding,
-            catalog_observed_at="2026-08-21T00:00:00+00:00",
-            available=True,
-        )
-    )
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.RunAdmission(
-                workflow_commit_id=workflow_commit_id,
-                workflow_commit_revision=1,
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_availability_binding_is_exact_and_unique(tmp_path) -> None:
-    plan_node = _plan_node()
-    ledger, _ = _scoped_ledger(tmp_path, (plan_node,))
-    transition = run_execution_v2.AvailabilityBinding(
-        binding=plan_node.binding,
-        catalog_observed_at="2026-08-21T00:00:00+00:00",
-        available=True,
-    )
-    ledger.record(transition)
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(transition)
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_provider_operation_requires_one_passing_readiness_attestation(
-    tmp_path,
-) -> None:
-    provider = _plan_node(execution_route="adapter")
-    missing = _admitted_ledger(tmp_path / "missing", plan_nodes=(provider,))
-    missing.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        missing.record(
-            run_execution_v2.OperationAttemptStart(
-                node_attempt_id="node-attempt-1",
-                operation_attempt_id="operation-1",
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-
-    passing = _admitted_ledger(tmp_path / "passing", plan_nodes=(provider,))
-    passing.record(_readiness_attestation(_binding_reference()))
-    passing.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    acknowledgement = passing.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-
-    assert passing.facts[acknowledgement.last_sequence - 1]["fact_type"] == (
-        "operation_attempt_started"
-    )
-
-
-def test_readiness_attestation_is_exact_and_unique(tmp_path) -> None:
-    provider = _plan_node(execution_route="adapter")
-    ledger = _admitted_ledger(tmp_path, plan_nodes=(provider,))
-    ledger.record(_readiness_attestation(_binding_reference()))
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            _readiness_attestation(
-                _binding_reference(),
-                conclusion="failing",
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-@pytest.mark.parametrize(
-    "scope_change",
-    (
-        {"workflow_digest": "not-a-digest"},
-        {"execution_plan_digest": "not-a-digest"},
-        {"catalog_contract_digest": "not-a-digest"},
-        {"contract_lock_digest": "not-a-digest"},
-        {"contract_lock_digest": "sha256:" + "d" * 64},
-    ),
-    ids=(
-        "workflow",
-        "execution-plan",
-        "catalog",
-        "contract-lock-shape",
-        "contract-lock-content",
-    ),
-)
-def test_run_scope_rejects_malformed_private_digests(
-    tmp_path,
-    scope_change,
-) -> None:
-    plan_node = _plan_node()
-    resolved_contracts, resolved_contract_roots, contract_lock_digest = (
-        _plan_contract_scope((plan_node,))
-    )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        (plan_node,),
-        expected_resolved_contracts=resolved_contracts,
-        expected_contract_roots=resolved_contract_roots,
-    )
-    scope = {
-        "workflow_commit_id": "workflow-commit-" + "0" * 64,
-        "workflow_commit_revision": 1,
-        "workflow_digest": "sha256:" + "2" * 64,
-        "contract_lock_digest": contract_lock_digest,
-        "execution_plan_digest": "sha256:" + "4" * 64,
-        "catalog_contract_digest": "sha256:" + "5" * 64,
-        "resolved_contracts": resolved_contracts,
-        "resolved_contract_roots": resolved_contract_roots,
-        **scope_change,
-    }
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(run_execution_v2.RunScopeBinding(**scope))
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == ()
-
-
-def test_run_scope_requires_exact_plan_contract_roots(tmp_path) -> None:
-    plan_node = _plan_node()
-    resolved_contracts, _, contract_lock_digest = _plan_contract_scope(
-        (plan_node,)
-    )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        (plan_node,),
-        expected_resolved_contracts=resolved_contracts,
-        expected_contract_roots=(dict(plan_node.binding),),
-    )
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.RunScopeBinding(
-                workflow_commit_id="workflow-commit-" + "0" * 64,
-                workflow_commit_revision=1,
-                workflow_digest="sha256:" + "2" * 64,
-                contract_lock_digest=contract_lock_digest,
-                execution_plan_digest="sha256:" + "4" * 64,
-                catalog_contract_digest="sha256:" + "5" * 64,
-                resolved_contracts=resolved_contracts,
-                resolved_contract_roots=(),
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == ()
-
-
-def test_run_scope_requires_the_expected_resolved_contract_closure(
-    tmp_path,
-) -> None:
-    plan_node = _plan_node()
-    extra_contract = {
-        "contract_kind": "port_type",
-        "contract_id": "fixture.value",
-        "contract_version": "1.0.0",
-        "contract_digest": "sha256:" + "9" * 64,
-    }
-    expected_contracts = tuple(
-        dict(reference)
-        for reference in _canonical_contract_references(
-            (plan_node.binding, extra_contract)
-        )
-    )
-    expected_roots = (dict(plan_node.binding),)
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        (plan_node,),
-        expected_resolved_contracts=expected_contracts,
-        expected_contract_roots=expected_roots,
-    )
-    incomplete_contracts = (dict(plan_node.binding),)
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.RunScopeBinding(
-                workflow_commit_id="workflow-commit-" + "0" * 64,
-                workflow_commit_revision=1,
-                workflow_digest="sha256:" + "2" * 64,
-                contract_lock_digest=_contract_lock_digest(
-                    incomplete_contracts
-                ),
-                execution_plan_digest="sha256:" + "4" * 64,
-                catalog_contract_digest="sha256:" + "5" * 64,
-                resolved_contracts=incomplete_contracts,
-                resolved_contract_roots=expected_roots,
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == ()
-
-
-def test_availability_rejects_a_malformed_binding_timestamp(tmp_path) -> None:
-    plan_node = _plan_node()
-    ledger, _ = _scoped_ledger(tmp_path, (plan_node,))
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.AvailabilityBinding(
-                binding=plan_node.binding,
-                catalog_observed_at="not-a-timestamp",
-                available=True,
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert [fact["fact_type"] for fact in ledger.facts] == ["run_scope_bound"]
-
-
-def test_typed_invocation_provenance_is_transported_then_admitted_by_ledger(
-    tmp_path,
-) -> None:
-    recorded: list[dict[str, Any]] = []
-
-    class Recorder:
-        @contextmanager
-        def invoke(self, **transition: Any):
-            recorded.append(transition)
-            yield "invocation-1"
-
-    provenance = run_execution_v2.EngineInvocationProvenance(
-        effective_randomness=run_execution_v2.InvocationRandomness(
-            control="exact_seed",
-            effective_seed=17,
-        ),
-        provider_residue_projection=(
-            run_execution_v2.ProviderResidueProjection(
-                workbench_chain_order=("X", "Y"),
-                provider_structure_chain_order=("A", "B"),
-                provider_chain_order=("B", "A"),
-                entries=(
-                    run_execution_v2.ProviderResidueProjectionEntry(
-                        residue_id="X:6",
-                        segment_index=0,
-                        provider_chain_id="A",
-                        provider_position=1,
-                    ),
-                    run_execution_v2.ProviderResidueProjectionEntry(
-                        residue_id="Y:20",
-                        segment_index=1,
-                        provider_chain_id="B",
-                        provider_position=1,
-                    ),
-                ),
-            )
-        ),
-    )
-    resources = run_execution_v2.RunResources(
-        project_id="project-1",
-        run_id="run-1",
-        node_id="node-1",
-        _projects=ProjectManager(tmp_path / "resource-projects"),
-        _invocation_recorder=Recorder(),
-    )
-
-    with resources.engine_invocation(invocation_provenance=provenance):
-        pass
-
-    assert recorded[0]["invocation_provenance"] is provenance
-
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.EngineInvocationStart(
-            invocation_id="invocation-1",
-            operation_attempt_id="operation-1",
-            engine_role="primary",
-            engine_identity="sha256:" + "6" * 64,
-            provenance=provenance,
-        )
-    )
-
-    started = ledger.facts[-1]
-    assert started["fact_type"] == "engine_invocation_started"
-    assert started["payload"]["invocation_provenance"] == {
-        "effective_randomness": {
-            "control": "exact_seed",
-            "effective_seed": 17,
-        },
-        "provider_residue_projection": {
-            "position_semantics": "one_based_chain_local",
-            "workbench_chain_order": ["X", "Y"],
-            "provider_structure_chain_order": ["A", "B"],
-            "provider_chain_order": ["B", "A"],
-            "entries": [
-                {
-                    "residue_id": "X:6",
-                    "segment_index": 0,
-                    "provider_chain_id": "A",
-                    "provider_position": 1,
-                },
-                {
-                    "residue_id": "Y:20",
-                    "segment_index": 1,
-                    "provider_chain_id": "B",
-                    "provider_position": 1,
-                },
-            ],
-        },
-    }
-
-
-def test_invalid_invocation_provenance_fails_only_at_ledger_durable_write(
-    tmp_path,
-) -> None:
-    recorded: list[dict[str, Any]] = []
-
-    class Recorder:
-        @contextmanager
-        def invoke(self, **transition: Any):
-            recorded.append(transition)
-            yield "invocation-1"
-
-    invalid = run_execution_v2.EngineInvocationProvenance(
-        provider_residue_projection=(
-            run_execution_v2.ProviderResidueProjection(
-                workbench_chain_order=("X",),
-                provider_structure_chain_order=("A",),
-                provider_chain_order=("B",),
-                entries=(
-                    run_execution_v2.ProviderResidueProjectionEntry(
-                        residue_id="X:1",
-                        segment_index=0,
-                        provider_chain_id="A",
-                        provider_position=1,
-                    ),
-                ),
-            )
-        )
-    )
-    resources = run_execution_v2.RunResources(
-        project_id="project-1",
-        run_id="run-1",
-        node_id="node-1",
-        _projects=ProjectManager(tmp_path / "resource-projects"),
-        _invocation_recorder=Recorder(),
-    )
-
-    with resources.engine_invocation(invocation_provenance=invalid):
-        pass
-    assert recorded[0]["invocation_provenance"] is invalid
-
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.EngineInvocationStart(
-                invocation_id="invocation-1",
-                operation_attempt_id="operation-1",
-                engine_role="primary",
-                engine_identity="sha256:" + "6" * 64,
-                provenance=invalid,
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-@pytest.mark.parametrize(
-    "provenance",
-    (
-        run_execution_v2.EngineInvocationProvenance(),
-        run_execution_v2.EngineInvocationProvenance(
-            effective_randomness=run_execution_v2.InvocationRandomness(
-                control="exact_seed"
-            )
-        ),
-        run_execution_v2.EngineInvocationProvenance(
-            effective_randomness=run_execution_v2.InvocationRandomness(
-                control="provider_uncontrolled",
-                effective_seed=17,
-            )
-        ),
-        run_execution_v2.EngineInvocationProvenance(
-            provider_residue_projection=(
-                run_execution_v2.ProviderResidueProjection(
-                    workbench_chain_order=("A",),
-                    provider_structure_chain_order=("A", "B"),
-                    provider_chain_order=("B", "A"),
-                    entries=(
-                        run_execution_v2.ProviderResidueProjectionEntry(
-                            residue_id="A:1",
-                            segment_index=0,
-                            provider_chain_id="A",
-                            provider_position=1,
-                        ),
-                        run_execution_v2.ProviderResidueProjectionEntry(
-                            residue_id="A:8",
-                            segment_index=1,
-                            provider_chain_id="B",
-                            provider_position=2,
-                        ),
-                    ),
-                )
-            )
-        ),
-    ),
-    ids=(
-        "empty",
-        "exact-seed-missing",
-        "uncontrolled-with-seed",
-        "segment-position-discontinuous",
-    ),
-)
-def test_ledger_owns_every_invocation_provenance_invariant(
-    tmp_path,
-    provenance,
-) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.EngineInvocationStart(
-                invocation_id="invocation-1",
-                operation_attempt_id="operation-1",
-                engine_role="primary",
-                engine_identity="sha256:" + "6" * 64,
-                provenance=provenance,
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-
-
-def test_ledger_admits_one_workbench_chain_split_across_provider_segments(
-    tmp_path,
-) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    projection = run_execution_v2.ProviderResidueProjection(
-        workbench_chain_order=("A",),
-        provider_structure_chain_order=("A", "B"),
-        provider_chain_order=("B", "A"),
-        entries=(
-            run_execution_v2.ProviderResidueProjectionEntry(
-                residue_id="A:1",
-                segment_index=0,
-                provider_chain_id="A",
-                provider_position=1,
-            ),
-            run_execution_v2.ProviderResidueProjectionEntry(
-                residue_id="A:2",
-                segment_index=0,
-                provider_chain_id="A",
-                provider_position=2,
-            ),
-            run_execution_v2.ProviderResidueProjectionEntry(
-                residue_id="A:8",
-                segment_index=1,
-                provider_chain_id="B",
-                provider_position=1,
-            ),
-        ),
-    )
-
-    ledger.record(
-        run_execution_v2.EngineInvocationStart(
-            invocation_id="invocation-1",
-            operation_attempt_id="operation-1",
-            engine_role="primary",
-            engine_identity="sha256:" + "6" * 64,
-            provenance=run_execution_v2.EngineInvocationProvenance(
-                provider_residue_projection=projection
-            ),
-        )
-    )
-
-    retained = ledger.facts[-1]["payload"]["invocation_provenance"]
-    assert retained["provider_residue_projection"]["entries"][-1] == {
-        "residue_id": "A:8",
-        "segment_index": 1,
-        "provider_chain_id": "B",
-        "provider_position": 1,
-    }
-
-
-def test_child_invocation_requires_a_succeeded_parent(tmp_path) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.EngineInvocationStart(
-            invocation_id="parent",
-            operation_attempt_id="operation-1",
-            engine_role="parent",
-            engine_identity="sha256:" + "6" * 64,
-        )
-    )
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.EngineInvocationStart(
-                invocation_id="child",
-                operation_attempt_id="operation-1",
-                engine_role="child",
-                engine_identity="sha256:" + "7" * 64,
-                parent_invocation_id="parent",
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_required_dependency_failure_blocks_node_attempt_start(tmp_path) -> None:
-    source = _plan_node(node_id="source")
-    sink = _plan_node(
-        node_id="sink",
-        dependencies=("source",),
-        required_input_sources=(
-            ("input", (("source", "value"),)),
-        ),
-    )
-    ledger = _admitted_ledger(tmp_path, plan_nodes=(source, sink))
-    _operation_failure(ledger, node_id="source")
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.NodeAttemptStart(
-                node_id="sink",
-                node_attempt_id="node-attempt-sink",
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_optional_dependency_failure_does_not_block_node_attempt_start(
-    tmp_path,
-) -> None:
-    source = _plan_node(node_id="source")
-    sink = _plan_node(
-        node_id="sink",
-        dependencies=("source",),
-    )
-    ledger = _admitted_ledger(tmp_path, plan_nodes=(source, sink))
-    _operation_failure(ledger, node_id="source")
-
-    acknowledgement = ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="sink",
-            node_attempt_id="node-attempt-sink",
-        )
-    )
-
-    assert ledger.facts[acknowledgement.last_sequence - 1]["payload"] == {
-        "node_id": "sink",
-        "node_attempt_id": "node-attempt-sink",
-    }
-
-
-def test_any_published_source_satisfies_one_required_many_valued_input(
-    tmp_path,
-) -> None:
-    successful = _plan_node(node_id="successful")
-    failed = _plan_node(node_id="failed")
-    sink = _plan_node(
-        node_id="sink",
-        dependencies=("failed", "successful"),
-        required_input_sources=(
-            (
-                "input",
-                (("failed", "value"), ("successful", "value")),
-            ),
-        ),
-    )
-    ledger = _admitted_ledger(
-        tmp_path,
-        plan_nodes=(successful, failed, sink),
-    )
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="successful",
-            node_attempt_id="node-attempt-successful",
-        )
-    )
-    ledger.record(
-        run_execution_v2.NodeSuccessPublication(
-            node_id="successful",
-            node_attempt_id="node-attempt-successful",
-            operation_attempt_id=None,
-            resolution="cache_replayed",
-            result_identity="sha256:" + "6" * 64,
-            node_result_manifest={
-                "content_digest": "sha256:" + "7" * 64,
-                "size": 128,
-            },
-            outputs=(_typed_output("successful", "value"),),
-            artifacts=(),
-            nonempty_output_ports=("value",),
-        )
-    )
-    _operation_failure(ledger, node_id="failed")
-
-    acknowledgement = ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="sink",
-            node_attempt_id="node-attempt-sink",
-        )
-    )
-
-    assert ledger.facts[acknowledgement.last_sequence - 1]["payload"] == {
-        "node_id": "sink",
-        "node_attempt_id": "node-attempt-sink",
-    }
-
-
-def test_blocked_disposition_cannot_cite_an_optional_dependency(tmp_path) -> None:
-    source = _plan_node(node_id="source")
-    sink = _plan_node(
-        node_id="sink",
-        dependencies=("source",),
-    )
-    ledger = _admitted_ledger(tmp_path, plan_nodes=(source, sink))
-    _operation_failure(ledger, node_id="source")
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.UnstartedNodeConclusion(
-                node_id="sink",
-                outcome="blocked",
-                blocked_by=("source",),
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_succeeded_source_without_a_required_value_is_a_real_blocker(
-    tmp_path,
-) -> None:
-    source = _plan_node(node_id="source")
-    sink = _plan_node(
-        node_id="sink",
-        dependencies=("source",),
-        required_input_sources=(
-            ("input", (("source", "value"),)),
-        ),
-    )
-    ledger = _admitted_ledger(tmp_path, plan_nodes=(source, sink))
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="source",
-            node_attempt_id="node-attempt-source",
-        )
-    )
-    ledger.record(
-        run_execution_v2.NodeSuccessPublication(
-            node_id="source",
-            node_attempt_id="node-attempt-source",
-            operation_attempt_id=None,
-            resolution="cache_replayed",
-            result_identity="sha256:" + "6" * 64,
-            node_result_manifest={
-                "content_digest": "sha256:" + "7" * 64,
-                "size": 128,
-            },
-            outputs=(),
-            artifacts=(),
-        )
-    )
-
-    acknowledgement = ledger.record(
-        run_execution_v2.UnstartedNodeConclusion(
-            node_id="sink",
-            outcome="blocked",
-            blocked_by=("source",),
-        )
-    )
-
-    assert ledger.facts[acknowledgement.last_sequence - 1]["payload"] == {
-        "node_id": "sink",
-        "outcome": "blocked",
-        "blocked_by": ["source"],
-    }
-
-
-def test_cancellation_is_a_barrier_to_a_later_blocked_conclusion(
-    tmp_path,
-) -> None:
-    source = _plan_node(node_id="source")
-    sink = _plan_node(
-        node_id="sink",
-        dependencies=("source",),
-        required_input_sources=(("input", (("source", "value"),)),),
-    )
-    ledger = _admitted_ledger(tmp_path, plan_nodes=(source, sink))
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="source",
-            node_attempt_id="node-attempt-source",
-        )
-    )
-    ledger.record(
-        run_execution_v2.NodeSuccessPublication(
-            node_id="source",
-            node_attempt_id="node-attempt-source",
-            operation_attempt_id=None,
-            resolution="cache_replayed",
-            result_identity="sha256:" + "6" * 64,
-            node_result_manifest={
-                "content_digest": "sha256:" + "7" * 64,
-                "size": 128,
-            },
-            outputs=(),
-            artifacts=(),
-        )
-    )
-    ledger.request_cancellation(None)
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.UnstartedNodeConclusion(
-                node_id="sink",
-                outcome="blocked",
-                blocked_by=("source",),
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_blocked_disposition_requires_every_dependency_to_be_concluded(
-    tmp_path,
-) -> None:
-    failed = _plan_node(node_id="failed")
-    pending = _plan_node(node_id="pending")
-    sink = _plan_node(
-        node_id="sink",
-        dependencies=("failed", "pending"),
-        required_input_sources=(
-            (
-                "input",
-                (("failed", "value"), ("pending", "value")),
-            ),
-        ),
-    )
-    ledger = _admitted_ledger(tmp_path, plan_nodes=(failed, pending, sink))
-    _operation_failure(ledger, node_id="failed")
-    before = ledger.facts
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.UnstartedNodeConclusion(
-                node_id="sink",
-                outcome="blocked",
-                blocked_by=("failed",),
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-
-
-def test_outer_cancellation_does_not_rewrite_successful_engine_terminal(
-    tmp_path,
-) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    recorder = run_execution_v2._OperationInvocationRecorder(
-        ledger=ledger,
-        operation_attempt_id="operation-1",
-        default_engine_identity="sha256:" + "6" * 64,
-    )
-
-    with pytest.raises(run_execution_v2.ExecutionTermination):
-        with recorder.invoke(
-            engine_role="primary",
-            parent_invocation_id=None,
-            invocation_provenance=None,
-        ):
-            ledger.request_cancellation(None)
-
-    terminal = next(
-        fact
-        for fact in ledger.facts
-        if fact["fact_type"] == "engine_invocation_terminal"
-    )
-    assert terminal["payload"]["status"] == "succeeded"
-
-
-def test_outer_cancellation_does_not_rewrite_failed_engine_terminal(
-    tmp_path,
-) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    recorder = run_execution_v2._OperationInvocationRecorder(
-        ledger=ledger,
-        operation_attempt_id="operation-1",
-        default_engine_identity="sha256:" + "6" * 64,
-    )
-
-    with pytest.raises(RuntimeError, match="engine failed"):
-        with recorder.invoke(
-            engine_role="primary",
-            parent_invocation_id=None,
-            invocation_provenance=None,
-        ):
-            ledger.request_cancellation(None)
-            raise RuntimeError("engine failed")
-
-    terminal = next(
-        fact
-        for fact in ledger.facts
-        if fact["fact_type"] == "engine_invocation_terminal"
-    )
-    assert terminal["payload"]["status"] == "failed"
-
-
-def test_node_success_is_one_ledger_assembled_publication_transaction(
-    tmp_path,
-) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-
-    acknowledgement = ledger.record(
-        run_execution_v2.NodeSuccessPublication(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-            resolution="executed",
-            result_identity="sha256:" + "6" * 64,
-            node_result_manifest={
-                "content_digest": "sha256:" + "7" * 64,
-                "size": 128,
-            },
-            outputs=(),
-            artifacts=(),
-        )
-    )
-
-    transaction_path = sorted(
-        (
-            tmp_path
-            / "projects"
-            / "project-1"
-            / "runs"
-            / "run-1"
-            / "ledger"
-        ).glob("*.json")
-    )[-1]
-    transaction = json.loads(transaction_path.read_bytes())
-    assert acknowledgement.first_sequence == 7
-    assert acknowledgement.last_sequence == 10
-    assert [fact["fact_type"] for fact in transaction["facts"]] == [
-        "operation_attempt_terminal",
-        "outputs_published",
-        "node_attempt_terminal",
-        "node_disposition",
-    ]
-
-
-def test_selection_and_run_closure_are_one_ledger_assembled_transaction(
-    tmp_path,
-) -> None:
-    ledger = _admitted_ledger(tmp_path, selection_required=True)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.NodeSuccessPublication(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id=None,
-            resolution="cache_replayed",
-            result_identity="sha256:" + "6" * 64,
-            node_result_manifest={
-                "content_digest": "sha256:" + "7" * 64,
-                "size": 128,
-            },
-            outputs=(),
-            artifacts=(),
-        )
-    )
-
-    acknowledgement = ledger.record(
-        run_execution_v2.RunClosure(
-            (
-            run_execution_v2.SelectionSuccess(
-                result={
-                    "status": "succeeded",
-                    "selection_node_id": "node-1",
-                    "candidate_input": {
-                        "node_id": "source",
-                        "output_port": "candidates",
-                    },
-                    "selected_collection_id": "selected-1",
-                    "selected_candidate_ids": [],
-                }
-            ),
-            )
-        )
-    )
-
-    transaction_path = sorted(
-        (
-            tmp_path
-            / "projects"
-            / "project-1"
-            / "runs"
-            / "run-1"
-            / "ledger"
-        ).glob("*.json")
-    )[-1]
-    transaction = json.loads(transaction_path.read_bytes())
-    assert acknowledgement.last_sequence - acknowledgement.first_sequence == 1
-    assert [fact["fact_type"] for fact in transaction["facts"]] == [
-        "selection_terminal",
-        "run_terminal",
-    ]
-    assert transaction["facts"][-1]["payload"] == {"status": "succeeded"}
-
-
-def test_acknowledgement_failure_does_not_install_node_publication(
-    tmp_path,
-) -> None:
-    class ControlledStore:
-        def __init__(self) -> None:
-            self.fail = False
-            self.filesystem = run_execution_v2.FilesystemLedgerTransactionStore()
-
-        def publish(self, **kwargs: Any) -> None:
-            if self.fail:
-                raise OSError("controlled acknowledgement failure")
-            self.filesystem.publish(**kwargs)
-
-    store = ControlledStore()
-    plan_node = _plan_node()
-    resolved_contracts, resolved_contract_roots, contract_lock_digest = (
-        _plan_contract_scope((plan_node,))
-    )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        (plan_node,),
-        store,
-        expected_resolved_contracts=resolved_contracts,
-        expected_contract_roots=resolved_contract_roots,
-    )
-    workflow_commit_id = "workflow-commit-" + "0" * 64
-    ledger.record(
-        run_execution_v2.RunScopeBinding(
-            workflow_commit_id=workflow_commit_id,
-            workflow_commit_revision=1,
-            workflow_digest="sha256:" + "2" * 64,
-            contract_lock_digest=contract_lock_digest,
-            execution_plan_digest="sha256:" + "4" * 64,
-            catalog_contract_digest="sha256:" + "5" * 64,
-            resolved_contracts=resolved_contracts,
-            resolved_contract_roots=resolved_contract_roots,
-        )
-    )
-    ledger.record(
-        run_execution_v2.AvailabilityBinding(
-            binding=_binding_reference(),
-            catalog_observed_at="2026-08-21T00:00:00+00:00",
-            available=True,
-        )
-    )
-    ledger.record(
-        run_execution_v2.RunAdmission(
-            workflow_commit_id=workflow_commit_id,
-            workflow_commit_revision=1,
-        )
-    )
-    ledger.record(
-        run_execution_v2.RunStart(
-            started_at="2026-08-21T00:00:01+00:00"
-        )
-    )
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    before = ledger.facts
-    store.fail = True
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.NodeSuccessPublication(
-                node_id="node-1",
-                node_attempt_id="node-attempt-1",
-                operation_attempt_id=None,
-                resolution="cache_replayed",
-                result_identity="sha256:" + "6" * 64,
-                node_result_manifest={
-                    "content_digest": "sha256:" + "7" * 64,
-                    "size": 128,
-                },
-                outputs=(),
-                artifacts=(),
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == before
-    assert not any(
-        fact["fact_type"] in {"outputs_published", "node_disposition"}
-        for fact in ledger.facts
-    )
-
-
-def test_filesystem_acknowledgement_syncs_transaction_and_directory(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    synchronized_modes: list[int] = []
-    real_fsync = os.fsync
-
-    def capture_fsync(file_descriptor: int) -> None:
-        synchronized_modes.append(os.fstat(file_descriptor).st_mode)
-        real_fsync(file_descriptor)
-
-    monkeypatch.setattr(storage.os, "fsync", capture_fsync)
-
-    _admitted_ledger(tmp_path)
-
-    assert any(stat.S_ISREG(mode) for mode in synchronized_modes)
-    assert any(stat.S_ISDIR(mode) for mode in synchronized_modes)
-
-
-def test_ledger_retains_legal_invocation_provenance_exactly(tmp_path) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.EngineInvocationStart(
-            invocation_id="invocation-1",
-            operation_attempt_id="operation-1",
-            engine_role="primary",
-            engine_identity="sha256:" + "6" * 64,
-            provenance=run_execution_v2.EngineInvocationProvenance(
-                project_input_filename="AKIAABCDEFGHIJKLMNOP"
-            ),
-        )
-    )
-
-    assert ledger.facts[-1]["payload"]["invocation_provenance"] == {
-        "project_input_filename": "AKIAABCDEFGHIJKLMNOP"
-    }
-
-
-def test_cursor_replay_is_scope_bound_and_exclusive(tmp_path) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    cursor = ledger.cursor_at(3)
-
-    (
-        after_sequence,
-        resumed_cursor,
-        through_sequence,
-        through_cursor,
-        events,
-        terminal,
-    ) = ledger.replay_window(cursor)
-
-    assert after_sequence == 3
-    assert resumed_cursor == cursor
-    assert through_sequence == 4
-    assert through_cursor == ledger.cursor
-    assert [event["sequence"] for event in events] == [4]
-    assert events[0]["event"]["type"] == "run_started"
-    assert terminal is False
-
-
-def test_restart_rebuilds_projection_and_only_interrupts_the_run(tmp_path) -> None:
-    ledger = _admitted_ledger(tmp_path)
-    ledger.record(
-        run_execution_v2.NodeAttemptStart(
-            node_id="node-1",
-            node_attempt_id="node-attempt-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.OperationAttemptStart(
-            node_attempt_id="node-attempt-1",
-            operation_attempt_id="operation-1",
-        )
-    )
-    ledger.record(
-        run_execution_v2.EngineInvocationStart(
-            invocation_id="invocation-1",
-            operation_attempt_id="operation-1",
-            engine_role="primary",
-            engine_identity="sha256:" + "6" * 64,
-        )
-    )
-    manifest_path = (
-        tmp_path
-        / "projects"
-        / "project-1"
-        / "runs"
-        / "run-1"
-        / "manifest.json"
-    )
-    manifest_path.write_text("not a projection")
-
-    reloaded = run_execution_v2._read_run_evidence_ledger(
-        ledger._projects,
-        "project-1",
-        "run-1",
-    )
-    assert reloaded is not None
-    reloaded.reconcile_restart()
-    reloaded.rebuild_projections()
-
-    terminal_facts = [
-        fact
-        for fact in reloaded.facts
-        if fact["fact_type"].endswith("_terminal")
-    ]
-    assert [fact["fact_type"] for fact in terminal_facts] == ["run_terminal"]
-    assert terminal_facts[0]["payload"] == {"status": "interrupted"}
-    assert json.loads(manifest_path.read_bytes())["status"] == "interrupted"
-
-
-def test_restart_interrupts_an_admitted_run_that_never_started(tmp_path) -> None:
-    projects = ProjectManager(tmp_path / "projects")
-    plan_node = _plan_node()
-    resolved_contracts, resolved_contract_roots, contract_lock_digest = (
-        _plan_contract_scope((plan_node,))
-    )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        projects,
-        "project-1",
-        "run-1",
-        (plan_node,),
-        expected_resolved_contracts=resolved_contracts,
-        expected_contract_roots=resolved_contract_roots,
-    )
-    workflow_commit_id = "workflow-commit-" + "0" * 64
-    ledger.record(
-        run_execution_v2.RunScopeBinding(
-            workflow_commit_id=workflow_commit_id,
-            workflow_commit_revision=1,
-            workflow_digest="sha256:" + "2" * 64,
-            contract_lock_digest=contract_lock_digest,
-            execution_plan_digest="sha256:" + "4" * 64,
-            catalog_contract_digest="sha256:" + "5" * 64,
-            resolved_contracts=resolved_contracts,
-            resolved_contract_roots=resolved_contract_roots,
-        )
-    )
-    ledger.record(
-        run_execution_v2.AvailabilityBinding(
-            binding=_binding_reference(),
-            catalog_observed_at="2026-08-21T00:00:00+00:00",
-            available=True,
-        )
-    )
-    ledger.record(
-        run_execution_v2.RunAdmission(
-            workflow_commit_id=workflow_commit_id,
-            workflow_commit_revision=1,
-        )
-    )
-
-    reloaded = run_execution_v2._read_run_evidence_ledger(
-        projects,
-        "project-1",
-        "run-1",
-    )
-    assert reloaded is not None
-    reloaded.reconcile_restart()
-
-    assert [fact["fact_type"] for fact in reloaded.facts] == [
-        "run_scope_bound",
-        "availability_bound",
-        "run_admitted",
-        "run_terminal",
-    ]
-    assert reloaded.facts[-1]["payload"] == {"status": "interrupted"}
-    assert reloaded.projection()["status"] == "interrupted"
-
-
-def test_ledger_rejects_a_transition_beyond_its_durable_size_bound(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    plan_node = _plan_node()
-    resolved_contracts, resolved_contract_roots, contract_lock_digest = (
-        _plan_contract_scope((plan_node,))
-    )
-    ledger = run_execution_v2._RunEvidenceLedger(
-        ProjectManager(tmp_path / "projects"),
-        "project-1",
-        "run-1",
-        (plan_node,),
-        expected_resolved_contracts=resolved_contracts,
-        expected_contract_roots=resolved_contract_roots,
-    )
-    monkeypatch.setattr(run_execution_v2, "MAX_LEDGER_TRANSACTION_BYTES", 128)
-
-    with pytest.raises(run_execution_v2.V2RunError) as captured:
-        ledger.record(
-            run_execution_v2.RunScopeBinding(
-                workflow_commit_id="workflow-commit-" + "0" * 64,
-                workflow_commit_revision=1,
-                workflow_digest="sha256:" + "2" * 64,
-                contract_lock_digest=contract_lock_digest,
-                execution_plan_digest="sha256:" + "4" * 64,
-                catalog_contract_digest="sha256:" + "5" * 64,
-                resolved_contracts=resolved_contracts,
-                resolved_contract_roots=resolved_contract_roots,
-            )
-        )
-
-    assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == ()
-    assert not list((tmp_path / "projects").rglob("ledger/*.json"))
+    with pytest.raises(RuntimeError, match="transaction is invalid"):
+        Ledger.load(
+            projects,
+            "project-1",
+            "run-1",
+            InvalidSelectionStore(),
+        )
+
+
+def test_structured_error_is_frozen_before_it_reaches_a_fact() -> None:
+    source = {"node_ids": ["node-1"]}
+    error = StructuredError(
+        code="operation_failed",
+        message="fixture failed",
+        retryable=False,
+        correlation_id="correlation-1",
+        details=source,
+    )
+    source["node_ids"].append("node-2")
+
+    assert isinstance(error.details, Mapping)
+    assert error.details["node_ids"] == ("node-1",)
+    with pytest.raises((FrozenInstanceError, TypeError)):
+        error.code = "changed"  # type: ignore[misc]

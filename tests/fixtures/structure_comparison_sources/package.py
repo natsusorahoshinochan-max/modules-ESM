@@ -4,44 +4,53 @@ from __future__ import annotations
 
 import math
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ProducedObservationDefinition,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
 )
-from datatypes import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    CandidatePairingIntent,
+    CandidatePairingIntentEntry,
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     IntrinsicObservationContext,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueLayout,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-from modules.structure_prediction.domain import PredictionResidueAxis
-from modules.structure_prediction.domain import (
+from datatypes.prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
+    PredictionResidueAxis,
+    prediction_axis_reference,
     prediction_key,
 )
 from modules.structure_prediction.port_types import (
     PREDICTION_RESIDUE_AXIS_PORT_TYPE,
-    prediction_axis_reference,
 )
 
 
@@ -52,6 +61,20 @@ _RESIDUE_NAMES = {
     "S": "SER",
     "T": "THR",
 }
+
+
+def _prediction_axis_reference(
+    axis: PredictionResidueAxis,
+):
+    return prediction_axis_reference(
+        axis,
+        axis_contract=ExactContractReference(
+            **PREDICTION_RESIDUE_AXIS_PORT_TYPE.reference()
+        ),
+        axis_content_digest=PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
+            axis
+        ),
+    )
 
 
 def _structure(
@@ -390,7 +413,7 @@ class _ConfidenceSource:
         fact = facts.entries[0]
         if fact.structure_content_digest != structure_reference.content_digest:
             raise ValueError("confidence fact does not identify the structure")
-        axis = prediction_axis_reference(fact.prediction_axis)
+        axis = _prediction_axis_reference(fact.prediction_axis)
         observation = ScoreObservation(
             subject=structure_reference,
             metric=self._metric,
@@ -438,7 +461,7 @@ class _PerResidueConfidenceSource:
                             method=self._method,
                             context=IntrinsicObservationContext(),
                             value=tuple(fact.plddt_per_residue),
-                            residue_axis=prediction_axis_reference(
+                            residue_axis=_prediction_axis_reference(
                                 fact.prediction_axis
                             ),
                             source_partition="prediction_confidence",
@@ -608,7 +631,6 @@ def _fixture_binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.structure_comparison_sources",
     package_version=_VERSION,
     package_module=__package__,

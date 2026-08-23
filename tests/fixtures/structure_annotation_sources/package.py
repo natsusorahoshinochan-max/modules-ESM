@@ -4,31 +4,39 @@ from __future__ import annotations
 
 from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
 )
-from datatypes import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ProteinPrompt,
-    ProteinStructure,
+)
+from datatypes.prompt import ProteinPrompt
+from datatypes.residue import (
     ResidueLayout,
     ResidueTrack,
 )
-from modules.structure_annotation import (
+from datatypes.structure import ProteinStructure
+from modules.structure_annotation.domain import (
     DSSPAnnotation,
     StructureAnnotationTrack,
 )
@@ -221,7 +229,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.structure_annotation_sources",
     package_version=_VERSION,
     package_module=__package__,

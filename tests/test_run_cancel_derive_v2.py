@@ -14,19 +14,21 @@ from fastapi.testclient import TestClient
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from core import (
-    ExecutionTermination,
-    ReadinessCheckInput,
+from core.operation import (
+    BindingEnvironment,
     ReadinessResult,
-    ResultReplayHit,
-    ResultReplaySource,
 )
-import core.run_execution_v2 as run_execution_v2
-from core.server import create_app
-from protein_workbench_public import validate_error, validate_response
+from core.execution.results.cache import ProjectReplayIndex, ReplayIndexEntry
+from core.project.objects import ProjectObjectStore
+from core.execution.node_attempt import (
+    ExecutionTermination,
+)
+from core.execution.ledger import FilesystemLedgerStore
+from tests.support.application import create_application
+from tests.support.protocol import validate_error, validate_response
+from protein_workbench_public.ledger_codec import encode_event
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
-from tests.fixtures.result_replay_v2 import admitted_replay_outputs
-from tests.test_run_execution_v2 import (
+from tests.test_run_runtime import (
     _artifact_catalog,
     _commit_artifact_node,
     _commit_independent_nodes,
@@ -68,12 +70,14 @@ def _public_events(
     project_id: str,
     run_id: str,
 ) -> list[dict[str, Any]]:
+    runtime = app.state.run_runtime
     return [
-        retained["event"]
-        for retained in app.state.run_execution_v2.public_events(
-            project_id,
-            run_id,
-        )
+        encode_event(
+            project_id=project_id,
+            run_id=run_id,
+            fact=fact,
+        )["event"]
+        for fact in runtime.events(project_id, run_id)
     ]
 
 
@@ -99,11 +103,17 @@ def _terminal_ids(events: list[dict[str, Any]]) -> dict[str, set[str]]:
 
 class _PublishConclusionThenLoseAcknowledgement:
     def __init__(self, *, publish_final_name: bool) -> None:
-        self.filesystem = run_execution_v2.FilesystemLedgerTransactionStore()
+        self.filesystem = FilesystemLedgerStore()
         self.publish_final_name = publish_final_name
         self.conclusion_published = threading.Event()
         self.release_acknowledgement = threading.Event()
         self.conclusion_publication_attempts = 0
+
+    def read_transactions(self, *, root, relative_parts):
+        return self.filesystem.read_transactions(
+            root=root,
+            relative_parts=relative_parts,
+        )
 
     def publish(self, *, root, relative_parts, payload) -> None:
         transaction = json.loads(payload)
@@ -141,14 +151,14 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
             }
         },
-        _v2_ledger_transaction_store=store,
+        ledger_transaction_store=store,
     )
 
     with TestClient(app) as client:
@@ -161,11 +171,7 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
         )
         assert store.conclusion_published.is_set()
         store.release_acknowledgement.set()
-        record = app.state.run_execution_v2._require_record(
-            project_id,
-            receipt["run_id"],
-        )
-        assert record.finished.wait(timeout=2)
+        app.state.run_runtime.shutdown()
 
         projection = client.get(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}"
@@ -182,25 +188,17 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
                 websocket.receive_json()
 
     assert projection.status_code == cancelled.status_code == 503
-    assert isinstance(record.execution_error, run_execution_v2.V2RunError)
-    assert record.evidence_unavailable is record.execution_error
-    sticky_error = record.evidence_unavailable
-    assert sticky_error is not None
+    projection_details = projection.json()["error"]["details"]
     for response in (projection, cancelled):
         validate_error(response.json(), status=503)
         assert response.json()["error"]["code"] == "evidence_unavailable"
-        assert response.json()["error"]["details"] == {
-            "last_durable_cursor": sticky_error.details[
-                "last_durable_cursor"
-            ]
-        }
+        assert response.json()["error"]["details"] == projection_details
     validate_error(unavailable_event_stream, status=503)
     assert unavailable_event_stream["error"]["code"] == (
         "evidence_unavailable"
     )
+    assert unavailable_event_stream["error"]["details"] == projection_details
     assert closed.value.code == 1008
-    assert record.finished.is_set()
-    assert record.execution_error.code == "evidence_unavailable"
     durable_transactions = [
         json.loads(path.read_bytes())
         for path in sorted(
@@ -245,7 +243,7 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             execution_gate=(entered, release),
@@ -320,7 +318,7 @@ def test_cancel_before_schedule_disposes_every_node_without_attempts(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             execution_gate=(first_entered, first_release),
@@ -371,7 +369,7 @@ def test_completion_race_is_decided_by_the_ledger_cursor(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -432,7 +430,7 @@ def test_run_terminal_precedence_uses_durable_node_dispositions(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             execution_action=execute_by_node,
@@ -472,52 +470,30 @@ def test_run_terminal_precedence_uses_durable_node_dispositions(
     } == {"direct-0": first_outcome, "direct-1": "cancelled"}
 
 
-class _ControllableReplay(ResultReplaySource):
-    def __init__(self, catalog: Any) -> None:
-        self.catalog = catalog
-        self.enabled = False
-        self.lookups: list[str] = []
-
-    def lookup(self, *, node, **kwargs):
-        self.lookups.append(node.node_id)
-        if self.enabled:
-            outputs = {"text": "READY"}
-            return ResultReplayHit(
-                result_identity=kwargs["result_identity"],
-                producer_run_id="fixture-producer",
-                admitted_outputs=admitted_replay_outputs(
-                    catalog=self.catalog,
-                    node=node,
-                    outputs=outputs,
-                ),
-            )
-        return None
-
-
-class _BlockingCacheMiss(ResultReplaySource):
-    def __init__(self) -> None:
-        self.entered = threading.Event()
-        self.release = threading.Event()
-
-    def lookup(self, **kwargs):
-        del kwargs
-        self.entered.set()
-        assert self.release.wait(timeout=2)
-        return None
-
-
 def test_cancel_during_cache_lookup_closes_only_the_node_attempt(
     tmp_path,
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    replay = _BlockingCacheMiss()
+    entered = threading.Event()
+    release = threading.Event()
+    original_lookup = ProjectReplayIndex.lookup
+
+    def blocking_lookup(
+        replay_index: ProjectReplayIndex,
+        project_id: str,
+        result_identity: str,
+    ) -> ReplayIndexEntry | None:
+        entered.set()
+        assert release.wait(timeout=2)
+        return original_lookup(replay_index, project_id, result_identity)
+
+    monkeypatch.setattr(ProjectReplayIndex, "lookup", blocking_lookup)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
-        v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -528,12 +504,12 @@ def test_cancel_during_cache_lookup_closes_only_the_node_attempt(
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
         receipt = _start(client, project_id, committed, "cancel-cache-lookup")
-        assert replay.entered.wait(timeout=2)
+        assert entered.wait(timeout=2)
         cancelled = client.post(
             f"/api/v2/projects/{project_id}/runs/{receipt['run_id']}:cancel",
             json={},
         )
-        replay.release.set()
+        release.set()
         projection = _wait_terminal(client, project_id, receipt["run_id"])
 
     assert cancelled.status_code == 200
@@ -558,7 +534,7 @@ def test_cancel_during_readiness_closes_only_the_node_attempt(
     entered = threading.Event()
     release = threading.Event()
 
-    def hold_readiness(_check_input: ReadinessCheckInput) -> ReadinessResult:
+    def hold_readiness(_check_input: BindingEnvironment) -> ReadinessResult:
         entered.set()
         assert release.wait(timeout=2)
         return ReadinessResult(True)
@@ -566,7 +542,7 @@ def test_cancel_during_readiness_closes_only_the_node_attempt(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             readiness_checks={"test.direct.local": hold_readiness},
@@ -615,13 +591,11 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         cacheable=True,
         execution_gate=(entered, release),
     )
-    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
-        v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -638,7 +612,6 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         source_events = _public_events(app, project_id, source["run_id"])
         source_bytes = json.dumps(source_events, sort_keys=True)
 
-        replay.enabled = True
         release.set()
         derived_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
@@ -664,7 +637,11 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         _public_events(app, project_id, source["run_id"]),
         sort_keys=True,
     ) == source_bytes
-    assert replay.lookups == ["direct"]
+    assert calls.count("execute:test.direct.local") == 2
+    assert [
+        item["resolution"]
+        for item in derived_projection["node_dispositions"]
+    ] == ["executed"]
     derived_events = _public_events(app, project_id, derived["run_id"])
     for identity_kind, source_ids in _terminal_ids(source_events).items():
         assert source_ids.isdisjoint(
@@ -682,13 +659,11 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
 ) -> None:
     calls: list[str] = []
     catalog = _direct_catalog(calls, cacheable=True)
-    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
-        v2_result_replay_source=replay,
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -704,8 +679,6 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
         source = _start(client, project_id, committed, "source-success")
         source_projection = _wait_terminal(client, project_id, source["run_id"])
         source_events = _public_events(app, project_id, source["run_id"])
-        replay.enabled = True
-        replay.lookups.clear()
 
         forced_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
@@ -727,7 +700,6 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
     assert source_projection["status"] == "succeeded"
     assert forced_projection["status"] == "succeeded"
     assert forced_projection["derived_from_run_id"] == source["run_id"]
-    assert replay.lookups == ["direct-1"]
     assert {
         item["node_id"]: item["resolution"]
         for item in forced_projection["node_dispositions"]
@@ -759,13 +731,11 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
 ) -> None:
     calls: list[str] = []
     catalog = _pipeline_catalog(calls, cacheable=True)
-    replay = _ControllableReplay(catalog)
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
-        v2_result_replay_source=replay,
     )
 
     with TestClient(app) as client:
@@ -777,8 +747,6 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
             source["run_id"],
         )["status"] == "succeeded"
         calls.clear()
-        replay.enabled = True
-        replay.lookups.clear()
         forced_response = client.post(
             f"/api/v2/projects/{project_id}/runs:derive",
             json={
@@ -793,7 +761,6 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
         projection = _wait_terminal(client, project_id, forced["run_id"])
 
     assert projection["status"] == "succeeded"
-    assert replay.lookups == []
     assert "execute:source" in calls
     assert "sink-input:ready" in calls
     assert projection["derived_from_run_id"] == source["run_id"]
@@ -839,7 +806,7 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             execution_action=execute_in_process_group,
@@ -932,7 +899,7 @@ def test_process_group_registered_after_cancel_uses_full_cleanup_protocol(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             execution_action=register_after_cancel,
@@ -989,7 +956,7 @@ def test_successful_process_fallback_is_confirmed_when_context_exits(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             execution_action=execute_with_fallback,
@@ -1031,7 +998,7 @@ def test_cancel_during_factory_closes_started_node_before_operation_attempt(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             factory_action=hold_factory,
@@ -1083,13 +1050,13 @@ def test_cancel_factory_cleanup_failure_interrupts_started_node_attempt(
         raise PermissionError("private-cleanup-detail")
 
     monkeypatch.setattr(
-        "core.run_execution_v2.RunResources.cleanup_temporary_work",
+        "core.execution.resources.RunResources.cleanup_temporary_work",
         fail_cleanup,
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             factory_action=hold_factory,
@@ -1130,24 +1097,24 @@ def test_cancel_during_artifact_materialization_keeps_object_unpublished(
 ) -> None:
     entered = threading.Event()
     release = threading.Event()
-    original_put = run_execution_v2.ProjectObjectStore.put_exact
+    original_store = ProjectObjectStore.store
 
     def hold_artifact_object(store, project_id, payload):
-        stored = original_put(store, project_id, payload)
+        stored = original_store(store, project_id, payload)
         if payload == b"MODEL        1\nEND\n":
             entered.set()
             assert release.wait(timeout=3)
         return stored
 
     monkeypatch.setattr(
-        run_execution_v2.ProjectObjectStore,
-        "put_exact",
+        ProjectObjectStore,
+        "store",
         hold_artifact_object,
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(frozen_catalog_override=_artifact_catalog([]))
+    app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
         project_id, committed = _commit_artifact_node(client)
@@ -1186,13 +1153,13 @@ def test_normal_temp_cleanup_failure_does_not_publish_artifact(
         raise PermissionError("private-normal-cleanup-detail")
 
     monkeypatch.setattr(
-        "core.run_execution_v2.RunResources.cleanup_temporary_work",
+        "core.execution.resources.RunResources.cleanup_temporary_work",
         fail_cleanup,
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(frozen_catalog_override=_artifact_catalog([]))
+    app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
         project_id, committed = _commit_artifact_node(client)
@@ -1240,7 +1207,7 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             execution_action=execute_with_two_groups,
@@ -1277,14 +1244,14 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
 
 
 @pytest.mark.deterministic_acceptance
-def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
+def test_cancel_and_derive_are_scoped_by_project_run_lookup(
     tmp_path,
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -1314,8 +1281,8 @@ def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
         )
 
     assert cancel.status_code == derive.status_code == 404
-    assert cancel.json()["error"]["code"] == "cross_scope_access_denied"
-    assert derive.json()["error"]["code"] == "cross_scope_access_denied"
+    assert cancel.json()["error"]["code"] == "run_not_found"
+    assert derive.json()["error"]["code"] == "run_not_found"
     assert cancel.json()["error"]["details"] == derive.json()["error"]["details"]
 
 
@@ -1326,7 +1293,7 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    app = create_app(frozen_catalog_override=_artifact_catalog([]))
+    app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
         project_id, committed = _commit_artifact_node(client)
@@ -1384,7 +1351,7 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
             "values": {"credential": "credential-value"},
         }
     }
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration=environment,
     )
@@ -1427,18 +1394,18 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
             )
 
         monkeypatch.setattr(
-            app.state.workflow_authoring_v2,
+            app.state.workflow_authoring,
             "load_draft",
             forbid_workflow_resolution,
         )
         monkeypatch.setattr(
-            app.state.workflow_authoring_v2,
+            app.state.workflow_authoring,
             "load_active_commit",
             forbid_workflow_resolution,
         )
         monkeypatch.setattr(
-            app.state.workflow_authoring_v2,
-            "require_compiled",
+            app.state.workflow_authoring,
+            "require_verified_commit",
             forbid_workflow_resolution,
         )
         derived_response = client.post(
@@ -1473,7 +1440,7 @@ def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
             "values": {"credential": "credential-value"},
         }
     }
-    first_app = create_app(
+    first_app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration=environment,
     )
@@ -1492,7 +1459,7 @@ def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
             source["run_id"],
         )["status"] == "succeeded"
 
-    restarted_app = create_app(
+    restarted_app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration=environment,
     )

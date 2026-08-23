@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from protein_workbench_public import bundle_bytes
+from protein_workbench_public.protocol import bundle_bytes
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -198,24 +198,21 @@ def retain_rest_run(
     )
 
 
-def retain_proteinmpnn_lifecycle(
+def retain_provider_binding_transition(
     *,
-    load_count: int,
-    release: str | None = None,
+    binding_sequence: Sequence[Mapping[str, Any]],
 ) -> None:
-    """Retain the directly observed ProteinMPNN lifecycle facts."""
+    """Retain Provider order already established by public Run events."""
     configured = _configured_root()
     if configured is None:
         return
-    receipt: dict[str, object] = {
-        "model": "proteinmpnn",
-        "load_count": load_count,
-    }
-    if release is not None:
-        receipt["release"] = release
     _write(
         configured / "model-lifecycle.json",
-        _canonical_bytes(receipt),
+        _canonical_bytes({
+            "provider_binding_sequence": [
+                dict(binding) for binding in binding_sequence
+            ],
+        }),
     )
 
 

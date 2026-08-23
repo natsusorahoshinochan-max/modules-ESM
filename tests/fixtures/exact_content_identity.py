@@ -1,7 +1,13 @@
 """Test-owned exact built-in content-identity definitions for fixed fixtures."""
 
-from core import BehaviorReference, PortTypeDefinition
-from core.port_types import PORT_TYPE_VERSION, PORT_VALUE_NAMESPACE
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from core.catalog.port_contract import (
+    PORT_TYPE_VERSION,
+    PORT_VALUE_NAMESPACE,
+)
 
 
 def exact_content_identity(

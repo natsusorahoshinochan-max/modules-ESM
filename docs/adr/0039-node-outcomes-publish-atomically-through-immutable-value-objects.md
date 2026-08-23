@@ -48,18 +48,9 @@ separate public contract, and WebSocket lifecycle events remain free of large
 scientific payloads.
 
 Run Ledger schema `4.0.0`, Cache entry schema `v4`, and public protocol bundle
-`2.2.0` are new current-generation schemas. Result Identity keeps the
+`2.2.0` are the current schemas. Result Identity uses the
 scientific `protein-workbench-cache/v3` namespace because storage
-representation does not change scientific identity. Prior development
-artifacts are unsupported and are not migrated, aliased, or replayed.
-
-The rejected alternatives are increasing the Ledger fact-size limit, removing
-PAE or reconstruction values, reducing declared sample counts, treating
-ordinary typed values as Artifacts, using Cache as evidence, appending terminal
-facts sequentially with compensating catches, or coordinating atomic renames
-across independently configured Run and output roots.
-
-This decision refines ADR-0030 and supersedes the prior physical Ledger, Cache,
-and conflict-authority designs. Result Identity inputs, Project-scoped Cache,
-and replay provenance remain scientific contracts; fail-on-conflict semantics
-do not.
+representation does not change scientific identity. Only the current schemas
+are admitted. Result Identity inputs, Project-scoped Cache, and replay
+provenance are scientific contracts; Result Identity is not a conflict
+authority.

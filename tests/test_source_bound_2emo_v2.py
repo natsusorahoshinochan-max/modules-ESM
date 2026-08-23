@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import replace
 import hashlib
 import json
@@ -12,30 +14,35 @@ from fastapi.testclient import TestClient
 import pytest
 import torch
 
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.declarations import (
     AvailabilityResult,
     ModulePackageRegistration,
-    ReadinessCheckInput,
-    ReadinessResult,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    compile_workflow,
-    discover_module_packages,
-    parse_workflow_document,
-    relock_workflow,
 )
-from core.server import create_app
-from datatypes import (
+from core.operation import (
+    BindingEnvironment,
+    ReadinessResult,
+)
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from tests.support.application import create_application
+from datatypes.candidate import CandidateCollection
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     CalibrationObservationContext,
-    CandidateCollection,
-    ExactContractReference,
     IntrinsicObservationContext,
     PairwiseObservationContext,
-    ProteinSequence,
     ScoreCollection,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from modules.folding.esmfold2_contract import REMOTE_ESMFOLD2_MODEL
-from modules.proteinmpnn.adapter import LocalProteinMPNNAdapter
 from modules.structure_comparison.contracts import (
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
@@ -46,12 +53,12 @@ from modules.structure_comparison.metrics import (
     rmsd_from_evidence,
     tm_score_from_evidence,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateModifiedResidueNormalizationAssociations,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import normalize_csh_parent_span
-from protein_workbench_public import encode_project_input_content
+from modules.structure_transform.csh_normalization import normalize_csh_parent_span
+from tests.support.public_request import encode_project_input_content
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_canonical_bytes,
@@ -86,7 +93,7 @@ def _provider_free_catalog() -> Any:
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
 
-    def ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    def ready(check_input: BindingEnvironment) -> ReadinessResult:
         return ReadinessResult(bool(check_input.values))
 
     opened = {
@@ -95,7 +102,7 @@ def _provider_free_catalog() -> Any:
         "solubility.protein_sol.local",
     }
     registrations: list[ModulePackageRegistration] = []
-    for registration in discover_module_packages():
+    for registration in module_registrations():
         registrations.append(replace(
             registration,
             bindings=tuple(
@@ -190,9 +197,7 @@ class _ControlledESMFold2:
 
 def test_controlled_fold_fixture_has_exact_sequence_and_lawful_backbone() -> None:
     normalized, _ = normalize_csh_parent_span(
-        __import__("datatypes").ProteinStructure(
-            INPUT_PATH.read_text(encoding="ascii")
-        )
+        ProteinStructure(INPUT_PATH.read_text(encoding="ascii"))
     )
     sequence = "".join(
         _AA1[line[17:20].strip()]
@@ -527,12 +532,21 @@ def _assert_closed_scientific_acceptance(
 
 def test_source_bound_2emo_is_exact_locked_and_compilable() -> None:
     assert hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest() == INPUT_SHA256
-    catalog = build_discovered_frozen_catalog()
-    workflow = parse_workflow_document(_payload())
+    catalog = build_frozen_catalog(module_registrations())
+    workflow = decode_workflow_document(_payload())
     assert workflow.workflow_id == "source-bound-2emo"
     assert workflow.contract_lock
-    assert relock_workflow(workflow, catalog) == workflow
-    compile_workflow(workflow, workflow_commit_revision=1, catalog=catalog)
+    assert lock_workflow(
+        replace(workflow, contract_lock=()),
+        catalog,
+    ) == workflow
+    compile(
+        CompilationRequest(
+            workflow,
+            1,
+        ),
+        catalog,
+    )
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert nodes["design-sequences"].node_parameters == {
@@ -567,10 +581,12 @@ def test_source_bound_2emo_is_exact_locked_and_compilable() -> None:
         contract_lock=(),
     )
     with pytest.raises(ValueError):
-        compile_workflow(
-            relock_workflow(broken, catalog),
-            workflow_commit_revision=2,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                lock_workflow(broken, catalog),
+                2,
+            ),
+            catalog,
         )
 
 
@@ -584,8 +600,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     solubilities: list[float],
     expected_passing: int,
 ) -> None:
-    import modules.proteinmpnn.package as proteinmpnn_package
-    import modules.solubility.adapter as solubility_adapter
+    import modules.solubility.protein_sol as solubility_adapter
 
     for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
         path = tmp_path / name.lower()
@@ -594,19 +609,9 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
 
     proteinmpnn = _ControlledProteinMPNN()
 
-    def build_proteinmpnn_adapter(**kwargs: Any) -> LocalProteinMPNNAdapter:
-        return LocalProteinMPNNAdapter(
-            environment=kwargs["environment"],
-            resources=kwargs["resources"],
-            provider_factory=(
-                lambda _environment, _directory, _models: proteinmpnn
-            ),
-        )
-
     monkeypatch.setattr(
-        proteinmpnn_package,
-        "LocalProteinMPNNAdapter",
-        build_proteinmpnn_adapter,
+        "modules.proteinmpnn.adapter._LocalProteinMPNNProvider",
+        lambda **_kwargs: proteinmpnn,
     )
     prepared_sequences: list[str] = []
 
@@ -614,7 +619,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         prepared_sequences[:] = kwargs["sequences"]
         return (("provider-free-protein-sol",), kwargs["staging_directory"] / "seq_prediction.txt")
 
-    def invoke_protein_sol(**kwargs: Any) -> None:
+    def run_protein_sol(**kwargs: Any) -> int:
         rows = [
             "HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,population-sol,pI"
         ]
@@ -626,28 +631,31 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             "\n".join(rows) + "\n",
             encoding="ascii",
         )
+        return 0
 
     monkeypatch.setattr(solubility_adapter, "_prepare_protein_sol_invocation", prepare_protein_sol)
-    monkeypatch.setattr(solubility_adapter, "invoke_protein_sol", invoke_protein_sol)
+    monkeypatch.setattr(solubility_adapter, "_run_local_process", run_protein_sol)
 
     normalized, _ = normalize_csh_parent_span(
-        __import__("datatypes").ProteinStructure(INPUT_PATH.read_text(encoding="ascii"))
+        ProteinStructure(INPUT_PATH.read_text(encoding="ascii"))
     )
     folding = _ControlledESMFold2(normalized.pdb_string)
+    monkeypatch.setattr(
+        "modules.folding.esmfold2_remote.build_remote_engine",
+        lambda _environment: folding,
+    )
 
     environment = {
         ("proteinmpnn.design.local", "11.0.0"): {
             "values": {
                 "device": "cpu",
                 "provider_root": ROOT / "repositories" / "ProteinMPNN",
-                "private_token": "provider-free",
             },
         },
         ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
-                "credential_handle": object(),
-                "provider_client": folding,
+                "credential_handle": "provider-free-folding-credential",
             },
         },
         ("solubility.protein_sol.local", "5.0.0"): {
@@ -659,10 +667,9 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         },
     }
     catalog = _provider_free_catalog()
-    with TestClient(create_app(
+    with TestClient(create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration=environment,
-        _install_canonical_seed=False,
     )) as client:
         project_id = client.post(
             "/api/v2/projects", json={"name": "source-bound 2EMO"}

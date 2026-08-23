@@ -15,11 +15,7 @@ from typing import Any
 
 import pytest
 
-from datatypes import ProteinStructure
-from tests.acceptance.retained_evidence import (
-    retain_proteinmpnn_lifecycle,
-)
-
+from datatypes.structure import ProteinStructure
 # Project root is three levels up from this file
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 PDB_3GB1_SHA256 = (
@@ -28,32 +24,6 @@ PDB_3GB1_SHA256 = (
 SEQUENCE_3GB1_SHA256 = (
     "7e859d82171047700fd3e9632f7a47eab4a39baedc8c3316d2fc62d3ce2260bb"
 )
-
-
-@pytest.fixture(scope="session", autouse=True)
-def retain_installed_proteinmpnn_load_count() -> Iterator[None]:
-    """Record the one fact not present in public invocation events."""
-    if os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER") != (
-        "installed-proteinmpnn"
-    ):
-        yield
-        return
-    import modules.proteinmpnn.provider_runtime as runtime
-
-    original_load = runtime._load_model
-    load_count = 0
-
-    def counted_load(*args: Any, **kwargs: Any) -> Any:
-        nonlocal load_count
-        load_count += 1
-        return original_load(*args, **kwargs)
-
-    runtime._load_model = counted_load
-    try:
-        yield
-    finally:
-        runtime._load_model = original_load
-        retain_proteinmpnn_lifecycle(load_count=load_count)
 
 
 @pytest.hookimpl(hookwrapper=True, tryfirst=True)

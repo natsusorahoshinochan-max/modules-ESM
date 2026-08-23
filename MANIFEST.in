@@ -1,7 +1,6 @@
 include uv.lock
 include docs/backend-verification.md
 include docs/provider-install-contract.md
-include scripts/build_backend.py
-include scripts/verify_backend.py
 prune tests
+prune verification-results
 global-exclude __pycache__ *.py[cod]

@@ -52,7 +52,7 @@ directly. Sequence extraction is an identity-preserving projection of the axis
 parent sequence and residue identities. Backbone extraction projects the axis
 parent residue names, selected N/CA/C/O coordinates, complete-backbone mask,
 and segment topology; raw coordinate records never decide its residue
-population. Candidate sequence extraction additionally consumes the original
+population. Candidate sequence extraction additionally consumes the input
 Candidate Collection solely for exact lineage and declared output ordering,
 then requires a complete `CandidateDataReference` bijection to its axes; it
 does not inspect Candidate structure data. Chain selection precedes axis
@@ -101,8 +101,8 @@ resolution. CSH normalization expands the locked component to its SER-HIS-GLY
 parent span and removes a deposited `TER` only when that record lies exactly at
 the covalent parent-span insertion boundary. The repaired structure must expose
 one continuous segment across the expanded parents. Other deposited segment
-boundaries remain unchanged. The original unnormalized Project Input remains
-unchanged, and raw CSH is rejected by residue-axis resolution.
+boundaries remain unchanged. The source Project Input is immutable, and raw CSH
+is rejected by residue-axis resolution.
 
 CSH normalization also owns the declaration repair made necessary by that
 expansion. Every `MODRES` and `SEQRES` record unrelated to a normalized CSH
@@ -148,11 +148,5 @@ Collection, they use the same complete-reference association contract and must
 cover exactly the same Candidate references; normalization list position never
 selects a structure.
 
-The rejected alternatives are record-type filtering in each consumer,
-structure/axis pairs aligned only by workflow position, silently dropping
-unknown modified polymers, treating all `HETATM` records as non-protein,
-guessing peptide continuity from residue numbering, reparsing coordinates in
-Adapters, deriving prediction confidence axes from output PDB records, dropping
-polymer declarations during chain selection, and retaining parallel legacy
-residue-axis paths. This decision extends ADR-0028,
-ADR-0033, and ADR-0034.
+The exact nominal, Candidate-association, and single-active-operation contracts
+defined by ADR-0028, ADR-0033, and ADR-0034 apply to every resolved residue axis.

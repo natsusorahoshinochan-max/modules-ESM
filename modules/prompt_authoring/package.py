@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     EffectiveRandomnessResolver,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
-    ReadinessCheckInput,
-    ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+    load_method_definitions,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    ScientificOperation,
 )
 
 from .implementation import (
@@ -43,154 +46,55 @@ from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
 _PACKAGE_VERSION = "2.1.0"
-_DEFAULT_METHOD_VERSION = "2.1.0"
-_METHOD_VERSIONS = {
-    "prompt_from_structure": "3.0.0",
+_OPERATIONS = {
+    "add_function_annotation": (
+        AddFunctionAnnotationImplementation, "3.0.0", "2.1.0"
+    ),
+    "assemble_protein_prompt": (
+        AssembleProteinPromptImplementation, "3.0.0", "2.1.0"
+    ),
+    "build_residue_layout": (
+        BuildResidueLayoutImplementation, "3.0.0", "2.1.0"
+    ),
+    "edit_residue_layout": (
+        EditResidueLayoutImplementation, "3.0.0", "2.1.0"
+    ),
+    "insert_masked_residues": (
+        InsertMaskedResiduesImplementation, "3.0.0", "2.1.0"
+    ),
+    "map_residue_track": (
+        MapResidueTrackImplementation, "3.0.0", "2.1.0"
+    ),
+    "override_protein_prompt_track": (
+        OverrideProteinPromptTrackImplementation, "3.0.0", "2.1.0"
+    ),
+    "override_residue_track": (
+        OverrideResidueTrackImplementation, "3.0.0", "2.1.0"
+    ),
+    "prompt_from_structure": (
+        PromptFromStructureImplementation, "5.0.0", "3.0.0"
+    ),
+    "random_insert_masked": (
+        RandomInsertMaskedImplementation, "3.0.0", "2.1.0"
+    ),
+    "random_mask": (RandomMaskImplementation, "3.0.0", "2.1.0"),
+    "update_prompt_sequence": (
+        UpdatePromptSequenceImplementation, "3.0.0", "2.1.0"
+    ),
 }
-_DEFAULT_NODE_BINDING_VERSION = "3.0.0"
-_NODE_BINDING_VERSIONS = {
-    "prompt_from_structure": "5.0.0",
-}
-_OPERATIONS = (
-    "add_function_annotation",
-    "assemble_protein_prompt",
-    "build_residue_layout",
-    "edit_residue_layout",
-    "insert_masked_residues",
-    "map_residue_track",
-    "override_protein_prompt_track",
-    "override_residue_track",
-    "prompt_from_structure",
-    "random_insert_masked",
-    "random_mask",
-    "update_prompt_sequence",
-)
-_IMPLEMENTATIONS = {
-    "add_function_annotation": AddFunctionAnnotationImplementation,
-    "assemble_protein_prompt": AssembleProteinPromptImplementation,
-    "build_residue_layout": BuildResidueLayoutImplementation,
-    "edit_residue_layout": EditResidueLayoutImplementation,
-    "insert_masked_residues": InsertMaskedResiduesImplementation,
-    "map_residue_track": MapResidueTrackImplementation,
-    "override_protein_prompt_track": OverrideProteinPromptTrackImplementation,
-    "override_residue_track": OverrideResidueTrackImplementation,
-    "prompt_from_structure": PromptFromStructureImplementation,
-    "random_insert_masked": RandomInsertMaskedImplementation,
-    "random_mask": RandomMaskImplementation,
-    "update_prompt_sequence": UpdatePromptSequenceImplementation,
-}
-
-
-def _available() -> AvailabilityResult:
-    return AvailabilityResult.available()
-
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
 
 
 def _build(operation: str):
+    implementation = _OPERATIONS[operation][0]
+
     def factory(context: OperationContext) -> ScientificOperation:
-        implementation = _IMPLEMENTATIONS[operation]
         return implementation(context.resources)
 
     return factory
 
 
-def _method(operation: str) -> MethodDefinition:
-    algorithm_identity = {
-        "add_function_annotation": {
-            "name": "chain-qualified-function-interval-authoring",
-            "interval_indexing": "one-based-inclusive-provider-axis",
-            "ordering": "global-start-global-end-label-and-provenance",
-            "overlap_policy": "explicit-workflow-choice",
-        },
-        "assemble_protein_prompt": {
-            "name": "validated-residue-aligned-protein-prompt-assembly",
-            "track_layout": "exact-effective-residue-layout",
-            "optional_tracks": "absent-or-explicitly-nullable",
-        },
-        "build_residue_layout": {
-            "name": "canonical-residue-layout-construction",
-            "residue_identity": "<chain>:<one-based-generated-label>",
-            "chain_boundary": "ordered-contiguous-chain-blocks",
-        },
-        "edit_residue_layout": {
-            "name": "explicit-residue-identity-reconciliation",
-            "mapping_operations": ["delete", "insert", "match"],
-            "mapping_indexing": "zero-based-with-negative-unmapped-sentinel",
-        },
-        "insert_masked_residues": {
-            "name": "deterministic-identity-addressed-masked-insertion",
-            "boundary": "adjacent-source-residue-identities",
-            "ordering": "declared-source-boundary-order",
-            "preservation": "all-source-identities-and-present-track-values",
-            "inserted_values": "explicit-null-on-every-present-track",
-            "residue_map": "complete-match-and-insert-only",
-        },
-        "map_residue_track": {
-            "name": "explicit-residue-map-conversion",
-            "nullable_semantics": "JSON null means unmapped or unspecified",
-            "mapping_indexing": "zero-based",
-        },
-        "override_residue_track": {
-            "name": "identity-addressed-track-override",
-            "actions": ["clear", "preserve", "replace"],
-            "nullable_semantics": "JSON null means unspecified",
-        },
-        "override_protein_prompt_track": {
-            "name": "identity-addressed-protein-prompt-track-override",
-            "actions": ["clear", "preserve", "replace"],
-            "unaffected_tracks": "byte-equivalent-canonical-values",
-        },
-        "prompt_from_structure": {
-            "name": "canonical-resolved-axis-to-protein-prompt",
-            "residue_identity": "resolved-axis-layout-order",
-            "coordinates": "resolved-axis-selected-named-atoms",
-            "visibility": "resolved-axis-coordinate-bearing-residues",
-            "component_policy": "consume-resolver-admitted-polymer-axis",
-        },
-        "random_insert_masked": {
-            "name": "seeded-chain-local-masked-residue-insertion",
-            "sampling": "sha256-boundary-set-digest-counter-modulo-v1",
-            "replacement": "with-replacement-across-eligible-boundaries",
-            "eligibility": "canonical-unordered-effective-chain-set-v1",
-            "inserted_values": "explicit-null-on-every-present-track",
-        },
-        "random_mask": {
-            "name": "seeded-assigned-residue-masking",
-            "sampling": "sha256-residue-ranking-v1",
-            "replacement": "without-replacement",
-            "eligibility": "canonical-unordered-assigned-residue-set-v1",
-            "masked_value": "explicit-null",
-        },
-        "update_prompt_sequence": {
-            "name": "generic-protein-prompt-sequence-replacement",
-            "preservation": "layout-and-all-unaffected-tracks",
-            "residue_identity": "exact-layout-order",
-        },
-    }[operation]
-    return MethodDefinition(
-        method_id=f"prompt_authoring.{operation}.method",
-        version=_METHOD_VERSIONS.get(operation, _DEFAULT_METHOD_VERSION),
-        algorithm_identity=algorithm_identity,
-        model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
-        featurization_identity={
-            "residue_identity": "<chain>:<label>",
-            "chain_boundary": "contiguous",
-        },
-        source_identity={"kind": "repository-owned"},
-        scale_contract={"kind": "identity"},
-    )
-
-
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    binding_version = _NODE_BINDING_VERSIONS.get(
-        operation,
-        _DEFAULT_NODE_BINDING_VERSION,
-    )
+    _implementation, binding_version, method_version = _OPERATIONS[operation]
     randomness_parameters = {
         "random_mask": (
             "effective_seed",
@@ -219,7 +123,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         method=ContractIdentity(
             "method",
             f"prompt_authoring.{operation}.method",
-            _METHOD_VERSIONS.get(operation, _DEFAULT_METHOD_VERSION),
+            method_version,
         ),
         binding_parameters={},
         execution_route="direct",
@@ -238,16 +142,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 {"observation": "startup"},
             ),
             prerequisites={},
-            check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"prompt_authoring.{operation}/readiness",
-                binding_version,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
+            check=AvailabilityResult.available,
         ),
         deterministic=True,
         cacheable=True,
@@ -272,7 +167,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="prompt_authoring",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,
@@ -292,7 +186,10 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/random_mask.yaml"),
         DefinitionResource("definitions/update_prompt_sequence.yaml"),
     ),
-    methods=tuple(_method(operation) for operation in _OPERATIONS),
+    methods=load_method_definitions(
+        __package__,
+        "definitions/methods.yaml",
+    ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(*ALIGNED_TRACK_PORT_TYPES, *PROMPT_PORT_TYPES),
 )

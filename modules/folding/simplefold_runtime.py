@@ -6,6 +6,7 @@ Evaluate: structure -> pLDDT scores (larger model, no re-folding).
 
 from __future__ import annotations
 
+import gc
 import importlib
 import os
 import shutil
@@ -19,10 +20,10 @@ from typing import Any, Callable
 
 import torch
 
-from datatypes import (
-    ProteinSequence,
-    ProteinStructure,
-)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+
+from .simplefold_contract import SIMPLEFOLD_DEVICE
 
 
 _SIMPLEFOLD_PROCESS_LOCK = threading.RLock()
@@ -37,16 +38,6 @@ def _setup_simplefold_imports() -> str:
         sys.path.insert(0, sf_dir)
     os.chdir(sf_dir)
     return old_cwd
-
-def _get_artifact_dir(project_dir: str) -> Path:
-    """Get or create artifact directory for model checkpoints and outputs."""
-    if not project_dir:
-        raise ValueError("SimpleFold staging directory is required")
-    base = Path(project_dir)
-    artifacts = base / "simplefold_artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    return artifacts
-
 
 def _load_reviewed_simplefold_esm2(
     source_root: Path,
@@ -111,6 +102,67 @@ def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
     shutil.copyfile(model_dir / "ccd.pkl", cache / "ccd.pkl")
 
 
+def _load_reviewed_torch_module(
+    *,
+    config_path: Path,
+    checkpoint_path: Path,
+    device: Any,
+) -> Any:
+    """Bind a reviewed checkpoint without retaining a copied state dictionary."""
+    import hydra
+    import omegaconf
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location="cpu",
+        weights_only=False,
+        mmap=True,
+    )
+    module = hydra.utils.instantiate(
+        omegaconf.OmegaConf.load(config_path)
+    )
+    module.load_state_dict(checkpoint, strict=True, assign=True)
+    module = module.to(device)
+    module.eval()
+    return module
+
+
+def _load_reviewed_folding_models(
+    model_dir: Path,
+    device: Any,
+) -> tuple[Any, dict[str, Any]]:
+    """Load the exact folding and pLDDT modules with bounded residency."""
+    architecture_root = Path("configs/model/architecture")
+    folding_model = _load_reviewed_torch_module(
+        config_path=architecture_root / "foldingdit_100M.yaml",
+        checkpoint_path=model_dir / "simplefold_100M.ckpt",
+        device=device,
+    )
+    return folding_model, _load_reviewed_plddt_models(model_dir, device)
+
+
+def _load_reviewed_plddt_models(
+    model_dir: Path,
+    device: Any,
+) -> dict[str, Any]:
+    """Load only the exact pLDDT output and latent modules."""
+    architecture_root = Path("configs/model/architecture")
+    plddt_out_module = _load_reviewed_torch_module(
+        config_path=architecture_root / "plddt_module.yaml",
+        checkpoint_path=model_dir / "plddt.ckpt",
+        device=device,
+    )
+    plddt_latent_module = _load_reviewed_torch_module(
+        config_path=architecture_root / "foldingdit_1.6B.yaml",
+        checkpoint_path=model_dir / "simplefold_1.6B.ckpt",
+        device=device,
+    )
+    return {
+        "plddt_out_module": plddt_out_module,
+        "plddt_latent_module": plddt_latent_module,
+    }
+
+
 def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
     """Serialize and restore the provider's process-global import state."""
     @wraps(function)
@@ -129,16 +181,13 @@ def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
 def fold_sequence(
     sequence: ProteinSequence,
     *,
-    model_name: str,
     num_steps: int,
     num_samples: int,
-    project_dir: str,
+    staging_directory: Path,
     effective_seed: int,
     staged_model_root: Path,
     staged_esm2_source_root: Path,
     staged_esm2_model_root: Path,
-    required_device: str,
-    record_evidence: bool,
 ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
     """Fold a protein sequence using SimpleFold.
 
@@ -146,14 +195,13 @@ def fold_sequence(
 
     num_steps is the exact Plan-normalized value admitted by the Binding.
     """
-    if model_name != "simplefold_100M":
-        raise ValueError("SimpleFold folding requires simplefold_100M")
-    artifacts = _get_artifact_dir(project_dir)
+    artifacts = staging_directory / "simplefold_artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
     model_dir = staged_model_root
     esm2_source_root = staged_esm2_source_root
     esm2_model_dir = staged_esm2_model_root
-    old_cwd = _setup_simplefold_imports()
-    from simplefold.wrapper import ModelWrapper, InferenceWrapper
+    _setup_simplefold_imports()
+    from simplefold.wrapper import InferenceWrapper
     from simplefold.utils.boltz_utils import (
         process_structure,
         to_pdb as sf_to_pdb,
@@ -186,20 +234,7 @@ def fold_sequence(
         ccd_path=cache / "ccd.pkl",
     )
 
-    # Initialize model
-    model_wrapper = ModelWrapper(
-        simplefold_model=model_name,
-        plddt=True,
-        ckpt_dir=str(model_dir),
-        backend="torch",
-    )
-    model = model_wrapper.from_pretrained_folding_model()
-    plddt_models = model_wrapper.from_pretrained_plddt_model()
-    device = model_wrapper.device
-    if str(device) != required_device:
-        raise RuntimeError(
-            "SimpleFold provider device does not match the Binding"
-        )
+    device = torch.device(SIMPLEFOLD_DEVICE)
 
     # Initialize inference wrapper
     inf_wrapper = InferenceWrapper(
@@ -212,34 +247,38 @@ def fold_sequence(
         backend="torch",
     )
 
+    struct_files = list(output_dir.glob("structures/*.npz"))
+
+    prepared_inputs: list[tuple[Any, Any, Any]] = []
+    for struct_file in struct_files:
+        record_file = output_dir / "records" / f"{struct_file.stem}.json"
+        prepared_inputs.append(
+            process_one_inference_structure(
+                struct_file,
+                record_file,
+                inf_wrapper.tokenizer,
+                inf_wrapper.featurizer,
+                inf_wrapper.processor,
+                inf_wrapper.esm_model,
+                inf_wrapper.esm_dict,
+                inf_wrapper.af2_to_esm,
+            )
+        )
+
+    # ESM2 is only needed to materialize the detached language-model features.
+    # Release its 3B parameters before loading folding and pLDDT weights.
+    inf_wrapper.esm_model = None
+    inf_wrapper.esm_dict = None
+    inf_wrapper.af2_to_esm = None
+    gc.collect()
+
+    model, plddt_models = _load_reviewed_folding_models(model_dir, device)
+
     structures: list[ProteinStructure] = []
     confidence_results: list[dict[str, Any]] = []
 
-    # Process each structure file
-    struct_files = list(output_dir.glob("structures/*.npz"))
-    if not struct_files:
-        raise ValueError("No structure files generated from FASTA processing")
-
-    for struct_file in struct_files:
-        record_file = output_dir / "records" / f"{struct_file.stem}.json"
-
-        batch, structure, record = process_one_inference_structure(
-            struct_file,
-            record_file,
-            inf_wrapper.tokenizer,
-            inf_wrapper.featurizer,
-            inf_wrapper.processor,
-            inf_wrapper.esm_model,
-            inf_wrapper.esm_dict,
-            inf_wrapper.af2_to_esm,
-        )
-
+    for batch, structure, record in prepared_inputs:
         # Run inference
-        if (
-            type(effective_seed) is not int
-            or not 0 <= effective_seed <= 9_007_199_254_740_991
-        ):
-            raise ValueError("SimpleFold effective seed is invalid")
         torch_device = torch.device(device)
         fork_devices = (
             [
@@ -289,9 +328,4 @@ def fold_sequence(
                     "sample_index": i,
                 }
             )
-        if record_evidence:
-            raise RuntimeError(
-                "SimpleFold evidence is recorded only by the v2 Run engine"
-            )
-    os.chdir(old_cwd)
     return structures, confidence_results

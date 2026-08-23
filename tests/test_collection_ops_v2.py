@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import replace
 from pathlib import Path
 
@@ -10,32 +12,39 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from core import (
-    ModulePackageContractCase,
-    OperationCall,
-    SelectionInput,
-    SelectionObjective,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.catalog.builder import (
     build_frozen_catalog,
-    build_discovered_frozen_catalog,
+)
+from core.operation import (
+    OperationCall,
+)
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
     verify_module_package_contract,
 )
-from core.project import ProjectManager
-from core.server import create_app
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.scoring.selection import SelectionInput, SelectionObjective
+from core.project.manager import ProjectManager
+from tests.support.application import create_application
+from protein_workbench_public.workflow_codec import encode_workflow_document
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     IntrinsicObservationContext,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.sequence import ProteinSequence
 from modules.collection_ops.package import MODULE_PACKAGE
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from tests.fixtures.public_v2 import (
@@ -152,6 +161,7 @@ def test_score_merge_preserves_exact_i_json_value_types() -> None:
         metric=metric,
         method=method,
         context=IntrinsicObservationContext(),
+        source_partition="default",
         value={"nested": [True]},
     )
     call = operation_call(
@@ -178,10 +188,10 @@ def _assert_workflow_commit_owner(
     source_draft_revision: int,
     workflow_commit_revision: int,
 ) -> None:
-    owner = app.state.workflow_authoring_v2
+    owner = app.state.workflow_authoring
     commit = owner.load_active_commit(project_id)
     draft = owner.load_draft(project_id)
-    compiled = owner.require_compiled(
+    compiled = owner.require_verified_commit(
         project_id,
         workflow_commit_id=commit.workflow_commit_id,
     )
@@ -231,8 +241,8 @@ def _lineage_source(*, candidate_count: int = 2) -> WorkflowNodeInstance:
 
 
 def _public_collection_contracts() -> dict[tuple[str, str], dict]:
-    catalog = build_discovered_frozen_catalog()
-    app = create_app(frozen_catalog_override=catalog)
+    catalog = build_frozen_catalog(module_registrations())
+    app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         response = client.get("/api/v2/catalog")
     assert response.status_code == 200
@@ -741,7 +751,7 @@ def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
     include_surplus_reference: bool,
     expected_message: str,
 ) -> None:
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     sequence_codec = catalog.require_port_type("protein.sequence", "3.0.0")
     parent_data = ProteinSequence("AA")
     reference_data = ProteinSequence("CC")
@@ -899,7 +909,7 @@ def _run_public_collection_workflow(
     ).create(
         f"collection operations {operation}"
     ).id
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         workflow = WorkflowDocument(
             schema_version=VERSION,
@@ -911,7 +921,7 @@ def _run_public_collection_workflow(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": workflow.to_public(),
+                "workflow": encode_workflow_document(workflow),
             },
         )
         assert committed.status_code == 200
@@ -959,7 +969,7 @@ def _run_public_collection_workflow(
                 "replay_complete",
             }
         )
-    return app.state.run_execution_v2, catalog, first, second, replay_events
+    return app.state.run_runtime, catalog, first, second, replay_events
 
 
 def _decoded_outputs(
@@ -1204,7 +1214,7 @@ def _commit_through_public_rest(
     project_id = ProjectManager(
         root_dir=tmp_path / "project"
     ).create(workflow.workflow_id).id
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         public_workflow = replace(
             workflow,
@@ -1214,7 +1224,7 @@ def _commit_through_public_rest(
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": public_workflow.to_public(),
+                "workflow": encode_workflow_document(public_workflow),
             },
         )
         if response.status_code == 200:
@@ -1241,7 +1251,7 @@ def _run_through_public_rest(
     project_id = ProjectManager(
         root_dir=tmp_path / "project"
     ).create(workflow.workflow_id).id
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         public_workflow = replace(
             workflow,
@@ -1251,7 +1261,7 @@ def _run_through_public_rest(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": public_workflow.to_public(),
+                "workflow": encode_workflow_document(public_workflow),
             },
         )
         assert committed.status_code == 200
@@ -1294,7 +1304,7 @@ def _run_through_public_rest(
             "replay_complete",
         }
     )
-    return app.state.run_execution_v2, projection, events
+    return app.state.run_runtime, projection, events
 
 
 def _scorer(partition: str, binding: str) -> WorkflowNodeInstance:

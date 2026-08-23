@@ -2,24 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Protocol, cast
 
-from core import OperationCall, OperationContext
-from datatypes import (
-    CandidateDataReference,
+from core.operation import (
+    OperationCall,
+    OperationContext,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.observation import (
     PairwiseCandidateMapping,
     ScoreCollection,
     ScoreObservation,
 )
-from modules.structure_transform import (
-    CandidateResolvedResidueAxisAssociation,
-    CandidateResolvedResidueAxisAssociations,
-)
+from datatypes.structure import ResolvedStructureResidueAxis
 
 from .alignment import align_resolved_axes
 from .contracts import (
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
-    STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE,
 )
 from .domain import StructureAlignmentEvidence
 from .metrics import (
@@ -27,6 +26,19 @@ from .metrics import (
     rmsd_from_evidence,
     tm_score_from_evidence,
 )
+
+
+class _ResolvedAxisAssociation(Protocol):
+    """Structural view of one admitted resolved-axis association."""
+
+    subject: CandidateDataReference
+    residue_axis: ResolvedStructureResidueAxis
+
+
+class _ResolvedAxisAssociations(Protocol):
+    """Structural view of the resolved-axis capability collection."""
+
+    entries: tuple[_ResolvedAxisAssociation, ...]
 
 
 def _reference_key(
@@ -54,12 +66,15 @@ def _candidate_references(
 
 
 def _axis_associations(
-    value: CandidateResolvedResidueAxisAssociations,
+    value: object,
     references: tuple[CandidateDataReference, ...],
     *,
     role: str,
-) -> dict[CandidateDataReference, CandidateResolvedResidueAxisAssociation]:
-    by_reference = {entry.subject: entry for entry in value.entries}
+) -> dict[CandidateDataReference, _ResolvedAxisAssociation]:
+    associations = cast(_ResolvedAxisAssociations, value)
+    by_reference = {
+        entry.subject: entry for entry in associations.entries
+    }
     if set(by_reference) != set(references):
         raise ValueError(
             f"{role} residue axes must cover exact Candidate references"
@@ -128,16 +143,12 @@ class StructureComparisonImplementation:
     def execute(self, call: OperationCall) -> dict[str, Any]:
         if self._operation in {"align_single", "align_pairwise"}:
             return self._align(call)
-        if self._operation in {"rmsd", "tm_score"}:
-            return self._observe(call)
-        raise ValueError("unknown structure comparison operation")
+        return self._observe(call)
 
     def _alignment_method(self) -> str:
         if self._method == SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE:
             return "sequence_primary_affine"
-        if self._method == STRUCTURE_FIRST_TM_ALIGN_METHOD_REFERENCE:
-            return "structure_first_tm_align"
-        raise ValueError("Binding selected an unknown alignment Method")
+        return "structure_first_tm_align"
 
     def _align(self, call: OperationCall) -> dict[str, Any]:
         pin_matching_chain_ids = call.node_parameters[
@@ -172,14 +183,12 @@ class StructureComparisonImplementation:
             pairs = ((subjects[0], references[0]),)
         elif self._pairing_mode == "fixed_reference":
             pairs = _fixed_reference_pairs(subjects, references)
-        elif self._pairing_mode == "per_subject_counterpart":
+        else:
             pairs = _counterpart_pairs(
                 call.inputs["pairing"].value,
                 subjects,
                 references,
             )
-        else:
-            raise ValueError("pairwise alignment Binding lacks pairing semantics")
 
         method = self._alignment_method()
         alignments: list[StructureAlignmentEvidence] = []

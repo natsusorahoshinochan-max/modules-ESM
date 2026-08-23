@@ -20,7 +20,7 @@ next startup closes only the unfinished Run as `interrupted`; it does not infer
 or reconstruct missing internal attempt or invocation terminals.
 
 Parent-child invocation roles are explicit. The general Ledger contract does
-not impose a historical global invocation count. A scenario-specific scientific
+not impose a global invocation count. A scenario-specific scientific
 acceptance test may still require exact counts for its named Provider stages.
 
 The Run Evidence Ledger is the single writer and ordered durable source of
@@ -34,5 +34,3 @@ before it may affect a projection or be published. Projection failure cannot
 change the persisted execution outcome. Failure to persist required execution
 evidence prevents the Node Execution Attempt from publishing success or writing
 a Cache result.
-
-This decision refines ADR-0006 and ADR-0015.

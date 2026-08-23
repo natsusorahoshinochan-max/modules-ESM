@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import io
 import json
 import os
@@ -11,23 +15,24 @@ import stat
 import subprocess
 import sys
 import time
+import tomllib
 
 import pytest
 
-import scripts.verify_backend as verify_backend
-import scripts.acceptance_campaign as acceptance_campaign
-from modules.acceptance_campaign import (
+import verification.backend as verify_backend
+import verification.acceptance_cli as acceptance_campaign
+from verification.acceptance_campaign import (
     CANONICAL_ACCEPTANCE_TIERS,
     ExecutionProfile,
 )
-from scripts.acceptance_campaign import (
+from verification.acceptance_cli import (
     REPOSITORY_VERIFICATION_TIERS,
 )
-from scripts.verify_backend import TIERS
+from verification.backend import TIERS
 
 
 PROJECT_ROOT = Path(__file__).parent.parent
-VERIFY_COMMAND = PROJECT_ROOT / "scripts" / "verify_backend.py"
+VERIFY_COMMAND = (sys.executable, "-m", "verification.backend")
 ROOT_VARIABLES = (
     "PROTEIN_WORKBENCH_PROJECT_ROOT",
     "PROTEIN_WORKBENCH_CACHE_ROOT",
@@ -41,7 +46,7 @@ def _run_verifier(
     *pytest_targets: str,
     env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    command = [sys.executable, str(VERIFY_COMMAND), tier]
+    command = [*VERIFY_COMMAND, tier]
     if pytest_targets:
         command.extend(["--", *pytest_targets])
     return subprocess.run(
@@ -165,6 +170,36 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
         and TIERS[tier.name].retain_evidence_bundle
         for tier in CANONICAL_ACCEPTANCE_TIERS
     )
+    lifecycle_requirements = {
+        tier.name: tier.lifecycle_receipt_required
+        for tier in CANONICAL_ACCEPTANCE_TIERS
+    }
+    assert lifecycle_requirements["installed-proteinmpnn"] is False
+    assert lifecycle_requirements["fresh-2emo"] is True
+
+
+def test_external_acceptance_tree_uses_canonical_pytest_configuration(
+    tmp_path: Path,
+) -> None:
+    from tests.acceptance.installed_harness import (
+        _copy_external_acceptance_tree,
+    )
+
+    external_root = tmp_path / "external"
+    _copy_external_acceptance_tree(external_root)
+
+    assert (external_root / "pyproject.toml").read_bytes() == (
+        PROJECT_ROOT / "pyproject.toml"
+    ).read_bytes()
+
+
+def test_distribution_declares_an_existing_root_readme() -> None:
+    project = tomllib.loads(
+        (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]
+
+    assert project["readme"] == "README.md"
+    assert (PROJECT_ROOT / project["readme"]).is_file()
 
 
 def test_installed_provider_tiers_select_exact_outer_gates() -> None:
@@ -298,9 +333,8 @@ def test_installed_provider_case_matrix_is_exact_and_collectable() -> None:
     )
     assert BIOHUB_ESM3_GATE_INVOCATIONS == 8
     assert BIOHUB_ESM3_GATE_VERSION == "8.0.0"
-    from core import build_discovered_frozen_catalog
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     for binding_id in BIOHUB_ESM3_GATE_BINDINGS:
         binding = catalog.require_contract(
             "binding",
@@ -423,7 +457,9 @@ def test_installed_gate_paths_are_explicit_and_token_checks_are_redacted(
 
 
 def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
-    from core import build_frozen_catalog
+    from core.catalog.builder import (
+        build_frozen_catalog,
+    )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -689,8 +725,7 @@ def test_verifier_interruption_terminates_child_and_retains_terminal_state(
     env["PROTEIN_WORKBENCH_INTERRUPT_PROBE_PID"] = str(child_pid_path)
     process = subprocess.Popen(
         [
-            sys.executable,
-            str(PROJECT_ROOT / "scripts" / "verify_backend.py"),
+            *VERIFY_COMMAND,
             "routine",
             "tests/tier_probes/interrupt_probe.py",
         ],
@@ -726,6 +761,7 @@ def test_retained_junit_diagnostics_are_bounded_and_redact_credentials(
     junit_path = tmp_path / "pytest.xml"
     credential_path = tmp_path / "biohub-token"
     credential_path.write_text("sk-live-secret", encoding="utf-8")
+    credential_path.chmod(0o600)
     junit_path.write_text(
         '<testsuite tests="1" failures="1" errors="0" skipped="0">'
         f'<testcase classname="{tmp_path}/source.py" name="failed-contract">'

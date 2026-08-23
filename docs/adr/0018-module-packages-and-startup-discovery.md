@@ -22,24 +22,21 @@ package roots and consumes that object; it does not recursively search for
 arbitrary `definition.yaml` files, invoke per-Node `register()` functions, or
 depend on import side effects, globs, or helper-driven resource discovery.
 Helpers may construct an explicitly named resource reference but may not decide
-which production resources are registered. The internal implementation and test
-layout can be refined without changing this entry contract.
+which production resources are registered. Internal implementation and test
+layout do not change this entry contract.
 
 Discovery occurs only at startup; one atomically resolved `FrozenCatalog` is
 published and remains immutable. A package entry point must not eagerly import
 optional provider dependencies:
 their absence is reported by availability checks. Malformed Definitions,
 package import or registration failures, and conflicting contracts fail startup
-atomically. ADR-0025 refines availability to the Execution Binding: a valid
+atomically. ADR-0025 assigns Availability to the Execution Binding: a valid
 Node Type remains discovered while each binding whose optional model, runtime,
 accelerator, binary, or credentials are absent has its own structured
 `unavailable` state. ADR-0028 defines explicit Port Type contracts, and
 ADR-0029 separates startup Availability from per-Run Readiness.
 
-The v2 boundary intentionally supports repository-owned developer extensions,
+The extension boundary supports repository-owned developer extensions,
 not third-party `pip install`, plugin management, runtime hot loading, or
-automatic dependency installation. The Registry consumes a single Module
-Package registration shape so a future Python entry-point discovery mechanism
-can supply the same object without changing the package contract.
-
-This decision supersedes ADR-0007.
+automatic dependency installation. The Registry consumes exactly one Module
+Package registration shape.

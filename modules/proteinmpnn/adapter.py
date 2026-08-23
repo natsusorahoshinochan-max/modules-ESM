@@ -2,35 +2,32 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 import importlib.metadata
-import os
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, Protocol
 
-from core import (
+from core.operation import (
+    BindingEnvironment,
+    OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
     ProviderResidueProjection,
     ProviderResidueProjectionEntry,
     ReadinessResult,
-    RunResources,
 )
-from modules.provider_contract import proteinmpnn_provider_identity
-from datatypes import (
-    ProteinMPNNConstraints,
-    ProteinSequence,
-    ResolvedStructureResidueAxis,
-)
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ResolvedStructureResidueAxis
+from modules.proteinmpnn.domain import ProteinMPNNConstraints
 
-from .provider_runtime import (
+from .assets import check_proteinmpnn_readiness
+from .provider_request import (
     ProteinMPNNDesignRequest,
-    ProteinMPNNProvider,
-    _LocalProteinMPNNProvider,
     _prepare_design_request,
-    check_proteinmpnn_readiness,
 )
+from .provider_runtime import _LocalProteinMPNNProvider
 
 
 PROTEINMPNN_MODEL = "v_48_020"
@@ -42,10 +39,29 @@ _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
-_INSTALLED_GATE_RESIDENT_MODELS: dict[
+type _ProteinMPNNModelCache = dict[
     tuple[str, float, Path],
     tuple[Any, Any],
-] = {}
+]
+
+
+class ProteinMPNNProvider(Protocol):
+    """External provider boundary used by the adapter."""
+
+    def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
+        """Parse a PDB string into ProteinMPNN's structure representation."""
+
+    def design(
+        self, request: ProteinMPNNDesignRequest
+    ) -> list[ProteinSequence]:
+        """Execute one already-validated ProteinMPNN request."""
+
+    def score(
+        self,
+        request: ProteinMPNNDesignRequest,
+        sequence: ProteinSequence,
+    ) -> float:
+        """Score one exact sequence on one already-validated target."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,9 +159,10 @@ def _stage_provider_structure(
 
 
 def proteinmpnn_readiness(
-    environment: Mapping[str, Any],
+    check_input: BindingEnvironment,
 ) -> ReadinessResult:
     """Validate prerequisites without constructing or loading the model."""
+    environment = check_input.values
     try:
         torch_version = importlib.metadata.version("torch")
     except importlib.metadata.PackageNotFoundError:
@@ -160,26 +177,13 @@ def proteinmpnn_readiness(
             proof_source="direct-observation",
             reason_code="proteinmpnn_runtime_unavailable",
         )
-    if environment.get("device") != PROTEINMPNN_DEVICE:
+    if environment["device"] != PROTEINMPNN_DEVICE:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
             reason_code="proteinmpnn_runtime_unavailable",
         )
-    client = environment.get("provider_client")
-    if client is not None:
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
-    provider_root = environment.get("provider_root")
-    if not isinstance(provider_root, Path):
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
+    provider_root = cast(Path, environment["provider_root"])
     readiness = check_proteinmpnn_readiness(
         provider_root,
     )
@@ -190,19 +194,6 @@ def proteinmpnn_readiness(
             reason_code="proteinmpnn_runtime_unavailable",
         )
     return ReadinessResult(True, proof_source="direct-observation")
-
-
-def _provider_for_environment(
-    environment: Mapping[str, Any],
-    staging_directory: Path,
-    model_cache: dict[tuple[str, float, Path], tuple[Any, Any]],
-) -> ProteinMPNNProvider:
-    """Resolve the declared provider seam without accepting Workflow paths."""
-    return _LocalProteinMPNNProvider(
-        temp_dir=staging_directory,
-        provider_root=cast(Path, environment["provider_root"]),
-        model_cache=model_cache,
-    )
 
 
 def _prepare_local_design_request(
@@ -350,29 +341,35 @@ class LocalProteinMPNNAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
-        provider_factory: Callable[
-            [
-                Mapping[str, Any],
-                Path,
-                dict[tuple[str, float, Path], tuple[Any, Any]],
-            ],
-            ProteinMPNNProvider,
-        ] = _provider_for_environment,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources
-        self._provider_factory = provider_factory
-        if (
-            os.environ.get("PROTEIN_WORKBENCH_VERIFICATION_TIER")
-            == "installed-proteinmpnn"
-        ):
-            self._resident_models = _INSTALLED_GATE_RESIDENT_MODELS
-        else:
-            self._resident_models: dict[
-                tuple[str, float, Path],
-                tuple[Any, Any],
-            ] = {}
+
+    def _provider(
+        self,
+        staging_directory: Path,
+        resident_models: dict[object, object],
+    ) -> ProteinMPNNProvider:
+        return _LocalProteinMPNNProvider(
+            temp_dir=staging_directory,
+            provider_root=cast(Path, self._environment["provider_root"]),
+            model_cache=cast(_ProteinMPNNModelCache, resident_models),
+        )
+
+    @contextmanager
+    def _provider_execution(
+        self,
+        *,
+        prefix: str,
+    ) -> Iterator[ProteinMPNNProvider]:
+        with self._resources.local_provider(
+            "proteinmpnn",
+        ) as resident_models:
+            with self._resources.temporary_directory(
+                prefix=prefix,
+            ) as staging_directory:
+                yield self._provider(staging_directory, resident_models)
 
     def design(
         self,
@@ -387,14 +384,9 @@ class LocalProteinMPNNAdapter:
         engine_role: str,
     ) -> tuple[ProteinSequence, ...]:
         """Run one design call and admit its provider-native result."""
-        with self._resources.temporary_directory(
+        with self._provider_execution(
             prefix="proteinmpnn-design-"
-        ) as staging_directory:
-            provider = self._provider_factory(
-                self._environment,
-                staging_directory,
-                self._resident_models,
-            )
+        ) as provider:
             request = _prepare_local_design_request(
                 provider=provider,
                 residue_axis=residue_axis,
@@ -431,14 +423,9 @@ class LocalProteinMPNNAdapter:
         sequence: ProteinSequence,
     ) -> float:
         """Run one exact sequence scoring call and admit its native scale."""
-        with self._resources.temporary_directory(
+        with self._provider_execution(
             prefix="proteinmpnn-score-"
-        ) as staging_directory:
-            provider = self._provider_factory(
-                self._environment,
-                staging_directory,
-                self._resident_models,
-            )
+        ) as provider:
             request = _prepare_local_scoring_request(
                 provider=provider,
                 residue_axis=residue_axis,
@@ -457,8 +444,3 @@ class LocalProteinMPNNAdapter:
                 ),
             ):
                 return provider.score(request, sequence)
-
-    def close(self) -> None:
-        """Release operation-scoped resident models after the Operation."""
-        if self._resident_models is not _INSTALLED_GATE_RESIDENT_MODELS:
-            self._resident_models.clear()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events
+
 from datetime import datetime, timezone
 import json
 from typing import Any
@@ -9,27 +11,44 @@ from typing import Any
 from fastapi.testclient import TestClient
 import pytest
 
-from core import (
-    BehaviorReference,
-    EffectiveRandomnessResolver,
-    ExecutionTermination,
-    FrozenCatalog,
-    OperationCall,
-    OperationContext,
-    ReadinessDeclaration,
-    ReadinessResult,
-    ResultReplaySource,
-    ScientificOperationFactory,
+from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from core.server import create_app
-import core.run_execution_v2 as run_execution_v2
-from datatypes import Candidate, CandidateCollection, ProteinSequence
+from core.catalog.declarations import (
+    EffectiveRandomnessResolver,
+    EnvironmentFieldDeclaration,
+    ReadinessDeclaration,
+    ScientificOperationFactory,
+)
+from core.catalog.model import (
+    FrozenCatalog,
+)
+from core.catalog.canonical import canonical_sha256
+from core.catalog.port_contract import BehaviorReference
+from core.operation import (
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from core.execution._node_attempt_identity import (
+    _resolve_effective_randomness,
+    _result_contract_metadata,
+    _result_identity_descriptor,
+)
+from core.execution.node_attempt import ExecutionTermination
+from core.execution.results.cache import ProjectReplayIndex
+from tests.support.application import create_application
+from datatypes.candidate import (
+    Candidate,
+    CandidateCollection,
+)
+from datatypes.sequence import ProteinSequence
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
     wait_for_testclient_run_terminal,
 )
-from tests.test_run_execution_v2 import (
+from tests.support.catalog import binding_availability, install_runtime
+from tests.test_run_runtime import (
     _artifact_catalog,
     _commit_artifact_node,
     _commit_one_node,
@@ -37,9 +56,9 @@ from tests.test_run_execution_v2 import (
     _commit_public_workflow,
     _contract,
     _direct_catalog,
-    _object_path,
     _pipeline_catalog,
 )
+from core.execution._run_runtime_evidence import plan_evidence
 
 
 def _start_run(
@@ -58,7 +77,8 @@ def _start_run(
     assert started.status_code == 202
     run_id = started.json()["run_id"]
     projection = wait_for_testclient_run_terminal(client, project_id, run_id)
-    events = client.app.state.run_execution_v2.public_events(
+    events = public_run_events(
+        client.app.state.run_runtime,
         project_id,
         run_id,
     )
@@ -74,11 +94,11 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
             f"PROTEIN_WORKBENCH_{name}_ROOT",
             str(tmp_path / name.lower()),
         )
-    app = create_app(frozen_catalog_override=_direct_catalog([]))
+    app = create_application(frozen_catalog_override=_direct_catalog([]))
 
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
-        compiled = app.state.workflow_authoring_v2.require_compiled(
+        compiled = app.state.workflow_authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
@@ -104,19 +124,24 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
             "canonical_projection",
             canonical_projection,
         )
-        descriptor = run_execution_v2._result_identity_descriptor(
+        descriptor = _result_identity_descriptor(
             node,
             {},
+            resolved_resource_inputs=(),
+            effective_randomness_snapshot=_resolve_effective_randomness(
+                node,
+                {},
+            ),
         )
-        cache_metadata = run_execution_v2._result_contract_metadata(node)
-        ledger_plan_facts = app.state.run_execution_v2._plan_evidence(plan)[0]
+        cache_metadata = _result_contract_metadata(node)
+        ledger_plan_facts = plan_evidence(plan)[0]
 
     assert descriptor["result_identity_plan_facts"] == expected_projection
     assert cache_metadata == {
         "result_identity_plan_facts": expected_projection,
     }
     assert ledger_plan_facts.result_identity_plan_facts_digest == (
-        run_execution_v2.canonical_sha256(expected_projection)
+        canonical_sha256(expected_projection)
     )
     assert observed_calls == [plan_facts, plan_facts, plan_facts]
 
@@ -146,17 +171,22 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
             }
         },
     )
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
 
     with TestClient(app) as client:
         project_id, committed = _commit_one_node(client)
-        compiled = app.state.workflow_authoring_v2.require_compiled(
+        compiled = app.state.workflow_authoring.require_verified_commit(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
-        descriptor = run_execution_v2._result_identity_descriptor(
+        descriptor = _result_identity_descriptor(
             compiled.execution_plan.nodes[0],
             {},
+            resolved_resource_inputs=(),
+            effective_randomness_snapshot=_resolve_effective_randomness(
+                compiled.execution_plan.nodes[0],
+                {},
+            ),
         )
 
     assert descriptor["node_parameters"] == {parameter_name: 17}
@@ -294,28 +324,24 @@ def _candidate_catalog(
     observed_at = datetime(2026, 7, 29, 8, 0, tzinfo=timezone.utc)
     return FrozenCatalog(
         builtin.port_types,
-        contracts=(method, node, binding),
-        availability=(
-            {
-                "binding": binding.reference(),
-                "observed_at": observed_at.isoformat(),
-                "available": True,
+        contracts=install_runtime(
+            (method, node, binding),
+            factories={
+                ("test.candidate.direct", "2.1.0"): ScientificOperationFactory(
+                    behavior=factory_behavior,
+                    build=factory,
+                )
+            },
+            readiness={
+                ("test.candidate.direct", "2.1.0"): ReadinessDeclaration(
+                    behavior=readiness_behavior,
+                    prerequisites={},
+                    check=lambda environment: ReadinessResult(True),
+                )
             },
         ),
+        availability=(binding_availability(binding, observed_at),),
         availability_observed_at=observed_at,
-        factories={
-            ("test.candidate.direct", "2.1.0"): ScientificOperationFactory(
-                behavior=factory_behavior,
-                build=factory,
-            )
-        },
-        readiness_declarations={
-            ("test.candidate.direct", "2.1.0"): ReadinessDeclaration(
-                behavior=readiness_behavior,
-                prerequisites={},
-                check=lambda environment: ReadinessResult(True),
-            )
-        },
     )
 
 
@@ -374,7 +400,7 @@ def test_deterministic_result_replays_without_rechecking_provider_readiness(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -419,7 +445,57 @@ def test_deterministic_result_replays_without_rechecking_provider_readiness(
     assert "engine_invocation_started" not in replay_event_types
 
 
-def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
+def test_node_instance_rename_reuses_the_same_scientific_result(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
+        monkeypatch.setenv(
+            f"PROTEIN_WORKBENCH_{name}_ROOT",
+            str(tmp_path / name.lower()),
+        )
+    app = create_application(
+        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        first, _ = _start_run(client, project_id, compiled, "before-rename")
+        renamed_workflow = client.get(
+            f"/api/v2/projects/{project_id}/workflow/draft"
+        ).json()["workflow"]
+        renamed_workflow["nodes"][0]["node_id"] = "renamed"
+        renamed = _commit_public_workflow(
+            client,
+            project_id,
+            renamed_workflow,
+        )
+        replayed, _ = _start_run(
+            client,
+            project_id,
+            renamed,
+            "after-rename",
+        )
+
+    assert replayed["outputs"][0]["node_id"] == "renamed"
+    assert replayed["outputs"][0]["result_identity"] == (
+        first["outputs"][0]["result_identity"]
+    )
+    assert replayed["node_dispositions"][0]["resolution"] == (
+        "cache_replayed"
+    )
+    assert [call for call in calls if call.startswith("execute:")] == [
+        "execute:test.direct.local"
+    ]
+
+
+def test_cache_v5_is_manifest_only_and_ledger_commits_node_result_manifest(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -436,7 +512,7 @@ def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
@@ -451,26 +527,17 @@ def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
 
     result_identity = first["outputs"][0]["result_identity"]
     digest = result_identity.removeprefix("sha256:")
-    cache_path = cache_root / project_id / "v4" / "results" / f"{digest}.json"
+    cache_path = (
+        cache_root / project_id / "v5" / "results" / f"{digest}.json"
+    )
     entry = json.loads(cache_path.read_bytes())
     assert entry == {
-        "schema_namespace": "protein-workbench-cache-entry/v4",
+        "schema_namespace": "protein-workbench-cache-entry/v5",
         "result_identity": result_identity,
-        "result_contract_metadata": entry["result_contract_metadata"],
-        "producer": {
-            "producer_run_id": first["run_id"],
-            "producer_node_id": "direct",
-        },
+        "producer_run_id": first["run_id"],
         "node_result_manifest": entry["node_result_manifest"],
-        "outputs": entry["outputs"],
     }
     assert "encoded_values" not in json.dumps(entry)
-    assert entry["outputs"] == [
-        {
-            "output_port": "text",
-            "value_manifest": entry["outputs"][0]["value_manifest"],
-        }
-    ]
 
     publication = next(
         fact
@@ -486,20 +553,22 @@ def test_cache_v4_is_reference_only_and_ledger_commits_node_result_manifest(
     ]
 
 
-def test_node_result_manifest_covers_ordinary_and_artifact_output_ports(
+def test_cached_manifest_restores_ordinary_and_artifact_output_ports(
     tmp_path,
     monkeypatch,
 ) -> None:
     cache_root = tmp_path / "cache"
-    output_root = tmp_path / "outputs"
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    app = create_app(
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
             cacheable=True,
@@ -512,25 +581,6 @@ def test_node_result_manifest_covers_ordinary_and_artifact_output_ports(
         first, _ = _start_run(client, project_id, compiled, "artifact-source")
         replayed, _ = _start_run(client, project_id, compiled, "artifact-replay")
 
-    entry_path = next((cache_root / project_id / "v4").rglob("*.json"))
-    entry = json.loads(entry_path.read_bytes())
-    manifest_reference = entry["node_result_manifest"]
-    manifest = json.loads(
-        _object_path(
-            output_root,
-            project_id,
-            manifest_reference["content_digest"],
-        ).read_bytes()
-    )
-
-    assert [output["output_port"] for output in manifest["outputs"]] == [
-        "summary",
-        "structure",
-    ]
-    assert [output["output_port"] for output in entry["outputs"]] == [
-        "summary",
-        "structure",
-    ]
     assert [output["output_port"] for output in first["outputs"]] == [
         "summary"
     ]
@@ -565,7 +615,7 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
             cacheable=True,
@@ -582,8 +632,6 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
         item["resolution"] for item in second["node_dispositions"]
     ] == ["cache_replayed", "cache_replayed"]
     assert [item for item in calls if item.startswith("validate:")] == [
-        "validate:' READY '",
-        "validate:'ready'",
         "validate:'ready'",
         "validate:'ready'",
         "validate:'ready'",
@@ -594,10 +642,12 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
 def test_cache_publication_failure_does_not_change_node_or_run_success(
     tmp_path,
     monkeypatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    class UnavailableOnPublish(ResultReplaySource):
-        def publish(self, **_kwargs: Any) -> None:
-            raise OSError("fixture cache publication failure")
+    def fail_index(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("fixture cache publication failure")
+
+    monkeypatch.setattr(ProjectReplayIndex, "index", fail_index)
 
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
@@ -608,9 +658,8 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
-        v2_result_replay_source=UnavailableOnPublish(),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {"credential": "credential-value"},
@@ -646,6 +695,9 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
     assert operation_terminal["status"] == "succeeded"
     assert node_terminal["status"] == "succeeded"
     assert run_terminal["status"] == "succeeded"
+    assert caplog.messages == [
+        "Committed Result replay index publication is unavailable"
+    ]
 
 
 def test_candidate_identity_is_run_independent_and_preserved_on_replay(
@@ -666,7 +718,7 @@ def test_candidate_identity_is_run_independent_and_preserved_on_replay(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(frozen_catalog_override=_candidate_catalog(calls))
+    app = create_application(frozen_catalog_override=_candidate_catalog(calls))
 
     with TestClient(app) as client:
         project_id, compiled = _commit_candidate_node(client)
@@ -734,7 +786,7 @@ def test_duplicate_candidate_producer_identity_fails_closed(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_candidate_catalog(
             [],
             duplicate_output_ids=True,
@@ -778,7 +830,7 @@ def test_root_candidate_cannot_declare_node_id_as_pseudo_parent(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_candidate_catalog(
             [],
             declare_root_node_as_parent=True,
@@ -819,8 +871,17 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(calls, cacheable=True),
+    app = create_application(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            cacheable=True,
+            binding_environment_fields=(
+                EnvironmentFieldDeclaration(
+                    "runtime_path",
+                    "filesystem_path",
+                ),
+            ),
+        ),
         v2_environment_configuration={
             ("test.direct.local", "2.1.0"): {
                 "values": {
@@ -861,11 +922,11 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         "execute:test.direct.local",
     ]
     assert (
-            len(list((cache_root / first_project / "v4").rglob("*.json")))
+        len(list((cache_root / first_project / "v5").rglob("*.json")))
         == 1
     )
     assert (
-            len(list((cache_root / second_project / "v4").rglob("*.json")))
+        len(list((cache_root / second_project / "v5").rglob("*.json")))
         == 1
     )
 
@@ -890,11 +951,18 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
     }
     first_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 first_calls,
                 cacheable=True,
                 readiness_checks=readiness,
+                binding_environment_fields=(
+                    EnvironmentFieldDeclaration(
+                        "runtime_path",
+                        "filesystem_path",
+                    ),
+                    EnvironmentFieldDeclaration("device", "json_value"),
+                ),
             ),
             v2_environment_configuration={
                 ("test.direct.local", "2.1.0"): {
@@ -917,11 +985,18 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
 
     second_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 second_calls,
                 cacheable=True,
                 readiness_checks=readiness,
+                binding_environment_fields=(
+                    EnvironmentFieldDeclaration(
+                        "runtime_path",
+                        "filesystem_path",
+                    ),
+                    EnvironmentFieldDeclaration("device", "json_value"),
+                ),
             ),
             v2_environment_configuration={
                 ("test.direct.local", "2.1.0"): {
@@ -981,7 +1056,7 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
         node_title="Scientific text producer",
     )
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=producer_catalog,
             v2_environment_configuration=environment,
         )
@@ -1000,7 +1075,7 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
         path.name: path.read_bytes()
         for path in sorted(producer_ledger.glob("*.json"))
     }
-    cache_entry = next((cache_root / project_id / "v4").rglob("*.json"))
+    cache_entry = next((cache_root / project_id / "v5").rglob("*.json"))
     cache_entry.unlink()
     cache_entry.parent.rmdir()
     cache_entry.parent.parent.rmdir()
@@ -1015,7 +1090,7 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
     )
     assert producer_catalog.contract_digest != active_catalog.contract_digest
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=active_catalog,
             v2_environment_configuration=environment,
         )
@@ -1095,7 +1170,7 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
     }
     first_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 first_calls,
                 cacheable=True,
@@ -1121,7 +1196,7 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
 
     second_calls: list[str] = []
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=_direct_catalog(
                 second_calls,
                 cacheable=True,
@@ -1165,7 +1240,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1217,14 +1292,13 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     assert second["node_dispositions"][0]["resolution"] == "executed"
     assert "parameters:{'scientific_label': 'alpha'}" in calls
     assert "parameters:{'scientific_label': 'beta'}" in calls
-    assert len(list((cache_root / project_id / "v4").rglob("*.json"))) == 2
+    assert len(list((cache_root / project_id / "v5").rglob("*.json"))) == 2
 
 
 @pytest.mark.parametrize(
     ("termination", "expected_status"),
     (
         ("failed", "failed"),
-        ("cancelled", "cancelled"),
         ("interrupted", "interrupted"),
         ("outcome_unknown", "interrupted"),
     ),
@@ -1255,7 +1329,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
             cacheable=True,
@@ -1306,7 +1380,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1324,176 +1398,6 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
         first, _ = _start_run(client, project_id, compiled, "stochastic-a")
         second, _ = _start_run(client, project_id, compiled, "stochastic-b")
 
-    assert first["node_dispositions"][0]["resolution"] == "executed"
-    assert second["node_dispositions"][0]["resolution"] == "executed"
-    assert [
-        item for item in calls if item == "execute:test.direct.local"
-    ] == [
-        "execute:test.direct.local",
-        "execute:test.direct.local",
-    ]
-    assert not list((cache_root / project_id).rglob("*.json"))
-
-
-def test_unresolved_result_affecting_identity_disables_cross_run_cache(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    cache_root = tmp_path / "cache"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            cacheable=True,
-            source_identity={"kind": "unresolved"},
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        first, _ = _start_run(client, project_id, compiled, "unresolved-a")
-        second, _ = _start_run(client, project_id, compiled, "unresolved-b")
-
-    assert (
-        first["outputs"][0]["result_identity"]
-        == second["outputs"][0]["result_identity"]
-    )
-    assert first["node_dispositions"][0]["resolution"] == "executed"
-    assert second["node_dispositions"][0]["resolution"] == "executed"
-    assert [
-        item for item in calls if item == "execute:test.direct.local"
-    ] == [
-        "execute:test.direct.local",
-        "execute:test.direct.local",
-    ]
-    assert not list((cache_root / project_id).rglob("*.json"))
-
-
-def test_unresolvable_declared_effective_seed_disables_cross_run_cache(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    cache_root = tmp_path / "cache"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            cacheable=True,
-            node_parameter_declarations={
-                "effective_seed": {
-                    "parameter_scope": "scientific",
-                    "scientific_meaning": (
-                        "Fixture seed whose effective value cannot be resolved."
-                    ),
-                    "value_contract": {
-                        "type": "string",
-                        "enum": ["unresolved"],
-                    },
-                    "default": "unresolved",
-                },
-            },
-            effective_randomness_parameters=("effective_seed",),
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        first, _ = _start_run(client, project_id, compiled, "randomness-a")
-        second, _ = _start_run(client, project_id, compiled, "randomness-b")
-
-    assert (
-        first["outputs"][0]["result_identity"]
-        == second["outputs"][0]["result_identity"]
-    )
-    assert first["node_dispositions"][0]["resolution"] == "executed"
-    assert second["node_dispositions"][0]["resolution"] == "executed"
-    assert [
-        item for item in calls if item == "execute:test.direct.local"
-    ] == [
-        "execute:test.direct.local",
-        "execute:test.direct.local",
-    ]
-    assert not list((cache_root / project_id).rglob("*.json"))
-
-
-def test_null_declared_effective_seed_disables_cross_run_cache(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    cache_root = tmp_path / "cache"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
-    app = create_app(
-        frozen_catalog_override=_direct_catalog(
-            calls,
-            cacheable=True,
-            node_parameter_declarations={
-                "effective_seed": {
-                    "parameter_scope": "scientific",
-                    "scientific_meaning": (
-                        "Fixture seed whose effective value is null."
-                    ),
-                    "value_contract": {"type": "null"},
-                    "default": None,
-                },
-            },
-            effective_randomness_parameters=("effective_seed",),
-        ),
-        v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
-        },
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_one_node(client)
-        first, _ = _start_run(client, project_id, compiled, "randomness-null-a")
-        second, _ = _start_run(client, project_id, compiled, "randomness-null-b")
-
-    assert (
-        first["outputs"][0]["result_identity"]
-        == second["outputs"][0]["result_identity"]
-    )
     assert first["node_dispositions"][0]["resolution"] == "executed"
     assert second["node_dispositions"][0]["resolution"] == "executed"
     assert [
@@ -1544,7 +1448,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
         ),
         resolve=resolve_randomness,
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
             cacheable=True,
@@ -1581,50 +1485,3 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
     )
     assert first["node_dispositions"][0]["resolution"] == "executed"
     assert second["node_dispositions"][0]["resolution"] == "cache_replayed"
-
-
-def test_unresolved_port_behavior_identity_disables_cross_run_cache(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    calls: list[str] = []
-    cache_root = tmp_path / "cache"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
-    app = create_app(
-        frozen_catalog_override=_pipeline_catalog(
-            calls,
-            cacheable=True,
-            unresolved_port_identity=True,
-        )
-    )
-
-    with TestClient(app) as client:
-        project_id, compiled = _commit_pipeline(client)
-        first, _ = _start_run(client, project_id, compiled, "port-unresolved-a")
-        second, _ = _start_run(
-            client,
-            project_id,
-            compiled,
-            "port-unresolved-b",
-        )
-
-    assert all(
-        item["resolution"] == "executed"
-        for item in first["node_dispositions"]
-    )
-    assert all(
-        item["resolution"] == "executed"
-        for item in second["node_dispositions"]
-    )
-    assert calls.count("execute:source") == 2
-    assert calls.count("sink-input:ready") == 2
-    assert not list((cache_root / project_id).rglob("*.json"))

@@ -583,37 +583,37 @@
       "contract_kind": "binding",
       "contract_id": "selection.diversity.direct",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:29c559dae13bb8805883d519694bca829ca69331960faa346dae724866437ccf"
+      "contract_digest": "sha256:9f23838fcf300538ff4799990fc29e2ce4aa90f568847d6ad5bbb76766bcf9f9"
     },
     {
       "contract_kind": "binding",
       "contract_id": "selection.filter.direct",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:86ce8f09fecdfcab9153c1abe5517d98915b9d33554decc21251b84ceab7b562"
+      "contract_digest": "sha256:9d890f557d0433910ccc133f3d06d42861c19ebab49a8552a93f38575242ea4b"
     },
     {
       "contract_kind": "binding",
       "contract_id": "selection.pareto.direct",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:ec3219a3641ad314ccb6be6e6698be1dafe7c2982427988482a9260708b7e9c5"
+      "contract_digest": "sha256:3cc7b0bd91d504cfd1fd69cc4f339963f9e8d89049f63766cc968508c0791e49"
     },
     {
       "contract_kind": "binding",
       "contract_id": "selection.sort.direct",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:fda7320b66334856d6e5d234bf17b303edf471a94e3f888b3319167d6b524c95"
+      "contract_digest": "sha256:cb2228cc211cfeb752b858c5a6f889bf31dd07a37ceaa48216203902d4490da6"
     },
     {
       "contract_kind": "binding",
       "contract_id": "selection.top_k.direct",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:32e1181f68b901d7f9b7659544709e7742b13de202532a384c0e654d40fb15c8"
+      "contract_digest": "sha256:976c0e3b04ed2e7ee6890928d22e0a4c16379b9a4bc3fbc231a62cd6a7d6e1ce"
     },
     {
       "contract_kind": "binding",
       "contract_id": "selection.weighted_rank.direct",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:59904b85926c4730d9329864c810dbcc891186bb3333e796b5e869a29ac21e20"
+      "contract_digest": "sha256:ebacb8dcf8992889d696a5f3a760f6ef94a04312a8eacec02fa41a9524c0fa80"
     },
     {
       "contract_kind": "method",

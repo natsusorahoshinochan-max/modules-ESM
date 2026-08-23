@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from core import OperationCall
+from core.operation import (
+    OperationCall,
+)
 
 from .esmc_adapter import BiohubESMCAdapter
 

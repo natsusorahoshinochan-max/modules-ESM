@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-import json
-
-from core import BehaviorReference, PortTypeDefinition, builtin_frozen_catalog
-from core.port_types import canonical_json_bytes
-from datatypes import (
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
-    ResidueTrack,
     validate_canonical_function_annotations,
 )
+from datatypes.residue import ResidueTrack
 
 from .prompts import validate_protein_prompt
 from .track_types import ABSOLUTE_SASA_QUANTITY_CONTRACT
@@ -43,35 +46,29 @@ _PROMPT_FIELDS = {
 }
 
 
-def _wire_value(codec: PortTypeDefinition, value: object) -> object:
-    return json.loads(codec.encode(value))["value"]
-
-
-def _decode_value(
-    codec: PortTypeDefinition,
-    wire_value: object,
-) -> object:
-    return codec.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": codec.type_id,
-                "port_type_version": codec.version,
-                "value": wire_value,
-            }
-        )
-    )
+def _function_annotation_to_canonical(
+    value: FunctionAnnotation,
+) -> dict[str, object]:
+    return {
+        "label": value.label,
+        "start": value.start,
+        "end": value.end,
+        "chain_id": value.chain_id,
+        "start_residue_id": value.start_residue_id,
+        "end_residue_id": value.end_residue_id,
+        "overlap_policy": value.overlap_policy,
+    }
 
 
 def _validate_annotations(value: object) -> None:
     validate_canonical_function_annotations(value)
 
 
-def _annotations_to_wire(value: object) -> object:
-    annotations = validate_canonical_function_annotations(value)
+def _annotations_to_wire(value: FunctionAnnotations) -> object:
     return {
         "annotations": [
-            annotation.to_record() for annotation in annotations
+            _function_annotation_to_canonical(annotation)
+            for annotation in value.annotations
         ],
     }
 
@@ -99,33 +96,26 @@ def _annotations_from_wire(value: object) -> object:
                 overlap_policy=raw["overlap_policy"],
             )
         )
-    result = FunctionAnnotations(annotations)
-    validate_canonical_function_annotations(result)
-    return result
+    return FunctionAnnotations(annotations)
 
 
 def _track_to_wire(track: ResidueTrack | None) -> object:
-    return None if track is None else _wire_value(_TRACK_CODEC, track)
+    return None if track is None else _TRACK_CODEC.to_wire(track)
 
 
 def _track_from_wire(value: object) -> ResidueTrack | None:
     if value is None:
         return None
-    track = _decode_value(_TRACK_CODEC, value)
-    if type(track) is not ResidueTrack or track.sentinel is not None:
-        raise ValueError("ProteinPrompt tracks must use JSON null semantics")
-    return track
+    return _TRACK_CODEC.from_wire(value)
 
 
 def _validate_prompt(value: object) -> None:
     validate_protein_prompt(value)
 
 
-def _prompt_to_wire(value: object) -> object:
-    prompt = validate_protein_prompt(value)
+def _prompt_to_wire(prompt: ProteinPrompt) -> object:
     return {
-        "target_layout": _wire_value(
-            _LAYOUT_CODEC,
+        "target_layout": _LAYOUT_CODEC.to_wire(
             prompt.target_layout,
         ),
         "sequence_track": _track_to_wire(prompt.sequence_track),
@@ -146,9 +136,8 @@ def _prompt_to_wire(value: object) -> object:
 def _prompt_from_wire(value: object) -> object:
     if not isinstance(value, dict) or set(value) != _PROMPT_FIELDS:
         raise ValueError("ProteinPrompt wire value is not closed")
-    prompt = ProteinPrompt(
-        target_layout=_decode_value(
-            _LAYOUT_CODEC,
+    return ProteinPrompt(
+        target_layout=_LAYOUT_CODEC.from_wire(
             value["target_layout"],
         ),
         sequence_track=_track_from_wire(value["sequence_track"]),
@@ -164,7 +153,6 @@ def _prompt_from_wire(value: object) -> object:
             value["function_annotations"]
         ),
     )
-    return validate_protein_prompt(prompt)
 
 
 FUNCTION_ANNOTATIONS_PORT_TYPE = PortTypeDefinition(

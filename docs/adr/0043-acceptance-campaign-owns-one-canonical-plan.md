@@ -17,6 +17,11 @@ Each tier continues to own its exact scientific assertions. The Campaign does
 not copy, interpret, or rerun those assertions, and the retained public
 observations do not become a second scientific authority.
 
+A lifecycle receipt contains only facts directly observed by its tier. A
+source-bound tier may retain its public Provider-binding order, while the
+corresponding residency transition is tested at the application-resource seam;
+the tier does not reconstruct release from Provider-module internals.
+
 Preparation binds one clean source revision, one wheel and sdist built from
 that revision, the canonical plan, and one private Execution Profile to the
 Campaign. The candidate and plan cannot change during execution. Repository
@@ -57,27 +62,11 @@ Results in canonical order. Retained observations support inspection; they do
 not introduce an evidence manifest, checksum graph, promotion protocol, or
 second integrity authority.
 
-Subprocess and filesystem behavior remain internal seams where existing tests
-need controlled implementations. No new runner interface is introduced for a
+Subprocess and filesystem behavior are internal seams where tests need
+controlled implementations. The Campaign has no runner interface for a
 hypothetical Adapter. Tests cross the Campaign interface and verify the unique
 plan, profile projection, fixed candidate, exact source-bound assets, structured
 outcome handoff, serial once-only execution, first-failure termination,
 interruption, and the exact passed condition. Tier tests retain ownership of
-scientific assertions.
-
-The existing duplicate tier representations, parallel Provider and source-bound
-configuration maps, standard-output result-path grammar, and wrapper-level
-completion checks are replaced rather than layered. No compatibility interface,
-alias, dual path, or legacy parser is retained.
-
-The rejected alternatives are distributing tier facts across the Campaign and
-verifier, treating stdout as a child-result interface, admitting failed
-diagnostics as Acceptance Results, moving scientific assertions into the plan,
-making repository verification another Campaign tier, persisting private
-Execution Profile values, adding retry or resume semantics, constructing a
-digest graph around retained observations, treating warning text or interpreter
-identity as completion authority, parsing the same JUnit result in multiple
-layers, and introducing a runner seam with only one real Adapter.
-
-This decision deepens and refines ADR-0040 without creating an Acceptance
-Campaign Plan domain term.
+scientific assertions. The Campaign exposes no compatibility interface, alias,
+dual plan, or standard-output result-path grammar.

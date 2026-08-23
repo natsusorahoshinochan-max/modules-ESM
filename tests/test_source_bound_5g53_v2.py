@@ -6,6 +6,10 @@ production Catalog/compiler, and the public REST/WebSocket Run surface.
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 from pathlib import Path
@@ -17,28 +21,30 @@ from fastapi.testclient import TestClient
 import pytest
 import torch
 
-from core import (
-    build_discovered_frozen_catalog,
-    compile_workflow,
-    parse_workflow_document,
-    relock_workflow,
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
 )
-from core.server import create_app
-from datatypes import (
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from tests.support.application import create_application
+from datatypes.candidate import (
     Candidate,
     CandidateDataReference,
     CandidateCollection,
-    ExactContractReference,
-    PairwiseCandidateMapping,
-    ProteinStructure,
 )
-from modules.structure_comparison import InsertedLoopEvaluationCollection
-from modules.structure_prediction.domain import prediction_key
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import PairwiseCandidateMapping
+from datatypes.structure import ProteinStructure
+from modules.structure_comparison.domain import InsertedLoopEvaluationCollection
+from datatypes.prediction import prediction_key
 from modules.structure_prediction.port_types import (
     PREDICTION_RESIDUE_AXIS_PORT_TYPE,
 )
-from modules.structure_transform import CandidateResolvedResidueAxisAssociations
-from protein_workbench_public import encode_project_input_content
+from modules.structure_transform.domain import (
+    CandidateResolvedResidueAxisAssociations,
+)
+from tests.support.public_request import encode_project_input_content
 from tests.fixtures.canonical_3gb1_v2 import (
     ControlledESMResponse,
     ControlledFoldingClient,
@@ -169,7 +175,7 @@ class _Controlled5G53ESM3:
 
 def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     assert hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest() == INPUT_SHA256
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     catalog.require_contract(
         "node_type",
         "structure_comparison.evaluate_inserted_loop",
@@ -202,11 +208,20 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
         evidence_port.descriptor()["validator"]["parameters"]["confidence_method"]
         == confidence_method
     )
-    workflow = parse_workflow_document(_payload())
+    workflow = decode_workflow_document(_payload())
     assert workflow.workflow_id == "source-bound-5g53"
     assert workflow.contract_lock
-    assert relock_workflow(workflow, catalog) == workflow
-    compile_workflow(workflow, workflow_commit_revision=1, catalog=catalog)
+    assert lock_workflow(
+        replace(workflow, contract_lock=()),
+        catalog,
+    ) == workflow
+    compile(
+        CompilationRequest(
+            workflow,
+            1,
+        ),
+        catalog,
+    )
 
     pdb_text = INPUT_PATH.read_text(encoding="ascii")
     assert sum(line.startswith("ATOM  ") for line in pdb_text.splitlines()) == 7247
@@ -270,10 +285,12 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
         contract_lock=(),
     )
     with pytest.raises(ValueError):
-        compile_workflow(
-            relock_workflow(broken, catalog),
-            workflow_commit_revision=2,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                lock_workflow(broken, catalog),
+                2,
+            ),
+            catalog,
         )
 
 
@@ -289,12 +306,11 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
     esm3 = _Controlled5G53ESM3()
     folding = ControlledFoldingClient()
     catalog = controlled_catalog()
-    environment = controlled_environment(esm3, folding)
+    environment = controlled_environment(monkeypatch, esm3, folding)
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=catalog,
             v2_environment_configuration=environment,
-            _install_canonical_seed=False,
         )
     ) as client:
         project_id = client.post(

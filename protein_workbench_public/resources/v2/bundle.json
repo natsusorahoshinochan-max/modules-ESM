@@ -1087,6 +1087,38 @@
           "additionalProperties": false,
           "properties": {
             "error": {
+              "$ref": "#/$defs/NodeOperationFailureError"
+            },
+            "failure_origin": {
+              "const": "attempt"
+            },
+            "node_attempt_id": {
+              "$ref": "#/$defs/Identifier"
+            },
+            "resolution": {
+              "const": "executed"
+            },
+            "status": {
+              "const": "failed"
+            },
+            "type": {
+              "const": "node_attempt_terminal"
+            }
+          },
+          "required": [
+            "type",
+            "node_attempt_id",
+            "status",
+            "resolution",
+            "failure_origin",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
               "$ref": "#/$defs/NodeBindingFailureError"
             },
             "failure_origin": {
@@ -1821,6 +1853,35 @@
           "type": "array",
           "uniqueItems": true
         },
+        "environment_fields": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/Identifier"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "value_category": {
+                "enum": [
+                  "credential_handle",
+                  "filesystem_path",
+                  "json_value"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "value_category",
+              "required"
+            ],
+            "type": "object"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        },
         "execution_route": {
           "enum": [
             "adapter",
@@ -1894,7 +1955,6 @@
         "execution_route",
         "route_behavior",
         "availability_declaration",
-        "readiness_declaration",
         "deterministic",
         "cacheable",
         "implementation_identity",

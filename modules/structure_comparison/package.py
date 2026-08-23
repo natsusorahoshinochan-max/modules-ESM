@@ -2,33 +2,35 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
-from typing import Any, Mapping
+from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    OperationContext,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
-    ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
     UtilityTransformDefinition,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    ScientificOperation,
 )
 
 from .contracts import (
     ALIGNMENT_METHODS,
-    METRIC_METHODS,
     RMSD_FROM_EVIDENCE_METHOD,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
+    STATIC_METHODS,
     STRUCTURE_FIRST_TM_ALIGN_METHOD,
     INSERTED_LOOP_EVALUATION_METHOD,
     THREE_WAY_CONSISTENCY_METHOD,
@@ -36,6 +38,7 @@ from .contracts import (
     VERSION,
 )
 from .implementation import StructureComparisonImplementation
+from .metrics import tm_score_identity
 from .port_types import ALIGNMENT_EVIDENCE_PORT_TYPE
 from .inserted_loop_port import INSERTED_LOOP_EVALUATION_PORT_TYPE
 from .three_way_port import THREE_WAY_CONSISTENCY_PORT_TYPE
@@ -48,15 +51,6 @@ SCORE_NODE_VERSION = "6.0.0"
 THREE_WAY_VERSION = "3.0.0"
 INSERTED_LOOP_VERSION = "2.0.0"
 TM_UTILITY_VERSION = "4.0.0"
-
-
-def _available() -> AvailabilityResult:
-    return AvailabilityResult.available()
-
-
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
 
 
 def _build(
@@ -114,16 +108,7 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
             {"observation": "startup"},
         ),
         prerequisites={},
-        check=_available,
-    ),
-    readiness=ReadinessDeclaration(
-        behavior=BehaviorReference(
-            "structure_comparison.evaluate_inserted_loop.direct/readiness",
-            INSERTED_LOOP_VERSION,
-            {"observation": "per-run"},
-        ),
-        prerequisites={},
-        check=_ready,
+        check=AvailabilityResult.available,
     ),
     deterministic=True,
     cacheable=True,
@@ -164,16 +149,7 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
             {"observation": "startup"},
         ),
         prerequisites={},
-        check=_available,
-    ),
-    readiness=ReadinessDeclaration(
-        behavior=BehaviorReference(
-            "structure_comparison.classify_three_way_consistency.direct/readiness",
-            THREE_WAY_VERSION,
-            {"observation": "per-run"},
-        ),
-        prerequisites={},
-        check=_ready,
+        check=AvailabilityResult.available,
     ),
     deterministic=True,
     cacheable=True,
@@ -185,22 +161,6 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
         "input_b_factor_interpretation": False,
     },
 )
-
-
-def _tm_score_identity(
-    value: object,
-    parameters: Mapping[str, Any],
-) -> float:
-    if parameters:
-        raise ValueError("TM-score identity Utility accepts no parameters")
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(float(value))
-        or not 0 <= float(value) <= 1
-    ):
-        raise ValueError("TM-score identity Utility requires [0, 1]")
-    return float(value)
 
 
 def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
@@ -231,7 +191,7 @@ def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
             TM_UTILITY_VERSION,
             {"mapping": "identity"},
         ),
-        transform=_tm_score_identity,
+        transform=tm_score_identity,
     )
 
 
@@ -252,7 +212,6 @@ def _binding(
     )
     produced: tuple[ProducedObservationDefinition, ...] = ()
     if operation in {"rmsd", "tm_score"}:
-        assert pairing_mode is not None
         normalization = (
             _RMSD_NORMALIZATION
             if operation == "rmsd"
@@ -317,16 +276,7 @@ def _binding(
                 {"observation": "startup"},
             ),
             prerequisites={},
-            check=_available,
-        ),
-        readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(
-                f"{binding_id}/readiness",
-                node_version,
-                {"observation": "per-run"},
-            ),
-            prerequisites={},
-            check=_ready,
+            check=AvailabilityResult.available,
         ),
         deterministic=True,
         cacheable=True,
@@ -353,7 +303,6 @@ def _binding(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="structure_comparison",
     package_version="7.0.0",
     package_module=__package__,
@@ -372,12 +321,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/rmsd_metric.yaml"),
         DefinitionResource("definitions/tm_score_metric.yaml"),
     ),
-    methods=(
-        *ALIGNMENT_METHODS,
-        *METRIC_METHODS,
-        THREE_WAY_CONSISTENCY_METHOD,
-        INSERTED_LOOP_EVALUATION_METHOD,
-    ),
+    methods=(*ALIGNMENT_METHODS, *STATIC_METHODS),
     utility_transforms=(
         _tm_score_utility("fixed_reference"),
         _tm_score_utility("per_subject_counterpart"),

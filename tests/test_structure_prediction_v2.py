@@ -6,34 +6,41 @@ from dataclasses import replace
 
 import pytest
 
-from core import (
-    OperationCall,
-    ResolvedProducedObservation,
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from datatypes import (
+from core.operation import (
+    OperationCall,
+)
+from core.scoring.observation_plan import (
+    IntrinsicContextProfile,
+    ResolvedProducedObservation,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
-    ProteinSequence,
-    ProteinStructure,
-    ResidueLayout,
     validate_canonical_identifier,
 )
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from tests.fixtures.scientific_operation import admitted_port_fixture
-from modules.structure_prediction import (
+from datatypes.prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
     PredictionResidueAxis,
-    MODULE_PACKAGE,
+    prediction_axis_reference,
     prediction_key,
 )
+from modules.structure_prediction.package import MODULE_PACKAGE
 from modules.structure_prediction.port_types import (
     CONFIDENCE_FACTS_PORT_TYPE,
     PREDICTION_RESIDUE_AXIS_PORT_TYPE,
-    prediction_axis_reference,
 )
 from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
 from modules.structure_prediction.implementation import (
@@ -42,6 +49,20 @@ from modules.structure_prediction.implementation import (
 
 
 _DIGEST = "sha256:" + "1" * 64
+
+
+def _prediction_axis_reference(
+    axis: PredictionResidueAxis,
+):
+    return prediction_axis_reference(
+        axis,
+        axis_contract=ExactContractReference(
+            **PREDICTION_RESIDUE_AXIS_PORT_TYPE.reference()
+        ),
+        axis_content_digest=PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(
+            axis
+        ),
+    )
 
 
 def test_prediction_residue_axis_requires_exact_sequence_layout_identity() -> None:
@@ -76,6 +97,10 @@ def test_prediction_key_is_canonical_over_the_exact_output_join_fields() -> None
     }
     key = prediction_key(**arguments)
 
+    assert key == (
+        "prediction-"
+        "6a0f36b125908192a45d3c32984145c80e1220d4a0bbeff8df91d40f7fd57bf1"
+    )
     assert key == validate_canonical_identifier(key, "prediction_key")
     assert key.startswith("prediction-") and len(key) == 75
     assert len(
@@ -192,8 +217,8 @@ def test_prediction_residue_axis_port_has_exact_round_trip_and_content_identity(
     )
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.version == "2.0.0"
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.decode(encoded) == axis
-    assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(axis).startswith(
-        "sha256:"
+    assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(axis) == (
+        "sha256:c3527349512f8aab0b5264dbc7ea452b3a487f259dc5294f9e5eebd163c72263"
     )
 
 
@@ -211,6 +236,35 @@ def test_prediction_residue_axis_allows_exact_prompt_port_source() -> None:
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.decode(
         PREDICTION_RESIDUE_AXIS_PORT_TYPE.encode(axis)
     ) == axis
+
+
+@pytest.mark.parametrize(
+    ("field_name", "wrong_value"),
+    (
+        ("contract_version", "999.0.0"),
+        ("contract_digest", "sha256:" + "f" * 64),
+    ),
+)
+def test_prediction_residue_axis_rejects_wrong_exact_port_identity(
+    field_name: str,
+    wrong_value: str,
+) -> None:
+    wrong_generation = ExactPortValueReference(
+        port_type=replace(
+            ExactContractReference(**PROTEIN_PROMPT_PORT_TYPE.reference()),
+            **{field_name: wrong_value},
+        ),
+        content_digest="sha256:" + "a" * 64,
+    )
+
+    axis = PredictionResidueAxis(
+        source=wrong_generation,
+        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        sequence=ProteinSequence("AC", ("A:1", "A:2")),
+    )
+
+    with pytest.raises(ValueError, match="exact"):
+        PREDICTION_RESIDUE_AXIS_PORT_TYPE.validate(axis)
 
 
 def test_confidence_facts_port_round_trips_and_projects_unique_axis_and_method() -> None:
@@ -280,7 +334,7 @@ def _produced_observation(
             version,
             "sha256:" + metric_id.encode().hex()[:1].ljust(64, "0"),
         ),
-        context_profile={"kind": "intrinsic"},
+        context_profile=IntrinsicContextProfile(),
         subject_grain="candidate",
         source_role="subject",
         subject_direction="input",
@@ -335,10 +389,10 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         ),
     )
     trusted_axis = replace(
-        prediction_axis_reference(axis),
+        _prediction_axis_reference(axis),
         axis_content_digest=trusted_axis_digest,
         axis_contract=replace(
-            prediction_axis_reference(axis).axis_contract,
+            _prediction_axis_reference(axis).axis_contract,
             contract_digest="sha256:" + "a" * 64,
         ),
     )
@@ -551,7 +605,7 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
                 value_content_digests=(
                     CONFIDENCE_FACTS_PORT_TYPE.content_digest(facts),
                 ),
-                scientific_axes=(prediction_axis_reference(axis),),
+                scientific_axes=(_prediction_axis_reference(axis),),
             ),
         },
         node_parameters={},

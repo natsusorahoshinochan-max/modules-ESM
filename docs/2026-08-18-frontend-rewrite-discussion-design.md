@@ -898,8 +898,8 @@ mock 声称 Provider 已验收，也不应无理由重复昂贵 Provider campaig
 - ADR-0016 中 React/TypeScript/Vite/React Flow 可作为重新评估后的技术选择保留；其旧 source
   layout、`App.tsx` orchestration、手写 `currentProtocol.ts`、无专用 Prompt Editor、以及由
   FastAPI 直接包含 frontend dist 的结论需要被明确 supersede。
-- ADR-0017 已经是 historical v1，不从中恢复 route 或 payload。
-- ADR-0022 的 pre-release reset 和不保留兼容路径继续适用。
+- route 与 payload 只由当前 `protein-workbench-public/v2` 合同定义。
+- ADR-0034 的单一现行 Catalog 与无兼容路径规则继续适用。
 - ADR-0033 的 ResidueIdentity/Candidate lineage、ADR-0037 的 Draft/Commit、ADR-0038 的
   Candidate-associated values/structure pairing继续约束 UI。
 - ADR-0037 需要讨论 public ETag/If-Match 是否构成可接受的 accidental-overwrite protection。

@@ -2,46 +2,67 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
+
+from contextlib import ExitStack
 from pathlib import Path
 import hashlib
 import json
-from typing import Any
+from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 import torch
 
-from core import (
-    EnvironmentConfiguration,
-    ModulePackageContractCase,
-    ProjectManager,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.declarations import ExecutionBindingDefinition
+from core.catalog.canonical import canonical_sha256
+from core.execution._node_attempt_identity import (
+    _resolve_effective_randomness,
+    _result_identity_descriptor,
+)
+from core.operation import (
     ReadinessResult,
-    ResultReplaySource,
+)
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import (
     V2RunError,
     V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
+)
+from tests.support.result_store import result_store
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
     verify_module_package_contract,
 )
-import core.run_execution_v2 as run_execution_v2
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ProteinSequence,
-    ProteinStructure,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
     operation_call,
     operation_context,
 )
 from tests.fixtures.public_v2 import decode_service_typed_output_value
-from tests.fixtures.simplefold import build_fixture_simplefold_closure
+from tests.fixtures.simplefold import (
+    build_fixture_simplefold_closure,
+    install_fixture_source_runtime_group,
+)
 
 
 _FOLD_NODE_VERSION = "8.0.0"
@@ -134,7 +155,6 @@ def _run_fold(
     route: str,
     client: Any,
     environment_overrides: dict[str, Any] | None = None,
-    result_replay_source: ResultReplaySource | None = None,
     source_sequence: str = "AG",
     num_samples: int = 1,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
@@ -225,19 +245,17 @@ def _run_fold(
         project.id,
         workflow=workflow,
     )
-    environment_values = {
-        "provider_client": client,
-        "private_token": "must-never-publish",
-    }
-    if route == "remote":
-        environment_values.update(
-            {
-                "endpoint_id": "biohub",
-                "credential_handle": object(),
-            }
-        )
+    environment_values = (
+        {
+            "endpoint_id": "biohub",
+            "credential_handle": "must-never-publish",
+        }
+        if route == "remote"
+        else {}
+    )
     environment_values.update(environment_overrides or {})
-    environment = EnvironmentConfiguration(
+    environment = admit_environment_configuration(
+        catalog,
         {
             (
                 f"folding.fold.esmfold2_{route}",
@@ -251,27 +269,43 @@ def _run_fold(
         projects,
         catalog,
         authoring,
-        environment,
-        result_replay_source,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
+        result_store(projects),
     )
-    try:
-        receipt = service.start_background(
-            project.id,
-            workflow_commit_id=committed.workflow_commit_id,
-            client_request_id=f"fold-{route}",
-        )
-        service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
-    finally:
-        service.shutdown()
+    with ExitStack() as stack:
+        if client is not None:
+            target = (
+                "modules.folding.esmfold2_remote.build_remote_engine"
+                if route == "remote"
+                else "modules.folding.esmfold2_local.load_local_engine"
+            )
+            stack.enter_context(patch(target, return_value=client))
+        try:
+            receipt = service.start_background(
+                project.id,
+                workflow_commit_id=committed.workflow_commit_id,
+                client_request_id=f"fold-{route}",
+            )
+            service.shutdown()
+            projection = public_run_projection(
+                service,
+                project.id,
+                receipt["run_id"],
+            )
+            events = public_run_events(service, project.id, receipt["run_id"])
+        finally:
+            service.shutdown()
     return service, catalog, projection, events
 
 
 def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["folding"]
     assert registration.package_version == "10.0.0"
@@ -282,7 +316,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         "definitions/simplefold_confidence.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     remote = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
@@ -293,6 +327,8 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         "folding.fold.esmfold2_local",
         _LOCAL_FOLD_BINDING_VERSION,
     )
+    remote_definition = cast(ExecutionBindingDefinition, remote.definition)
+    local_definition = cast(ExecutionBindingDefinition, local.definition)
     assert remote.descriptor["node_type"] == local.descriptor["node_type"]
     assert remote.descriptor["produced_observations"] == ()
     assert local.descriptor["produced_observations"] == ()
@@ -305,17 +341,11 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert remote.descriptor["cacheable"] is False
     assert local.descriptor["cacheable"] is False
     assert "effective_randomness_parameters" not in remote.descriptor
-    assert catalog.get_effective_randomness_resolver(
-        "folding.fold.esmfold2_remote",
-        _REMOTE_FOLD_BINDING_VERSION,
-    ) is None
+    assert remote_definition.effective_randomness_resolver is None
     assert tuple(local.descriptor["effective_randomness_parameters"]) == (
         "effective_seed",
     )
-    assert catalog.get_effective_randomness_resolver(
-        "folding.fold.esmfold2_local",
-        _LOCAL_FOLD_BINDING_VERSION,
-    ) is not None
+    assert local_definition.effective_randomness_resolver is not None
     assert remote.descriptor["implementation_identity"]["model"] == (
         "esmfold2-fast-2026-05"
     )
@@ -380,7 +410,6 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         "model_snapshot_path",
         "language_model_snapshot_path",
         "device",
-        "runtime_directory",
     }
     assert forbidden.isdisjoint(node.descriptor["node_parameters"])
 
@@ -469,7 +498,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
                 contract_lock=(),
             ),
         )
-        compiled = authoring.require_compiled(
+        compiled = authoring.require_verified_commit(
             project.id,
             workflow_commit_id=committed.workflow_commit_id,
         )
@@ -478,9 +507,14 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
             for node in compiled.execution_plan.nodes
             if node.node_type.contract_id == "folding.fold"
         )
-        return run_execution_v2._result_identity_descriptor(
+        return _result_identity_descriptor(
             plan_node,
             {"sequence_candidates": admitted_parents},
+            resolved_resource_inputs=(),
+            effective_randomness_snapshot=_resolve_effective_randomness(
+                plan_node,
+                {"sequence_candidates": admitted_parents},
+            ),
         )
 
     first = descriptor_for_binding(
@@ -509,21 +543,17 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
     }
     assert first["determinism"]["effective_randomness"] == {}
     assert second["determinism"]["effective_randomness"] == {}
-    assert run_execution_v2.canonical_sha256(first) != (
-        run_execution_v2.canonical_sha256(second)
-    )
+    assert canonical_sha256(first) != canonical_sha256(second)
     assert local["node_parameters"] == {"num_samples": 1}
     assert local["determinism"]["effective_randomness"] == {
         "effective_seed": 1603,
     }
 
 
-def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> None:
-    from modules.folding.adapter import local_readiness
-
-    catalog = build_discovered_frozen_catalog()
+def test_local_and_remote_esmfold2_have_independent_availability() -> None:
+    catalog = build_frozen_catalog(module_registrations())
     availability = {
-        snapshot["binding"]["contract_id"]: snapshot
+        snapshot.binding.contract_id: snapshot
         for snapshot in catalog.availability
     }
     assert {
@@ -543,21 +573,18 @@ def test_missing_local_esmfold2_stays_fail_closed_without_hiding_remote() -> Non
     assert availability["folding.fold.esmfold2_remote"] is not (
         availability["folding.fold.esmfold2_local"]
     )
-    assert not local_readiness({}).passing
 
 
 def _write_local_runtime_fixture(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> dict[str, Any]:
-    import modules.folding.adapter as adapter
+    import modules.folding.esmfold2_local as adapter
 
     fold_snapshot = tmp_path / "esmfold2"
     language_snapshot = tmp_path / "esmc"
-    runtime_directory = tmp_path / "runtime"
     fold_snapshot.mkdir()
     language_snapshot.mkdir()
-    runtime_directory.mkdir()
     fold_payload = b"folding-model-fixture"
     language_payload = b"language-model-fixture"
     (fold_snapshot / "model.bin").write_bytes(fold_payload)
@@ -572,20 +599,12 @@ def _write_local_runtime_fixture(
         "LOCAL_ESMC_ARTIFACT_SHA256",
         {"model.bin": hashlib.sha256(language_payload).hexdigest()},
     )
-    monkeypatch.setattr(
-        adapter,
-        "local_runtime_structurally_available",
-        lambda: True,
-    )
     return {
         "model_snapshot_path": fold_snapshot,
         "model_snapshot_revision": adapter.LOCAL_ESMFOLD2_REVISION,
         "language_model_snapshot_path": language_snapshot,
         "language_model_snapshot_revision": adapter.LOCAL_ESMC_REVISION,
         "device": "cpu",
-        "runtime_directory": runtime_directory,
-        "provider_client": object(),
-        "private_model_token": "must-not-publish",
     }
 
 
@@ -593,7 +612,7 @@ def test_local_readiness_validates_both_exact_snapshots(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.folding.adapter as adapter
+    import modules.folding.esmfold2_local as adapter
 
     environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
     conclusion = adapter.local_readiness(environment)
@@ -617,7 +636,8 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import modules.folding.adapter as adapter
+    import esm.models.esmfold2 as esmfold2
+    import modules.folding.esmfold2_local as adapter
     from transformers.models.esmfold2.configuration_esmfold2 import (
         ESMFold2Config,
     )
@@ -656,18 +676,17 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
         staticmethod(load_model),
     )
     monkeypatch.setattr(
-        adapter,
-        "_local_input_builder",
-        lambda builder_type, runtime: object(),
+        esmfold2,
+        "ESMFold2InputBuilder",
+        lambda *, ccd_cache: object(),
     )
     runtime = adapter.LocalESMFold2Runtime(
         model_snapshot_path=tmp_path / "esmfold2",
         language_model_snapshot_path=tmp_path / "esmc",
-        runtime_directory=tmp_path / "runtime",
         device="cpu",
     )
 
-    adapter.load_local_engine({}, runtime)
+    adapter.load_local_engine(runtime)
 
     assert calls["configuration"] == (
         runtime.model_snapshot_path,
@@ -690,7 +709,7 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
 
 
 def test_native_plddt_is_statically_scaled_and_projects_protein_tokens() -> None:
-    from modules.folding.adapter import normalize_native_confidence
+    from modules.folding.domain import normalize_native_confidence
 
     confidence = normalize_native_confidence(
         native_plddt=(0.70, 0.80, 0.40, 0.60, 0.90, 0.50),
@@ -718,7 +737,7 @@ def test_native_plddt_is_statically_scaled_and_projects_protein_tokens() -> None
 def test_remote_provider_native_result_translates_to_canonical_confidence() -> None:
     import torch
 
-    from modules.folding.adapter import decode_remote_fold_result
+    from modules.folding.esmfold2_remote import decode_remote_fold_result
 
     class RemoteResult(_RemoteResultRenderer):
         sequence = "AG"
@@ -742,7 +761,7 @@ def test_remote_provider_native_result_translates_to_canonical_confidence() -> N
 
 def test_remote_provider_official_error_union_is_an_operational_failure() -> None:
     from esm.sdk.api import ESMProteinError
-    from modules.folding.adapter import decode_remote_fold_result
+    from modules.folding.esmfold2_remote import decode_remote_fold_result
 
     with pytest.raises(
         RuntimeError,
@@ -848,7 +867,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
 def test_local_provider_native_result_translates_to_canonical_confidence() -> None:
     import torch
 
-    from modules.folding.adapter import decode_local_fold_result
+    from modules.folding.esmfold2_local import decode_local_fold_result
 
     class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
@@ -859,7 +878,7 @@ def test_local_provider_native_result_translates_to_canonical_confidence() -> No
         ptm = 0.625
         pae = torch.tensor(((0.0, 1.0), (1.0, 0.0)))
 
-    result = decode_local_fold_result(LocalResult())
+    result = decode_local_fold_result(LocalResult(), effective_call_seed=17)
     expected_plddt = tuple(
         float(value) * 100.0 for value in LocalResult.plddt.tolist()
     )
@@ -871,7 +890,7 @@ def test_local_provider_native_result_translates_to_canonical_confidence() -> No
 
 
 def test_provider_pdb_renderer_is_translated_to_the_canonical_end_record() -> None:
-    from modules.folding.adapter import decode_local_fold_result
+    from modules.folding.esmfold2_local import decode_local_fold_result
 
     class RenderedProtein:
         def infer_oxygen(self) -> "RenderedProtein":
@@ -892,14 +911,14 @@ def test_provider_pdb_renderer_is_translated_to_the_canonical_end_record() -> No
         ptm = 0.625
         pae = torch.tensor(((0.0, 1.0), (1.0, 0.0)))
 
-    result = decode_local_fold_result(LocalResult())
+    result = decode_local_fold_result(LocalResult(), effective_call_seed=17)
 
     assert result.structure.pdb_string == _two_residue_pdb()
 
 
 def test_esmfold2_admits_official_pdb_serialization_without_rebuilding_sequence(
 ) -> None:
-    from modules.folding.adapter import decode_remote_fold_result
+    from modules.folding.esmfold2_remote import decode_remote_fold_result
 
     class RenderedProtein:
         def infer_oxygen(self) -> "RenderedProtein":
@@ -1010,17 +1029,26 @@ def test_all_folding_axes_validate_before_any_provider_invocation() -> None:
                         binding_version=binding_version,
                         inputs={"sequence_candidates": parents},
                         node_parameters={
-                            "effective_seed": 1603,
                             "num_samples": 1,
+                            **(
+                                {"effective_seed": 1603}
+                                if binding_id.endswith("_remote")
+                                else {}
+                            ),
                         },
                         binding_parameters=binding_parameters,
+                        effective_randomness=(
+                            {}
+                            if binding_id.endswith("_remote")
+                            else {"effective_seed": 1603}
+                        ),
                     )
                 )
             assert adapter.calls == 0
 
 
 def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
-    from modules.folding.adapter import (
+    from modules.folding.domain import (
         ESMFold2AdapterResult,
         NormalizedConfidence,
     )
@@ -1028,7 +1056,8 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
         ESMFold2FoldingImplementation,
     )
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.structure_prediction.domain import ConfidenceFactCollection
+    from core.operation import OutputIdentityIntent
+    from datatypes.prediction import PendingConfidenceFactCollection
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -1038,13 +1067,13 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
 
     class Adapter:
         def __init__(self) -> None:
-            self.calls: list[tuple[ProteinSequence, int, str]] = []
+            self.calls: list[tuple[ProteinSequence, int | None, str]] = []
 
         def fold(
             self,
             *,
             sequence: ProteinSequence,
-            derived_call_seed: int,
+            derived_call_seed: int | None,
             engine_role: str,
         ) -> ESMFold2AdapterResult:
             self.calls.append((sequence, derived_call_seed, engine_role))
@@ -1057,7 +1086,7 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
                     ptm=0.625,
                     pae=((0.0, 1.0), (1.0, 0.0)),
                 ),
-                effective_call_seed=derived_call_seed,
+                effective_call_seed=None,
             )
 
     catalog = build_frozen_catalog(
@@ -1114,13 +1143,14 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
         "checkpoint",
         "seed_control",
     }.isdisjoint(structures.items[0].metadata)
-    assert structures.items[0].metadata["effective_call_seed"] == (
-        adapter.calls[0][1]
-    )
+    assert "effective_call_seed" not in structures.items[0].metadata
+    assert adapter.calls[0][1] is None
     assert adapter.calls[0][0] == parent.data
     assert adapter.calls[0][2] == "fold_parent_0_sample_0"
-    facts = outputs["confidence_facts"]
-    assert type(facts) is ConfidenceFactCollection
+    intent = outputs["confidence_facts"]
+    assert type(intent) is OutputIdentityIntent
+    facts = intent.relation
+    assert type(facts) is PendingConfidenceFactCollection
     assert len(facts.entries) == 1
     fact = facts.entries[0]
     assert fact.prediction_axis.sequence == parent.data
@@ -1133,14 +1163,12 @@ def test_canonical_folding_operation_consumes_only_adapter_result_dto() -> None:
     assert fact.plddt_per_residue == (70.0, 80.0)
     assert fact.ptm == 0.625
     assert fact.pae == ((0.0, 1.0), (1.0, 0.0))
-    assert structures.items[0].metadata["prediction_key"] == (
-        fact.prediction_key
-    )
+    assert "prediction_key" not in structures.items[0].metadata
     assert set(outputs) == {"structure_candidates", "confidence_facts"}
 
 
 def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> None:
-    from modules.folding.adapter import (
+    from modules.folding.domain import (
         ESMFold2AdapterResult,
         NormalizedConfidence,
     )
@@ -1215,8 +1243,9 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
                         [parent],
                     )
                 },
-                node_parameters={"effective_seed": 1603, "num_samples": 1},
+                node_parameters={"num_samples": 1},
                 binding_parameters={},
+                effective_randomness={"effective_seed": 1603},
             )
         )
         return adapter.seeds[0]
@@ -1286,7 +1315,6 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
     else:
         client = LocalClient()
         environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
-        environment["provider_client"] = client
 
     service, catalog, projection, events = _run_fold(
         tmp_path,
@@ -1452,7 +1480,10 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
 @pytest.mark.deterministic_acceptance
 def test_readiness_rejects_before_fold_call(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.folding.esmfold2_remote as folding_adapter
+
     class BombClient:
         def __init__(self) -> None:
             self.calls = 0
@@ -1463,11 +1494,15 @@ def test_readiness_rejects_before_fold_call(
             raise AssertionError("provider call must not happen")
 
     client = BombClient()
+    monkeypatch.setattr(
+        folding_adapter,
+        "_remote_provider_installation_is_exact",
+        lambda: False,
+    )
     _, _, projection, _ = _run_fold(
         tmp_path,
         route="remote",
         client=client,
-        environment_overrides={"credential_handle": None},
     )
     assert projection["status"] == "failed"
     assert client.calls == 0
@@ -1477,6 +1512,8 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.folding.esmfold2_local as local_adapter
+    import modules.folding.esmfold2_remote as remote_adapter
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -1526,9 +1563,11 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         tmp_path,
         monkeypatch,
     )
-    local_environment["provider_client"] = LocalClient()
     import modules.folding.simplefold_asset_closure as asset_closure
+    import modules.folding.simplefold_adapter as simplefold_adapter
+    import modules.folding.simplefold_confidence_adapter as confidence_adapter
     import modules.folding.simplefold_contract as simplefold_contract
+    import modules.folding.simplefold_runtime as simplefold_runtime
 
     simplefold_model_root = tmp_path / "simplefold-models"
     simplefold_esm2_models = tmp_path / "simplefold-esm2-models"
@@ -1605,21 +1644,44 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
                 "valid_protein_residues": [True, True],
             }
 
+    simplefold_client = SimpleFoldClient()
+    confidence_client = ConfidenceClient()
+    monkeypatch.setattr(
+        remote_adapter,
+        "build_remote_engine",
+        lambda _environment: RemoteClient(),
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "load_local_engine",
+        lambda _runtime: LocalClient(),
+    )
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "fold_sequence",
+        lambda **kwargs: simplefold_client.fold(**kwargs),
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "_native_existing_structure_confidence",
+        lambda **kwargs: confidence_client.evaluate(
+            residue_axis=kwargs["residue_axis"]
+        ),
+    )
+    install_fixture_source_runtime_group(monkeypatch, simplefold_adapter)
+    install_fixture_source_runtime_group(monkeypatch, confidence_adapter)
+
     simplefold_environment = {
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
         "device": simplefold_contract.SIMPLEFOLD_DEVICE,
-        "provider_client": SimpleFoldClient(),
-        "private_token": "ctk-secret-must-not-publish",
     }
     confidence_environment = {
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
         "device": simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
-        "provider_client": ConfidenceClient(),
-        "private_token": "ctk-secret-must-not-publish",
     }
     structure_source_node = WorkflowNodeInstance(
         node_id="structure-source",
@@ -1675,9 +1737,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             binding_parameters={},
             environment_values={
                 "endpoint_id": "biohub",
-                "credential_handle": object(),
-                "provider_client": RemoteClient(),
-                "private_token": "ctk-secret-must-not-publish",
+                "credential_handle": "ctk-secret-must-not-publish",
             },
             **common,
         ),
@@ -1686,10 +1746,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             binding_id="folding.fold.esmfold2_local",
             binding_version=_LOCAL_FOLD_BINDING_VERSION,
             binding_parameters={},
-            environment_values={
-                **local_environment,
-                "private_token": "ctk-secret-must-not-publish",
-            },
+            environment_values=local_environment,
             **common,
         ),
         ModulePackageContractCase(

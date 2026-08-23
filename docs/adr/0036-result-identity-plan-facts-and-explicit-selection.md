@@ -39,11 +39,11 @@ Engine Invocation provenance, while the resolved-resource identity excludes
 it. Renaming either the locator or filename for identical bytes therefore
 preserves Result Identity; changing those bytes changes Result Identity.
 
-The scientific Result Identity namespace remains
+The scientific Result Identity namespace is
 `protein-workbench-cache/v3`. ADR-0039 owns the current physical schemas:
 Cache entry `v4` and Run Evidence Ledger `4.0.0`.
-Development artifacts in prior namespaces are unsupported and are not
-migrated, aliased, or replayed. Cache storage remains Project-scoped even
+Only these current schemas and namespace are admitted. Cache storage is
+Project-scoped even
 though the scientific Result Identity excludes Project identity. Cache entries
 are best-effort replay indexes; an existing entry is not a public or cross-Run
 consistency authority.
@@ -57,10 +57,5 @@ synthetic `__workflow__` operation. Consequently Selection receives the same
 Method, Result Identity, Cache, Operation Attempt, output admission, lineage,
 and evidence treatment as every other scientific operation.
 
-The rejected alternatives are hashing Node IDs or Workflow-wide Utility
-contracts into every result, maintaining separate projections for Cache and
-evidence, treating objective labels as scientific identity, and executing an
-implicit Selection path outside the Plan. This decision refines ADR-0031's
-identity inputs. ADR-0039 supersedes the former physical schemas and conflict
-rules; ADR-0031's scientific identity, Project-scoped storage, and replay
-semantics remain in force.
+ADR-0031 defines the scientific identity and Project-scoped replay semantics;
+ADR-0039 defines physical storage and publication.

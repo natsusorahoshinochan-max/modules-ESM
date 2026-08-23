@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import json
 from contextlib import contextmanager
 from dataclasses import replace
@@ -9,38 +13,51 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from core.catalog.port_contract import (
+    _candidate_data_reference_to_canonical,
+    observation_context_canonical,
+)
 
-from core import (
-    EnvironmentConfiguration,
-    ModulePackageContractCase,
-    ModulePackagePortCase,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.errors import PortValueError
+from core.operation import (
     OperationCall,
-    ProjectManager,
-    PortValueError,
-    ResultReplaySource,
+)
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import (
     V2RunError,
     V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_frozen_catalog,
-    build_discovered_frozen_catalog,
-    discover_module_packages,
+)
+from tests.support.result_store import result_store
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
+    ModulePackagePortCase,
     verify_module_package_contract,
 )
-from core.port_types import canonical_json_bytes
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.catalog.canonical import canonical_json_bytes
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    ProteinStructure,
-    ResidueAxisReference,
-    ResidueLayout,
 )
+from datatypes.exact_reference import (
+    ExactContractReference,
+    ResidueAxisReference,
+)
+from datatypes.residue import ResidueLayout
+from datatypes.structure import ProteinStructure
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
-from modules.structure_annotation import (
+from modules.structure_annotation.domain import (
     DSSPAnnotation,
     StructureAnnotationTrack,
 )
@@ -52,11 +69,11 @@ from modules.structure_annotation.implementation import (
 from modules.structure_annotation.package import (
     MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import (
     RESOLVED_AXIS_PORT_TYPE,
 )
@@ -165,7 +182,7 @@ def _agreement_operation(resources: _InvocationRecorder) -> Any:
 def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["structure_annotation"]
@@ -182,13 +199,12 @@ def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
         "definitions/expected_secondary_structure_from_prompt.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "structure_annotation"
-        in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("structure_annotation.")
     }
     assert owned_nodes == {
         ("structure_annotation.dssp_compute", "7.0.0"),
@@ -446,14 +462,44 @@ def test_annotation_ports_preserve_multichain_layout_missing_and_ss8() -> None:
         "structure_annotation.secondary_structure_track",
         "4.0.0",
     )]
+    sasa_type = port_types[(
+        "structure_annotation.sasa_track",
+        "4.0.0",
+    )]
 
-    assert annotation_type.decode(annotation_type.encode(annotation)) == annotation
+    decoded_annotation = annotation_type.decode(
+        annotation_type.encode(annotation)
+    )
+    assert decoded_annotation == annotation
+    assert all(
+        value is None or type(value) is float
+        for value in decoded_annotation.sasa
+    )
     track = StructureAnnotationTrack(
         subject=subject,
         layout=layout,
         values=annotation.secondary_structure,
     )
     assert secondary_type.decode(secondary_type.encode(track)) == track
+    sasa_track = StructureAnnotationTrack(
+        subject=subject,
+        layout=layout,
+        values=annotation.sasa,
+    )
+    decoded_sasa_track = sasa_type.decode(sasa_type.encode(sasa_track))
+    assert decoded_sasa_track == sasa_track
+    assert all(
+        value is None or type(value) is float
+        for value in decoded_sasa_track.values
+    )
+    invalid_annotation = json.loads(annotation_type.encode(annotation))
+    invalid_annotation["value"]["sasa"][0] = True
+    with pytest.raises(PortValueError, match="nullable non-negative"):
+        annotation_type.decode(canonical_json_bytes(invalid_annotation))
+    invalid_sasa_track = json.loads(sasa_type.encode(sasa_track))
+    invalid_sasa_track["value"]["track"]["fields"]["values"][0] = "14.5"
+    with pytest.raises(PortValueError, match="nullable non-negative"):
+        sasa_type.decode(canonical_json_bytes(invalid_sasa_track))
     wire = json.loads(secondary_type.encode(track))["value"]
     assert wire["track"]["fields"]["values"] == ["G", "_", "C", "E"]
 
@@ -1136,8 +1182,16 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
             "path_source": "trusted_environment_configuration",
         }
     }
+    assert tuple(
+        dict(field) for field in binding.descriptor["environment_fields"]
+    ) == (
+        {
+            "name": "dssp_binary",
+            "required": True,
+            "value_category": "filesystem_path",
+        },
+    )
     published = binding.descriptor_bytes.decode("utf-8")
-    assert "dssp_binary" not in published
     assert "/opt/" not in published
 
 
@@ -1233,7 +1287,6 @@ def _run_dssp(
     pdb_text: str,
     dssp_output: str | None,
     configured_binary: str | None = None,
-    result_replay_source: ResultReplaySource | None = None,
     binary_version: str = "4.6.1",
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...], str]:
     binary = _fake_dssp_binary(
@@ -1325,7 +1378,7 @@ def _run_dssp(
         project.id,
         workflow=workflow,
     )
-    authoring.require_compiled(
+    authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -1333,19 +1386,24 @@ def _run_dssp(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                (
-                    "structure_annotation.dssp_compute.mkdssp_local",
-                    "7.0.0",
-                ): {
-                    "values": {
-                        "dssp_binary": configured_binary or str(binary)
-                    },
-                }
-            }
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (
+                        "structure_annotation.dssp_compute.mkdssp_local",
+                        "7.0.0",
+                    ): {
+                        "values": {
+                            "dssp_binary": configured_binary or str(binary)
+                        },
+                    }
+                },
+            ),
+            result_store(projects),
         ),
-        result_replay_source,
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -1357,8 +1415,8 @@ def _run_dssp(
         service.shutdown()
         raise
     service.shutdown()
-    projection = service.projection(project.id, receipt["run_id"])
-    events = service.public_events(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
+    events = public_run_events(service, project.id, receipt["run_id"])
     return catalog, service, projection, events, str(binary)
 
 
@@ -2240,7 +2298,7 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         project.id,
         workflow=workflow,
     )
-    authoring.require_compiled(
+    authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
     )
@@ -2248,14 +2306,19 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(catalog, {}),
+            result_store(projects),
+        ),
+        result_store(projects),
     )
     receipt = service.start(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
         client_request_id="structure-annotation-agreement",
     )
-    projection = service.projection(project.id, receipt["run_id"])
+    projection = public_run_projection(service, project.id, receipt["run_id"])
     service.shutdown()
 
     subject_output = next(
@@ -2335,15 +2398,17 @@ def test_agreement_emits_one_exact_subject_metric_method_observation(
     assert observation.method.contract_id == (
         "structure_annotation.secondary_structure_agreement.method"
     )
-    assert observation.context.to_public() == {
+    assert observation_context_canonical(observation.context) == {
         "kind": "pairwise",
         "subject": {
             "role": "subject",
-            "candidate": subject_reference.to_public(),
+            "candidate": _candidate_data_reference_to_canonical(subject_reference),
         },
         "reference": {
             "role": "reference",
-            "candidate": reference_reference.to_public(),
+            "candidate": _candidate_data_reference_to_canonical(
+                reference_reference
+            ),
         },
         "pairing_mode": "fixed_reference",
         "normalization": "exact-SS8-present-residue",

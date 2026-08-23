@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from core.catalog.builder import build_frozen_catalog
+
+from protein_workbench_public.bootstrap import module_registrations
+
 import json
 import subprocess
 from pathlib import Path
@@ -61,7 +65,7 @@ def _fixture_closure(tmp_path: Path) -> tuple[
             SimpleFoldClosureFile(
                 role="model",
                 environment_key="model_root",
-                staging_group="simplefold_models",
+                runtime_group="simplefold_models",
                 runtime_filename="model.ckpt",
                 sha256=(
                     "98ad61a25e3683b6adf2474b01bbe1c27de6aad2ce3a80ff"
@@ -71,7 +75,7 @@ def _fixture_closure(tmp_path: Path) -> tuple[
             SimpleFoldClosureFile(
                 role="language_model",
                 environment_key="esm2_model_root",
-                staging_group="esm2_models",
+                runtime_group="esm2_models",
                 runtime_filename="esm2.pt",
                 sha256=(
                     "facf4724c27c2071c26834ed10b5b81b045b42ea0d48ff73"
@@ -83,7 +87,7 @@ def _fixture_closure(tmp_path: Path) -> tuple[
             SimpleFoldClosureSource(
                 role="language_model_runtime_source",
                 environment_key="esm2_source_root",
-                staging_group="esm2_source",
+                runtime_group="esm2_source",
                 revision=revision,
                 reviewed_files=("esm/__init__.py", "hubconf.py"),
                 source_tree_sha256=(
@@ -208,12 +212,12 @@ def test_readiness_does_not_rewrite_local_declaration_errors(
         })
 
 
-def test_admitted_closure_stages_only_declared_layout_without_a_second_proof(
+def test_admitted_closure_binds_verified_roots_without_copying(
     tmp_path: Path,
 ) -> None:
     from modules.folding.simplefold_asset_closure import (
         admit_simplefold_provider_asset_closure,
-        stage_simplefold_provider_asset_closure,
+        bind_simplefold_provider_asset_closure,
     )
 
     closure, environment = _fixture_closure(tmp_path)
@@ -229,31 +233,20 @@ def test_admitted_closure_stages_only_declared_layout_without_a_second_proof(
         environment["esm2_source_root"] / ".git-after-admission"
     )
 
-    staged = stage_simplefold_provider_asset_closure(
+    bound = bind_simplefold_provider_asset_closure(
         closure,
         environment,
-        tmp_path / "staging",
     )
 
-    assert (
-        staged.group_root("simplefold_models") / "model.ckpt"
-    ).read_bytes() == b"trusted-after-admission\n"
-    assert (
-        staged.group_root("esm2_models") / "esm2.pt"
-    ).read_bytes() == b"esm2\n"
-    assert (
-        staged.group_root("esm2_source") / "hubconf.py"
-    ).read_bytes() == b"trusted-source-after-admission\n"
-    assert (
-        staged.group_root("esm2_source") / "esm" / "__init__.py"
-    ).read_bytes() == b"init\n"
-    assert not (
-        staged.group_root("simplefold_models") / "unrelated.ckpt"
-    ).exists()
-    assert not (staged.group_root("esm2_models") / "contact.pt").exists()
-    assert not (
-        staged.group_root("esm2_source") / "esm" / "unrelated.py"
-    ).exists()
+    assert bound.group_root("simplefold_models") == environment["model_root"]
+    assert bound.group_root("esm2_models") == environment["esm2_model_root"]
+    assert bound.group_root("esm2_source") == environment["esm2_source_root"]
+    assert (bound.group_root("simplefold_models") / "model.ckpt").read_bytes() == (
+        b"trusted-after-admission\n"
+    )
+    assert (bound.group_root("esm2_source") / "hubconf.py").read_bytes() == (
+        b"trusted-source-after-admission\n"
+    )
 
 
 def test_declaration_projects_readiness_and_identity_without_acquisition_metadata(
@@ -321,13 +314,12 @@ def test_admission_rejects_declared_file_and_reviewed_source_changes(
 
 def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
 ) -> None:
-    from core import build_discovered_frozen_catalog
     from modules.folding.simplefold_asset_closure import (
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
     )
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     for binding_id, version, closure in (
         (
             "folding.fold.simplefold_local",

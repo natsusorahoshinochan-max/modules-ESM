@@ -5,23 +5,30 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from core import (
-    AdmittedPort,
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     EffectiveRandomnessResolver,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     ModulePackageRegistration,
-    OperationContext,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
     ReadinessDeclaration,
+    ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    AdmittedPort,
+    BindingEnvironment,
+    OperationContext,
     ReadinessResult,
     ScientificOperation,
-    ScientificOperationFactory,
 )
 
 from . import simplefold_contract
@@ -36,8 +43,7 @@ from .contracts import (
     SIMPLEFOLD_FOLD_METHOD,
 )
 
-from .adapter import (
-    BiohubESMFold2Adapter,
+from .esmfold2_contract import (
     ESM_SDK_REVISION,
     LOCAL_DEVICE,
     LOCAL_ESMC_ARTIFACT_SHA256,
@@ -48,11 +54,16 @@ from .adapter import (
     LOCAL_ESMFOLD2_MODEL,
     LOCAL_ESMFOLD2_REVISION,
     LOCAL_TORCH_VERSION,
-    LocalESMFold2Adapter,
     REMOTE_ESMFOLD2_MODEL,
     TRANSFORMERS_REVISION,
+)
+from .esmfold2_local import (
+    LocalESMFold2Adapter,
     local_readiness,
     local_runtime_structurally_available,
+)
+from .esmfold2_remote import (
+    BiohubESMFold2Adapter,
     remote_readiness,
     remote_runtime_structurally_available,
 )
@@ -75,6 +86,31 @@ from .simplefold_contract import (
 )
 
 
+_BIOHUB_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("endpoint_id", "json_value"),
+    EnvironmentFieldDeclaration("credential_handle", "credential_handle"),
+)
+_LOCAL_ESMFOLD2_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("model_snapshot_revision", "json_value"),
+    EnvironmentFieldDeclaration(
+        "language_model_snapshot_revision",
+        "json_value",
+    ),
+    EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),
+    EnvironmentFieldDeclaration(
+        "language_model_snapshot_path",
+        "filesystem_path",
+    ),
+    EnvironmentFieldDeclaration("device", "json_value"),
+)
+_SIMPLEFOLD_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("model_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("esm2_source_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("esm2_model_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("device", "json_value"),
+)
+
+
 _PACKAGE_VERSION = "10.0.0"
 _FOLD_NODE_TYPE_VERSION = "8.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "9.0.0"
@@ -90,22 +126,22 @@ _METRIC_VERSIONS = {
 }
 
 
-def _remote_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _remote_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return ReadinessResult(remote_readiness(check_input.values))
 
 
-def _local_ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+def _local_ready(check_input: BindingEnvironment) -> ReadinessResult:
     return local_readiness(check_input.values)
 
 
 def _simplefold_ready(
-    check_input: ReadinessCheckInput,
+    check_input: BindingEnvironment,
 ) -> ReadinessResult:
     return simplefold_readiness(check_input.values)
 
 
 def _simplefold_confidence_ready(
-    check_input: ReadinessCheckInput,
+    check_input: BindingEnvironment,
 ) -> ReadinessResult:
     return simplefold_confidence_readiness(check_input.values)
 
@@ -158,36 +194,8 @@ def _resolve_effective_randomness(
     node_parameters: Mapping[str, Any],
     binding_parameters: Mapping[str, Any],
 ) -> dict[str, Any]:
-    del inputs
-    if binding_parameters:
-        raise ValueError("folding Bindings accept no route parameters")
-    seed = node_parameters.get("effective_seed")
-    if (
-        type(seed) is not int
-        or seed < 0
-        or seed > 9_007_199_254_740_991
-    ):
-        raise ValueError("effective_seed must be one resolved I-JSON integer")
-    return {"effective_seed": seed}
-
-
-def _resolve_simplefold_effective_randomness(
-    *,
-    inputs: Mapping[str, AdmittedPort],
-    node_parameters: Mapping[str, Any],
-    binding_parameters: Mapping[str, Any],
-) -> dict[str, Any]:
-    del inputs
-    if set(binding_parameters) != {"num_steps"}:
-        raise ValueError("SimpleFold Binding parameters are not resolved")
-    seed = node_parameters.get("effective_seed")
-    if (
-        type(seed) is not int
-        or seed < 0
-        or seed > 9_007_199_254_740_991
-    ):
-        raise ValueError("effective_seed must be one resolved I-JSON integer")
-    return {"effective_seed": seed}
+    del inputs, binding_parameters
+    return {"effective_seed": node_parameters["effective_seed"]}
 
 
 def _build_remote(context: OperationContext) -> ScientificOperation:
@@ -355,9 +363,6 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                     "source": "trusted_environment_configuration",
                     "exact_value": LOCAL_DEVICE,
                 },
-                "runtime_directory": {
-                    "source": "trusted_environment_configuration",
-                },
             },
             check=_local_ready,
         )
@@ -403,6 +408,11 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             ),
         ),
         binding_parameters={},
+        environment_fields=(
+            _BIOHUB_ENVIRONMENT_FIELDS
+            if route == "remote"
+            else _LOCAL_ESMFOLD2_ENVIRONMENT_FIELDS
+        ),
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -476,6 +486,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "default": 50,
             },
         },
+        environment_fields=_SIMPLEFOLD_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -571,7 +582,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                     "sample_order": "parent-then-zero-based-sample",
                 },
             ),
-            resolve=_resolve_simplefold_effective_randomness,
+            resolve=_resolve_effective_randomness,
         ),
     )
 
@@ -597,6 +608,7 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
             CONFIDENCE_METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=_SIMPLEFOLD_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -704,7 +716,6 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="folding",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,

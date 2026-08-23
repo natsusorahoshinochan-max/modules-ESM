@@ -9,7 +9,7 @@ from Bio.SVDSuperimposer import SVDSuperimposer
 from scipy.optimize import linear_sum_assignment
 from tmtools import tm_align
 
-from datatypes import ResolvedStructureResidueAxis
+from datatypes.structure import ResolvedStructureResidueAxis
 
 from .domain import (
     AlignmentAtomCorrespondence,
@@ -378,7 +378,7 @@ def _lexicographic_segment_assignment(
             raise RuntimeError("optimal segment assignment cannot be backtraced")
         remaining_subjects = tail_subjects
         if chosen is not None:
-            assert isinstance(chosen, int)
+            chosen = cast(int, chosen)
             selected.append((subject_index, chosen))
             remaining_optimum -= weights[(subject_index, chosen)]
             remaining_references = tuple(

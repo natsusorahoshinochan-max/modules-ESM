@@ -8,12 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from core import PortValueError
-from datatypes import ProteinStructure
-from modules.structure_transform.implementation import (
-    normalize_csh_parent_span,
-    resolve_residue_axis,
-)
+from core.catalog.errors import PortValueError
+from datatypes.structure import ProteinStructure
+from modules.structure_transform.csh_normalization import normalize_csh_parent_span
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
 from tests.fixtures.structure_transform_sources.package import _FIXTURES
 

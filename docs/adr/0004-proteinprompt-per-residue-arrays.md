@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # ProteinPrompt uses per-residue arrays with optional values
 
 Each track in ProteinPrompt stores an array of length equal to the target layout,
@@ -13,8 +17,5 @@ nominal `protein.prompt` and `prompt_authoring.track.sasa` Port Types. A Method
 may record that it preserves or produces this unit, but Method metadata does not
 define the meaning of a value accepted by either Port.
 
-The alternative was a compressed representation: one bitmask per track indicating
-which positions are specified, plus a packed array of only the specified values.
-Rejected because insertions and deletions would require shifting both the bitmask
-and the packed array, adding index bookkeeping complexity for no meaningful benefit
-at protein-scale lengths (typically under 2000 residues).
+The aligned representation keeps residue identity and insertion or deletion
+behavior explicit without maintaining a second packed-position index.

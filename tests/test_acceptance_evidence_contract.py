@@ -11,12 +11,12 @@ from typing import Any
 
 import pytest
 
-from modules.acceptance_campaign import (
+from verification.acceptance_campaign import (
     CANONICAL_ACCEPTANCE_TIERS,
     acceptance_definition,
 )
 from tests.acceptance.retained_evidence import (
-    retain_proteinmpnn_lifecycle,
+    retain_provider_binding_transition,
     require_retained_evidence,
     retain_rest_run,
     retain_service_run,
@@ -98,7 +98,7 @@ def test_tier_contracts_declare_only_run_labels_and_lifecycle_need() -> None:
         tier.name
         for tier in CANONICAL_ACCEPTANCE_TIERS
         if tier.lifecycle_receipt_required
-    } == {"installed-proteinmpnn", "fresh-2emo"}
+    } == {"fresh-2emo"}
 
 
 def test_campaign_freezes_the_minimal_tier_evidence_contract() -> None:
@@ -112,7 +112,7 @@ def test_campaign_freezes_the_minimal_tier_evidence_contract() -> None:
     )
     assert contracts["installed-proteinmpnn"][
         "lifecycle_receipt_required"
-    ] is True
+    ] is False
     assert contracts["installed-biohub-esmc"][
         "lifecycle_receipt_required"
     ] is False
@@ -415,13 +415,27 @@ def test_required_lifecycle_receipt_cannot_be_omitted(
         )
 
 
-def test_proteinmpnn_lifecycle_receipt_contains_only_direct_facts(
+def test_provider_transition_receipt_contains_public_binding_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _write_complete(tmp_path, monkeypatch)
+    binding_sequence = (
+        {
+            "contract_kind": "binding",
+            "contract_id": "proteinmpnn.design.local",
+            "contract_version": "11.0.0",
+            "contract_digest": "sha256:" + "1" * 64,
+        },
+        {
+            "contract_kind": "binding",
+            "contract_id": "solubility.protein_sol.local",
+            "contract_version": "5.0.0",
+            "contract_digest": "sha256:" + "2" * 64,
+        },
+    )
 
-    retain_proteinmpnn_lifecycle(load_count=1)
+    retain_provider_binding_transition(binding_sequence=binding_sequence)
 
     require_retained_evidence(
         tmp_path,
@@ -429,29 +443,5 @@ def test_proteinmpnn_lifecycle_receipt_contains_only_direct_facts(
         lifecycle_required=True,
     )
     assert json.loads((tmp_path / "model-lifecycle.json").read_bytes()) == {
-        "model": "proteinmpnn",
-        "load_count": 1,
-    }
-
-
-def test_fresh_2emo_lifecycle_receipt_records_release_order(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _write_complete(tmp_path, monkeypatch)
-
-    retain_proteinmpnn_lifecycle(
-        load_count=1,
-        release="before-protein-sol",
-    )
-
-    require_retained_evidence(
-        tmp_path,
-        required_runs=(RUN_LABEL,),
-        lifecycle_required=True,
-    )
-    assert json.loads((tmp_path / "model-lifecycle.json").read_bytes()) == {
-        "model": "proteinmpnn",
-        "load_count": 1,
-        "release": "before-protein-sol",
+        "provider_binding_sequence": list(binding_sequence),
     }

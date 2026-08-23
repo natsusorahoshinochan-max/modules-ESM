@@ -4,18 +4,22 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from core import (
-    ArtifactPayload,
-    BehaviorReference,
-    OperationCall,
-    OperationContext,
+from core.catalog.declarations import (
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
 )
-from datatypes import (
-    CandidateCollection,
-    ExactContractReference,
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    ArtifactPayload,
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from datatypes.candidate import CandidateCollection
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
@@ -64,6 +68,7 @@ class _IncompleteProvenanceImplementation:
                     metric=self._metric,
                     method=self._method,
                     context=IntrinsicObservationContext(),
+                    source_partition="default",
                     value=1.0,
                 )
                 for reference in references

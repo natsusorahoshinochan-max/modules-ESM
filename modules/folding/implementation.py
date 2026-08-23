@@ -7,25 +7,24 @@ import hashlib
 import math
 from typing import Any
 
-from core.operation import (
-    OperationCall,
-    ResolvedProducedObservation,
-)
-from datatypes import (
-    CandidateDataReference,
+from core.operation import OperationCall
+from core.scoring.observation_plan import ResolvedProducedObservation
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
     ResidueAxisReference,
-    ResolvedStructureResidueAxis,
+)
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.structure import ResolvedStructureResidueAxis
 from ._output_construction import (
     CompletedFoldingSample,
-    CompletedFoldingSampleBatch,
     FoldingOutputConstruction,
 )
-from .adapter import (
+from .domain import (
     ESMFold2Adapter,
 )
 from .simplefold_adapter import (
@@ -65,22 +64,25 @@ class ESMFold2FoldingImplementation:
         return int.from_bytes(digest[:4], "big")
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        effective_seed = call.node_parameters["effective_seed"]
+        effective_seed = call.effective_randomness.get("effective_seed")
         sample_count = call.node_parameters["num_samples"]
         construction = FoldingOutputConstruction(
             parent_record=call.inputs["sequence_candidates"],
-            sample_count=sample_count,
             observation_method=self._method,
         )
 
         completed_samples: list[CompletedFoldingSample] = []
         for parent in construction.parents:
             for sample_index in range(sample_count):
-                call_seed = self._call_seed(
-                    effective_seed,
-                    parent.reference.content_digest,
-                    parent.slot,
-                    sample_index,
+                call_seed = (
+                    None
+                    if effective_seed is None
+                    else self._call_seed(
+                        effective_seed,
+                        parent.reference.content_digest,
+                        parent.slot,
+                        sample_index,
+                    )
                 )
                 adapter_result = self._adapter.fold(
                     sequence=parent.sequence,
@@ -104,9 +106,7 @@ class ESMFold2FoldingImplementation:
                         ),
                     )
                 )
-        return construction.construct(
-            CompletedFoldingSampleBatch(tuple(completed_samples))
-        )
+        return construction.construct(tuple(completed_samples))
 
 
 class SimpleFoldFoldingImplementation:
@@ -136,12 +136,11 @@ class SimpleFoldFoldingImplementation:
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        effective_seed = call.node_parameters["effective_seed"]
+        effective_seed = call.effective_randomness["effective_seed"]
         sample_count = call.node_parameters["num_samples"]
         num_steps = call.binding_parameters["num_steps"]
         construction = FoldingOutputConstruction(
             parent_record=call.inputs["sequence_candidates"],
-            sample_count=sample_count,
             observation_method=self._method,
         )
         completed_samples: list[CompletedFoldingSample] = []
@@ -171,9 +170,7 @@ class SimpleFoldFoldingImplementation:
                         num_steps=num_steps,
                     )
                 )
-        return construction.construct(
-            CompletedFoldingSampleBatch(tuple(completed_samples))
-        )
+        return construction.construct(tuple(completed_samples))
 
 
 class SimpleFoldConfidenceImplementation:

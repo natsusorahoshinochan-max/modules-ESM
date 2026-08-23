@@ -5,34 +5,45 @@ from __future__ import annotations
 from dataclasses import replace
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.errors import PortValueError
+from core.execution.environment import admit_environment_configuration
+from core.execution.ledger.projections import RunProjection
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     ModulePackagePortCase,
-    PortValueError,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_frozen_catalog,
-    builtin_frozen_catalog,
-    validate_produced_score_collection,
     verify_module_package_contract,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.scoring.observation_admission import ObservationAdmissionError
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
-    ProteinStructure,
-    ScoreCollection,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import ScoreCollection
+from datatypes.structure import ProteinStructure
+from tests.fixtures.observation_admission import (
+    admit_test_produced_score_collection,
 )
 from modules.structure_comparison.alignment import (
     _affine_sequence_alignment,
@@ -79,11 +90,11 @@ from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS_PACK
 from modules.structure_prediction.package import (
     MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociation,
     CandidateResolvedResidueAxisAssociations,
 )
-from modules.structure_transform.implementation import resolve_residue_axis
+from modules.structure_transform.residue_axis import resolve_residue_axis
 from modules.structure_transform.package import MODULE_PACKAGE as TRANSFORM_PACKAGE
 from tests.fixtures.structure_comparison_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -147,8 +158,10 @@ def _axis(
 
 def test_evidence_operations_reuse_the_admitted_structure_axis_identity(
 ) -> None:
-    from core import OperationCall
-    from datatypes import ResidueAxisReference
+    from core.operation import (
+        OperationCall,
+    )
+    from datatypes.exact_reference import ResidueAxisReference
     from modules.structure_comparison.inserted_loop import _axes_by_subject
     from modules.structure_comparison.three_way import _axis as _three_way_axis
     from modules.structure_transform.port_types import RESOLVED_AXIS_PORT_TYPE
@@ -626,6 +639,29 @@ def test_v5_alignment_evidence_codec_carries_axis_provenance_and_counts() -> Non
         "aligned_atom_count": 2,
     }
     assert alignment_evidence_from_wire(wire) == evidence
+    decoded = ALIGNMENT_EVIDENCE_PORT_TYPE.decode(
+        ALIGNMENT_EVIDENCE_PORT_TYPE.encode(evidence)
+    )
+    assert type(decoded.rmsd) is float
+    assert type(decoded.coverage) is float
+    assert all(
+        type(number) is float
+        for correspondence in decoded.correspondence
+        for number in (
+            *correspondence.subject_coordinate,
+            *correspondence.reference_coordinate,
+            *correspondence.transformed_subject_coordinate,
+            correspondence.residual_distance,
+        )
+    )
+    assert all(
+        type(number) is float
+        for row in decoded.transform.row_vector_rotation
+        for number in row
+    )
+    assert all(
+        type(number) is float for number in decoded.transform.translation
+    )
 
     impossible = replace(
         evidence,
@@ -980,7 +1016,7 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
         "subjects": subjects,
         "references": references,
     }
-    validate_produced_score_collection(
+    admit_test_produced_score_collection(
         catalog=catalog,
         binding=metric_contract,
         output_port="scores",
@@ -1019,10 +1055,10 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
             ),
         )
         with pytest.raises(
-            PortValueError,
+            ObservationAdmissionError,
             match="alignment evidence provenance",
         ):
-            validate_produced_score_collection(
+            admit_test_produced_score_collection(
                 catalog=catalog,
                 binding=metric_contract,
                 output_port="scores",
@@ -1580,7 +1616,7 @@ def _inserted_loop_ctk_case(
 def _run_inserted_loop_failure_case(
     case: ModulePackageContractCase,
     tmp_path: Path,
-) -> dict[str, Any]:
+) -> RunProjection:
     support = (
         TRANSFORM_PACKAGE,
         SOURCE_PACKAGE,
@@ -1624,7 +1660,12 @@ def _run_inserted_loop_failure_case(
         manager,
         catalog,
         authoring,
-        EnvironmentConfiguration({}),
+        NodeAttemptFactory(
+            manager,
+            admit_environment_configuration(catalog, {}),
+            result_store(manager),
+        ),
+        result_store(manager),
     )
     try:
         receipt = service.start_background(
@@ -1640,16 +1681,16 @@ def _run_inserted_loop_failure_case(
     return projection
 
 
-def _assert_inserted_loop_failure(projection: dict[str, Any]) -> None:
-    assert projection["status"] == "failed"
+def _assert_inserted_loop_failure(projection: RunProjection) -> None:
+    assert projection.status == "failed"
     assert next(
         disposition
-        for disposition in projection["node_dispositions"]
-        if disposition["node_id"] == "contract-test-node"
-    )["outcome"] == "failed"
+        for disposition in projection.node_dispositions
+        if disposition.node_id == "contract-test-node"
+    ).outcome == "failed"
     assert not any(
-        output["node_id"] == "contract-test-node"
-        for output in projection["outputs"]
+        output.node_id == "contract-test-node"
+        for output in projection.outputs
     )
 
 
@@ -2017,6 +2058,25 @@ def test_three_way_thresholds_are_inclusive_and_exact() -> None:
         )
 
 
+def test_three_way_codec_preserves_declared_float_values() -> None:
+    value = _three_way_consistency_value()
+    decoded = THREE_WAY_CONSISTENCY_PORT_TYPE.decode(
+        THREE_WAY_CONSISTENCY_PORT_TYPE.encode(value)
+    )
+
+    assert all(
+        type(number) is float
+        for number in (
+            decoded.plddt_threshold,
+            decoded.tm_score_threshold,
+            decoded.rmsd_threshold_angstrom,
+            *(item.mean_residue_plddt for item in decoded.confidences),
+            *(item.tm_score for item in decoded.edges),
+            *(item.rmsd_angstrom for item in decoded.edges),
+        )
+    )
+
+
 def test_three_way_port_requires_tuples_and_exact_method_references() -> None:
     value = _three_way_consistency_value()
     with pytest.raises(ValueError, match="exact tuple"):
@@ -2219,6 +2279,47 @@ def _inserted_loop_port_case() -> ModulePackagePortCase:
                 ),
             ),
         ),
+    )
+
+
+def test_inserted_loop_codec_preserves_declared_float_values() -> None:
+    value = _inserted_loop_port_case().valid_value
+    decoded = INSERTED_LOOP_EVALUATION_PORT_TYPE.decode(
+        INSERTED_LOOP_EVALUATION_PORT_TYPE.encode(value)
+    )
+    entry = decoded.entries[0]
+
+    assert all(
+        type(number) is float
+        for number in (
+            entry.resolved_core_tm_score,
+            entry.resolved_core_rmsd_angstrom,
+            entry.counterpart_tm_score,
+            entry.counterpart_rmsd_angstrom,
+            entry.resolved_core_mean_plddt,
+            entry.loop_mean_plddt,
+            entry.thresholds.resolved_core_tm_score_minimum,
+            entry.thresholds.resolved_core_rmsd_angstrom_maximum,
+            entry.thresholds.counterpart_tm_score_minimum,
+            entry.thresholds.counterpart_rmsd_angstrom_maximum,
+            entry.thresholds.resolved_core_mean_plddt_minimum,
+            entry.thresholds.junction_cn_distance_angstrom_minimum,
+            entry.thresholds.junction_cn_distance_angstrom_maximum,
+            entry.thresholds.loop_core_nonbonded_distance_angstrom_minimum,
+        )
+    )
+    assert all(
+        type(number) is float
+        for atom_pair in (
+            entry.left_junction,
+            entry.right_junction,
+            entry.minimum_loop_core_nonbonded_distance,
+        )
+        for number in (
+            *atom_pair.left_coordinate,
+            *atom_pair.right_coordinate,
+            atom_pair.distance_angstrom,
+        )
     )
 
 

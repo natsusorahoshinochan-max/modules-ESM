@@ -1,0 +1,118 @@
+- method_id: selection.filter.method
+  version: 4.0.0
+  algorithm_identity:
+    name: deterministic-candidate-filter
+    candidate_score_join: exact-candidate-data-reference
+    objective_scope: workflow-owned-exact-source
+    match_cardinality: exactly_one
+    missing_policy: error
+    out_of_scope_default: error
+    tie_policy: candidate_id_ascending
+    ranking_scale: canonical-metric-value
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: exact-metric-canonical-scale
+- method_id: selection.sort.method
+  version: 4.0.0
+  algorithm_identity:
+    name: deterministic-candidate-sort
+    candidate_score_join: exact-candidate-data-reference
+    objective_scope: workflow-owned-exact-source
+    match_cardinality: exactly_one
+    missing_policy: error
+    out_of_scope_default: error
+    tie_policy: candidate_id_ascending
+    ranking_scale: exact-utility-transform
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: workflow-objective-utility
+- method_id: selection.top_k.method
+  version: 4.0.0
+  algorithm_identity:
+    name: deterministic-candidate-top_k
+    candidate_score_join: exact-candidate-data-reference
+    objective_scope: workflow-owned-exact-source
+    match_cardinality: exactly_one
+    missing_policy: error
+    out_of_scope_default: error
+    tie_policy: candidate_id_ascending
+    ranking_scale: exact-utility-transform
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: workflow-objective-utility
+- method_id: selection.weighted_rank.method
+  version: 4.0.0
+  algorithm_identity:
+    name: normalized-weighted-utility-ranking
+    candidate_score_join: exact-candidate-data-reference
+    weight_policy: finite-non-negative-positive-total
+    normalization: divide-by-declared-weight-sum
+    ranking: descending-weighted-utility
+    tie_policy: candidate_id_ascending
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: dimensionless-utility-vector
+- method_id: selection.pareto.method
+  version: 4.0.0
+  algorithm_identity:
+    name: dimensionless-utility-pareto-frontier
+    candidate_score_join: exact-candidate-data-reference
+    dominance: greater-or-equal-all-and-greater-any
+    final_order: candidate_id_ascending
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: dimensionless-utility-vector
+- method_id: selection.diversity.method
+  version: 4.0.0
+  algorithm_identity:
+    name: weighted-max-min-euclidean-utility-diversity
+    candidate_score_join: exact-candidate-data-reference
+    seed: maximum-normalized-weighted-utility
+    distance: sqrt-sum-effective-weight-times-squared-delta
+    iteration: maximum-minimum-distance
+    tie_policy: candidate_id_ascending
+  model_identity:
+    kind: none
+  checkpoint_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  source_identity:
+    kind: repository-owned
+  scale_contract:
+    kind: dimensionless-utility-vector

@@ -4,8 +4,8 @@ status: accepted
 
 # Workflow composition preserves residue identity and Candidate lineage
 
-Workflow usability repairs must preserve the existing exact nominal type
-system. A raw scientific value is not implicitly interchangeable with a
+Workflow composition preserves the exact nominal type system. A raw scientific
+value is not implicitly interchangeable with a
 Candidate Collection, a Workbench ResidueIdentity is not a provider position,
 and a modified polymer component is not silently omitted or renamed.
 
@@ -36,7 +36,7 @@ expands it to the `SER-HIS-GLY` parent span at observed numbering minus one,
 observed numbering, and observed numbering plus one, and emits a typed
 component/parent/atom mapping. Missing atoms, extra atoms, alternate locations,
 insertion-coded components, or parent-identity collisions fail closed. The
-original Project Input remains unchanged, and direct structure-to-Prompt
+source Project Input is immutable, and direct structure-to-Prompt
 conversion continues to reject unnormalized CSH.
 
 `build_residue_layout` remains canonical-only. Deterministic gap authoring uses
@@ -51,5 +51,4 @@ provenance and cannot perturb a scientific random draw when the exact structure
 content and slot are unchanged.
 
 Changing any of these lineage, residue-identity, normalization, mapping,
-editing, or seed contracts requires new versioned public contracts. This
-decision refines ADR-0003, ADR-0028, and ADR-0031.
+editing, or seed contracts requires new versioned public contracts.

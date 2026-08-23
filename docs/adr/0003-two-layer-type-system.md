@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Two-layer type system: versioned nominal Port Types and runtime values
 
 Port compatibility is checked against exact nominal `type_id + version`

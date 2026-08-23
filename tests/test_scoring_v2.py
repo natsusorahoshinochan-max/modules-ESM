@@ -2,60 +2,94 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 import pytest
 from starlette.websockets import WebSocketDisconnect
 
-from core import (
-    BehaviorReference,
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from core.catalog.declarations import (
+    ReadinessDeclaration,
+    ScientificOperationFactory,
+)
+from core.catalog.model import (
     CatalogContract,
     FrozenCatalog,
-    OperationCall,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
     PortTypeDefinition,
-    ReadinessDeclaration,
+)
+from core.operation import (
+    OperationCall,
     ReadinessResult,
+)
+from core.parameters.contract import admit_declarations
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from core.scoring.observation_admission import (
+    ObservationAdmissionError,
+    admit_produced_observations,
+)
+from core.scoring.observation_plan import (
+    IntrinsicContextProfile,
+    ProducedObservationPlan,
+    ResolvedMetricFacts,
+    ResolvedProducedObservation,
+)
+from core.scoring.selection import (
     SelectionError,
     SelectionInput,
     SelectionObjective,
     SelectionResult,
-    ScientificOperationFactory,
-    builtin_frozen_catalog,
-    build_frozen_catalog,
-    compile_workflow,
-    relock_workflow,
-    validate_produced_score_collection,
+    SelectionProvenance,
+    selection_input_canonical,
+    selection_provenance_canonical,
 )
-from core.port_types import PortValueError
-from core.scoring_v2 import (
-    ResolvedMetricFacts,
-    validate_produced_score_collection_from_facts,
-)
-from core.server import create_app
-from core.workflow_v2 import (
-    WorkflowCompileError,
-    WorkflowDocumentError,
-    parse_workflow_document,
-)
-from protein_workbench_public import (
-    validate_event,
-    validate_response,
+from core.catalog.errors import PortValueError
+from tests.support.application import create_application
+from core.workflow.errors import WorkflowCompileError
+from core.workflow.document import WorkflowDocumentError
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from protein_workbench_public.protocol import (
     validate_schema,
 )
-from datatypes import (
+from tests.support.protocol import validate_event, validate_response
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
+)
+from tests.fixtures.observation_admission import (
+    admit_test_produced_score_collection,
+)
+from datatypes.exact_reference import (
     ExactContractReference,
-    IntrinsicObservationContext,
-    ProteinSequence,
-    ProteinStructure,
     ResidueAxisReference,
-    ResidueLayout,
+)
+from datatypes.i_json import thaw_i_json
+from datatypes.observation import (
+    IntrinsicObservationContext,
     ScoreCollection,
     ScoreObservation,
+)
+from datatypes.residue import ResidueLayout
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
+from tests.support.catalog import (
+    binding_availability,
+    catalog_contract,
+    install_runtime,
 )
 from tests.fixtures.scientific_operation import (
     admitted_port_fixture,
@@ -66,7 +100,10 @@ from tests.fixtures.public_v2 import (
     wait_for_testclient_run_terminal,
 )
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
-from modules.structure_prediction.port_types import CONFIDENCE_FACTS_PORT_TYPE
+from modules.structure_prediction.port_types import (
+    CONFIDENCE_FACTS_PORT_TYPE,
+    PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+)
 
 
 def _contract(
@@ -74,11 +111,11 @@ def _contract(
     contract_id: str,
     descriptor: dict,
 ) -> CatalogContract:
-    return CatalogContract(
-        contract_kind=kind,  # type: ignore[arg-type]
-        contract_id=contract_id,
-        contract_version="2.1.0",
-        descriptor={
+    return catalog_contract(
+        kind,
+        contract_id,
+        "2.1.0",
+        {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": kind,
             "contract_id": contract_id,
@@ -170,10 +207,14 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             },
             "parameters": {
                 "lower": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": "Lower endpoint of the utility scale.",
                     "value_contract": {"type": "number"},
                     "default": 0,
                 },
                 "upper": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": "Upper endpoint of the utility scale.",
                     "value_contract": {"type": "number"},
                     "default": 100,
                 },
@@ -197,10 +238,14 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             },
             "parameters": {
                 "lower": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": "Lower endpoint of the utility scale.",
                     "value_contract": {"type": "number"},
                     "default": 0,
                 },
                 "upper": {
+                    "parameter_scope": "scientific",
+                    "scientific_meaning": "Upper endpoint of the utility scale.",
                     "value_contract": {"type": "number"},
                     "default": 100,
                 },
@@ -333,16 +378,18 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "produced_observations": [
                 {
                     "output_port": "scores",
+                    "output_partition": "default",
                     "metric": metric_quality.reference(),
                     "context_profile": {"kind": "intrinsic"},
-                        "subject_grain": "candidate",
-                        "source_role": "subject",
-                        "subject_direction": "input",
+                    "subject_grain": "candidate",
+                    "source_role": "subject",
+                    "subject_direction": "input",
                     "subject_port": "candidates",
                     "guaranteed_multiplicity": "one",
                 },
                 {
                     "output_port": "scores",
+                    "output_partition": "default",
                     "metric": metric_novelty.reference(),
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
@@ -460,64 +507,51 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 ),
             }
 
+    observed_at = datetime(2026, 7, 29, 6, tzinfo=timezone.utc)
     catalog = FrozenCatalog(
         builtin.port_types,
-        contracts=(
-            *contracts.values(),
-            *selection_catalog.contracts,
+        contracts=install_runtime(
+            (
+                *contracts.values(),
+                *selection_catalog.contracts,
+            ),
+            utility_transforms={
+                ("quality.linear", "2.1.0"): linear,
+                ("novelty.linear", "2.1.0"): linear,
+            },
+            factories={
+                ("candidate.source.direct", "2.1.0"): (
+                    ScientificOperationFactory(
+                        behavior=source_factory_behavior,
+                        build=lambda _: CandidateSourceImplementation(),
+                    )
+                ),
+                ("score.intrinsic.direct", "2.1.0"): (
+                    ScientificOperationFactory(
+                        behavior=factory_behavior,
+                        build=lambda _: ScoringImplementation(),
+                    )
+                ),
+            },
+            readiness={
+                ("candidate.source.direct", "2.1.0"): ReadinessDeclaration(
+                    behavior=source_readiness_behavior,
+                    prerequisites={},
+                    check=lambda _: ReadinessResult(True),
+                ),
+                ("score.intrinsic.direct", "2.1.0"): ReadinessDeclaration(
+                    behavior=readiness_behavior,
+                    prerequisites={},
+                    check=lambda _: ReadinessResult(True),
+                ),
+            },
         ),
         availability=(
-            {
-                "binding": source_binding.reference(),
-                "observed_at": "2026-07-29T06:00:00Z",
-                "available": True,
-            },
-            {
-                "binding": producer_binding.reference(),
-                "observed_at": "2026-07-29T06:00:00Z",
-                "available": True,
-            },
+            binding_availability(source_binding, observed_at),
+            binding_availability(producer_binding, observed_at),
             *selection_catalog.availability,
         ),
-        availability_observed_at=datetime(
-            2026,
-            7,
-            29,
-            6,
-            tzinfo=timezone.utc,
-        ),
-        utility_transforms={
-            ("quality.linear", "2.1.0"): linear,
-            ("novelty.linear", "2.1.0"): linear,
-        },
-        factories={
-            **dict(selection_catalog.factories),
-            ("candidate.source.direct", "2.1.0"): (
-                ScientificOperationFactory(
-                    behavior=source_factory_behavior,
-                    build=lambda _: CandidateSourceImplementation(),
-                )
-            ),
-            ("score.intrinsic.direct", "2.1.0"): (
-                ScientificOperationFactory(
-                    behavior=factory_behavior,
-                    build=lambda _: ScoringImplementation(),
-                )
-            )
-        },
-        readiness_declarations={
-            **dict(selection_catalog.readiness_declarations),
-            ("candidate.source.direct", "2.1.0"): ReadinessDeclaration(
-                behavior=source_readiness_behavior,
-                prerequisites={},
-                check=lambda _: ReadinessResult(True),
-            ),
-            ("score.intrinsic.direct", "2.1.0"): ReadinessDeclaration(
-                behavior=readiness_behavior,
-                prerequisites={},
-                check=lambda _: ReadinessResult(True),
-            )
-        },
+        availability_observed_at=observed_at,
     )
     return catalog, contracts
 
@@ -669,6 +703,7 @@ def _dynamic_observation_method_catalog(
             "produced_observations": [
                 {
                     "output_port": "scores",
+                    "output_partition": "default",
                     "metric": contracts["quality"].reference(),
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
@@ -722,37 +757,40 @@ def _dynamic_observation_method_catalog(
 
     catalog = replace(
         catalog,
-        port_types=(*catalog.port_types, facts_type),
-        contracts=(*catalog.contracts, *added_contracts),
+        port_types=(
+            *catalog.port_types,
+            PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+            facts_type,
+        ),
+        contracts=install_runtime(
+            (*catalog.contracts, *added_contracts),
+            factories={
+                (generation_binding.contract_id, "2.1.0"): (
+                    compile_only_factory(generation_binding)
+                ),
+                (materializer_binding.contract_id, "2.1.0"): (
+                    compile_only_factory(materializer_binding)
+                ),
+            },
+            readiness={
+                (generation_binding.contract_id, "2.1.0"): (
+                    compile_only_readiness(generation_binding)
+                ),
+                (materializer_binding.contract_id, "2.1.0"): (
+                    compile_only_readiness(materializer_binding)
+                ),
+            },
+        ),
         availability=(
             *catalog.availability,
             *(
-                {
-                    "binding": binding.reference(),
-                    "observed_at": "2026-08-03T00:00:00Z",
-                    "available": True,
-                }
+                binding_availability(
+                    binding,
+                    datetime(2026, 8, 3, tzinfo=timezone.utc),
+                )
                 for binding in (generation_binding, materializer_binding)
             ),
         ),
-        factories={
-            **dict(catalog.factories),
-            (generation_binding.contract_id, "2.1.0"): (
-                compile_only_factory(generation_binding)
-            ),
-            (materializer_binding.contract_id, "2.1.0"): (
-                compile_only_factory(materializer_binding)
-            ),
-        },
-        readiness_declarations={
-            **dict(catalog.readiness_declarations),
-            (generation_binding.contract_id, "2.1.0"): (
-                compile_only_readiness(generation_binding)
-            ),
-            (materializer_binding.contract_id, "2.1.0"): (
-                compile_only_readiness(materializer_binding)
-            ),
-        },
     )
     return catalog, contracts
 
@@ -791,6 +829,7 @@ def _observation(
         metric=_reference(contracts[metric]),
         method=_reference(contracts[method]),
         context=IntrinsicObservationContext(),
+        source_partition="default",
         value=value,
     )
 
@@ -820,49 +859,46 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
     )
 
 
-def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed() -> None:
+def test_score_collection_canonicalizes_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
     score_type = catalog.require_port_type("score.collection", "5.0.0")
     observation = _observation(contracts, "candidate-1", 90)
 
-    encoded = score_type.encode(
-        ScoreCollection("scores", [observation, observation])
+    collection = ScoreCollection(
+        "scores",
+        [observation, observation],
     )
+    assert collection.entries == (observation,)
+    encoded = score_type.encode(collection)
     decoded = score_type.decode(encoded)
     assert decoded.entries == (observation,)
 
-    with pytest.raises(PortValueError, match="conflicting values"):
-        score_type.encode(
-            ScoreCollection(
-                "scores",
-                [observation, replace(observation, value=10)],
-            )
+    with pytest.raises(ValueError, match="conflicting values"):
+        ScoreCollection(
+            "scores",
+            [observation, replace(observation, value=10)],
         )
 
-    with pytest.raises(PortValueError, match="partition collision"):
-        score_type.encode(
-            ScoreCollection(
-                "scores",
-                [
-                    observation,
-                    replace(observation, source_partition="other"),
-                ],
-            )
+    with pytest.raises(ValueError, match="partition collision"):
+        ScoreCollection(
+            "scores",
+            [
+                observation,
+                replace(observation, source_partition="other"),
+            ],
         )
 
-    with pytest.raises(PortValueError, match="conflicting values"):
-        score_type.encode(
-            ScoreCollection(
-                "scores",
-                [
+    with pytest.raises(ValueError, match="conflicting values"):
+        ScoreCollection(
+            "scores",
+            [
+                observation,
+                replace(
                     observation,
-                    replace(
-                        observation,
-                        source_partition="other",
-                        value=10,
-                    ),
-                ],
-            )
+                    source_partition="other",
+                    value=10,
+                ),
+            ],
         )
 
 
@@ -899,7 +935,7 @@ def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> 
         ],
     )
 
-    validate_produced_score_collection(
+    admit_test_produced_score_collection(
         catalog=catalog,
         binding=binding,
         output_port="scores",
@@ -908,8 +944,8 @@ def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> 
         outputs={"scores": scores},
     )
 
-    with pytest.raises(PortValueError, match="guaranteed one"):
-        validate_produced_score_collection(
+    with pytest.raises(ObservationAdmissionError, match="guaranteed one"):
+        admit_test_produced_score_collection(
             catalog=catalog,
             binding=binding,
             output_port="scores",
@@ -920,8 +956,8 @@ def test_binding_output_obeys_exact_method_metric_context_and_multiplicity() -> 
             inputs={"candidates": candidates},
             outputs={},
         )
-    with pytest.raises(PortValueError, match="undeclared Method"):
-        validate_produced_score_collection(
+    with pytest.raises(ObservationAdmissionError, match="undeclared Method"):
+        admit_test_produced_score_collection(
             catalog=catalog,
             binding=binding,
             output_port="scores",
@@ -961,7 +997,7 @@ def test_binding_output_uses_exact_subject_source_and_rejects_ghosts() -> None:
             ),
         ],
     )
-    validate_produced_score_collection(
+    admit_test_produced_score_collection(
         catalog=catalog,
         binding=binding,
         output_port="scores",
@@ -982,8 +1018,8 @@ def test_binding_output_uses_exact_subject_source_and_rejects_ghosts() -> None:
             ),
         ],
     )
-    with pytest.raises(PortValueError, match="exact subject"):
-        validate_produced_score_collection(
+    with pytest.raises(ObservationAdmissionError, match="exact subject"):
+        admit_test_produced_score_collection(
             catalog=catalog,
             binding=binding,
             output_port="scores",
@@ -1045,9 +1081,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         runtime_to_wire=lambda value: value,
         runtime_from_wire=lambda value: value,
     )
-    original_node = contracts["score.intrinsic"].public_contract()[
-        "descriptor"
-    ]
+    original_node = thaw_i_json(contracts["score.intrinsic"].descriptor)
     residue_node = _contract(
         "node_type",
         "score.residue",
@@ -1076,9 +1110,9 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             ]
         },
     )
-    original = contracts["score.intrinsic.direct"].public_contract()[
-        "descriptor"
-    ]
+    original = thaw_i_json(
+        contracts["score.intrinsic.direct"].descriptor
+    )
     residue_binding = _contract(
         "binding",
         "score.residue.direct",
@@ -1100,6 +1134,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             "produced_observations": [
                 {
                     "output_port": "scores",
+                    "output_partition": "default",
                     "metric": residue_metric.reference(),
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
@@ -1153,12 +1188,13 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         metric=_reference(residue_metric),
         method=_reference(contracts["method.a"]),
         context=IntrinsicObservationContext(),
+        source_partition="default",
         value=[80, None, 95],
         residue_axis=axis_holder["axis"],
     )
     scores = ScoreCollection("scores", [observation])
 
-    validate_produced_score_collection(
+    admit_test_produced_score_collection(
         catalog=residue_catalog,
         binding=residue_binding,
         output_port="scores",
@@ -1170,8 +1206,8 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         outputs={"scores": scores},
     )
 
-    with pytest.raises(PortValueError, match="canonical range"):
-        validate_produced_score_collection(
+    with pytest.raises(ObservationAdmissionError, match="canonical range"):
+        admit_test_produced_score_collection(
             catalog=residue_catalog,
             binding=residue_binding,
             output_port="scores",
@@ -1185,8 +1221,8 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             },
             outputs={},
         )
-    with pytest.raises(PortValueError, match="exact residue layout"):
-        validate_produced_score_collection(
+    with pytest.raises(ObservationAdmissionError, match="exact residue layout"):
+        admit_test_produced_score_collection(
             catalog=residue_catalog,
             binding=residue_binding,
             output_port="scores",
@@ -1200,8 +1236,11 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             },
             outputs={},
         )
-    with pytest.raises(PortValueError, match="does not resolve exactly once"):
-        validate_produced_score_collection(
+    with pytest.raises(
+        ObservationAdmissionError,
+        match="does not resolve exactly once",
+    ):
+        admit_test_produced_score_collection(
             catalog=residue_catalog,
             binding=residue_binding,
             output_port="scores",
@@ -1221,7 +1260,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         "sha256:" + ("f" * 64),
     )
     with pytest.raises(PortValueError, match="conflicting exact references"):
-        validate_produced_score_collection(
+        admit_test_produced_score_collection(
             catalog=residue_catalog,
             binding=residue_binding,
             output_port="scores",
@@ -1272,34 +1311,41 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
         metric=metric,
         method=method,
         context=IntrinsicObservationContext(),
+        source_partition="default",
         value=[80, 90, 95],
         residue_axis=axis,
     )
     collection = ScoreCollection("scores", [observation])
-    reference = lambda item: {
-        "contract_kind": item.contract_kind,
-        "contract_id": item.contract_id,
-        "contract_version": item.contract_version,
-        "contract_digest": item.contract_digest,
-    }
-    validate_produced_score_collection_from_facts(
-        binding_descriptor={
-            "method": reference(method),
-            "produced_observations": [
-                {
-                    "output_port": "scores",
-                    "metric": reference(metric),
-                    "context_profile": {"kind": "intrinsic"},
-                    "subject_grain": "candidate",
-                    "source_role": "subject",
-                    "subject_direction": "input",
-                    "subject_port": "structures",
-                    "axis_direction": "input",
-                    "axis_port": "axes",
-                    "guaranteed_multiplicity": "one",
-                }
-            ],
-        },
+    metric_facts = ResolvedMetricFacts(
+        metric,
+        "per_residue",
+        0,
+        100,
+        False,
+        True,
+        False,
+        True,
+    )
+    admit_produced_observations(
+        plan=ProducedObservationPlan(
+            binding_method=method,
+            observations=(
+                ResolvedProducedObservation(
+                    output_port="scores",
+                    output_partition="default",
+                    metric=metric,
+                    context_profile=IntrinsicContextProfile(),
+                    subject_grain="candidate",
+                    source_role="subject",
+                    subject_direction="input",
+                    subject_port="structures",
+                    axis_direction="input",
+                    axis_port="axes",
+                    guaranteed_multiplicity="one",
+                ),
+            ),
+            metric_facts={metric: metric_facts},
+        ),
         output_port="scores",
         collection=collection,
         inputs={
@@ -1324,23 +1370,6 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
                 port_type_id="score.collection",
                 value_content_digests=("sha256:" + ("8" * 64),),
                 candidate_data=(subject,),
-            )
-        },
-        metric_facts={
-            (
-                metric.contract_kind,
-                metric.contract_id,
-                metric.contract_version,
-                metric.contract_digest,
-            ): ResolvedMetricFacts(
-                metric,
-                "per_residue",
-                0,
-                100,
-                False,
-                True,
-                False,
-                True,
             )
         },
     )
@@ -1388,6 +1417,7 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
             utility_transform=_reference(contracts["quality.linear"]),
             utility_parameters={},
             weight=3,
+            source_partition="default",
         ),
         SelectionObjective(
             objective_id="novelty-objective",
@@ -1399,6 +1429,7 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
             utility_transform=_reference(contracts["novelty.linear"]),
             utility_parameters={},
             weight=1,
+            source_partition="default",
         ),
     )
 
@@ -1414,13 +1445,13 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
         "candidate-1",
         "candidate-2",
     ]
-    assert result.public_provenance()["objectives"] == [
-            {
-                "objective_id": "quality-objective",
-                "candidate_input": candidate_input.to_public(),
-                "score_collection_input": score_input.to_public(),
-                "source_partition": "default",
-                "metric": contracts["quality"].reference(),
+    assert selection_provenance_canonical(result.provenance)["objectives"] == [
+        {
+            "objective_id": "quality-objective",
+            "candidate_input": selection_input_canonical(candidate_input),
+            "score_collection_input": selection_input_canonical(score_input),
+            "source_partition": "default",
+            "metric": contracts["quality"].reference(),
             "method": contracts["method.a"].reference(),
             "context_selector": {"kind": "intrinsic"},
             "utility_transform": contracts["quality.linear"].reference(),
@@ -1430,12 +1461,12 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
             "match_cardinality": "exactly_one",
             "missing_policy": "error",
         },
-            {
-                "objective_id": "novelty-objective",
-                "candidate_input": candidate_input.to_public(),
-                "score_collection_input": score_input.to_public(),
-                "source_partition": "default",
-                "metric": contracts["novelty"].reference(),
+        {
+            "objective_id": "novelty-objective",
+            "candidate_input": selection_input_canonical(candidate_input),
+            "score_collection_input": selection_input_canonical(score_input),
+            "source_partition": "default",
+            "metric": contracts["novelty"].reference(),
             "method": contracts["method.a"].reference(),
             "context_selector": {"kind": "intrinsic"},
             "utility_transform": contracts["novelty.linear"].reference(),
@@ -1448,27 +1479,23 @@ def test_explicit_utilities_normalize_weights_and_record_provenance() -> None:
     ]
 
 
-def test_selection_result_defensively_freezes_all_provenance_paths() -> None:
+def test_selection_result_retains_typed_immutable_provenance() -> None:
     candidates = CandidateCollection(
         "selected",
         "protein.sequence",
         [Candidate("candidate-1", ProteinSequence("AA"))],
     )
-    source = {"objectives": [{"parameters": [1]}]}
+    provenance = SelectionProvenance(())
+    result = SelectionResult(candidates, provenance)
 
-    result = SelectionResult(candidates, source)
-    source["objectives"][0]["parameters"].append(2)
-    first_public = result.public_provenance()
-    first_public["objectives"][0]["parameters"].append(3)
-
-    assert result.public_provenance() == {
-        "objectives": [{"parameters": [1]}]
-    }
+    assert result.provenance is provenance
+    with pytest.raises(FrozenInstanceError):
+        result.provenance.objectives = ()
 
 
 def test_unselected_collection_cannot_override_pairwise_subject_digest() -> None:
-    from core import PairwiseContextSelector
-    from datatypes import (
+    from core.scoring.selection import PairwiseContextSelector
+    from datatypes.observation import (
         PairwiseObservationContext,
         PairwiseParticipant,
     )
@@ -1576,11 +1603,12 @@ def test_objective_rejects_negative_or_non_finite_weight(weight: float) -> None:
             utility_transform=_reference(contracts["quality.linear"]),
             utility_parameters={},
             weight=weight,
+            source_partition="default",
         )
 
 
-def test_objective_rejects_non_i_json_integer_and_non_finite_total() -> None:
-    catalog, contracts = _scoring_catalog()
+def test_objective_rejects_non_i_json_integer() -> None:
+    _, contracts = _scoring_catalog()
     arguments = {
         "objective_id": "quality-objective",
         "candidate_input": SelectionInput("producer", "candidates"),
@@ -1590,35 +1618,10 @@ def test_objective_rejects_non_i_json_integer_and_non_finite_total() -> None:
         "context_selector": IntrinsicObservationContext(),
         "utility_transform": _reference(contracts["quality.linear"]),
         "utility_parameters": {},
+        "source_partition": "default",
     }
     with pytest.raises(SelectionError, match="finite and strictly positive"):
         SelectionObjective(**arguments, weight=10**400)
-
-    candidates = CandidateCollection(
-        "candidates",
-        "protein.sequence",
-        [Candidate("candidate-1", ProteinSequence("AA"))],
-    )
-    candidate_input = arguments["candidate_input"]
-    score_input = arguments["score_collection_input"]
-    scores = ScoreCollection(
-        "scores",
-        [_observation(contracts, "candidate-1", 90)],
-    )
-    with pytest.raises(SelectionError, match="finite positive total"):
-        select_admitted_candidates(
-            candidate_inputs={candidate_input: candidates},
-            score_collection_inputs={score_input: scores},
-            objectives=(
-                SelectionObjective(**arguments, weight=1e308),
-                SelectionObjective(
-                    **{**arguments, "objective_id": "quality-objective-2"},
-                    weight=1e308,
-                ),
-            ),
-            catalog=catalog,
-            limit=1,
-        )
 
 
 def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() -> None:
@@ -1641,6 +1644,7 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
             utility_transform=_reference(contracts["quality.linear"]),
             utility_parameters={},
             weight=0,
+            source_partition="default",
         )
     objective = SelectionObjective(
         objective_id="quality-objective",
@@ -1652,6 +1656,7 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         utility_transform=_reference(contracts["quality.linear"]),
         utility_parameters={},
         weight=1,
+        source_partition="default",
     )
     with pytest.raises(SelectionError, match="missing observation"):
         select_admitted_candidates(
@@ -1665,10 +1670,14 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         )
     unsafe_catalog = replace(
         catalog,
-        utility_transforms={
-            **dict(catalog.utility_transforms),
-            ("quality.linear", "2.1.0"): lambda value, parameters: 1.01,
-        },
+        contracts=install_runtime(
+            catalog.contracts,
+            utility_transforms={
+                ("quality.linear", "2.1.0"): (
+                    lambda value, parameters: 1.01
+                ),
+            },
+        ),
     )
     with pytest.raises(SelectionError, match=r"within \[0, 1\]"):
         select_admitted_candidates(
@@ -1771,6 +1780,34 @@ def _workflow_payload(
         ],
         "contract_lock": [],
     }
+
+
+def test_utility_parameter_error_uses_the_objective_path_without_a_node_owner(
+) -> None:
+    catalog, contracts = _scoring_catalog()
+    payload = _workflow_payload(contracts)
+    payload["selection_objectives"][0]["utility_parameters"] = {
+        "lower": "not-a-number",
+    }
+    workflow = decode_workflow_document(payload)
+
+    with pytest.raises(WorkflowCompileError) as captured:
+        compile(
+            CompilationRequest(
+                lock_workflow(workflow, catalog),
+                1,
+            ),
+            catalog,
+        )
+
+    assert captured.value.code == "invalid_parameter"
+    assert captured.value.field_path == (
+        "selection_objectives",
+        0,
+        "utility_parameters",
+        "lower",
+    )
+    assert captured.value.node_id is None
 
 
 def _dynamic_observation_method_payload(
@@ -1931,7 +1968,7 @@ def _compile_dynamic_observation_method(
     selection_node_id: str = "select",
 ):
     catalog, contracts = _dynamic_observation_method_catalog()
-    workflow = parse_workflow_document(
+    workflow = decode_workflow_document(
         _dynamic_observation_method_payload(
             contracts,
             selection_kind=selection_kind,
@@ -1941,11 +1978,13 @@ def _compile_dynamic_observation_method(
             selection_node_id=selection_node_id,
         )
     )
-    return compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
+    return compile(
+               CompilationRequest(
+                   lock_workflow(workflow, catalog),
+                   1,
+               ),
+               catalog,
+           )
 
 
 @pytest.mark.parametrize("selection_kind", ["objective", "selector"])
@@ -1958,9 +1997,9 @@ def test_compiler_uses_generation_method_for_dynamic_observation_capability(
     )
 
     selected = (
-        compiled.execution_plan.selection_objectives
+        compiled.selection_objectives
         if selection_kind == "objective"
-        else compiled.execution_plan.observation_selectors
+        else compiled.observation_selectors
     )
     assert selected[0].method.contract_id == "method.a"
 
@@ -2008,7 +2047,7 @@ def test_dynamic_observation_method_capability_is_independent_of_node_ids(
         selection_node_id="decision",
     )
 
-    assert {node.node_id for node in compiled.execution_plan.nodes} == {
+    assert {node.node_id for node in compiled.nodes} == {
         "source",
         "fact-origin",
         "observation-bridge",
@@ -2018,30 +2057,38 @@ def test_dynamic_observation_method_capability_is_independent_of_node_ids(
 
 def test_compiler_resolves_exact_intrinsic_objective_before_runtime() -> None:
     catalog, contracts = _scoring_catalog()
-    workflow = parse_workflow_document(_workflow_payload(contracts))
-    locked = relock_workflow(workflow, catalog)
+    workflow = decode_workflow_document(_workflow_payload(contracts))
+    locked = lock_workflow(workflow, catalog)
 
-    compiled = compile_workflow(locked, workflow_commit_revision=1, catalog=catalog)
+    compiled = compile(
+                   CompilationRequest(
+                       locked,
+                       1,
+                   ),
+                   catalog,
+               )
 
-    assert compiled.execution_plan.selection_objectives[0].metric == (
+    assert compiled.selection_objectives[0].metric == (
         _reference(contracts["quality"])
     )
     assert {
         item.contract_id
-        for item in compiled.execution_plan.resolved_contracts
+        for item in compiled.resolved_contracts
     } >= {"quality", "method.a", "quality.linear"}
 
-    novelty = parse_workflow_document(
+    novelty = decode_workflow_document(
         _workflow_payload(
             contracts,
             metric="novelty",
             utility="novelty.linear",
         )
     )
-    compile_workflow(
-        relock_workflow(novelty, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
+    compile(
+        CompilationRequest(
+            lock_workflow(novelty, catalog),
+            1,
+        ),
+        catalog,
     )
 
 
@@ -2057,22 +2104,24 @@ def test_compiler_binds_65_declared_objectives_to_explicit_selection() -> None:
         objective["objective_id"]
         for objective in payload["selection_objectives"]
     ]
-    workflow = parse_workflow_document(payload)
-    compiled = compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
+    workflow = decode_workflow_document(payload)
+    compiled = compile(
+                   CompilationRequest(
+                       lock_workflow(workflow, catalog),
+                       1,
+                   ),
+                   catalog,
+               )
     selection_node = next(
         node
-        for node in compiled.execution_plan.nodes
+        for node in compiled.nodes
         if node.node_id == "select"
     )
 
-    assert len(compiled.execution_plan.selection_objectives) == 65
+    assert len(compiled.selection_objectives) == 65
     assert len(selection_node._runtime.selection_objectives) == 65
     assert [
-        objective.objective.objective_id
+        objective.objective_id
         for objective in selection_node._runtime.selection_objectives
     ] == [f"quality-objective-{index}" for index in range(65)]
 
@@ -2094,7 +2143,7 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
         "PROTEIN_WORKBENCH_OUTPUT_ROOT",
         str(tmp_path / "outputs"),
     )
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
             ("candidate.source.direct", "2.1.0"): {
@@ -2185,7 +2234,7 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
             "missing_policy": "error",
         }
     ]
-    reloaded_app = create_app(
+    reloaded_app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
             ("candidate.source.direct", "2.1.0"): {
@@ -2214,10 +2263,14 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
     catalog, contracts = _scoring_catalog()
     unsafe_catalog = replace(
         catalog,
-        utility_transforms={
-            **dict(catalog.utility_transforms),
-            ("quality.linear", "2.1.0"): lambda value, parameters: 1.01,
-        },
+        contracts=install_runtime(
+            catalog.contracts,
+            utility_transforms={
+                ("quality.linear", "2.1.0"): (
+                    lambda value, parameters: 1.01
+                ),
+            },
+        ),
     )
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
@@ -2239,7 +2292,7 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
             "values": {},
         }
     }
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=unsafe_catalog,
         v2_environment_configuration=environment,
     )
@@ -2308,7 +2361,7 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
     assert operation_terminal["error"]["details"] == {
         "exception_type": "SelectionError"
     }
-    reloaded_app = create_app(
+    reloaded_app = create_application(
         frozen_catalog_override=unsafe_catalog,
         v2_environment_configuration=environment,
     )
@@ -2338,19 +2391,25 @@ def test_compiler_rejects_unsatisfied_objective_before_provider(
 ) -> None:
     catalog, contracts = _scoring_catalog()
     arguments = {field: value}
-    workflow = parse_workflow_document(
+    workflow = decode_workflow_document(
         _workflow_payload(contracts, **arguments)
     )
-    locked = relock_workflow(workflow, catalog)
+    locked = lock_workflow(workflow, catalog)
 
     with pytest.raises(WorkflowCompileError, match=message):
-        compile_workflow(locked, workflow_commit_revision=1, catalog=catalog)
+        compile(
+            CompilationRequest(
+                locked,
+                1,
+            ),
+            catalog,
+        )
 
 
 def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
     catalog, contracts = _scoring_catalog()
     original = contracts["score.intrinsic.direct"]
-    original_descriptor = original.public_contract()["descriptor"]
+    original_descriptor = thaw_i_json(original.descriptor)
     limited_binding = _contract(
         "binding",
         original.contract_id,
@@ -2381,14 +2440,13 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
             for contract in catalog.contracts
         ),
         availability=(
-            {
-                "binding": limited_binding.reference(),
-                "observed_at": "2026-07-29T06:00:00Z",
-                "available": True,
-            },
+            binding_availability(
+                limited_binding,
+                datetime(2026, 7, 29, 6, tzinfo=timezone.utc),
+            ),
         ),
     )
-    workflow = parse_workflow_document(
+    workflow = decode_workflow_document(
         _workflow_payload(
             contracts
             | {"score.intrinsic.direct": limited_binding},
@@ -2396,13 +2454,15 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
             utility="novelty.linear",
         )
     )
-    locked = relock_workflow(workflow, limited_catalog)
+    locked = lock_workflow(workflow, limited_catalog)
 
     with pytest.raises(WorkflowCompileError, match="cannot guarantee"):
-        compile_workflow(
-            locked,
-            workflow_commit_revision=1,
-            catalog=limited_catalog,
+        compile(
+            CompilationRequest(
+                locked,
+                1,
+            ),
+            limited_catalog,
         )
 
 
@@ -2427,16 +2487,18 @@ def test_compiler_rejects_weighting_across_different_candidate_inputs() -> None:
     }
     payload["nodes"].append(second_node)
     payload["selection_objectives"].append(second_objective)
-    workflow = parse_workflow_document(payload)
+    workflow = decode_workflow_document(payload)
 
     with pytest.raises(
         WorkflowCompileError,
         match="one exact Candidate input",
     ):
-        compile_workflow(
-            relock_workflow(workflow, catalog),
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                lock_workflow(workflow, catalog),
+                1,
+            ),
+            catalog,
         )
 
 
@@ -2458,4 +2520,4 @@ def test_workflow_rejects_implicit_or_arbitrary_scoring_controls(
     payload["selection_objectives"][0][field] = value
 
     with pytest.raises(WorkflowDocumentError, match="unexpected fields"):
-        parse_workflow_document(payload)
+        decode_workflow_document(payload)

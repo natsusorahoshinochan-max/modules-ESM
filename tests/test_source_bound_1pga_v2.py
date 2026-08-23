@@ -6,6 +6,8 @@ production Catalog/compiler, and the public REST/WebSocket Run surface.
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 import hashlib
 import json
 from dataclasses import replace
@@ -17,25 +19,30 @@ from fastapi.testclient import TestClient
 import pytest
 import torch
 
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.declarations import (
     AvailabilityResult,
     ModulePackageRegistration,
-    ReadinessCheckInput,
-    ReadinessResult,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    compile_workflow,
-    discover_module_packages,
-    parse_workflow_document,
-    relock_workflow,
 )
-from core.server import create_app
-from datatypes import (
-    CandidateCollection,
+from core.operation import (
+    BindingEnvironment,
+    ReadinessResult,
+)
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from protein_workbench_public.workflow_codec import decode_workflow_document
+from tests.support.application import create_application
+from datatypes.candidate import CandidateCollection
+from datatypes.observation import (
     PairwiseCandidateMapping,
-    ProteinStructure,
     ScoreCollection,
 )
+from datatypes.structure import ProteinStructure
 from modules.structure_comparison.domain import (
     StructureAlignmentEvidence,
     ThreeWayConsistencyEvidence,
@@ -48,10 +55,10 @@ from modules.structure_comparison.contracts import (
     THREE_WAY_CONSISTENCY_METHOD_REFERENCE,
     TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
 )
-from modules.structure_transform import (
+from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
-from protein_workbench_public import encode_project_input_content
+from tests.support.public_request import encode_project_input_content
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_canonical_bytes,
@@ -87,7 +94,7 @@ def _provider_free_catalog() -> Any:
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
 
-    def ready(check_input: ReadinessCheckInput) -> ReadinessResult:
+    def ready(check_input: BindingEnvironment) -> ReadinessResult:
         return ReadinessResult(bool(check_input.values))
 
     opened = {
@@ -95,7 +102,7 @@ def _provider_free_catalog() -> Any:
         "folding.fold.simplefold_local",
     }
     registrations: list[ModulePackageRegistration] = []
-    for registration in discover_module_packages():
+    for registration in module_registrations():
         registrations.append(
             replace(
                 registration,
@@ -126,21 +133,28 @@ def _provider_free_simplefold_environment(
     client: Any,
 ) -> dict[str, Any]:
     import modules.folding.simplefold_contract as simplefold_contract
+    import modules.folding.simplefold_runtime as simplefold_runtime
 
-    closure = replace(
-        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
-        sources=(),
-    )
     monkeypatch.setattr(
-        simplefold_contract,
-        "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
-        closure,
+        simplefold_runtime,
+        "fold_sequence",
+        lambda **kwargs: client.fold(
+            sequence=kwargs["sequence"],
+            num_steps=kwargs["num_steps"],
+            num_samples=kwargs["num_samples"],
+            effective_seed=kwargs["effective_seed"],
+            staging_directory=kwargs["staging_directory"],
+        ),
     )
+
+    closure = simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
     configured_roots = {
         environment_key: root / environment_key
-        for environment_key in {
-            entry.environment_key for entry in closure.files
-        }
+        for environment_key in (
+            "model_root",
+            "esm2_source_root",
+            "esm2_model_root",
+        )
     }
     for configured_root in configured_roots.values():
         configured_root.mkdir(parents=True)
@@ -148,10 +162,16 @@ def _provider_free_simplefold_environment(
         (configured_roots[entry.environment_key] / entry.runtime_filename).write_bytes(
             f"provider-free-{entry.runtime_filename}".encode()
         )
+    for source in closure.sources:
+        if source.environment_key is None:
+            continue
+        for relative in source.reviewed_files:
+            path = configured_roots[source.environment_key] / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"provider-free-{relative}".encode())
     return {
         **configured_roots,
         "device": simplefold_contract.SIMPLEFOLD_DEVICE,
-        "provider_client": client,
     }
 
 
@@ -262,19 +282,24 @@ def _decoded_output(
 
 def test_source_bound_1pga_is_exact_locked_and_compilable() -> None:
     assert hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest() == INPUT_SHA256
-    catalog = build_discovered_frozen_catalog()
-    workflow = parse_workflow_document(_workflow_payload())
+    catalog = build_frozen_catalog(module_registrations())
+    workflow = decode_workflow_document(_workflow_payload())
 
     assert workflow.workflow_id == "source-bound-1pga"
     assert workflow.schema_version == "2.1.0"
     assert workflow.contract_lock
-    assert relock_workflow(workflow, catalog) == workflow
-    compiled = compile_workflow(
-        workflow,
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
-    assert compiled.execution_plan.resolved_contracts == workflow.contract_lock
+    assert lock_workflow(
+        replace(workflow, contract_lock=()),
+        catalog,
+    ) == workflow
+    compiled = compile(
+                   CompilationRequest(
+                       workflow,
+                       1,
+                   ),
+                   catalog,
+               )
+    assert compiled.resolved_contracts == workflow.contract_lock
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert nodes["import-input"].node_parameters == {
@@ -313,12 +338,15 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     source_text = source_bytes.decode("ascii")
     esmfold2 = _ControlledESMFold2(source_text)
     simplefold = _ControlledSimpleFold(source_text)
+    monkeypatch.setattr(
+        "modules.folding.esmfold2_remote.build_remote_engine",
+        lambda _environment: esmfold2,
+    )
     environment = {
         ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
-                "credential_handle": object(),
-                "provider_client": esmfold2,
+                "credential_handle": "provider-free-folding-credential",
             },
         },
         ("folding.fold.simplefold_local", "10.0.0"): {
@@ -330,10 +358,9 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         },
     }
     catalog = _provider_free_catalog()
-    app = create_app(
+    app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration=environment,
-        _install_canonical_seed=False,
     )
 
     with TestClient(app) as client:
@@ -687,12 +714,15 @@ def test_source_bound_1pga_public_classification_contract(
         _deformed_source(source, simplefold_deformation),
         plddt=simplefold_plddt,
     )
+    monkeypatch.setattr(
+        "modules.folding.esmfold2_remote.build_remote_engine",
+        lambda _environment: esmfold2,
+    )
     environment = {
         ("folding.fold.esmfold2_remote", "9.0.0"): {
             "values": {
                 "endpoint_id": "provider-free",
-                "credential_handle": object(),
-                "provider_client": esmfold2,
+                "credential_handle": "provider-free-folding-credential",
             },
         },
         ("folding.fold.simplefold_local", "10.0.0"): {
@@ -705,10 +735,9 @@ def test_source_bound_1pga_public_classification_contract(
     }
     catalog = _provider_free_catalog()
     with TestClient(
-        create_app(
+        create_application(
             frozen_catalog_override=catalog,
             v2_environment_configuration=environment,
-            _install_canonical_seed=False,
         )
     ) as client:
         project_id = client.post(

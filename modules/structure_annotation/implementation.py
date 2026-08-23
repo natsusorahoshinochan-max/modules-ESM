@@ -3,24 +3,27 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Mapping, Protocol
+from typing import Any, Mapping, Protocol, cast
 
-from core import (
+from core.operation import (
+    OperationResources,
     AdmittedPort,
     OperationCall,
-    ResolvedProducedObservation,
-    RunResources,
 )
-from datatypes import (
-    CandidateDataReference,
-    ExactContractReference,
+from core.scoring.observation_plan import (
+    PairwiseContextProfile,
+    ResolvedProducedObservation,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     PairwiseObservationContext,
     PairwiseParticipant,
-    ResolvedStructureResidueAxis,
-    ResidueTrack,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.residue import ResidueLayout, ResidueTrack
+from datatypes.structure import ResolvedStructureResidueAxis
 from .domain import DSSPAnnotation, StructureAnnotationTrack
 
 
@@ -105,7 +108,7 @@ class DSSPComputeOperation:
 class SecondaryStructureExtractOperation:
     """Extract the canonical SS8 track without crossing a provider seam."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -125,7 +128,7 @@ class SecondaryStructureExtractOperation:
 class SASAComputeOperation:
     """Extract canonical DSSP accessibility without a provider Adapter."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -142,7 +145,7 @@ class SASAComputeOperation:
 class ApplySecondaryStructureToPromptOperation:
     """Apply one exact annotation SS8 track to a ProteinPrompt."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -153,16 +156,12 @@ class ApplySecondaryStructureToPromptOperation:
                 "Prompt and secondary-structure track layouts must be exactly equal"
             )
         with self._resources.engine_invocation():
-            values: list[str | None] = []
-            for value in track.values:
-                if value not in _ANNOTATION_TO_PROMPT_SS:
-                    raise ValueError(
-                        "annotation secondary structure uses an unsupported symbol"
-                    )
-                values.append(_ANNOTATION_TO_PROMPT_SS[value])
             updated = replace(
                 prompt,
-                secondary_structure_track=ResidueTrack(values, None),
+                secondary_structure_track=ResidueTrack(
+                    [_ANNOTATION_TO_PROMPT_SS[value] for value in track.values],
+                    None,
+                ),
             )
         return {"protein_prompt": updated}
 
@@ -170,7 +169,7 @@ class ApplySecondaryStructureToPromptOperation:
 class ApplySASAToPromptOperation:
     """Apply exact DSSP solvent accessibility to a ProteinPrompt."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
@@ -191,13 +190,11 @@ class ApplySASAToPromptOperation:
 class ExpectedSecondaryStructureFromPromptOperation:
     """Project Prompt conditioning as an expected annotation SS8 track."""
 
-    def __init__(self, resources: RunResources) -> None:
+    def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         prompt = call.inputs["protein_prompt"].value
-        if prompt.target_layout is None:
-            raise ValueError("ProteinPrompt must carry an exact target layout")
         if prompt.secondary_structure_track is None:
             raise ValueError(
                 "ProteinPrompt must carry a secondary-structure track"
@@ -207,17 +204,13 @@ class ExpectedSecondaryStructureFromPromptOperation:
             port_name="references",
         )
         with self._resources.engine_invocation():
-            values: list[str] = []
-            for value in prompt.secondary_structure_track.values:
-                if value not in _PROMPT_TO_ANNOTATION_SS:
-                    raise ValueError(
-                        "Prompt secondary structure uses an unsupported symbol"
-                    )
-                values.append(_PROMPT_TO_ANNOTATION_SS[value])
             track = StructureAnnotationTrack(
                 subject=reference,
-                layout=prompt.target_layout,
-                values=tuple(values),
+                layout=cast(ResidueLayout, prompt.target_layout),
+                values=tuple(
+                    _PROMPT_TO_ANNOTATION_SS[value]
+                    for value in prompt.secondary_structure_track.values
+                ),
             )
         return {"secondary_structure_track": track}
 
@@ -228,7 +221,7 @@ class SecondaryStructureAgreementOperation:
     def __init__(
         self,
         *,
-        resources: RunResources,
+        resources: OperationResources,
         method: ExactContractReference,
         produced_observation: ResolvedProducedObservation,
     ) -> None:
@@ -295,7 +288,10 @@ class SecondaryStructureAgreementOperation:
                 for expected_value, observed_value in compared
             ) / len(compared)
             produced = self._produced_observation
-            profile = produced.context_profile
+            profile = cast(
+                PairwiseContextProfile,
+                produced.context_profile,
+            )
             observation = ScoreObservation(
                 subject=subject_reference,
                 metric=produced.metric,
@@ -309,8 +305,8 @@ class SecondaryStructureAgreementOperation:
                         role="reference",
                         candidate=reference_reference,
                     ),
-                    pairing_mode=str(profile["pairing_mode"]),
-                    normalization=str(profile["normalization"]),
+                    pairing_mode=profile.pairing_mode,
+                    normalization=profile.normalization,
                 ),
                 value=agreement,
                 residue_axis=admitted_axis,

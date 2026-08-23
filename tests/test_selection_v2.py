@@ -9,34 +9,46 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from tests.support.contract_test_kit import (
     ModulePackageContractCase,
+    verify_module_package_contract,
+)
+from core.workflow.authoring import WorkflowCommit
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile,
+    lock_workflow,
+)
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.scoring.selection import (
     ObservationSelector,
-    PortValueError,
     SelectionError,
     SelectionInput,
     SelectionObjective,
-    WorkflowCommit,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_frozen_catalog,
-    compile_workflow,
-    relock_workflow,
-    verify_module_package_contract,
 )
-from core.project import ProjectManager
-from core.server import create_app
-from core.workflow_v2 import WorkflowCompileError, WorkflowEdge
-from datatypes import (
+from core.project.manager import ProjectManager
+from tests.support.application import create_application
+from protein_workbench_public.workflow_codec import encode_workflow_document
+from core.workflow.errors import WorkflowCompileError
+from core.workflow.document import WorkflowEdge
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    ExactContractReference,
+)
+from datatypes.exact_reference import ExactContractReference
+from datatypes.observation import (
     IntrinsicObservationContext,
-    ProteinSequence,
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.sequence import ProteinSequence
 from modules.selection.package import MODULE_PACKAGE
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_values,
@@ -59,10 +71,10 @@ def _assert_workflow_commit_owner(
     source_draft_revision: int,
     workflow_commit_revision: int,
 ) -> WorkflowCommit:
-    owner = app.state.workflow_authoring_v2
+    owner = app.state.workflow_authoring
     commit = owner.load_active_commit(project_id)
     draft = owner.load_draft(project_id)
-    compiled = owner.require_compiled(
+    compiled = owner.require_verified_commit(
         project_id,
         workflow_commit_id=commit.workflow_commit_id,
     )
@@ -262,7 +274,7 @@ def _workflow(
 
 def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
     catalog = _catalog()
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         response = client.get("/api/v2/catalog")
     assert response.status_code == 200
@@ -342,21 +354,23 @@ def test_compiler_resolves_exact_selector_sources(operation: str) -> None:
     catalog = _catalog()
     workflow = _workflow(catalog, operation)
 
-    compiled = compile_workflow(
-        relock_workflow(workflow, catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    )
+    compiled = compile(
+                   CompilationRequest(
+                       lock_workflow(workflow, catalog),
+                       1,
+                   ),
+                   catalog,
+               )
 
-    assert compiled.execution_plan.workflow_commit_revision == 1
+    assert compiled.workflow_commit_revision == 1
 
     if operation == "filter":
-        assert compiled.execution_plan.observation_selectors == (
+        assert compiled.observation_selectors == (
             _selector(catalog),
         )
-        assert compiled.execution_plan.selection_objectives == ()
+        assert compiled.selection_objectives == ()
     else:
-        assert compiled.execution_plan.selection_objectives == (
+        assert compiled.selection_objectives == (
             _objective(catalog),
         )
 
@@ -372,10 +386,12 @@ def test_compiler_rejects_unknown_or_mismatched_selector_before_execution() -> N
         WorkflowCompileError,
         match="does not resolve one Workflow Selection Objective",
     ):
-        compile_workflow(
-            relock_workflow(unknown, catalog),
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                lock_workflow(unknown, catalog),
+                1,
+            ),
+            catalog,
         )
 
     valid = _workflow(catalog, "sort")
@@ -401,20 +417,24 @@ def test_compiler_rejects_unknown_or_mismatched_selector_before_execution() -> N
         WorkflowCompileError,
         match="Candidate input does not match",
     ):
-        compile_workflow(
-            relock_workflow(mismatched, catalog),
-            workflow_commit_revision=1,
-            catalog=catalog,
+        compile(
+            CompilationRequest(
+                lock_workflow(mismatched, catalog),
+                1,
+            ),
+            catalog,
         )
 
 
 def _direct_implementation(operation: str):
     catalog = _catalog()
-    plan = compile_workflow(
-        relock_workflow(_workflow(catalog, operation), catalog),
-        workflow_commit_revision=1,
-        catalog=catalog,
-    ).execution_plan
+    plan = compile(
+               CompilationRequest(
+                   lock_workflow(_workflow(catalog, operation), catalog),
+                   1,
+               ),
+               catalog,
+           )
     binding_id = f"selection.{operation}.direct"
     implementation = build_operation(
         catalog,
@@ -626,19 +646,11 @@ def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
         "tie_policy": "candidate_id_ascending",
     }
 
-    conflict = ScoreCollection(
-        "conflict",
-        [*scores.entries, replace(scores.entries[0], value=0.1)],
-    )
-    with pytest.raises(PortValueError, match="conflicting values"):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="selection.sort.direct",
-            binding_version=NODE_BINDING_VERSION,
-            inputs={"candidates": candidates, "scores": conflict},
-            node_parameters=parameters,
-            binding_parameters={},
-        ))
+    with pytest.raises(ValueError, match="conflicting values"):
+        ScoreCollection(
+            "conflict",
+            [*scores.entries, replace(scores.entries[0], value=0.1)],
+        )
     out_of_scope = ScoreCollection(
         "out-of-scope",
         [
@@ -774,12 +786,12 @@ def test_public_execution_is_cache_replay_stable(
         _workflow(catalog, "top_k"),
         workflow_id=project_id,
     )
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": workflow.to_public(),
+                "workflow": encode_workflow_document(workflow),
             },
         )
         assert committed.status_code == 200
@@ -882,7 +894,7 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
-                "workflow": document.to_public(),
+                "workflow": encode_workflow_document(document),
             },
         )
         assert committed.status_code == 200
@@ -910,7 +922,7 @@ def test_changing_resolved_objective_invalidates_selection_cache(
             ),
         )
 
-    app = create_app(frozen_catalog_override=catalog)
+    app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         _, first = commit_run(
             client,

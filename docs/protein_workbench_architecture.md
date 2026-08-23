@@ -4,7 +4,7 @@
 - **日期**：2026-08-20
 - **使用场景**：可信、单用户、仅本机使用
 - **规范词汇**：以 [`CONTEXT.md`](../CONTEXT.md) 为准
-- **核心决策**：ADR-0022、ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038、ADR-0039、ADR-0040、ADR-0041、ADR-0042、ADR-0043、ADR-0044、ADR-0045
+- **核心决策**：ADR-0028、ADR-0030、ADR-0033、ADR-0034、ADR-0035、ADR-0036、ADR-0037、ADR-0038、ADR-0039、ADR-0041、ADR-0042、ADR-0043、ADR-0044、ADR-0045
 
 ## 1. 目标与优先级
 
@@ -725,10 +725,15 @@ Operation terminal、Node terminal 与 disposition。公开 error details 只包
 bounded domain identifiers、publication stage 或 Result Identity，不包含 object path、
 canonical value 或 raw exception。
 
-`failure_origin=binding` 必须没有 child Operation；`failure_origin=operation` 必须引用同一
-Node Attempt 中唯一且已 `failed` 的 executed Operation。Cache replay 或本地 invariant
-不得伪造任一 origin；本地 invariant 在 contract-owning boundary fail fast，且不写虚构的
-Node/Operation terminal。
+Node Attempt 已开始、但 Operation Attempt 尚未开始时，Project Input 解析、effective
+randomness、Result Identity/Cache lookup 或 Operation construction 的异常以
+`failure_origin=attempt`、`node_execution_failed` 关闭 Node，且不创建虚构的 child
+Operation。`failure_origin=attempt` 与 `failure_origin=binding` 都只允许
+`resolution=executed` 且没有 child Operation；`failure_origin=operation` 必须引用同一 Node
+Attempt 中唯一且已 `failed` 的 executed Operation。Cache replay 不得声明 Attempt、Binding
+或 Operation failure。在 Node Attempt 开始前发现的本地 contract invariant 直接 fail
+fast；Node Attempt 开始后的任何异常都由 Attempt lifecycle cleanup 并提交合法 terminal
+evidence。
 
 正常执行过程中，每个开始的 Engine Invocation 恰有一个 terminal fact；进程退出后只将未完成
 Run 关闭为 `interrupted`，不重建缺失的内部 terminal。Invocation 的 `engine_identity` 必须是

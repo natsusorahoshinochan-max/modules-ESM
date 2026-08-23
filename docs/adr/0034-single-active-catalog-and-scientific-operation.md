@@ -14,12 +14,11 @@ active exact version.
 
 An incompatible contract change receives a new exact version. Repository-owned
 producers, consumers, examples, fixtures, and documentation change atomically.
-An old exact identity is not silently assigned new descriptor bytes, but it is
-also not registered beside the active identity. Git history, exact descriptor
-bytes and digests, environment locks, and Run Evidence preserve provenance;
-they do not create a second executable runtime generation. Old development
-Workflows, Cache entries, and Run records fail closed as unsupported and may be
-cleared and regenerated.
+The Catalog registers only the active identity and never assigns different
+descriptor bytes to one exact identity. Exact descriptor bytes and digests,
+environment locks, and Run Evidence preserve provenance without creating a
+second executable runtime generation. Unsupported contract identities fail
+closed.
 
 The `FrozenCatalog` is a deep module for exact public contract publication and
 resolution. Workflow admission and compilation use it to resolve an immutable
@@ -100,33 +99,19 @@ Evidence at the seam where the fact is known. The active
 canonical PDB content. Its nominal distinction is established by its closed
 backbone atom, ordering, chain-break, and serialization invariants, never by a
 producer string. Both Port Types have one decoder for their current closed
-wire shape; the removed source-bearing shapes are not accepted.
+wire shape and accept no source-bearing fields.
 
-Every Node Type and Execution Binding that directly declares either changed
-Port Type moves atomically to its current incompatible generation. A Method
-keeps its exact identity only while its complete scientific definition is
-unchanged. The secondary-structure and SASA projection Methods therefore move
-to `3.0.0` when their input and output gain exact CandidateDataReference
-association, while the semantically unchanged prompt-conversion Methods remain
-at `2.2.0`. ProteinMPNN design changes its Node and Binding while its
-identity-based constraints value and design Method keep their already-current
-scientific contracts. Candidate collections resolve their declared item type
-through the one active Catalog; they do not carry a compatibility registry or
-select a historical structure decoder.
+Every Node Type and Execution Binding that directly declares either active Port
+Type uses its current exact generation. A Method keeps its exact identity only
+while its complete scientific definition is unchanged. Secondary-structure and
+SASA projection Methods use version `3.0.0` with exact Candidate Data Reference
+association contracts. The semantically distinct prompt-conversion Methods use
+version `2.2.0`. ProteinMPNN design uses the current identity-based constraints
+value and design Method. Candidate collections resolve their declared item type
+through the one active Catalog and carry no compatibility registry or alternate
+structure decoder.
 
-This decision means ProteinMPNN has one identity-based constraints value, one
-canonical design operation, and one Adapter per real provider route. Only the
-Adapter converts stable `ResidueIdentity` values to provider positions. A
-legacy positional contract is historical evidence, not an executable
-implementation or decoder in the active generation.
-
-The rejected alternatives are a multi-generation runtime, version-switching
-inside scientific implementations, duplicate implementations for old wire
-shapes, automatic migrations, aliases, and a generic abstraction that hides
-scientifically distinct Methods. Those alternatives increase shallow
-interfaces and distribute version knowledge across implementations, reducing
-both scientific locality and verifiability.
-
-This decision extends ADR-0022, ADR-0028, ADR-0030, ADR-0031, and ADR-0033. If
-an older statement requires historical development contracts to remain
-runtime-decodable or executable, this decision supersedes that statement.
+ProteinMPNN has one identity-based constraints value, one canonical design
+operation, and one Adapter per real provider route. Only the Adapter converts
+stable `ResidueIdentity` values to provider positions. No positional
+compatibility contract or alternate decoder is executable.

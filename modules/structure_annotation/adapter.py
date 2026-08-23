@@ -13,8 +13,12 @@ from typing import Any, cast
 
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
-from core import ReadinessResult, RunResources
-from datatypes import CandidateDataReference, ResolvedStructureResidueAxis
+from core.operation import (
+    OperationResources,
+    ReadinessResult,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.structure import ResolvedStructureResidueAxis
 
 from .domain import DSSPAnnotation
 
@@ -42,11 +46,9 @@ def mkdssp_provider_identity() -> dict[str, str]:
 
 def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Attest the configured executable without performing annotation work."""
-    path = environment.get("dssp_binary")
+    path = cast(Path, environment["dssp_binary"])
     if (
-        not isinstance(path, str)
-        or not path
-        or not os.path.isfile(path)
+        not os.path.isfile(path)
         or not os.access(path, os.X_OK)
     ):
         return ReadinessResult(
@@ -59,10 +61,9 @@ def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
             [path, "--version"],
             capture_output=True,
             text=True,
-            timeout=5,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -263,18 +264,10 @@ class MkdsspAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources
-
-    def _timeout(self) -> int:
-        timeout = self._environment.get("dssp_timeout_seconds", 30)
-        if type(timeout) is not int or not 1 <= timeout <= 300:
-            raise ValueError(
-                "trusted DSSP timeout must be an integer from 1 to 300"
-            )
-        return timeout
 
     def annotate(
         self,
@@ -284,7 +277,6 @@ class MkdsspAdapter:
     ) -> DSSPAnnotation:
         """Run mkdssp and return only its admitted canonical annotation."""
         binary = self._environment["dssp_binary"]
-        timeout = self._timeout()
         with self._resources.temporary_directory(
             prefix="structure-annotation-dssp-"
         ) as workspace:
@@ -302,13 +294,8 @@ class MkdsspAdapter:
                             str(input_path),
                         ],
                         capture_output=True,
-                        timeout=timeout,
                         check=False,
                     )
-                except subprocess.TimeoutExpired as error:
-                    raise RuntimeError(
-                        "mkdssp execution exceeded its trusted timeout"
-                    ) from error
                 except OSError as error:
                     raise RuntimeError(
                         "mkdssp execution could not start"

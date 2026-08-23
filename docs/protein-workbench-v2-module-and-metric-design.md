@@ -468,9 +468,13 @@ transaction 写入所需 terminals 与 disposition，且不发布 outputs 或 Ar
 details 使用 public bundle 声明的 closed bounded schema，不携带 paths、canonical values
 或 raw exceptions。
 
-`failure_origin=operation` 只允许 `resolution=executed`，并且必须存在同一 Node Attempt
-中唯一的 failed Operation。Cache replay 不得声明 Operation failure；在 Operation Attempt
-开始前发现的本地 contract invariant 直接 fail fast，不补写一个从未发生的 Operation。
+Node Attempt 已开始但 Operation Attempt 尚未开始时，准备、identity/cache lookup 或
+Operation construction 异常使用 `failure_origin=attempt` 与 `node_execution_failed`，不补写
+一个从未发生的 Operation。`failure_origin=attempt` 与 `failure_origin=operation` 都只允许
+`resolution=executed`；前者不得有 child Operation，后者必须存在同一 Node Attempt 中唯一的
+failed Operation。Cache replay 不得声明两者。在 Node Attempt 开始前发现的本地 contract
+invariant 直接 fail fast；开始后的异常由唯一 Attempt lifecycle 完成 cleanup 与 terminal
+evidence。
 
 Run Evidence Ledger 是 typed run facts 的唯一写入 interface。事实经过 schema/causal
 validation、安全 redaction、durable persistence 与 monotonic sequence 分配后，才投影
@@ -523,21 +527,21 @@ digest。Cache replay 保留 Candidate identity；相同 Candidate identity 对�
 相关决定见 [ADR-0031](./adr/0031-result-identity-and-project-scoped-cache.md) 与
 [ADR-0039](./adr/0039-node-outcomes-publish-atomically-through-immutable-value-objects.md)。
 
-## 9. 首次发布前的破坏性重置
+## 9. 单一现行运行时合同
 
-v2 是唯一受支持的运行时格式：
+Protein Workbench 只支持当前 v2 运行时格式：
 
-- 不实现 v1 Workflow migrator、旧 Score alias、双格式 reader 或 pLDDT 自动换算；
-- 仓库跟踪的示例、seed Workflow 和 fixtures 直接重写为 v2；
-- Workflow、manifest 与 Cache 同步使用 v2 schema；
-- 旧格式只返回 `unsupported_schema_version`，不猜测或转换；
-- v1 规格和 superseded ADR 只保留为历史记录。
+- Workflow、manifest 与 Cache 使用当前 schema；
+- 不提供 Workflow migrator、Score alias、双格式 reader 或 pLDDT 自动换算；
+- 仓库跟踪的示例、seed Workflow 和 fixtures 与当前合同一致；
+- 不支持的 schema 返回 `unsupported_schema_version`，不猜测或转换。
 
-本地 `projects/`、Cache 和 run records 是可丢弃的开发状态，但本文只决定其不兼容性；
-实际清理仍是独立、显式授权的破坏性操作，不能因实现本合同而自动删除。
+本地 `projects/`、Cache 和 run records 是可丢弃的开发状态。实际清理是
+独立、显式授权的破坏性操作，不能因实现本合同而自动删除。
 
 相关决定见
-[ADR-0022](./adr/0022-v2-is-a-pre-release-breaking-reset.md)。
+[ADR-0034](./adr/0034-single-active-catalog-and-scientific-operation.md) 与
+[ADR-0039](./adr/0039-node-outcomes-publish-atomically-through-immutable-value-objects.md)。
 
 ## 10. 实施阶段
 

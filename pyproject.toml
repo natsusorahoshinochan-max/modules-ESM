@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "protein-workbench"
 version = "0.1.0"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "biopython==1.85",
@@ -18,13 +19,14 @@ dependencies = [
 ]
 
 [project.scripts]
-protein-workbench-server = "core.server:main"
+protein-workbench-server = "protein_workbench_public.cli:main"
 
 [project.optional-dependencies]
 dev = [
     "build==1.5.0",
     "esm @ git+https://github.com/Biohub/esm.git@917af90b624535eed1e072d343c717e3ec11fef4",
     "httpx>=0.27,<1",
+    "httpx2==2.12.0",
     "pytest>=8,<10",
     "pytest-asyncio>=0.24,<2",
     "setuptools==83.0.0",
@@ -46,7 +48,10 @@ include = [
     "modules*",
     "pdbs*",
     "protein_workbench_public*",
+    "verification",
+    "verification.*",
 ]
+exclude = ["verification-results", "verification-results.*"]
 
 [tool.setuptools.package-data]
 examples = ["*.json", "v2/*.json", "v2/*.md"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import importlib
 import importlib.util
 import json
@@ -10,25 +11,28 @@ import pickle
 import shutil
 import sys
 from argparse import Namespace
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict
 
-from core import ReadinessResult, RunResources
-from datatypes import (
+from core.operation import (
+    OperationResources,
+    ReadinessResult,
+)
+from datatypes.structure import (
     ResolvedStructureResidueAxis,
     StructureAxisSegment,
 )
 
 from . import simplefold_contract
-from .adapter import normalize_residue_plddt
+from .domain import normalize_residue_plddt
 from .simplefold_asset_closure import (
+    BoundSimpleFoldProviderAssetClosure,
     SimpleFoldAssetClosureAdmissionError,
-    StagedSimpleFoldProviderAssetClosure,
     admit_simplefold_provider_asset_closure,
-    stage_simplefold_provider_asset_closure,
+    bind_simplefold_provider_asset_closure,
 )
 
 
@@ -43,13 +47,6 @@ class SimpleFoldConfidenceAdapterResult:
 
     per_residue_plddt: tuple[float | None, ...]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "per_residue_plddt",
-            tuple(self.per_residue_plddt),
-        )
-
 
 class SimpleFoldConfidenceAdapter(Protocol):
     """Resolved-axis existing-structure confidence Operation boundary."""
@@ -60,14 +57,6 @@ class SimpleFoldConfidenceAdapter(Protocol):
         residue_axis: ResolvedStructureResidueAxis,
         engine_role: str,
     ) -> SimpleFoldConfidenceAdapterResult: ...
-
-
-def provider_identity() -> dict[str, Any]:
-    """Return only scientific assets crossed by this engine boundary."""
-    return (
-        simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
-        .provider_identity()
-    )
 
 
 def simplefold_confidence_runtime_structurally_available() -> bool:
@@ -81,7 +70,7 @@ def simplefold_confidence_runtime_structurally_available() -> bool:
 def simplefold_confidence_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    if environment.get("device") != (
+    if environment["device"] != (
         simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
     ):
         return ReadinessResult(
@@ -209,13 +198,14 @@ def _native_existing_structure_confidence(
     *,
     residue_axis: ResolvedStructureResidueAxis,
     staging_directory: Path,
-    staged_closure: StagedSimpleFoldProviderAssetClosure,
+    bound_closure: BoundSimpleFoldProviderAssetClosure,
 ) -> _SimpleFoldConfidenceNativeResult:
     """Run only the latent confidence path over supplied coordinates."""
     import numpy as np
     import torch
 
     from .simplefold_runtime import (
+        _load_reviewed_plddt_models,
         _restore_process_cwd,
         _setup_simplefold_imports,
     )
@@ -224,9 +214,9 @@ def _native_existing_structure_confidence(
     def run() -> _SimpleFoldConfidenceNativeResult:
         residue_ids = cast(tuple[str, ...], residue_axis.layout.residue_ids)
         input_coordinates = _coordinates_by_residue(residue_axis)
-        model_dir = staged_closure.group_root("simplefold_models")
-        esm2_model_dir = staged_closure.group_root("esm2_models")
-        esm2_source_root = staged_closure.group_root("esm2_source")
+        model_dir = bound_closure.group_root("simplefold_models")
+        esm2_model_dir = bound_closure.group_root("esm2_models")
+        esm2_source_root = bound_closure.group_root("esm2_source")
         old_cwd = _setup_simplefold_imports()
         try:
             from simplefold.boltz_data_pipeline import const
@@ -246,7 +236,6 @@ def _native_existing_structure_confidence(
                 process_one_inference_structure,
             )
             from simplefold.utils.esm_utils import _af2_to_esm, esm_registry
-            from simplefold.wrapper import ModelWrapper
 
             esm_registry["esm2_3B"] = partial(
                 _load_representation_only_esm2,
@@ -285,20 +274,9 @@ def _native_existing_structure_confidence(
             record_file.write_text(
                 json.dumps(asdict(target.record), sort_keys=True)
             )
-            wrapper = ModelWrapper(
-                simplefold_model="simplefold_1.6B",
-                plddt=True,
-                ckpt_dir=str(model_dir),
-                backend="torch",
-            )
-            plddt_models = wrapper.from_pretrained_plddt_model()
-            device = wrapper.device
-            if str(device) != (
+            device = torch.device(
                 simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
-            ):
-                raise RuntimeError(
-                    "SimpleFold confidence provider device changed"
-                )
+            )
             esm_model, esm_dict = esm_registry["esm2_3B"]()
             esm_model = esm_model.to(device).eval()
             af2_to_esm = _af2_to_esm(esm_dict).to(device)
@@ -318,6 +296,14 @@ def _native_existing_structure_confidence(
                 esm_model,
                 esm_dict,
                 af2_to_esm,
+            )
+            esm_model = None
+            esm_dict = None
+            af2_to_esm = None
+            gc.collect()
+            plddt_models = _load_reviewed_plddt_models(
+                model_dir,
+                device,
             )
             raw_coordinates = torch.zeros_like(batch["coords"])
             atom_mask = torch.zeros_like(
@@ -399,21 +385,6 @@ def _native_existing_structure_confidence(
     return run()
 
 
-def _normalize_native_confidence(
-    *,
-    native_plddt: list[float],
-    valid_protein_residues: list[bool],
-) -> tuple[float | None, ...]:
-    """Apply the fixed direct-head scale after exact validity masking."""
-    values, _, _ = normalize_residue_plddt(
-        native_plddt=native_plddt,
-        valid_residues=valid_protein_residues,
-        native_maximum=1.0,
-        project_to_valid_residues=False,
-    )
-    return values
-
-
 class LocalSimpleFoldConfidenceAdapter:
     """Translate one resolved structure axis through the confidence head."""
 
@@ -421,51 +392,10 @@ class LocalSimpleFoldConfidenceAdapter:
         self,
         *,
         environment: Mapping[str, Any],
-        resources: RunResources,
+        resources: OperationResources,
     ) -> None:
         self._environment = environment
         self._resources = resources
-
-    @staticmethod
-    def normalize_native_confidence(
-        *,
-        native_plddt: list[float],
-        valid_protein_residues: list[bool],
-    ) -> tuple[float | None, ...]:
-        return _normalize_native_confidence(
-            native_plddt=native_plddt,
-            valid_protein_residues=valid_protein_residues,
-        )
-
-    def _provider_call(
-        self,
-        *,
-        residue_axis: ResolvedStructureResidueAxis,
-        staging_directory: Path,
-        staged_closure: StagedSimpleFoldProviderAssetClosure,
-    ) -> Callable[[], _SimpleFoldConfidenceNativeResult]:
-        client = self._environment.get("provider_client")
-        if client is not None:
-            def invoke_client() -> _SimpleFoldConfidenceNativeResult:
-                return cast(
-                    _SimpleFoldConfidenceNativeResult,
-                    client.evaluate(
-                        residue_axis=residue_axis,
-                        staging_directory=staged_closure.root,
-                        resolved_provider_identity=provider_identity(),
-                    ),
-                )
-
-            return invoke_client
-
-        def invoke_local_runtime() -> _SimpleFoldConfidenceNativeResult:
-            return _native_existing_structure_confidence(
-                residue_axis=residue_axis,
-                staging_directory=staging_directory,
-                staged_closure=staged_closure,
-            )
-
-        return invoke_local_runtime
 
     def evaluate(
         self,
@@ -474,28 +404,31 @@ class LocalSimpleFoldConfidenceAdapter:
         engine_role: str,
     ) -> SimpleFoldConfidenceAdapterResult:
         """Invoke once, then decode and normalize outside Invocation."""
-        with self._resources.temporary_directory(
-            prefix="simplefold-confidence-"
-        ) as staging_directory:
-            staged_closure = stage_simplefold_provider_asset_closure(
+        with (
+            self._resources.local_provider("simplefold-confidence"),
+            self._resources.temporary_directory(
+                prefix="simplefold-confidence-"
+            ) as staging_directory,
+        ):
+            bound_closure = bind_simplefold_provider_asset_closure(
                 simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
                 self._environment,
-                staging_directory,
-            )
-            provider_call = self._provider_call(
-                residue_axis=residue_axis,
-                staging_directory=staging_directory,
-                staged_closure=staged_closure,
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,
             ):
-                raw_result = provider_call()
-            values = _normalize_native_confidence(
+                raw_result = _native_existing_structure_confidence(
+                    residue_axis=residue_axis,
+                    staging_directory=staging_directory,
+                    bound_closure=bound_closure,
+                )
+            values, _, _ = normalize_residue_plddt(
                 native_plddt=raw_result["native_plddt"],
-                valid_protein_residues=raw_result[
+                valid_residues=raw_result[
                     "valid_protein_residues"
                 ],
+                native_maximum=1.0,
+                project_to_valid_residues=False,
             )
         return SimpleFoldConfidenceAdapterResult(
             per_residue_plddt=values,

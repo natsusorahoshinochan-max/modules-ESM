@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
 import builtins
 import hashlib
 import io
@@ -11,18 +13,22 @@ from pathlib import Path
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ProjectManager,
-    V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.port_types import canonical_json_bytes
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ScoreCollection
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import V2RunService
+from tests.support.result_store import result_store
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.catalog.canonical import canonical_json_bytes
+from core.workflow.document import WorkflowEdge
+from datatypes.observation import ScoreCollection
 from tests.acceptance.retained_evidence import retain_service_run
 
 
@@ -36,9 +42,6 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
 ) -> None:
     """Execute the exact confidence-only Binding; its full gate forbids skips."""
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.folding.simplefold_confidence_adapter import (
-        provider_identity,
-    )
     from modules.folding.simplefold_contract import (
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         SIMPLEFOLD_CONFIDENCE_DEVICE,
@@ -240,7 +243,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "stat", guarded_os_stat)
     monkeypatch.setattr(os, "lstat", guarded_os_lstat)
     monkeypatch.setattr(os, "access", guarded_os_access)
-    environment = EnvironmentConfiguration({
+    environment = admit_environment_configuration(catalog, {
         ("folding.simplefold_confidence.simplefold_local", "6.0.0"): {
             "values": {
                 "model_root": model_root,
@@ -252,7 +255,17 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
             },
         }
     })
-    service = V2RunService(projects, catalog, authoring, environment)
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
+        result_store(projects),
+    )
     try:
         receipt = service.start_background(
             project.id,
@@ -260,8 +273,8 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
             client_request_id="simplefold-confidence-v2-heavy",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
 
@@ -384,7 +397,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
-    identity = provider_identity()
+    identity = SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
     assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",
         "plddt.ckpt",

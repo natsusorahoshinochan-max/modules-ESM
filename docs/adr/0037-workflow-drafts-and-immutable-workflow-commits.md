@@ -42,9 +42,3 @@ under that identity would be scientifically incorrect. It does not reload the
 source Draft, relock it, or build a storage-integrity proof. A parse, compile,
 or Plan-identity failure fails fast; there is no damage taxonomy or recovery
 protocol.
-
-The rejected alternatives are independent mutable save, relock, and compile
-resources; executing a caller-provided revision/compile pair; allowing Project
-bootstrap to write a second Workflow source; repeated internal validation of
-owner-written records; and concurrency machinery for uses outside the expected
-single-user flow.

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from datatypes import CandidateDataReference, PairwiseParticipant
+from datatypes.candidate import CandidateDataReference
+from datatypes.observation import PairwiseParticipant
 from modules.structure_comparison.contracts import (
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
 )

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from core import WorkflowAuthoringError
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ResidueTrack
+from core.workflow.authoring import WorkflowAuthoringError
+from core.workflow.document import WorkflowEdge
+from datatypes.residue import ResidueTrack
 from tests.fixtures.prompt_authoring_v2 import (
     decoded_output,
     run_operation,

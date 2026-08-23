@@ -2,22 +2,22 @@
 status: accepted
 ---
 
-# Legacy node directories consolidate into capability packages
+# Scientific capability package boundaries
 
-The v2 migration consolidates the current one-node directories into twelve
-repository-owned Module Packages: `prompt_authoring`, `esm3`, `folding`,
-`proteinmpnn`, `structure_annotation`, `structure_comparison`,
-`structure_transform`, `protein_io`, `selection`, `collection_ops`, and
-`solubility`, plus `structure_prediction` for provider-independent confidence
-materialization.
+Protein Workbench has twelve repository-owned Module Packages:
+`prompt_authoring`, `esm3`, `folding`, `proteinmpnn`, `structure_annotation`,
+`structure_comparison`, `structure_transform`, `protein_io`, `selection`,
+`collection_ops`, `solubility`, and `structure_prediction`.
+
 Grouping follows shared scientific capability, dependencies, Adapters, and
-contract-test assets rather than legacy ID prefixes or UI categories.
+Contract Test Kit assets rather than Node ID prefixes or UI categories.
+ESMFold2 and SimpleFold folding are distinct Execution Bindings of one scientific
+folding Node Type. Secondary-structure and SASA observations are owned by the
+`structure_annotation` package. Provider-independent confidence materialization
+is owned by `structure_prediction`. Local ESM-3 belongs to `esm3`, local
+ESMFold2 belongs to `folding`, and SoluProt and Protein-Sol belong to
+`solubility`.
 
-The migration does not preserve accidental contracts merely to keep the
-current Node count: ESMFold2 and SimpleFold folding become bindings of one
-scientific folding Node Type; the duplicate mkdssp Nodes and SASA invocation
-become one structure-annotation Node with shared outputs; ambiguous
-cross-Metric confidence aggregation is not migrated unchanged; and
-`stub.echo` becomes test support rather than a production Node. Local ESM-3
-extends `esm3`, local ESMFold2 extends `folding`, and SoluProt plus Protein-Sol
-form the `solubility` Module Package.
+Test-only operations are not production Node Types. Every production Node Type
+has unambiguous scientific meaning, Method identity, outputs, and package
+ownership.

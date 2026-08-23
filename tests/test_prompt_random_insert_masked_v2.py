@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.workflow_v2 import WorkflowEdge
-from datatypes import ResidueLayout, ResidueTrack
+from core.workflow.document import WorkflowEdge
+from datatypes.residue import (
+    ResidueLayout,
+    ResidueTrack,
+)
 from tests.fixtures.prompt_authoring_v2 import (
     VERSION,
     decoded_output,

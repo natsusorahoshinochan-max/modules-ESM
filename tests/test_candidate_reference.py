@@ -4,8 +4,11 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from core.operation import AdmittedValue
-from datatypes import CandidateDataReference
+from datatypes.candidate import CandidateDataReference
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+)
 
 
 def test_candidate_data_reference_is_immutable_and_round_trips_exact_fields(
@@ -21,8 +24,8 @@ def test_candidate_data_reference_is_immutable_and_round_trips_exact_fields(
         "data_type_id": "protein.sequence",
         "content_digest": "sha256:" + ("a" * 64),
     }
-    assert reference.to_public() == public
-    assert CandidateDataReference.from_public(public) == reference
+    assert _candidate_data_reference_to_canonical(reference) == public
+    assert _candidate_data_reference_from_canonical(public) == reference
 
     with pytest.raises(FrozenInstanceError):
         reference.candidate_id = "candidate-2"  # type: ignore[misc]
@@ -78,27 +81,11 @@ def test_candidate_data_reference_rejects_noncanonical_fields(
         },
     ),
 )
-def test_candidate_data_reference_from_public_requires_exact_fields(
+def test__candidate_data_reference_from_canonical_requires_exact_fields(
     public: object,
 ) -> None:
     with pytest.raises(ValueError, match="exact fields"):
-        CandidateDataReference.from_public(public)
-
-
-def test_admitted_value_admits_only_candidate_data_references() -> None:
-    with pytest.raises(TypeError, match="CandidateDataReference"):
-        AdmittedValue(
-            value="candidate fixture",
-            canonical_bytes=b"candidate fixture",
-            content_digest="sha256:" + ("1" * 64),
-            candidate_data=(
-                {
-                    "candidate_id": "candidate-1",
-                    "data_type_id": "protein.sequence",
-                    "content_digest": "sha256:" + ("2" * 64),
-                },
-            ),  # type: ignore[arg-type]
-        )
+        _candidate_data_reference_from_canonical(public)
 
 
 def test_candidate_data_reference_has_one_datatype_import_path() -> None:

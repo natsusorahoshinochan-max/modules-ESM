@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import math
 import re
-from typing import Any, cast
+from typing import cast
 
-from core import BehaviorReference, PortTypeDefinition
-from datatypes import CandidateDataReference, ExactContractReference
+from core.catalog.port_contract import (
+    BehaviorReference,
+    PortTypeDefinition,
+)
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import ExactContractReference
+from core.catalog.port_contract import (
+    _candidate_data_reference_from_canonical,
+    _candidate_data_reference_to_canonical,
+)
 
 from .contracts import (
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
@@ -56,11 +64,7 @@ def _validate_reference(
 ) -> None:
     if (
         type(value) is not CandidateDataReference
-        or type(value.candidate_id) is not str
-        or not value.candidate_id
         or value.data_type_id != data_type_id
-        or type(value.content_digest) is not str
-        or _DIGEST.fullmatch(value.content_digest) is None
     ):
         raise ValueError(f"three-way {name} reference is invalid")
 
@@ -196,7 +200,7 @@ def validate_three_way_consistency(value: object) -> None:
 
 
 def _candidate_to_wire(value: CandidateDataReference) -> dict[str, object]:
-    return value.to_public()
+    return _candidate_data_reference_to_canonical(value)
 
 
 def _method_to_wire(value: ExactContractReference) -> dict[str, str]:
@@ -208,9 +212,8 @@ def _method_to_wire(value: ExactContractReference) -> dict[str, str]:
     }
 
 
-def three_way_consistency_to_wire(value: object) -> object:
+def three_way_consistency_to_wire(value: ThreeWayConsistencyEvidence) -> object:
     """Encode one admitted conclusion to its closed wire representation."""
-    assert type(value) is ThreeWayConsistencyEvidence
     return {
         "schema_version": THREE_WAY_CONSISTENCY_VERSION,
         "input_structure": _candidate_to_wire(value.input_structure),
@@ -262,131 +265,92 @@ def _edge_to_wire(value: ThreeWayComparisonEdge) -> dict[str, object]:
     }
 
 
-def _closed(value: object, fields: set[str], *, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict) or set(value) != fields:
-        raise ValueError(f"{name} wire value is not closed")
-    return value
-
-
 def _method_from_wire(value: object) -> ExactContractReference:
-    raw = _closed(
-        value,
-        {"contract_kind", "contract_id", "contract_version", "contract_digest"},
-        name="Method reference",
-    )
-    return ExactContractReference(**raw)
+    return ExactContractReference(**value)
+
+
+def _float_from_wire(value: object) -> object:
+    return float(value) if type(value) is int else value
 
 
 def _confidence_from_wire(value: object) -> ThreeWayConfidenceEvidence:
-    raw = _closed(
-        value,
-        {
-            "role",
-            "subject",
-            "method",
-            "mean_residue_plddt",
-            "eligible",
-            "score_content_digest",
-        },
-        name="three-way confidence",
-    )
     return ThreeWayConfidenceEvidence(
-        role=raw["role"],
-        subject=CandidateDataReference.from_public(raw["subject"]),
-        method=_method_from_wire(raw["method"]),
-        mean_residue_plddt=raw["mean_residue_plddt"],
-        eligible=raw["eligible"],
-        score_content_digest=raw["score_content_digest"],
+        **{
+            **value,
+            "subject": _candidate_data_reference_from_canonical(value["subject"]),
+            "method": _method_from_wire(value["method"]),
+            "mean_residue_plddt": _float_from_wire(
+                value["mean_residue_plddt"]
+            ),
+        }
     )
 
 
 def _edge_from_wire(value: object) -> ThreeWayComparisonEdge:
-    raw = _closed(
-        value,
-        {
-            "edge_id", "subject", "reference", "alignment_evidence_content_digest",
-            "alignment_method",
-            "normalization_length",
-            "aligned_atom_count",
-            "tm_score",
-            "rmsd_angstrom",
-            "tm_score_method",
-            "rmsd_method",
-            "tm_score_content_digest",
-            "rmsd_content_digest", "close",
-        },
-        name="three-way edge",
-    )
     return ThreeWayComparisonEdge(
-        edge_id=raw["edge_id"],
-        subject=CandidateDataReference.from_public(raw["subject"]),
-        reference=CandidateDataReference.from_public(raw["reference"]),
-        alignment_evidence_content_digest=raw["alignment_evidence_content_digest"],
-        alignment_method=_method_from_wire(raw["alignment_method"]),
-        normalization_length=raw["normalization_length"],
-        aligned_atom_count=raw["aligned_atom_count"],
-        tm_score=raw["tm_score"],
-        rmsd_angstrom=raw["rmsd_angstrom"],
-        tm_score_method=_method_from_wire(raw["tm_score_method"]),
-        rmsd_method=_method_from_wire(raw["rmsd_method"]),
-        tm_score_content_digest=raw["tm_score_content_digest"],
-        rmsd_content_digest=raw["rmsd_content_digest"],
-        close=raw["close"],
+        **{
+            **value,
+            "subject": _candidate_data_reference_from_canonical(value["subject"]),
+            "reference": _candidate_data_reference_from_canonical(
+                value["reference"]
+            ),
+            "alignment_method": _method_from_wire(value["alignment_method"]),
+            "tm_score_method": _method_from_wire(value["tm_score_method"]),
+            "rmsd_method": _method_from_wire(value["rmsd_method"]),
+            "tm_score": _float_from_wire(value["tm_score"]),
+            "rmsd_angstrom": _float_from_wire(value["rmsd_angstrom"]),
+        }
     )
 
 
 def three_way_consistency_from_wire(value: object) -> ThreeWayConsistencyEvidence:
     """Decode only the active closed wire representation."""
-    raw = _closed(
-        value,
-        {
-            "schema_version",
-            "input_structure",
-            "sequence_parent",
-            "esmfold2_structure",
-            "simplefold_structure",
-            "classification_method",
-            "input_b_factor_semantics",
-            "residue_count",
-            "thresholds",
-            "confidences",
-            "edges",
-            "classification",
-            "subreason",
-        },
-        name="three-way consistency evidence",
-    )
-    if raw["schema_version"] != THREE_WAY_CONSISTENCY_VERSION:
+    if value["schema_version"] != THREE_WAY_CONSISTENCY_VERSION:
         raise ValueError("three-way consistency schema version is not active")
-    thresholds = _closed(
-        raw["thresholds"],
-        {"mean_residue_plddt", "reference_normalized_tm_score", "ca_rmsd_angstrom"},
-        name="three-way thresholds",
+    thresholds = value["thresholds"]
+    if set(thresholds) != {
+        "mean_residue_plddt",
+        "reference_normalized_tm_score",
+        "ca_rmsd_angstrom",
+    }:
+        raise ValueError("three-way thresholds are not closed")
+    return ThreeWayConsistencyEvidence(
+        **{
+            **{
+                key: item
+                for key, item in value.items()
+                if key not in {"schema_version", "thresholds"}
+            },
+            "input_structure": _candidate_data_reference_from_canonical(
+                value["input_structure"]
+            ),
+            "sequence_parent": _candidate_data_reference_from_canonical(
+                value["sequence_parent"]
+            ),
+            "esmfold2_structure": _candidate_data_reference_from_canonical(
+                value["esmfold2_structure"]
+            ),
+            "simplefold_structure": _candidate_data_reference_from_canonical(
+                value["simplefold_structure"]
+            ),
+            "classification_method": _method_from_wire(
+                value["classification_method"]
+            ),
+            "plddt_threshold": _float_from_wire(
+                thresholds["mean_residue_plddt"]
+            ),
+            "tm_score_threshold": _float_from_wire(
+                thresholds["reference_normalized_tm_score"]
+            ),
+            "rmsd_threshold_angstrom": _float_from_wire(
+                thresholds["ca_rmsd_angstrom"]
+            ),
+            "confidences": tuple(
+                _confidence_from_wire(item) for item in value["confidences"]
+            ),
+            "edges": tuple(_edge_from_wire(item) for item in value["edges"]),
+        }
     )
-    if not isinstance(raw["confidences"], list) or not isinstance(raw["edges"], list):
-        raise ValueError("three-way evidence collections are invalid")
-    result = ThreeWayConsistencyEvidence(
-        input_structure=CandidateDataReference.from_public(raw["input_structure"]),
-        sequence_parent=CandidateDataReference.from_public(raw["sequence_parent"]),
-        esmfold2_structure=CandidateDataReference.from_public(
-            raw["esmfold2_structure"]
-        ),
-        simplefold_structure=CandidateDataReference.from_public(
-            raw["simplefold_structure"]
-        ),
-        classification_method=_method_from_wire(raw["classification_method"]),
-        input_b_factor_semantics=raw["input_b_factor_semantics"],
-        residue_count=raw["residue_count"],
-        plddt_threshold=thresholds["mean_residue_plddt"],
-        tm_score_threshold=thresholds["reference_normalized_tm_score"],
-        rmsd_threshold_angstrom=thresholds["ca_rmsd_angstrom"],
-        confidences=tuple(_confidence_from_wire(item) for item in raw["confidences"]),
-        edges=tuple(_edge_from_wire(item) for item in raw["edges"]),
-        classification=raw["classification"],
-        subreason=raw["subreason"],
-    )
-    validate_three_way_consistency(result)
-    return result
 
 
 def _candidate_data_references(

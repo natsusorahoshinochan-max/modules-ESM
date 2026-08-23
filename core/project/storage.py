@@ -1,0 +1,123 @@
+"""Private filesystem primitives for trusted local Project storage."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import re
+import tempfile
+
+
+_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+
+
+class StoragePathError(ValueError):
+    """A storage name does not satisfy its public shape."""
+
+    def __init__(self, field: str, message: str) -> None:
+        self.field = field
+        super().__init__(message)
+
+
+def validate_identifier(value: str, field: str) -> str:
+    """Return one identifier accepted by the public storage Interface."""
+    if not isinstance(value, str) or not _IDENTIFIER_PATTERN.fullmatch(value):
+        raise StoragePathError(field, f"Invalid {field}")
+    return value
+
+
+def contained_path(
+    root: str | Path,
+    *parts: str,
+) -> Path:
+    """Resolve a path while preserving the configured storage boundary."""
+    resolved_root = Path(root).resolve()
+    candidate = resolved_root.joinpath(*parts).resolve()
+    if not candidate.is_relative_to(resolved_root):
+        raise StoragePathError("storage_path", "Storage path escapes its root")
+    return candidate
+
+
+def _write_file(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    payload: bytes,
+    *,
+    replace: bool,
+    durable: bool = False,
+) -> Path:
+    path = contained_path(root, *relative_parts)
+    missing_directories: list[Path] = []
+    if durable:
+        existing_ancestor = path.parent
+        while not existing_ancestor.exists():
+            missing_directories.append(existing_ancestor)
+            existing_ancestor = existing_ancestor.parent
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not replace and path.exists():
+        raise FileExistsError(path)
+    temporary = tempfile.NamedTemporaryFile(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        delete=False,
+    )
+    temporary_path = Path(temporary.name)
+    try:
+        with temporary:
+            temporary.write(payload)
+            if durable:
+                temporary.flush()
+                os.fsync(temporary.fileno())
+        if replace:
+            temporary_path.replace(path)
+        else:
+            os.link(temporary_path, path)
+            temporary_path.unlink()
+        if durable:
+            directories = [
+                path.parent,
+                *(directory.parent for directory in missing_directories),
+            ]
+            for directory in dict.fromkeys(directories):
+                descriptor = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
+    return path
+
+
+def write_new_file(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    payload: bytes,
+) -> Path:
+    """Publish a new file without exposing a partial payload."""
+    return _write_file(root, relative_parts, payload, replace=False)
+
+
+def write_new_file_durable(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    payload: bytes,
+) -> Path:
+    """Publish and durably acknowledge one new file and its path entries."""
+    return _write_file(
+        root,
+        relative_parts,
+        payload,
+        replace=False,
+        durable=True,
+    )
+
+
+def replace_file(
+    root: str | Path,
+    relative_parts: tuple[str, ...],
+    payload: bytes,
+) -> Path:
+    """Replace a rebuildable file without exposing a partial payload."""
+    return _write_file(root, relative_parts, payload, replace=True)

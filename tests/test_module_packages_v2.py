@@ -1,9 +1,8 @@
-"""Contract tests for atomic v2 Module Package discovery."""
+"""Contract tests for atomic Catalog construction from registrations."""
 
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
-from datetime import datetime, timedelta, timezone
 import importlib
 from pathlib import Path
 import sys
@@ -11,35 +10,29 @@ import sys
 from fastapi.testclient import TestClient
 import pytest
 
-from core import (
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
-    CatalogBuildError,
     ContractIdentity,
     ExecutionBindingDefinition,
-    ExpectedOptionalDependencyMissing,
     MethodDefinition,
     ModulePackageRegistration,
     ObservationPropagationDefinition,
-    OperationCall,
     ProducedObservationDefinition,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
 )
-from core.server import create_app
-from datatypes import (
-    Candidate,
-    CandidateCollection,
-    CandidateDataReference,
-    ProteinSequence,
-)
-from protein_workbench_public import validate_response
-from tests.fixtures.scientific_operation import admitted_port_fixture
+from core.catalog.model import CatalogAvailabilityProjection
+from core.catalog.errors import CatalogBuildError
+from core.catalog.port_contract import BehaviorReference
+from core.operation import ReadinessResult
+from tests.support.application import create_application
+from tests.support.protocol import validate_response
+from protein_workbench_public.bootstrap import module_registrations
+from protein_workbench_public.catalog_codec import encode_catalog_projection
 
 
 NODE_DEFINITION = """\
@@ -110,27 +103,26 @@ validation_contract:
 PACKAGE_REGISTRATION = """\
 import os
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     ScientificOperationFactory,
     MethodDefinition,
     ModulePackageRegistration,
-    PortTypeDefinition,
     ProducedObservationDefinition,
     ReadinessDeclaration,
     UtilityTransformDefinition,
 )
+from core.catalog.definition_resource import DefinitionResource
+from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 
 
 def _factory(context):
     del context
     if os.environ.get("SYNTHETIC_FACTORY_ALLOWED") != "1":
-        raise AssertionError("Catalog discovery constructed an implementation")
+        raise AssertionError("Catalog construction instantiated an operation")
     return {"implementation": "synthetic.echo"}
 
 def _validate_text(value):
@@ -145,7 +137,6 @@ _METHOD = ContractIdentity("method", "synthetic.echo", "2.1.0")
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="synthetic",
     package_version="2.1.0",
     package_module=__package__,
@@ -244,6 +235,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             produced_observations=(
                 ProducedObservationDefinition(
                     output_port="scores",
+                    output_partition="default",
                     metric=_METRIC,
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
@@ -280,7 +272,7 @@ EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
 }
 
 
-def _write_discovery_root(tmp_path: Path) -> str:
+def _write_registration_package(tmp_path: Path) -> str:
     root_name = "synthetic_module_packages"
     root = tmp_path / root_name
     root.mkdir()
@@ -294,6 +286,12 @@ def _write_discovery_root(tmp_path: Path) -> str:
     return root_name
 
 
+def _load_registration(root_name: str) -> ModulePackageRegistration:
+    return importlib.import_module(
+        f"{root_name}.synthetic.package"
+    ).MODULE_PACKAGE
+
+
 def _forget_package(root_name: str) -> None:
     for name in tuple(sys.modules):
         if name == root_name or name.startswith(f"{root_name}."):
@@ -304,19 +302,21 @@ def _forget_package(root_name: str) -> None:
 def _build_synthetic_catalog(
     tmp_path: Path,
     monkeypatch,
-    *,
-    observed_at: datetime | None = None,
 ):
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     try:
-        return build_discovered_frozen_catalog(
-            root_name,
-            observed_at=observed_at,
-        )
+        return build_frozen_catalog((_load_registration(root_name),))
     finally:
         _forget_package(root_name)
+
+
+def _snapshot(catalog) -> dict[str, object]:
+    return encode_catalog_projection(
+        catalog.projection(),
+        protocol_digest="sha256:" + ("0" * 64),
+    )
 
 
 def _method(
@@ -343,7 +343,6 @@ def _registration(
     methods=(),
 ) -> ModulePackageRegistration:
     return ModulePackageRegistration(
-        schema_version="2.1.0",
         package_id=package_id,
         package_version="2.1.0",
         package_module=f"unused_{package_id}",
@@ -368,6 +367,69 @@ def test_first_level_registration_contributes_every_contract_kind(
     )
 
     assert actual == set(EXPECTED_SYNTHETIC_CONTRACT_DIGESTS)
+
+
+def test_production_bindings_publish_exact_typed_environment_closures() -> None:
+    registrations = module_registrations()
+    external_packages = {
+        registration.package_id
+        for registration in registrations
+        if any(binding.environment_fields for binding in registration.bindings)
+    }
+    assert external_packages == {
+        "esm3",
+        "folding",
+        "proteinmpnn",
+        "solubility",
+        "structure_annotation",
+    }
+
+    catalog = build_frozen_catalog(registrations)
+    for registration in registrations:
+        for binding in registration.bindings:
+            names = tuple(
+                declaration.name
+                for declaration in binding.environment_fields
+            )
+            assert len(names) == len(set(names))
+            assert {"provider_client", "client_factory"}.isdisjoint(names)
+            assert all(
+                declaration.value_category
+                in {
+                    "json_value",
+                    "filesystem_path",
+                    "credential_handle",
+                }
+                for declaration in binding.environment_fields
+            )
+            resolved = catalog.require_contract(
+                "binding",
+                binding.binding_id,
+                binding.version,
+            )
+            assert (
+                resolved.definition.environment_fields
+                == binding.environment_fields
+            )
+
+
+def test_only_adapter_bindings_declare_provider_readiness() -> None:
+    registrations = module_registrations()
+    catalog = build_frozen_catalog(registrations)
+
+    for registration in registrations:
+        for binding in registration.bindings:
+            resolved = catalog.require_contract(
+                "binding",
+                binding.binding_id,
+                binding.version,
+            )
+            if binding.execution_route == "adapter":
+                assert binding.readiness is not None
+                assert "readiness_declaration" in resolved.descriptor
+            else:
+                assert binding.readiness is None
+                assert "readiness_declaration" not in resolved.descriptor
 
 
 def test_package_owned_port_type_has_one_independent_exact_reference(
@@ -421,7 +483,7 @@ def test_legacy_path_artifact_port_is_rejected(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     node_path = tmp_path / root_name / "synthetic" / "node.yaml"
     node_path.write_text(
         NODE_DEFINITION.replace(
@@ -445,7 +507,7 @@ def test_legacy_path_artifact_port_is_rejected(
 
     try:
         with pytest.raises(CatalogBuildError):
-            build_discovered_frozen_catalog(root_name)
+            build_frozen_catalog((_load_registration(root_name),))
     finally:
         _forget_package(root_name)
 
@@ -456,10 +518,12 @@ def test_package_owned_utility_runtime_is_resolved_by_exact_identity(
 ) -> None:
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
-    assert catalog.require_utility_transform(
+    utility = catalog.require_contract(
+        "utility_transform",
         "synthetic.identity",
         "2.1.0",
-    )(0.75, {}) == 0.75
+    ).definition
+    assert utility.transform(0.75, {}) == 0.75
 
 
 def test_binding_keeps_its_factory_lazy_during_catalog_build(
@@ -468,32 +532,23 @@ def test_binding_keeps_its_factory_lazy_during_catalog_build(
 ) -> None:
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
-    assert catalog.require_factory(
+    binding = catalog.require_contract(
+        "binding",
         "synthetic.echo.direct",
         "3.0.0",
-    ).behavior.behavior_id == "synthetic.echo/factory"
+    ).definition
+    assert binding.factory.behavior.behavior_id == "synthetic.echo/factory"
 
 
 def test_binding_availability_is_published_with_the_catalog_observation(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    catalog = _build_synthetic_catalog(
-        tmp_path,
-        monkeypatch,
-        observed_at=datetime(
-            2026,
-            7,
-            29,
-            1,
-            2,
-            3,
-            tzinfo=timezone.utc,
-        ),
-    )
-    assert catalog.public_snapshot(
-        protocol_digest="sha256:" + ("0" * 64),
-    )["availability"] == [{
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+    snapshot = _snapshot(catalog)
+    assert type(catalog.availability[0]) is CatalogAvailabilityProjection
+    assert catalog.projection().availability == catalog.availability
+    assert snapshot["availability"] == [{
         "binding": {
             "contract_kind": "binding",
             "contract_id": "synthetic.echo.direct",
@@ -502,16 +557,16 @@ def test_binding_availability_is_published_with_the_catalog_observation(
                 ("binding", "synthetic.echo.direct")
             ],
         },
-        "observed_at": "2026-07-29T01:02:03Z",
+        "observed_at": snapshot["availability_observed_at"],
         "available": True,
     }]
 
 
-def test_backend_publishes_the_same_discovered_catalog_snapshot(
+def test_backend_publishes_the_same_explicit_catalog_snapshot(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
@@ -520,8 +575,11 @@ def test_backend_publishes_the_same_discovered_catalog_snapshot(
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
 
     try:
+        catalog = build_frozen_catalog((_load_registration(root_name),))
         with TestClient(
-            create_app(module_packages_package=root_name)
+            create_application(
+                frozen_catalog_override=catalog,
+            )
         ) as client:
             response = client.get("/api/v2/catalog")
     finally:
@@ -542,18 +600,19 @@ def test_binding_rejects_an_observation_for_an_unknown_output_port(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        registration = discover_module_packages(root_name)[0]
+        registration = _load_registration(root_name)
         binding = registration.bindings[0]
         invalid_binding = replace(
             binding,
             produced_observations=(
                 ProducedObservationDefinition(
                     output_port="missing",
+                    output_partition="default",
                     metric=binding.produced_observations[0].metric,
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
@@ -579,12 +638,12 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        registration = discover_module_packages(root_name)[0]
+        registration = _load_registration(root_name)
         binding = registration.bindings[0]
         invalid_binding = replace(
             binding,
@@ -618,20 +677,46 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
             {"subject_port": "value"},
             "subject must use exact candidate.collection@4.0.0",
         ),
+        (
+            {
+                "context_profile": {
+                    "kind": "pairwise",
+                    "subject_role": "subject",
+                    "reference_role": "reference",
+                    "pairing_mode": "fixed_reference",
+                    "normalization": "none",
+                },
+            },
+            "reference contradicts its Context",
+        ),
+        (
+            {
+                "context_profile": {
+                    "kind": "pairwise",
+                    "subject_role": "subject",
+                    "reference_role": "reference",
+                    "pairing_mode": "per_subject_counterpart",
+                    "normalization": "none",
+                },
+                "reference_direction": "input",
+                "reference_port": "candidate_subjects",
+            },
+            "pairing contradicts its Context",
+        ),
     ],
 )
 def test_binding_rejects_incompatible_produced_observation_ports(
     tmp_path: Path,
     monkeypatch,
-    changes: dict[str, str],
+    changes: dict[str, object],
     message: str,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        registration = discover_module_packages(root_name)[0]
+        registration = _load_registration(root_name)
         binding = registration.bindings[0]
         invalid_binding = replace(
             binding,
@@ -650,11 +735,11 @@ def test_binding_rejects_incompatible_produced_observation_ports(
         _forget_package(root_name)
 
 
-def test_binding_rejects_many_valued_observation_propagation_inputs(
+def test_binding_rejects_invalid_observation_propagation_inputs(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     node_path = tmp_path / root_name / "synthetic" / "node.yaml"
     node_path.write_text(
         NODE_DEFINITION.replace(
@@ -674,7 +759,7 @@ def test_binding_rejects_many_valued_observation_propagation_inputs(
     importlib.invalidate_caches()
 
     try:
-        registration = discover_module_packages(root_name)[0]
+        registration = _load_registration(root_name)
         binding = registration.bindings[0]
         invalid_binding = replace(
             binding,
@@ -693,6 +778,21 @@ def test_binding_rejects_many_valued_observation_propagation_inputs(
             build_frozen_catalog(
                 (replace(registration, bindings=(invalid_binding,)),)
             )
+        invalid_binding = replace(
+            invalid_binding,
+            observation_propagation=ObservationPropagationDefinition(
+                mode="union",
+                output_port="scores",
+                input_ports=("value",),
+            ),
+        )
+        with pytest.raises(
+            CatalogBuildError,
+            match="mode requires unique input Ports",
+        ):
+            build_frozen_catalog(
+                (replace(registration, bindings=(invalid_binding,)),)
+            )
     finally:
         _forget_package(root_name)
 
@@ -701,12 +801,12 @@ def test_binding_rejects_a_context_profile_outside_the_metric_schema(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        registration = discover_module_packages(root_name)[0]
+        registration = _load_registration(root_name)
         binding = registration.bindings[0]
         invalid_binding = replace(
             binding,
@@ -762,7 +862,7 @@ def test_malformed_or_open_node_definition_fails_catalog_build(
     mutation: str,
     message: str,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     node_path = tmp_path / root_name / "synthetic" / "node.yaml"
     if mutation.startswith("\n"):
         node_path.write_text(NODE_DEFINITION + mutation)
@@ -773,7 +873,7 @@ def test_malformed_or_open_node_definition_fails_catalog_build(
 
     try:
         with pytest.raises(CatalogBuildError, match=message):
-            build_discovered_frozen_catalog(root_name)
+            build_frozen_catalog((_load_registration(root_name),))
     finally:
         _forget_package(root_name)
 
@@ -790,6 +890,28 @@ def test_duplicate_contract_identity_fails_closed() -> None:
                 ),
             )
         )
+
+
+def test_catalog_builder_owns_method_identity_admission() -> None:
+    method = replace(
+        _method("synthetic.valid"),
+        method_id="not a canonical identifier",
+    )
+
+    with pytest.raises(CatalogBuildError, match="method_id"):
+        build_frozen_catalog(
+            (_registration("method_identity_owner", methods=(method,)),)
+        )
+
+
+def test_catalog_builder_owns_package_identity_admission() -> None:
+    registration = replace(
+        _registration("valid_package"),
+        package_id="not a canonical identifier",
+    )
+
+    with pytest.raises(CatalogBuildError, match="package_id"):
+        build_frozen_catalog((registration,))
 
 
 def test_active_catalog_rejects_multiple_versions_of_one_logical_contract() -> None:
@@ -828,17 +950,17 @@ def test_identical_exact_metric_contract_retains_common_ownership(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     shared_owner = tmp_path / root_name / "shared_metric"
     shared_owner.mkdir()
     (shared_owner / "__init__.py").write_text("")
     (shared_owner / "metric.yaml").write_text(METRIC_DEFINITION)
     (shared_owner / "package.py").write_text(
         """\
-from core import DefinitionResource, ModulePackageRegistration
+from core.catalog.declarations import ModulePackageRegistration
+from core.catalog.definition_resource import DefinitionResource
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="shared_metric",
     package_version="2.1.0",
     package_module=__package__,
@@ -850,20 +972,33 @@ MODULE_PACKAGE = ModulePackageRegistration(
     importlib.invalidate_caches()
 
     try:
-        catalog = build_discovered_frozen_catalog(root_name)
+        synthetic = _load_registration(root_name)
+        shared = importlib.import_module(
+            f"{root_name}.shared_metric.package"
+        ).MODULE_PACKAGE
+        catalog = build_frozen_catalog((synthetic, shared))
     finally:
         _forget_package(root_name)
 
-    assert catalog.owners[("metric", "synthetic.identity", "2.1.0")] == (
-        frozenset({"synthetic", "shared_metric"})
-    )
+    assert [
+        contract.reference()
+        for contract in catalog.contracts
+        if contract.contract_kind == "metric"
+        and contract.contract_id == "synthetic.identity"
+    ] == [
+        catalog.require_contract(
+            "metric",
+            "synthetic.identity",
+            "2.1.0",
+        ).reference()
+    ]
 
 
 def test_version_conflict_is_rejected_before_binding_availability_probe(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     probes: list[str] = []
@@ -880,7 +1015,7 @@ def test_version_conflict_is_rejected_before_binding_availability_probe(
         )
 
     try:
-        registration = discover_module_packages(root_name)[0]
+        registration = _load_registration(root_name)
         binding = registration.bindings[0]
         conflicting = replace(
             registration,
@@ -943,7 +1078,6 @@ def test_dangling_contract_reference_fails_closed() -> None:
 
 def test_expected_contract_digest_conflict_fails_closed() -> None:
     target = _method("synthetic.target")
-    wrong_digest = "sha256:" + ("f" * 64)
     mismatch = _method(
         "synthetic.mismatch",
         algorithm_identity={
@@ -951,7 +1085,7 @@ def test_expected_contract_digest_conflict_fails_closed() -> None:
                 "method",
                 "synthetic.target",
                 "2.1.0",
-                wrong_digest,
+                "not-the-target-digest",
             )
         },
     )
@@ -1027,49 +1161,23 @@ def test_failed_candidate_never_mutates_an_already_published_catalog() -> None:
     ).descriptor["algorithm_identity"] == {"name": "synthetic.published"}
 
 
-def test_discovery_ignores_recursive_definitions_and_import_side_effects(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    root_name = "non_recursive_packages"
-    root = tmp_path / root_name
-    root.mkdir()
-    (root / "__init__.py").write_text("")
-    legacy = root / "legacy_node"
-    legacy.mkdir()
-    (legacy / "__init__.py").write_text(
-        "raise AssertionError('legacy package must not be imported')"
-    )
-    (legacy / "definition.yaml").write_text(NODE_DEFINITION)
-    nested = legacy / "nested"
-    nested.mkdir()
-    (nested / "package.py").write_text(
-        "raise AssertionError('recursive package.py must not be imported')"
-    )
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
-
-    try:
-        assert discover_module_packages(root_name) == ()
-    finally:
-        _forget_package(root_name)
-
-
 def test_missing_optional_dependency_does_not_hide_available_sibling(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        registration = discover_module_packages(root_name)[0]
+        registration = _load_registration(root_name)
         available_binding = registration.bindings[0]
 
         def missing_optional_dependency() -> AvailabilityResult:
-            raise ExpectedOptionalDependencyMissing(
-                "synthetic_optional_provider",
+            return AvailabilityResult.unavailable(
+                "optional_dependency_missing",
+                "Optional dependency synthetic_optional_provider is not installed",
+                retryable=False,
             )
 
         unavailable_binding = replace(
@@ -1119,9 +1227,7 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
 
     by_binding = {
         snapshot["binding"]["contract_id"]: snapshot
-        for snapshot in catalog.public_snapshot(
-            protocol_digest="sha256:" + ("0" * 64)
-        )["availability"]
+        for snapshot in _snapshot(catalog)["availability"]
     }
     assert by_binding["synthetic.echo.direct"]["available"] is True
     assert by_binding["synthetic.echo.optional"] == {
@@ -1159,10 +1265,10 @@ def test_availability_checker_programming_errors_abort_catalog_atomically(
     monkeypatch,
     checker_error: Exception,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
-    registration = discover_module_packages(root_name)[0]
+    registration = _load_registration(root_name)
     binding = registration.bindings[0]
 
     def broken_checker() -> AvailabilityResult:
@@ -1177,17 +1283,14 @@ def test_availability_checker_programming_errors_abort_catalog_atomically(
     )
 
     try:
-        with pytest.raises(
-            CatalogBuildError,
-            match="Availability checker .* failed",
-        ) as rejected:
+        with pytest.raises(type(checker_error)) as rejected:
             build_frozen_catalog(
                 (replace(registration, bindings=(broken,)),)
             )
     finally:
         _forget_package(root_name)
 
-    assert rejected.value.__cause__ is checker_error
+    assert rejected.value is checker_error
 
 
 def test_cross_package_exact_reference_is_order_independent() -> None:
@@ -1228,11 +1331,11 @@ def test_lazy_factory_does_not_reload_definition_resources(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     try:
-        catalog = build_discovered_frozen_catalog(root_name)
+        catalog = build_frozen_catalog((_load_registration(root_name),))
     finally:
         _forget_package(root_name)
     package_root = tmp_path / root_name / "synthetic"
@@ -1240,67 +1343,12 @@ def test_lazy_factory_does_not_reload_definition_resources(
     (package_root / "metric.yaml").unlink()
     monkeypatch.setenv("SYNTHETIC_FACTORY_ALLOWED", "1")
 
-    assert catalog.require_factory(
+    binding = catalog.require_contract(
+        "binding",
         "synthetic.echo.direct",
         "3.0.0",
-    ).build(None) == {"implementation": "synthetic.echo"}
-
-
-def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
-) -> None:
-    candidate = Candidate(
-        candidate_id="candidate-1",
-        data=ProteinSequence(sequence="MA"),
-    )
-    candidates = CandidateCollection(
-        collection_id="collection-1",
-        item_type="protein.sequence",
-        items=[candidate],
-    )
-    candidate_digest = CandidateDataReference(
-        candidate_id="candidate-1",
-        data_type_id="protein.sequence",
-        content_digest="sha256:" + ("1" * 64),
-    )
-    inputs = {"value": ["A"], "candidates": candidates}
-    node_parameters = {"nested": {"values": [1, 2]}}
-    call = OperationCall(
-        inputs={
-            "value": admitted_port_fixture(
-                inputs["value"],
-                port_type_id="synthetic.text",
-                value_content_digests=("sha256:" + ("3" * 64),),
-            ),
-            "candidates": admitted_port_fixture(
-                candidates,
-                port_type_id="candidate.collection",
-                value_content_digests=("sha256:" + ("2" * 64),),
-                candidate_data=(candidate_digest,),
-            ),
-        },
-        node_parameters=node_parameters,
-        binding_parameters={},
-        effective_randomness={},
-    )
-
-    inputs["value"].append("B")
-    node_parameters["nested"]["values"].append(3)
-    with pytest.raises(FrozenInstanceError):
-        candidate.data.sequence = "MUTATED"
-    with pytest.raises(AttributeError):
-        candidates.items.clear()
-
-    assert call.inputs["value"].value == ("A",)
-    admitted = call.inputs["candidates"]
-    assert admitted.value is candidates
-    assert admitted.value.items[0].candidate_id == "candidate-1"
-    assert admitted.value.items[0].data.sequence == "MA"
-    assert call.node_parameters["nested"]["values"] == (1, 2)
-    assert call.inputs["candidates"].candidate_data == (
-        candidate_digest,
-    )
-    with pytest.raises(TypeError):
-        call.inputs["new"] = "value"
+    ).definition
+    assert binding.factory.build(None) == {"implementation": "synthetic.echo"}
 
 
 def test_frozen_contract_descriptor_is_immutable(
@@ -1317,37 +1365,32 @@ def test_frozen_contract_descriptor_is_immutable(
         ).descriptor["title"] = "mutated"
 
 
-def test_frozen_runtime_factory_view_is_immutable(
+def test_binding_definition_is_immutable(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
 
-    with pytest.raises(TypeError):
-        catalog.factories[("synthetic.echo.direct", "3.0.0")] = object()
+    binding = catalog.require_contract(
+        "binding",
+        "synthetic.echo.direct",
+        "3.0.0",
+    ).definition
+    with pytest.raises(FrozenInstanceError):
+        binding.factory = object()
 
 
 def test_observed_availability_never_changes_stable_contract_identity(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        registration = discover_module_packages(root_name)[0]
-        available_catalog = build_frozen_catalog(
-            (registration,),
-            observed_at=datetime(
-                2026,
-                7,
-                29,
-                2,
-                0,
-                tzinfo=timezone.utc,
-            ),
-        )
+        registration = _load_registration(root_name)
+        available_catalog = build_frozen_catalog((registration,))
         binding = registration.bindings[0]
         unavailable_catalog = build_frozen_catalog(
             (
@@ -1373,14 +1416,6 @@ def test_observed_availability_never_changes_stable_contract_identity(
                     ),
                 ),
             ),
-            observed_at=datetime(
-                2026,
-                7,
-                29,
-                2,
-                1,
-                tzinfo=timezone.utc,
-            ),
         )
     finally:
         _forget_package(root_name)
@@ -1391,75 +1426,33 @@ def test_observed_availability_never_changes_stable_contract_identity(
     assert available_catalog.contract_digest == (
         unavailable_catalog.contract_digest
     )
-    available_snapshot = available_catalog.public_snapshot(
-        protocol_digest="sha256:" + ("0" * 64)
-    )
-    unavailable_snapshot = unavailable_catalog.public_snapshot(
-        protocol_digest="sha256:" + ("0" * 64)
-    )
+    available_snapshot = _snapshot(available_catalog)
+    unavailable_snapshot = _snapshot(unavailable_catalog)
     assert available_snapshot["availability"][0]["available"] is True
     assert unavailable_snapshot["availability"][0]["available"] is False
-    assert available_snapshot["availability_observed_at"] != (
-        unavailable_snapshot["availability_observed_at"]
-    )
-
-
-def test_snapshot_observation_override_updates_every_availability_time(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
-    override = datetime(
-        2026,
-        7,
-        29,
-        10,
-        0,
-        tzinfo=timezone(timedelta(hours=8)),
-    )
-
-    snapshot = catalog.public_snapshot(
-        protocol_digest="sha256:" + ("0" * 64),
-        observed_at=override,
-    )
-
-    assert {
-        snapshot["availability_observed_at"],
-        *(item["observed_at"] for item in snapshot["availability"]),
-    } == {"2026-07-29T02:00:00Z"}
-
-
-def test_snapshot_rejects_a_naive_observation_time(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
-
-    with pytest.raises(
-        CatalogBuildError,
-        match="observation time must be timezone-aware",
-    ):
-        catalog.public_snapshot(
-            protocol_digest="sha256:" + ("0" * 64),
-            observed_at=datetime(2026, 7, 29, 2, 0),
-        )
 
 
 def test_adapter_binding_requires_an_explicit_adapter_behavior(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        binding = discover_module_packages(root_name)[0].bindings[0]
+        registration = _load_registration(root_name)
+        binding = replace(
+            registration.bindings[0],
+            execution_route="adapter",
+        )
         with pytest.raises(
             CatalogBuildError,
-            match="adapter route requires an explicit Adapter behavior",
+            match="execution route and Adapter behavior are inconsistent",
         ):
-            replace(binding, execution_route="adapter")
+            build_frozen_catalog(
+                (replace(registration, bindings=(binding,)),)
+            )
     finally:
         _forget_package(root_name)
 
@@ -1468,12 +1461,12 @@ def test_all_package_contract_kinds_match_canonical_digest_vectors(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    root_name = _write_discovery_root(tmp_path)
+    root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
 
     try:
-        catalog = build_discovered_frozen_catalog(root_name)
+        catalog = build_frozen_catalog((_load_registration(root_name),))
     finally:
         _forget_package(root_name)
 

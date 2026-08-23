@@ -5,22 +5,32 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
 )
-from datatypes import Candidate, CandidateCollection, ProteinStructure
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from datatypes.candidate import (
+    Candidate,
+    CandidateCollection,
+)
+from datatypes.structure import ProteinStructure
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -501,7 +511,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.structure_transform_sources",
     package_version="3.0.0",
     package_module=__package__,

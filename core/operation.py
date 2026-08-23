@@ -2,20 +2,28 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ContextManager,
+    Literal,
+    Protocol,
+)
 
-from datatypes import (
-    CandidateDataReference,
+from datatypes.candidate import CandidateDataReference
+from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
 )
+from datatypes.residue import residue_identity_chain
 
 if TYPE_CHECKING:
-    from core.run_execution_v2 import RunResources
-    from core.scoring_v2 import (
+    from core.scoring.observation_plan import ResolvedProducedObservation
+    from core.scoring.selection import (
         ResolvedObservationSelector,
         ResolvedSelectionObjective,
     )
@@ -24,15 +32,301 @@ if TYPE_CHECKING:
 PortMultiplicity = Literal["one", "many"]
 
 
-def _freeze_container(value: Any) -> Any:
-    """Freeze caller-owned containers without changing scientific value types."""
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {key: _freeze_container(item) for key, item in value.items()}
+@dataclass(frozen=True, slots=True)
+class ArtifactPayload:
+    """Exact artifact bytes returned by a scientific operation."""
+
+    body: bytes
+    media_type: str
+    filename: str
+    candidate_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OutputIdentitySource:
+    """One fresh scientific value whose canonical identity is needed."""
+
+    identity_id: str
+    source_role: str
+    value: object
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedOutputIdentity:
+    """Exact identity fact produced by Output Admission's one source encode."""
+
+    identity_id: str
+    port_type: ExactContractReference
+    content_digest: str
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedOutputIdentities:
+    """Closed identity facts supplied to one intent materialization."""
+
+    entries: tuple[EncodedOutputIdentity, ...]
+    _by_id: Mapping[str, EncodedOutputIdentity] = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        by_id = {entry.identity_id: entry for entry in self.entries}
+        if len(by_id) != len(self.entries):
+            raise ValueError("encoded output identities contain a duplicate ID")
+        object.__setattr__(self, "_by_id", MappingProxyType(by_id))
+
+    def require(self, identity_id: str) -> EncodedOutputIdentity:
+        return self._by_id[identity_id]
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateMetadataIdentity:
+    """One resolved identity string to attach to a fresh Candidate."""
+
+    candidate_id: str
+    field_name: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedOutputIdentity:
+    """Final runtime value and projections materialized from encoded sources."""
+
+    value: object
+    candidate_metadata: tuple[CandidateMetadataIdentity, ...] = ()
+    scientific_axes: tuple[ResidueAxisReference, ...] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class OutputIdentityIntent:
+    """Data-only relation resolved by the exact output Port contract."""
+
+    identity_sources: tuple[OutputIdentitySource, ...]
+    relation: object
+
+
+@dataclass(frozen=True, slots=True)
+class InvocationRandomness:
+    """Effective randomness observed at an engine boundary."""
+
+    control: Literal["exact_seed", "provider_uncontrolled"]
+    effective_seed: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResidueProjectionEntry:
+    """One Workbench-to-provider residue association."""
+
+    residue_id: str
+    segment_index: int
+    provider_chain_id: str
+    provider_position: int
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.residue_id) is not str
+            or not self.residue_id
+            or type(self.provider_chain_id) is not str
+            or not self.provider_chain_id
+        ):
+            raise TypeError("provider residue identities must be nonempty strings")
+        if (
+            type(self.segment_index) is not int
+            or self.segment_index < 0
+            or type(self.provider_position) is not int
+            or self.provider_position < 1
+        ):
+            raise ValueError("provider residue positions must be canonical")
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderResidueProjection:
+    """Chain order and residue mapping observed at a provider boundary."""
+
+    workbench_chain_order: tuple[str, ...]
+    provider_structure_chain_order: tuple[str, ...]
+    provider_chain_order: tuple[str, ...]
+    entries: tuple[ProviderResidueProjectionEntry, ...]
+    position_semantics: Literal["one_based_chain_local"] = (
+        "one_based_chain_local"
+    )
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "workbench_chain_order",
+            "provider_structure_chain_order",
+            "provider_chain_order",
+        ):
+            values = tuple(getattr(self, field_name))
+            if any(type(value) is not str or not value for value in values):
+                raise TypeError("provider chain orders require nonempty strings")
+            object.__setattr__(self, field_name, values)
+        entries = tuple(self.entries)
+        object.__setattr__(self, "entries", entries)
+        if self.position_semantics != "one_based_chain_local":
+            raise ValueError("provider residue position semantics are unsupported")
+        workbench_order = self.workbench_chain_order
+        structure_order = self.provider_structure_chain_order
+        provider_order = self.provider_chain_order
+        if (
+            not entries
+            or not workbench_order
+            or not structure_order
+            or not provider_order
+            or len(set(workbench_order)) != len(workbench_order)
+            or len(set(structure_order)) != len(structure_order)
+            or len(set(provider_order)) != len(provider_order)
+            or set(structure_order) != set(provider_order)
+        ):
+            raise ValueError("provider residue projection is incomplete")
+        residue_ids: set[str] = set()
+        provider_positions: set[tuple[str, int]] = set()
+        observed_workbench_chains: set[str] = set()
+        observed_provider_chains: set[str] = set()
+        workbench_segment_order: list[str] = []
+        current_segment = -1
+        current_position = 0
+        for entry in entries:
+            chain = residue_identity_chain(
+                entry.residue_id,
+                subject="provider projection residue identity",
+            )
+            coordinate = (entry.provider_chain_id, entry.provider_position)
+            if (
+                chain not in workbench_order
+                or entry.provider_chain_id not in provider_order
+                or entry.segment_index < current_segment
+                or entry.segment_index > current_segment + 1
+                or entry.segment_index >= len(structure_order)
+                or entry.provider_chain_id
+                != structure_order[entry.segment_index]
+                or entry.residue_id in residue_ids
+                or coordinate in provider_positions
+            ):
+                raise ValueError("provider residue projection is inconsistent")
+            if entry.segment_index != current_segment:
+                if entry.provider_position != 1:
+                    raise ValueError(
+                        "provider residue projection must begin at position 1"
+                    )
+                current_segment = entry.segment_index
+                current_position = 1
+                workbench_segment_order.append(chain)
+            elif (
+                entry.provider_position != current_position + 1
+                or workbench_segment_order[-1] != chain
+            ):
+                raise ValueError("provider residue projection is not contiguous")
+            else:
+                current_position = entry.provider_position
+            residue_ids.add(entry.residue_id)
+            provider_positions.add(coordinate)
+            observed_workbench_chains.add(chain)
+            observed_provider_chains.add(entry.provider_chain_id)
+        collapsed_workbench_order = tuple(
+            chain
+            for index, chain in enumerate(workbench_segment_order)
+            if index == 0 or chain != workbench_segment_order[index - 1]
         )
-    if isinstance(value, (list, tuple)):
-        return tuple(_freeze_container(item) for item in value)
-    return value
+        if (
+            observed_workbench_chains != set(workbench_order)
+            or observed_provider_chains != set(structure_order)
+            or current_segment != len(structure_order) - 1
+            or collapsed_workbench_order != workbench_order
+        ):
+            raise ValueError("provider residue projection closure is incomplete")
+
+
+@dataclass(frozen=True, slots=True)
+class EngineInvocationProvenance:
+    """Closed provenance supplied when an operation crosses an engine seam."""
+
+    effective_randomness: InvocationRandomness | None = None
+    project_input_filename: str | None = None
+    provider_residue_projection: ProviderResidueProjection | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BindingEnvironment(Mapping[str, Any]):
+    """Trusted private configuration for one exact execution Binding."""
+
+    values: Mapping[str, Any]
+
+    def __getitem__(self, key: str) -> Any:
+        return self.values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+
+@dataclass(frozen=True, slots=True)
+class ReadinessResult:
+    """One direct readiness conclusion at an operation boundary."""
+
+    passing: bool
+    proof_source: str = "direct-observation"
+    reason_code: str | None = None
+
+
+class OperationProjectInput(Protocol):
+    """Project Input identity visible to a scientific operation."""
+
+    @property
+    def project_input_ref(self) -> str: ...
+
+    @property
+    def filename(self) -> str: ...
+
+    @property
+    def size(self) -> int: ...
+
+    @property
+    def content_digest(self) -> str: ...
+
+
+class OperationResources(Protocol):
+    """Project- and Run-contained capabilities available to an operation."""
+
+    project_id: str
+    run_id: str
+    node_id: str
+
+    def read_project_input(
+        self,
+        input_reference: str,
+    ) -> tuple[OperationProjectInput, bytes]: ...
+
+    @property
+    def result_identity_inputs(self) -> tuple[Mapping[str, Any], ...]: ...
+
+    def temporary_directory(self, *, prefix: str) -> ContextManager[Path]: ...
+
+    def cleanup_temporary_work(self) -> None: ...
+
+    def local_provider(
+        self,
+        provider_id: str,
+    ) -> ContextManager[dict[object, object]]: ...
+
+    def cancellable_process_group(
+        self,
+        process_group: int,
+        *,
+        fallback: Callable[[], None] | None = None,
+    ) -> ContextManager[None]: ...
+
+    def engine_invocation(
+        self,
+        *,
+        engine_role: str = "primary",
+        parent_invocation_id: str | None = None,
+        invocation_provenance: EngineInvocationProvenance | None = None,
+    ) -> ContextManager[str]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,64 +340,15 @@ class AdmittedValue:
     scientific_axes: tuple[ResidueAxisReference, ...] = ()
     observation_methods: tuple[ExactContractReference, ...] = ()
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "value", _freeze_container(self.value))
-        object.__setattr__(self, "canonical_bytes", bytes(self.canonical_bytes))
-        candidate_data = tuple(self.candidate_data)
-        if any(
-            type(reference) is not CandidateDataReference
-            for reference in candidate_data
-        ):
-            raise TypeError(
-                "candidate_data entries must be CandidateDataReference values"
-            )
-        object.__setattr__(self, "candidate_data", candidate_data)
-        scientific_axes = tuple(self.scientific_axes)
-        if any(
-            type(reference) is not ResidueAxisReference
-            for reference in scientific_axes
-        ):
-            raise TypeError(
-                "scientific_axes entries must be ResidueAxisReference values"
-            )
-        object.__setattr__(self, "scientific_axes", scientific_axes)
-        observation_methods = tuple(self.observation_methods)
-        if any(
-            type(reference) is not ExactContractReference
-            or reference.contract_kind != "method"
-            for reference in observation_methods
-        ):
-            raise TypeError(
-                "observation_methods entries must be exact Method references"
-            )
-        object.__setattr__(
-            self,
-            "observation_methods",
-            observation_methods,
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class AdmittedPort:
     """Complete admitted record for one exact input or output Port."""
 
-    port_type: Mapping[str, Any]
+    port_type: ExactContractReference
     multiplicity: PortMultiplicity
     values: tuple[AdmittedValue, ...]
     content_digest: str
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "port_type",
-            MappingProxyType(dict(self.port_type)),
-        )
-        values = tuple(self.values)
-        if any(type(value) is not AdmittedValue for value in values):
-            raise TypeError("values must contain exact AdmittedValue records")
-        if self.multiplicity not in {"one", "many"}:
-            raise ValueError("multiplicity must be one or many")
-        object.__setattr__(self, "values", values)
 
     @property
     def value(self) -> Any:
@@ -158,39 +403,6 @@ class CandidatePairingIntent:
 
     entries: tuple[CandidatePairingIntentEntry, ...] = ()
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "entries", tuple(self.entries))
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedProducedObservation:
-    """One Binding-declared Observation with an exact resolved Metric."""
-
-    output_port: str
-    output_partition: str
-    metric: ExactContractReference
-    context_profile: Mapping[str, Any]
-    subject_grain: str
-    source_role: str
-    subject_direction: str
-    subject_port: str
-    guaranteed_multiplicity: str
-    reference_direction: str | None = None
-    reference_port: str | None = None
-    pairing_direction: str | None = None
-    pairing_port: str | None = None
-    axis_direction: str | None = None
-    axis_port: str | None = None
-    method_direction: str | None = None
-    method_port: str | None = None
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "context_profile",
-            _freeze_container(self.context_profile),
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class OperationContext:
@@ -200,26 +412,8 @@ class OperationContext:
     produced_observations: tuple[ResolvedProducedObservation, ...]
     selection_objectives: tuple[ResolvedSelectionObjective, ...]
     observation_selectors: tuple[ResolvedObservationSelector, ...]
-    environment: Mapping[str, Any]
-    resources: RunResources
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "produced_observations",
-            tuple(self.produced_observations),
-        )
-        object.__setattr__(
-            self,
-            "selection_objectives",
-            tuple(self.selection_objectives),
-        )
-        object.__setattr__(
-            self,
-            "observation_selectors",
-            tuple(self.observation_selectors),
-        )
-        object.__setattr__(self, "environment", _freeze_container(self.environment))
+    environment: BindingEnvironment
+    resources: OperationResources
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,33 +424,6 @@ class OperationCall:
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
     effective_randomness: Mapping[str, Any]
-
-    def __post_init__(self) -> None:
-        if any(
-            type(port_name) is not str or type(record) is not AdmittedPort
-            for port_name, record in self.inputs.items()
-        ):
-            raise TypeError("inputs must contain complete AdmittedPort records")
-        object.__setattr__(
-            self,
-            "inputs",
-            MappingProxyType(dict(self.inputs)),
-        )
-        object.__setattr__(
-            self,
-            "node_parameters",
-            _freeze_container(self.node_parameters),
-        )
-        object.__setattr__(
-            self,
-            "binding_parameters",
-            _freeze_container(self.binding_parameters),
-        )
-        object.__setattr__(
-            self,
-            "effective_randomness",
-            _freeze_container(self.effective_randomness),
-        )
 
 
 class ScientificOperation(Protocol):

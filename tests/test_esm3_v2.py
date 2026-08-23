@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
+
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError, replace
 import math
@@ -11,35 +15,44 @@ from typing import Any
 
 import pytest
 
-from core import (
-    EnvironmentConfiguration,
-    ModulePackageContractCase,
-    ModulePackagePortCase,
+from core.project.manager import ProjectManager
+from core.catalog.builder import (
+    build_frozen_catalog,
+)
+from core.operation import (
+    BindingEnvironment,
     OperationCall,
-    ProjectManager,
-    ReadinessCheckInput,
-    ResultReplaySource,
+)
+from core.execution.environment import admit_environment_configuration
+from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.runtime import (
     V2RunError,
     V2RunService,
-    WorkflowAuthoringService,
-    WorkflowDocument,
-    WorkflowNodeInstance,
-    build_discovered_frozen_catalog,
-    build_frozen_catalog,
-    discover_module_packages,
+)
+from tests.support.result_store import result_store
+from tests.support.contract_test_kit import (
+    ModulePackageContractCase,
+    ModulePackagePortCase,
     verify_module_package_contract,
 )
-from core.workflow_v2 import WorkflowEdge
-from datatypes import (
-    ExactContractReference,
+from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowNodeInstance,
+)
+from core.workflow.document import WorkflowEdge
+from datatypes.exact_reference import ExactContractReference
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
-    ProteinSequence,
-    ProteinStructure,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueTrack,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from tests.fixtures.esm3_generation import (
     ProviderClient,
     ProviderResponse,
@@ -61,7 +74,13 @@ def _plain_invocations(
         item = dict(invocation)
         provenance = item.get("invocation_provenance")
         if provenance is not None:
-            item["invocation_provenance"] = provenance.to_public()  # type: ignore[union-attr]
+            randomness = provenance.effective_randomness  # type: ignore[union-attr]
+            public_randomness = {"control": randomness.control}
+            if randomness.effective_seed is not None:
+                public_randomness["effective_seed"] = randomness.effective_seed
+            item["invocation_provenance"] = {
+                "effective_randomness": public_randomness,
+            }
         plain.append(item)
     return plain
 
@@ -69,7 +88,7 @@ def _plain_invocations(
 def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
 
     registration = registrations["esm3"]
@@ -84,12 +103,12 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
     }
     assert registration.metric_definitions == ()
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract_id, version)
-        for kind, contract_id, version in catalog.owners
-        if kind == "node_type"
-        and "esm3" in catalog.owners[(kind, contract_id, version)]
+        (contract.contract_id, contract.contract_version)
+        for contract in catalog.contracts
+        if contract.contract_kind == "node_type"
+        and contract.contract_id.startswith("esm3.")
     }
     assert owned_nodes == {
         ("esm3.generate_sequence", "8.0.0"),
@@ -287,6 +306,7 @@ def test_esm_package_owns_generation_and_direct_esmc_representation_nodes() -> N
 
 def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
 
@@ -379,19 +399,35 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         workflow=workflow,
     )
     client = ESMCClient()
-    environment = EnvironmentConfiguration({
-        (
-            "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-            "5.0.0",
-        ): {
-            "values": {
-                "endpoint_id": "biohub",
-                "credential_handle": object(),
-                "provider_client": client,
-            },
-        }
-    })
-    service = V2RunService(projects, catalog, authoring, environment)
+    monkeypatch.setattr(
+        "modules.esm3.esmc_adapter.build_biohub_esmc_client",
+        lambda **_kwargs: client,
+    )
+    environment = admit_environment_configuration(
+        catalog,
+        {
+            (
+                "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+                "5.0.0",
+            ): {
+                "values": {
+                    "endpoint_id": "biohub",
+                    "credential_handle": "esmc-test-credential",
+                },
+            }
+        },
+    )
+    service = V2RunService(
+        projects,
+        catalog,
+        authoring,
+        NodeAttemptFactory(
+            projects,
+            environment,
+            result_store(projects),
+        ),
+        result_store(projects),
+    )
     try:
         receipt = service.start_background(
             project.id,
@@ -399,8 +435,8 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
             client_request_id="direct-esmc",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
 
@@ -519,7 +555,9 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         port_type.decode(boolean_shape)
 
 
-def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission() -> None:
+def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import torch
 
     from modules.esm3.domain import ESMCSequenceRepresentation
@@ -557,12 +595,15 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission() -> None:
             yield f"esmc-invocation-{len(self.invocations)}"
 
     client = ESMCClient()
+    monkeypatch.setattr(
+        "modules.esm3.esmc_adapter.build_biohub_esmc_client",
+        lambda **_kwargs: client,
+    )
     resources = InvocationResources()
     adapter = BiohubESMCAdapter(
         environment={
             "endpoint_id": "biohub",
             "credential_handle": object(),
-            "provider_client": client,
         },
         resources=resources,
         model_name=BIOHUB_ESMC_MODEL,
@@ -701,6 +742,7 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
 
 
 def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.esm3.adapter import (
         BIOHUB_ESM3_MEDIUM_MODEL,
@@ -719,12 +761,15 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
             yield "invocation-1"
 
     client = ProviderClient([ProviderResponse("ACD")])
+    monkeypatch.setattr(
+        "modules.esm3.adapter.build_biohub_esm3_client",
+        lambda **_kwargs: client,
+    )
     resources = InvocationResources()
     adapter = BiohubESM3Adapter(
         environment={
             "endpoint_id": "biohub",
             "credential_handle": object(),
-            "provider_client": client,
         },
         resources=resources,
         model_name=BIOHUB_ESM3_MEDIUM_MODEL,
@@ -772,6 +817,7 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
 
 
 def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
 
@@ -816,14 +862,16 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         ),
         pdb_string=provider_pdb,
     )
+    client = ProviderClient([sequence_response, structure_response])
+    monkeypatch.setattr(
+        "modules.esm3.adapter.build_biohub_esm3_client",
+        lambda **_kwargs: client,
+    )
     resources = InvocationResources()
     adapter = BiohubESM3Adapter(
         environment={
             "endpoint_id": "biohub",
             "credential_handle": object(),
-            "provider_client": ProviderClient(
-                [sequence_response, structure_response]
-            ),
         },
         resources=resources,
         model_name=BIOHUB_ESM3_MEDIUM_MODEL,
@@ -1163,24 +1211,6 @@ def test_readiness_rejects_before_provider_call(
     assert client.calls == []
 
 
-def test_readiness_has_no_implicit_process_credential_fallback(
-    tmp_path: Path,
-) -> None:
-    from modules.esm3.package import _ready
-
-    credential_file = tmp_path / "biohub-token"
-    credential_file.write_text("must-not-be-read\n", encoding="utf-8")
-
-    assert not _ready(
-        ReadinessCheckInput(
-            {
-                "endpoint_id": "biohub",
-                "credential_file": credential_file,
-            }
-        )
-    ).passing
-
-
 def test_provider_identity_is_checked_once_at_each_readiness_boundary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1202,10 +1232,9 @@ def test_provider_identity_is_checked_once_at_each_readiness_boundary(
     assert package._available().is_available
     environment = {
         "endpoint_id": "biohub",
-        "credential_handle": object(),
-        "provider_client": ProviderClient([]),
+        "credential_handle": "test-credential",
     }
-    check_input = ReadinessCheckInput(environment)
+    check_input = BindingEnvironment(environment)
     assert package._ready(check_input).passing
     assert package._ready(check_input).passing
     assert validations == [
@@ -1216,6 +1245,7 @@ def test_provider_identity_is_checked_once_at_each_readiness_boundary(
 
 def test_open_binding_factory_receives_its_exact_model(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     created_with: list[dict[str, Any]] = []
     client = ProviderClient([ProviderResponse("ACD")])
@@ -1224,16 +1254,17 @@ def test_open_binding_factory_receives_its_exact_model(
         created_with.append(kwargs)
         return client
 
+    monkeypatch.setattr(
+        "modules.esm3.adapter.build_biohub_esm3_client",
+        factory,
+    )
+
     service, catalog, projection, events = run_generation(
         tmp_path,
         operation="generate_sequence",
-        client=ProviderClient([]),
+        client=None,
         num_samples=1,
         binding_route="biohub_open",
-        environment_overrides={
-            "provider_client": None,
-            "client_factory": factory,
-        },
     )
 
     assert projection["status"] == "succeeded"
@@ -1545,11 +1576,11 @@ def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import core.run_execution_v2 as run_execution_v2
+    import core.execution._node_attempt_identity as node_attempt_identity
 
     descriptors: list[dict[str, Any]] = []
     result_identity_descriptor = (
-        run_execution_v2._result_identity_descriptor
+        node_attempt_identity._result_identity_descriptor
     )
 
     def capture_result_identity(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -1559,7 +1590,7 @@ def test_remote_configured_seed_remains_an_ordinary_result_identity_parameter(
         return descriptor
 
     monkeypatch.setattr(
-        run_execution_v2,
+        node_attempt_identity,
         "_result_identity_descriptor",
         capture_result_identity,
     )
@@ -1924,6 +1955,8 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
+    import modules.esm3.adapter as esm3_adapter
+    import modules.esm3.esmc_adapter as esmc_adapter
     import modules.esm3.local_adapter as local_adapter
     import modules.esm3.package as esm3_package
 
@@ -1954,12 +1987,14 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             binding_parameters={},
         )
 
+    remote_clients: list[ProviderClient] = []
+    local_clients: list[ProviderClient] = []
+
     def environment(client: ProviderClient) -> dict[str, Any]:
+        remote_clients.append(client)
         return {
             "endpoint_id": "biohub",
-            "credential_handle": object(),
-            "provider_client": client,
-            "private_token": "ctk-secret-must-not-publish",
+            "credential_handle": "ctk-secret-must-not-publish",
         }
 
     local_snapshot = tmp_path / "local-snapshot"
@@ -1978,6 +2013,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             runtime_directory=local_runtime_directory,
             device="cpu",
             performance_settings={},
+            artifact_sources={},
         )
 
     monkeypatch.setattr(
@@ -1992,6 +2028,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     )
 
     def local_environment(client: ProviderClient) -> dict[str, Any]:
+        local_clients.append(client)
         return {
             "model_snapshot_path": local_snapshot,
             "model_snapshot_revision": (
@@ -2000,8 +2037,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             "device": "cpu",
             "runtime_directory": local_runtime_directory,
             "performance_settings": {},
-            "provider_client": client,
-            "private_token": "ctk-secret-must-not-publish",
         }
 
     structure_response = lambda: ProviderResponse(
@@ -2054,6 +2089,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             )
 
+    esmc_client = ESMCClient()
     cases = (
         ModulePackageContractCase(
             case_id="sequence",
@@ -2257,9 +2293,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             node_parameters={},
             environment_values={
                 "endpoint_id": "biohub",
-                "credential_handle": object(),
-                "provider_client": ESMCClient(),
-                "private_token": "ctk-secret-must-not-publish",
+                "credential_handle": "ctk-secret-must-not-publish",
             },
             workflow_nodes=(
                 WorkflowNodeInstance(
@@ -2285,6 +2319,27 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             project_inputs={"sequence-input": b">ctk\nACD\n"},
             **esmc_common,
         ),
+    )
+
+    monkeypatch.setattr(
+        esm3_adapter,
+        "build_biohub_esm3_client",
+        lambda **_kwargs: remote_clients.pop(0),
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "load_local_esm3_client",
+        lambda *_args, **_kwargs: local_clients.pop(0),
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "release_local_esm3_client",
+        lambda _client: None,
+    )
+    monkeypatch.setattr(
+        esmc_adapter,
+        "build_biohub_esmc_client",
+        lambda **_kwargs: esmc_client,
     )
 
     report = verify_module_package_contract(

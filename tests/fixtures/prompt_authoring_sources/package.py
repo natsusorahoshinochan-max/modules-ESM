@@ -6,36 +6,42 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
 )
-from datatypes import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
     ProteinPrompt,
-    ProteinSequence,
-    ProteinStructure,
+)
+from datatypes.residue import (
     ResidueLayout,
     ResidueMap,
     ResidueTrack,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 from modules.prompt_authoring.domain import AlignedResidueTrack
-from modules.structure_transform.implementation import (
-    normalize_csh_parent_span,
-    resolve_residue_axis,
-)
+from modules.structure_transform.csh_normalization import normalize_csh_parent_span
+from modules.structure_transform.residue_axis import resolve_residue_axis
 
 
 _VERSION = "2.1.0"
@@ -490,7 +496,6 @@ def _factory(context: OperationContext) -> object:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.prompt_authoring_sources",
     package_version=_VERSION,
     package_module=__package__,

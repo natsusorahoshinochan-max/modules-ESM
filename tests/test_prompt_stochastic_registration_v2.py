@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
+from protein_workbench_public.bootstrap import module_registrations
+
 from dataclasses import replace
 
 import pytest
 
-from core import (
-    CatalogBuildError,
-    build_discovered_frozen_catalog,
+from core.catalog.builder import (
     build_frozen_catalog,
-    discover_module_packages,
 )
+from core.catalog.errors import CatalogBuildError
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -22,7 +22,7 @@ from tests.fixtures.prompt_authoring_v2 import VERSION
 def test_stochastic_prompt_authoring_registers_two_exact_nodes() -> None:
     registrations = {
         registration.package_id: registration
-        for registration in discover_module_packages()
+        for registration in module_registrations()
     }
     registration = registrations["prompt_authoring"]
     assert {
@@ -32,7 +32,7 @@ def test_stochastic_prompt_authoring_registers_two_exact_nodes() -> None:
         "definitions/random_insert_masked.yaml",
     }
 
-    catalog = build_discovered_frozen_catalog()
+    catalog = build_frozen_catalog(module_registrations())
     for operation in ("random_mask", "random_insert_masked"):
         node = catalog.require_contract(
             "node_type",
@@ -100,20 +100,4 @@ def test_randomness_declaration_has_one_unambiguous_parameter_scope() -> None:
                 replace(MODULE_PACKAGE, bindings=broken_bindings),
                 STRUCTURE_TRANSFORM_PACKAGE,
             )
-        )
-
-
-def test_randomness_declaration_is_bounded_like_the_public_contract() -> None:
-    binding = next(
-        binding
-        for binding in MODULE_PACKAGE.bindings
-        if binding.binding_id == "prompt_authoring.random_mask.direct"
-    )
-
-    with pytest.raises(CatalogBuildError, match="at most 256"):
-        replace(
-            binding,
-            effective_randomness_parameters=tuple(
-                f"randomness_{index}" for index in range(257)
-            ),
         )

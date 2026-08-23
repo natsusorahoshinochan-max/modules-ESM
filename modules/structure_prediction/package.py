@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
-    MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
     ProducedObservationDefinition,
-    ReadinessCheckInput,
-    ReadinessDeclaration,
-    ReadinessResult,
-    ScientificOperation,
     ScientificOperationFactory,
+)
+from core.catalog.definition_resource import (
+    DefinitionResource,
+    load_method_definitions,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    ScientificOperation,
 )
 
 from .port_types import (
@@ -39,55 +42,12 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _ready(check_input: ReadinessCheckInput) -> ReadinessResult:
-    del check_input
-    return ReadinessResult(True)
-
-
 def _build(context: OperationContext) -> ScientificOperation:
     from .implementation import MaterializeConfidenceImplementation
 
     return MaterializeConfidenceImplementation(
         produced_observations=context.produced_observations,
     )
-
-
-MATERIALIZE_CONFIDENCE_METHOD = MethodDefinition(
-    method_id=(
-        "structure_prediction.materialize_confidence.exact_reference_join"
-    ),
-    version=VERSION,
-    algorithm_identity={
-        "name": "prediction-confidence-exact-reference-full-set-join",
-        "subject_join": {
-            "candidate_reference": "admitted-CandidateDataReference",
-            "producer_metadata": ["prediction_key", "output_port", "sample_slot"],
-            "fact_key": "prediction_key",
-            "structure_binding": "exact-content-digest-equality",
-            "axis_binding": "scalar-prediction-axis-codec-content-digest",
-            "set_semantics": "complete-bijection-before-any-output",
-        },
-        "mean_plddt": "fsum(non-null-per-residue-values)/non-null-count",
-        "missing_ptm_or_pae": "emit-no-Observation",
-    },
-    model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
-    featurization_identity={
-        "structure_candidates": "candidate.collection@4.0.0",
-        "confidence_facts": (
-            "structure_prediction.confidence_facts@2.0.0"
-        ),
-        "reparsing": "none",
-    },
-    source_identity={"kind": "repository-owned"},
-    scale_contract={
-        "plddt_per_residue": "identity-zero-to-100-with-null-mask",
-        "plddt_mean_residue": "equal-weight-non-null-arithmetic-mean",
-        "ptm": "identity-zero-to-one",
-        "pae": "identity-angstrom",
-        "rescaling": "forbidden",
-    },
-)
 
 
 def _produced_observation(
@@ -124,7 +84,11 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
         "structure_prediction.materialize_confidence",
         VERSION,
     ),
-    method=MATERIALIZE_CONFIDENCE_METHOD.identity,
+    method=ContractIdentity(
+        "method",
+        "structure_prediction.materialize_confidence.exact_reference_join",
+        VERSION,
+    ),
     binding_parameters={},
     execution_route="direct",
     factory=ScientificOperationFactory(
@@ -143,15 +107,6 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
         ),
         prerequisites={},
         check=_available,
-    ),
-    readiness=ReadinessDeclaration(
-        behavior=BehaviorReference(
-            "structure_prediction.materialize_confidence.direct/readiness",
-            VERSION,
-            {"observation": "per-run"},
-        ),
-        prerequisites={},
-        check=_ready,
     ),
     deterministic=True,
     cacheable=True,
@@ -174,7 +129,6 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="structure_prediction",
     package_version=VERSION,
     package_module=__package__,
@@ -191,13 +145,15 @@ MODULE_PACKAGE = ModulePackageRegistration(
         PREDICTION_RESIDUE_AXIS_PORT_TYPE,
         CONFIDENCE_FACTS_PORT_TYPE,
     ),
-    methods=(MATERIALIZE_CONFIDENCE_METHOD,),
+    methods=load_method_definitions(
+        __package__,
+        "definitions/methods.yaml",
+    ),
     bindings=(MATERIALIZE_CONFIDENCE_BINDING,),
 )
 
 
 __all__ = [
     "MATERIALIZE_CONFIDENCE_BINDING",
-    "MATERIALIZE_CONFIDENCE_METHOD",
     "MODULE_PACKAGE",
 ]

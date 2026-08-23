@@ -10,9 +10,11 @@ from typing import Any
 from fastapi.testclient import TestClient
 from websockets.sync.client import connect
 
-from protein_workbench_public import (
+from tests.support.public_request import (
     prepare_rest_request,
     prepare_run_event_stream_request,
+)
+from tests.support.protocol import (
     validate_event,
     validate_response,
     validate_typed_value_response,
@@ -141,7 +143,7 @@ def wait_for_service_run_terminal_events(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise AssertionError("public Run did not reach a durable terminal")
-        _, after_sequence, terminal = service.wait_for_public_events(
+        _, after_sequence, terminal = service.wait_for_events(
             project_id,
             run_id,
             after_sequence,
@@ -156,7 +158,7 @@ def wait_for_testclient_run_terminal(
     timeout_seconds: float = TERMINAL_WAIT_SECONDS,
 ) -> dict[str, Any]:
     """Wait on the durable ledger, then read the public terminal projection."""
-    service = client.app.state.run_execution_v2
+    service = client.app.state.run_runtime
     wait_for_service_run_terminal_events(
         service,
         project_id,

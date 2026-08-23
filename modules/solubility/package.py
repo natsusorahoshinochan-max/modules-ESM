@@ -2,25 +2,30 @@
 
 from __future__ import annotations
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
+    EnvironmentFieldDeclaration,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationContext,
     ProducedObservationDefinition,
     ReadinessDeclaration,
-    ScientificOperation,
     ScientificOperationFactory,
 )
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationContext,
+    ScientificOperation,
+)
 
-from .adapter import (
-    LocalProteinSolAdapter,
-    LocalSoluProtAdapter,
+from .protein_sol import (
     PROTEIN_SOL_ARCHIVE_SHA256,
     PROTEIN_SOL_BASH_SHA256,
     PROTEIN_SOL_BASH_VERSION,
@@ -30,6 +35,10 @@ from .adapter import (
     PROTEIN_SOL_PERL_VERSION,
     PROTEIN_SOL_RELEASE,
     PROTEIN_SOL_SOURCE_SHA256,
+    LocalProteinSolAdapter,
+    protein_sol_readiness,
+)
+from .soluprot import (
     SOLUPROT_DATABASE_SHA256,
     SOLUPROT_CODE_SHA256,
     SOLUPROT_FEATURES_SHA256,
@@ -44,8 +53,8 @@ from .adapter import (
     SOLUPROT_TMHMM_SHA256,
     SOLUPROT_USEARCH_SHA256,
     SOLUPROT_PORT_VERSION,
+    LocalSoluProtAdapter,
     SoluProtMode,
-    protein_sol_readiness,
     soluprot_readiness,
 )
 
@@ -55,6 +64,17 @@ _METHOD_VERSION = "3.0.0"
 _METRIC_VERSION = "2.1.0"
 _NODE_BINDING_VERSION = "5.0.0"
 _MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
+_SOLUPROT_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("python_executable", "filesystem_path"),
+    EnvironmentFieldDeclaration("wheel_path", "filesystem_path"),
+    EnvironmentFieldDeclaration("site_packages_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("usearch_executable", "filesystem_path"),
+)
+_PROTEIN_SOL_ENVIRONMENT_FIELDS = (
+    EnvironmentFieldDeclaration("source_root", "filesystem_path"),
+    EnvironmentFieldDeclaration("bash_executable", "filesystem_path"),
+    EnvironmentFieldDeclaration("perl_executable", "filesystem_path"),
+)
 
 
 def _available() -> AvailabilityResult:
@@ -174,6 +194,18 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
             _METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=(
+            _SOLUPROT_ENVIRONMENT_FIELDS
+            + (
+                EnvironmentFieldDeclaration("tmhmm_root", "filesystem_path"),
+                EnvironmentFieldDeclaration(
+                    "perl_executable",
+                    "filesystem_path",
+                ),
+            )
+            if tm_feature
+            else _SOLUPROT_ENVIRONMENT_FIELDS
+        ),
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -423,6 +455,7 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
             _METHOD_VERSION,
         ),
         binding_parameters={},
+        environment_fields=_PROTEIN_SOL_ENVIRONMENT_FIELDS,
         execution_route="adapter",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
@@ -543,7 +576,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="solubility",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,

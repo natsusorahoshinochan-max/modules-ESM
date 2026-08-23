@@ -79,13 +79,13 @@
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.map_residue_track.direct",
       "contract_version": "3.0.0",
-      "contract_digest": "sha256:4b60079b37d7025239f7809ddd9b7e1761a1a188d61756dd0bf52de79bf0a7ab"
+      "contract_digest": "sha256:194c777385749d609b3c604cc5f8a826275e7831b1ecf28bfd66e3be145c436a"
     },
     {
       "contract_kind": "binding",
       "contract_id": "prompt_authoring.override_residue_track.direct",
       "contract_version": "3.0.0",
-      "contract_digest": "sha256:7862680ad9280cfc9a01b6c08478abd3be8e79fa3a4d7b258209052d67820a6a"
+      "contract_digest": "sha256:c4f803c6cd97421908f4bf8cbc78b7cb8e9d263ab304ca0b386a4c4514d4ae11"
     },
     {
       "contract_kind": "method",

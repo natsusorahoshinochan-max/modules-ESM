@@ -7,27 +7,33 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from core import (
+from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
-    BehaviorReference,
     ContractIdentity,
-    DefinitionResource,
     ExecutionBindingDefinition,
     MethodDefinition,
     ModulePackageRegistration,
-    OperationCall,
-    OperationContext,
     ReadinessDeclaration,
-    ReadinessResult,
     ScientificOperationFactory,
 )
-from datatypes import (
+from core.catalog.definition_resource import (
+    DefinitionResource,
+)
+from core.catalog.port_contract import (
+    BehaviorReference,
+)
+from core.operation import (
+    OperationCall,
+    OperationContext,
+    ReadinessResult,
+)
+from datatypes.candidate import (
     Candidate,
     CandidateCollection,
-    ProteinSequence,
-    ProteinStructure,
 )
+from datatypes.sequence import ProteinSequence
+from datatypes.structure import ProteinStructure
 
 
 _VERSION = "3.0.0"
@@ -205,7 +211,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
-    schema_version="2.1.0",
     package_id="contract_test.proteinmpnn_model_sources",
     package_version=_VERSION,
     package_module=__package__,

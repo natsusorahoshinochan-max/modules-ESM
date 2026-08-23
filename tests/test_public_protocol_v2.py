@@ -13,30 +13,35 @@ import pytest
 from fastapi.testclient import TestClient
 import httpx
 
-from core.port_types import builtin_frozen_catalog
-from core.server import create_app
-from protein_workbench_public import (
+from core.catalog.builtins import (
+    builtin_frozen_catalog,
+)
+from tests.support.application import create_application
+from protein_workbench_public.protocol import (
     PUBLIC_PROTOCOL_NAMESPACE,
-    PreparedEventStreamRequest,
-    PreparedRestRequest,
     ProtocolValidationError,
     artifact_content_disposition,
     bundle_bytes,
     bundle_digest,
     decode_rest_request,
-    decode_project_input_content,
     decode_run_event_stream_request,
     load_bundle,
+    validate_request,
+    validate_schema,
+)
+from tests.support.public_request import (
+    PreparedEventStreamRequest,
+    PreparedRestRequest,
     encode_project_input_content,
     prepare_run_event_stream_request,
     prepare_rest_request,
+)
+from tests.support.protocol import (
     validate_artifact_response,
-    validate_typed_value_response,
     validate_error,
     validate_event,
-    validate_request,
     validate_response,
-    validate_schema,
+    validate_typed_value_response,
 )
 from tests.public_protocol_acceptance_client import (
     PublicProtocolAcceptanceClient,
@@ -478,6 +483,16 @@ def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
     ("failure_origin", "error"),
     (
         (
+            "attempt",
+            {
+                "code": "node_execution_failed",
+                "message": "Node execution failed safely",
+                "retryable": False,
+                "correlation_id": "incident-attempt",
+                "details": {"exception_type": "PortValueError"},
+            },
+        ),
+        (
             "binding",
             {
                 "code": "readiness_rejected",
@@ -534,14 +549,18 @@ def test_failed_node_attempt_event_closes_error_by_failure_origin(
     }
     validate_schema("#/$defs/NodeAttemptTerminalEvent", event)
 
-    if failure_origin == "operation":
+    if failure_origin in {"attempt", "operation"}:
         with pytest.raises(ProtocolValidationError):
             validate_schema(
                 "#/$defs/NodeAttemptTerminalEvent",
                 {**event, "resolution": "cache_replayed"},
             )
 
-    other_origin = "publication" if failure_origin == "operation" else "operation"
+    other_origin = (
+        "publication"
+        if failure_origin in {"attempt", "operation"}
+        else "operation"
+    )
     with pytest.raises(ProtocolValidationError):
         validate_schema(
             "#/$defs/NodeAttemptTerminalEvent",
@@ -1015,7 +1034,6 @@ def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
 
     encoded = encode_project_input_content(b"\x00protein\xff")
     assert encoded == "AHByb3RlaW7/"
-    assert decode_project_input_content(encoded) == b"\x00protein\xff"
     validate_request(
         "publish_project_input",
         {
@@ -1025,8 +1043,6 @@ def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
         },
     )
     for noncanonical in ("AHByb3RlaW7_", "AB==", "YQ"):
-        with pytest.raises(ProtocolValidationError, match="canonical base64"):
-            decode_project_input_content(noncanonical)
         with pytest.raises(ProtocolValidationError) as request_error:
             validate_request(
                 "publish_project_input",
@@ -1386,7 +1402,7 @@ def test_backend_serves_the_authoritative_bundle_without_a_v1_fallback(
     discovery = load_bundle()["bundle_discovery"]
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.get(discovery["route"])
 
@@ -1414,7 +1430,7 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         responses = (
             client.get("/api/v2/protocol?legacy=1"),
@@ -1453,7 +1469,9 @@ def test_backend_public_route_inventory_equals_the_bundle() -> None:
         "/openapi.json",
         "/redoc",
     }
-    for route in create_app().routes:
+    for route in create_application(
+        frozen_catalog_override=builtin_frozen_catalog()
+    ).routes:
         path = getattr(route, "path", "")
         if path in framework_documentation_routes:
             continue
@@ -1478,7 +1496,7 @@ def test_project_and_immutable_input_publication_use_only_bundle_operations(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as http:
         def public_request(
             operation_id: str,
@@ -1573,7 +1591,7 @@ def test_project_input_metadata_recovers_filename_after_backend_restart(
         return response.status_code, payload
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as first_backend:
         _, project = public_request(
             first_backend,
@@ -1591,7 +1609,7 @@ def test_project_input_metadata_recovers_filename_after_backend_restart(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as restarted_backend:
         status, recovered = public_request(
             restarted_backend,
@@ -1690,7 +1708,7 @@ def test_backend_rejects_route_owned_fields_in_every_json_body(
     }
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         for operation_id, (method, route, body) in cases.items():
             response = client.request(method, route, json=body)
@@ -1713,7 +1731,7 @@ def test_backend_distinguishes_absent_empty_and_null_cancel_bodies(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         absent = client.post(
             "/api/v2/projects/project-1/runs/run-1:cancel"
@@ -1747,7 +1765,7 @@ def test_backend_rejects_invalid_project_identity_at_public_admission(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.get(
             "/api/v2/projects/project:1/workflow/draft"
@@ -1779,7 +1797,7 @@ def test_backend_classifies_nested_workflow_version_before_authoring(
     }
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.post(
             "/api/v2/projects/project-1/workflow:commit",
@@ -1809,7 +1827,7 @@ def test_project_input_publication_rejects_invalid_project_id_at_admission(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         response = client.post(
             "/api/v2/projects/bad!/inputs",
@@ -1834,7 +1852,7 @@ def test_backend_event_stream_rejects_undeclared_query_fields(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         with client.websocket_connect(
             "/api/v2/projects/project-1/runs/run-1/events?legacy_cursor=1"
@@ -1922,7 +1940,7 @@ def test_public_deep_commit_creates_draft_active_commit_and_runnable_plan(
         )
 
     with TestClient(
-        create_app(frozen_catalog_override=builtin_frozen_catalog())
+        create_application(frozen_catalog_override=builtin_frozen_catalog())
     ) as client:
         project_id = client.post(
             "/api/v2/projects",

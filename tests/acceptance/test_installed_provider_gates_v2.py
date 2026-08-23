@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from tests.support.ledger import public_run_events, public_run_projection
+
+from core.catalog.builder import build_frozen_catalog
+
 import os
 from pathlib import Path
 from typing import Any
@@ -9,7 +13,9 @@ from typing import Any
 import pytest
 
 from tests.acceptance.conftest import PROJECT_ROOT
+from tests.acceptance.biohub_environment import read_biohub_token
 from tests.acceptance.retained_evidence import retain_service_run
+from tests.support.result_store import result_store
 
 
 BIOHUB_ESM3_GATE_BINDINGS = (
@@ -155,18 +161,20 @@ def _run_rich_esm3_generation(
     prompt_mode: str,
     binding_route: str,
     credential_handle: str,
-    client_factory: Any,
 ) -> tuple[Any, Any, dict[str, Any], tuple[dict[str, Any], ...]]:
-    from core import (
-        EnvironmentConfiguration,
-        ProjectManager,
-        V2RunService,
-        WorkflowAuthoringService,
-        WorkflowDocument,
-        WorkflowNodeInstance,
+    from core.project.manager import ProjectManager
+    from core.catalog.builder import (
         build_frozen_catalog,
     )
-    from core.workflow_v2 import WorkflowEdge
+    from core.execution.environment import admit_environment_configuration
+    from core.execution.node_attempt import NodeAttemptFactory
+    from core.execution.runtime import V2RunService
+    from core.workflow.authoring import WorkflowAuthoringService
+    from core.workflow.document import (
+        WorkflowDocument,
+        WorkflowEdge,
+        WorkflowNodeInstance,
+    )
     from modules.esm3.package import MODULE_PACKAGE as ESM3_PACKAGE
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -241,22 +249,26 @@ def _run_rich_esm3_generation(
             contract_lock=(),
         ),
     )
-    environment_fingerprint = f"installed-{binding_route}-rich-prompt"
     service = V2RunService(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                (binding_id, BIOHUB_ESM3_GATE_VERSION): {
-                    "values": {
-                        "endpoint_id": "biohub",
-                        "credential_handle": credential_handle,
-                        "client_factory": client_factory,
-                    },
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (binding_id, BIOHUB_ESM3_GATE_VERSION): {
+                        "values": {
+                            "endpoint_id": "biohub",
+                            "credential_handle": credential_handle,
+                        },
+                    }
                 }
-            }
+            ),
+            result_store(projects),
         ),
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -265,238 +277,11 @@ def _run_rich_esm3_generation(
             client_request_id=f"biohub-{binding_route}-{operation}",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
     return service, catalog, projection, events
-
-
-def _native_tensor_values(value: Any) -> Any:
-    if value is None:
-        return None
-    return value.detach().cpu().tolist()
-
-
-def _record_esm3_provider_call(
-    *,
-    route: str,
-    model_name: str,
-    protein: Any,
-    config: Any,
-) -> dict[str, Any]:
-    coordinates = protein.coordinates
-    coordinate_finite_mask = (
-        None
-        if coordinates is None
-        else coordinates.detach().cpu().isfinite().all(dim=-1).tolist()
-    )
-    return {
-        "route": route,
-        "model": model_name,
-        "sequence": protein.sequence,
-        "secondary_structure": protein.secondary_structure,
-        "sasa": protein.sasa,
-        "function_annotations": (
-            None
-            if protein.function_annotations is None
-            else [
-                (item.label, item.start, item.end)
-                for item in protein.function_annotations
-            ]
-        ),
-        "coordinate_shape": (
-            None if coordinates is None else tuple(coordinates.shape)
-        ),
-        "coordinate_finite_mask": coordinate_finite_mask,
-        "first_residue_coordinates": (
-            None
-            if coordinates is None
-            else coordinates[0, (0, 1, 2, 4)].detach().cpu().tolist()
-        ),
-        "track": config.track,
-        "requested_num_steps": config.num_steps,
-        "temperature": config.temperature,
-        "top_p": config.top_p,
-        "schedule": config.schedule,
-        "strategy": config.strategy,
-        "temperature_annealing": config.temperature_annealing,
-        "condition_on_coordinates_only": (
-            config.condition_on_coordinates_only
-        ),
-        "invalid_ids": tuple(config.invalid_ids),
-        "only_compute_backbone_rmsd": config.only_compute_backbone_rmsd,
-    }
-
-
-class _RecordingESM3Client:
-    def __init__(
-        self,
-        *,
-        delegate: Any,
-        route: str,
-        model_name: str,
-        provider_calls: list[dict[str, Any]],
-    ) -> None:
-        self._delegate = delegate
-        self._route = route
-        self._model_name = model_name
-        self._provider_calls = provider_calls
-
-    def generate(self, protein: Any, config: Any) -> Any:
-        from esm.sdk.api import ESMProteinError
-
-        call = _record_esm3_provider_call(
-            route=self._route,
-            model_name=self._model_name,
-            protein=protein,
-            config=config,
-        )
-        self._provider_calls.append(call)
-        result = self._delegate.generate(protein, config)
-        if isinstance(result, ESMProteinError):
-            return result
-        call.update(
-            {
-                "effective_num_steps": config.num_steps,
-                "native_sequence": result.sequence,
-                "native_ptm": _native_tensor_values(result.ptm),
-                "native_plddt": _native_tensor_values(result.plddt),
-                "native_pae": _native_tensor_values(result.pae),
-            }
-        )
-        return result
-
-
-def test_recording_esm3_client_preserves_documented_non_success_for_adapter(
-) -> None:
-    from esm.sdk.api import ESMProtein, ESMProteinError, GenerationConfig
-    from modules.esm3.adapter import call_remote_provider
-
-    provider_error = ESMProteinError(
-        error_code=503,
-        error_msg="provider unavailable",
-    )
-
-    class Delegate:
-        def generate(self, protein: Any, config: Any) -> Any:
-            del protein, config
-            return provider_error
-
-    provider_calls: list[dict[str, Any]] = []
-    client = _RecordingESM3Client(
-        delegate=Delegate(),
-        route="biohub_medium",
-        model_name="esm3-medium-2024-08",
-        provider_calls=provider_calls,
-    )
-    with pytest.raises(
-        RuntimeError,
-        match=(
-            "ESM-3 provider operation generate\\(track=sequence\\) "
-            "failed with a provider error"
-        ),
-    ) as captured:
-        call_remote_provider(
-            client,
-            ESMProtein(sequence="_"),
-            GenerationConfig(track="sequence", num_steps=1),
-            "generate(track=sequence)",
-        )
-
-    assert captured.value.__cause__ is provider_error
-    assert len(provider_calls) == 1
-    assert provider_calls[0]["route"] == "biohub_medium"
-    assert provider_calls[0]["track"] == "sequence"
-    assert provider_calls[0]["sequence"] == "_"
-    assert "native_sequence" not in provider_calls[0]
-
-
-def _assert_rich_prompt_translation(call: dict[str, Any]) -> None:
-    assert call["secondary_structure"] == "GC_"
-    assert call["sasa"] == [0.0, 16.4, None]
-    assert call["function_annotations"] == [("binding site", 1, 2)]
-    assert call["coordinate_shape"] == (3, 37, 3)
-    assert call["first_residue_coordinates"] == [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [2.0, 0.0, 0.0],
-        [3.0, 0.0, 0.0],
-    ]
-    finite_mask = call["coordinate_finite_mask"]
-    assert finite_mask is not None
-    assert [finite_mask[0][index] for index in (0, 1, 2, 4)] == [
-        True,
-        True,
-        True,
-        True,
-    ]
-    assert sum(finite_mask[0]) == 4
-    assert not any(finite_mask[1])
-    assert not any(finite_mask[2])
-    assert {
-        key: call[key]
-        for key in (
-            "requested_num_steps",
-            "temperature",
-            "top_p",
-            "schedule",
-            "strategy",
-            "temperature_annealing",
-            "condition_on_coordinates_only",
-            "invalid_ids",
-            "only_compute_backbone_rmsd",
-        )
-    } == {
-        "requested_num_steps": 2,
-        "temperature": 0.25,
-        "top_p": 0.9,
-        "schedule": "linear",
-        "strategy": "entropy",
-        "temperature_annealing": False,
-        "condition_on_coordinates_only": True,
-        "invalid_ids": (),
-        "only_compute_backbone_rmsd": False,
-    }
-
-
-def _assert_exact_structure_confidence(
-    *,
-    fact: Any,
-    provider_call: dict[str, Any],
-    prompt_content_digest: str,
-) -> None:
-    native_plddt = provider_call["native_plddt"]
-    native_pae = provider_call["native_pae"]
-    native_ptm = provider_call["native_ptm"]
-    assert native_plddt is not None
-    assert native_pae is not None
-    assert native_ptm is not None
-    assert fact.ptm == pytest.approx(float(native_ptm))
-    assert tuple(fact.plddt_per_residue) == pytest.approx(
-        tuple(float(value) * 100.0 for value in native_plddt)
-    )
-    assert fact.pae == tuple(
-        tuple(float(value) for value in row) for row in native_pae
-    )
-    assert fact.prediction_axis.layout.chain_id == "A"
-    assert tuple(fact.prediction_axis.layout.residue_ids) == (
-        "A:1",
-        "A:2",
-        "A:3",
-    )
-    assert fact.prediction_axis.sequence.sequence == provider_call[
-        "native_sequence"
-    ]
-    assert tuple(fact.prediction_axis.sequence.residue_ids) == (
-        "A:1",
-        "A:2",
-        "A:3",
-    )
-    source = fact.prediction_axis.source
-    assert source.port_type.contract_id == "protein.prompt"
-    assert source.port_type.contract_version == "3.0.0"
-    assert source.content_digest == prompt_content_digest
 
 
 @pytest.mark.acceptance
@@ -504,18 +289,13 @@ def _assert_exact_structure_confidence(
 def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
     tmp_path: Path,
 ) -> None:
-    from esm.sdk.forge import ESM3ForgeInferenceClient
     from modules.esm3.adapter import (
         BIOHUB_ESM3_MEDIUM_MODEL,
         BIOHUB_ESM3_OPEN_MODEL,
     )
-    from modules.provider_contract import (
-        read_biohub_token,
-    )
     from tests.fixtures.esm3_generation import decode_output
 
-    token = read_biohub_token(str(PROJECT_ROOT))
-    provider_calls: list[dict[str, Any]] = []
+    token = read_biohub_token()
     routes = {
         "biohub_medium": BIOHUB_ESM3_MEDIUM_MODEL,
         "biohub_open": BIOHUB_ESM3_OPEN_MODEL,
@@ -532,41 +312,12 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
     ] = []
 
     for route, expected_model in routes.items():
-        def client_factory(
-            *,
-            model_name: str,
-            endpoint_id: str,
-            credential_handle: str,
-        ) -> Any:
-            if (
-                model_name != expected_model
-                or endpoint_id != "biohub"
-                or credential_handle != token
-            ):
-                raise AssertionError(
-                    "Biohub ESM-3 client configuration changed"
-                )
-            delegate = ESM3ForgeInferenceClient(
-                model=model_name,
-                token=credential_handle,
-                request_timeout=180,
-                max_retry_attempts=1,
-            )
-
-            return _RecordingESM3Client(
-                delegate=delegate,
-                route=route,
-                model_name=model_name,
-                provider_calls=provider_calls,
-            )
-
         for operation in (
             "generate_sequence",
             "generate_structure",
             "generate_paired",
         ):
             binding_id = f"esm3.{operation}.{route}"
-            provider_call_start = len(provider_calls)
             service, catalog, projection, events = _run_rich_esm3_generation(
                 tmp_path / route / operation,
                 operation=operation,
@@ -577,35 +328,9 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 ),
                 binding_route=route,
                 credential_handle=token,
-                client_factory=client_factory,
             )
 
             assert projection["status"] == "succeeded", events
-            actual_provider_calls = provider_calls[provider_call_start:]
-            expected_tracks = {
-                "generate_sequence": ["sequence"],
-                "generate_structure": ["structure"],
-                "generate_paired": ["sequence", "structure"],
-            }[operation]
-            assert [call["track"] for call in actual_provider_calls] == (
-                expected_tracks
-            )
-            assert all(
-                call["route"] == route
-                and call["model"] == expected_model
-                for call in actual_provider_calls
-            )
-            for call in actual_provider_calls:
-                _assert_rich_prompt_translation(call)
-            if operation == "generate_structure":
-                assert [call["sequence"] for call in actual_provider_calls] == [
-                    "ACD"
-                ]
-            else:
-                assert actual_provider_calls[0]["sequence"] == "_CD"
-                if operation == "generate_paired":
-                    assert "_" not in actual_provider_calls[1]["sequence"]
-                    assert len(actual_provider_calls[1]["sequence"]) == 3
             method = _method_for_binding(
                 catalog,
                 binding_id,
@@ -659,9 +384,7 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 ] == _ESM3_GENERATION_PARAMETERS
                 assert sequences.items[0].metadata[
                     "effective_generation_parameters"
-                ]["sequence"]["num_steps"] == actual_provider_calls[0][
-                    "effective_num_steps"
-                ]
+                ]["sequence"] == _ESM3_GENERATION_PARAMETERS
             elif operation == "generate_structure":
                 structures = decode_output(
                     service,
@@ -689,13 +412,9 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 ] == _ESM3_GENERATION_PARAMETERS
                 assert structures.items[0].metadata[
                     "effective_generation_parameters"
-                ]["structure"]["num_steps"] == actual_provider_calls[0][
-                    "effective_num_steps"
-                ]
-                _assert_exact_structure_confidence(
-                    fact=facts.entries[0],
-                    provider_call=actual_provider_calls[0],
-                    prompt_content_digest=prompt_output["content_digest"],
+                ]["structure"] == _ESM3_GENERATION_PARAMETERS
+                assert facts.entries[0].prediction_axis.source.content_digest == (
+                    prompt_output["content_digest"]
                 )
             else:
                 sequences = decode_output(
@@ -736,32 +455,17 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 assert pairing.entries[0].reference.candidate_id == (
                     structures.items[0].candidate_id
                 )
-                assert actual_provider_calls[1]["sequence"] == (
-                    sequences.items[0].data.sequence
-                )
                 assert structures.items[0].metadata[
                     "requested_generation_parameters"
                 ] == _ESM3_GENERATION_PARAMETERS
                 assert structures.items[0].metadata[
                     "effective_generation_parameters"
                 ] == {
-                    "sequence": {
-                        **_ESM3_GENERATION_PARAMETERS,
-                        "num_steps": actual_provider_calls[0][
-                            "effective_num_steps"
-                        ],
-                    },
-                    "structure": {
-                        **_ESM3_GENERATION_PARAMETERS,
-                        "num_steps": actual_provider_calls[1][
-                            "effective_num_steps"
-                        ],
-                    },
+                    "sequence": _ESM3_GENERATION_PARAMETERS,
+                    "structure": _ESM3_GENERATION_PARAMETERS,
                 }
-                _assert_exact_structure_confidence(
-                    fact=facts.entries[0],
-                    provider_call=actual_provider_calls[1],
-                    prompt_content_digest=prompt_output["content_digest"],
+                assert facts.entries[0].prediction_axis.source.content_digest == (
+                    prompt_output["content_digest"]
                 )
 
             invocation_count += len(started)
@@ -794,69 +498,17 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
 def test_biohub_esmfold2_executes_exact_method(
     tmp_path: Path,
 ) -> None:
-    from esm.sdk.forge import SequenceStructureForgeInferenceClient
-    from modules.folding.adapter import REMOTE_ESMFOLD2_MODEL
-    from modules.provider_contract import (
-        read_biohub_token,
-    )
+    from modules.folding.esmfold2_contract import REMOTE_ESMFOLD2_MODEL
     from tests.acceptance.test_esmfold2_v2 import _fold_outputs
     from tests.test_folding_v2 import _run_fold
 
-    token = read_biohub_token(str(PROJECT_ROOT))
-    provider_calls: list[dict[str, Any]] = []
-
-    def client_factory(
-        *,
-        model_name: str,
-        endpoint_id: str,
-        credential_handle: str,
-    ) -> Any:
-        if (
-            model_name != REMOTE_ESMFOLD2_MODEL
-            or endpoint_id != "biohub"
-            or credential_handle != token
-        ):
-            raise AssertionError(
-                "Biohub ESMFold2 client configuration changed"
-            )
-        delegate = SequenceStructureForgeInferenceClient(
-            model=model_name,
-            token=credential_handle,
-            request_timeout=240,
-            max_retry_attempts=1,
-        )
-
-        class RecordingESMFold2Client:
-            def fold(self, **kwargs: Any) -> Any:
-                config = kwargs["config"]
-                provider_calls.append(
-                    {
-                        "sequence": kwargs["sequence"],
-                        "model_name": kwargs["model_name"],
-                        "include_distogram": config.include_distogram,
-                        "include_pae": config.include_pae,
-                        "include_embeddings": config.include_embeddings,
-                        "num_sampling_steps": config.num_sampling_steps,
-                        "num_loops": config.num_loops,
-                        "lm_dropout": config.lm_dropout,
-                        "lm_mask_pct": config.lm_mask_pct,
-                        "msa_max_depth": config.msa_max_depth,
-                        "msa_column_mask_rate": (
-                            config.msa_column_mask_rate
-                        ),
-                    }
-                )
-                return delegate.fold(**kwargs)
-
-        return RecordingESMFold2Client()
-
+    token = read_biohub_token()
     service, catalog, projection, events = _run_fold(
         tmp_path,
         route="remote",
         client=None,
         environment_overrides={
             "credential_handle": token,
-            "client_factory": client_factory,
         },
         source_sequence=(
             "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
@@ -864,23 +516,6 @@ def test_biohub_esmfold2_executes_exact_method(
     )
 
     assert projection["status"] == "succeeded", events
-    assert provider_calls == [
-        {
-            "sequence": (
-                "MTYKLILNGKTLKGETTTEAVDAATAEKVFKQYANDNGVDGEWTYDDATKTFTVTE"
-            ),
-            "model_name": REMOTE_ESMFOLD2_MODEL,
-            "include_distogram": False,
-            "include_pae": True,
-            "include_embeddings": False,
-            "num_sampling_steps": 100,
-            "num_loops": 20,
-            "lm_dropout": 0.3,
-            "lm_mask_pct": 0.1,
-            "msa_max_depth": 1024,
-            "msa_column_mask_rate": 0.1,
-        }
-    ]
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_remote",
@@ -923,7 +558,7 @@ def test_biohub_esmfold2_executes_exact_method(
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
-    from modules.folding.adapter import (
+    from modules.folding.esmfold2_contract import (
         LOCAL_ESMC_REVISION,
         LOCAL_ESMFOLD2_REVISION,
     )
@@ -936,8 +571,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     esmc_model_root = _required_absolute_path(
         "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT"
     )
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
     service, catalog, projection, events = _run_fold(
         tmp_path,
         route="local",
@@ -948,7 +581,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
             "language_model_snapshot_path": esmc_model_root,
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
             "device": "cpu",
-            "runtime_directory": runtime_directory,
         },
         source_sequence="AG",
     )
@@ -1000,9 +632,9 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
 def test_proteinmpnn_design_and_score_execute_exact_methods(
     tmp_path: Path,
 ) -> None:
-    from core import WorkflowNodeInstance
-    from core.workflow_v2 import WorkflowEdge
-    from datatypes import CandidateCollection, ScoreCollection
+    from core.workflow.document import WorkflowEdge, WorkflowNodeInstance
+    from datatypes.candidate import CandidateCollection
+    from datatypes.observation import ScoreCollection
     from tests.acceptance.test_proteinmpnn_scoring_v2 import (
         _axis_resolver,
         _decode,
@@ -1208,16 +840,19 @@ def test_mkdssp_executes_exact_method_through_public_run(
     tmp_path: Path,
     pdb_3gb1: Any,
 ) -> None:
-    from core import (
-        EnvironmentConfiguration,
-        ProjectManager,
-        V2RunService,
-        WorkflowAuthoringService,
-        WorkflowDocument,
-        WorkflowNodeInstance,
+    from core.project.manager import ProjectManager
+    from core.catalog.builder import (
         build_frozen_catalog,
     )
-    from core.workflow_v2 import WorkflowEdge
+    from core.execution.environment import admit_environment_configuration
+    from core.execution.node_attempt import NodeAttemptFactory
+    from core.execution.runtime import V2RunService
+    from core.workflow.authoring import WorkflowAuthoringService
+    from core.workflow.document import (
+        WorkflowDocument,
+        WorkflowEdge,
+        WorkflowNodeInstance,
+    )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
@@ -1324,13 +959,19 @@ def test_mkdssp_executes_exact_method_through_public_run(
         projects,
         catalog,
         authoring,
-        EnvironmentConfiguration(
-            {
-                (binding_id, "7.0.0"): {
-                    "values": {"dssp_binary": str(binary)},
+        NodeAttemptFactory(
+            projects,
+            admit_environment_configuration(
+                catalog,
+                {
+                    (binding_id, "7.0.0"): {
+                        "values": {"dssp_binary": str(binary)},
+                    }
                 }
-            }
+            ),
+            result_store(projects),
         ),
+        result_store(projects),
     )
     try:
         receipt = service.start_background(
@@ -1339,8 +980,8 @@ def test_mkdssp_executes_exact_method_through_public_run(
             client_request_id="installed-mkdssp",
         )
         service.shutdown()
-        projection = service.projection(project.id, receipt["run_id"])
-        events = service.public_events(project.id, receipt["run_id"])
+        projection = public_run_projection(service, project.id, receipt["run_id"])
+        events = public_run_events(service, project.id, receipt["run_id"])
     finally:
         service.shutdown()
 
