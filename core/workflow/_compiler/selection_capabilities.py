@@ -1,28 +1,19 @@
-"""Private graph, Port, and selection-consumer compilation."""
-
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from core.catalog.declarations import (
-    ContractIdentity,
-    ProducedObservationDefinition,
-)
 from core.catalog.canonical import canonical_json_bytes
-from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
-    ObservationSelector,
     SelectionInput,
-    SelectionObjective,
     context_selector_canonical,
     selection_input_canonical,
 )
 from core.workflow._compiler.graph import (
     _AdmittedWorkflowGraph,
     _PlanNodes,
-    _admit_workflow_graph,
+    _connected_source,
 )
 from core.workflow.document import (
     ContractLockEntry,
@@ -49,12 +40,6 @@ class _ObservationCapability:
 type _LockedContracts = Mapping[tuple[str, str, str], ContractLockEntry]
 
 
-@dataclass(frozen=True, slots=True)
-class _SelectionConsumerCompilation:
-    objectives_by_node: Mapping[str, tuple[SelectionObjective, ...]]
-    selectors_by_node: Mapping[str, tuple[ObservationSelector, ...]]
-
-
 def _same_exact_contract(
     locked: ContractLockEntry | None,
     reference: ExactContractReference | None,
@@ -67,14 +52,47 @@ def _same_exact_contract(
     )
 
 
-def _validate_static_semantics(
+def _validate_selection_inputs(
+    graph: _AdmittedWorkflowGraph,
+    *,
+    error_code: str,
+    item_path: tuple[str | int, ...],
+    candidate_input: SelectionInput,
+    score_collection_input: SelectionInput,
+) -> None:
+    for field_name, input_reference, expected_type in (
+        ("candidate_input", candidate_input, "candidate.collection"),
+        ("score_collection_input", score_collection_input, "score.collection"),
+    ):
+        if input_reference.node_id not in graph.nodes_by_id:
+            raise WorkflowCompileError(
+                error_code,
+                f"{field_name} references a Node outside the Workflow",
+                field_path=(*item_path, field_name, "node_id"),
+            )
+        output = graph.output_ports_by_node[input_reference.node_id].get(
+            input_reference.output_port
+        )
+        if (
+            output is None
+            or output.port_type.contract_id != expected_type
+            or output.multiplicity != "one"
+        ):
+            raise WorkflowCompileError(
+                error_code,
+                f"{field_name} must reference one exact {expected_type} output value",
+                node_id=input_reference.node_id,
+                field_path=(*item_path, field_name, "output_port"),
+            )
+
+
+def _validate_selection_capabilities(
     workflow: WorkflowDocument,
     *,
+    graph: _AdmittedWorkflowGraph,
     plan_nodes: _PlanNodes,
     lock_by_key: _LockedContracts,
-    admitted_node_parameters: Mapping[str, AdmittedParameterValues],
-) -> tuple[_AdmittedWorkflowGraph, _SelectionConsumerCompilation]:
-    graph = _admit_workflow_graph(workflow, plan_nodes)
+) -> None:
     capabilities = _derive_observation_capabilities(
         graph,
         lock_by_key=lock_by_key,
@@ -90,14 +108,6 @@ def _validate_static_semantics(
         graph=graph,
         capabilities=capabilities,
     )
-    selection_consumers = _validate_selection_objective_consumers(
-        workflow,
-        graph=graph,
-        plan_nodes=plan_nodes,
-        admitted_node_parameters=admitted_node_parameters,
-    )
-
-    return graph, selection_consumers
 
 
 def _validate_selection_objectives(
@@ -128,40 +138,13 @@ def _validate_selection_objectives(
         )
     for index, objective in enumerate(objectives):
         objective_path = ("selection_objectives", index)
-        for field_name, input_reference, expected_type in (
-            (
-                "candidate_input",
-                objective.candidate_input,
-                "candidate.collection",
-            ),
-            (
-                "score_collection_input",
-                objective.score_collection_input,
-                "score.collection",
-            ),
-        ):
-            node = graph.nodes_by_id.get(input_reference.node_id)
-            if node is None:
-                raise WorkflowCompileError(
-                    "invalid_selection_objective",
-                    f"{field_name} references a Node outside the Workflow",
-                    field_path=(*objective_path, field_name, "node_id"),
-                )
-            output = graph.output_ports_by_node[node.node_id].get(
-                input_reference.output_port
-            )
-            if (
-                output is None
-                or output.port_type.contract_id != expected_type
-                or output.multiplicity != "one"
-            ):
-                raise WorkflowCompileError(
-                    "invalid_selection_objective",
-                    f"{field_name} must reference one exact {expected_type} "
-                    "output value",
-                    node_id=node.node_id,
-                    field_path=(*objective_path, field_name, "output_port"),
-                )
+        _validate_selection_inputs(
+            graph,
+            error_code="invalid_selection_objective",
+            item_path=objective_path,
+            candidate_input=objective.candidate_input,
+            score_collection_input=objective.score_collection_input,
+        )
         requested_context = context_selector_canonical(
             objective.context_selector
         )
@@ -220,6 +203,7 @@ def _validate_selection_objectives(
                 field_path=(*objective_path, "metric"),
             )
 
+
 def _validate_observation_selectors(
     workflow: WorkflowDocument,
     *,
@@ -239,40 +223,13 @@ def _validate_observation_selectors(
         )
     for index, selector in enumerate(selectors):
         selector_path = ("observation_selectors", index)
-        for field_name, input_reference, expected_type in (
-            (
-                "candidate_input",
-                selector.candidate_input,
-                "candidate.collection",
-            ),
-            (
-                "score_collection_input",
-                selector.score_collection_input,
-                "score.collection",
-            ),
-        ):
-            node = graph.nodes_by_id.get(input_reference.node_id)
-            if node is None:
-                raise WorkflowCompileError(
-                    "invalid_observation_selector",
-                    f"{field_name} references a Node outside the Workflow",
-                    field_path=(*selector_path, field_name, "node_id"),
-                )
-            output = graph.output_ports_by_node[node.node_id].get(
-                input_reference.output_port
-            )
-            if (
-                output is None
-                or output.port_type.contract_id != expected_type
-                or output.multiplicity != "one"
-            ):
-                raise WorkflowCompileError(
-                    "invalid_observation_selector",
-                    f"{field_name} must reference one exact {expected_type} "
-                    "output value",
-                    node_id=node.node_id,
-                    field_path=(*selector_path, field_name, "output_port"),
-                )
+        _validate_selection_inputs(
+            graph,
+            error_code="invalid_observation_selector",
+            item_path=selector_path,
+            candidate_input=selector.candidate_input,
+            score_collection_input=selector.score_collection_input,
+        )
         requested_context = context_selector_canonical(
             selector.context_selector
         )
@@ -324,241 +281,6 @@ def _validate_observation_selectors(
                 field_path=(*selector_path, "metric"),
             )
 
-def _connected_source(
-    graph: _AdmittedWorkflowGraph,
-    *,
-    node_id: str,
-    input_port: str,
-) -> SelectionInput | None:
-    sources = graph.input_sources[node_id].get(input_port, ())
-    return sources[0][1] if len(sources) == 1 else None
-
-def _connected_source_field_path(
-    graph: _AdmittedWorkflowGraph,
-    *,
-    node_id: str,
-    input_port: str,
-    expected_node_id: str,
-) -> tuple[str | int, ...]:
-    edge_index, source = graph.input_sources[node_id][input_port][0]
-    field_name = (
-        "source_node_id"
-        if source.node_id != expected_node_id
-        else "source_port"
-    )
-    return ("edges", edge_index, field_name)
-
-def _validate_selection_objective_consumers(
-    workflow: WorkflowDocument,
-    *,
-    graph: _AdmittedWorkflowGraph,
-    plan_nodes: _PlanNodes,
-    admitted_node_parameters: Mapping[str, AdmittedParameterValues],
-) -> _SelectionConsumerCompilation:
-    """Bind generic declared selection consumers to exact Workflow sources."""
-    objectives = {
-        objective.objective_id: objective
-        for objective in workflow.selection_objectives
-    }
-    objective_consumers: dict[str, list[str]] = {
-        objective_id: [] for objective_id in objectives
-    }
-    selectors = {
-        selector.selector_id: selector
-        for selector in workflow.observation_selectors
-    }
-    selector_consumers: dict[str, list[str]] = {
-        selector_id: [] for selector_id in selectors
-    }
-    objectives_by_node: dict[str, tuple[SelectionObjective, ...]] = {
-        node_id: () for node_id in plan_nodes
-    }
-    selectors_by_node: dict[str, tuple[ObservationSelector, ...]] = {
-        node_id: () for node_id in plan_nodes
-    }
-    node_indexes = {
-        node.node_id: index for index, node in enumerate(workflow.nodes)
-    }
-    for node_id, (_, binding) in plan_nodes.items():
-        node_index = node_indexes[node_id]
-        selector_consumption = binding.observation_selector_consumption
-        if selector_consumption is not None:
-            parameters = admitted_node_parameters[node_id]
-            parameter_name = selector_consumption.selector_id_parameter
-            selector_id = parameters[parameter_name]
-            selector = selectors.get(selector_id)
-            if selector is None:
-                raise WorkflowCompileError(
-                    "unsatisfied_selector",
-                    "Selection selector does not resolve one Workflow "
-                    "Observation Selector",
-                    node_id=node_id,
-                    field_path=(
-                        "nodes",
-                        node_index,
-                        "node_parameters",
-                        parameter_name or "selector_id",
-                    ),
-                )
-            for label, port_name, reference in (
-                (
-                    "Candidate",
-                    selector_consumption.candidate_input_port,
-                    selector.candidate_input,
-                ),
-                (
-                    "Score Collection",
-                    selector_consumption.score_collection_input_port,
-                    selector.score_collection_input,
-                ),
-            ):
-                connected = _connected_source(
-                    graph,
-                    node_id=node_id,
-                    input_port=port_name,
-                )
-                if connected != reference:
-                    raise WorkflowCompileError(
-                        "unsatisfied_selector",
-                        f"Selection {label} input does not match the exact "
-                        "Workflow Observation Selector source",
-                        node_id=node_id,
-                        field_path=_connected_source_field_path(
-                            graph,
-                            node_id=node_id,
-                            input_port=port_name,
-                            expected_node_id=reference.node_id,
-                        ),
-                    )
-            selectors_by_node[node_id] = (selector,)
-            selector_consumers[selector.selector_id].append(node_id)
-            continue
-        consumption = binding.selection_objective_consumption
-        if consumption is None:
-            continue
-        parameters = admitted_node_parameters[node_id]
-        if consumption.objective_id_parameter is not None:
-            parameter_name = consumption.objective_id_parameter
-            raw_objective_ids = (parameters[parameter_name],)
-        else:
-            parameter_name = consumption.objective_ids_parameter
-            raw_objective_ids = tuple(parameters[parameter_name])
-        selected_objectives = tuple(
-            objectives[objective_id]
-            for objective_id in raw_objective_ids
-            if objective_id in objectives
-        )
-        if (
-            not raw_objective_ids
-            or len(selected_objectives) != len(raw_objective_ids)
-        ):
-            raise WorkflowCompileError(
-                "unsatisfied_selector",
-                "Selection selector does not resolve one Workflow Selection "
-                "Objective for every declared ID",
-                node_id=node_id,
-                field_path=(
-                    "nodes",
-                    node_index,
-                    "node_parameters",
-                    parameter_name,
-                ),
-            )
-        for label, port_name, reference_name in (
-            (
-                "Candidate",
-                consumption.candidate_input_port,
-                "candidate_input",
-            ),
-            (
-                "Score Collection",
-                consumption.score_collection_input_port,
-                "score_collection_input",
-            ),
-        ):
-            connected = _connected_source(
-                graph,
-                node_id=node_id,
-                input_port=port_name,
-            )
-            expected_sources = {
-                (
-                    getattr(objective, reference_name).node_id,
-                    getattr(objective, reference_name).output_port,
-                )
-                for objective in selected_objectives
-            }
-            connected_source = (
-                (connected.node_id, connected.output_port)
-                if connected is not None
-                else None
-            )
-            if (
-                len(expected_sources) != 1
-                or connected_source not in expected_sources
-            ):
-                field_path = (
-                    (
-                        "nodes",
-                        node_index,
-                        "node_parameters",
-                        parameter_name,
-                    )
-                    if len(expected_sources) != 1
-                    else _connected_source_field_path(
-                        graph,
-                        node_id=node_id,
-                        input_port=port_name,
-                        expected_node_id=next(iter(expected_sources))[0],
-                    )
-                )
-                raise WorkflowCompileError(
-                    "unsatisfied_selector",
-                    f"Selection {label} input does not match the exact "
-                    "Workflow Selection Objective sources",
-                    node_id=node_id,
-                    field_path=field_path,
-                )
-        objectives_by_node[node_id] = selected_objectives
-        for objective in selected_objectives:
-            objective_consumers[objective.objective_id].append(node_id)
-
-    for index, objective in enumerate(workflow.selection_objectives):
-        consumers = objective_consumers[objective.objective_id]
-        if not consumers:
-            raise WorkflowCompileError(
-                "unconsumed_selection_objective",
-                "Selection Objective is not consumed by an explicit "
-                "Selection Node",
-                field_path=("selection_objectives", index),
-            )
-        if len(consumers) != 1:
-            raise WorkflowCompileError(
-                "multiple_selection_objective_consumers",
-                "Selection Objective must be consumed by exactly one explicit "
-                f"Selection Node; resolved consumers: {consumers!r}",
-                field_path=("selection_objectives", index),
-            )
-    for index, selector in enumerate(workflow.observation_selectors):
-        consumers = selector_consumers[selector.selector_id]
-        if not consumers:
-            raise WorkflowCompileError(
-                "unconsumed_observation_selector",
-                "Observation Selector is not consumed by an explicit "
-                "Selection Node",
-                field_path=("observation_selectors", index),
-            )
-        if len(consumers) != 1:
-            raise WorkflowCompileError(
-                "multiple_observation_selector_consumers",
-                "Observation Selector must be consumed by exactly one explicit "
-                f"Selection Node; resolved consumers: {consumers!r}",
-                field_path=("observation_selectors", index),
-            )
-    return _SelectionConsumerCompilation(
-        objectives_by_node=objectives_by_node,
-        selectors_by_node=selectors_by_node,
-    )
 
 def _capability_source(
     graph: _AdmittedWorkflowGraph,
@@ -576,6 +298,7 @@ def _capability_source(
         node_id=node_id,
         input_port=port,
     )
+
 
 def _capability_matches_filter(
     capability: _ObservationCapability,
@@ -602,25 +325,6 @@ def _capability_matches_filter(
         )
     )
 
-def _produced_observation_method(
-    graph: _AdmittedWorkflowGraph,
-    *,
-    node_id: str,
-    declaration: ProducedObservationDefinition,
-    binding_method: ContractIdentity,
-    plan_nodes: _PlanNodes,
-) -> ContractIdentity | None:
-    if declaration.method_direction != "input":
-        return binding_method
-    source = _connected_source(
-        graph,
-        node_id=node_id,
-        input_port=declaration.method_port,
-    )
-    if source is None:
-        return None
-    return plan_nodes[source.node_id][1].method
-
 
 def _capability_canonical(
     capability: _ObservationCapability,
@@ -644,6 +348,7 @@ def _capability_canonical(
         "pairing_source": source(capability.pairing_source),
     }
 
+
 def _derive_observation_capabilities(
     graph: _AdmittedWorkflowGraph,
     *,
@@ -658,12 +363,21 @@ def _derive_observation_capabilities(
     for node_id in graph.node_order:
         _, binding = plan_nodes[node_id]
         for declaration in binding.produced_observations:
-            observation_method = _produced_observation_method(
-                graph,
-                node_id=node_id,
-                declaration=declaration,
-                binding_method=binding.method,
-                plan_nodes=plan_nodes,
+            method_source = (
+                _connected_source(
+                    graph,
+                    node_id=node_id,
+                    input_port=declaration.method_port,
+                )
+                if declaration.method_direction == "input"
+                else None
+            )
+            observation_method = (
+                plan_nodes[method_source.node_id][1].method
+                if method_source is not None
+                else binding.method
+                if declaration.method_direction != "input"
+                else None
             )
             capability = _ObservationCapability(
                 source_partition=declaration.output_partition,

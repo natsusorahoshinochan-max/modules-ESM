@@ -35,6 +35,7 @@ from core.workflow._compiler.identity import (
     _result_contracts_for_node,
     _result_identity_plan_facts,
 )
+from core.workflow._compiler.graph import _admit_workflow_graph
 from core.workflow._compiler.locking import (
     _reachable_contract_lock,
     _require_matching_lock,
@@ -48,7 +49,12 @@ from core.workflow._compiler.selection import (
     _compile_observation_selector,
     _compile_selection_objectives,
 )
-from core.workflow._compiler.validation import _validate_static_semantics
+from core.workflow._compiler.selection_capabilities import (
+    _validate_selection_capabilities,
+)
+from core.workflow._compiler.selection_consumers import (
+    _compile_selection_consumers,
+)
 from core.workflow import errors as _errors
 from datatypes.exact_reference import ExactContractReference
 from core.workflow.document import (
@@ -272,10 +278,17 @@ def compile(
         )
         for index, objective in enumerate(workflow.selection_objectives)
     }
-    graph, selection_consumers = _validate_static_semantics(
+    graph = _admit_workflow_graph(workflow, plan_nodes)
+    _validate_selection_capabilities(
         workflow,
+        graph=graph,
         plan_nodes=plan_nodes,
         lock_by_key=lock_by_key,
+    )
+    selection_consumers = _compile_selection_consumers(
+        workflow,
+        graph=graph,
+        plan_nodes=plan_nodes,
         admitted_node_parameters={
             node_id: values[0]
             for node_id, values in admitted_parameters.items()

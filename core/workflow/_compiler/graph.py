@@ -29,6 +29,16 @@ class _AdmittedWorkflowGraph:
     node_order: tuple[str, ...]
 
 
+def _connected_source(
+    graph: _AdmittedWorkflowGraph,
+    *,
+    node_id: str,
+    input_port: str,
+) -> SelectionInput | None:
+    sources = graph.input_sources[node_id].get(input_port, ())
+    return sources[0][1] if len(sources) == 1 else None
+
+
 def _admit_workflow_graph(
     workflow: WorkflowDocument,
     plan_nodes: _PlanNodes,
