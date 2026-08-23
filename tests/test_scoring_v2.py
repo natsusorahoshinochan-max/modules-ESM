@@ -859,7 +859,7 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
     )
 
 
-def test_score_collection_canonicalizes_equal_observations_and_fails_closed() -> None:
+def test_score_collection_preserves_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
     score_type = catalog.require_port_type("score.collection", "5.0.0")
     observation = _observation(contracts, "candidate-1", 90)
@@ -868,10 +868,10 @@ def test_score_collection_canonicalizes_equal_observations_and_fails_closed() ->
         "scores",
         [observation, observation],
     )
-    assert collection.entries == (observation,)
+    assert collection.entries == (observation, observation)
     encoded = score_type.encode(collection)
     decoded = score_type.decode(encoded)
-    assert decoded.entries == (observation,)
+    assert decoded.entries == (observation, observation)
 
     with pytest.raises(ValueError, match="conflicting values"):
         ScoreCollection(
