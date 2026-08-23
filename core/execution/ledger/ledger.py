@@ -218,11 +218,6 @@ class Ledger:
             ) from unavailable
 
     @property
-    def facts(self) -> tuple[Fact, ...]:
-        with self._condition:
-            return tuple(self._state.facts)
-
-    @property
     def cursor(self) -> RunCursor:
         with self._condition:
             return self._cursor_at(self._committed_fact_count)
@@ -278,10 +273,6 @@ class Ledger:
         """Return the Selection consumers fixed by durable Run scope."""
         return self._reducer.selection_consumer_ids
 
-    @property
-    def plan_nodes(self) -> tuple[PlanNodeEvidence, ...]:
-        return self._reducer.plan_evidence
-
     def _cursor_at(self, sequence: int) -> RunCursor:
         fact = self._state.facts[sequence - 1] if sequence else None
         return run_cursor(
@@ -320,12 +311,6 @@ class Ledger:
                 details={"after_sequence": cursor.value},
             )
         return sequence
-
-    def cursor_at(self, sequence: int) -> RunCursor:
-        with self._condition:
-            if sequence < 0 or sequence > len(self._state.facts):
-                raise ValueError("Ledger cursor sequence is outside the Run")
-            return self._cursor_at(sequence)
 
     def record(
         self,
@@ -387,7 +372,7 @@ class Ledger:
                     catalog_contract_digest=scope.catalog_contract_digest,
                     resolved_contracts=scope.resolved_contracts,
                     resolved_contract_roots=scope.resolved_contract_roots,
-                    plan_nodes=self.plan_nodes,
+                    plan_nodes=self._reducer.plan_evidence,
                     selection_terminal_keys=self._reducer.selection_consumer_ids,
                     derived_from=scope.derived_from,
                 ),

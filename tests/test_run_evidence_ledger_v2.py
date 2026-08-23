@@ -51,6 +51,7 @@ from core.execution.ledger import (
     V2RunError,
 )
 from core.execution.ledger.codec import (
+    decode_transaction,
     payload_from_canonical,
     payload_to_canonical,
 )
@@ -263,6 +264,34 @@ def _admitted_ledger(
     return ledger, projects, retained_store
 
 
+def _durable_facts(
+    store: LedgerStore,
+    projects: ProjectManager,
+    *,
+    run_id: str = "run-1",
+) -> tuple[Fact, ...]:
+    transactions = store.read_transactions(
+        root=projects.run_storage_directory("project-1", run_id).parent,
+        relative_parts=(run_id, "ledger"),
+    )
+    facts: list[Fact] = []
+    expected_first_fact_sequence = 1
+    for transaction_sequence, (_, encoded) in enumerate(
+        transactions,
+        start=1,
+    ):
+        transaction = decode_transaction(
+            encoded,
+            expected_project_id="project-1",
+            expected_run_id=run_id,
+            expected_transaction_sequence=transaction_sequence,
+            expected_first_fact_sequence=expected_first_fact_sequence,
+        )
+        facts.extend(transaction.facts)
+        expected_first_fact_sequence = transaction.last_fact_sequence + 1
+    return tuple(facts)
+
+
 def _publish_success(ledger: Ledger, *, node_id: str = "node-1") -> None:
     node_attempt_id = f"attempt-{node_id}"
     operation_attempt_id = f"operation-{node_id}"
@@ -340,20 +369,26 @@ def _selection_result(
 
 
 def test_ledger_retains_closed_typed_facts_and_projection(tmp_path: Path) -> None:
-    ledger, _, _ = _admitted_ledger(tmp_path)
+    ledger, projects, store = _admitted_ledger(tmp_path)
+    facts = _durable_facts(store, projects)
 
-    assert all(type(fact) is Fact for fact in ledger.facts)
-    assert isinstance(ledger.facts[0].payload, RunScopeBound)
-    assert ledger.facts[0].payload.plan_nodes == ledger.plan_nodes
+    assert all(type(fact) is Fact for fact in facts)
+    assert isinstance(facts[0].payload, RunScopeBound)
+    assert facts[0].payload.plan_nodes == (_plan_node(),)
     assert isinstance(ledger.cursor, RunCursor)
     assert ledger.projection().ledger_cursor == ledger.cursor
     assert ledger.projection().status == "running"
 
 
 def test_success_publication_is_one_atomic_typed_transition(tmp_path: Path) -> None:
-    ledger, _, store = _admitted_ledger(tmp_path)
+    ledger, projects, store = _admitted_ledger(tmp_path)
     assert isinstance(store, InMemoryLedgerStore)
-    transaction_count = len(store.transactions)
+    transaction_count = len(
+        store.read_transactions(
+            root=projects.run_storage_directory("project-1", "run-1").parent,
+            relative_parts=("run-1", "ledger"),
+        )
+    )
 
     node_attempt_id = "attempt-node-1"
     operation_attempt_id = "operation-node-1"
@@ -378,7 +413,12 @@ def test_success_publication_is_one_atomic_typed_transition(tmp_path: Path) -> N
     )
 
     assert acknowledgement.last_sequence - acknowledgement.first_sequence == 3
-    assert len(store.transactions) == transaction_count + 3
+    assert len(
+        store.read_transactions(
+            root=projects.run_storage_directory("project-1", "run-1").parent,
+            relative_parts=("run-1", "ledger"),
+        )
+    ) == transaction_count + 3
     ledger.record(RunClosure())
     projection = ledger.projection()
     assert projection.status == "succeeded"
@@ -409,7 +449,7 @@ def test_attempt_failure_closes_without_fictitious_operation(
         )
     )
 
-    terminal = ledger.facts[-2].payload
+    terminal = ledger.events()[-2].payload
     assert terminal.failure_origin == "attempt"
     assert terminal.error is error
     assert ledger.projection().node_dispositions[0].outcome == "failed"
@@ -444,12 +484,15 @@ def test_cursor_replay_is_typed_and_run_scoped(tmp_path: Path) -> None:
         tmp_path / "second",
         run_id="run-2",
     )
-    cursor = ledger.cursor_at(2)
+    cursor = ledger.record(NodeAttemptStarted("node-1", "attempt-1")).cursor
+    ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
 
     replay = ledger.replay(cursor)
     assert replay.after_cursor == cursor
     assert replay.through_cursor == ledger.cursor
-    assert all(type(event) is Fact for event in replay.events)
+    assert len(replay.events) == 1
+    assert type(replay.events[0]) is Fact
+    assert isinstance(replay.events[0].payload, OperationAttemptStarted)
 
     with pytest.raises(V2RunError, match="stale or belongs") as captured:
         other.replay(cursor)
@@ -545,7 +588,7 @@ def test_engine_invocation_cancellation_is_durable(
     )
 
     assert cancellation.decision_sequence < acknowledgement.first_sequence
-    assert cancelled.facts[-1].payload.status == "cancelled"
+    assert cancelled.events()[-1].payload.status == "cancelled"
 
 
 @pytest.mark.parametrize("status", ("interrupted", "outcome_unknown"))
@@ -593,7 +636,7 @@ def test_provider_readiness_is_recorded(
 
     readiness = next(
         fact.payload
-        for fact in passing.facts
+        for fact in passing.events()
         if isinstance(fact.payload, ReadinessAttested)
     )
     assert readiness.binding is provider_node.binding
@@ -656,7 +699,7 @@ def test_engine_invocation_keeps_typed_scientific_provenance(
     provider_chain_order.append("Y")
     entries.clear()
 
-    assert ledger.facts[-1].payload.provenance is provenance
+    assert ledger.events()[-1].payload.provenance is provenance
     retained_projection = provenance.provider_residue_projection
     assert retained_projection is not None
     assert retained_projection.workbench_chain_order == ("A",)
@@ -715,10 +758,10 @@ def test_failed_durable_ack_does_not_install_staged_facts(tmp_path: Path) -> Non
             self.delegate.publish(**arguments)  # type: ignore[arg-type]
 
     store = ControlledStore()
-    ledger, _, _ = _admitted_ledger(tmp_path, store=store)
+    ledger, projects, _ = _admitted_ledger(tmp_path, store=store)
     ledger.record(NodeAttemptStarted("node-1", "attempt-1"))
     ledger.record(OperationAttemptStarted("operation-1", "attempt-1"))
-    durable_facts = ledger.facts
+    durable_facts = _durable_facts(store, projects)
     store.fail = True
 
     with pytest.raises(V2RunError) as captured:
@@ -739,7 +782,7 @@ def test_failed_durable_ack_does_not_install_staged_facts(tmp_path: Path) -> Non
         )
 
     assert captured.value.code == "evidence_unavailable"
-    assert ledger.facts == durable_facts
+    assert _durable_facts(store, projects) == durable_facts
 
 
 @pytest.mark.parametrize(

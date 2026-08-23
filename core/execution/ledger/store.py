@@ -86,10 +86,3 @@ class InMemoryLedgerStore:
             if parts[:prefix_length] == relative_parts
             and len(parts) == prefix_length + 1
         )
-
-    def read(self, relative_parts: tuple[str, ...]) -> bytes:
-        return self._transactions[relative_parts]
-
-    @property
-    def transactions(self) -> tuple[tuple[tuple[str, ...], bytes], ...]:
-        return tuple(sorted(self._transactions.items()))
