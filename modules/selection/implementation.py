@@ -7,17 +7,12 @@ import math
 from typing import Any
 
 from core.operation import OperationCall
-from core.catalog.canonical import canonical_sha256
 from core.scoring.selection import (
     ResolvedObservationSelector,
     ResolvedSelectionObjective,
-    observation_selector_identity_canonical,
-    observation_selector_identity_facts_from_facts,
     rank_candidates_by_weighted_utility,
     resolve_candidate_utilities_from_facts,
     resolve_objective_observations,
-    selection_objective_identity_canonical,
-    selection_objective_identity_facts_from_facts,
     weighted_utility_totals,
 )
 from datatypes.candidate import (
@@ -81,13 +76,6 @@ class SelectionImplementation:
                 operator=call.node_parameters["operator"],
                 threshold=call.node_parameters["threshold"],
             )
-            selection_contract = observation_selector_identity_canonical(
-                observation_selector_identity_facts_from_facts(
-                    (selector_facts,),
-                    candidate_input_port="candidates",
-                    score_collection_input_port="scores",
-                )[0]
-            )
         else:
             objective_id = call.node_parameters["objective_id"]
             objective_facts = self._objectives[objective_id]
@@ -110,13 +98,6 @@ class SelectionImplementation:
                 candidate_data_references=candidate_data_references,
             )
             ranked = rank_candidates_by_weighted_utility(profile)
-            selection_contract = selection_objective_identity_canonical(
-                selection_objective_identity_facts_from_facts(
-                    (objective_facts,),
-                    candidate_input_port="candidates",
-                    score_collection_input_port="scores",
-                )[0]
-            )
 
         if self._operation == "sort":
             selected = list(ranked)
@@ -127,32 +108,9 @@ class SelectionImplementation:
                     "top-k k cannot exceed Candidate input cardinality"
                 )
             selected = list(ranked[:k])
-        elif self._operation == "filter":
-            pass
-        else:
-            raise RuntimeError("unknown selection operation")
-
-        collection_identity = canonical_sha256(
-            {
-                "schema_namespace": "protein-workbench-selection-output/v4",
-                "operation": self._operation,
-                "input_collection_id": candidates.collection_id,
-                "selection_contract": selection_contract,
-                "parameters": {
-                    name: value
-                    for name, value in call.node_parameters.items()
-                    if name not in {"objective_id", "selector_id"}
-                },
-                "selected_candidate_ids": [
-                    candidate.candidate_id for candidate in selected
-                ],
-            }
-        ).removeprefix("sha256:")
         return {
             "candidates": CandidateCollection(
-                collection_id=(
-                    f"selection-{self._operation}-{collection_identity}"
-                ),
+                collection_id=f"selection-{self._operation}",
                 item_type=candidates.item_type,
                 items=selected,
             )
@@ -223,7 +181,7 @@ class SelectionImplementation:
                 for candidate_id in candidate_ids
                 if candidate_id not in dominated
             ]
-        elif self._operation == "diversity":
+        else:
             k = node_parameters["k"]
             if k > len(candidates.items):
                 raise ValueError(
@@ -274,39 +232,9 @@ class SelectionImplementation:
                 candidates_by_id[candidate_id]
                 for candidate_id in selected_ids
             ]
-        else:
-            raise RuntimeError("unknown multi-objective selection operation")
-
-        collection_identity = canonical_sha256(
-            {
-                "schema_namespace": (
-                    "protein-workbench-multi-objective-selection-output/v4"
-                ),
-                "operation": self._operation,
-                "input_collection_id": candidates.collection_id,
-                "objectives": [
-                    selection_objective_identity_canonical(fact)
-                    for fact in selection_objective_identity_facts_from_facts(
-                        objectives,
-                        candidate_input_port="candidates",
-                        score_collection_input_port="scores",
-                    )
-                ],
-                "parameters": {
-                    name: list(value) if isinstance(value, tuple) else value
-                    for name, value in node_parameters.items()
-                    if name != "objective_ids"
-                },
-                "selected_candidate_ids": [
-                    candidate.candidate_id for candidate in selected
-                ],
-            }
-        ).removeprefix("sha256:")
         return {
             "candidates": CandidateCollection(
-                collection_id=(
-                    f"selection-{self._operation}-{collection_identity}"
-                ),
+                collection_id=f"selection-{self._operation}",
                 item_type=candidates.item_type,
                 items=list(selected),
             )
