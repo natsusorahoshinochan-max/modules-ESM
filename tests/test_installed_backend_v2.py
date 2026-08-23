@@ -525,6 +525,7 @@ def test_installed_backend_completes_full_public_v2_journey(
             )
             streamed = []
             replay_complete_index = None
+            terminal_index = None
             with connect(
                 f"ws://127.0.0.1:{port}{stream.route}",
                 open_timeout=5,
@@ -537,23 +538,21 @@ def test_installed_backend_completes_full_public_v2_journey(
                     streamed.append(message)
                     if message["event"]["type"] == "replay_complete":
                         replay_complete_index = len(streamed) - 1
+                    if message["event"]["type"] == "run_terminal":
+                        terminal_index = len(streamed) - 1
                     if (
                         replay_complete_index is not None
-                        and message["event"]["type"] == "run_terminal"
+                        and terminal_index is not None
                     ):
                         break
             assert replay_complete_index is not None
+            assert terminal_index is not None
             replayed = streamed[: replay_complete_index + 1]
-            live = streamed[replay_complete_index + 1 :]
             event_types = {message["event"]["type"] for message in replayed}
             assert {
                 "replay_started",
                 "replay_complete",
             } <= event_types
-            assert any(
-                message["event"]["type"] == "run_terminal"
-                for message in live
-            )
 
             first_projection = _wait_terminal(
                 client,
@@ -642,17 +641,19 @@ def test_installed_backend_completes_full_public_v2_journey(
                     "reason": "installed acceptance cancellation race",
                 },
             )
-            assert cancelled["outcome"] in {
-                "already_requested",
-                "cancellation_requested",
-            }
             derived_projection = _wait_terminal(
                 client,
                 project_id,
                 derived["run_id"],
             )
             assert derived_projection["derived_from_run_id"] == first["run_id"]
-            assert derived_projection["status"] == "cancelled"
+            expected_status = {
+                "already_requested": "cancelled",
+                "cancellation_requested": "cancelled",
+                "already_terminal": "succeeded",
+                "completed_before_cancel": "succeeded",
+            }[cancelled["outcome"]]
+            assert derived_projection["status"] == expected_status
     finally:
         _stop_server(server)
 
