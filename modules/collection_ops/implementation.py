@@ -59,9 +59,7 @@ class CollectionOpsImplementation:
             return {
                 "candidates": self._select_children_by_parent(call.inputs)
             }
-        if self._operation == "intersect_candidates":
-            return {"candidates": self._intersect_candidates(call.inputs)}
-        raise RuntimeError("unknown collection operation")
+        return {"candidates": self._intersect_candidates(call.inputs)}
 
     @staticmethod
     def _select_children_by_parent(
