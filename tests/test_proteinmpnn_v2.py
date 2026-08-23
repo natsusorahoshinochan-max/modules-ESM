@@ -1730,10 +1730,10 @@ def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -
 def test_design_projects_canonical_axis_into_provider_safe_structure(
     tmp_path: Path,
 ) -> None:
-    from modules.proteinmpnn.provider_runtime import (
-        _parse_structure,
+    from modules.proteinmpnn.provider_request import (
         _sequence_in_provider_chain_order,
     )
+    from modules.proteinmpnn.provider_runtime import _parse_structure
 
     class ParsingProvider(_ControlledProteinMPNNProvider):
         def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
@@ -1970,11 +1970,10 @@ def test_design_and_score_preserve_same_chain_segment_topology(
 ) -> None:
     import torch
 
-    from modules.proteinmpnn.provider_runtime import (
-        _featurize,
-        _parse_structure,
+    from modules.proteinmpnn.provider_request import (
         _sequence_in_provider_chain_order,
     )
+    from modules.proteinmpnn.provider_runtime import _featurize, _parse_structure
 
     class SegmentProvider(_ControlledProteinMPNNProvider):
         def __init__(self) -> None:
@@ -2673,6 +2672,7 @@ def test_provider_decoding_requires_missing_backbone_residue_to_be_fixed(
 ) -> None:
     import torch
 
+    import modules.proteinmpnn.provider_request as provider_request
     import modules.proteinmpnn.provider_runtime as provider_runtime
 
     class Model:
@@ -2681,9 +2681,9 @@ def test_provider_decoding_requires_missing_backbone_residue_to_be_fixed(
             return {
                 "S": torch.tensor(
                     [[
-                        provider_runtime._ALPHABET_DICT["A"],
-                        provider_runtime._ALPHABET_DICT["C"],
-                        provider_runtime._ALPHABET_DICT["D"],
+                        provider_request._ALPHABET_DICT["A"],
+                        provider_request._ALPHABET_DICT["C"],
+                        provider_request._ALPHABET_DICT["D"],
                     ]],
                     dtype=torch.int64,
                 )
@@ -2782,7 +2782,7 @@ def test_design_produces_canonical_three_parent_by_five_child_lineage(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
-    from modules.proteinmpnn.provider_runtime import _ALPHABET_DICT
+    from modules.proteinmpnn.provider_request import _ALPHABET_DICT
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
     )
@@ -4234,6 +4234,7 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
 ) -> None:
     import torch
 
+    import modules.proteinmpnn.provider_request as provider_request
     import modules.proteinmpnn.provider_runtime as provider_runtime
 
     class Request:
@@ -4253,7 +4254,7 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_load_model", load_model)
     monkeypatch.setattr(provider_runtime, "_featurize", lambda *_args: {})
     monkeypatch.setattr(
-        provider_runtime,
+        provider_request,
         "_sequence_in_provider_chain_order",
         lambda *_args: "A",
     )

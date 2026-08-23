@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 import importlib.metadata
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, Protocol
 
 from core.operation import (
     BindingEnvironment,
@@ -21,13 +21,12 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ResolvedStructureResidueAxis
 from modules.proteinmpnn.domain import ProteinMPNNConstraints
 
-from .provider_runtime import (
+from .assets import check_proteinmpnn_readiness
+from .provider_request import (
     ProteinMPNNDesignRequest,
-    ProteinMPNNProvider,
-    _LocalProteinMPNNProvider,
     _prepare_design_request,
-    check_proteinmpnn_readiness,
 )
+from .provider_runtime import _LocalProteinMPNNProvider
 
 
 PROTEINMPNN_MODEL = "v_48_020"
@@ -39,6 +38,27 @@ _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
+
+
+class ProteinMPNNProvider(Protocol):
+    """External provider boundary used by the adapter."""
+
+    def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
+        """Parse a PDB string into ProteinMPNN's structure representation."""
+
+    def design(
+        self, request: ProteinMPNNDesignRequest
+    ) -> list[ProteinSequence]:
+        """Execute one already-validated ProteinMPNN request."""
+
+    def score(
+        self,
+        request: ProteinMPNNDesignRequest,
+        sequence: ProteinSequence,
+    ) -> float:
+        """Score one exact sequence on one already-validated target."""
+
+
 @dataclass(frozen=True, slots=True)
 class _ProviderStructureProjection:
     pdb_string: str

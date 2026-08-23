@@ -1,50 +1,22 @@
-"""ProteinMPNN provider runtime owned by the cohesive package."""
+"""Pinned ProteinMPNN upstream runtime engine."""
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import tempfile
-from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Protocol
+from typing import Any
 
-from core.provider_support import (
-    ProviderInstallationUnavailable,
-    validate_provider_checkout,
-)
-from modules.proteinmpnn.assets import (
-    PROTEINMPNN_REVISION,
-    PROTEINMPNN_V_48_020_SHA256,
-)
-from datatypes.residue import ResidueLayout
 from datatypes.sequence import ProteinSequence
-from modules.proteinmpnn.domain import ProteinMPNNConstraints
 
-_ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
-_ALPHABET_DICT = dict(zip(_ALPHABET, range(21)))
-_LOCKED_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
-
-
-class ProteinMPNNReadinessUnavailable(RuntimeError):
-    """The exact ProteinMPNN source or checkpoint cannot be admitted."""
-
-
-def _verify_provider_checkout(root: Path) -> None:
-    provider_file = root / "protein_mpnn_utils.py"
-    if not provider_file.is_file():
-        raise ProteinMPNNReadinessUnavailable(
-            "Configured ProteinMPNN provider root must contain "
-            "protein_mpnn_utils.py"
-        )
-    try:
-        validate_provider_checkout(root, PROTEINMPNN_REVISION)
-    except ProviderInstallationUnavailable as error:
-        raise ProteinMPNNReadinessUnavailable(
-            "ProteinMPNN provider root is not the locked Git checkout"
-        ) from error
+from . import provider_request as _provider_request
+from .assets import _checkpoint_path
+from .provider_request import (
+    _ALPHABET_DICT,
+    ProteinMPNNDesignRequest,
+)
 
 
 @lru_cache(maxsize=None)
@@ -68,120 +40,11 @@ def _provider_module(provider_root: Path) -> ModuleType:
     return _load_provider_module(provider_root)
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-    except OSError as error:
-        raise ProteinMPNNReadinessUnavailable(
-            "ProteinMPNN checkpoint is unavailable"
-        ) from error
-    return digest.hexdigest()
-
-
-@dataclass(frozen=True)
-class ProteinMPNNReadiness:
-    ready: bool
-    provider_root: Path | None = None
-    checkpoint_path: Path | None = None
-    detail: str | None = None
-
-
-def validate_proteinmpnn_checkout(root: Path) -> Path:
-    """Admit the configured checkout against the exact source identity."""
-    resolved_root = root.expanduser().resolve()
-    _verify_provider_checkout(resolved_root)
-    return resolved_root
-
-
-def validate_proteinmpnn_checkpoint(
-    path: Path,
-) -> Path:
-    """Admit the configured checkpoint against its exact scientific identity."""
-    digest = _sha256_file(path)
-    if digest != PROTEINMPNN_V_48_020_SHA256:
-        raise ProteinMPNNReadinessUnavailable(
-            f"ProteinMPNN checkpoint SHA-256 mismatch for {path.name}: "
-            f"expected {PROTEINMPNN_V_48_020_SHA256}, got {digest}"
-        )
-    return path
-
-
 def load_proteinmpnn_checkpoint(path: str | Path) -> dict[str, Any]:
     """Load a validated checkpoint through PyTorch's data-only loader."""
     import torch
 
     return torch.load(str(path), map_location="cpu", weights_only=True)
-
-
-@dataclass(frozen=True)
-class ProteinMPNNDesignRequest:
-    """Validated, provider-native inputs for one ProteinMPNN design call."""
-
-    pdb_dict_list: list[dict[str, Any]]
-    model_name: str
-    num_sequences: int
-    temperature: float
-    backbone_noise: float
-    seed: int
-    target_length: int
-    target_layout: ResidueLayout
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...]
-    workbench_chain_order: tuple[str, ...]
-    provider_structure_chain_order: tuple[str, ...]
-    provider_chain_order: tuple[str, ...]
-    chain_dict: dict[str, tuple[list[str], list[str]]]
-    fixed_position_dict: dict[str, dict[str, list[int]]] | None
-    tied_positions_dict: dict[str, list[dict[str, list[int]]]] | None
-    bias_by_res_dict: dict[str, dict[str, list[list[float]]]] | None
-    omit_amino_acids: list[str]
-    reference_sequences: dict[str, str] | None
-
-
-class ProteinMPNNProvider(Protocol):
-    """External provider boundary used by the adapter."""
-
-    def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
-        """Parse a PDB string into ProteinMPNN's structure representation."""
-
-    def design(
-        self, request: ProteinMPNNDesignRequest
-    ) -> list[ProteinSequence]:
-        """Execute one already-validated ProteinMPNN request."""
-
-    def score(
-        self,
-        request: ProteinMPNNDesignRequest,
-        sequence: ProteinSequence,
-    ) -> float:
-        """Score one exact sequence on one already-validated target."""
-
-
-def _checkpoint_path(
-    provider_root: Path,
-) -> Path:
-    """Resolve the fixed checkpoint path from trusted configuration."""
-    return provider_root / _LOCKED_CHECKPOINT
-
-
-def check_proteinmpnn_readiness(
-    provider_root: Path,
-) -> ProteinMPNNReadiness:
-    """Report whether the locked provider and selected checkpoint are usable."""
-    try:
-        resolved_root = validate_proteinmpnn_checkout(provider_root)
-        checkpoint_path = validate_proteinmpnn_checkpoint(
-            _checkpoint_path(resolved_root),
-        )
-    except ProteinMPNNReadinessUnavailable as exc:
-        return ProteinMPNNReadiness(ready=False, detail=str(exc))
-    return ProteinMPNNReadiness(
-        ready=True,
-        provider_root=resolved_root,
-        checkpoint_path=checkpoint_path,
-    )
 
 
 def _load_model(
@@ -247,7 +110,7 @@ def _featurize(
     provider_root: Path,
 ) -> dict[str, Any]:
     """Featurize parsed PDB data into tensors for ProteinMPNN.
-    
+
     Converts tied_featurize's tuple output to a dict keyed by field name.
     """
     tied_featurize = _provider_module(provider_root).tied_featurize
@@ -488,328 +351,10 @@ class _LocalProteinMPNNProvider:
             return _compute_score(
                 model,
                 batch,
-                _sequence_in_provider_chain_order(
+                _provider_request._sequence_in_provider_chain_order(
                     sequence.sequence,
                     request,
                 ),
                 device,
                 self._provider_root,
             )
-
-
-def _chain_sequences(
-    pdb_entry: dict[str, Any],
-) -> list[tuple[str, str]]:
-    return [
-        (key.removeprefix("seq_chain_"), value)
-        for key, value in pdb_entry.items()
-        if key.startswith("seq_chain_")
-    ]
-
-
-def _structure_target(
-    pdb_dict_list: list[dict[str, Any]],
-) -> tuple[str, list[tuple[str, str]]]:
-    pdb_entry = pdb_dict_list[0]
-    chains = _chain_sequences(pdb_entry)
-    return pdb_entry["name"], chains
-
-
-def _provider_chains_by_workbench_chain(
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-    *,
-    workbench_chain_order: tuple[str, ...],
-    provider_structure_chain_order: tuple[str, ...],
-) -> dict[str, list[str]]:
-    provider_chains_by_workbench_chain = {
-        chain: [] for chain in workbench_chain_order
-    }
-    workbench_chain_by_provider_chain: dict[str, str] = {}
-    for residue_id, _, provider_chain, _ in residue_identity_mapping:
-        workbench_chain_by_provider_chain.setdefault(
-            provider_chain,
-            residue_id.split(":", 1)[0],
-        )
-    for provider_chain in provider_structure_chain_order:
-        workbench_chain = workbench_chain_by_provider_chain[provider_chain]
-        provider_chains_by_workbench_chain[workbench_chain].append(
-            provider_chain
-        )
-    return provider_chains_by_workbench_chain
-
-
-def _chain_partition(
-    chains: list[tuple[str, str]],
-    constraints: ProteinMPNNConstraints,
-    *,
-    workbench_chain_order: tuple[str, ...],
-    provider_chains_by_workbench_chain: dict[str, list[str]],
-) -> tuple[list[str], list[str]]:
-    provider_chain_ids = [chain for chain, _ in chains]
-    requested_designed = list(constraints.designed_chains or [])
-    requested_fixed = list(constraints.fixed_chains or [])
-    if requested_designed:
-        requested_designed_set = set(requested_designed)
-        designed_workbench_chains = [
-            chain
-            for chain in workbench_chain_order
-            if chain in requested_designed_set
-        ]
-        fixed_workbench_chains = [
-            chain
-            for chain in workbench_chain_order
-            if chain not in requested_designed_set
-        ]
-        return (
-            [
-                provider_chain
-                for chain in designed_workbench_chains
-                for provider_chain in provider_chains_by_workbench_chain[chain]
-            ],
-            [
-                provider_chain
-                for chain in fixed_workbench_chains
-                for provider_chain in provider_chains_by_workbench_chain[chain]
-            ],
-        )
-    elif requested_fixed:
-        requested_fixed_set = set(requested_fixed)
-        designed_workbench_chains = [
-            chain
-            for chain in workbench_chain_order
-            if chain not in requested_fixed_set
-        ]
-        fixed_workbench_chains = [
-            chain
-            for chain in workbench_chain_order
-            if chain in requested_fixed_set
-        ]
-        return (
-            [
-                provider_chain
-                for chain in designed_workbench_chains
-                for provider_chain in provider_chains_by_workbench_chain[chain]
-            ],
-            [
-                provider_chain
-                for chain in fixed_workbench_chains
-                for provider_chain in provider_chains_by_workbench_chain[chain]
-            ],
-        )
-    return provider_chain_ids, []
-
-
-def _sequence_in_provider_chain_order(
-    sequence: str,
-    request: ProteinMPNNDesignRequest,
-) -> str:
-    sequence_by_provider_chain = {
-        chain: [""] * len(request.pdb_dict_list[0][f"seq_chain_{chain}"])
-        for chain in request.provider_structure_chain_order
-    }
-    for amino_acid, (_, _, provider_chain, provider_position) in zip(
-        sequence,
-        request.residue_identity_mapping,
-        strict=True,
-    ):
-        sequence_by_provider_chain[provider_chain][provider_position - 1] = (
-            amino_acid
-        )
-    return "".join(
-        "".join(sequence_by_provider_chain[chain])
-        for chain in request.provider_chain_order
-    )
-
-
-def _fixed_position_payload(
-    name: str,
-    chains: list[tuple[str, str]],
-    designed_chains: list[str],
-    constraints: ProteinMPNNConstraints,
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-) -> dict[str, dict[str, list[int]]] | None:
-    provider_position_by_residue = {
-        residue_id: (provider_chain, provider_position)
-        for residue_id, _, provider_chain, provider_position in (
-            residue_identity_mapping
-        )
-    }
-    fixed_positions = {
-        provider_position_by_residue[residue_id]
-        for residue_id in constraints.fixed_residue_ids or ()
-    }
-    if constraints.designable_residue_ids:
-        designable_positions = {
-            provider_position_by_residue[residue_id]
-            for residue_id in constraints.designable_residue_ids
-        }
-        for chain, sequence in chains:
-            if chain in designed_chains:
-                fixed_positions.update(
-                    (chain, provider_position)
-                    for provider_position in range(1, len(sequence) + 1)
-                    if (chain, provider_position) not in designable_positions
-                )
-
-    if not fixed_positions:
-        return None
-    fixed_by_chain = {chain: [] for chain, _ in chains}
-    for chain, provider_position in sorted(fixed_positions):
-        fixed_by_chain[chain].append(provider_position)
-    return {name: fixed_by_chain}
-
-
-def _tied_position_payload(
-    name: str,
-    constraints: ProteinMPNNConstraints,
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-) -> dict[str, list[dict[str, list[int]]]] | None:
-    if not constraints.tied_residue_groups:
-        return None
-    provider_position_by_residue = {
-        residue_id: (provider_chain, provider_position)
-        for residue_id, _, provider_chain, provider_position in (
-            residue_identity_mapping
-        )
-    }
-    tied_groups: list[dict[str, list[int]]] = []
-    for group in constraints.tied_residue_groups:
-        chain_positions: dict[str, list[int]] = {}
-        for residue_id in group:
-            chain, provider_position = provider_position_by_residue[residue_id]
-            chain_positions.setdefault(chain, []).append(provider_position)
-        tied_groups.append(chain_positions)
-    return {name: tied_groups}
-
-
-def _bias_payload(
-    name: str,
-    chains: list[tuple[str, str]],
-    constraints: ProteinMPNNConstraints,
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-) -> dict[str, dict[str, list[list[float]]]] | None:
-    if not constraints.bias_by_residue:
-        return None
-    provider_position_by_residue = {
-        residue_id: (provider_chain, provider_position)
-        for residue_id, _, provider_chain, provider_position in (
-            residue_identity_mapping
-        )
-    }
-    bias_by_chain = {
-        chain: [[0.0] * len(_ALPHABET) for _ in sequence]
-        for chain, sequence in chains
-    }
-    for residue_id, amino_acid_biases in (
-        constraints.bias_by_residue.items()
-    ):
-        chain, provider_position = provider_position_by_residue[residue_id]
-        for amino_acid, bias in amino_acid_biases.items():
-            numeric_bias = float(bias)
-            amino_acid_index = _ALPHABET_DICT[amino_acid]
-            bias_by_chain[chain][provider_position - 1][amino_acid_index] = (
-                numeric_bias
-            )
-    return {name: bias_by_chain}
-
-
-def _reference_sequences(
-    reference_sequence: str | None,
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-    provider_structure_chain_order: tuple[str, ...],
-) -> dict[str, str] | None:
-    if reference_sequence is None:
-        return None
-    split_reference = {
-        chain: [] for chain in provider_structure_chain_order
-    }
-    for amino_acid, (_, _, provider_chain, _) in zip(
-        reference_sequence,
-        residue_identity_mapping,
-        strict=True,
-    ):
-        split_reference[provider_chain].append(amino_acid)
-    return {
-        chain: "".join(split_reference[chain])
-        for chain in provider_structure_chain_order
-    }
-
-
-def _prepare_design_request(
-    pdb_dict_list: list[dict[str, Any]],
-    model_name: str,
-    num_sequences: int,
-    temperature: float,
-    backbone_noise: float,
-    seed: int,
-    constraints: ProteinMPNNConstraints | None,
-    reference_sequence: str | None,
-    *,
-    target_layout: ResidueLayout,
-    residue_identity_mapping: tuple[tuple[str, int, str, int], ...],
-    workbench_chain_order: tuple[str, ...],
-    provider_structure_chain_order: tuple[str, ...],
-) -> ProteinMPNNDesignRequest:
-    name, chains = _structure_target(pdb_dict_list)
-    selected_constraints = (
-        ProteinMPNNConstraints(layout=target_layout)
-        if constraints is None
-        else constraints
-    )
-    provider_chains_by_workbench_chain = (
-        _provider_chains_by_workbench_chain(
-            residue_identity_mapping,
-            workbench_chain_order=workbench_chain_order,
-            provider_structure_chain_order=provider_structure_chain_order,
-        )
-    )
-    designed_chains, fixed_chains = _chain_partition(
-        chains,
-        selected_constraints,
-        workbench_chain_order=workbench_chain_order,
-        provider_chains_by_workbench_chain=(
-            provider_chains_by_workbench_chain
-        ),
-    )
-    fixed_position_dict = _fixed_position_payload(
-        name,
-        chains,
-        designed_chains,
-        selected_constraints,
-        residue_identity_mapping,
-    )
-    return ProteinMPNNDesignRequest(
-        pdb_dict_list=pdb_dict_list,
-        model_name=model_name,
-        num_sequences=num_sequences,
-        temperature=temperature,
-        backbone_noise=backbone_noise,
-        seed=seed,
-        target_length=target_layout.length,
-        target_layout=target_layout,
-        residue_identity_mapping=residue_identity_mapping,
-        workbench_chain_order=workbench_chain_order,
-        provider_structure_chain_order=provider_structure_chain_order,
-        provider_chain_order=tuple(
-            (*sorted(designed_chains), *sorted(fixed_chains))
-        ),
-        chain_dict={name: (designed_chains, fixed_chains)},
-        fixed_position_dict=fixed_position_dict,
-        tied_positions_dict=_tied_position_payload(
-            name,
-            selected_constraints,
-            residue_identity_mapping,
-        ),
-        bias_by_res_dict=_bias_payload(
-            name,
-            chains,
-            selected_constraints,
-            residue_identity_mapping,
-        ),
-        omit_amino_acids=list(selected_constraints.omit_amino_acids or []),
-        reference_sequences=_reference_sequences(
-            reference_sequence,
-            residue_identity_mapping,
-            provider_structure_chain_order,
-        ),
-    )
