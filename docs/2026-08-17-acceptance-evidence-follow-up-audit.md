@@ -71,11 +71,10 @@ already validated. The reader checks that required shared files and Run labels
 exist. It does not enforce exact directory inventories, rescan payloads, reject
 extra files, calculate a second digest, or interpret scientific conclusions.
 
-ProteinMPNN's installed tier directly asserts its one required private fact:
-`{"model":"proteinmpnn","load_count":1}`. Fresh 2EMO retains the Provider
-binding order already established by its public Run events. Application-scoped
-Provider switching is covered at the `OperationResources.local_provider`
-lifecycle seam rather than by observing Provider module internals.
+Fresh 2EMO retains the Provider binding order already established by its public
+Run events. Application-scoped Provider reuse, switching, and shutdown are
+covered at the `OperationResources.local_provider` lifecycle seam rather than
+by observing Provider module internals.
 
 ### Result Identity and cache
 

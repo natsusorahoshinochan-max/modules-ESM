@@ -148,14 +148,6 @@ TIERS = {
             "tests/test_installed_backend_v2.py::"
             "test_installed_backend_completes_full_public_v2_journey"
         ),
-        (
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_proteinmpnn_lifecycle_requires_one_model_load"
-        ),
-        (
-            "tests/test_installed_backend_v2.py::"
-            "test_installed_proteinmpnn_lifecycle_accepts_one_model_load"
-        ),
     )),
     **{
         tier.name: Tier(

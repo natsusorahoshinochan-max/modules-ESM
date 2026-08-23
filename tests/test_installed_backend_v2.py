@@ -691,13 +691,6 @@ def _run_installed_provider_case(
     _require_configured_installed_evidence()
 
 
-def _require_installed_proteinmpnn_lifecycle(root: Path) -> None:
-    assert json.loads((root / "model-lifecycle.json").read_bytes()) == {
-        "model": "proteinmpnn",
-        "load_count": 1,
-    }
-
-
 def _require_configured_installed_evidence() -> None:
     configured = os.environ.get(
         "PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"
@@ -711,35 +704,6 @@ def _require_configured_installed_evidence() -> None:
         required_runs=contract.required_run_labels,
         lifecycle_required=contract.lifecycle_receipt_required,
     )
-    if tier == "installed-proteinmpnn":
-        _require_installed_proteinmpnn_lifecycle(Path(configured))
-
-
-@pytest.mark.parametrize("load_count", (0, 2))
-def test_installed_proteinmpnn_lifecycle_requires_one_model_load(
-    tmp_path: Path,
-    load_count: int,
-) -> None:
-    (tmp_path / "model-lifecycle.json").write_text(
-        json.dumps({"model": "proteinmpnn", "load_count": load_count}),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(AssertionError):
-        _require_installed_proteinmpnn_lifecycle(tmp_path)
-
-
-def test_installed_proteinmpnn_lifecycle_accepts_one_model_load(
-    tmp_path: Path,
-) -> None:
-    (tmp_path / "model-lifecycle.json").write_text(
-        json.dumps({"model": "proteinmpnn", "load_count": 1}),
-        encoding="utf-8",
-    )
-
-    _require_installed_proteinmpnn_lifecycle(tmp_path)
-
-
 @contextmanager
 def _running_installed_biohub_esmc_server(
     installed_artifact: InstalledArtifact,

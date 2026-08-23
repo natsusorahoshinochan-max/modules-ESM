@@ -198,23 +198,6 @@ def retain_rest_run(
     )
 
 
-def retain_proteinmpnn_lifecycle(
-    *,
-    load_count: int,
-) -> None:
-    """Retain the directly observed ProteinMPNN lifecycle facts."""
-    configured = _configured_root()
-    if configured is None:
-        return
-    _write(
-        configured / "model-lifecycle.json",
-        _canonical_bytes({
-            "model": "proteinmpnn",
-            "load_count": load_count,
-        }),
-    )
-
-
 def retain_provider_binding_transition(
     *,
     binding_sequence: Sequence[Mapping[str, Any]],

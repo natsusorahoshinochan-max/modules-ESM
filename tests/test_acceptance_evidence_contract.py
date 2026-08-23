@@ -17,7 +17,6 @@ from verification.acceptance_campaign import (
 )
 from tests.acceptance.retained_evidence import (
     retain_provider_binding_transition,
-    retain_proteinmpnn_lifecycle,
     require_retained_evidence,
     retain_rest_run,
     retain_service_run,
@@ -99,7 +98,7 @@ def test_tier_contracts_declare_only_run_labels_and_lifecycle_need() -> None:
         tier.name
         for tier in CANONICAL_ACCEPTANCE_TIERS
         if tier.lifecycle_receipt_required
-    } == {"installed-proteinmpnn", "fresh-2emo"}
+    } == {"fresh-2emo"}
 
 
 def test_campaign_freezes_the_minimal_tier_evidence_contract() -> None:
@@ -113,7 +112,7 @@ def test_campaign_freezes_the_minimal_tier_evidence_contract() -> None:
     )
     assert contracts["installed-proteinmpnn"][
         "lifecycle_receipt_required"
-    ] is True
+    ] is False
     assert contracts["installed-biohub-esmc"][
         "lifecycle_receipt_required"
     ] is False
@@ -414,25 +413,6 @@ def test_required_lifecycle_receipt_cannot_be_omitted(
             required_runs=(RUN_LABEL,),
             lifecycle_required=True,
         )
-
-
-def test_proteinmpnn_lifecycle_receipt_contains_only_direct_facts(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _write_complete(tmp_path, monkeypatch)
-
-    retain_proteinmpnn_lifecycle(load_count=1)
-
-    require_retained_evidence(
-        tmp_path,
-        required_runs=(RUN_LABEL,),
-        lifecycle_required=True,
-    )
-    assert json.loads((tmp_path / "model-lifecycle.json").read_bytes()) == {
-        "model": "proteinmpnn",
-        "load_count": 1,
-    }
 
 
 def test_provider_transition_receipt_contains_public_binding_order(

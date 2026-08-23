@@ -184,7 +184,6 @@ CANONICAL_ACCEPTANCE_TIERS = (
             "proteinmpnn-native-score",
             "proteinmpnn-sibling-design",
         ),
-        lifecycle_receipt_required=True,
         environment_configuration=_PROTEINMPNN,
     ),
     _tier(

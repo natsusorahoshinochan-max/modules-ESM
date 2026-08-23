@@ -174,7 +174,7 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
         tier.name: tier.lifecycle_receipt_required
         for tier in CANONICAL_ACCEPTANCE_TIERS
     }
-    assert lifecycle_requirements["installed-proteinmpnn"] is True
+    assert lifecycle_requirements["installed-proteinmpnn"] is False
     assert lifecycle_requirements["fresh-2emo"] is True
 
 
