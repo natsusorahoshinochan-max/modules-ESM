@@ -21,7 +21,7 @@ from core.scoring.selection import (
     selection_objective_identity_canonical,
     selection_objective_identity_facts_from_facts,
 )
-from core.workflow.compiler import WorkflowCompileError
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.plan import ResultIdentityPlanFacts
 
 

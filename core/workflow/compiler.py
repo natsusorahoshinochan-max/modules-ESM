@@ -31,6 +31,25 @@ from core.scoring.selection import (
     observation_selector_canonical,
     selection_objective_canonical,
 )
+from core.workflow._compiler.identity import (
+    _result_contracts_for_node,
+    _result_identity_plan_facts,
+)
+from core.workflow._compiler.locking import (
+    _reachable_contract_lock,
+    _require_matching_lock,
+    _require_workflow_contract,
+    _workflow_contract_references,
+)
+from core.workflow._compiler.observation import (
+    _resolved_produced_observation_plan,
+)
+from core.workflow._compiler.selection import (
+    _compile_observation_selector,
+    _compile_selection_objectives,
+)
+from core.workflow._compiler.validation import _validate_static_semantics
+from core.workflow import errors as _errors
 from datatypes.exact_reference import ExactContractReference
 from core.workflow.document import (
     ContractLockEntry,
@@ -47,32 +66,6 @@ from core.workflow.plan import (
     _ExecutionPlanRuntime,
     _ExecutionPlanValueSource,
 )
-class WorkflowCompileError(ValueError):
-    """A Workflow failed static v2 compilation."""
-
-    def __init__(
-        self,
-        code: str,
-        message: str,
-        *,
-        node_id: str | None = None,
-        field_path: tuple[str | int, ...] = (),
-    ) -> None:
-        self.code = code
-        self.node_id = node_id
-        self.field_path = field_path
-        super().__init__(message)
-
-    def issue(self) -> dict[str, Any]:
-        issue: dict[str, Any] = {
-            "code": self.code,
-            "severity": "error",
-            "message": str(self),
-            "field_path": list(self.field_path),
-        }
-        if self.node_id is not None:
-            issue["node_id"] = self.node_id
-        return issue
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,35 +76,13 @@ class CompilationRequest:
     workflow_commit_revision: int
 
 
-from core.workflow._compiler.identity import (  # noqa: E402
-    _result_contracts_for_node,
-    _result_identity_plan_facts,
-)
-from core.workflow._compiler.locking import (  # noqa: E402
-    _reachable_contract_lock,
-    _require_matching_lock,
-    _require_workflow_contract,
-    _workflow_contract_references,
-)
-from core.workflow._compiler.observation import (  # noqa: E402
-    _resolved_produced_observation_plan,
-)
-from core.workflow._compiler.selection import (  # noqa: E402
-    _compile_observation_selector,
-    _compile_selection_objectives,
-)
-from core.workflow._compiler.validation import (  # noqa: E402
-    _validate_static_semantics,
-)
-
-
 def lock_workflow(
     workflow: WorkflowDocument,
     catalog: FrozenCatalog,
 ) -> WorkflowDocument:
     """Lock an unlocked Draft to the current reachable Catalog closure."""
     if workflow.contract_lock:
-        raise WorkflowCompileError(
+        raise _errors.WorkflowCompileError(
             "contract_digest_mismatch",
             "Workflow Draft must be unlocked before Contract locking",
             field_path=("contract_lock",),
@@ -194,7 +165,7 @@ def lock_workflow(
         )
         contract_lock = _reachable_contract_lock(workflow, catalog)
     except (CatalogBuildError, ContractResolutionError) as error:
-        raise WorkflowCompileError(
+        raise _errors.WorkflowCompileError(
             "contract_digest_mismatch",
             "Workflow references a contract absent from the current Catalog",
             field_path=("contract_lock",),
@@ -219,7 +190,7 @@ def _admit_parameter_values(
         suffix = (
             "" if not error.path else f".{'.'.join(map(str, error.path))}"
         )
-        raise WorkflowCompileError(
+        raise _errors.WorkflowCompileError(
             error.code,
             f"{field_name}{suffix} {error.reason}",
             node_id=node_id,

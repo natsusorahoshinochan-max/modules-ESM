@@ -14,10 +14,10 @@ from typing import Any
 
 from core.workflow.compiler import (
     CompilationRequest,
-    WorkflowCompileError,
     compile,
     lock_workflow,
 )
+from core.workflow.errors import WorkflowCompileError
 from protein_workbench_public.workflow_codec import decode_workflow_document
 
 

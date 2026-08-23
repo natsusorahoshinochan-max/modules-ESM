@@ -41,10 +41,10 @@ from core.parameters.contract import (
 )
 from core.workflow.compiler import (
     CompilationRequest,
-    WorkflowCompileError,
     compile,
     lock_workflow,
 )
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import (
     ContractLockEntry,
     WorkflowDocument,

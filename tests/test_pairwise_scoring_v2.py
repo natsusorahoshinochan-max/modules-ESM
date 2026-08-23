@@ -36,10 +36,10 @@ from core.operation import (
 from core.parameters.contract import admit_declarations
 from core.workflow.compiler import (
     CompilationRequest,
-    WorkflowCompileError,
     compile,
     lock_workflow,
 )
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,

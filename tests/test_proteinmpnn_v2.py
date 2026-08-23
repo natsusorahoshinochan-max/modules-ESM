@@ -50,10 +50,10 @@ from core.workflow.document import (
 from core.catalog.canonical import canonical_json_bytes
 from core.workflow.compiler import (
     CompilationRequest,
-    WorkflowCompileError,
     compile,
     lock_workflow,
 )
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import (
     Candidate,

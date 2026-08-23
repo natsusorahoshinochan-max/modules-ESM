@@ -58,7 +58,7 @@ from core.scoring.selection import (
 )
 from core.catalog.errors import PortValueError
 from tests.support.application import create_application
-from core.workflow.compiler import WorkflowCompileError
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import WorkflowDocumentError
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from protein_workbench_public import (

@@ -12,7 +12,7 @@ from core.catalog.errors import (
     InactiveContractGenerationError,
 )
 from core.scoring.selection import SelectionObjective
-from core.workflow.compiler import WorkflowCompileError
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import (
     ContractLockEntry,
     WorkflowDocument,

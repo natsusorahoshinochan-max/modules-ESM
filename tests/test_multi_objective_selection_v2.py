@@ -46,7 +46,7 @@ from tests.support.application import create_application
 from protein_workbench_public.workflow_codec import encode_workflow_document
 import core.execution.runtime as run_runtime
 from core.execution.ledger import FilesystemLedgerStore
-from core.workflow.compiler import WorkflowCompileError
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference

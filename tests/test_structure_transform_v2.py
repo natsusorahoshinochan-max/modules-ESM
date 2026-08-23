@@ -29,10 +29,10 @@ from tests.support.contract_test_kit import (
 )
 from core.workflow.compiler import (
     CompilationRequest,
-    WorkflowCompileError,
     compile,
     lock_workflow,
 )
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,

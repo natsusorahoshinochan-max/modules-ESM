@@ -35,7 +35,7 @@ from core.scoring.selection import (
 from core.project.manager import ProjectManager
 from tests.support.application import create_application
 from protein_workbench_public.workflow_codec import encode_workflow_document
-from core.workflow.compiler import WorkflowCompileError
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import (
     Candidate,

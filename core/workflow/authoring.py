@@ -21,10 +21,10 @@ from core.project.manager import (
 from core.project.storage import write_new_file
 from core.workflow.compiler import (
     CompilationRequest,
-    WorkflowCompileError,
     compile,
     lock_workflow,
 )
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import (
     WorkflowDocument,
     workflow_document_from_canonical,

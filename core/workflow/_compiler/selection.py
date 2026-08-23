@@ -16,7 +16,7 @@ from core.scoring.selection import (
     SelectionObjective,
     context_selector_canonical,
 )
-from core.workflow.compiler import WorkflowCompileError
+from core.workflow.errors import WorkflowCompileError
 from datatypes.exact_reference import ExactContractReference
 
 
