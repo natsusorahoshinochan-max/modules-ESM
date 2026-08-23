@@ -174,10 +174,6 @@ def resolve_local_runtime(
     environment: Mapping[str, object],
 ) -> LocalESMFold2Runtime:
     """Resolve both immutable snapshots before any local model invocation."""
-    if not local_runtime_structurally_available():
-        raise LocalESMFold2RuntimeUnavailable(
-            "exact local ESMFold2 runtime is unavailable"
-        )
     validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     if not transformers_esmfold2_runtime_is_exact():
         raise LocalESMFold2RuntimeUnavailable(

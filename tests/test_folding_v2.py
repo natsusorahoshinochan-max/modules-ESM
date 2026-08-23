@@ -591,11 +591,6 @@ def _write_local_runtime_fixture(
         "LOCAL_ESMC_ARTIFACT_SHA256",
         {"model.bin": hashlib.sha256(language_payload).hexdigest()},
     )
-    monkeypatch.setattr(
-        adapter,
-        "local_runtime_structurally_available",
-        lambda: True,
-    )
     return {
         "model_snapshot_path": fold_snapshot,
         "model_snapshot_revision": adapter.LOCAL_ESMFOLD2_REVISION,

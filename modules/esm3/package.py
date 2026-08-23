@@ -117,8 +117,6 @@ _LOCAL_ENVIRONMENT_FIELDS = (
 
 
 def _provider_installation_is_exact() -> bool:
-    if importlib.util.find_spec("esm") is None:
-        return False
     try:
         validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     except ProviderInstallationUnavailable:

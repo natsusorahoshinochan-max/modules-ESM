@@ -58,8 +58,6 @@ def remote_readiness(environment: Mapping[str, Any]) -> bool:
 
 
 def _remote_provider_installation_is_exact() -> bool:
-    if not remote_runtime_structurally_available():
-        return False
     try:
         validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     except ProviderInstallationUnavailable:

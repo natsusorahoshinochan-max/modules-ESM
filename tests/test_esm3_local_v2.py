@@ -205,11 +205,6 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
     artifact.write_bytes(b"locked fixture")
     monkeypatch.setattr(
         local_adapter,
-        "local_runtime_structurally_available",
-        lambda: True,
-    )
-    monkeypatch.setattr(
-        local_adapter,
         "LOCAL_ESM3_WEIGHT_SHA256",
         {
             "data/weights/fixture.pth": hashlib.sha256(
@@ -272,11 +267,6 @@ def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
     blob.write_bytes(payload)
     linked = weights / "fixture.pth"
     linked.symlink_to(Path("../../../../blobs") / digest)
-    monkeypatch.setattr(
-        local_adapter,
-        "local_runtime_structurally_available",
-        lambda: True,
-    )
     monkeypatch.setattr(
         local_adapter,
         "LOCAL_ESM3_WEIGHT_SHA256",

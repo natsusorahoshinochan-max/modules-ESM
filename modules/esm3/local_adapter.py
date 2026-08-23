@@ -169,10 +169,6 @@ def resolve_local_runtime(
     environment: Mapping[str, Any],
 ) -> LocalESM3Runtime:
     """Validate exact artifacts before entering the local Provider."""
-    if not local_runtime_structurally_available():
-        raise LocalESM3RuntimeUnavailable(
-            "exact local ESM-3 runtime is unavailable"
-        )
     validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     if (
         environment["model_snapshot_revision"]
