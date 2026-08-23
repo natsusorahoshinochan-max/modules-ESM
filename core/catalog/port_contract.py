@@ -3,50 +3,31 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field
 import hashlib
-import json
-import math
 import re
 from types import MappingProxyType
 from typing import Any, Callable, cast
 
+from core.catalog import _port_value_codec as _value_codec
 from core.catalog import canonical as _canonical
 from core.catalog import errors as _errors
 from core.operation import EncodedOutputIdentities, ResolvedOutputIdentity
-from datatypes.candidate import (
-    Candidate,
-    CandidateCollection,
-    CandidateDataReference,
-    validate_candidate_lineage_graph,
-    validate_candidate_parent_ids,
-)
+from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
     ResidueAxisReference,
     validate_canonical_identifier,
 )
-from datatypes.i_json import FrozenList, thaw_i_json
+from datatypes.i_json import thaw_i_json
 from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
     PairwiseObservationContext,
     PairwiseParticipant,
-    ScoreCollection,
-    ScoreObservation,
 )
-from datatypes.residue import (
-    ResidueLayout,
-    ResidueMap,
-    ResidueTrack,
-    validate_residue_layout,
-    validate_residue_map,
-)
-from datatypes.sequence import ProteinSequence, validate_protein_sequence
-from datatypes.structure import ProteinStructure, validate_protein_structure
+from datatypes.residue import ResidueLayout
 
 
 _MEDIA_TYPE = re.compile(r"^[^\s/]+/[^\s/]+$")
@@ -241,15 +222,6 @@ def _validate_identifier(value: str, field_name: str) -> None:
         ) from error
 
 
-def _validate_runtime_identifier(value: object, *, path: str) -> None:
-    try:
-        validate_canonical_identifier(value, path)
-    except ValueError as error:
-        raise _errors.PortValueError(
-            f"{path} must be a canonical identifier"
-        ) from error
-
-
 def _validate_version(value: str, field_name: str) -> None:
     if (
         not isinstance(value, str)
@@ -259,449 +231,6 @@ def _validate_version(value: str, field_name: str) -> None:
         raise _errors.CatalogBuildError(
             f"{field_name} must be an exact semantic version"
         )
-
-
-_DATACLASS_BY_TAG = {
-    "calibration_observation_context": CalibrationObservationContext,
-    "candidate": Candidate,
-    "candidate_collection": CandidateCollection,
-    "candidate_data_reference": CandidateDataReference,
-    "exact_contract_reference": ExactContractReference,
-    "exact_port_value_reference": ExactPortValueReference,
-    "intrinsic_observation_context": IntrinsicObservationContext,
-    "pairwise_candidate_mapping": PairwiseCandidateMapping,
-    "pairwise_candidate_match": PairwiseCandidateMatch,
-    "pairwise_observation_context": PairwiseObservationContext,
-    "pairwise_participant": PairwiseParticipant,
-    "protein_sequence": ProteinSequence,
-    "protein_structure": ProteinStructure,
-    "residue_layout": ResidueLayout,
-    "residue_axis_reference": ResidueAxisReference,
-    "residue_map": ResidueMap,
-    "residue_track": ResidueTrack,
-    "score_collection": ScoreCollection,
-    "score_observation": ScoreObservation,
-}
-_TAG_BY_DATACLASS = {
-    value_type: tag for tag, value_type in _DATACLASS_BY_TAG.items()
-}
-_VALUE_TYPE_BY_KIND = {
-    "candidate_collection": CandidateCollection,
-    "pairwise_candidate_mapping": PairwiseCandidateMapping,
-    "protein_sequence": ProteinSequence,
-    "protein_structure": ProteinStructure,
-    "residue_layout": ResidueLayout,
-    "residue_map": ResidueMap,
-    "residue_track": ResidueTrack,
-    "sasa_residue_track": ResidueTrack,
-    "secondary_structure_residue_track": ResidueTrack,
-    "score_collection": ScoreCollection,
-    "text": str,
-}
-
-
-def _validate_domain_value(value: Any, *, path: str) -> None:
-    if type(value) is ResidueAxisReference:
-        _validate_domain_value(value.layout, path=f"{path}.layout")
-        return
-
-    if type(value) is ProteinSequence:
-        try:
-            validate_protein_sequence(value, subject=path)
-        except (TypeError, ValueError) as error:
-            raise _errors.PortValueError(str(error)) from error
-        return
-
-    if type(value) is ProteinStructure:
-        try:
-            validate_protein_structure(value, subject=path)
-        except (TypeError, ValueError) as error:
-            raise _errors.PortValueError(str(error)) from error
-        return
-
-    if type(value) is ResidueLayout:
-        try:
-            validate_residue_layout(value, subject=path)
-        except (TypeError, ValueError) as error:
-            raise _errors.PortValueError(str(error)) from error
-        return
-
-    if type(value) is ResidueMap:
-        try:
-            validate_residue_map(value, subject=path)
-        except (TypeError, ValueError) as error:
-            raise _errors.PortValueError(str(error)) from error
-        return
-
-    if type(value) is Candidate:
-        _validate_runtime_identifier(
-            value.candidate_id,
-            path=f"{path}.candidate_id",
-        )
-        if type(value.data) not in (ProteinSequence, ProteinStructure):
-            raise _errors.PortValueError(
-                f"{path}.data must be a registered Candidate value"
-            )
-        _validate_domain_value(value.data, path=f"{path}.data")
-        try:
-            validate_candidate_parent_ids(value, subject=path)
-        except ValueError as error:
-            raise _errors.PortValueError(str(error)) from error
-        return
-
-    if type(value) is CandidateCollection:
-        _validate_runtime_identifier(
-            value.collection_id,
-            path=f"{path}.collection_id",
-        )
-        expected_candidate_types = {
-            "protein.sequence": ProteinSequence,
-            "protein.structure": ProteinStructure,
-        }
-        expected_candidate_type = expected_candidate_types.get(value.item_type)
-        if expected_candidate_type is None:
-            raise _errors.PortValueError(
-                f"{path}.item_type must name a supported Candidate data type"
-            )
-        for index, candidate in enumerate(value.items):
-            _validate_domain_value(candidate, path=f"{path}.items[{index}]")
-            if type(candidate.data) is not expected_candidate_type:
-                raise _errors.PortValueError(
-                    f"{path}.items[{index}].data mismatches "
-                    f"item_type {value.item_type}"
-                )
-        try:
-            validate_candidate_lineage_graph(
-                tuple(value.items),
-                subject=path,
-            )
-        except ValueError as error:
-            raise _errors.PortValueError(str(error)) from error
-        return
-
-    if type(value) is IntrinsicObservationContext:
-        if value.kind != "intrinsic":
-            raise _errors.PortValueError(
-                f"{path} must use the fixed intrinsic Observation Context"
-            )
-        return
-
-    if type(value) is CalibrationObservationContext:
-        if value.kind != "calibration":
-            raise _errors.PortValueError(
-                f"{path} must use the calibration Observation Context"
-            )
-        for name in (
-            "calibration_metric",
-            "calibration_unit",
-            "population_id",
-        ):
-            _validate_runtime_identifier(
-                getattr(value, name),
-                path=f"{path}.{name}",
-            )
-        if (
-            isinstance(value.calibration_value, bool)
-            or not isinstance(value.calibration_value, (int, float))
-            or not math.isfinite(float(value.calibration_value))
-            or (
-                value.calibration_value == 0
-                and math.copysign(1.0, value.calibration_value) < 0
-            )
-        ):
-            raise _errors.PortValueError(
-                f"{path}.calibration_value must be a finite canonical number"
-            )
-        return
-
-    if type(value) is PairwiseCandidateMapping:
-        subjects: set[CandidateDataReference] = set()
-        references: set[CandidateDataReference] = set()
-        candidate_references: dict[str, CandidateDataReference] = {}
-        for entry in value.entries:
-            for participant in (entry.subject, entry.reference):
-                known_reference = candidate_references.get(
-                    participant.candidate_id
-                )
-                if (
-                    known_reference is not None
-                    and known_reference != participant
-                ):
-                    raise _errors.PortValueError(
-                        f"{path} reuses one Candidate identity with "
-                        "conflicting exact data reference"
-                    )
-                candidate_references[participant.candidate_id] = participant
-            if entry.subject in subjects:
-                raise _errors.PortValueError(
-                    f"{path} contains multiple counterparts for one subject"
-                )
-            subjects.add(entry.subject)
-            if entry.reference in references:
-                raise _errors.PortValueError(
-                    f"{path} reuses one counterpart for multiple subjects"
-                )
-            references.add(entry.reference)
-        return
-
-    if type(value) is PairwiseObservationContext:
-        if value.kind != "pairwise":
-            raise _errors.PortValueError(
-                f"{path} must use the pairwise Observation Context"
-            )
-        if value.subject.role != "subject":
-            raise _errors.PortValueError(f"{path}.subject must use the subject role")
-        if value.reference.role != "reference":
-            raise _errors.PortValueError(
-                f"{path}.reference must use the reference role"
-            )
-        if value.subject.candidate_id == value.reference.candidate_id:
-            raise _errors.PortValueError(
-                f"{path} subject and reference identities must differ"
-            )
-        if value.pairing_mode not in {
-            "fixed_reference",
-            "per_subject_counterpart",
-        }:
-            raise _errors.PortValueError(
-                f"{path}.pairing_mode is not a controlled pairing mode"
-            )
-        _validate_runtime_identifier(
-            value.normalization,
-            path=f"{path}.normalization",
-        )
-        return
-
-    if type(value) is ScoreObservation:
-        if value.metric.contract_kind != "metric":
-            raise _errors.PortValueError(
-                f"{path}.metric must be an exact metric reference"
-            )
-        if value.method.contract_kind != "method":
-            raise _errors.PortValueError(
-                f"{path}.method must be an exact method reference"
-            )
-        _validate_domain_value(value.context, path=f"{path}.context")
-        if value.residue_axis is not None:
-            _validate_domain_value(
-                value.residue_axis,
-                path=f"{path}.residue_axis",
-            )
-        _validate_runtime_identifier(
-            value.source_partition,
-            path=f"{path}.source_partition",
-        )
-        if (
-            type(value.context) is PairwiseObservationContext
-            and value.context.subject.candidate != value.subject
-        ):
-            raise _errors.PortValueError(
-                f"{path}.context subject identity must match exact subject"
-            )
-        return
-
-    if type(value) is ScoreCollection:
-        _validate_runtime_identifier(
-            value.collection_id,
-            path=f"{path}.collection_id",
-        )
-        for index, score in enumerate(value.entries):
-            _validate_domain_value(score, path=f"{path}.entries[{index}]")
-        return
-
-def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
-    if is_dataclass(value):
-        _validate_domain_value(value, path="$.value")
-
-    if value_kind == "sasa_residue_track":
-        for index, item in enumerate(value.values):
-            if item is value.sentinel:
-                continue
-            if isinstance(item, bool) or not isinstance(item, (int, float)):
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be numeric or the sentinel"
-                )
-            if item < 0:
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be non-negative"
-                )
-
-    if value_kind == "secondary_structure_residue_track":
-        for index, item in enumerate(value.values):
-            if item is value.sentinel:
-                continue
-            if type(item) is not str:
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be text or the sentinel"
-                )
-            if len(item) != 1:
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be one canonical code"
-                )
-
-
-def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
-    if value is None or isinstance(value, (str, bool, int, float)):
-        try:
-            _canonical._validate(value, path=path)
-        except _errors.CatalogBuildError as error:
-            raise _errors.PortValueError(str(error)) from error
-        return value
-    if isinstance(value, (list, FrozenList)):
-        return [
-            _value_to_wire(item, path=f"{path}[{index}]")
-            for index, item in enumerate(value)
-        ]
-    if isinstance(value, tuple):
-        return {
-            "$tuple": [
-                _value_to_wire(item, path=f"{path}[{index}]")
-                for index, item in enumerate(value)
-            ]
-        }
-    if isinstance(value, Mapping):
-        if any(type(key) is not str for key in value):
-            raise _errors.PortValueError(
-                f"{path} contains a non-string I-JSON object key"
-            )
-        entries = [
-            [
-                _value_to_wire(key, path=f"{path}.<key>"),
-                _value_to_wire(item, path=f"{path}[{key!r}]"),
-            ]
-            for key, item in value.items()
-        ]
-        entries.sort(key=lambda entry: _canonical.canonical_json_bytes(entry[0]))
-        return {"$map": entries}
-    if is_dataclass(value) and not isinstance(value, type):
-        value_type = type(value)
-        tag = _TAG_BY_DATACLASS.get(value_type)
-        if tag is None:
-            raise _errors.PortValueError(
-                f"{path} uses an unregistered runtime value class "
-                f"{value_type.__name__}"
-            )
-        return {
-            "$dataclass": tag,
-            "fields": {
-                item.name: _value_to_wire(
-                    getattr(value, item.name),
-                    path=f"{path}.{item.name}",
-                )
-                for item in fields(value)
-            },
-        }
-    raise _errors.PortValueError(
-        f"{path} contains an unsupported runtime value "
-        f"{type(value).__name__}"
-    )
-
-
-def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
-    if value is None or isinstance(value, (str, bool, int, float)):
-        return value
-    if isinstance(value, list):
-        return [
-            _wire_to_value(item, path=f"{path}[{index}]")
-            for index, item in enumerate(value)
-        ]
-    if not isinstance(value, dict):
-        raise _errors.PortValueError(f"{path} is not a valid canonical value")
-    if set(value) == {"$tuple"} and isinstance(value["$tuple"], list):
-        return tuple(
-            _wire_to_value(item, path=f"{path}[{index}]")
-            for index, item in enumerate(value["$tuple"])
-        )
-    if set(value) == {"$map"} and isinstance(value["$map"], list):
-        result: dict[Any, Any] = {}
-        encoded_keys: list[bytes] = []
-        for index, entry in enumerate(value["$map"]):
-            if not isinstance(entry, list) or len(entry) != 2:
-                raise _errors.PortValueError(
-                    f"{path}.$map[{index}] must be a key/value pair"
-                )
-            encoded_keys.append(_canonical.canonical_json_bytes(entry[0]))
-        if encoded_keys != sorted(encoded_keys) or len(encoded_keys) != len(
-            set(encoded_keys)
-        ):
-            raise _errors.PortValueError(
-                f"{path}.$map entries are not in unique canonical key order"
-            )
-        for index, entry in enumerate(value["$map"]):
-            key = _wire_to_value(entry[0], path=f"{path}.$map[{index}][0]")
-            item = _wire_to_value(entry[1], path=f"{path}.$map[{index}][1]")
-            if type(key) is not str:
-                raise _errors.PortValueError(
-                    f"{path}.$map contains a non-string I-JSON object key"
-                )
-            try:
-                if key in result:
-                    raise _errors.PortValueError(
-                        f"{path}.$map contains a duplicate decoded key"
-                    )
-                result[key] = item
-            except TypeError as error:
-                raise _errors.PortValueError(
-                    f"{path}.$map contains an unhashable key"
-                ) from error
-        return result
-    if set(value) == {"$dataclass", "fields"}:
-        tag = value["$dataclass"]
-        raw_fields = value["fields"]
-        value_type = _DATACLASS_BY_TAG.get(tag)
-        if value_type is None or not isinstance(raw_fields, dict):
-            raise _errors.PortValueError(f"{path} names an unknown runtime value kind")
-        expected_fields = {item.name for item in fields(value_type)}
-        if set(raw_fields) != expected_fields:
-            raise _errors.PortValueError(
-                f"{path} fields do not match the complete {tag} contract"
-            )
-        decoded_fields = {
-            name: _wire_to_value(item, path=f"{path}.{name}")
-            for name, item in raw_fields.items()
-        }
-        try:
-            return value_type(**decoded_fields)
-        except (TypeError, ValueError) as error:
-            raise _errors.PortValueError(
-                f"{path} is not a valid {tag} value: {error}"
-            ) from error
-    raise _errors.PortValueError(f"{path} contains a malformed canonical value object")
-
-
-def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise _errors.PortValueError(f"duplicate JSON object key {key!r}")
-        result[key] = value
-    return result
-
-
-def _parse_canonical_json(encoded: bytes) -> Any:
-    if not isinstance(encoded, bytes):
-        raise _errors.PortValueError("canonical codec input must be bytes")
-    try:
-        payload = json.loads(
-            encoded.decode("utf-8"),
-            object_pairs_hook=_reject_duplicate_keys,
-            parse_constant=lambda value: (_ for _ in ()).throw(
-                _errors.PortValueError(f"non-I-JSON numeric value {value}")
-            ),
-        )
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise _errors.PortValueError(
-            "canonical codec input is malformed UTF-8 JSON"
-        ) from error
-    try:
-        canonical = _canonical.canonical_json_bytes(payload)
-    except _errors.CatalogBuildError as error:
-        raise _errors.PortValueError(str(error)) from error
-    if encoded != canonical:
-        raise _errors.PortValueError(
-            "codec input is valid JSON but not canonical RFC 8785 bytes"
-        )
-    return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -947,11 +476,10 @@ class PortTypeDefinition:
         value: Any,
     ) -> tuple[ResidueAxisReference, ...]:
         """Project nested scalar axes using the nominal Port owner's codec."""
-        projector = cast(
+        return cast(
             Callable[[Any], tuple[ResidueAxisReference, ...]],
             self.runtime_scientific_axis_projection,
-        )
-        return tuple(projector(value))
+        )(value)
 
     def candidate_data_references(
         self,
@@ -959,25 +487,23 @@ class PortTypeDefinition:
         candidate_data_port_types: Mapping[str, "PortTypeDefinition"],
     ) -> tuple[CandidateDataReference, ...]:
         """Project exact Candidate data identities using the nominal owner."""
-        projector = cast(
+        return cast(
             Callable[
                 [Any, Mapping[str, "PortTypeDefinition"]],
                 tuple[CandidateDataReference, ...],
             ],
             self.runtime_candidate_data_projection,
-        )
-        return tuple(projector(value, candidate_data_port_types))
+        )(value, candidate_data_port_types)
 
     def observation_method_references(
         self,
         value: Any,
     ) -> tuple[ExactContractReference, ...]:
         """Project exact provider Methods using the nominal Port owner."""
-        projector = cast(
+        return cast(
             Callable[[Any], tuple[ExactContractReference, ...]],
             self.runtime_observation_method_projection,
-        )
-        return tuple(projector(value))
+        )(value)
 
     def materialize_output_identity(
         self,
@@ -992,11 +518,6 @@ class PortTypeDefinition:
                 "identity materialization"
             )
         return materializer(relation, identities)
-
-    @property
-    def value_kind(self) -> str:
-        """Return the stable runtime value kind declared by the validator."""
-        return cast(str, self.validator.parameters["accepted_value_kind"])
 
     def validate_runtime_contract(self) -> None:
         """Require a complete installed runtime behind stable behavior IDs."""
@@ -1017,22 +538,12 @@ class PortTypeDefinition:
             )
             if (
                 not isinstance(value_kind, str)
-                or value_kind not in _VALUE_TYPE_BY_KIND
+                or value_kind not in _value_codec._VALUE_TYPE_BY_KIND
             ):
                 raise _errors.CatalogBuildError(
                     f"{self.type_id}@{self.version} has no installed "
                     "validator behavior"
                 )
-
-    def _validate_builtin(self, value: Any) -> None:
-        value_kind = self.value_kind
-        expected_type = _VALUE_TYPE_BY_KIND[value_kind]
-        if type(value) is not expected_type:
-            raise _errors.PortValueError(
-                f"{self.type_id}@{self.version} requires {expected_type.__name__}, "
-                f"got {type(value).__name__}"
-            )
-        _validate_builtin_semantics(value_kind, value)
 
     def validate(self, value: Any) -> None:
         """Validate one complete runtime value through this nominal contract."""
@@ -1047,13 +558,23 @@ class PortTypeDefinition:
                     f"{error}"
                 ) from error
             return
-        self._validate_builtin(value)
+        value_kind = cast(
+            str,
+            self.validator.parameters["accepted_value_kind"],
+        )
+        expected_type = _value_codec._VALUE_TYPE_BY_KIND[value_kind]
+        if type(value) is not expected_type:
+            raise _errors.PortValueError(
+                f"{self.type_id}@{self.version} requires {expected_type.__name__}, "
+                f"got {type(value).__name__}"
+            )
+        _value_codec._validate_builtin_semantics(value_kind, value)
 
     def to_wire(self, value: Any) -> Any:
         """Project one already-admitted value into its nested wire form."""
         if self.runtime_to_wire is not None:
             return self.runtime_to_wire(value)
-        return _value_to_wire(value)
+        return _value_codec._value_to_wire(value)
 
     def encode(self, value: Any) -> bytes:
         """Validate and encode one value as canonical RFC 8785 UTF-8 bytes."""
@@ -1084,13 +605,13 @@ class PortTypeDefinition:
                     f"{error}"
                 ) from error
         else:
-            value = _wire_to_value(wire_value)
+            value = _value_codec._wire_to_value(wire_value)
         self.validate(value)
         return value
 
     def decode(self, encoded: bytes) -> Any:
         """Decode canonical bytes, rejecting malformed or non-canonical input."""
-        payload = _parse_canonical_json(encoded)
+        payload = _value_codec._parse_canonical_json(encoded)
         if not isinstance(payload, dict) or set(payload) != {
             "schema_namespace",
             "port_type_id",
