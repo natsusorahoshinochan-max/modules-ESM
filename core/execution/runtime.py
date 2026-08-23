@@ -256,8 +256,6 @@ class V2RunService:
                 run_id,
                 admitted_plan_evidence,
                 self._ledger_transaction_store,
-                expected_resolved_contracts=resolved_contracts,
-                expected_contract_roots=resolved_contract_roots,
             )
         except (OSError, StoragePathError) as error:
             raise V2RunError(

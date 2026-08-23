@@ -2049,8 +2049,6 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
             run_id,
             plan_evidence(plan),
             None,
-            expected_resolved_contracts=resolved_contracts,
-            expected_contract_roots=contract_roots,
         )
         ledger.record(
             RunScopeBinding(

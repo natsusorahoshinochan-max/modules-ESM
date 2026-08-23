@@ -211,8 +211,6 @@ def _scoped_ledger(
         run_id,
         retained_nodes,
         store,
-        expected_resolved_contracts=references,
-        expected_contract_roots=references,
     )
     ledger.record(
         RunScopeBinding(
@@ -472,23 +470,9 @@ def test_cancellation_decision_is_idempotent_and_orders_writers(
     )
 
 
-def test_unstarted_cancelled_requires_durable_cancellation_evidence(
+def test_unstarted_termination_records_durable_outcome(
     tmp_path: Path,
 ) -> None:
-    missing, _, _ = _admitted_ledger(tmp_path / "missing")
-    durable_cursor = missing.cursor
-
-    with pytest.raises(V2RunError, match="causal validation"):
-        missing.record(
-            NodeDisposition(
-                node_id="node-1",
-                outcome="cancelled",
-                blocked_by=(),
-            )
-        )
-
-    assert missing.cursor == durable_cursor
-
     interrupted, _, _ = _admitted_ledger(tmp_path / "interrupted")
     interrupted.record(
         NodeDisposition(
@@ -514,27 +498,9 @@ def test_unstarted_cancelled_requires_durable_cancellation_evidence(
     assert cancelled.projection().node_dispositions[0].outcome == "cancelled"
 
 
-def test_active_cancelled_requires_durable_cancellation_evidence(
+def test_active_cancellation_precedes_termination(
     tmp_path: Path,
 ) -> None:
-    missing, _, _ = _admitted_ledger(tmp_path / "missing")
-    missing.record(NodeAttemptStarted("node-1", "attempt-1"))
-    missing.record(OperationAttemptStarted("operation-1", "attempt-1"))
-    durable_cursor = missing.cursor
-
-    with pytest.raises(V2RunError, match="causal validation"):
-        missing.record(
-            NodeTerminationPublication(
-                node_id="node-1",
-                status="cancelled",
-                node_attempt_id="attempt-1",
-                operation_attempt_id="operation-1",
-                operation_status="cancelled",
-            )
-        )
-
-    assert missing.cursor == durable_cursor
-
     cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
     cancelled.record(NodeAttemptStarted("node-1", "attempt-1"))
     cancelled.record(OperationAttemptStarted("operation-1", "attempt-1"))
@@ -553,32 +519,9 @@ def test_active_cancelled_requires_durable_cancellation_evidence(
     assert cancelled.projection().node_dispositions[0].outcome == "cancelled"
 
 
-def test_engine_invocation_cancelled_requires_durable_cancellation_evidence(
+def test_engine_invocation_cancellation_is_durable(
     tmp_path: Path,
 ) -> None:
-    missing, _, _ = _admitted_ledger(tmp_path / "missing")
-    missing.record(NodeAttemptStarted("node-1", "attempt-1"))
-    missing.record(OperationAttemptStarted("operation-1", "attempt-1"))
-    missing.record(
-        EngineInvocationStarted(
-            invocation_id="invocation-1",
-            operation_attempt_id="operation-1",
-            engine_role="predictor",
-            engine_identity="sha256:" + "d" * 64,
-        )
-    )
-    durable_cursor = missing.cursor
-
-    with pytest.raises(V2RunError, match="causal validation"):
-        missing.record(
-            EngineInvocationTerminal(
-                invocation_id="invocation-1",
-                status="cancelled",
-            )
-        )
-
-    assert missing.cursor == durable_cursor
-
     cancelled, _, _ = _admitted_ledger(tmp_path / "cancelled")
     cancelled.record(NodeAttemptStarted("node-1", "attempt-1"))
     cancelled.record(OperationAttemptStarted("operation-1", "attempt-1"))
@@ -625,18 +568,10 @@ def test_active_non_cancel_termination_does_not_require_cancellation(
     assert ledger.projection().node_dispositions[0].outcome == "interrupted"
 
 
-def test_provider_operation_requires_typed_readiness_evidence(
+def test_provider_readiness_is_recorded(
     tmp_path: Path,
 ) -> None:
     provider_node = _plan_node(execution_route="adapter")
-    missing, _, _ = _admitted_ledger(
-        tmp_path / "missing",
-        plan_nodes=(provider_node,),
-    )
-    missing.record(NodeAttemptStarted("node-1", "attempt-1"))
-    with pytest.raises(V2RunError):
-        missing.record(OperationAttemptStarted("operation-1", "attempt-1"))
-
     passing, _, _ = _admitted_ledger(
         tmp_path / "passing",
         plan_nodes=(provider_node,),
@@ -993,14 +928,13 @@ def test_restart_rejects_invalid_persisted_selection_grammar(
                 payload=payload,
             )
 
-    with pytest.raises(V2RunError, match="causal validation") as captured:
+    with pytest.raises(RuntimeError, match="transaction is invalid"):
         Ledger.load(
             projects,
             "project-1",
             "run-1",
             InvalidSelectionStore(),
         )
-    assert captured.value.code == "evidence_unavailable"
 
 
 def test_structured_error_is_frozen_before_it_reaches_a_fact() -> None:

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from datetime import datetime, timezone
 import threading
-from typing import Any, Literal, TypeAlias, cast
+from typing import Any, TypeAlias, cast
 
 from core.catalog.port_contract import canonical_sha256
 from core.execution.ledger.codec import (
@@ -40,10 +40,9 @@ from core.execution.ledger.facts import (
     SelectionTerminal,
 )
 from core.execution.ledger.reducer import (
-    InvocationState,
+    LedgerReducer,
     LedgerReducerState,
-    NodeAttemptState,
-    OperationAttemptState,
+    run_terminal_status,
 )
 from core.execution.ledger.projections import (
     CancellationDecision,
@@ -70,9 +69,6 @@ from core.project.manager import ProjectManager
 from core.project.storage import (
     StoragePathError,
 )
-from datatypes.exact_reference import ExactContractReference
-
-
 _LedgerTransition: TypeAlias = (
     RunScopeBinding
     | ReadinessAttestation
@@ -98,46 +94,6 @@ class V2RunError(RuntimeError):
         self.code = code
         self.details = dict(details)
         super().__init__(message)
-
-
-def _typed_reference_key(
-    reference: ExactContractReference,
-) -> tuple[str, str, str, str]:
-    return (
-        reference.contract_kind,
-        reference.contract_id,
-        reference.contract_version,
-        reference.contract_digest,
-    )
-
-
-def _typed_run_terminal_status(
-    dispositions: Iterable[NodeDisposition],
-    selection_terminals: tuple[SelectionTerminal, ...],
-) -> Literal["succeeded", "failed", "cancelled", "interrupted"]:
-    outcomes = {
-        disposition.outcome for disposition in dispositions
-    }
-    if "failed" in outcomes or any(
-        terminal.status == "failed"
-        for terminal in selection_terminals
-    ):
-        return "failed"
-    if "interrupted" in outcomes:
-        return "interrupted"
-    if "cancelled" in outcomes:
-        return "cancelled"
-    return "succeeded"
-
-
-def _selection_result_keys(
-    terminals: Iterable[SelectionTerminal],
-) -> set[str]:
-    return {
-        terminal.result.selection_node_id
-        for terminal in terminals
-        if terminal.result is not None
-    }
 
 
 def _utc_now() -> datetime:
@@ -180,67 +136,16 @@ class Ledger:
         run_id: str,
         plan_nodes: tuple[PlanNodeEvidence, ...],
         transaction_store: LedgerStore | None = None,
-        *,
-        expected_resolved_contracts: tuple[ExactContractReference, ...],
-        expected_contract_roots: tuple[ExactContractReference, ...],
     ) -> None:
         run_dir = projects.run_storage_directory(project_id, run_id)
         self._root = run_dir.parent
         self._project_id = project_id
         self._run_id = run_id
         self._plan_node_order = tuple(node.node_id for node in plan_nodes)
-        self._plan_nodes = frozenset(self._plan_node_order)
-        self._dependencies = {
-            node.node_id: frozenset(node.dependencies)
-            for node in plan_nodes
-        }
-        self._required_input_sources = {
-            node.node_id: node.required_input_sources
-            for node in plan_nodes
-        }
-        self._plan_evidence = plan_nodes
-        self._bindings_by_node = {
-            node.node_id: node.binding for node in plan_nodes
-        }
-        self._execution_routes = {
-            node.node_id: node.execution_route for node in plan_nodes
-        }
-        self._expected_binding_keys = frozenset(
-            _typed_reference_key(node.binding)
-            for node in plan_nodes
-        )
-        self._provider_binding_keys = frozenset(
-            _typed_reference_key(node.binding)
-            for node in plan_nodes
-            if node.execution_route == "adapter"
-        )
-        minimum_roots = tuple(
-            reference
-            for node in plan_nodes
-            for reference in (
-                node.binding,
-                *((node.node_type,) if node.node_type is not None else ()),
-            )
-        )
-        minimum_contracts = (
-            *minimum_roots,
-            *(
-                output.port_type
-                for node in plan_nodes
-                for output in node.artifact_outputs
-            ),
-        )
-        self._minimum_contract_root_keys = frozenset(
-            _typed_reference_key(reference) for reference in minimum_roots
-        )
-        self._minimum_resolved_contract_keys = frozenset(
-            _typed_reference_key(reference)
-            for reference in minimum_contracts
-        )
-        self._expected_contract_roots = expected_contract_roots
-        self._expected_resolved_contracts = expected_resolved_contracts
-        self._selection_consumer_ids = tuple(
-            node.node_id for node in plan_nodes if node.selection_consumer
+        self._reducer = LedgerReducer(
+            project_id=project_id,
+            run_id=run_id,
+            plan_evidence=plan_nodes,
         )
         self._state = LedgerReducerState.empty()
         self._transaction_count = 0
@@ -297,8 +202,6 @@ class Ledger:
                 run_id,
                 scope.plan_nodes,
                 transaction_store,
-                expected_resolved_contracts=scope.resolved_contracts,
-                expected_contract_roots=scope.resolved_contract_roots,
             )
             ledger._install_loaded_transaction(first)
             for encoded in encoded_transactions[1:]:
@@ -325,9 +228,6 @@ class Ledger:
                 str(unavailable),
                 details=unavailable.details,
             ) from unavailable
-
-    def _install_reducer_state(self, state: LedgerReducerState) -> None:
-        self._state = state
 
     @property
     def facts(self) -> tuple[Fact, ...]:
@@ -378,7 +278,7 @@ class Ledger:
         """Return whether the durable Plan disposition set is all-success."""
         with self._condition:
             return (
-                set(self._state.dispositions) == set(self._plan_nodes)
+                set(self._state.dispositions) == set(self._plan_node_order)
                 and all(
                     disposition.outcome == "succeeded"
                     for disposition in self._state.dispositions.values()
@@ -388,11 +288,11 @@ class Ledger:
     @property
     def selection_consumer_ids(self) -> tuple[str, ...]:
         """Return the Selection consumers fixed by durable Run scope."""
-        return self._selection_consumer_ids
+        return self._reducer.selection_consumer_ids
 
     @property
     def plan_nodes(self) -> tuple[PlanNodeEvidence, ...]:
-        return self._plan_evidence
+        return self._reducer.plan_evidence
 
     def _cursor_at(self, sequence: int) -> RunCursor:
         fact = self._state.facts[sequence - 1] if sequence else None
@@ -500,7 +400,7 @@ class Ledger:
                     resolved_contracts=scope.resolved_contracts,
                     resolved_contract_roots=scope.resolved_contract_roots,
                     plan_nodes=self.plan_nodes,
-                    selection_terminal_keys=self._selection_consumer_ids,
+                    selection_terminal_keys=self._reducer.selection_consumer_ids,
                     derived_from=scope.derived_from,
                 ),
             )
@@ -655,7 +555,7 @@ class Ledger:
         closure: RunClosure,
     ) -> LedgerAcknowledgement:
         selections = closure.selections
-        run_status = _typed_run_terminal_status(
+        run_status = run_terminal_status(
             self._state.dispositions.values(),
             selections,
         )
@@ -666,743 +566,11 @@ class Ledger:
             )
         )
 
-    def _causal_error(self) -> V2RunError:
-        return V2RunError(
-            "evidence_unavailable",
-            "Required Run evidence failed causal validation",
-            details={"last_durable_cursor": self.cursor.value},
-        )
-
-    def _required_input_blocker_set(self, node_id: str) -> frozenset[str]:
-        blockers: set[str] = set()
-        for required_input in self._required_input_sources[node_id]:
-            if any(
-                source.output_port
-                in self._state.nonempty_output_ports.get(source.node_id, set())
-                for source in required_input.sources
-            ):
-                continue
-            blockers.update(source.node_id for source in required_input.sources)
-        return frozenset(blockers)
-
-    def _validate_causality(self, payload: FactPayload) -> None:
-        if self._state.run_terminal:
-            raise self._causal_error()
-        if isinstance(payload, RunScopeBound):
-            if (
-                self._state.facts
-                or payload.project_id != self._project_id
-                or payload.run_id != self._run_id
-                or payload.plan_nodes != self.plan_nodes
-                or tuple(
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contracts
-                )
-                != tuple(
-                    sorted(
-                        {
-                            _typed_reference_key(reference)
-                            for reference in payload.resolved_contracts
-                        }
-                    )
-                )
-                or tuple(
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contract_roots
-                )
-                != tuple(
-                    sorted(
-                        {
-                            _typed_reference_key(reference)
-                            for reference in payload.resolved_contract_roots
-                        }
-                    )
-                )
-                or tuple(
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contracts
-                )
-                != tuple(
-                    _typed_reference_key(reference)
-                    for reference in self._expected_resolved_contracts
-                )
-                or tuple(
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contract_roots
-                )
-                != tuple(
-                    _typed_reference_key(reference)
-                    for reference in self._expected_contract_roots
-                )
-                or not self._minimum_contract_root_keys
-                <= {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contract_roots
-                }
-                or not self._minimum_resolved_contract_keys
-                <= {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contracts
-                }
-                or not {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contract_roots
-                }
-                <= {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contracts
-                }
-                or payload.contract_lock_digest
-                != contract_lock_digest(payload.resolved_contracts)
-                or payload.selection_terminal_keys
-                != self._selection_consumer_ids
-            ):
-                raise self._causal_error()
-            return
-        if not self._state.facts:
-            raise self._causal_error()
-        scope = cast(RunScopeBound, self._state.facts[0].payload)
-        if isinstance(payload, AvailabilityBound):
-            binding_key = _typed_reference_key(payload.binding)
-            if (
-                self._state.run_admitted
-                or binding_key not in self._expected_binding_keys
-                or binding_key in self._state.availability_by_binding
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, RunAdmitted):
-            if (
-                self._state.run_admitted
-                or self._state.run_started
-                or payload.workflow_commit_id != scope.workflow_commit_id
-                or payload.workflow_commit_revision
-                != scope.workflow_commit_revision
-                or set(self._state.availability_by_binding)
-                != set(self._expected_binding_keys)
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, RunStarted):
-            if not self._state.run_admitted or self._state.run_started:
-                raise self._causal_error()
-            return
-        if isinstance(payload, ReadinessAttested):
-            binding_key = _typed_reference_key(payload.binding)
-            availability = self._state.availability_by_binding.get(binding_key)
-            if (
-                not self._state.run_started
-                or binding_key not in self._provider_binding_keys
-                or availability is None
-                or availability.available is not True
-                or binding_key in self._state.readiness_by_binding
-                or payload.attestation_digest
-                != readiness_attestation_digest(
-                    binding=payload.binding,
-                    readiness_contract_digest=(
-                        payload.readiness_contract_digest
-                    ),
-                    observed_at=payload.observed_at,
-                    conclusion=payload.conclusion,
-                    proof_source=payload.proof_source,
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, CancellationRequested):
-            if (
-                not self._state.run_started
-                or self._state.cancellation_sequence is not None
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, NodeAttemptStarted):
-            node_id = payload.node_id
-            attempt_id = payload.node_attempt_id
-            if (
-                not self._state.run_started
-                or self._state.cancellation_sequence is not None
-                or node_id not in self._plan_nodes
-                or node_id in self._state.node_attempt_by_node
-                or node_id in self._state.dispositions
-                or attempt_id in self._state.node_attempts
-                or any(
-                    upstream not in self._state.dispositions
-                    for upstream in self._dependencies[node_id]
-                )
-                or self._required_input_blocker_set(node_id)
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, OperationAttemptStarted):
-            attempt_id = payload.node_attempt_id
-            operation_id = payload.operation_attempt_id
-            attempt = self._state.node_attempts.get(attempt_id)
-            if attempt is None:
-                raise self._causal_error()
-            node_id = attempt.node_id
-            binding_key = _typed_reference_key(
-                self._bindings_by_node[node_id]
-            )
-            readiness = self._state.readiness_by_binding.get(binding_key)
-            if (
-                self._state.cancellation_sequence is not None
-                or attempt.terminal is not None
-                or operation_id in self._state.operations
-                or any(
-                    operation.node_attempt_id == attempt_id
-                    for operation in self._state.operations.values()
-                )
-                or (
-                    self._execution_routes[node_id] == "adapter"
-                    and (
-                        readiness is None
-                        or readiness.conclusion != "passing"
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, EngineInvocationStarted):
-            operation_id = payload.operation_attempt_id
-            invocation_id = payload.invocation_id
-            parent_invocation_id = payload.parent_invocation_id
-            operation = self._state.operations.get(operation_id)
-            parent = (
-                self._state.invocations.get(parent_invocation_id)
-                if parent_invocation_id is not None
-                else None
-            )
-            if (
-                self._state.cancellation_sequence is not None
-                or operation is None
-                or operation.terminal is not None
-                or invocation_id in self._state.invocations
-                or (
-                    parent_invocation_id is not None
-                    and (
-                        parent is None
-                        or parent.operation_attempt_id != operation_id
-                        or parent.terminal != "succeeded"
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, EngineInvocationTerminal):
-            invocation = self._state.invocations.get(payload.invocation_id)
-            if (
-                invocation is None
-                or invocation.terminal is not None
-                or (
-                    payload.status == "cancelled"
-                    and self._state.cancellation_sequence is None
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, OperationAttemptTerminal):
-            operation_id = payload.operation_attempt_id
-            operation = self._state.operations.get(operation_id)
-            if (
-                operation is None
-                or operation.terminal is not None
-                or (
-                    payload.status == "cancelled"
-                    and self._state.cancellation_sequence is None
-                )
-                or any(
-                    invocation.operation_attempt_id == operation_id
-                    and invocation.terminal is None
-                    for invocation in self._state.invocations.values()
-                )
-                or (
-                    payload.status == "succeeded"
-                    and any(
-                        invocation.operation_attempt_id == operation_id
-                        and invocation.terminal != "succeeded"
-                        for invocation in self._state.invocations.values()
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, OutputsPublished):
-            node_id = payload.node_id
-            attempt_id = self._state.node_attempt_by_node.get(node_id)
-            attempt = (
-                self._state.node_attempts.get(attempt_id)
-                if attempt_id is not None
-                else None
-            )
-            if (
-                self._state.cancellation_sequence is not None
-                or attempt is None
-                or attempt.terminal is not None
-                or node_id in self._state.dispositions
-                or node_id in self._state.nonempty_output_ports
-            ):
-                raise self._causal_error()
-            child_operations = [
-                operation_id
-                for operation_id, operation in self._state.operations.items()
-                if operation.node_attempt_id == attempt_id
-            ]
-            if child_operations and any(
-                self._state.operations[operation_id].terminal != "succeeded"
-                for operation_id in child_operations
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, NodeAttemptTerminal):
-            attempt_id = payload.node_attempt_id
-            attempt = self._state.node_attempts.get(attempt_id)
-            child_operations = [
-                operation
-                for operation in self._state.operations.values()
-                if operation.node_attempt_id == attempt_id
-            ]
-            if (
-                attempt is None
-                or attempt.terminal is not None
-                or (
-                    payload.status == "cancelled"
-                    and self._state.cancellation_sequence is None
-                )
-                or any(operation.terminal is None for operation in child_operations)
-                or (
-                    payload.resolution == "cache_replayed"
-                    and (
-                        child_operations
-                        or (
-                            payload.status == "succeeded"
-                            and attempt.node_id
-                            not in self._state.nonempty_output_ports
-                        )
-                        or (
-                            payload.status == "failed"
-                            and attempt.node_id
-                            in self._state.nonempty_output_ports
-                        )
-                    )
-                )
-                or (
-                    payload.resolution == "executed"
-                    and payload.status == "succeeded"
-                    and len(child_operations) != 1
-                )
-                or (
-                    payload.resolution == "executed"
-                    and child_operations
-                    and child_operations[-1].terminal != payload.status
-                    and not (
-                        payload.status == "failed"
-                        and payload.failure_origin == "publication"
-                        and child_operations[-1].terminal == "succeeded"
-                    )
-                    and not (
-                        self._state.cancellation_sequence is not None
-                        and payload.status
-                        in {"cancelled", "interrupted", "outcome_unknown"}
-                        and child_operations[-1].terminal
-                        in {
-                            "succeeded",
-                            "cancelled",
-                            "interrupted",
-                            "outcome_unknown",
-                        }
-                    )
-                )
-            ):
-                raise self._causal_error()
-            failure_origin = payload.failure_origin
-            if failure_origin == "operation" and (
-                payload.resolution != "executed"
-                or len(child_operations) != 1
-                or child_operations[0].terminal != "failed"
-            ):
-                raise self._causal_error()
-            if failure_origin == "attempt" and (
-                payload.resolution != "executed" or child_operations
-            ):
-                raise self._causal_error()
-            if failure_origin == "binding" and (
-                payload.resolution != "executed" or child_operations
-            ):
-                raise self._causal_error()
-            if failure_origin == "binding":
-                node_id = attempt.node_id
-                binding_key = _typed_reference_key(
-                    self._bindings_by_node[node_id]
-                )
-                availability = self._state.availability_by_binding.get(
-                    binding_key
-                )
-                readiness = self._state.readiness_by_binding.get(binding_key)
-                error = payload.error
-                if (
-                    error is None
-                    or self._execution_routes[node_id] != "adapter"
-                    or (
-                        error.code == "binding_unavailable"
-                        and (
-                            availability is None
-                            or availability.available is not False
-                        )
-                    )
-                    or (
-                        error.code == "readiness_rejected"
-                        and (
-                            readiness is None
-                            or readiness.conclusion != "failing"
-                        )
-                    )
-                    or error.code
-                    not in {"binding_unavailable", "readiness_rejected"}
-                ):
-                    raise self._causal_error()
-            if failure_origin == "publication" and (
-                (
-                    payload.resolution == "executed"
-                    and (
-                        len(child_operations) != 1
-                        or child_operations[0].terminal != "succeeded"
-                    )
-                )
-                or (
-                    payload.resolution == "cache_replayed"
-                    and child_operations
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, NodeDisposition):
-            node_id = payload.node_id
-            outcome = payload.outcome
-            if (
-                node_id not in self._plan_nodes
-                or node_id in self._state.dispositions
-            ):
-                raise self._causal_error()
-            attempt_id = self._state.node_attempt_by_node.get(node_id)
-            attempt = (
-                self._state.node_attempts.get(attempt_id)
-                if attempt_id is not None
-                else None
-            )
-            if outcome == "blocked":
-                blocked_by = frozenset(payload.blocked_by)
-                if (
-                    self._state.cancellation_sequence is not None
-                    or attempt is not None
-                    or not blocked_by
-                    or any(
-                        upstream not in self._state.dispositions
-                        for upstream in self._dependencies[node_id]
-                    )
-                    or blocked_by != self._required_input_blocker_set(node_id)
-                ):
-                    raise self._causal_error()
-                return
-            if (
-                outcome == "succeeded"
-                and self._state.cancellation_sequence is not None
-            ):
-                raise self._causal_error()
-            if (
-                outcome == "cancelled"
-                and self._state.cancellation_sequence is None
-            ):
-                raise self._causal_error()
-            if outcome == "cancelled" and attempt is None:
-                return
-            if outcome == "interrupted" and attempt is None:
-                return
-            if attempt is None or attempt.terminal is None:
-                raise self._causal_error()
-            expected_outcome = {
-                "succeeded": "succeeded",
-                "failed": "failed",
-                "cancelled": "cancelled",
-                "interrupted": "interrupted",
-                "outcome_unknown": "interrupted",
-            }[attempt.terminal]
-            if (
-                expected_outcome != outcome
-                or (
-                    outcome == "succeeded"
-                    and payload.resolution != attempt.resolution
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, SelectionTerminal):
-            selection_key = (
-                payload.result.selection_node_id
-                if payload.result is not None
-                else "__failed__"
-            )
-            if (
-                not self._state.run_started
-                or not self._state.expected_selection_terminal_keys
-                or set(self._state.dispositions) != set(self._plan_nodes)
-                or any(
-                    disposition.outcome != "succeeded"
-                    for disposition in self._state.dispositions.values()
-                )
-                or (
-                    payload.status == "succeeded"
-                    and (
-                        selection_key
-                        not in self._state.expected_selection_terminal_keys
-                        or selection_key in _selection_result_keys(
-                            self._state.selection_terminals
-                        )
-                    )
-                )
-                or (
-                    payload.status == "failed"
-                    and self._state.selection_terminals
-                )
-                or (
-                    payload.status == "succeeded"
-                    and any(
-                        terminal.status == "failed"
-                        for terminal in self._state.selection_terminals
-                    )
-                )
-            ):
-                raise self._causal_error()
-            return
-        if isinstance(payload, RunTerminal):
-            if (
-                payload.status == "interrupted"
-                and self._state.run_admitted
-                and not self._state.run_terminal
-            ):
-                return
-            expected_status = _typed_run_terminal_status(
-                self._state.dispositions.values(),
-                tuple(self._state.selection_terminals),
-            )
-            outcomes = {
-                disposition.outcome
-                for disposition in self._state.dispositions.values()
-            }
-            if (
-                not self._state.run_started
-                or set(self._state.dispositions) != set(self._plan_nodes)
-                or any(
-                    attempt.terminal is None
-                    for attempt in self._state.node_attempts.values()
-                )
-                or any(
-                    operation.terminal is None
-                    for operation in self._state.operations.values()
-                )
-                or any(
-                    invocation.terminal is None
-                    for invocation in self._state.invocations.values()
-                )
-                or (
-                    self._state.expected_selection_terminal_keys
-                    and not outcomes.intersection(
-                        {"failed", "interrupted", "cancelled"}
-                    )
-                    and payload.status == "succeeded"
-                    and _selection_result_keys(
-                        self._state.selection_terminals
-                    )
-                    != set(self._state.expected_selection_terminal_keys)
-                )
-                or payload.status != expected_status
-            ):
-                raise self._causal_error()
-            return
-        raise self._causal_error()
-
-    def _apply(self, payload: FactPayload) -> None:
-        if isinstance(payload, RunScopeBound):
-            self._state.expected_selection_terminal_keys = (
-                payload.selection_terminal_keys
-            )
-        elif isinstance(payload, AvailabilityBound):
-            self._state.availability_by_binding[
-                _typed_reference_key(payload.binding)
-            ] = payload
-        elif isinstance(payload, ReadinessAttested):
-            self._state.readiness_by_binding[
-                _typed_reference_key(payload.binding)
-            ] = payload
-        elif isinstance(payload, RunAdmitted):
-            self._state.run_admitted = True
-        elif isinstance(payload, RunStarted):
-            self._state.run_started = True
-        elif isinstance(payload, CancellationRequested):
-            self._state.cancellation_sequence = len(self._state.facts)
-        elif isinstance(payload, NodeAttemptStarted):
-            self._state.node_attempts[payload.node_attempt_id] = (
-                NodeAttemptState(node_id=payload.node_id)
-            )
-            self._state.node_attempt_by_node[payload.node_id] = (
-                payload.node_attempt_id
-            )
-        elif isinstance(payload, OperationAttemptStarted):
-            self._state.operations[payload.operation_attempt_id] = (
-                OperationAttemptState(node_attempt_id=payload.node_attempt_id)
-            )
-        elif isinstance(payload, EngineInvocationStarted):
-            self._state.invocations[payload.invocation_id] = InvocationState(
-                operation_attempt_id=payload.operation_attempt_id,
-                parent_invocation_id=payload.parent_invocation_id,
-            )
-        elif isinstance(payload, EngineInvocationTerminal):
-            invocation = self._state.invocations[payload.invocation_id]
-            invocation.terminal = payload.status
-        elif isinstance(payload, OperationAttemptTerminal):
-            operation = self._state.operations[payload.operation_attempt_id]
-            operation.terminal = payload.status
-        elif isinstance(payload, NodeAttemptTerminal):
-            attempt = self._state.node_attempts[payload.node_attempt_id]
-            attempt.terminal = payload.status
-            attempt.resolution = payload.resolution
-        elif isinstance(payload, OutputsPublished):
-            self._state.nonempty_output_ports[payload.node_id] = {
-                output.output_port
-                for output in payload.outputs
-                if output.value_count > 0
-            } | {artifact.output_port for artifact in payload.artifacts}
-        elif isinstance(payload, NodeDisposition):
-            self._state.dispositions[payload.node_id] = payload
-        elif isinstance(payload, SelectionTerminal):
-            self._state.selection_terminals.append(payload)
-        elif isinstance(payload, RunTerminal):
-            self._state.run_terminal = True
-
-    def _stage_facts(
-        self,
-        facts: tuple[Fact, ...],
-    ) -> LedgerReducerState:
-        self._validate_transaction_boundary(facts)
-        prior_state = self._state
-        staged_state = prior_state.clone()
-        self._install_reducer_state(staged_state)
-        try:
-            for fact in facts:
-                payload = fact.payload
-                self._validate_causality(payload)
-                self._state.facts.append(fact)
-                self._apply(payload)
-            return staged_state
-        finally:
-            self._install_reducer_state(prior_state)
-
-    def _validate_transaction_boundary(
-        self,
-        facts: tuple[Fact, ...],
-    ) -> None:
-        closure_facts = [
-            fact
-            for fact in facts
-            if isinstance(fact.payload, (SelectionTerminal, RunTerminal))
-        ]
-        if closure_facts:
-            if (
-                closure_facts != list(facts)
-                or not isinstance(facts[-1].payload, RunTerminal)
-                or any(
-                    not isinstance(fact.payload, SelectionTerminal)
-                    for fact in facts[:-1]
-                )
-            ):
-                raise self._causal_error()
-            return
-        operation_terminals = [
-            fact
-            for fact in facts
-            if isinstance(fact.payload, OperationAttemptTerminal)
-        ]
-        node_terminals = [
-            fact
-            for fact in facts
-            if isinstance(fact.payload, NodeAttemptTerminal)
-        ]
-        output_publications = [
-            fact
-            for fact in facts
-            if isinstance(fact.payload, OutputsPublished)
-        ]
-        dispositions = [
-            fact
-            for fact in facts
-            if isinstance(fact.payload, NodeDisposition)
-        ]
-        if not (operation_terminals or node_terminals or output_publications):
-            return
-        if (
-            len(operation_terminals) > 1
-            or len(node_terminals) != 1
-            or len(dispositions) != 1
-        ):
-            raise self._causal_error()
-        node_terminal = cast(NodeAttemptTerminal, node_terminals[0].payload)
-        attempt = self._state.node_attempts.get(
-            node_terminal.node_attempt_id
-        )
-        disposition = cast(NodeDisposition, dispositions[0].payload)
-        if (
-            attempt is None
-            or disposition.node_id != attempt.node_id
-        ):
-            raise self._causal_error()
-        terminal_succeeded = node_terminal.status == "succeeded"
-        publication_node_ids = {
-            fact.payload.node_id for fact in output_publications
-        }
-        if (
-            terminal_succeeded != (len(output_publications) == 1)
-            or (not terminal_succeeded and output_publications)
-            or publication_node_ids - {attempt.node_id}
-        ):
-            raise self._causal_error()
-        open_operations = [
-            operation_id
-            for operation_id, operation in self._state.operations.items()
-            if (
-                operation.node_attempt_id == node_terminal.node_attempt_id
-                and operation.terminal is None
-            )
-        ]
-        if (
-            bool(open_operations) != bool(operation_terminals)
-            or (
-                operation_terminals
-                and cast(
-                    OperationAttemptTerminal,
-                    operation_terminals[0].payload,
-                ).operation_attempt_id
-                not in open_operations
-            )
-        ):
-            raise self._causal_error()
-        expected_payload_types = [
-            *(
-                (OperationAttemptTerminal,)
-                if operation_terminals
-                else ()
-            ),
-            *((OutputsPublished,) if terminal_succeeded else ()),
-            NodeAttemptTerminal,
-            NodeDisposition,
-        ]
-        if [type(fact.payload) for fact in facts] != expected_payload_types:
-            raise self._causal_error()
-
     def _commit(
         self,
         payloads: tuple[FactPayload, ...],
     ) -> LedgerAcknowledgement:
-        """Validate and durably publish one atomic logical transition."""
+        """Durably publish one trusted typed logical transition."""
         with self._condition:
             self._require_available_evidence()
             first_sequence = len(self._state.facts) + 1
@@ -1414,14 +582,7 @@ class Ledger:
                 )
                 for offset, payload in enumerate(payloads)
             )
-            try:
-                staged_state = self._stage_facts(facts)
-            except (TypeError, ValueError) as error:
-                raise self._causal_error() from error
-            except V2RunError as error:
-                if error.code == "evidence_unavailable":
-                    self._mark_evidence_unavailable(error)
-                raise
+            staged_state = self._reducer.apply_facts(self._state, facts)
             transaction_sequence = self._transaction_count + 1
             transaction = LedgerTransaction(
                 project_id=self._project_id,
@@ -1451,7 +612,7 @@ class Ledger:
                 )
                 self._mark_evidence_unavailable(unavailable)
                 raise unavailable from error
-            self._install_reducer_state(staged_state)
+            self._state = staged_state
             self._transaction_count = transaction_sequence
             self._committed_fact_count = facts[-1].sequence
             self._condition.notify_all()
@@ -1465,23 +626,23 @@ class Ledger:
         self,
         transaction: LedgerTransaction,
     ) -> None:
-        staged_state = self._stage_facts(transaction.facts)
-        self._install_reducer_state(staged_state)
+        staged_state = self._reducer.replay_facts(
+            self._state,
+            transaction.facts,
+        )
+        self._state = staged_state
         self._transaction_count = transaction.transaction_sequence
         self._committed_fact_count = transaction.last_fact_sequence
 
     def _load_transaction(self, encoded: bytes) -> None:
         with self._condition:
-            try:
-                transaction = decode_transaction(
-                    encoded,
-                    expected_project_id=self._project_id,
-                    expected_run_id=self._run_id,
-                    expected_transaction_sequence=self._transaction_count + 1,
-                    expected_first_fact_sequence=len(self._state.facts) + 1,
-                )
-            except (KeyError, TypeError, ValueError) as error:
-                raise self._causal_error() from error
+            transaction = decode_transaction(
+                encoded,
+                expected_project_id=self._project_id,
+                expected_run_id=self._run_id,
+                expected_transaction_sequence=self._transaction_count + 1,
+                expected_first_fact_sequence=len(self._state.facts) + 1,
+            )
             self._install_loaded_transaction(transaction)
 
     def projection(self) -> RunProjection:
@@ -1525,7 +686,7 @@ class Ledger:
                     decision_sequence=terminal_sequence,
                     cursor=self._cursor_at(terminal_sequence),
                 )
-            if set(self._state.dispositions) == set(self._plan_nodes):
+            if set(self._state.dispositions) == set(self._plan_node_order):
                 decision_sequence = len(self._state.facts)
                 return CancellationDecision(
                     outcome="completed_before_cancel",
