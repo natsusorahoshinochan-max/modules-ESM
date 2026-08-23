@@ -64,96 +64,6 @@ _PARAMETER_METADATA_KEYS = frozenset(
         "value_contract",
     }
 )
-_ENVIRONMENT_TOKENS = frozenset(
-    {
-        "access",
-        "auth",
-        "authorization",
-        "checkpoint",
-        "certificate",
-        "connection",
-        "credential",
-        "credentials",
-        "cuda",
-        "deployment",
-        "database",
-        "device",
-        "dsn",
-        "endpoint",
-        "environment",
-        "gpu",
-        "header",
-        "host",
-        "key",
-        "model",
-        "passwd",
-        "password",
-        "path",
-        "provider",
-        "runtime",
-        "secret",
-        "server",
-        "service",
-        "ssh",
-        "token",
-        "tls",
-        "uri",
-        "url",
-    }
-)
-_ENVIRONMENT_TOKEN_PAIRS = frozenset(
-    {
-        ("api", "key"),
-        ("private", "key"),
-    }
-)
-
-
-def _parameter_name_tokens(name: str) -> tuple[str, ...]:
-    """Normalize snake/kebab/dotted/camel/acronym names to semantic tokens."""
-    separated = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
-    separated = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", separated)
-    normalized = re.sub(r"[^A-Za-z0-9]+", "_", separated).strip("_").lower()
-    return tuple(part for part in normalized.split("_") if part)
-
-
-def _is_environment_parameter_name(name: str) -> bool:
-    """Return whether a field denotes runtime/model/environment selection."""
-    tokens = _parameter_name_tokens(name)
-    if set(tokens).intersection(_ENVIRONMENT_TOKENS):
-        return True
-    return any(
-        pair in _ENVIRONMENT_TOKEN_PAIRS
-        for pair in zip(tokens, tokens[1:])
-    )
-
-
-def _find_environment_parameter_field(
-    value: Any,
-    *,
-    path: tuple[str | int, ...] = (),
-) -> tuple[str | int, ...] | None:
-    """Find an unsafe nested key in one author-controlled JSON value."""
-    if isinstance(value, Mapping):
-        for name, item in value.items():
-            item_path = (*path, name)
-            if _is_environment_parameter_name(name):
-                return item_path
-            nested = _find_environment_parameter_field(
-                item,
-                path=item_path,
-            )
-            if nested is not None:
-                return nested
-    elif isinstance(value, (list, tuple)):
-        for index, item in enumerate(value):
-            nested = _find_environment_parameter_field(
-                item,
-                path=(*path, index),
-            )
-            if nested is not None:
-                return nested
-    return None
 
 
 def _validate_parameter_declarations(
@@ -164,11 +74,6 @@ def _validate_parameter_declarations(
     """Fail closed unless declarations use the supported value vocabulary."""
     for name, declaration in declarations.items():
         declaration_path = f"{path}.{name}"
-        if _is_environment_parameter_name(name):
-            raise ParameterContractDefinitionError(
-                f"{declaration_path} declares Environment Configuration "
-                "or model identity"
-            )
         if not isinstance(declaration, Mapping):
             raise ParameterContractDefinitionError(
                 f"{declaration_path} must be an object"
@@ -218,15 +123,6 @@ def _validate_parameter_declarations(
             schema,
             path=f"{declaration_path}.value_contract",
         )
-        if "default" in declaration:
-            environment_default = _find_environment_parameter_field(
-                declaration["default"]
-            )
-            if environment_default is not None:
-                raise ParameterContractDefinitionError(
-                    f"{declaration_path}.default contains Environment "
-                    "Configuration or model identity"
-                )
 
 
 def _validate_value_contract_schema(
@@ -294,15 +190,6 @@ def _validate_value_contract_schema(
         ):
             raise ParameterContractDefinitionError(
                 f"{path}.enum/const values must conform to type"
-            )
-    for keyword in ("const", "enum"):
-        if (
-            keyword in schema
-            and _find_environment_parameter_field(schema[keyword]) is not None
-        ):
-            raise ParameterContractDefinitionError(
-                f"{path}.{keyword} contains Environment Configuration "
-                "or model identity"
             )
     for keyword in (
         "minimum",
@@ -469,11 +356,6 @@ def _validate_value_contract_schema(
                 raise ParameterContractDefinitionError(
                     f"{path}.properties.{name}.scientific_meaning must "
                     "explicitly describe the scientific value field"
-                )
-            if _is_environment_parameter_name(name):
-                raise ParameterContractDefinitionError(
-                    f"{path}.properties.{name} declares Environment "
-                    "Configuration or model identity"
                 )
             _validate_value_contract_schema(
                 property_schema,

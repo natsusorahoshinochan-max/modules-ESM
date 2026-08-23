@@ -275,7 +275,6 @@ def _validate_propagation_relationships(
 def build_frozen_catalog(
     registrations: Sequence[ModulePackageRegistration],
     *,
-    builtin_port_types: Sequence[PortTypeDefinition] | None = None,
     observed_at: datetime | None = None,
 ) -> FrozenCatalog:
     """Validate all registrations in temporary state, then return one Catalog."""
@@ -295,14 +294,9 @@ def build_frozen_catalog(
             )
         package_identities.add(package_identity)
 
-    port_types = tuple(
-        builtin_port_types
-        if builtin_port_types is not None
-        else repository_builtin_port_types()
-    )
     port_type_entries: list[tuple[str, PortTypeDefinition]] = [
         ("protein-workbench.core", definition)
-        for definition in port_types
+        for definition in repository_builtin_port_types()
     ]
     definitions: list[tuple[str, CatalogDefinition]] = []
     loaded_resources: set[tuple[str, str]] = set()

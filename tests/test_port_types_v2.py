@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.catalog.builder import build_frozen_catalog
+from core.catalog.declarations import ModulePackageRegistration
 
 from protein_workbench_public.bootstrap import module_registrations
 
@@ -91,6 +92,19 @@ EXPECTED_PORT_TYPE_VERSIONS = {
     }.get(type_id, "2.1.0")
     for type_id in EXPECTED_PORT_TYPE_IDS
 }
+
+
+def _port_type_package(
+    *port_types: PortTypeDefinition,
+) -> ModulePackageRegistration:
+    return ModulePackageRegistration(
+        package_id="test.port-types",
+        package_version="1.0.0",
+        package_module=__name__,
+        port_types=port_types,
+    )
+
+
 EXPECTED_PORT_TYPE_DIGESTS = {
     "candidate.collection": (
         "sha256:6319f8276636afb85ef8986f12b60645ca38ff5d1fec72e037345832b62bfc1d"
@@ -1227,12 +1241,10 @@ def test_runtime_callables_never_enter_stable_contract_identity() -> None:
     source_definition = build_definition()
     installed_definition = build_definition()
     source_catalog = build_frozen_catalog(
-        (),
-        builtin_port_types=(source_definition,),
+        (_port_type_package(source_definition),)
     )
     installed_catalog = build_frozen_catalog(
-        (),
-        builtin_port_types=(installed_definition,),
+        (_port_type_package(installed_definition),)
     )
 
     assert source_definition.descriptor_bytes == (
@@ -1290,8 +1302,7 @@ def test_port_type_catalog_build_is_atomic_on_duplicate_identity() -> None:
 
     with pytest.raises(CatalogBuildError, match="duplicate contract identity"):
         build_frozen_catalog(
-            (),
-            builtin_port_types=(*published.port_types, duplicate),
+            (_port_type_package(duplicate),)
         )
 
     assert published.contract_digest == original_digest
@@ -1307,6 +1318,5 @@ def test_direct_catalog_construction_rejects_multiple_active_port_versions() -> 
         match="multiple active versions for contract port_type:text",
     ):
         build_frozen_catalog(
-            (),
-            builtin_port_types=(current, incompatible),
+            (_port_type_package(incompatible),)
         )

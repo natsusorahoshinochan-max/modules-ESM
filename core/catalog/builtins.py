@@ -217,4 +217,4 @@ def builtin_frozen_catalog() -> FrozenCatalog:
     """Build and cache the repository-owned built-in Port Type Catalog."""
     from .builder import build_frozen_catalog
 
-    return build_frozen_catalog((), builtin_port_types=builtin_port_types())
+    return build_frozen_catalog(())

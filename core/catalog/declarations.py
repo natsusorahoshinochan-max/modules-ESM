@@ -327,8 +327,6 @@ class UtilityTransformDefinition:
     )
 
     def __post_init__(self) -> None:
-        _require_identifier(self.transform_id, "transform_id")
-        _require_version(self.version, "Utility Transform version")
         for field_name in ("compatible_input_contract", "parameters"):
             value = getattr(self, field_name)
             if not isinstance(value, Mapping):

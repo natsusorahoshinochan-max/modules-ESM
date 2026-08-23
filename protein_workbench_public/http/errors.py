@@ -210,7 +210,7 @@ def authoring_error_response(
 def websocket_internal_error_boundary(
     handler: Callable[..., Awaitable[None]],
 ) -> Callable[..., Awaitable[None]]:
-    """Place the sole unknown-exception boundary around a WebSocket route."""
+    """Translate an unknown WebSocket failure to the public protocol."""
 
     @wraps(handler)
     async def guarded(
@@ -240,81 +240,50 @@ def websocket_internal_error_boundary(
 
 
 def install_error_handlers(app: FastAPI) -> None:
-    """Install the sole public unknown-exception and framework boundaries."""
+    """Install the current public framework and failure boundaries."""
 
     @app.exception_handler(StoragePathError)
     async def storage_path_error_handler(
-        request: Request,
+        _request: Request,
         error: StoragePathError,
     ) -> JSONResponse:
-        if request.url.path.startswith("/api/v2/"):
-            incident_id = report_public_internal_error(
-                error,
-                transport="REST",
-            )
-            return public_error_response(
-                "internal_error",
-                "Internal server error",
-                {"incident_id": incident_id},
-            )
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "kind": "invalid_storage_path",
-                    "field": error.field,
-                    "message": str(error),
-                },
-            },
+        incident_id = report_public_internal_error(
+            error,
+            transport="REST",
+        )
+        return public_error_response(
+            "internal_error",
+            "Internal server error",
+            {"incident_id": incident_id},
         )
 
     @app.exception_handler(RequestValidationError)
     async def request_validation_error_handler(
-        request: Request,
+        _request: Request,
         error: RequestValidationError,
     ) -> JSONResponse:
         body_error = any(
             item.get("loc", (None,))[0] == "body"
             for item in error.errors()
         )
-        if request.url.path.startswith("/api/v2/"):
-            return public_error_response(
-                "malformed_request",
-                (
-                    "Request body is invalid"
-                    if body_error
-                    else "Request is invalid"
-                ),
-                {"field_path": []},
-            )
-        return JSONResponse(
-            status_code=422,
-            content={
-                "error": {
-                    "kind": (
-                        "invalid_request_body"
-                        if body_error
-                        else "invalid_request"
-                    ),
-                    "message": (
-                        "Request body is invalid"
-                        if body_error
-                        else "Request is invalid"
-                    ),
-                }
-            },
+        return public_error_response(
+            "malformed_request",
+            (
+                "Request body is invalid"
+                if body_error
+                else "Request is invalid"
+            ),
+            {"field_path": []},
         )
 
     @app.middleware("http")
-    async def public_v2_internal_error_boundary(
+    async def public_internal_error_boundary(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         try:
             return await call_next(request)
         except Exception as error:
-            if not request.url.path.startswith("/api/v2/"):
-                raise
             incident_id = report_public_internal_error(
                 error,
                 transport="REST",

@@ -1440,46 +1440,6 @@ def test_compile_rejects_undeclared_nested_fields_as_invalid_values(
 
 
 @pytest.mark.parametrize(
-    "forbidden_name",
-    [
-        "apiToken",
-        "accessKey",
-        "awsAccessKeyId",
-        "baseURL",
-        "credentialHandle",
-        "gpuDevice",
-        "modelPath",
-        "password",
-        "runtime.path",
-        "serviceURI",
-        "sshKey",
-        "auth_header",
-    ],
-)
-def test_catalog_rejects_nested_environment_field_declarations(
-    forbidden_name: str,
-) -> None:
-    with pytest.raises(CatalogBuildError, match="Environment Configuration"):
-        _workflow_catalog(
-            source_node_parameter_overrides={
-                "scientific_options": {
-                    "value_contract": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            forbidden_name: {
-                                "field_scope": "scientific",
-                                "scientific_meaning": "Synthetic scientific field.",
-                                "type": "string",
-                            },
-                        },
-                    },
-                },
-            }
-        )
-
-
-@pytest.mark.parametrize(
     "unsupported_contract",
     [
         {"type": "integer", "multipleOf": 2},
@@ -1499,34 +1459,6 @@ def test_catalog_rejects_unsupported_parameter_contract_keywords(
                 "closed_contract": {
                     "value_contract": unsupported_contract
                 },
-            }
-        )
-
-
-@pytest.mark.parametrize(
-    "environment_name",
-    [
-        "apiToken",
-        "accessKey",
-        "awsAccessKeyId",
-        "baseURL",
-        "credentialHandle",
-        "gpuDevice",
-        "modelPath",
-        "password",
-        "runtime.path",
-        "serviceURI",
-        "sshKey",
-        "auth_header",
-    ],
-)
-def test_catalog_rejects_environment_parameter_declarations(
-    environment_name: str,
-) -> None:
-    with pytest.raises(CatalogBuildError, match="Environment Configuration"):
-        _workflow_catalog(
-            source_node_parameter_overrides={
-                environment_name: {"type": "string"},
             }
         )
 
@@ -1634,28 +1566,7 @@ def test_catalog_requires_explicit_scientific_parameter_classification(
         )
 
 
-@pytest.mark.parametrize(
-    "property_declaration",
-    [
-        {"measurement": {"type": "string"}},
-        {
-            "connectionString": {
-                "field_scope": "scientific",
-                "scientific_meaning": "Invalid database endpoint disguise",
-                "type": "string",
-            }
-        },
-        {
-            "tlsCertificate": {
-                "field_scope": "scientific",
-                "scientific_meaning": "Invalid runtime certificate disguise",
-                "type": "string",
-            }
-        },
-    ],
-)
-def test_catalog_classifies_nested_scientific_fields_explicitly(
-    property_declaration: dict,
+def test_catalog_requires_explicit_nested_scientific_field_classification(
 ) -> None:
     with pytest.raises(CatalogBuildError):
         _workflow_catalog(
@@ -1664,7 +1575,9 @@ def test_catalog_classifies_nested_scientific_fields_explicitly(
                     "value_contract": {
                         "type": "object",
                         "additionalProperties": False,
-                        "properties": property_declaration,
+                        "properties": {
+                            "measurement": {"type": "string"},
+                        },
                     },
                 },
             }

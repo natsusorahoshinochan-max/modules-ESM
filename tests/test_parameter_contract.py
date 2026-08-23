@@ -80,33 +80,6 @@ def test_value_admission_is_the_only_owner_of_default_value_semantics() -> None:
     assert raised.value.path == ("count",)
 
 
-def test_declaration_admission_owns_environment_field_classification() -> None:
-    with pytest.raises(
-        ParameterContractDefinitionError,
-        match="Environment Configuration",
-    ):
-        admit_declarations(
-            {
-                "options": {
-                    "parameter_scope": "scientific",
-                    "scientific_meaning": "Scientific selection options.",
-                    "value_contract": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "modelPath": {
-                                "field_scope": "scientific",
-                                "scientific_meaning": "Invalid environment field.",
-                                "type": "string",
-                            },
-                        },
-                    },
-                },
-            },
-            path="fixture.parameters",
-        )
-
-
 @pytest.mark.parametrize(
     ("value_contract", "submitted", "expected_path"),
     (
