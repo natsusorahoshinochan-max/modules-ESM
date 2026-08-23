@@ -78,11 +78,6 @@ def normalize_representation(
     )
 
 
-def environment_ready(environment: Mapping[str, Any]) -> bool:
-    """Require the exact endpoint declared by this Binding."""
-    return environment["endpoint_id"] == "biohub"
-
-
 class BiohubESMCAdapter:
     """Translate and admit the exact two-call Biohub ESMC operation."""
 

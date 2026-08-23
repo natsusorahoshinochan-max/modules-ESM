@@ -21,10 +21,7 @@ from core.catalog.declarations import (
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
-from core.catalog.port_contract import (
-    BehaviorReference,
-    PortTypeDefinition,
-)
+from core.catalog.port_contract import BehaviorReference
 from core.operation import (
     AdmittedPort,
     BindingEnvironment,
@@ -48,13 +45,12 @@ from .esmc_implementation import ESMCRepresentationOperation
 from .domain import (
     ESMC_MEAN_EMBEDDING_DIMENSION,
     ESMC_SEQUENCE_LOGITS_DIMENSION,
-    ESMCSequenceRepresentation,
 )
 from .esmc_adapter import (
     BIOHUB_ESMC_MODEL,
     BiohubESMCAdapter,
-    environment_ready as esmc_environment_ready,
 )
+from . import port_types as _port_types
 from .local_adapter import (
     LOCAL_ESM3_DEVICE,
     LOCAL_ESM3_MODEL,
@@ -73,7 +69,6 @@ _PACKAGE_VERSION = "6.0.0"
 _GENERATION_METHOD_VERSION = "5.0.0"
 _GENERATION_NODE_BINDING_VERSION = "8.0.0"
 _ESMC_METHOD_VERSION = "3.0.0"
-_ESMC_PORT_VERSION = "4.0.0"
 _ESMC_NODE_BINDING_VERSION = "5.0.0"
 _OPERATIONS = (
     "generate_sequence",
@@ -114,25 +109,6 @@ _LOCAL_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("device", "json_value"),
     EnvironmentFieldDeclaration("performance_settings", "json_value"),
 )
-
-
-def _provider_installation_is_exact() -> bool:
-    try:
-        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except ProviderInstallationUnavailable:
-        return False
-    return True
-
-
-def _provider_runtime_structurally_available() -> bool:
-    return importlib.util.find_spec("esm") is not None
-
-
-def _esmc_ready(check_input: BindingEnvironment) -> ReadinessResult:
-    return ReadinessResult(
-        esmc_environment_ready(check_input.values)
-        and _provider_installation_is_exact()
-    )
 
 
 def _build_esmc(context: OperationContext) -> ESMCRepresentationOperation:
@@ -274,7 +250,7 @@ def _esmc_binding() -> ExecutionBindingDefinition:
                     "source_revision": ESM_SDK_REVISION,
                 },
             },
-            check=_esmc_ready,
+            check=_ready,
         ),
         deterministic=True,
         cacheable=True,
@@ -292,91 +268,8 @@ def _esmc_binding() -> ExecutionBindingDefinition:
     )
 
 
-def _validate_esmc_representation(value: object) -> None:
-    if type(value) is not ESMCSequenceRepresentation:
-        raise ValueError("ESMC representation has the wrong runtime type")
-
-
-def _esmc_representation_to_wire(value: ESMCSequenceRepresentation) -> object:
-    return {
-        "sequence": value.sequence,
-        "residue_ids": (
-            None if value.residue_ids is None else list(value.residue_ids)
-        ),
-        "mean_embedding": list(value.mean_embedding),
-        "sequence_logits_shape": list(value.sequence_logits_shape),
-    }
-
-
-def _esmc_representation_from_wire(value: object) -> object:
-    if not isinstance(value, dict) or set(value) != {
-        "sequence",
-        "residue_ids",
-        "mean_embedding",
-        "sequence_logits_shape",
-    }:
-        raise ValueError("ESMC representation wire value is not closed")
-    residue_ids = value["residue_ids"]
-    mean_embedding = value["mean_embedding"]
-    logits_shape = value["sequence_logits_shape"]
-    if (
-        (residue_ids is not None and not isinstance(residue_ids, list))
-        or not isinstance(mean_embedding, list)
-        or not isinstance(logits_shape, list)
-    ):
-        raise ValueError("ESMC representation wire value has invalid fields")
-    if any(type(item) not in {int, float} for item in mean_embedding):
-        raise ValueError("ESMC representation embedding is not numeric")
-    return ESMCSequenceRepresentation(
-        sequence=value["sequence"],
-        residue_ids=(
-            None if residue_ids is None else tuple(residue_ids)
-        ),
-        mean_embedding=tuple(float(item) for item in mean_embedding),
-        sequence_logits_shape=tuple(logits_shape),
-    )
-
-
-def _esmc_port_type() -> PortTypeDefinition:
-    type_id = "esm3.esmc_sequence_representation"
-    return PortTypeDefinition(
-        type_id=type_id,
-        version=_ESMC_PORT_VERSION,
-        validator=BehaviorReference(
-            f"{type_id}/validate",
-            _ESMC_PORT_VERSION,
-            {
-                "accepted_value_kind": "esmc_sequence_representation",
-                "finite_binary32_embedding": True,
-                "mean_embedding_dimension": ESMC_MEAN_EMBEDDING_DIMENSION,
-                "sequence_logits_shape": "L_plus_2_by_64",
-                "sequence_logits_axis": "CLS_residue_tokens_EOS",
-                "sequence_logits_class_width": (
-                    ESMC_SEQUENCE_LOGITS_DIMENSION
-                ),
-            },
-        ),
-        codec=BehaviorReference(
-            f"{type_id}/codec",
-            _ESMC_PORT_VERSION,
-            {
-                "canonicalization": "RFC 8785",
-                "character_encoding": "UTF-8",
-            },
-        ),
-        content_identity=BehaviorReference(
-            f"{type_id}/content",
-            _ESMC_PORT_VERSION,
-            {"digest": "SHA-256"},
-        ),
-        runtime_validator=_validate_esmc_representation,
-        runtime_to_wire=_esmc_representation_to_wire,
-        runtime_from_wire=_esmc_representation_from_wire,
-    )
-
-
 def _available() -> AvailabilityResult:
-    if _provider_runtime_structurally_available():
+    if importlib.util.find_spec("esm") is not None:
         return AvailabilityResult.available()
     return AvailabilityResult.unavailable(
         code="esm_sdk_unavailable",
@@ -399,11 +292,13 @@ def _local_available() -> AvailabilityResult:
 
 
 def _ready(check_input: BindingEnvironment) -> ReadinessResult:
-    environment = check_input.values
-    return ReadinessResult(
-        environment["endpoint_id"] == "biohub"
-        and _provider_installation_is_exact()
-    )
+    if check_input.values["endpoint_id"] != "biohub":
+        return ReadinessResult(False)
+    try:
+        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
+    except ProviderInstallationUnavailable:
+        return ReadinessResult(False)
+    return ReadinessResult(True)
 
 
 def _local_ready(check_input: BindingEnvironment) -> ReadinessResult:
@@ -888,5 +783,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ) + tuple(_local_binding(operation) for operation in _OPERATIONS) + (
         _esmc_binding(),
     ),
-    port_types=(_esmc_port_type(),),
+    port_types=(_port_types.ESMC_SEQUENCE_REPRESENTATION_PORT_TYPE,),
 )
