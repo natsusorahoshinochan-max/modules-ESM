@@ -610,8 +610,8 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     proteinmpnn = _ControlledProteinMPNN()
 
     monkeypatch.setattr(
-        "modules.proteinmpnn.adapter._provider_for_environment",
-        lambda _environment, _directory, _models: proteinmpnn,
+        "modules.proteinmpnn.adapter._LocalProteinMPNNProvider",
+        lambda **_kwargs: proteinmpnn,
     )
     prepared_sequences: list[str] = []
 

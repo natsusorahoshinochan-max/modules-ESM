@@ -452,8 +452,8 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
     folding = ControlledFoldingClient()
     proteinmpnn = ControlledProteinMPNNProvider()
     monkeypatch.setattr(
-        "modules.proteinmpnn.adapter._provider_for_environment",
-        lambda _environment, _directory, _models: proteinmpnn,
+        "modules.proteinmpnn.adapter._LocalProteinMPNNProvider",
+        lambda **_kwargs: proteinmpnn,
     )
     catalog = controlled_catalog()
     assert catalog.contract_digest == (

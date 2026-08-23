@@ -461,10 +461,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             else ()
         )
     )
-    method_id = {
-        "design": "proteinmpnn.design.v_48_020_8907e667",
-        "score": "proteinmpnn.score.v_48_020_8907e667",
-    }.get(operation, f"proteinmpnn.{operation}.repository_owned")
+    method_id = (
+        f"proteinmpnn.{operation}.v_48_020_8907e667"
+        if is_model
+        else f"proteinmpnn.{operation}.repository_owned"
+    )
     produced_observations = (
         (
             ProducedObservationDefinition(

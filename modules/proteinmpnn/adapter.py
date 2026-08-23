@@ -170,19 +170,6 @@ def proteinmpnn_readiness(
     return ReadinessResult(True, proof_source="direct-observation")
 
 
-def _provider_for_environment(
-    environment: Mapping[str, Any],
-    staging_directory: Path,
-    model_cache: dict[tuple[str, float, Path], tuple[Any, Any]],
-) -> ProteinMPNNProvider:
-    """Resolve the declared provider seam without accepting Workflow paths."""
-    return _LocalProteinMPNNProvider(
-        temp_dir=staging_directory,
-        provider_root=cast(Path, environment["provider_root"]),
-        model_cache=model_cache,
-    )
-
-
 def _prepare_local_design_request(
     *,
     provider: ProteinMPNNProvider,
@@ -338,10 +325,10 @@ class LocalProteinMPNNAdapter:
         ] = {}
 
     def _provider(self, staging_directory: Path) -> ProteinMPNNProvider:
-        return _provider_for_environment(
-            self._environment,
-            staging_directory,
-            self._resident_models,
+        return _LocalProteinMPNNProvider(
+            temp_dir=staging_directory,
+            provider_root=cast(Path, self._environment["provider_root"]),
+            model_cache=self._resident_models,
         )
 
     def design(

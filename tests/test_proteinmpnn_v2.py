@@ -1281,8 +1281,8 @@ def _install_test_provider(
     provider: Any,
 ) -> None:
     monkeypatch.setattr(
-        "modules.proteinmpnn.adapter._provider_for_environment",
-        lambda _environment, _directory, _models: provider,
+        "modules.proteinmpnn.adapter._LocalProteinMPNNProvider",
+        lambda **_kwargs: provider,
     )
 
 

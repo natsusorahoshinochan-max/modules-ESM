@@ -184,8 +184,6 @@ def validate_proteinmpnn_constraints(
     constraints: ProteinMPNNConstraints,
 ) -> None:
     """Validate all structure-independent ProteinMPNN constraint rules."""
-    if not isinstance(constraints, ProteinMPNNConstraints):
-        raise ValueError("constraints must be ProteinMPNNConstraints")
     if type(constraints.layout) is not ResidueLayout:
         raise ValueError("constraints layout must be a ResidueLayout")
 
