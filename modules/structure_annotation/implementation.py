@@ -22,7 +22,7 @@ from datatypes.observation import (
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.residue import ResidueTrack
+from datatypes.residue import ResidueLayout, ResidueTrack
 from datatypes.structure import ResolvedStructureResidueAxis
 from .domain import DSSPAnnotation, StructureAnnotationTrack
 
@@ -156,16 +156,12 @@ class ApplySecondaryStructureToPromptOperation:
                 "Prompt and secondary-structure track layouts must be exactly equal"
             )
         with self._resources.engine_invocation():
-            values: list[str | None] = []
-            for value in track.values:
-                if value not in _ANNOTATION_TO_PROMPT_SS:
-                    raise ValueError(
-                        "annotation secondary structure uses an unsupported symbol"
-                    )
-                values.append(_ANNOTATION_TO_PROMPT_SS[value])
             updated = replace(
                 prompt,
-                secondary_structure_track=ResidueTrack(values, None),
+                secondary_structure_track=ResidueTrack(
+                    [_ANNOTATION_TO_PROMPT_SS[value] for value in track.values],
+                    None,
+                ),
             )
         return {"protein_prompt": updated}
 
@@ -199,8 +195,6 @@ class ExpectedSecondaryStructureFromPromptOperation:
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         prompt = call.inputs["protein_prompt"].value
-        if prompt.target_layout is None:
-            raise ValueError("ProteinPrompt must carry an exact target layout")
         if prompt.secondary_structure_track is None:
             raise ValueError(
                 "ProteinPrompt must carry a secondary-structure track"
@@ -210,17 +204,13 @@ class ExpectedSecondaryStructureFromPromptOperation:
             port_name="references",
         )
         with self._resources.engine_invocation():
-            values: list[str] = []
-            for value in prompt.secondary_structure_track.values:
-                if value not in _PROMPT_TO_ANNOTATION_SS:
-                    raise ValueError(
-                        "Prompt secondary structure uses an unsupported symbol"
-                    )
-                values.append(_PROMPT_TO_ANNOTATION_SS[value])
             track = StructureAnnotationTrack(
                 subject=reference,
-                layout=prompt.target_layout,
-                values=tuple(values),
+                layout=cast(ResidueLayout, prompt.target_layout),
+                values=tuple(
+                    _PROMPT_TO_ANNOTATION_SS[value]
+                    for value in prompt.secondary_structure_track.values
+                ),
             )
         return {"secondary_structure_track": track}
 
