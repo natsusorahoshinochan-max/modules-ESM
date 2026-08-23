@@ -29,8 +29,6 @@ from core.catalog.port_contract import (
     _candidate_data_reference_to_canonical,
     _exact_port_value_reference_to_canonical,
 )
-from modules.prompt_authoring.prompt_types import PROTEIN_PROMPT_PORT_TYPE
-
 from datatypes.prediction import (
     ConfidenceFact,
     ConfidenceFactCollection,
@@ -52,8 +50,16 @@ _STRUCTURE_IDENTITY_PORT_TYPE = _BUILTINS.require_port_type(
 )
 _ALLOWED_SCALAR_SOURCES = {
     ExactContractReference(**_SEQUENCE_CODEC.reference()),
-    ExactContractReference(**PROTEIN_PROMPT_PORT_TYPE.reference()),
+    ExactContractReference(
+        "port_type",
+        "protein.prompt",
+        "3.0.0",
+        "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc"
+        "72ef7b44",
+    ),
 }
+
+
 def _closed_dict(
     value: object,
     fields: set[str],
