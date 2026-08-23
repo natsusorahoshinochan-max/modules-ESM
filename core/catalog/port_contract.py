@@ -1358,7 +1358,7 @@ class PortTypeDefinition:
         except PortValueError as error:
             raise CatalogBuildError(str(error)) from error
 
-    def _validated_builtin_wire(self, value: Any) -> Any:
+    def _validate_builtin(self, value: Any) -> None:
         expected_type = _VALUE_TYPE_BY_KIND[self.value_kind]
         if type(value) is not expected_type:
             raise PortValueError(
@@ -1366,7 +1366,6 @@ class PortTypeDefinition:
                 f"got {type(value).__name__}"
             )
         _validate_builtin_semantics(self.value_kind, value)
-        return _value_to_wire(value)
 
     def validate(self, value: Any) -> None:
         """Validate one complete runtime value through this nominal contract."""
@@ -1381,23 +1380,18 @@ class PortTypeDefinition:
                     f"{error}"
                 ) from error
             return
-        self._validated_builtin_wire(value)
+        self._validate_builtin(value)
+
+    def to_wire(self, value: Any) -> Any:
+        """Project one already-admitted value into its nested wire form."""
+        if self.runtime_to_wire is not None:
+            return self.runtime_to_wire(value)
+        return _value_to_wire(value)
 
     def encode(self, value: Any) -> bytes:
         """Validate and encode one value as canonical RFC 8785 UTF-8 bytes."""
-        if self.runtime_to_wire is not None:
-            self.validate(value)
-            try:
-                wire_value = self.runtime_to_wire(value)
-            except PortValueError:
-                raise
-            except (TypeError, ValueError) as error:
-                raise PortValueError(
-                    f"{self.type_id}@{self.version} could not encode its value: "
-                    f"{error}"
-                ) from error
-        else:
-            wire_value = self._validated_builtin_wire(value)
+        self.validate(value)
+        wire_value = self.to_wire(value)
         try:
             return canonical_json_bytes(
                 {
@@ -1409,6 +1403,23 @@ class PortTypeDefinition:
             )
         except CatalogBuildError as error:
             raise PortValueError(str(error)) from error
+
+    def from_wire(self, wire_value: Any) -> Any:
+        """Admit one nested wire value through its nominal decoder."""
+        if self.runtime_from_wire is not None:
+            try:
+                value = self.runtime_from_wire(wire_value)
+            except PortValueError:
+                raise
+            except (KeyError, TypeError, ValueError) as error:
+                raise PortValueError(
+                    f"{self.type_id}@{self.version} could not decode its value: "
+                    f"{error}"
+                ) from error
+        else:
+            value = _wire_to_value(wire_value)
+        self.validate(value)
+        return value
 
     def decode(self, encoded: bytes) -> Any:
         """Decode canonical bytes, rejecting malformed or non-canonical input."""
@@ -1427,20 +1438,7 @@ class PortTypeDefinition:
             payload["port_type_version"],
         ) != (self.type_id, self.version):
             raise PortValueError("canonical Port value nominal identity does not match")
-        if self.runtime_from_wire is not None:
-            try:
-                value = self.runtime_from_wire(payload["value"])
-            except PortValueError:
-                raise
-            except (KeyError, TypeError, ValueError) as error:
-                raise PortValueError(
-                    f"{self.type_id}@{self.version} could not decode its value: "
-                    f"{error}"
-                ) from error
-        else:
-            value = _wire_to_value(payload["value"])
-        self.validate(value)
-        return value
+        return self.from_wire(payload["value"])
 
     def content_digest(self, value: Any) -> str:
         """Identify validated content by SHA-256 of canonical codec bytes."""

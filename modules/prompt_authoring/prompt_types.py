@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-)
-from core.catalog.port_contract import (
-    canonical_json_bytes,
 )
 from datatypes.prompt import (
     FunctionAnnotation,
@@ -52,26 +47,6 @@ _PROMPT_FIELDS = {
     "sasa_track",
     "function_annotations",
 }
-
-
-def _wire_value(codec: PortTypeDefinition, value: object) -> object:
-    return json.loads(codec.encode(value))["value"]
-
-
-def _decode_value(
-    codec: PortTypeDefinition,
-    wire_value: object,
-) -> object:
-    return codec.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": codec.type_id,
-                "port_type_version": codec.version,
-                "value": wire_value,
-            }
-        )
-    )
 
 
 def _validate_annotations(value: object) -> None:
@@ -114,13 +89,13 @@ def _annotations_from_wire(value: object) -> object:
 
 
 def _track_to_wire(track: ResidueTrack | None) -> object:
-    return None if track is None else _wire_value(_TRACK_CODEC, track)
+    return None if track is None else _TRACK_CODEC.to_wire(track)
 
 
 def _track_from_wire(value: object) -> ResidueTrack | None:
     if value is None:
         return None
-    track = _decode_value(_TRACK_CODEC, value)
+    track = _TRACK_CODEC.from_wire(value)
     if type(track) is not ResidueTrack or track.sentinel is not None:
         raise ValueError("ProteinPrompt tracks must use JSON null semantics")
     return track
@@ -132,8 +107,7 @@ def _validate_prompt(value: object) -> None:
 
 def _prompt_to_wire(prompt: ProteinPrompt) -> object:
     return {
-        "target_layout": _wire_value(
-            _LAYOUT_CODEC,
+        "target_layout": _LAYOUT_CODEC.to_wire(
             prompt.target_layout,
         ),
         "sequence_track": _track_to_wire(prompt.sequence_track),
@@ -155,8 +129,7 @@ def _prompt_from_wire(value: object) -> object:
     if not isinstance(value, dict) or set(value) != _PROMPT_FIELDS:
         raise ValueError("ProteinPrompt wire value is not closed")
     return ProteinPrompt(
-        target_layout=_decode_value(
-            _LAYOUT_CODEC,
+        target_layout=_LAYOUT_CODEC.from_wire(
             value["target_layout"],
         ),
         sequence_track=_track_from_wire(value["sequence_track"]),

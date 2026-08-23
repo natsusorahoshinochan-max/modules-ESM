@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import json
 import math
 from typing import Any, cast
 
@@ -35,9 +34,6 @@ from core.operation import (
     OperationContext,
     ReadinessResult,
     ScientificOperation,
-)
-from core.catalog.port_contract import (
-    canonical_json_bytes,
 )
 from datatypes.candidate import CandidateDataReference
 from datatypes.residue import (
@@ -120,23 +116,6 @@ _ABSOLUTE_SASA_QUANTITY_CONTRACT = {
 }
 
 
-def _wire_value(codec: PortTypeDefinition, value: object) -> object:
-    return json.loads(codec.encode(value))["value"]
-
-
-def _decode_value(codec: PortTypeDefinition, value: object) -> object:
-    return codec.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": codec.type_id,
-                "port_type_version": codec.version,
-                "value": value,
-            }
-        )
-    )
-
-
 def _validate_layout(layout: object) -> ResidueLayout:
     return validate_residue_layout(layout, subject="annotation layout")
 
@@ -207,7 +186,7 @@ def _validate_annotation(value: object) -> None:
 def _annotation_to_wire(value: DSSPAnnotation) -> object:
     return {
         "subject": _candidate_data_reference_to_canonical(value.subject),
-        "layout": _wire_value(_LAYOUT_CODEC, value.layout),
+        "layout": _LAYOUT_CODEC.to_wire(value.layout),
         "secondary_structure": list(value.secondary_structure),
         "sasa": list(value.sasa),
     }
@@ -222,7 +201,7 @@ def _annotation_from_wire(value: object) -> object:
         or not isinstance(value["sasa"], list)
     ):
         raise ValueError("DSSP annotation wire value is not closed")
-    layout = _decode_value(_LAYOUT_CODEC, value["layout"])
+    layout = _LAYOUT_CODEC.from_wire(value["layout"])
     annotation = DSSPAnnotation(
         subject=_candidate_data_reference_from_canonical(value["subject"]),
         layout=layout,
@@ -252,9 +231,8 @@ def _track_to_wire(kind: str):
     def encode(value: StructureAnnotationTrack) -> object:
         return {
             "subject": _candidate_data_reference_to_canonical(value.subject),
-            "layout": _wire_value(_LAYOUT_CODEC, value.layout),
-            "track": _wire_value(
-                _TRACK_CODEC,
+            "layout": _LAYOUT_CODEC.to_wire(value.layout),
+            "track": _TRACK_CODEC.to_wire(
                 ResidueTrack(list(value.values), None),
             ),
         }
@@ -269,10 +247,10 @@ def _track_from_wire(kind: str):
             or set(value) != {"subject", "layout", "track"}
         ):
             raise ValueError("annotation track wire value is not closed")
-        track = _decode_value(_TRACK_CODEC, value["track"])
+        track = _TRACK_CODEC.from_wire(value["track"])
         if type(track) is not ResidueTrack or track.sentinel is not None:
             raise ValueError("annotation track must use null semantics")
-        layout = _decode_value(_LAYOUT_CODEC, value["layout"])
+        layout = _LAYOUT_CODEC.from_wire(value["layout"])
         values = tuple(track.values)
         if kind == "sasa":
             values = _validate_sasa(values, length=layout.length)

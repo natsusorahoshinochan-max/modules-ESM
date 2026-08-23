@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-import json
-
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-)
-from core.catalog.port_contract import (
-    canonical_json_bytes,
 )
 from datatypes.residue import ResidueTrack
 
@@ -41,26 +36,6 @@ ABSOLUTE_SASA_QUANTITY_CONTRACT = {
 }
 
 
-def _wire_value(codec: PortTypeDefinition, value: object) -> object:
-    return json.loads(codec.encode(value))["value"]
-
-
-def _decode_value(
-    codec: PortTypeDefinition,
-    wire_value: object,
-) -> object:
-    return codec.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": codec.type_id,
-                "port_type_version": codec.version,
-                "value": wire_value,
-            }
-        )
-    )
-
-
 def _validator(kind: TrackKind):
     def validate(value: object) -> None:
         validate_track(
@@ -74,9 +49,8 @@ def _validator(kind: TrackKind):
 
 def _to_wire(aligned: AlignedResidueTrack) -> object:
     return {
-        "layout": _wire_value(_LAYOUT_CODEC, aligned.layout),
-        "track": _wire_value(
-            _TRACK_CODEC,
+        "layout": _LAYOUT_CODEC.to_wire(aligned.layout),
+        "track": _TRACK_CODEC.to_wire(
             ResidueTrack(list(aligned.values), None),
         ),
     }
@@ -86,8 +60,8 @@ def _from_wire(kind: TrackKind):
     def decode(value: object) -> object:
         if not isinstance(value, dict) or set(value) != {"layout", "track"}:
             raise ValueError("aligned residue track wire value is not closed")
-        layout = _decode_value(_LAYOUT_CODEC, value["layout"])
-        track = _decode_value(_TRACK_CODEC, value["track"])
+        layout = _LAYOUT_CODEC.from_wire(value["layout"])
+        track = _TRACK_CODEC.from_wire(value["track"])
         if type(track) is not ResidueTrack or track.sentinel is not None:
             raise ValueError("aligned residue track must use null semantics")
         return AlignedResidueTrack(layout=layout, values=tuple(track.values))

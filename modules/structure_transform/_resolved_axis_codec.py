@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from math import isfinite
 
 from core.catalog.builtins import builtin_frozen_catalog
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    canonical_json_bytes,
 )
 from datatypes.structure import (
     ResolvedStructureResidueAxis,
@@ -58,25 +56,6 @@ _RESIDUE_LETTERS = {
     "TYR": "Y",
     "VAL": "V",
 }
-
-def _wire_value(codec: PortTypeDefinition, value: object) -> object:
-    return json.loads(codec.encode(value))["value"]
-
-
-def _decode_value(
-    codec: PortTypeDefinition,
-    wire_value: object,
-) -> object:
-    return codec.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": codec.type_id,
-                "port_type_version": codec.version,
-                "value": wire_value,
-            }
-        )
-    )
 
 def _validate_residue_coordinates(
     value: object,
@@ -360,8 +339,8 @@ def validate_resolved_axis(value: object) -> None:
 
 def _axis_to_wire(value: ResolvedStructureResidueAxis) -> object:
     return {
-        "structure": _wire_value(_STRUCTURE_CODEC, value.structure),
-        "layout": _wire_value(_LAYOUT_CODEC, value.layout),
+        "structure": _STRUCTURE_CODEC.to_wire(value.structure),
+        "layout": _LAYOUT_CODEC.to_wire(value.layout),
         "sequence": value.sequence,
         "residue_names": list(value.residue_names),
         "segments": [
@@ -410,8 +389,8 @@ def _axis_from_wire(value: object) -> ResolvedStructureResidueAxis:
     return ResolvedStructureResidueAxis(
         **{
             **value,
-            "structure": _decode_value(_STRUCTURE_CODEC, value["structure"]),
-            "layout": _decode_value(_LAYOUT_CODEC, value["layout"]),
+            "structure": _STRUCTURE_CODEC.from_wire(value["structure"]),
+            "layout": _LAYOUT_CODEC.from_wire(value["layout"]),
             "residue_names": tuple(value["residue_names"]),
             "segments": tuple(
                 StructureAxisSegment(

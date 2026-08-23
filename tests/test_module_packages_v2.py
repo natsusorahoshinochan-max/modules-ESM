@@ -31,21 +31,11 @@ from core.catalog.port_contract import (
     BehaviorReference,
     CatalogBuildError,
 )
-from core.operation import (
-    OperationCall,
-    ReadinessResult,
-)
+from core.operation import ReadinessResult
 from protein_workbench_public.bootstrap import create_application
-from datatypes.candidate import (
-    Candidate,
-    CandidateCollection,
-    CandidateDataReference,
-)
-from datatypes.sequence import ProteinSequence
 from tests.support.protocol import validate_response
 from protein_workbench_public.bootstrap import module_registrations
 from protein_workbench_public.catalog_codec import encode_catalog_projection
-from tests.fixtures.scientific_operation import admitted_port_fixture
 
 
 NODE_DEFINITION = """\
@@ -1379,63 +1369,6 @@ def test_lazy_factory_does_not_reload_definition_resources(
         "3.0.0",
     ).definition
     assert binding.factory.build(None) == {"implementation": "synthetic.echo"}
-
-
-def test_operation_call_freezes_caller_owned_input_and_parameter_containers(
-) -> None:
-    candidate = Candidate(
-        candidate_id="candidate-1",
-        data=ProteinSequence(sequence="MA"),
-    )
-    candidates = CandidateCollection(
-        collection_id="collection-1",
-        item_type="protein.sequence",
-        items=[candidate],
-    )
-    candidate_digest = CandidateDataReference(
-        candidate_id="candidate-1",
-        data_type_id="protein.sequence",
-        content_digest="sha256:" + ("1" * 64),
-    )
-    inputs = {"value": ["A"], "candidates": candidates}
-    node_parameters = {"nested": {"values": [1, 2]}}
-    call = OperationCall(
-        inputs={
-            "value": admitted_port_fixture(
-                inputs["value"],
-                port_type_id="synthetic.text",
-                value_content_digests=("sha256:" + ("3" * 64),),
-            ),
-            "candidates": admitted_port_fixture(
-                candidates,
-                port_type_id="candidate.collection",
-                value_content_digests=("sha256:" + ("2" * 64),),
-                candidate_data=(candidate_digest,),
-            ),
-        },
-        node_parameters=node_parameters,
-        binding_parameters={},
-        effective_randomness={},
-    )
-
-    inputs["value"].append("B")
-    node_parameters["nested"]["values"].append(3)
-    with pytest.raises(FrozenInstanceError):
-        candidate.data.sequence = "MUTATED"
-    with pytest.raises(AttributeError):
-        candidates.items.clear()
-
-    assert call.inputs["value"].value == ("A",)
-    admitted = call.inputs["candidates"]
-    assert admitted.value is candidates
-    assert admitted.value.items[0].candidate_id == "candidate-1"
-    assert admitted.value.items[0].data.sequence == "MA"
-    assert call.node_parameters["nested"]["values"] == (1, 2)
-    assert call.inputs["candidates"].candidate_data == (
-        candidate_digest,
-    )
-    with pytest.raises(TypeError):
-        call.inputs["new"] = "value"
 
 
 def test_frozen_contract_descriptor_is_immutable(

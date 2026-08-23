@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, cast
 
@@ -12,7 +11,6 @@ from core.catalog.builtins import (
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    canonical_json_bytes,
 )
 from core.operation import (
     CandidateMetadataIdentity,
@@ -62,26 +60,6 @@ _CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
-def _wire_value(codec: PortTypeDefinition, value: object) -> object:
-    return json.loads(codec.encode(value))["value"]
-
-
-def _decode_value(
-    codec: PortTypeDefinition,
-    value: object,
-) -> object:
-    return codec.decode(
-        canonical_json_bytes(
-            {
-                "schema_namespace": "protein-workbench-port-value/v2",
-                "port_type_id": codec.type_id,
-                "port_type_version": codec.version,
-                "value": value,
-            }
-        )
-    )
-
-
 def _closed_dict(
     value: object,
     fields: set[str],
@@ -196,8 +174,8 @@ def _validate_prediction_residue_axis(value: object) -> None:
 def _prediction_axis_to_wire(value: PredictionResidueAxis) -> object:
     return {
         "source": _source_to_wire(value.source),
-        "layout": _wire_value(_LAYOUT_CODEC, value.layout),
-        "sequence": _wire_value(_SEQUENCE_CODEC, value.sequence),
+        "layout": _LAYOUT_CODEC.to_wire(value.layout),
+        "sequence": _SEQUENCE_CODEC.to_wire(value.sequence),
     }
 
 
@@ -206,8 +184,8 @@ def _prediction_axis_from_wire(value: object) -> object:
         **{
             **value,
             "source": _source_from_wire(value["source"]),
-            "layout": _decode_value(_LAYOUT_CODEC, value["layout"]),
-            "sequence": _decode_value(_SEQUENCE_CODEC, value["sequence"]),
+            "layout": _LAYOUT_CODEC.from_wire(value["layout"]),
+            "sequence": _SEQUENCE_CODEC.from_wire(value["sequence"]),
         }
     )
 
@@ -296,8 +274,7 @@ def _confidence_fact_from_wire(value: object) -> ConfidenceFact:
     return ConfidenceFact(
         **{
             **value,
-            "prediction_axis": _decode_value(
-                PREDICTION_RESIDUE_AXIS_PORT_TYPE,
+            "prediction_axis": PREDICTION_RESIDUE_AXIS_PORT_TYPE.from_wire(
                 value["prediction_axis"],
             ),
             "plddt_per_residue": tuple(value["plddt_per_residue"]),
