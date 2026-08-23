@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,

@@ -26,7 +26,7 @@ from tests.support.contract_test_kit import (
     ModulePackageConformanceError,
     verify_module_package_contract,
 )
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from protein_workbench_public import (
     prepare_run_event_stream_request,
     prepare_rest_request,
@@ -226,7 +226,6 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
     app = create_application(
         frozen_catalog_override=build_frozen_catalog((FIXTURE_PACKAGE,)),
-        _install_canonical_seed=False,
         v2_environment_configuration={
             (case.binding_id, case.binding_version): {
                 "values": dict(case.environment_values),

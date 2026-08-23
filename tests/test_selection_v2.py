@@ -36,7 +36,7 @@ from core.scoring.selection import (
     SelectionObjective,
 )
 from core.project.manager import ProjectManager
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from protein_workbench_public.workflow_codec import encode_workflow_document
 from core.workflow.compiler import WorkflowCompileError
 from core.workflow.document import WorkflowEdge

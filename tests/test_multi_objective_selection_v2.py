@@ -45,7 +45,7 @@ from core.scoring.selection import (
 )
 from core.project.manager import ProjectManager
 from core.parameters.contract import admit_declarations
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from protein_workbench_public.workflow_codec import encode_workflow_document
 import core.execution.runtime as run_runtime
 from core.execution.ledger import FilesystemLedgerStore
@@ -2065,7 +2065,7 @@ def test_run_closure_failure_publishes_neither_selection_nor_run_terminal(
     with TestClient(
         create_application(
             frozen_catalog_override=catalog,
-            _v2_ledger_transaction_store=_FailRunClosureStore(),
+            ledger_transaction_store=_FailRunClosureStore(),
         )
     ) as client:
         committed = _commit_public_workflow(client, project_id, workflow)

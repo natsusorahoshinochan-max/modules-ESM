@@ -61,9 +61,7 @@ def test_server_publishes_only_the_frozen_catalog_runtime(
         "PROTEIN_WORKBENCH_PROJECT_ROOT",
         str(tmp_path / "projects"),
     )
-    with TestClient(
-        bootstrap.create_application(_install_canonical_seed=False)
-    ) as client:
+    with TestClient(bootstrap.create_application()) as client:
         assert client.get("/api/v2/catalog").status_code == 200
         for method, path in (
             ("get", "/api/modules"),
@@ -114,9 +112,7 @@ def test_legacy_persisted_run_and_project_are_rejected(
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
 
-    with TestClient(
-        bootstrap.create_application(_install_canonical_seed=False)
-    ) as client:
+    with TestClient(bootstrap.create_application()) as client:
         run = client.get(f"/api/v2/projects/{project_id}/runs/legacy-run")
         assert run.status_code == 404
         assert run.json()["error"]["code"] == "run_not_found"

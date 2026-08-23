@@ -55,7 +55,7 @@ from protein_workbench_public.workflow_codec import (
 )
 from core.scoring.selection import ObservationSelector, SelectionInput
 from core.project.manager import CANONICAL_3GB1_PROJECT_ID
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from core.workflow.authoring import (
     WorkflowCommit,
     WorkflowDraft,

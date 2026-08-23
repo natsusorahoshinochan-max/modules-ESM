@@ -16,7 +16,7 @@ import httpx
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from protein_workbench_public import (
     PUBLIC_PROTOCOL_NAMESPACE,
     PreparedEventStreamRequest,
@@ -1471,7 +1471,9 @@ def test_backend_public_route_inventory_equals_the_bundle() -> None:
         "/openapi.json",
         "/redoc",
     }
-    for route in create_application(_install_canonical_seed=False).routes:
+    for route in create_application(
+        frozen_catalog_override=builtin_frozen_catalog()
+    ).routes:
         path = getattr(route, "path", "")
         if path in framework_documentation_routes:
             continue

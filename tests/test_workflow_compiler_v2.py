@@ -58,7 +58,7 @@ from core.catalog.port_contract import (
     InactiveContractGenerationError,
     UnknownContractError,
 )
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from tests.support.protocol import validate_error, validate_response
 
 

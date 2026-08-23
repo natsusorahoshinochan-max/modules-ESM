@@ -38,7 +38,7 @@ from core.execution.node_attempt import (
     result_identity_descriptor,
 )
 from core.execution.results import ProjectReplayIndex
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,

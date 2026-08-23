@@ -13,9 +13,7 @@ from fastapi import FastAPI
 
 from core.catalog.builder import build_frozen_catalog
 from core.catalog.declarations import ModulePackageRegistration
-from core.catalog.model import FrozenCatalog
 from core.execution.environment import admit_environment_configuration
-from core.execution.ledger import LedgerStore
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.results import ProjectReplayIndex, ResultStore
 from core.project.manager import ProjectManager
@@ -69,20 +67,12 @@ def module_registrations() -> tuple[ModulePackageRegistration, ...]:
 
 def create_application(
     *,
-    frozen_catalog_override: FrozenCatalog | None = None,
     v2_environment_configuration: (
         Mapping[tuple[str, str], Mapping[str, Any]] | None
     ) = None,
-    _v2_ledger_transaction_store: LedgerStore | None = None,
-    _v2_wait_for_workers_on_shutdown: bool = True,
-    _install_canonical_seed: bool | None = None,
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
-    catalog = (
-        frozen_catalog_override
-        if frozen_catalog_override is not None
-        else build_frozen_catalog(module_registrations())
-    )
+    catalog = build_frozen_catalog(module_registrations())
     projects = ProjectManager(
         root_dir=os.environ.get("PROTEIN_WORKBENCH_PROJECT_ROOT", "projects"),
         cache_root=os.environ.get("PROTEIN_WORKBENCH_CACHE_ROOT"),
@@ -90,33 +80,27 @@ def create_application(
         run_root=os.environ.get("PROTEIN_WORKBENCH_RUN_ROOT"),
     )
     authoring = WorkflowAuthoringService(projects, catalog)
-    install_canonical_seed = (
-        frozen_catalog_override is None
-        if _install_canonical_seed is None
-        else _install_canonical_seed
-    )
-    if install_canonical_seed:
-        with ExitStack() as asset_stack:
-            canonical_structure = asset_stack.enter_context(
-                as_file(files("pdbs").joinpath("3GB1.pdb"))
-            )
-            canonical_workflow_path = asset_stack.enter_context(
-                as_file(
-                    files("examples").joinpath(
-                        "v2",
-                        "canonical-3gb1.workflow.json",
-                    )
+    with ExitStack() as asset_stack:
+        canonical_structure = asset_stack.enter_context(
+            as_file(files("pdbs").joinpath("3GB1.pdb"))
+        )
+        canonical_workflow_path = asset_stack.enter_context(
+            as_file(
+                files("examples").joinpath(
+                    "v2",
+                    "canonical-3gb1.workflow.json",
                 )
             )
-            canonical_workflow = decode_workflow_document(
-                json.loads(
-                    canonical_workflow_path.read_text(encoding="utf-8")
-                )
+        )
+        canonical_workflow = decode_workflow_document(
+            json.loads(
+                canonical_workflow_path.read_text(encoding="utf-8")
             )
-            authoring.install_seed_commit(
-                locked_workflow=canonical_workflow,
-                input_sources={"3GB1.pdb": canonical_structure},
-            )
+        )
+        authoring.install_seed_commit(
+            locked_workflow=canonical_workflow,
+            input_sources={"3GB1.pdb": canonical_structure},
+        )
     environment = admit_environment_configuration(
         catalog,
         (
@@ -140,12 +124,5 @@ def create_application(
         authoring,
         node_attempt_factory,
         result_store,
-        _v2_ledger_transaction_store,
     )
-    return create_http_app(
-        catalog,
-        projects,
-        authoring,
-        runtime,
-        wait_for_workers_on_shutdown=_v2_wait_for_workers_on_shutdown,
-    )
+    return create_http_app(catalog, projects, authoring, runtime)

@@ -24,7 +24,7 @@ from core.execution.node_attempt import (
     ExecutionTermination,
 )
 from core.execution.ledger import FilesystemLedgerStore
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from tests.support.protocol import validate_error, validate_response
 from protein_workbench_public.ledger_codec import encode_event
 from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
@@ -158,7 +158,7 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
                 "values": {"credential": "credential-value"},
             }
         },
-        _v2_ledger_transaction_store=store,
+        ledger_transaction_store=store,
     )
 
     with TestClient(app) as client:

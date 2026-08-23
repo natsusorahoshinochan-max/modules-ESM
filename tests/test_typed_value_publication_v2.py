@@ -13,7 +13,7 @@ import pytest
 
 from core.project.manager import ProjectManager
 from core.project.objects import ObjectIntegrityError, ProjectObjectStore
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from tests.support.protocol import validate_error
 from tests.fixtures.public_v2 import (
     retrieve_service_typed_output_canonical_bytes,

@@ -67,7 +67,7 @@ from core.operation import (
 from core.parameters.contract import admit_declarations
 from core.execution.node_attempt import ExecutionTermination
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 import core.execution.runtime as run_runtime
 from core.execution.environment import admit_environment_configuration
 from tests.support.output_admission import admit_fixture_port
@@ -2583,7 +2583,7 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
                 "values": {"credential": "credential-value"},
             }
         },
-        _v2_ledger_transaction_store=FailNodeConclusionTransaction(),
+        ledger_transaction_store=FailNodeConclusionTransaction(),
     )
 
     with TestClient(app) as client:
@@ -3506,25 +3506,25 @@ def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger
     )
     assert original_catalog.contract_digest != active_catalog.contract_digest
 
+    first = TestClient(
+        create_application(
+            frozen_catalog_override=original_catalog,
+            v2_environment_configuration=environment,
+        )
+    )
     try:
-        with TestClient(
-            create_application(
-                frozen_catalog_override=original_catalog,
-                v2_environment_configuration=environment,
-                _v2_wait_for_workers_on_shutdown=False,
-            )
-        ) as first:
-            project_id, compiled = _commit_one_node(first)
-            started = first.post(
-                f"/api/v2/projects/{project_id}/runs",
-                json={
-                    "workflow_commit_id": compiled["workflow_commit_id"],
-                    "client_request_id": "inactive-generation-restart",
-                },
-            )
-            assert started.status_code == 202
-            assert entered.wait(timeout=1)
-            run_id = started.json()["run_id"]
+        project_id, compiled = _commit_one_node(first)
+        started = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "inactive-generation-restart",
+            },
+        )
+        assert started.status_code == 202
+        assert entered.wait(timeout=1)
+        run_id = started.json()["run_id"]
+        first.close()
 
         ledger_dir = run_root / project_id / run_id / "ledger"
         before = {
@@ -3547,7 +3547,9 @@ def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger
             for path in sorted(ledger_dir.glob("*.json"))
         }
     finally:
+        first.close()
         release.set()
+        first.app.state.run_runtime.shutdown()
 
     assert rejected.status_code == 409
     validate_error(rejected.json(), status=409)
@@ -4023,30 +4025,30 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
         }
     }
 
+    first = TestClient(
+        create_application(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+    )
     try:
-        with TestClient(
-            create_application(
-                frozen_catalog_override=catalog,
-                v2_environment_configuration=environment,
-                _v2_wait_for_workers_on_shutdown=False,
-            )
-        ) as first:
-            project_id, compiled = _commit_one_node(first)
-            started = first.post(
-                f"/api/v2/projects/{project_id}/runs",
-                json={
-                    "workflow_commit_id": compiled["workflow_commit_id"],
-                    "client_request_id": "restart-incomplete",
-                },
-            )
-            assert started.status_code == 202
-            assert entered.wait(timeout=1)
-            run_id = started.json()["run_id"]
-            before_events = _public_events(
-                first.app.state.run_runtime,
-                project_id,
-                run_id,
-            )
+        project_id, compiled = _commit_one_node(first)
+        started = first.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "restart-incomplete",
+            },
+        )
+        assert started.status_code == 202
+        assert entered.wait(timeout=1)
+        run_id = started.json()["run_id"]
+        before_events = _public_events(
+            first.app.state.run_runtime,
+            project_id,
+            run_id,
+        )
+        first.close()
 
         with TestClient(
             create_application(
@@ -4078,7 +4080,9 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
                 run_id,
             )
     finally:
+        first.close()
         release.set()
+        first.app.state.run_runtime.shutdown()
 
     assert projection["status"] == "interrupted"
     assert projection["node_dispositions"] == []

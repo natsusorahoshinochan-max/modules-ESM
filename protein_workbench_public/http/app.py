@@ -42,16 +42,13 @@ def create_http_app(
     projects: ProjectManager,
     authoring: WorkflowAuthoringService,
     runtime: V2RunService,
-    *,
-    wait_for_workers_on_shutdown: bool = True,
 ) -> FastAPI:
     """Assemble routes around already-constructed application interfaces."""
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
         yield
-        if wait_for_workers_on_shutdown:
-            await asyncio.to_thread(runtime.shutdown)
+        await asyncio.to_thread(runtime.shutdown)
 
     app = FastAPI(
         title="Protein Workbench",

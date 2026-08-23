@@ -13,7 +13,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.workflow.authoring import WorkflowAuthoringError
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from core.workflow.document import WorkflowEdge
 from datatypes.residue import ResidueLayout
 from modules.prompt_authoring.domain import AlignedResidueTrack

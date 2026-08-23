@@ -24,7 +24,7 @@ from core.catalog.port_contract import (
 from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -183,7 +183,6 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
     with TestClient(
         create_application(
             frozen_catalog_override=catalog,
-            _install_canonical_seed=False,
         )
     ) as client:
         response = client.get("/api/v2/catalog")

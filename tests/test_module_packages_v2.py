@@ -32,7 +32,7 @@ from core.catalog.port_contract import (
     CatalogBuildError,
 )
 from core.operation import ReadinessResult
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from tests.support.protocol import validate_response
 from protein_workbench_public.bootstrap import module_registrations
 from protein_workbench_public.catalog_codec import encode_catalog_projection
@@ -598,7 +598,6 @@ def test_backend_publishes_the_same_explicit_catalog_snapshot(
         with TestClient(
             create_application(
                 frozen_catalog_override=catalog,
-                _install_canonical_seed=False,
             )
         ) as client:
             response = client.get("/api/v2/catalog")

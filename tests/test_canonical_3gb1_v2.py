@@ -228,8 +228,6 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
     workflow = _workflow_payload()
     workflow["edges"][0]["target_port"] = "missing"
     app = create_application(
-        frozen_catalog_override=controlled_catalog(),
-        _install_canonical_seed=True,
         v2_environment_configuration=controlled_environment(
             monkeypatch,
             esm3,
@@ -467,8 +465,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         folding,
     )
     app = create_application(
-        frozen_catalog_override=catalog,
-        _install_canonical_seed=True,
         v2_environment_configuration=controlled_configuration,
     )
 

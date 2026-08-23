@@ -1084,7 +1084,6 @@ def test_fresh_source_bound_public_run(
     )
     app = create_application(
         v2_environment_configuration=_environment(tier_name),
-        _install_canonical_seed=False,
     )
     with TestClient(app) as client:
         created = client.post(

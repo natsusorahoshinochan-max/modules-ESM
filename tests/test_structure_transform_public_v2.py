@@ -58,7 +58,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
         root.mkdir()
         monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
 
-    with TestClient(create_application(_install_canonical_seed=False)) as client:
+    with TestClient(create_application()) as client:
         def public_request(
             operation_id: str,
             request: dict[str, Any],

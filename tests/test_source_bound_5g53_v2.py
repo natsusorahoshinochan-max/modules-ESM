@@ -27,7 +27,7 @@ from core.workflow.compiler import (
     lock_workflow,
 )
 from protein_workbench_public.workflow_codec import decode_workflow_document
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from datatypes.candidate import (
     Candidate,
     CandidateDataReference,
@@ -311,7 +311,6 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         create_application(
             frozen_catalog_override=catalog,
             v2_environment_configuration=environment,
-            _install_canonical_seed=False,
         )
     ) as client:
         project_id = client.post(

@@ -32,7 +32,7 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-from protein_workbench_public.bootstrap import create_application
+from tests.support.application import create_application
 from core.project.objects import ProjectObjectStore
 from core.workflow.document import WorkflowEdge
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
@@ -317,7 +317,6 @@ def test_artifact_route_returns_exact_utf8_filename_provenance(
     with TestClient(
         create_application(
             frozen_catalog_override=builtin_frozen_catalog(),
-            _install_canonical_seed=False,
         )
     ) as client:
         service = client.app.state.run_runtime
