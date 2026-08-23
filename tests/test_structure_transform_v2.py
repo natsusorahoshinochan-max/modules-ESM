@@ -344,6 +344,10 @@ def test_standard_parent_component_is_polymer_independent_of_pdb_record_type(
         STRUCTURE_VERSION,
     )
     assert axis_type.decode(axis_type.encode(axis)) == axis
+    with pytest.raises(PortValueError, match="contradicts its sequence letter"):
+        axis_type.encode(
+            replace(axis, sequence="X", residue_names=("UNK",))
+        )
 
 
 def test_sequence_and_backbone_are_projections_of_the_resolved_axis() -> None:

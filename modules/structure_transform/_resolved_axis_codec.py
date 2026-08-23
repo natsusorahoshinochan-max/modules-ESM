@@ -203,8 +203,8 @@ def validate_resolved_axis(value: object) -> None:
         value.sequence,
         strict=True,
     ):
-        expected_letter = _RESIDUE_LETTERS.get(residue_name, "X")
-        if letter != expected_letter:
+        expected_letter = _RESIDUE_LETTERS.get(residue_name)
+        if expected_letter is None or letter != expected_letter:
             raise ValueError(
                 "resolved residue name contradicts its sequence letter"
             )

@@ -248,7 +248,7 @@ def parse_protein_sol_output(
         if not row or row[0] != "SEQUENCE PREDICTIONS":
             continue
         _, _candidate_label, percent, scaled, _population, pi = row
-        provider_id = _candidate_label.removeprefix(">")
+        provider_id = _candidate_label[1:]
         predictions.append(
             ProteinSolPrediction(
                 subject=staged_subjects[provider_id],

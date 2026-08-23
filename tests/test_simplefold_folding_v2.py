@@ -1028,6 +1028,16 @@ def test_simplefold_translates_provider_pdb_tail_before_publication(
     assert published_pdb.splitlines()[-1][:6].strip() == "END"
 
 
+def test_simplefold_does_not_discard_an_undocumented_provider_tail() -> None:
+    from modules.folding.simplefold_adapter import _translate_provider_structure
+
+    provider_pdb = _upstream_simplefold_serialized_pdb()
+    with pytest.raises(ValueError, match="padded sentinel"):
+        _translate_provider_structure(
+            ProteinStructure(provider_pdb.removesuffix(" " * 80) + "trailer")
+        )
+
+
 def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

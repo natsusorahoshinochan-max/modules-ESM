@@ -261,22 +261,16 @@ def bind_simplefold_provider_asset_closure(
     environment: Mapping[str, Any],
 ) -> BoundSimpleFoldProviderAssetClosure:
     """Bind roots already proved by the Binding's Readiness boundary."""
-    group_roots: dict[str, Path] = {}
-
-    def bind(group: str, environment_key: str) -> None:
-        root = cast(Path, environment[environment_key])
-        prior = group_roots.setdefault(group, root)
-        if prior != root:
-            raise ValueError("SimpleFold runtime group has conflicting roots")
-
-    for file in closure.files:
-        bind(file.runtime_group, file.environment_key)
-    for source in closure.sources:
-        if source.runtime_group is None:
-            continue
-        bind(source.runtime_group, cast(str, source.environment_key))
+    declarations = (*closure.files, *closure.sources)
     return BoundSimpleFoldProviderAssetClosure(
-        groups=tuple(sorted(group_roots.items())),
+        groups=tuple(sorted({
+            cast(str, item.runtime_group): cast(
+                Path,
+                environment[cast(str, item.environment_key)],
+            )
+            for item in declarations
+            if item.runtime_group is not None
+        }.items())),
     )
 
 
