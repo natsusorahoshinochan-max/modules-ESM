@@ -875,7 +875,7 @@ def test_local_provider_native_result_translates_to_canonical_confidence() -> No
         ptm = 0.625
         pae = torch.tensor(((0.0, 1.0), (1.0, 0.0)))
 
-    result = decode_local_fold_result(LocalResult())
+    result = decode_local_fold_result(LocalResult(), effective_call_seed=17)
     expected_plddt = tuple(
         float(value) * 100.0 for value in LocalResult.plddt.tolist()
     )
@@ -908,7 +908,7 @@ def test_provider_pdb_renderer_is_translated_to_the_canonical_end_record() -> No
         ptm = 0.625
         pae = torch.tensor(((0.0, 1.0), (1.0, 0.0)))
 
-    result = decode_local_fold_result(LocalResult())
+    result = decode_local_fold_result(LocalResult(), effective_call_seed=17)
 
     assert result.structure.pdb_string == _two_residue_pdb()
 

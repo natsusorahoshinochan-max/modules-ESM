@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import hashlib
 import importlib.util
-import os
 from pathlib import Path
 import shutil
 import tempfile
@@ -57,27 +56,6 @@ class LocalESM3RuntimeUnavailable(RuntimeError):
     """The exact local ESM-3 runtime cannot be admitted."""
 
 
-def local_esm3_snapshot_root() -> Path:
-    """Return the configured path for the exact local ESM-3 snapshot."""
-    configured_cache = os.environ.get("HF_HUB_CACHE")
-    if configured_cache:
-        hub_cache = Path(configured_cache).expanduser()
-    else:
-        hf_home = Path(
-            os.environ.get(
-                "HF_HOME",
-                str(Path.home() / ".cache" / "huggingface"),
-            )
-        ).expanduser()
-        hub_cache = hf_home / "hub"
-    return (
-        hub_cache
-        / "models--biohub--esm3-sm-open-v1"
-        / "snapshots"
-        / LOCAL_ESM3_SNAPSHOT_REVISION
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class LocalESM3Runtime:
     """Resolved paths admitted by the local ESM3 Binding."""
@@ -86,7 +64,7 @@ class LocalESM3Runtime:
     runtime_directory: Path
     device: str
     performance_settings: Mapping[str, Any]
-    artifact_sources: Mapping[str, Path] = field(default_factory=dict)
+    artifact_sources: Mapping[str, Path]
 
 
 def local_runtime_structurally_available() -> bool:

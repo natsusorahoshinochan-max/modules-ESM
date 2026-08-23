@@ -61,10 +61,9 @@ def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
             [path, "--version"],
             capture_output=True,
             text=True,
-            timeout=5,
             check=False,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -270,9 +269,6 @@ class MkdsspAdapter:
         self._environment = environment
         self._resources = resources
 
-    def _timeout(self) -> int:
-        return cast(int, self._environment.get("dssp_timeout_seconds", 30))
-
     def annotate(
         self,
         residue_axis: ResolvedStructureResidueAxis,
@@ -281,7 +277,6 @@ class MkdsspAdapter:
     ) -> DSSPAnnotation:
         """Run mkdssp and return only its admitted canonical annotation."""
         binary = self._environment["dssp_binary"]
-        timeout = self._timeout()
         with self._resources.temporary_directory(
             prefix="structure-annotation-dssp-"
         ) as workspace:
@@ -299,13 +294,8 @@ class MkdsspAdapter:
                             str(input_path),
                         ],
                         capture_output=True,
-                        timeout=timeout,
                         check=False,
                     )
-                except subprocess.TimeoutExpired as error:
-                    raise RuntimeError(
-                        "mkdssp execution exceeded its trusted timeout"
-                    ) from error
                 except OSError as error:
                     raise RuntimeError(
                         "mkdssp execution could not start"

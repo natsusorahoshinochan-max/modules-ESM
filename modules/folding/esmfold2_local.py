@@ -244,7 +244,7 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
 def decode_local_fold_result(
     result: _LocalFoldResult,
     *,
-    effective_call_seed: int | None = None,
+    effective_call_seed: int,
 ) -> ESMFold2AdapterResult:
     """Decode one provider-native local MolecularComplexResult."""
     mask = tuple(

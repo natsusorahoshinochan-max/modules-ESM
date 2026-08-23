@@ -2013,6 +2013,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             runtime_directory=local_runtime_directory,
             device="cpu",
             performance_settings={},
+            artifact_sources={},
         )
 
     monkeypatch.setattr(

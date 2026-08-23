@@ -210,14 +210,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         method=method,
         binding_parameters={},
         environment_fields=(
-            (
-                EnvironmentFieldDeclaration("dssp_binary", "filesystem_path"),
-                EnvironmentFieldDeclaration(
-                    "dssp_timeout_seconds",
-                    "json_value",
-                    required=False,
-                ),
-            )
+            (EnvironmentFieldDeclaration("dssp_binary", "filesystem_path"),)
             if is_dssp
             else ()
         ),

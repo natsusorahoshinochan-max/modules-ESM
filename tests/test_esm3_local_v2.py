@@ -64,6 +64,7 @@ def _patch_local_runtime(
             runtime_directory=runtime_directory,
             device="cpu",
             performance_settings={},
+            artifact_sources={},
         )
 
     monkeypatch.setattr(
@@ -749,6 +750,7 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         runtime_directory=runtime_directory,
         device="cpu",
         performance_settings={},
+        artifact_sources={},
     )
     client = FailingClient()
     monkeypatch.setattr(

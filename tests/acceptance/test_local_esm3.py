@@ -1,5 +1,6 @@
 """Acceptance: all local ESM-3 v2 generation modes through public contracts."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,6 @@ def test_local_esm3_all_generation_modes(
 ) -> None:
     from modules.esm3.local_adapter import (
         LOCAL_ESM3_SNAPSHOT_REVISION,
-        local_esm3_snapshot_root,
     )
     from tests.fixtures.esm3_generation import (
         decode_output,
@@ -23,7 +23,16 @@ def test_local_esm3_all_generation_modes(
         run_generation,
     )
 
-    snapshot = local_esm3_snapshot_root()
+    if configured_cache := os.environ.get("HF_HUB_CACHE"):
+        hub_cache = Path(configured_cache)
+    else:
+        hub_cache = Path(os.environ["HF_HOME"]) / "hub"
+    snapshot = (
+        hub_cache
+        / "models--biohub--esm3-sm-open-v1"
+        / "snapshots"
+        / LOCAL_ESM3_SNAPSHOT_REVISION
+    )
     runtime_directory = tmp_path / "runtime"
     runtime_directory.mkdir()
     environment = {

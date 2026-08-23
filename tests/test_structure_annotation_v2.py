@@ -1160,11 +1160,6 @@ def test_dssp_binary_is_binding_environment_not_workflow_parameter() -> None:
             "required": True,
             "value_category": "filesystem_path",
         },
-        {
-            "name": "dssp_timeout_seconds",
-            "required": False,
-            "value_category": "json_value",
-        },
     )
     published = binding.descriptor_bytes.decode("utf-8")
     assert "/opt/" not in published
