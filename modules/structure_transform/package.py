@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from core.catalog.declarations import (
     AvailabilityDeclaration,
     AvailabilityResult,
@@ -16,14 +18,12 @@ from core.catalog.definition_resource import (
 )
 from core.catalog.port_contract import (
     BehaviorReference,
-    PortTypeDefinition,
 )
 from core.operation import (
     OperationContext,
+    OperationResources,
     ScientificOperation,
 )
-from datatypes.structure import ProteinStructure
-
 from .candidate_transforms import (
     ExtractSequenceCandidatesImplementation,
     MaterializeCandidateNormalizationsImplementation,
@@ -38,10 +38,10 @@ from .projections import (
     ExtractBackboneImplementation,
     ExtractSequenceImplementation,
     SelectChainsImplementation,
-    validate_backbone_structure,
 )
 from .residue_axis import ResolveResidueAxisImplementation
 from .port_types import (
+    BACKBONE_STRUCTURE_PORT_TYPE,
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
     CANDIDATE_ASSOCIATION_VERSION,
     CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
@@ -54,7 +54,6 @@ from .port_types import (
 
 _PACKAGE_VERSION = "3.0.0"
 _VERSION = "2.1.0"
-_BACKBONE_PORT_VERSION = "4.0.0"
 _CANDIDATE_NODE_VERSION = "4.0.0"
 _STRUCTURE_NODE_VERSION = "4.0.0"
 _NORMALIZE_CSH_NODE_VERSION = "5.0.0"
@@ -106,90 +105,40 @@ def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
 
-def _build_select_chains(context: OperationContext) -> ScientificOperation:
-    return SelectChainsImplementation(context.resources)
-
-
-def _build_select_candidate_chains(
-    context: OperationContext,
-) -> ScientificOperation:
-    return SelectCandidateChainsImplementation(context.resources)
-
-
-def _build_extract_backbone(context: OperationContext) -> ScientificOperation:
-    return ExtractBackboneImplementation(context.resources)
-
-
-def _build_extract_sequence(context: OperationContext) -> ScientificOperation:
-    return ExtractSequenceImplementation(context.resources)
-
-
-def _build_extract_sequence_candidates(
-    context: OperationContext,
-) -> ScientificOperation:
-    return ExtractSequenceCandidatesImplementation(context.resources)
-
-
-def _build_normalize_csh_parent_span(
-    context: OperationContext,
-) -> ScientificOperation:
-    return NormalizeCshParentSpanImplementation(context.resources)
-
-
-def _build_normalize_csh_parent_span_candidates(
-    context: OperationContext,
-) -> ScientificOperation:
-    return NormalizeCshParentSpanCandidatesImplementation(context.resources)
-
-
-def _build_materialize_candidate_normalizations(
-    context: OperationContext,
-) -> ScientificOperation:
-    return MaterializeCandidateNormalizationsImplementation(context.resources)
-
-
-def _build_project_single_residue_axis(
-    context: OperationContext,
-) -> ScientificOperation:
-    return ProjectSingleResidueAxisImplementation(context.resources)
-
-
-def _build_resolve_residue_axis(
-    context: OperationContext,
-) -> ScientificOperation:
-    return ResolveResidueAxisImplementation(context.resources)
-
-
-def _build_resolve_candidate_residue_axes(
-    context: OperationContext,
-) -> ScientificOperation:
-    return ResolveCandidateResidueAxesImplementation(context.resources)
-
-
-def _build_backbone_to_structure(
-    context: OperationContext,
-) -> ScientificOperation:
-    return BackboneToStructureImplementation(context.resources)
-
-
-_OPERATION_FACTORIES = {
-    "select_chains": _build_select_chains,
-    "select_candidate_chains": _build_select_candidate_chains,
-    "extract_backbone": _build_extract_backbone,
-    "extract_sequence": _build_extract_sequence,
-    "extract_sequence_candidates": _build_extract_sequence_candidates,
-    "normalize_csh_parent_span": _build_normalize_csh_parent_span,
+_OPERATION_IMPLEMENTATIONS: dict[
+    str,
+    Callable[[OperationResources], ScientificOperation],
+] = {
+    "select_chains": SelectChainsImplementation,
+    "select_candidate_chains": SelectCandidateChainsImplementation,
+    "extract_backbone": ExtractBackboneImplementation,
+    "extract_sequence": ExtractSequenceImplementation,
+    "extract_sequence_candidates": ExtractSequenceCandidatesImplementation,
+    "normalize_csh_parent_span": NormalizeCshParentSpanImplementation,
     "normalize_csh_parent_span_candidates": (
-        _build_normalize_csh_parent_span_candidates
+        NormalizeCshParentSpanCandidatesImplementation
     ),
     "materialize_candidate_normalizations": (
-        _build_materialize_candidate_normalizations
+        MaterializeCandidateNormalizationsImplementation
     ),
-    "project_single_residue_axis": _build_project_single_residue_axis,
-    "resolve_residue_axis": _build_resolve_residue_axis,
-    "resolve_candidate_residue_axes": _build_resolve_candidate_residue_axes,
-    "backbone_to_structure": _build_backbone_to_structure,
+    "project_single_residue_axis": ProjectSingleResidueAxisImplementation,
+    "resolve_residue_axis": ResolveResidueAxisImplementation,
+    "resolve_candidate_residue_axes": (
+        ResolveCandidateResidueAxesImplementation
+    ),
+    "backbone_to_structure": BackboneToStructureImplementation,
 }
+
+
+def _build(
+    operation: str,
+) -> Callable[[OperationContext], ScientificOperation]:
+    implementation = _OPERATION_IMPLEMENTATIONS[operation]
+
+    def factory(context: OperationContext) -> ScientificOperation:
+        return implementation(context.resources)
+
+    return factory
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
@@ -215,7 +164,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 binding_version,
                 {"execution_route": "direct"},
             ),
-            build=_OPERATION_FACTORIES[operation],
+            build=_build(operation),
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
@@ -233,20 +182,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             "source": "repository-owned",
         },
     )
-
-
-def _backbone_to_wire(value: ProteinStructure) -> object:
-    return {"pdb_string": value.pdb_string}
-
-
-def _backbone_from_wire(value: object) -> object:
-    if (
-        not isinstance(value, dict)
-        or set(value) != {"pdb_string"}
-        or type(value["pdb_string"]) is not str
-    ):
-        raise ValueError("backbone wire value is invalid")
-    return ProteinStructure(pdb_string=value["pdb_string"])
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
@@ -273,41 +208,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(
-        PortTypeDefinition(
-            type_id="structure_transform.backbone_structure",
-            version=_BACKBONE_PORT_VERSION,
-            validator=BehaviorReference(
-                "structure_transform.backbone_structure/validate",
-                _BACKBONE_PORT_VERSION,
-                {
-                    "accepted_value_kind": "protein_structure",
-                    "embedded_structure_contract": "protein.structure@4.0.0",
-                    "record_contract": {
-                        "records": ["ATOM", "TER", "END"],
-                        "atoms": ["N", "CA", "C", "O"],
-                        "alternate_locations": "resolved",
-                        "missing_atoms": "rejected",
-                        "chain_breaks": "TER-terminated",
-                    },
-                },
-            ),
-            codec=BehaviorReference(
-                "structure_transform.backbone_structure/codec",
-                _BACKBONE_PORT_VERSION,
-                {
-                    "canonicalization": "RFC 8785",
-                    "pdb_line_endings": "LF",
-                },
-            ),
-            content_identity=BehaviorReference(
-                "structure_transform.backbone_structure/content",
-                _BACKBONE_PORT_VERSION,
-                {"digest": "SHA-256"},
-            ),
-            runtime_validator=validate_backbone_structure,
-            runtime_to_wire=_backbone_to_wire,
-            runtime_from_wire=_backbone_from_wire,
-        ),
+        BACKBONE_STRUCTURE_PORT_TYPE,
         MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
         RESOLVED_AXIS_PORT_TYPE,
         CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
