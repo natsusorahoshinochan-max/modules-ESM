@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import Any
 
 from core.catalog.errors import CatalogBuildError
-from core.catalog.port_contract import canonical_sha256
+from core.catalog.canonical import canonical_sha256
 from core.scoring.selection import (
     ContextSelector,
     ObservationSelector,

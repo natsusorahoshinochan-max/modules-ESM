@@ -17,11 +17,13 @@ from core.catalog.errors import (
     UnknownPortTypeError,
     PortValueError,
 )
+from core.catalog.canonical import (
+    canonical_json_bytes,
+    canonical_sha256,
+)
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    canonical_json_bytes,
-    canonical_sha256,
 )
 from core.catalog.builtins import (
     builtin_frozen_catalog,

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import threading
 from typing import Any, TypeAlias, cast
 
-from core.catalog.port_contract import canonical_sha256
+from core.catalog.canonical import canonical_sha256
 from core.execution.ledger.codec import (
     LedgerTransaction,
     contract_lock_digest,

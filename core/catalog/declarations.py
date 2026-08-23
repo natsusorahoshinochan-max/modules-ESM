@@ -28,6 +28,7 @@ from datatypes.exact_reference import (
 )
 
 from core.catalog.errors import CatalogBuildError
+from core.catalog.canonical import canonical_json_bytes
 from .port_contract import (
     CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
     CANDIDATE_PAIRING_PORT_TYPE_VERSION,
@@ -35,7 +36,6 @@ from .port_contract import (
     SCORE_COLLECTION_PORT_TYPE_VERSION,
     BehaviorReference,
     PortTypeDefinition,
-    canonical_json_bytes,
 )
 
 

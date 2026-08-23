@@ -23,10 +23,8 @@ from core.catalog.declarations import (
 from core.catalog.model import (
     FrozenCatalog,
 )
-from core.catalog.port_contract import (
-    BehaviorReference,
-    canonical_sha256,
-)
+from core.catalog.canonical import canonical_sha256
+from core.catalog.port_contract import BehaviorReference
 from core.operation import (
     OperationCall,
     OperationContext,

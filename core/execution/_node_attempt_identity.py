@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
-from core.catalog.port_contract import canonical_sha256
+from core.catalog.canonical import canonical_sha256
 from core.execution.output_admission import NodeOutputPlan, OutputPortPlan
 from core.execution.output_admission.artifacts import (
     ArtifactOutputDeclaration,

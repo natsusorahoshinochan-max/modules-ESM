@@ -15,10 +15,10 @@ from core.catalog.model import (
     FrozenCatalog,
     result_identity_contract,
 )
+from core.catalog.canonical import canonical_sha256
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    canonical_sha256,
 )
 from datatypes.i_json import thaw_i_json
 from tests.support.catalog import binding_availability, resolved_dependencies

@@ -19,7 +19,7 @@ from core.catalog.model import (
     CatalogContract,
     FrozenCatalog,
 )
-from core.catalog.port_contract import canonical_json_bytes
+from core.catalog.canonical import canonical_json_bytes
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     verify_module_package_contract,

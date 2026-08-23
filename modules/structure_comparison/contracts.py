@@ -6,7 +6,7 @@ from importlib.metadata import version
 
 from core.catalog.declarations import MethodDefinition
 from core.catalog.definition_resource import load_method_definitions
-from core.catalog.port_contract import canonical_sha256
+from core.catalog.canonical import canonical_sha256
 from datatypes.exact_reference import ExactContractReference
 
 

@@ -14,7 +14,7 @@ from core.catalog.declarations import (
     NodeTypeDefinition,
     ProducedObservationDefinition,
 )
-from core.catalog.port_contract import canonical_json_bytes
+from core.catalog.canonical import canonical_json_bytes
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
     ObservationSelector,

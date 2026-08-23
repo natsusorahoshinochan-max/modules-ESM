@@ -26,10 +26,10 @@ from core.catalog.errors import (
     UnknownContractError,
     InactiveContractGenerationError,
 )
+from core.catalog.canonical import canonical_json_bytes
 from .port_contract import (
     CATALOG_NAMESPACE,
     PortTypeDefinition,
-    canonical_json_bytes,
 )
 
 

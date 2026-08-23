@@ -21,7 +21,7 @@ from core.catalog.builder import (
     build_frozen_catalog,
 )
 from core.catalog.declarations import ExecutionBindingDefinition
-from core.catalog.port_contract import canonical_sha256
+from core.catalog.canonical import canonical_sha256
 from core.execution.node_attempt import result_identity_descriptor
 from core.operation import (
     ReadinessResult,

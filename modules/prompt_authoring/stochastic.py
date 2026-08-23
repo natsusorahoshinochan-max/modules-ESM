@@ -7,9 +7,7 @@ import hashlib
 from typing import Any, cast
 
 from core.operation import AdmittedPort
-from core.catalog.port_contract import (
-    canonical_json_bytes,
-)
+from core.catalog.canonical import canonical_json_bytes
 from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,

@@ -10,7 +10,10 @@ from typing import Literal, cast
 
 import pytest
 
-from core.catalog.port_contract import canonical_json_bytes, canonical_sha256
+from core.catalog.canonical import (
+    canonical_json_bytes,
+    canonical_sha256,
+)
 from core.execution.ledger import (
     ArtifactOutputEvidence,
     AvailabilityBound,

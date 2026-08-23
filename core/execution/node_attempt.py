@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, cast
 import uuid
 
-from core.catalog.port_contract import canonical_sha256
+from core.catalog.canonical import canonical_sha256
 from core.catalog.model import CatalogAvailabilityProjection
 from core.execution._node_attempt_errors import (
     _binding_error,

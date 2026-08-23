@@ -11,8 +11,7 @@ import re
 from types import MappingProxyType
 from typing import Any, Callable, cast
 
-import rfc8785
-
+from core.catalog import canonical as _canonical
 from core.catalog import errors as _errors
 from core.operation import EncodedOutputIdentities, ResolvedOutputIdentity
 from datatypes.candidate import (
@@ -28,7 +27,7 @@ from datatypes.exact_reference import (
     ResidueAxisReference,
     validate_canonical_identifier,
 )
-from datatypes.i_json import FrozenList, freeze_i_json, thaw_i_json
+from datatypes.i_json import FrozenList, thaw_i_json
 from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,
@@ -212,7 +211,6 @@ _BUILTIN_PORT_TYPE_VERSIONS = {
     "residue.map": RESIDUE_MAP_PORT_TYPE_VERSION,
     "score.collection": SCORE_COLLECTION_PORT_TYPE_VERSION,
 }
-_I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
 _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
@@ -261,75 +259,6 @@ def _validate_version(value: str, field_name: str) -> None:
         raise _errors.CatalogBuildError(
             f"{field_name} must be an exact semantic version"
         )
-
-
-def _validate_i_json(value: Any, *, path: str = "$") -> None:
-    if value is None or isinstance(value, (str, bool)):
-        if isinstance(value, str):
-            try:
-                value.encode("utf-8")
-            except UnicodeEncodeError as error:
-                raise _errors.CatalogBuildError(
-                    f"{path} contains a non-Unicode scalar value"
-                ) from error
-        return
-    if isinstance(value, int):
-        if not -_I_JSON_INTEGER_LIMIT <= value <= _I_JSON_INTEGER_LIMIT:
-            raise _errors.CatalogBuildError(
-                f"{path} is outside the I-JSON integer domain"
-            )
-        return
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise _errors.CatalogBuildError(f"{path} must not contain NaN or Infinity")
-        if value == 0.0 and math.copysign(1.0, value) < 0:
-            raise _errors.CatalogBuildError(f"{path} must not contain negative zero")
-        return
-    if isinstance(value, list):
-        for index, item in enumerate(value):
-            _validate_i_json(item, path=f"{path}[{index}]")
-        return
-    if isinstance(value, Mapping):
-        for key, item in value.items():
-            if not isinstance(key, str):
-                raise _errors.CatalogBuildError(f"{path} has a non-string object key")
-            _validate_i_json(key, path=f"{path}.<key>")
-            _validate_i_json(item, path=f"{path}.{key}")
-        return
-    raise _errors.CatalogBuildError(
-        f"{path} contains a value that cannot be represented in I-JSON"
-    )
-
-
-def canonical_json_bytes(value: Any) -> bytes:
-    """Return RFC 8785 canonical UTF-8 after enforcing Workbench I-JSON."""
-    projected = thaw_i_json(value)
-    _validate_i_json(projected)
-    try:
-        return rfc8785.dumps(projected)
-    except (rfc8785.CanonicalizationError, UnicodeError) as error:
-        raise _errors.CatalogBuildError(
-            "value cannot be canonicalized with RFC 8785"
-        ) from error
-
-
-def _freeze_validated_i_json(value: Any) -> Any:
-    """Copy already-admitted I-JSON into immutable containers."""
-    if isinstance(value, Mapping):
-        return MappingProxyType(
-            {
-                key: _freeze_validated_i_json(item)
-                for key, item in value.items()
-            }
-        )
-    if isinstance(value, (list, tuple)):
-        return FrozenList(_freeze_validated_i_json(item) for item in value)
-    return value
-
-
-def canonical_sha256(value: Any) -> str:
-    """Return the public digest of canonical I-JSON bytes."""
-    return f"sha256:{hashlib.sha256(canonical_json_bytes(value)).hexdigest()}"
 
 
 _DATACLASS_BY_TAG = {
@@ -614,7 +543,7 @@ def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
 def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
     if value is None or isinstance(value, (str, bool, int, float)):
         try:
-            _validate_i_json(value, path=path)
+            _canonical._validate(value, path=path)
         except _errors.CatalogBuildError as error:
             raise _errors.PortValueError(str(error)) from error
         return value
@@ -642,7 +571,7 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
             ]
             for key, item in value.items()
         ]
-        entries.sort(key=lambda entry: canonical_json_bytes(entry[0]))
+        entries.sort(key=lambda entry: _canonical.canonical_json_bytes(entry[0]))
         return {"$map": entries}
     if is_dataclass(value) and not isinstance(value, type):
         value_type = type(value)
@@ -691,7 +620,7 @@ def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:
                 raise _errors.PortValueError(
                     f"{path}.$map[{index}] must be a key/value pair"
                 )
-            encoded_keys.append(canonical_json_bytes(entry[0]))
+            encoded_keys.append(_canonical.canonical_json_bytes(entry[0]))
         if encoded_keys != sorted(encoded_keys) or len(encoded_keys) != len(
             set(encoded_keys)
         ):
@@ -765,7 +694,7 @@ def _parse_canonical_json(encoded: bytes) -> Any:
             "canonical codec input is malformed UTF-8 JSON"
         ) from error
     try:
-        canonical = canonical_json_bytes(payload)
+        canonical = _canonical.canonical_json_bytes(payload)
     except _errors.CatalogBuildError as error:
         raise _errors.PortValueError(str(error)) from error
     if encoded != canonical:
@@ -787,8 +716,8 @@ class BehaviorReference:
         _validate_identifier(self.behavior_id, "behavior_id")
         _validate_version(self.behavior_version, "behavior_version")
         parameters = dict(self.parameters)
-        canonical_json_bytes(parameters)
-        object.__setattr__(self, "parameters", freeze_i_json(parameters))
+        _canonical.canonical_json_bytes(parameters)
+        object.__setattr__(self, "parameters", _canonical._freeze(parameters))
 
     def descriptor(self) -> dict[str, Any]:
         """Return the closed public declaration without a Python callable."""
@@ -946,11 +875,11 @@ class PortTypeDefinition:
                 "be provided together"
             )
         descriptor = self._build_descriptor()
-        canonical_json_bytes(descriptor)
+        _canonical.canonical_json_bytes(descriptor)
         object.__setattr__(
             self,
             "_canonical_descriptor",
-            _freeze_validated_i_json(descriptor),
+            _canonical._freeze(descriptor),
         )
 
     def _build_descriptor(self) -> dict[str, Any]:
@@ -997,7 +926,7 @@ class PortTypeDefinition:
     @property
     def descriptor_bytes(self) -> bytes:
         """RFC 8785 canonical UTF-8 descriptor bytes."""
-        return canonical_json_bytes(self._canonical_descriptor)
+        return _canonical.canonical_json_bytes(self._canonical_descriptor)
 
     @property
     def contract_digest(self) -> str:
@@ -1131,7 +1060,7 @@ class PortTypeDefinition:
         self.validate(value)
         wire_value = self.to_wire(value)
         try:
-            return canonical_json_bytes(
+            return _canonical.canonical_json_bytes(
                 {
                     "schema_namespace": PORT_VALUE_NAMESPACE,
                     "port_type_id": self.type_id,

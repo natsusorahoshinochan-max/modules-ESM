@@ -8,7 +8,7 @@ import json
 import re
 from typing import Any, Literal, cast
 
-from core.catalog.port_contract import canonical_json_bytes
+from core.catalog.canonical import canonical_json_bytes
 from core.project.objects import StoredObject
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json, thaw_i_json

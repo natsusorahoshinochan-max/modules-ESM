@@ -9,7 +9,7 @@ import json
 import pytest
 
 from core.catalog.errors import PortValueError
-from core.catalog.port_contract import canonical_json_bytes
+from core.catalog.canonical import canonical_json_bytes
 from core.execution.output_admission.admission import (
     NodeOutputPlan,
     OutputPortPlan,

@@ -8,10 +8,8 @@ import hashlib
 from typing import Any
 
 from core.catalog.errors import PortValueError
-from core.catalog.port_contract import (
-    _exact_contract_reference_to_canonical,
-    canonical_sha256,
-)
+from core.catalog.canonical import canonical_sha256
+from core.catalog.port_contract import _exact_contract_reference_to_canonical
 from core.execution.output_admission.identity import _exact_port_type
 from core.operation import AdmittedPort, AdmittedValue, PortMultiplicity
 from datatypes.candidate import CandidateDataReference

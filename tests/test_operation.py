@@ -13,10 +13,10 @@ from core.catalog.errors import (
     CatalogBuildError,
     PortValueError,
 )
+from core.catalog.canonical import canonical_sha256
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    canonical_sha256,
 )
 from core.scoring.observation_admission import (
     ObservationAdmissionError,

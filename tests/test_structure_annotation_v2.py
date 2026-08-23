@@ -43,9 +43,7 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-from core.catalog.port_contract import (
-    canonical_json_bytes,
-)
+from core.catalog.canonical import canonical_json_bytes
 from core.workflow.document import WorkflowEdge
 from datatypes.candidate import (
     Candidate,

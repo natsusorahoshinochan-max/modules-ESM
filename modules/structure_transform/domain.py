@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from core.catalog.port_contract import (
-    canonical_sha256,
-)
+from core.catalog.canonical import canonical_sha256
 
 from datatypes.candidate import CandidateDataReference
 from datatypes.residue import ModifiedResidueNormalizationCollection

@@ -7,10 +7,10 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from core.catalog.errors import PortValueError
+from core.catalog.canonical import canonical_sha256
 from core.catalog.port_contract import (
     _candidate_data_reference_to_canonical,
     _residue_axis_reference_to_canonical,
-    canonical_sha256,
     observation_context_canonical,
 )
 from core.operation import (

@@ -26,9 +26,7 @@ from core.workflow.document import (
     WorkflowDocument,
     WorkflowNodeInstance,
 )
-from core.catalog.port_contract import (
-    canonical_json_bytes,
-)
+from core.catalog.canonical import canonical_json_bytes
 from core.workflow.document import WorkflowEdge
 from datatypes.observation import ScoreCollection
 from tests.acceptance.retained_evidence import retain_service_run

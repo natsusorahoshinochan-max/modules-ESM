@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.catalog.port_contract import canonical_sha256
+from core.catalog.canonical import canonical_sha256
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.observation_plan import ProducedObservationPlan
 from core.scoring.selection import (

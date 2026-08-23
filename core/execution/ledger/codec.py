@@ -11,7 +11,10 @@ import json
 import re
 from typing import Any, cast
 
-from core.catalog.port_contract import canonical_json_bytes, canonical_sha256
+from core.catalog.canonical import (
+    canonical_json_bytes,
+    canonical_sha256,
+)
 from core.execution.ledger.facts import (
     AvailabilityBound,
     CancellationRequested,
