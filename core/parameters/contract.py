@@ -156,18 +156,6 @@ def _find_environment_parameter_field(
     return None
 
 
-def _parameter_value_contract(
-    declaration: Mapping[str, Any],
-) -> Mapping[str, Any]:
-    """Return the only supported v2.1 parameter value schema."""
-    value_contract = declaration.get("value_contract")
-    if not isinstance(value_contract, Mapping):
-        raise ParameterContractDefinitionError(
-            "parameter declaration must contain a value_contract object"
-        )
-    return value_contract
-
-
 def _validate_parameter_declarations(
     declarations: Mapping[str, Any],
     *,
@@ -229,7 +217,6 @@ def _validate_parameter_declarations(
         _validate_value_contract_schema(
             schema,
             path=f"{declaration_path}.value_contract",
-            allow_parameter_required=False,
         )
         if "default" in declaration:
             environment_default = _find_environment_parameter_field(
@@ -246,7 +233,6 @@ def _validate_value_contract_schema(
     schema: Mapping[str, Any],
     *,
     path: str,
-    allow_parameter_required: bool = False,
 ) -> None:
     unexpected = set(schema) - _SUPPORTED_VALUE_CONTRACT_KEYS
     if unexpected:
@@ -401,16 +387,7 @@ def _validate_value_contract_schema(
     )
     for keywords, required_type in keyword_type_groups:
         present = set(schema).intersection(keywords)
-        if (
-            present
-            and not (
-                required_type == "object"
-                and allow_parameter_required
-                and present == {"required"}
-                and type(required) is bool
-            )
-            and required_type not in types
-        ):
+        if present and required_type not in types:
             raise ParameterContractDefinitionError(
                 f"{path} fields {sorted(present)!r} require "
                 f"type {required_type!r}"
@@ -433,15 +410,11 @@ def _validate_value_contract_schema(
             f"{path}.uniqueItems must be boolean"
         )
     if "required" in schema:
-        parameter_required = (
-            allow_parameter_required and type(required) is bool
-        )
-        object_required = (
-            isinstance(required, (list, tuple))
-            and all(isinstance(name, str) for name in required)
-            and len(set(required)) == len(required)
-        )
-        if not parameter_required and not object_required:
+        if (
+            not isinstance(required, (list, tuple))
+            or any(not isinstance(name, str) for name in required)
+            or len(set(required)) != len(required)
+        ):
             raise ParameterContractDefinitionError(
                 f"{path}.required must be a unique array of field names"
             )
@@ -506,22 +479,14 @@ def _validate_value_contract_schema(
                 property_schema,
                 path=f"{path}.properties.{name}",
             )
-        if isinstance(required, (list, tuple)):
-            undeclared = set(required) - set(properties)
-            if undeclared:
-                raise ParameterContractDefinitionError(
-                    f"{path}.required contains undeclared fields "
-                    f"{sorted(undeclared)!r}"
-                )
+        undeclared = set(required or ()) - set(properties)
+        if undeclared:
+            raise ParameterContractDefinitionError(
+                f"{path}.required contains undeclared fields "
+                f"{sorted(undeclared)!r}"
+            )
     additional = schema.get("additionalProperties")
-    expresses_object = (
-        expected_type == "object"
-        or (
-            isinstance(expected_type, (list, tuple))
-            and "object" in expected_type
-        )
-        or properties is not None
-    )
+    expresses_object = "object" in types or properties is not None
     if expresses_object and additional is not False:
         raise ParameterContractDefinitionError(
             f"{path}.additionalProperties must explicitly be false "
@@ -628,12 +593,11 @@ def _parameter_contract_violation(
             for index, item in enumerate(value):
                 if item in value[:index]:
                     return (*path, index), "must be unique"
-        item_schema = schema.get("items")
-        if isinstance(item_schema, Mapping):
+        if "items" in schema:
             for index, item in enumerate(value):
                 violation = _parameter_contract_violation(
                     item,
-                    item_schema,
+                    schema["items"],
                     path=(*path, index),
                 )
                 if violation is not None:
@@ -651,10 +615,9 @@ def _parameter_contract_violation(
     ):
         properties = schema.get("properties", {})
         required = schema.get("required", ())
-        if isinstance(required, (list, tuple)):
-            missing = [name for name in required if name not in value]
-            if missing:
-                return path, f"must contain required fields {missing!r}"
+        missing = [name for name in required if name not in value]
+        if missing:
+            return path, f"must contain required fields {missing!r}"
         if (
             schema.get("minProperties") is not None
             and len(value) < schema["minProperties"]
@@ -666,11 +629,7 @@ def _parameter_contract_violation(
         ):
             return path, f"must contain at most {schema['maxProperties']} fields"
         for name, item in value.items():
-            item_schema = (
-                properties.get(name)
-                if isinstance(properties, Mapping)
-                else None
-            )
+            item_schema = properties.get(name)
             if item_schema is None:
                 return (*path, name), "is not an allowed field"
             violation = _parameter_contract_violation(
@@ -692,7 +651,8 @@ def _parameter_type_matches(value: Any, expected_type: Any) -> bool:
         "string": type(value) is str,
         "array": isinstance(value, (list, tuple)),
         "object": isinstance(value, Mapping),
-    }.get(expected_type, False)
+    }[expected_type]
+
 
 class ParameterValueAdmissionError(ValueError):
     """One submitted value set does not satisfy its admitted contract."""
@@ -720,7 +680,7 @@ def admit_declarations(
         tuple(
             ParameterDeclaration(
                 name=name,
-                value_contract=_parameter_value_contract(declaration),
+                value_contract=declaration["value_contract"],
                 required=declaration.get("required") is True,
                 has_default="default" in declaration,
                 default=declaration.get("default"),
