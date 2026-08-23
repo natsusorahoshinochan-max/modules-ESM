@@ -3455,7 +3455,12 @@ def test_catalog_resolves_output_identity_source_contract_closure() -> None:
         ),
         output_identity_source_port_types={"source": source_port},
     )
-    catalog = FrozenCatalog((source_port, identity_port))
+    catalog = FrozenCatalog(
+        (source_port, identity_port),
+        contracts=(),
+        availability=(),
+        availability_observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
     roots = (
         ExactContractReference(**identity_port.reference()),
     )

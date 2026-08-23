@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
-from datetime import datetime, timedelta, timezone
 import importlib
 from pathlib import Path
 import sys
@@ -303,17 +302,12 @@ def _forget_package(root_name: str) -> None:
 def _build_synthetic_catalog(
     tmp_path: Path,
     monkeypatch,
-    *,
-    observed_at: datetime | None = None,
 ):
     root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     try:
-        return build_frozen_catalog(
-            (_load_registration(root_name),),
-            observed_at=observed_at,
-        )
+        return build_frozen_catalog((_load_registration(root_name),))
     finally:
         _forget_package(root_name)
 
@@ -550,22 +544,11 @@ def test_binding_availability_is_published_with_the_catalog_observation(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    catalog = _build_synthetic_catalog(
-        tmp_path,
-        monkeypatch,
-        observed_at=datetime(
-            2026,
-            7,
-            29,
-            1,
-            2,
-            3,
-            tzinfo=timezone.utc,
-        ),
-    )
+    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
+    snapshot = _snapshot(catalog)
     assert type(catalog.availability[0]) is CatalogAvailabilityProjection
     assert catalog.projection().availability == catalog.availability
-    assert _snapshot(catalog)["availability"] == [{
+    assert snapshot["availability"] == [{
         "binding": {
             "contract_kind": "binding",
             "contract_id": "synthetic.echo.direct",
@@ -574,7 +557,7 @@ def test_binding_availability_is_published_with_the_catalog_observation(
                 ("binding", "synthetic.echo.direct")
             ],
         },
-        "observed_at": "2026-07-29T01:02:03Z",
+        "observed_at": snapshot["availability_observed_at"],
         "available": True,
     }]
 
@@ -1407,17 +1390,7 @@ def test_observed_availability_never_changes_stable_contract_identity(
 
     try:
         registration = _load_registration(root_name)
-        available_catalog = build_frozen_catalog(
-            (registration,),
-            observed_at=datetime(
-                2026,
-                7,
-                29,
-                2,
-                0,
-                tzinfo=timezone.utc,
-            ),
-        )
+        available_catalog = build_frozen_catalog((registration,))
         binding = registration.bindings[0]
         unavailable_catalog = build_frozen_catalog(
             (
@@ -1443,14 +1416,6 @@ def test_observed_availability_never_changes_stable_contract_identity(
                     ),
                 ),
             ),
-            observed_at=datetime(
-                2026,
-                7,
-                29,
-                2,
-                1,
-                tzinfo=timezone.utc,
-            ),
         )
     finally:
         _forget_package(root_name)
@@ -1465,49 +1430,6 @@ def test_observed_availability_never_changes_stable_contract_identity(
     unavailable_snapshot = _snapshot(unavailable_catalog)
     assert available_snapshot["availability"][0]["available"] is True
     assert unavailable_snapshot["availability"][0]["available"] is False
-    assert available_snapshot["availability_observed_at"] != (
-        unavailable_snapshot["availability_observed_at"]
-    )
-
-
-def test_catalog_build_normalizes_observation_time_to_utc(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    catalog = _build_synthetic_catalog(
-        tmp_path,
-        monkeypatch,
-        observed_at=datetime(
-            2026,
-            7,
-            29,
-            10,
-            0,
-            tzinfo=timezone(timedelta(hours=8)),
-        ),
-    )
-
-    snapshot = _snapshot(catalog)
-
-    assert {
-        snapshot["availability_observed_at"],
-        *(item["observed_at"] for item in snapshot["availability"]),
-    } == {"2026-07-29T02:00:00Z"}
-
-
-def test_catalog_build_rejects_a_naive_observation_time(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    with pytest.raises(
-        CatalogBuildError,
-        match="observation time must be timezone-aware",
-    ):
-        _build_synthetic_catalog(
-            tmp_path,
-            monkeypatch,
-            observed_at=datetime(2026, 7, 29, 2, 0),
-        )
 
 
 def test_adapter_binding_requires_an_explicit_adapter_behavior(

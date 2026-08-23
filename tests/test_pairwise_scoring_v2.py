@@ -241,6 +241,7 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     ),
                 },
             ),
+            availability=(),
             availability_observed_at=datetime(
                 2026,
                 7,

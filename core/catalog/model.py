@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 import hashlib
 from types import MappingProxyType
 from typing import Any
@@ -180,11 +180,9 @@ class FrozenCatalog:
     """Immutable indexes over Catalog Builder output."""
 
     port_types: tuple[PortTypeDefinition, ...]
-    contracts: tuple[CatalogContract, ...] = ()
-    availability: tuple[CatalogAvailabilityProjection, ...] = ()
-    availability_observed_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc),
-    )
+    contracts: tuple[CatalogContract, ...]
+    availability: tuple[CatalogAvailabilityProjection, ...]
+    availability_observed_at: datetime
     _by_identity: Mapping[tuple[str, str], PortTypeDefinition] = field(
         init=False,
         repr=False,

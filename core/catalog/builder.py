@@ -60,12 +60,6 @@ def _definition_identity(
     return definition.identity
 
 
-def _utc_observation_time(value: datetime) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise CatalogBuildError("Catalog observation time must be timezone-aware")
-    return value.astimezone(timezone.utc)
-
-
 def _matches_context_constraint(value: Any, constraint: Any) -> bool:
     if isinstance(constraint, Mapping):
         if "const" in constraint:
@@ -274,8 +268,6 @@ def _validate_propagation_relationships(
 
 def build_frozen_catalog(
     registrations: Sequence[ModulePackageRegistration],
-    *,
-    observed_at: datetime | None = None,
 ) -> FrozenCatalog:
     """Validate all registrations in temporary state, then return one Catalog."""
     registration_tuple = tuple(registrations)
@@ -960,9 +952,7 @@ def build_frozen_catalog(
     for key in sorted(entry_by_key):
         resolve(key)
 
-    observation_time = _utc_observation_time(
-        observed_at or datetime.now(timezone.utc)
-    )
+    observation_time = datetime.now(timezone.utc)
     availability_snapshots: list[CatalogAvailabilityProjection] = []
     for key in sorted(bindings_by_key):
         _, binding = bindings_by_key[key]

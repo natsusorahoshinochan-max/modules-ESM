@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 
@@ -39,6 +40,8 @@ def _catalog() -> FrozenCatalog:
                 ),
             ),
         ),
+        availability=(),
+        availability_observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
 
 
