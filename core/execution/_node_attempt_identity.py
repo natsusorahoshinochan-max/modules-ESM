@@ -81,7 +81,7 @@ def _resolve_effective_randomness(
     )
 
 
-def result_identity_descriptor(
+def _result_identity_descriptor(
     node: ExecutionPlanNode,
     inputs: Mapping[str, AdmittedPort],
     *,
@@ -168,7 +168,7 @@ def _result_identity(
     resolved_resource_inputs: tuple[Mapping[str, Any], ...] = (),
 ) -> str:
     return canonical_sha256(
-        result_identity_descriptor(
+        _result_identity_descriptor(
             node,
             inputs,
             resolved_resource_inputs=resolved_resource_inputs,
@@ -177,7 +177,7 @@ def _result_identity(
     )
 
 
-def result_contract_metadata(
+def _result_contract_metadata(
     node: ExecutionPlanNode,
 ) -> dict[str, Any]:
     return node.result_identity_plan_facts.cache_contract_metadata()

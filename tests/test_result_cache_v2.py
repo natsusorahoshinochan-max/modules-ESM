@@ -30,12 +30,12 @@ from core.operation import (
     OperationContext,
     ReadinessResult,
 )
-from core.execution._node_attempt_identity import _resolve_effective_randomness
-from core.execution.node_attempt import (
-    ExecutionTermination,
-    result_contract_metadata,
-    result_identity_descriptor,
+from core.execution._node_attempt_identity import (
+    _resolve_effective_randomness,
+    _result_contract_metadata,
+    _result_identity_descriptor,
 )
+from core.execution.node_attempt import ExecutionTermination
 from core.execution.results.cache import ProjectReplayIndex
 from tests.support.application import create_application
 from datatypes.candidate import (
@@ -124,7 +124,7 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
             "canonical_projection",
             canonical_projection,
         )
-        descriptor = result_identity_descriptor(
+        descriptor = _result_identity_descriptor(
             node,
             {},
             effective_randomness_snapshot=_resolve_effective_randomness(
@@ -132,7 +132,7 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
                 {},
             ),
         )
-        cache_metadata = result_contract_metadata(node)
+        cache_metadata = _result_contract_metadata(node)
         ledger_plan_facts = plan_evidence(plan)[0]
 
     assert descriptor["result_identity_plan_facts"] == expected_projection
@@ -178,7 +178,7 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
             project_id,
             workflow_commit_id=committed["workflow_commit_id"],
         )
-        descriptor = result_identity_descriptor(
+        descriptor = _result_identity_descriptor(
             compiled.execution_plan.nodes[0],
             {},
             effective_randomness_snapshot=_resolve_effective_randomness(

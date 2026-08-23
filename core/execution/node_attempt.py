@@ -19,9 +19,8 @@ from core.execution._node_attempt_identity import (
     _exact_reference,
     _node_output_plan,
     _resolve_effective_randomness,
+    _result_contract_metadata,
     _result_identity,
-    result_contract_metadata,
-    result_identity_descriptor,
 )
 from core.execution._node_attempt_invocation import (
     _OperationInvocationRecorder,
@@ -253,7 +252,7 @@ class _NodeAttempt:
                 state.candidate_data_port_types,
             ),
             result_identity=result_identity,
-            result_contract_metadata=result_contract_metadata(
+            result_contract_metadata=_result_contract_metadata(
                 state.node,
             ),
         )
@@ -659,6 +658,4 @@ __all__ = [
     "ExecutionTermination",
     "NodeAttemptExecutor",
     "NodeAttemptFactory",
-    "result_contract_metadata",
-    "result_identity_descriptor",
 ]

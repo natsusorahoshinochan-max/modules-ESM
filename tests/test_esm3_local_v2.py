@@ -638,7 +638,7 @@ def test_local_seed_is_declared_result_identity_randomness(
     _patch_local_runtime(monkeypatch, tmp_path)
     descriptors: list[dict[str, Any]] = []
     result_identity_descriptor = (
-        node_attempt_identity.result_identity_descriptor
+        node_attempt_identity._result_identity_descriptor
     )
 
     def capture_result_identity(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -649,7 +649,7 @@ def test_local_seed_is_declared_result_identity_randomness(
 
     monkeypatch.setattr(
         node_attempt_identity,
-        "result_identity_descriptor",
+        "_result_identity_descriptor",
         capture_result_identity,
     )
     _, _, projection, events = run_generation(

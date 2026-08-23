@@ -22,8 +22,10 @@ from core.catalog.builder import (
 )
 from core.catalog.declarations import ExecutionBindingDefinition
 from core.catalog.canonical import canonical_sha256
-from core.execution._node_attempt_identity import _resolve_effective_randomness
-from core.execution.node_attempt import result_identity_descriptor
+from core.execution._node_attempt_identity import (
+    _resolve_effective_randomness,
+    _result_identity_descriptor,
+)
 from core.operation import (
     ReadinessResult,
 )
@@ -505,7 +507,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
             for node in compiled.execution_plan.nodes
             if node.node_type.contract_id == "folding.fold"
         )
-        return result_identity_descriptor(
+        return _result_identity_descriptor(
             plan_node,
             {"sequence_candidates": admitted_parents},
             effective_randomness_snapshot=_resolve_effective_randomness(

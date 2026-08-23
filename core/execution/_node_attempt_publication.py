@@ -9,7 +9,7 @@ from core.execution._node_attempt_errors import (
     _execution_error,
     _publication_error,
 )
-from core.execution._node_attempt_identity import result_contract_metadata
+from core.execution._node_attempt_identity import _result_contract_metadata
 from core.execution._node_attempt_models import (
     AttemptOutcome,
     _NodeExecutionAttemptState,
@@ -251,7 +251,7 @@ class _AttemptPublication:
                     project_id=state.project_id,
                     materialization_run_id=state.run_id,
                     admitted_output=admitted_output,
-                    result_contract_metadata=result_contract_metadata(
+                    result_contract_metadata=_result_contract_metadata(
                         state.node
                     ),
                 )
