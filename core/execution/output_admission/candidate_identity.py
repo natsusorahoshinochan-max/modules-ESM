@@ -27,8 +27,6 @@ from datatypes.candidate import (
     Candidate,
     CandidateCollection,
     CandidateDataReference,
-    validate_candidate_lineage_graph,
-    validate_candidate_parent_ids,
 )
 from datatypes.observation import (
     PairwiseCandidateMapping,
@@ -280,24 +278,16 @@ def _normalize_candidate_outputs(
             "Output identity intent names an unknown Candidate identity"
         )
 
-    try:
-        for output in output_candidates.values():
-            validate_candidate_parent_ids(
-                output.candidate,
-                subject="Candidate output lineage",
-            )
-        validate_candidate_lineage_graph(
-            tuple(
-                output.candidate for output in output_candidates.values()
-            ),
-            subject="Candidate output lineage",
-        )
-    except ValueError as error:
-        raise PortValueError(str(error)) from error
+    resolving_candidates: set[str] = set()
 
     def resolve_candidate(raw_candidate_id: str) -> None:
         if raw_candidate_id in normalized_candidates:
             return
+        if raw_candidate_id in resolving_candidates:
+            raise PortValueError(
+                "Candidate output lineage contains a cycle"
+            )
+        resolving_candidates.add(raw_candidate_id)
         output = output_candidates[raw_candidate_id]
         candidate = output.candidate
         input_candidate = input_candidates.get(raw_candidate_id)
@@ -320,10 +310,10 @@ def _normalize_candidate_outputs(
                     "Candidate pass-through lacks admitted content identity"
                 )
             normalized_candidate_references[raw_candidate_id] = reference
+            resolving_candidates.remove(raw_candidate_id)
             return
 
         parents: list[str] = []
-        normalized_parent_ids: set[str] = set()
         for parent_id in candidate.parent_ids:
             if parent_id in input_candidates:
                 normalized_parent_id = parent_id
@@ -335,12 +325,6 @@ def _normalize_candidate_outputs(
                     )
                 resolve_candidate(parent_id)
                 normalized_parent_id = normalized_ids[parent_id]
-            if normalized_parent_id in normalized_parent_ids:
-                raise PortValueError(
-                    "Candidate parent identities normalize to one duplicate "
-                    "parent identity"
-                )
-            normalized_parent_ids.add(normalized_parent_id)
             parents.append(normalized_parent_id)
         type_id = _candidate_data_type_id(candidate.data)
         if type_id is None:
@@ -401,6 +385,7 @@ def _normalize_candidate_outputs(
                 content_digest=content_digest,
             )
         )
+        resolving_candidates.remove(raw_candidate_id)
 
     for raw_candidate_id in output_candidates:
         resolve_candidate(raw_candidate_id)

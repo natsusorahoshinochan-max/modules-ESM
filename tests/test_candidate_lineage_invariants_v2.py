@@ -11,14 +11,21 @@ from core.catalog.port_contract import (
     PortValueError,
     canonical_sha256,
 )
+from core.execution.output_admission.admission import (
+    NodeOutputPlan,
+    OutputPortPlan,
+    admit_node_output,
+)
+from core.operation import AdmittedPort
+from core.scoring.observation_plan import ProducedObservationPlan
 from tests.support.output_admission import (
     admit_fixture_port,
-    normalize_fixture_outputs,
 )
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
 )
+from datatypes.exact_reference import ExactContractReference
 from datatypes.sequence import ProteinSequence
 
 
@@ -27,15 +34,46 @@ _BUILTINS = builtin_frozen_catalog()
 _SEQUENCE_PORT_TYPE = _BUILTINS.require_port_type(
     "protein.sequence", "3.0.0"
 )
+_CANDIDATE_COLLECTION_PORT_TYPE = _BUILTINS.require_port_type(
+    "candidate.collection", "4.0.0"
+)
+_METHOD = ExactContractReference(
+    "method",
+    "test.candidate-lineage.method",
+    "1.0.0",
+    "sha256:" + ("1" * 64),
+)
 _PARENT_DIGEST = _SEQUENCE_PORT_TYPE.content_digest(ProteinSequence("AA"))
-_CHILD_DIGEST = _SEQUENCE_PORT_TYPE.content_digest(ProteinSequence("AT"))
 
 
-def _candidate_digest(candidate: Candidate) -> str:
-    return {
-        "raw-parent": _PARENT_DIGEST,
-        "raw-child": _CHILD_DIGEST,
-    }[candidate.candidate_id]
+def _admit_candidate_outputs(
+    outputs: dict[str, CandidateCollection],
+    *,
+    inputs: dict[str, AdmittedPort] | None = None,
+) -> None:
+    admit_node_output(
+        node_plan=NodeOutputPlan(
+            node_id="producer",
+            producing_method=_METHOD,
+            output_ports={
+                output_port: OutputPortPlan(
+                    required=True,
+                    multiplicity="one",
+                    port_type=_CANDIDATE_COLLECTION_PORT_TYPE,
+                )
+                for output_port in outputs
+            },
+            candidate_data_port_types={
+                "protein.sequence": _SEQUENCE_PORT_TYPE,
+            },
+            produced_observations=ProducedObservationPlan(
+                binding_method=_METHOD,
+            ),
+        ),
+        admitted_inputs=inputs or {},
+        raw_outputs=outputs,
+        result_identity=_RESULT_IDENTITY,
+    )
 
 
 @pytest.mark.parametrize(
@@ -184,35 +222,7 @@ def test_candidate_collection_codec_rejects_internal_lineage_cycles(
         port_type.decode(malformed)
 
 
-def test_candidate_normalization_rejects_duplicate_raw_parent_ids() -> None:
-    with pytest.raises(PortValueError, match="duplicate parent identities"):
-        normalize_fixture_outputs(
-            node_id="producer",
-            result_identity=_RESULT_IDENTITY,
-            inputs={},
-            outputs={
-                "parents": CandidateCollection(
-                    "raw-parents",
-                    "protein.sequence",
-                    (Candidate("raw-parent", ProteinSequence("AA")),),
-                ),
-                "children": CandidateCollection(
-                    "raw-children",
-                    "protein.sequence",
-                    (
-                        Candidate(
-                            "raw-child",
-                            ProteinSequence("AT"),
-                            ("raw-parent", "raw-parent"),
-                        ),
-                    ),
-                ),
-            },
-            candidate_content_digest=_candidate_digest,
-        )
-
-
-def test_candidate_normalization_rejects_parent_ids_that_converge() -> None:
+def test_output_admission_rejects_parent_ids_that_converge() -> None:
     normalized_parent_id = "candidate-" + canonical_sha256(
         {
             "schema_namespace": "protein-workbench-candidate/v2",
@@ -230,11 +240,27 @@ def test_candidate_normalization_rejects_parent_ids_that_converge() -> None:
 
     with pytest.raises(
         PortValueError,
-        match="normalize to one duplicate parent identity",
+        match="contains duplicate parent identities",
     ):
-        normalize_fixture_outputs(
-            node_id="producer",
-            result_identity=_RESULT_IDENTITY,
+        _admit_candidate_outputs(
+            {
+                "parents": CandidateCollection(
+                    "raw-parents",
+                    "protein.sequence",
+                    (Candidate("raw-parent", ProteinSequence("AA")),),
+                ),
+                "children": CandidateCollection(
+                    "raw-children",
+                    "protein.sequence",
+                    (
+                        Candidate(
+                            "raw-child",
+                            ProteinSequence("AT"),
+                            ("raw-parent", normalized_parent_id),
+                        ),
+                    ),
+                ),
+            },
             inputs={
                 "admitted_parents": admit_fixture_port(
                     port_type=_BUILTINS.require_port_type(
@@ -253,23 +279,4 @@ def test_candidate_normalization_rejects_parent_ids_that_converge() -> None:
                     },
                 ),
             },
-            outputs={
-                "parents": CandidateCollection(
-                    "raw-parents",
-                    "protein.sequence",
-                    (Candidate("raw-parent", ProteinSequence("AA")),),
-                ),
-                "children": CandidateCollection(
-                    "raw-children",
-                    "protein.sequence",
-                    (
-                        Candidate(
-                            "raw-child",
-                            ProteinSequence("AT"),
-                            ("raw-parent", normalized_parent_id),
-                        ),
-                    ),
-                ),
-            },
-            candidate_content_digest=_candidate_digest,
         )
