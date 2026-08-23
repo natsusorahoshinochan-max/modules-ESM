@@ -235,8 +235,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
 
 
-def _backbone_to_wire(value: object) -> object:
-    assert type(value) is ProteinStructure
+def _backbone_to_wire(value: ProteinStructure) -> object:
     return {"pdb_string": value.pdb_string}
 
 

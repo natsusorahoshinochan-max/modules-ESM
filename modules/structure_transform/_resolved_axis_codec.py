@@ -358,8 +358,7 @@ def validate_resolved_axis(value: object) -> None:
                 "modified-residue normalization lacks a matching disposition"
             )
 
-def _axis_to_wire(value: object) -> object:
-    assert type(value) is ResolvedStructureResidueAxis
+def _axis_to_wire(value: ResolvedStructureResidueAxis) -> object:
     return {
         "structure": _wire_value(_STRUCTURE_CODEC, value.structure),
         "layout": _wire_value(_LAYOUT_CODEC, value.layout),

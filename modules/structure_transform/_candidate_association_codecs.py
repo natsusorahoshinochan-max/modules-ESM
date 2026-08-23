@@ -98,8 +98,9 @@ def validate_candidate_normalization_associations(value: object) -> None:
     _validate_unique_candidate_subjects(tuple(subjects))
 
 
-def _candidate_normalizations_to_wire(value: object) -> object:
-    assert type(value) is CandidateModifiedResidueNormalizationAssociations
+def _candidate_normalizations_to_wire(
+    value: CandidateModifiedResidueNormalizationAssociations,
+) -> object:
     return {
         "entries": [
             {
@@ -156,8 +157,9 @@ def validate_candidate_resolved_axis_associations(value: object) -> None:
     _validate_unique_candidate_subjects(tuple(subjects))
 
 
-def _candidate_axes_to_wire(value: object) -> object:
-    assert type(value) is CandidateResolvedResidueAxisAssociations
+def _candidate_axes_to_wire(
+    value: CandidateResolvedResidueAxisAssociations,
+) -> object:
     return {
         "entries": [
             {
@@ -233,8 +235,9 @@ def _validate_normalization_facts(value: object) -> None:
         raise ValueError("candidate normalization facts are not canonical")
 
 
-def _normalization_facts_to_wire(value: object) -> object:
-    assert type(value) is CandidateNormalizationFactCollection
+def _normalization_facts_to_wire(
+    value: CandidateNormalizationFactCollection,
+) -> object:
     return {
         "entries": [
             {

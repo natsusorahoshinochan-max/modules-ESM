@@ -348,9 +348,8 @@ def validate_alignment_evidence(value: object) -> None:
             raise ValueError(f"alignment {name} contradicts its evidence")
 
 
-def alignment_evidence_to_wire(value: object) -> object:
+def alignment_evidence_to_wire(value: StructureAlignmentEvidence) -> object:
     """Encode one validated evidence value to the closed v4 wire shape."""
-    assert type(value) is StructureAlignmentEvidence
     return {
         "schema_version": EVIDENCE_VERSION,
         "subject": _candidate_data_reference_to_canonical(value.subject),

@@ -68,8 +68,7 @@ def _validate_artifact_payload(value: object) -> None:
         raise ValueError("artifact metadata is invalid")
 
 
-def _artifact_to_wire(value: object) -> object:
-    assert isinstance(value, ArtifactPayload)
+def _artifact_to_wire(value: ArtifactPayload) -> object:
     return {
         "body_base64": base64.b64encode(value.body).decode("ascii"),
         "media_type": value.media_type,

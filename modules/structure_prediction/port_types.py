@@ -143,7 +143,6 @@ def _source_to_wire(
             "kind": "candidate_data_reference",
             "value": _candidate_data_reference_to_canonical(source),
         }
-    assert type(source) is ExactPortValueReference
     return {
         "kind": "exact_port_value_reference",
         "value": _exact_port_value_reference_to_canonical(source),
@@ -194,8 +193,7 @@ def _validate_prediction_residue_axis(value: object) -> None:
         )
 
 
-def _prediction_axis_to_wire(value: object) -> object:
-    assert type(value) is PredictionResidueAxis
+def _prediction_axis_to_wire(value: PredictionResidueAxis) -> object:
     return {
         "source": _source_to_wire(value.source),
         "layout": _wire_value(_LAYOUT_CODEC, value.layout),
@@ -312,8 +310,7 @@ def _confidence_fact_from_wire(value: object) -> ConfidenceFact:
     )
 
 
-def _confidence_facts_to_wire(value: object) -> object:
-    assert type(value) is ConfidenceFactCollection
+def _confidence_facts_to_wire(value: ConfidenceFactCollection) -> object:
     return {
         "observation_method": _reference_to_wire(value.observation_method),
         "entries": [

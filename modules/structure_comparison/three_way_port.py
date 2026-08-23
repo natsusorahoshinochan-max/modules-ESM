@@ -216,9 +216,8 @@ def _method_to_wire(value: ExactContractReference) -> dict[str, str]:
     }
 
 
-def three_way_consistency_to_wire(value: object) -> object:
+def three_way_consistency_to_wire(value: ThreeWayConsistencyEvidence) -> object:
     """Encode one admitted conclusion to its closed wire representation."""
-    assert type(value) is ThreeWayConsistencyEvidence
     return {
         "schema_version": THREE_WAY_CONSISTENCY_VERSION,
         "input_structure": _candidate_to_wire(value.input_structure),

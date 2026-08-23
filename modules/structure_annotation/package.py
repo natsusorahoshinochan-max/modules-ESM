@@ -204,8 +204,7 @@ def _validate_annotation(value: object) -> None:
     _validate_sasa(value.sasa, length=layout.length)
 
 
-def _annotation_to_wire(value: object) -> object:
-    assert type(value) is DSSPAnnotation
+def _annotation_to_wire(value: DSSPAnnotation) -> object:
     return {
         "subject": _candidate_data_reference_to_canonical(value.subject),
         "layout": _wire_value(_LAYOUT_CODEC, value.layout),
@@ -250,8 +249,7 @@ def _validate_sasa_track(value: object) -> None:
 
 
 def _track_to_wire(kind: str):
-    def encode(value: object) -> object:
-        assert type(value) is StructureAnnotationTrack
+    def encode(value: StructureAnnotationTrack) -> object:
         return {
             "subject": _candidate_data_reference_to_canonical(value.subject),
             "layout": _wire_value(_LAYOUT_CODEC, value.layout),

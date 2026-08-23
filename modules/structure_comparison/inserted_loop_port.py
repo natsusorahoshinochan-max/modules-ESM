@@ -313,8 +313,9 @@ def _thresholds_to_wire(value: InsertedLoopThresholds) -> dict[str, float]:
     }
 
 
-def inserted_loop_evaluation_to_wire(value: object) -> object:
-    assert type(value) is InsertedLoopEvaluationCollection
+def inserted_loop_evaluation_to_wire(
+    value: InsertedLoopEvaluationCollection,
+) -> object:
     return {
         "schema_version": VERSION,
         "entries": [

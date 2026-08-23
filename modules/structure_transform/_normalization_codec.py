@@ -109,8 +109,9 @@ def validate_normalizations(
             )
 
 
-def normalizations_to_wire(value: object) -> object:
-    assert type(value) is ModifiedResidueNormalizationCollection
+def normalizations_to_wire(
+    value: ModifiedResidueNormalizationCollection,
+) -> object:
     return {
         "entries": [
             {

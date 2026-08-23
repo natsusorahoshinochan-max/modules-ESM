@@ -299,8 +299,7 @@ def _validate_esmc_representation(value: object) -> None:
         raise ValueError("ESMC representation has the wrong runtime type")
 
 
-def _esmc_representation_to_wire(value: object) -> object:
-    assert isinstance(value, ESMCSequenceRepresentation)
+def _esmc_representation_to_wire(value: ESMCSequenceRepresentation) -> object:
     return {
         "sequence": value.sequence,
         "residue_ids": (
