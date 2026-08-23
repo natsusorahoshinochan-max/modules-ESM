@@ -1602,7 +1602,7 @@
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_local",
       "contract_version": "10.0.0",
-      "contract_digest": "sha256:ed41c30e55615ad52387409888559dd96e2ec788a7d0992a6c987c7ffb160c0e"
+      "contract_digest": "sha256:7da017058781c07c5b2ef0bff7c7a46ee0aaee80025a5e3731c1f5c03f937504"
     },
     {
       "contract_kind": "binding",
@@ -1752,7 +1752,7 @@
       "contract_kind": "binding",
       "contract_id": "structure_annotation.dssp_compute.mkdssp_local",
       "contract_version": "7.0.0",
-      "contract_digest": "sha256:7b302a627c2ee70ad4563bac861f690df34bf20ec93ea2d7d825025c4ed00c3d"
+      "contract_digest": "sha256:aa6618607312c9c0e0a988d71ff2789741753b77bc5973cd8f7088f866c6570a"
     },
     {
       "contract_kind": "binding",

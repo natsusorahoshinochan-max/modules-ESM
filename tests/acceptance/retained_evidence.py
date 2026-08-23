@@ -201,21 +201,35 @@ def retain_rest_run(
 def retain_proteinmpnn_lifecycle(
     *,
     load_count: int,
-    release: str | None = None,
 ) -> None:
     """Retain the directly observed ProteinMPNN lifecycle facts."""
     configured = _configured_root()
     if configured is None:
         return
-    receipt: dict[str, object] = {
-        "model": "proteinmpnn",
-        "load_count": load_count,
-    }
-    if release is not None:
-        receipt["release"] = release
     _write(
         configured / "model-lifecycle.json",
-        _canonical_bytes(receipt),
+        _canonical_bytes({
+            "model": "proteinmpnn",
+            "load_count": load_count,
+        }),
+    )
+
+
+def retain_provider_binding_transition(
+    *,
+    binding_sequence: Sequence[Mapping[str, Any]],
+) -> None:
+    """Retain Provider order already established by public Run events."""
+    configured = _configured_root()
+    if configured is None:
+        return
+    _write(
+        configured / "model-lifecycle.json",
+        _canonical_bytes({
+            "provider_binding_sequence": [
+                dict(binding) for binding in binding_sequence
+            ],
+        }),
     )
 
 

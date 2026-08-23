@@ -8,7 +8,7 @@ from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 import hashlib
 from importlib.resources import files
 import json
@@ -44,8 +44,8 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from tests.acceptance.retained_evidence import (
-    retain_proteinmpnn_lifecycle,
     require_retained_evidence,
+    retain_provider_binding_transition,
     retain_service_run,
 )
 from tests.acceptance.biohub_environment import (
@@ -86,6 +86,10 @@ CONTRACTS = {
         "workflow": "source-bound-5g53.workflow.json",
     },
 }
+_FRESH_2EMO_PROVIDER_NODES = (
+    "design-sequences",
+    "score-protein-sol",
+)
 
 
 def _decode(
@@ -941,6 +945,31 @@ def _assert_science(
     assertions[tier_name](service, catalog, workflow, events, projection)
 
 
+def _retain_fresh_2emo_provider_transition(
+    catalog: Any,
+    workflow: Mapping[str, Any],
+    events: tuple[dict[str, Any], ...],
+) -> None:
+    event_sequence = tuple(
+        message["event"]["node_id"]
+        for message in events
+        if message["event"]["type"] == "node_attempt_started"
+        and message["event"]["node_id"] in _FRESH_2EMO_PROVIDER_NODES
+    )
+    assert event_sequence == _FRESH_2EMO_PROVIDER_NODES
+    nodes = {node["node_id"]: node for node in workflow["nodes"]}
+    retain_provider_binding_transition(
+        binding_sequence=tuple(
+            catalog.require_contract(
+                "binding",
+                nodes[node_id]["binding_id"],
+                nodes[node_id]["binding_version"],
+            ).reference()
+            for node_id in event_sequence
+        ),
+    )
+
+
 def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
     environment = biohub_esm3_esmfold2_environment()
     if tier_name == "fresh-1pga":
@@ -987,43 +1016,9 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
     return environment
 
 
-def _observe_fresh_2emo_lifecycle(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Callable[[], tuple[int, bool]]:
-    import modules.proteinmpnn.adapter as proteinmpnn_adapter
-    import modules.proteinmpnn.provider_runtime as proteinmpnn_runtime
-    import modules.solubility.protein_sol as solubility_adapter
-
-    original_load = proteinmpnn_runtime._load_model
-    original_run = solubility_adapter._run_local_process
-    load_count = 0
-    protein_sol_entered_after_release = False
-
-    def counted_load(*args: Any, **kwargs: Any) -> Any:
-        nonlocal load_count
-        load_count += 1
-        return original_load(*args, **kwargs)
-
-    def observed_run(*args: Any, **kwargs: Any) -> Any:
-        nonlocal protein_sol_entered_after_release
-        if proteinmpnn_adapter._RESIDENT_MODELS:
-            raise RuntimeError("ProteinMPNN must release before Protein-Sol")
-        protein_sol_entered_after_release = True
-        return original_run(*args, **kwargs)
-
-    monkeypatch.setattr(proteinmpnn_runtime, "_load_model", counted_load)
-    monkeypatch.setattr(
-        solubility_adapter,
-        "_run_local_process",
-        observed_run,
-    )
-    return lambda: (load_count, protein_sol_entered_after_release)
-
 @pytest.mark.acceptance
 @pytest.mark.live_provider
-def test_fresh_source_bound_public_run(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_fresh_source_bound_public_run() -> None:
     from protein_workbench_public.bootstrap import create_application
     from fastapi.testclient import TestClient
     from tests.support.public_request import encode_project_input_content
@@ -1038,11 +1033,6 @@ def test_fresh_source_bound_public_run(
         )
     )
     catalog = build_frozen_catalog(module_registrations())
-    lifecycle = (
-        _observe_fresh_2emo_lifecycle(monkeypatch)
-        if tier_name == "fresh-2emo"
-        else None
-    )
     app = create_application(
         v2_environment_configuration=_environment(tier_name),
     )
@@ -1113,20 +1103,18 @@ def test_fresh_source_bound_public_run(
             tier_name,
             projection,
         )
+        if tier_name == "fresh-2emo":
+            _retain_fresh_2emo_provider_transition(
+                catalog,
+                workflow,
+                events,
+            )
         retain_service_run(
             tier_name,
             catalog=catalog,
             service=service,
             projection=projection,
             events=events,
-        )
-
-    if lifecycle is not None:
-        load_count, released_before_protein_sol = lifecycle()
-        assert released_before_protein_sol
-        retain_proteinmpnn_lifecycle(
-            load_count=load_count,
-            release="before-protein-sol",
         )
 
 
@@ -1163,14 +1151,6 @@ def _run_fresh(
         required_runs=(tier_name,),
         lifecycle_required=tier_name == "fresh-2emo",
     )
-    if tier_name == "fresh-2emo":
-        assert json.loads(
-            (evidence_root / "model-lifecycle.json").read_bytes()
-        ) == {
-            "model": "proteinmpnn",
-            "load_count": 1,
-            "release": "before-protein-sol",
-        }
 
 
 @pytest.mark.acceptance

@@ -17,6 +17,11 @@ Each tier continues to own its exact scientific assertions. The Campaign does
 not copy, interpret, or rerun those assertions, and the retained public
 observations do not become a second scientific authority.
 
+A lifecycle receipt contains only facts directly observed by its tier. A
+source-bound tier may retain its public Provider-binding order, while the
+corresponding residency transition is tested at the application-resource seam;
+the tier does not reconstruct release from Provider-module internals.
+
 Preparation binds one clean source revision, one wheel and sdist built from
 that revision, the canonical plan, and one private Execution Profile to the
 Campaign. The candidate and plan cannot change during execution. Repository

@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import time
+import tomllib
 
 import pytest
 
@@ -169,6 +170,36 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
         and TIERS[tier.name].retain_evidence_bundle
         for tier in CANONICAL_ACCEPTANCE_TIERS
     )
+    lifecycle_requirements = {
+        tier.name: tier.lifecycle_receipt_required
+        for tier in CANONICAL_ACCEPTANCE_TIERS
+    }
+    assert lifecycle_requirements["installed-proteinmpnn"] is True
+    assert lifecycle_requirements["fresh-2emo"] is True
+
+
+def test_external_acceptance_tree_uses_canonical_pytest_configuration(
+    tmp_path: Path,
+) -> None:
+    from tests.acceptance.installed_harness import (
+        _copy_external_acceptance_tree,
+    )
+
+    external_root = tmp_path / "external"
+    _copy_external_acceptance_tree(external_root)
+
+    assert (external_root / "pyproject.toml").read_bytes() == (
+        PROJECT_ROOT / "pyproject.toml"
+    ).read_bytes()
+
+
+def test_distribution_declares_an_existing_root_readme() -> None:
+    project = tomllib.loads(
+        (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]
+
+    assert project["readme"] == "README.md"
+    assert (PROJECT_ROOT / project["readme"]).is_file()
 
 
 def test_installed_provider_tiers_select_exact_outer_gates() -> None:

@@ -106,6 +106,11 @@ def installed_artifact(
 
 
 def _copy_external_acceptance_tree(destination: Path) -> Path:
+    destination.mkdir(parents=True)
+    shutil.copy2(
+        PROJECT_ROOT / "pyproject.toml",
+        destination / "pyproject.toml",
+    )
     shutil.copytree(
         PROJECT_ROOT / "tests",
         destination / "tests",
