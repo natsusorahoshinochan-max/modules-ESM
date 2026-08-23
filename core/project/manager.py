@@ -268,11 +268,6 @@ class ProjectManager:
             return self._project_storage_root(project_id) / "outputs"
         return self._output_root / validate_identifier(project_id, "project_id")
 
-    def run_output_storage_root(self, project_id: str, run_id: str) -> Path:
-        """Return the Project/run scope assigned to Result publication."""
-        safe_run_id = validate_identifier(run_id, "run_id")
-        return self._result_storage_root(project_id) / safe_run_id
-
     def _object_storage_root(self, project_id: str) -> Path:
         return self._result_storage_root(project_id) / "objects"
 
@@ -489,21 +484,6 @@ class ProjectManager:
             modified_at=raw["modified_at"],
             seed=raw["seed"],
         )
-
-    def list_projects(self) -> list[ProjectMeta]:
-        """List only Project scopes whose exact v2 metadata is readable."""
-        if not self._root_dir.exists():
-            return []
-        projects: list[ProjectMeta] = []
-        for path in sorted(self._root_dir.iterdir()):
-            if not path.is_dir() or path.name.startswith(
-                _CANONICAL_STAGING_PREFIX
-            ):
-                continue
-            meta = self.load_meta(path.name)
-            if meta is not None:
-                projects.append(meta)
-        return projects
 
     @staticmethod
     def _meta_data(meta: ProjectMeta) -> dict[str, Any]:
