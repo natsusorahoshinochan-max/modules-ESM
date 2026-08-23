@@ -25,6 +25,7 @@ MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
 PROJECT_SCHEMA_VERSION = "2.1.0"
 PROJECT_INPUT_SCHEMA_VERSION = "2.1.0"
 _PROJECT_INPUT_ARTIFACT_KIND = "project_input"
+_CANONICAL_STAGING_PREFIX = ".canonical-3gb1-staging-"
 
 
 class CanonicalSeedError(RuntimeError):
@@ -299,10 +300,7 @@ class ProjectManager:
         for path in sorted(run_root.iterdir()):
             if not path.is_dir():
                 continue
-            try:
-                stored.append(validate_identifier(path.name, "run_id"))
-            except StoragePathError:
-                continue
+            stored.append(validate_identifier(path.name, "run_id"))
         return tuple(stored)
 
     def stored_project_ids(self) -> tuple[str, ...]:
@@ -311,12 +309,11 @@ class ProjectManager:
             return ()
         stored: list[str] = []
         for path in sorted(self._root_dir.iterdir()):
-            if not path.is_dir():
+            if not path.is_dir() or path.name.startswith(
+                _CANONICAL_STAGING_PREFIX
+            ):
                 continue
-            try:
-                stored.append(validate_identifier(path.name, "project_id"))
-            except StoragePathError:
-                continue
+            stored.append(validate_identifier(path.name, "project_id"))
         return tuple(stored)
 
     def run_context(
@@ -419,7 +416,7 @@ class ProjectManager:
         self._root_dir.mkdir(parents=True, exist_ok=True)
         staging_dir = Path(
             tempfile.mkdtemp(
-                prefix=".canonical-3gb1-staging-",
+                prefix=_CANONICAL_STAGING_PREFIX,
                 dir=self._root_dir,
             )
         ).resolve()
@@ -499,12 +496,11 @@ class ProjectManager:
             return []
         projects: list[ProjectMeta] = []
         for path in sorted(self._root_dir.iterdir()):
-            if not path.is_dir():
+            if not path.is_dir() or path.name.startswith(
+                _CANONICAL_STAGING_PREFIX
+            ):
                 continue
-            try:
-                meta = self.load_meta(path.name)
-            except (StoragePathError, ValueError):
-                continue
+            meta = self.load_meta(path.name)
             if meta is not None:
                 projects.append(meta)
         return projects
