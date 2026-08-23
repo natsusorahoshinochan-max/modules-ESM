@@ -7,7 +7,7 @@ import re
 
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference, ResidueAxisReference
-from datatypes.i_json import FrozenList, freeze_i_json
+from datatypes.i_json import FrozenList, freeze_i_json, i_json_values_equal
 
 
 def _ordered_list(value: object, *, field_name: str) -> FrozenList:
@@ -211,11 +211,30 @@ class ScoreCollection:
     entries: tuple[ScoreObservation, ...] = ()
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "entries",
-            _ordered_list(self.entries, field_name="entries"),
-        )
+        entries = _ordered_list(self.entries, field_name="entries")
+        unique: list[ScoreObservation] = []
+        by_identity: dict[tuple[object, ...], ScoreObservation] = {}
+        for entry in entries:
+            if type(entry) is not ScoreObservation:
+                raise TypeError(
+                    "entries must contain exact Score Observations"
+                )
+            existing = by_identity.get(entry.identity)
+            if existing is None:
+                by_identity[entry.identity] = entry
+                unique.append(entry)
+                continue
+            if not i_json_values_equal(existing.value, entry.value):
+                raise ValueError(
+                    "Score Collection contains one Observation identity "
+                    "with conflicting values"
+                )
+            if existing.source_partition != entry.source_partition:
+                raise ValueError(
+                    "Score Collection contains an Observation identity "
+                    "partition collision"
+                )
+        object.__setattr__(self, "entries", FrozenList(unique))
 
     def __len__(self) -> int:
         return len(self.entries)

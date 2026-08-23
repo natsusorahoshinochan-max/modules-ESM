@@ -13,7 +13,7 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.exact_reference import ExactContractReference
-from datatypes.i_json import freeze_i_json, i_json_values_equal, thaw_i_json
+from datatypes.i_json import freeze_i_json, thaw_i_json
 from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,
@@ -467,12 +467,10 @@ def resolve_objective_observations(
     collection: ScoreCollection,
     objective: SelectionSource,
     out_of_scope_policy: str,
-    duplicate_policy: str,
 ) -> Mapping[str, ScoreObservation]:
     """Resolve one exact runtime Observation per Candidate."""
     candidate_ids = [candidate.candidate_id for candidate in candidates.items]
     candidate_set = set(candidate_ids)
-    seen: dict[tuple[object, ...], object] = {}
     matched: dict[str, list[ScoreObservation]] = {
         candidate_id: [] for candidate_id in candidate_ids
     }
@@ -490,17 +488,6 @@ def resolve_objective_observations(
                     "selection received an out-of-scope observation"
                 )
             continue
-        if entry.identity in seen:
-            if not i_json_values_equal(seen[entry.identity], entry.value):
-                raise SelectionError(
-                    "selection has a conflicting observation identity"
-                )
-            if duplicate_policy == "error":
-                raise SelectionError(
-                    "selection has a duplicate observation identity"
-                )
-            continue
-        seen[entry.identity] = entry.value
         matched[entry.candidate_id].append(entry)
     resolved: dict[str, ScoreObservation] = {}
     selection_id = (
@@ -638,7 +625,6 @@ def resolve_candidate_utilities_from_facts(
             collection=collection,
             objective=item,
             out_of_scope_policy="ignore",
-            duplicate_policy="deduplicate_identical",
         )
         for candidate_id in candidate_ids:
             observation = observations[candidate_id]

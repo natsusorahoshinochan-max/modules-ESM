@@ -531,7 +531,6 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         collection=admitted_scores.value,
         objective=resolved_objective,
         out_of_scope_policy="ignore",
-        duplicate_policy="deduplicate_identical",
     )
 
     assert resolved == {"candidate-1": observation}

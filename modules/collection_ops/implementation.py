@@ -11,12 +11,10 @@ from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
 )
-from datatypes.i_json import i_json_values_equal
 from datatypes.observation import (
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ScoreCollection,
-    ScoreObservation,
 )
 
 
@@ -336,29 +334,14 @@ class CollectionOpsImplementation:
 
     @staticmethod
     def _merge_scores(inputs: Mapping[str, AdmittedPort]) -> ScoreCollection:
-        supplied = [
-            (port, inputs[port].value)
-            for port in _SCORE_PORTS
-            if port in inputs
-        ]
-        observations: dict[tuple[object, ...], ScoreObservation] = {}
-        for port, collection in supplied:
-            for entry in collection.entries:
-                existing = observations.get(entry.identity)
-                if existing is None:
-                    observations[entry.identity] = entry
-                    continue
-                if existing.source_partition != entry.source_partition:
-                    raise ValueError(
-                        "Observation identity has a source partition collision"
-                    )
-                if not i_json_values_equal(existing.value, entry.value):
-                    raise ValueError(
-                        "Observation identity has conflicting values"
-                    )
         return ScoreCollection(
             collection_id="collection-ops-merged-scores",
-            entries=list(observations.values()),
+            entries=[
+                entry
+                for port in _SCORE_PORTS
+                if port in inputs
+                for entry in inputs[port].value.entries
+            ],
         )
 
     @staticmethod

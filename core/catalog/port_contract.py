@@ -773,12 +773,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             path=f"{path}.collection_id",
         )
         for index, score in enumerate(value.entries):
-            if type(score) is not ScoreObservation:
-                raise PortValueError(
-                    f"{path}.entries must contain exact Score Observations"
-                )
             _validate_domain_value(score, path=f"{path}.entries[{index}]")
-        _deduplicated_score_entries(value, path=path)
         return
 
 def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
@@ -845,11 +840,6 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
         ]
         entries.sort(key=lambda entry: canonical_json_bytes(entry[0]))
         return {"$map": entries}
-    if type(value) is ScoreCollection:
-        value = ScoreCollection(
-            collection_id=value.collection_id,
-            entries=_deduplicated_score_entries(value, path=path),
-        )
     if is_dataclass(value) and not isinstance(value, type):
         value_type = type(value)
         tag = _TAG_BY_DATACLASS.get(value_type)
@@ -872,50 +862,6 @@ def _value_to_wire(value: Any, *, path: str = "$.value") -> Any:
         f"{path} contains an unsupported runtime value "
         f"{type(value).__name__}"
     )
-
-
-def _deduplicated_score_entries(
-    collection: ScoreCollection,
-    *,
-    path: str,
-) -> list[ScoreObservation]:
-    deduplicated: list[ScoreObservation] = []
-    typed_by_identity: dict[
-        tuple[object, ...],
-        tuple[bytes, str],
-    ] = {}
-    for index, score in enumerate(collection.entries):
-        if type(score) is not ScoreObservation:
-            raise PortValueError(
-                f"{path}.entries must contain exact Score Observations"
-            )
-        encoded_value = canonical_json_bytes(
-            _value_to_wire(
-                score.value,
-                path=f"{path}.entries[{index}].value",
-            )
-        )
-        identity = score.identity
-        existing = typed_by_identity.get(identity)
-        if existing is not None:
-            existing_value, existing_partition = existing
-            if existing_value != encoded_value:
-                raise PortValueError(
-                    f"{path}.entries contains one Observation identity "
-                    "with conflicting values"
-                )
-            if existing_partition != score.source_partition:
-                raise PortValueError(
-                    f"{path}.entries contains an Observation identity "
-                    "partition collision"
-                )
-            continue
-        typed_by_identity[identity] = (
-            encoded_value,
-            score.source_partition,
-        )
-        deduplicated.append(score)
-    return deduplicated
 
 
 def _wire_to_value(value: Any, *, path: str = "$.value") -> Any:

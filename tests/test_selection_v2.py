@@ -12,9 +12,6 @@ from fastapi.testclient import TestClient
 from core.catalog.builder import (
     build_frozen_catalog,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-)
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     verify_module_package_contract,
@@ -649,19 +646,11 @@ def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
         "tie_policy": "candidate_id_ascending",
     }
 
-    conflict = ScoreCollection(
-        "conflict",
-        [*scores.entries, replace(scores.entries[0], value=0.1)],
-    )
-    with pytest.raises(PortValueError, match="conflicting values"):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="selection.sort.direct",
-            binding_version=NODE_BINDING_VERSION,
-            inputs={"candidates": candidates, "scores": conflict},
-            node_parameters=parameters,
-            binding_parameters={},
-        ))
+    with pytest.raises(ValueError, match="conflicting values"):
+        ScoreCollection(
+            "conflict",
+            [*scores.entries, replace(scores.entries[0], value=0.1)],
+        )
     out_of_scope = ScoreCollection(
         "out-of-scope",
         [

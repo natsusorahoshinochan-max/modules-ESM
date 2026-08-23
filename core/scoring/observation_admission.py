@@ -170,16 +170,6 @@ def _validate_resolved_metric_value(
                 )
 
 
-def _deduplicated_observations(
-    collection: ScoreCollection,
-) -> tuple[ScoreObservation, ...]:
-    """Use the first entry after the nominal codec admitted duplicates."""
-    observations: dict[tuple[object, ...], ScoreObservation] = {}
-    for entry in collection.entries:
-        observations.setdefault(entry.identity, entry)
-    return tuple(observations.values())
-
-
 def _context_profile(context: object) -> ObservationContextProfile:
     if isinstance(context, IntrinsicObservationContext):
         return IntrinsicContextProfile()
@@ -207,7 +197,7 @@ def _observation_value_map(
         (observation.source_partition, *observation.identity): (
             _canonical_observation_value(observation.value)
         )
-        for observation in _deduplicated_observations(collection)
+        for observation in collection.entries
     }
 
 
@@ -262,7 +252,7 @@ def _validate_propagated_score_collection(
             )
         source = cast(ScoreCollection, source_record.value)
         source_maps.append(_observation_value_map(source))
-        source_observations.extend(_deduplicated_observations(source))
+        source_observations.extend(source.entries)
     if not source_maps:
         raise ObservationAdmissionError(
             "Binding Observation propagation has no connected input"
@@ -435,7 +425,7 @@ def admit_produced_observations(
             )
         return
 
-    observations = _deduplicated_observations(collection)
+    observations = collection.entries
     for observation in observations:
         matches = [
             declaration

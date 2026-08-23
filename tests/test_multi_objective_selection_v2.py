@@ -19,10 +19,7 @@ from core.catalog.model import (
     CatalogContract,
     FrozenCatalog,
 )
-from core.catalog.port_contract import (
-    PortValueError,
-    canonical_json_bytes,
-)
+from core.catalog.port_contract import canonical_json_bytes
 from tests.support.contract_test_kit import (
     ModulePackageContractCase,
     verify_module_package_contract,
@@ -1163,22 +1160,14 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
             binding_parameters={},
         ))
 
-    conflicting = ScoreCollection(
-        "conflicting-fixed-observation",
-        [
-            *values["scores"].entries,
-            replace(values["scores"].entries[0], value=0.99),
-        ],
-    )
-    with pytest.raises(PortValueError, match="conflicting values"):
-        implementation.execute(operation_call(
-            catalog=catalog,
-            binding_id="selection.weighted_rank.direct",
-            binding_version=NODE_BINDING_VERSION,
-            inputs={**common, "scores": conflicting},
-            node_parameters=_selection("weighted_rank").node_parameters,
-            binding_parameters={},
-        ))
+    with pytest.raises(ValueError, match="conflicting values"):
+        ScoreCollection(
+            "conflicting-fixed-observation",
+            [
+                *values["scores"].entries,
+                replace(values["scores"].entries[0], value=0.99),
+            ],
+        )
 
     cross_scope = ScoreCollection(
         "cross-scope-observation",

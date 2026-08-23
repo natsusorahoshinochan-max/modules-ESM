@@ -76,7 +76,6 @@ class SelectionImplementation:
                 collection=scores,
                 objective=selector_facts,
                 out_of_scope_policy=out_of_scope_policy,
-                duplicate_policy="error",
             )
             selected = self._filter(
                 candidates=candidates,
@@ -99,7 +98,6 @@ class SelectionImplementation:
                 collection=scores,
                 objective=objective_facts,
                 out_of_scope_policy=out_of_scope_policy,
-                duplicate_policy="error",
             )
             scoped_scores = ScoreCollection(
                 collection_id=f"{scores.collection_id}.selected-scope",

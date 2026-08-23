@@ -861,49 +861,46 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
     )
 
 
-def test_score_collection_codec_deduplicates_equal_observations_and_fails_closed() -> None:
+def test_score_collection_canonicalizes_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
     score_type = catalog.require_port_type("score.collection", "5.0.0")
     observation = _observation(contracts, "candidate-1", 90)
 
-    encoded = score_type.encode(
-        ScoreCollection("scores", [observation, observation])
+    collection = ScoreCollection(
+        "scores",
+        [observation, observation],
     )
+    assert collection.entries == (observation,)
+    encoded = score_type.encode(collection)
     decoded = score_type.decode(encoded)
     assert decoded.entries == (observation,)
 
-    with pytest.raises(PortValueError, match="conflicting values"):
-        score_type.encode(
-            ScoreCollection(
-                "scores",
-                [observation, replace(observation, value=10)],
-            )
+    with pytest.raises(ValueError, match="conflicting values"):
+        ScoreCollection(
+            "scores",
+            [observation, replace(observation, value=10)],
         )
 
-    with pytest.raises(PortValueError, match="partition collision"):
-        score_type.encode(
-            ScoreCollection(
-                "scores",
-                [
-                    observation,
-                    replace(observation, source_partition="other"),
-                ],
-            )
+    with pytest.raises(ValueError, match="partition collision"):
+        ScoreCollection(
+            "scores",
+            [
+                observation,
+                replace(observation, source_partition="other"),
+            ],
         )
 
-    with pytest.raises(PortValueError, match="conflicting values"):
-        score_type.encode(
-            ScoreCollection(
-                "scores",
-                [
+    with pytest.raises(ValueError, match="conflicting values"):
+        ScoreCollection(
+            "scores",
+            [
+                observation,
+                replace(
                     observation,
-                    replace(
-                        observation,
-                        source_partition="other",
-                        value=10,
-                    ),
-                ],
-            )
+                    source_partition="other",
+                    value=10,
+                ),
+            ],
         )
 
 
