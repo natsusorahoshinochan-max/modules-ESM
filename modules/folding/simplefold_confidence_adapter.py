@@ -404,9 +404,12 @@ class LocalSimpleFoldConfidenceAdapter:
         engine_role: str,
     ) -> SimpleFoldConfidenceAdapterResult:
         """Invoke once, then decode and normalize outside Invocation."""
-        with self._resources.temporary_directory(
-            prefix="simplefold-confidence-"
-        ) as staging_directory:
+        with (
+            self._resources.local_provider("simplefold-confidence"),
+            self._resources.temporary_directory(
+                prefix="simplefold-confidence-"
+            ) as staging_directory,
+        ):
             bound_closure = bind_simplefold_provider_asset_closure(
                 simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
                 self._environment,

@@ -150,9 +150,12 @@ class LocalSimpleFoldAdapter:
         engine_role: str,
     ) -> SimpleFoldAdapterResult:
         """Invoke once, decode outside Invocation, and clean private work."""
-        with self._resources.temporary_directory(
-            prefix="simplefold-fold-"
-        ) as staging_directory:
+        with (
+            self._resources.local_provider("simplefold-folding"),
+            self._resources.temporary_directory(
+                prefix="simplefold-fold-"
+            ) as staging_directory,
+        ):
             bound_closure = bind_simplefold_provider_asset_closure(
                 simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
                 self._environment,

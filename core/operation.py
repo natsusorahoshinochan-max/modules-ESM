@@ -311,8 +311,7 @@ class OperationResources(Protocol):
     def local_provider(
         self,
         provider_id: str,
-        release: Callable[[], None],
-    ) -> ContextManager[None]: ...
+    ) -> ContextManager[dict[object, object]]: ...
 
     def cancellable_process_group(
         self,

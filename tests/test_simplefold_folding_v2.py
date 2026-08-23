@@ -1061,6 +1061,12 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
             )
 
     class Resources:
+        @staticmethod
+        @contextmanager
+        def local_provider(provider_id: str):
+            assert provider_id == "simplefold-folding"
+            yield {}
+
         @contextmanager
         def temporary_directory(self, *, prefix: str):
             staging = tmp_path / prefix

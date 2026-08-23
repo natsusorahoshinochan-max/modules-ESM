@@ -193,41 +193,22 @@ def test_operation_cannot_override_plan_owned_engine_identity(tmp_path) -> None:
     assert recorded == []
 
 
-def test_local_provider_memory_serializes_complete_provider_use() -> None:
+def test_local_provider_memory_retains_only_the_active_provider_state() -> None:
     from core.execution.resources import LocalProviderMemory
 
     memory = LocalProviderMemory()
-    first_entered = threading.Event()
-    release_first = threading.Event()
-    second_attempted = threading.Event()
-    second_entered = threading.Event()
-    releases: list[str] = []
+    with memory.use("first") as first:
+        first["model"] = object()
+    with memory.use("first") as retained:
+        assert retained is first
+        assert retained["model"] is first["model"]
+    with memory.use("second") as second:
+        assert first == {}
+        assert second == {}
+        second["model"] = object()
 
-    def use_first() -> None:
-        with memory.use("first", lambda: releases.append("first")):
-            first_entered.set()
-            release_first.wait()
-
-    def use_second() -> None:
-        second_attempted.set()
-        with memory.use("second", lambda: releases.append("second")):
-            second_entered.set()
-
-    first = threading.Thread(target=use_first)
-    second = threading.Thread(target=use_second)
-    first.start()
-    assert first_entered.wait(1)
-    second.start()
-    assert second_attempted.wait(1)
-    assert not second_entered.is_set()
-    release_first.set()
-    first.join(1)
-    second.join(1)
-
-    assert not first.is_alive()
-    assert not second.is_alive()
-    assert second_entered.is_set()
-    assert releases == ["first"]
+    memory.release()
+    assert second == {}
 
 
 def _direct_catalog(
@@ -3777,6 +3758,153 @@ def test_background_runs_keep_project_reserved_serial_and_joined(
         ).json()
         assert first_projection["status"] == "succeeded"
         assert second_projection["status"] == "succeeded"
+        assert calls.count("execute:test.direct.local") == 2
+
+
+def test_run_runtime_switches_and_releases_local_provider_state(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    states: list[dict[object, object]] = []
+
+    def use_local_provider(resources: Any) -> None:
+        provider_id = {
+            "direct-0": "proteinmpnn",
+            "direct-1": "simplefold-folding",
+        }[resources.node_id]
+        with resources.local_provider(provider_id) as state:
+            if states:
+                assert states[-1] == {}
+            state["model"] = object()
+            states.append(state)
+
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    binding_ids = ("test.first.local", "test.second.local")
+    app = create_application(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            binding_ids=binding_ids,
+            execution_action=use_local_provider,
+        ),
+        v2_environment_configuration={
+            (binding_id, "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+            for binding_id in binding_ids
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_independent_nodes(
+            client,
+            binding_ids,
+        )
+        receipt = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "provider-transition",
+            },
+        )
+        assert receipt.status_code == 202
+        assert wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            receipt.json()["run_id"],
+        )["status"] == "succeeded"
+        assert len(states) == 2
+        assert states[0] == {}
+        assert states[1] != {}
+
+    assert states[1] == {}
+
+
+def test_sync_runs_share_the_application_execution_slot(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_application(
+        frozen_catalog_override=_direct_catalog(
+            calls,
+            execution_gate=(entered, release),
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_a, compiled_a = _commit_one_node(client)
+        project_b, compiled_b = _commit_one_node(client)
+        runtime = app.state.run_runtime
+        errors: list[BaseException] = []
+        second_started = threading.Event()
+
+        def execute(
+            project_id: str,
+            workflow_commit_id: str,
+            started: threading.Event | None = None,
+        ) -> None:
+            if started is not None:
+                started.set()
+            try:
+                runtime.start(
+                    project_id,
+                    workflow_commit_id=workflow_commit_id,
+                    client_request_id=f"sync-{project_id}",
+                )
+            except BaseException as error:
+                errors.append(error)
+
+        first = threading.Thread(
+            target=execute,
+            args=(project_a, compiled_a["workflow_commit_id"]),
+        )
+        second = threading.Thread(
+            target=execute,
+            args=(
+                project_b,
+                compiled_b["workflow_commit_id"],
+                second_started,
+            ),
+        )
+        first.start()
+        assert entered.wait(timeout=1)
+        second.start()
+        try:
+            assert second_started.wait(timeout=1)
+            time.sleep(0.05)
+            assert calls.count("execute:test.direct.local") == 1
+        finally:
+            release.set()
+        first.join(timeout=2)
+        second.join(timeout=2)
+
+        assert not first.is_alive()
+        assert not second.is_alive()
+        assert errors == []
         assert calls.count("execute:test.direct.local") == 2
 
 

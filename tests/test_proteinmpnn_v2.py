@@ -1081,9 +1081,9 @@ class _AdapterResources:
         return nullcontext(Path.cwd())
 
     @staticmethod
-    def local_provider(provider_id: str, release: Any):
-        del provider_id, release
-        return nullcontext()
+    def local_provider(provider_id: str):
+        assert provider_id == "proteinmpnn"
+        return nullcontext({})
 
     def engine_invocation(self, **kwargs: Any):
         self.invocations.append(kwargs)

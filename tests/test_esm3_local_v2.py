@@ -387,6 +387,12 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
         def __init__(self) -> None:
             self.invocations: list[dict[str, object]] = []
 
+        @staticmethod
+        @contextmanager
+        def local_provider(provider_id: str):
+            assert provider_id == "local-esm3"
+            yield {}
+
         @contextmanager
         def engine_invocation(self, **kwargs: object):
             self.invocations.append(dict(kwargs))
@@ -738,6 +744,12 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
             raise RuntimeError("fixture provider failed")
 
     class InvocationResources:
+        @staticmethod
+        @contextmanager
+        def local_provider(provider_id: str):
+            assert provider_id == "local-esm3"
+            yield {}
+
         @contextmanager
         def engine_invocation(self, **kwargs: object):
             del kwargs

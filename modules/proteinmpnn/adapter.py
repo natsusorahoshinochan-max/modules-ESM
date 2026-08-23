@@ -39,10 +39,10 @@ _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
-_RESIDENT_MODELS: dict[
+type _ProteinMPNNModelCache = dict[
     tuple[str, float, Path],
     tuple[Any, Any],
-] = {}
+]
 
 
 class ProteinMPNNProvider(Protocol):
@@ -345,13 +345,16 @@ class LocalProteinMPNNAdapter:
     ) -> None:
         self._environment = environment
         self._resources = resources
-        self._resident_models = _RESIDENT_MODELS
 
-    def _provider(self, staging_directory: Path) -> ProteinMPNNProvider:
+    def _provider(
+        self,
+        staging_directory: Path,
+        resident_models: dict[object, object],
+    ) -> ProteinMPNNProvider:
         return _LocalProteinMPNNProvider(
             temp_dir=staging_directory,
             provider_root=cast(Path, self._environment["provider_root"]),
-            model_cache=self._resident_models,
+            model_cache=cast(_ProteinMPNNModelCache, resident_models),
         )
 
     @contextmanager
@@ -362,12 +365,11 @@ class LocalProteinMPNNAdapter:
     ) -> Iterator[ProteinMPNNProvider]:
         with self._resources.local_provider(
             "proteinmpnn",
-            self._resident_models.clear,
-        ):
+        ) as resident_models:
             with self._resources.temporary_directory(
                 prefix=prefix,
             ) as staging_directory:
-                yield self._provider(staging_directory)
+                yield self._provider(staging_directory, resident_models)
 
     def design(
         self,

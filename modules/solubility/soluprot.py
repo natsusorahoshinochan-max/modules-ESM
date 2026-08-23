@@ -416,9 +416,12 @@ class LocalSoluProtAdapter:
             self.environment,
             mode=self.mode,
         )
-        with self.resources.temporary_directory(
-            prefix=f"soluprot-{self.mode}-"
-        ) as staging_directory:
+        with (
+            self.resources.local_provider("soluprot"),
+            self.resources.temporary_directory(
+                prefix=f"soluprot-{self.mode}-"
+            ) as staging_directory,
+        ):
             command, output_path = _prepare_soluprot_invocation(
                 sequences=provider_sequences,
                 mode=self.mode,

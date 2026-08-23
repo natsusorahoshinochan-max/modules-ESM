@@ -40,10 +40,9 @@ class _RunResources:
     @contextmanager
     def local_provider(
         provider_id: str,
-        release: object,
-    ) -> Iterator[None]:
+    ) -> Iterator[dict[object, object]]:
         assert provider_id == "proteinmpnn"
-        yield
+        yield {}
 
     @contextmanager
     def temporary_directory(self, *, prefix: str) -> Iterator[Path]:

@@ -328,15 +328,15 @@ class LocalESMFold2Adapter:
     ) -> None:
         self._environment = environment
         self._resources = resources
-        self._runtime: LocalESMFold2Runtime | None = None
-        self._engine: Any | None = None
 
-    def _provider_engine(self) -> Any:
-        if self._runtime is None:
-            self._runtime = _trusted_local_runtime(self._environment)
-        if self._engine is None:
-            self._engine = load_local_engine(self._runtime)
-        return self._engine
+    def _provider_engine(self, state: dict[object, object]) -> Any:
+        runtime = _trusted_local_runtime(self._environment)
+        engine = state.get(runtime)
+        if engine is None:
+            state.clear()
+            engine = load_local_engine(runtime)
+            state[runtime] = engine
+        return engine
 
     def fold(
         self,
@@ -346,16 +346,19 @@ class LocalESMFold2Adapter:
         engine_role: str,
     ) -> ESMFold2AdapterResult:
         """Invoke the local model once, then admit its raw result."""
-        with self._resources.engine_invocation(
-            engine_role=engine_role,
-            invocation_provenance=EngineInvocationProvenance(
-                effective_randomness=InvocationRandomness(
-                    control="exact_seed",
-                    effective_seed=derived_call_seed,
-                )
+        with (
+            self._resources.local_provider("local-esmfold2") as state,
+            self._resources.engine_invocation(
+                engine_role=engine_role,
+                invocation_provenance=EngineInvocationProvenance(
+                    effective_randomness=InvocationRandomness(
+                        control="exact_seed",
+                        effective_seed=derived_call_seed,
+                    )
+                ),
             ),
         ):
-            raw_result = self._provider_engine().fold(
+            raw_result = self._provider_engine(state).fold(
                 sequence=sequence.sequence,
                 effective_seed=derived_call_seed,
             )

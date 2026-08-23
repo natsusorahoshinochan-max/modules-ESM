@@ -82,10 +82,9 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
         @contextmanager
         def local_provider(
             provider_id: str,
-            release: Any,
         ):
             assert provider_id == "protein-sol"
-            yield
+            yield {}
 
         @contextmanager
         def temporary_directory(self, *, prefix: str):

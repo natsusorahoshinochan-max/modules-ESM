@@ -33,21 +33,23 @@ class LocalProviderMemory:
     """Keep memory resident only for the active local Provider."""
 
     def __init__(self) -> None:
-        self._active: tuple[str, Callable[[], None]] | None = None
-        self._lock = threading.Lock()
+        self._active_provider_id: str | None = None
+        self._state: dict[object, object] = {}
 
     @contextmanager
     def use(
         self,
         provider_id: str,
-        release: Callable[[], None],
-    ) -> Iterator[None]:
-        with self._lock:
-            if self._active is None or self._active[0] != provider_id:
-                if self._active is not None:
-                    self._active[1]()
-                self._active = (provider_id, release)
-            yield
+    ) -> Iterator[dict[object, object]]:
+        if self._active_provider_id != provider_id:
+            self.release()
+            self._state = {}
+            self._active_provider_id = provider_id
+        yield self._state
+
+    def release(self) -> None:
+        self._state.clear()
+        self._active_provider_id = None
 
 
 def _signal_process_group(
@@ -260,9 +262,8 @@ class RunResources:
     def local_provider(
         self,
         provider_id: str,
-        release: Callable[[], None],
-    ) -> ContextManager[None]:
-        return self._local_provider_memory.use(provider_id, release)
+    ) -> ContextManager[dict[object, object]]:
+        return self._local_provider_memory.use(provider_id)
 
     @contextmanager
     def cancellable_process_group(

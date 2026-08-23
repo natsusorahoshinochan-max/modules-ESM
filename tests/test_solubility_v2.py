@@ -120,6 +120,13 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     tmhmm_root = tmp_path / "tmhmm"
 
     class Resources:
+        @staticmethod
+        @contextmanager
+        def local_provider(provider_id: str):
+            assert provider_id == "soluprot"
+            events.append("provider-entered")
+            yield {}
+
         @contextmanager
         def temporary_directory(self, *, prefix: str):
             assert prefix == "soluprot-full-"
@@ -211,6 +218,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
         ),
     )
     assert events == [
+        "provider-entered",
         "engine-started",
         "provider-invoked",
         "engine-succeeded",
@@ -616,6 +624,12 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
             raise AssertionError("kill is not required")
 
     class Resources:
+        @staticmethod
+        @contextmanager
+        def local_provider(provider_id: str):
+            assert provider_id == "soluprot"
+            yield {}
+
         @contextmanager
         def temporary_directory(self, *, prefix: str):
             assert prefix == "soluprot-full-"

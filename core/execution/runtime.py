@@ -193,11 +193,12 @@ class V2RunService:
         """Execute one Run while holding the Project admission lease."""
         self._reserve_project(project_id)
         try:
-            return self._execute_run(
-                project_id,
-                workflow_commit_id=workflow_commit_id,
-                client_request_id=client_request_id,
-            )
+            with self._execution_lock:
+                return self._execute_run(
+                    project_id,
+                    workflow_commit_id=workflow_commit_id,
+                    client_request_id=client_request_id,
+                )
         finally:
             self._release_project(project_id)
 
@@ -529,6 +530,7 @@ class V2RunService:
         with self._worker_condition:
             while self._reserved_projects:
                 self._worker_condition.wait()
+        self._node_attempt_factory.shutdown()
 
     def projection(self, project_id: str, run_id: str) -> RunProjection:
         return self._queries.projection(project_id, run_id)

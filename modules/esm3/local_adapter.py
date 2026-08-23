@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import ExitStack
 from dataclasses import dataclass
 import hashlib
 import importlib.util
@@ -339,6 +340,13 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         )
         self._environment = environment
         self._resolved_client: Any | None = None
+        self._provider_lifecycle = ExitStack()
+
+    def __enter__(self) -> LocalESM3Adapter:
+        self._provider_lifecycle.enter_context(
+            self._resources.local_provider("local-esm3")
+        )
+        return self
 
     def _client(self) -> Any:
         if self._resolved_client is not None:
@@ -398,17 +406,22 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         exception: object,
         traceback: object,
     ) -> None:
-        del exception_type, traceback
-        client = self._resolved_client
-        self._resolved_client = None
-        if client is None:
-            return
         try:
-            release_local_esm3_client(client)
-        except BaseException as cleanup_error:
-            if exception is None:
-                raise
-            cast(BaseException, exception).add_note(
-                "Local ESM-3 staged-weight cleanup also failed: "
-                f"{type(cleanup_error).__name__}"
+            client = self._resolved_client
+            self._resolved_client = None
+            if client is not None:
+                try:
+                    release_local_esm3_client(client)
+                except BaseException as cleanup_error:
+                    if exception is None:
+                        raise
+                    cast(BaseException, exception).add_note(
+                        "Local ESM-3 staged-weight cleanup also failed: "
+                        f"{type(cleanup_error).__name__}"
+                    )
+        finally:
+            self._provider_lifecycle.__exit__(
+                exception_type,
+                exception,
+                traceback,
             )

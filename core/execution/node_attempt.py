@@ -661,6 +661,9 @@ class NodeAttemptFactory:
             availability_by_binding=availability_by_binding,
         )
 
+    def shutdown(self) -> None:
+        self._local_provider_memory.release()
+
 
 __all__ = [
     "AttemptOutcome",
