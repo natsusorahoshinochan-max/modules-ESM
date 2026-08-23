@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, cast
 
 from core.catalog.port_contract import (
@@ -18,6 +19,7 @@ from core.operation import (
     ResolvedOutputIdentity,
 )
 from datatypes.candidate import CandidateDataReference
+from datatypes.residue import ModifiedResidueNormalizationCollection
 from datatypes.exact_reference import (
     ExactContractReference,
     ResidueAxisReference,
@@ -52,6 +54,8 @@ from .domain import (
 
 CANDIDATE_ASSOCIATION_VERSION = "6.0.0"
 NORMALIZATION_FACTS_VERSION = "1.0.0"
+_NORMALIZATION_KEY = re.compile(r"^normalization-[0-9a-f]{64}$")
+_CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _validate_structure_subject(value: object) -> CandidateDataReference:
@@ -91,10 +95,6 @@ def validate_candidate_normalization_associations(value: object) -> None:
                 "Candidate normalization association has the wrong type"
             )
         subjects.append(_validate_structure_subject(entry.subject))
-        validate_normalizations(
-            entry.normalizations,
-            require_nonempty=False,
-        )
     _validate_unique_candidate_subjects(tuple(subjects))
 
 
@@ -114,6 +114,14 @@ def _candidate_normalizations_to_wire(
     }
 
 
+def _association_normalizations_from_wire(
+    value: object,
+) -> ModifiedResidueNormalizationCollection:
+    normalizations = normalizations_from_wire(value)
+    validate_normalizations(normalizations, require_nonempty=False)
+    return normalizations
+
+
 def _candidate_normalizations_from_wire(value: object) -> object:
     return CandidateModifiedResidueNormalizationAssociations(
         **{
@@ -125,7 +133,7 @@ def _candidate_normalizations_from_wire(value: object) -> object:
                         "subject": _candidate_data_reference_from_canonical(
                             item["subject"]
                         ),
-                        "normalizations": normalizations_from_wire(
+                        "normalizations": _association_normalizations_from_wire(
                             item["normalizations"]
                         ),
                     }
@@ -228,8 +236,6 @@ def _association_candidate_data_references(
 def _validate_normalization_facts(value: object) -> None:
     if type(value) is not CandidateNormalizationFactCollection:
         raise ValueError("candidate normalization facts have the wrong type")
-    for entry in value.entries:
-        validate_normalizations(entry.normalizations)
 
 
 def _normalization_facts_to_wire(
@@ -252,14 +258,26 @@ def _normalization_facts_from_wire(value: object) -> object:
         CandidateNormalizationFact(
             **{
                 **item,
-                "normalizations": normalizations_from_wire(
-                    item["normalizations"]
+                "normalizations": (
+                    MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE.from_wire(
+                        item["normalizations"]
+                    )
                 ),
             }
         )
         for item in value["entries"]
     )
+    if not entries:
+        raise ValueError("normalization facts must be a nonempty collection")
+    if any(
+        _NORMALIZATION_KEY.fullmatch(entry.normalization_key) is None
+        or _CONTENT_DIGEST.fullmatch(entry.structure_content_digest) is None
+        for entry in entries
+    ):
+        raise ValueError("candidate normalization fact identity is not canonical")
     keys = tuple(entry.normalization_key for entry in entries)
+    if len(set(keys)) != len(keys):
+        raise ValueError("normalization facts contain a duplicate key")
     if keys != tuple(sorted(keys)):
         raise ValueError(
             "candidate normalization fact entries are not canonically ordered"

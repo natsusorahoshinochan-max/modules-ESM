@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 from core.catalog.port_contract import (
     canonical_sha256,
@@ -14,10 +13,6 @@ from datatypes.residue import ModifiedResidueNormalizationCollection
 from datatypes.structure import ProteinStructure, ResolvedStructureResidueAxis
 
 
-_NORMALIZATION_KEY = re.compile(r"^normalization-[0-9a-f]{64}$")
-_CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-
-
 def normalization_key(
     *,
     output_role: str,
@@ -26,15 +21,6 @@ def normalization_key(
     normalizations_content_digest: str,
 ) -> str:
     """Bind one subjectless normalization fact to its future output slot."""
-    if (
-        type(output_role) is not str
-        or not output_role
-        or type(output_slot) is not int
-        or output_slot < 0
-        or _CONTENT_DIGEST.fullmatch(structure_content_digest) is None
-        or _CONTENT_DIGEST.fullmatch(normalizations_content_digest) is None
-    ):
-        raise ValueError("normalization key inputs are not canonical")
     digest = canonical_sha256(
         {
             "schema_namespace": (
@@ -56,14 +42,6 @@ class CandidateNormalizationFact:
     normalization_key: str
     structure_content_digest: str
     normalizations: ModifiedResidueNormalizationCollection
-
-    def __post_init__(self) -> None:
-        if _NORMALIZATION_KEY.fullmatch(self.normalization_key) is None:
-            raise ValueError("normalization_key is not canonical")
-        if _CONTENT_DIGEST.fullmatch(self.structure_content_digest) is None:
-            raise ValueError("structure_content_digest is not canonical")
-        if type(self.normalizations) is not ModifiedResidueNormalizationCollection:
-            raise TypeError("normalizations must be an exact collection")
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,13 +103,6 @@ class CandidateNormalizationFactCollection:
 
     def __post_init__(self) -> None:
         entries = tuple(self.entries)
-        if not entries or any(
-            type(entry) is not CandidateNormalizationFact for entry in entries
-        ):
-            raise ValueError("normalization facts must be a nonempty collection")
-        keys = tuple(entry.normalization_key for entry in entries)
-        if len(set(keys)) != len(keys):
-            raise ValueError("normalization facts contain a duplicate key")
         object.__setattr__(
             self,
             "entries",
@@ -163,13 +134,6 @@ class CandidateResolvedResidueAxisAssociations:
 
     def __post_init__(self) -> None:
         entries = tuple(self.entries)
-        if any(
-            type(entry) is not CandidateResolvedResidueAxisAssociation
-            for entry in entries
-        ):
-            raise TypeError(
-                "entries must be CandidateResolvedResidueAxisAssociation values"
-            )
         object.__setattr__(
             self,
             "entries",
@@ -209,15 +173,6 @@ class CandidateModifiedResidueNormalizationAssociations:
 
     def __post_init__(self) -> None:
         entries = tuple(self.entries)
-        if any(
-            type(entry)
-            is not CandidateModifiedResidueNormalizationAssociation
-            for entry in entries
-        ):
-            raise TypeError(
-                "entries must be "
-                "CandidateModifiedResidueNormalizationAssociation values"
-            )
         object.__setattr__(
             self,
             "entries",
