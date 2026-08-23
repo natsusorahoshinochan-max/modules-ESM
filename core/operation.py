@@ -254,9 +254,6 @@ class BindingEnvironment(Mapping[str, Any]):
 
     values: Mapping[str, Any]
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
-
     def __getitem__(self, key: str) -> Any:
         return self.values[key]
 

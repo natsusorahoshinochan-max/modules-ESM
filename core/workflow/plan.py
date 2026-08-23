@@ -18,7 +18,6 @@ from core.scoring.selection import (
 from core.workflow.document import (
     ContractLockEntry,
     WorkflowEdge,
-    _freeze_json,
     _thaw_json,
 )
 
@@ -65,13 +64,6 @@ class ResultIdentityPlanFacts:
 
     identity_facts: Mapping[str, Any]
     node_parameter_indirections: tuple[str, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "identity_facts",
-            _freeze_json(self.identity_facts),
-        )
 
     def identity_projection(self) -> dict[str, Any]:
         """Return one isolated canonical projection shared by runtime users."""

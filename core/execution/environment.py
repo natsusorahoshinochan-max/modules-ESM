@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any, cast
 
 from core.catalog.declarations import (
@@ -134,4 +133,4 @@ def admit_environment_configuration(
             for name, value in values.items()
         }
         admitted[identity] = BindingEnvironment(admitted_values)
-    return EnvironmentConfiguration(MappingProxyType(admitted))
+    return EnvironmentConfiguration(admitted)

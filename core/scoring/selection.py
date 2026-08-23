@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 import math
-from types import MappingProxyType
 from typing import Any, TypeAlias
 
 from core.parameters.model import AdmittedParameterValues
@@ -522,7 +521,7 @@ def resolve_objective_observations(
                 "per Candidate"
             )
         resolved[candidate_id] = matches[0]
-    return MappingProxyType(resolved)
+    return resolved
 
 
 def selection_objective_provenance_from_facts(
@@ -669,12 +668,10 @@ def resolve_candidate_utilities_from_facts(
     return CandidateUtilityProfile(
         candidates=candidates,
         objective_ids=tuple(item.objective_id for item in resolved),
-        utilities=MappingProxyType(
-            {
-                candidate_id: tuple(values)
-                for candidate_id, values in utility_values.items()
-            }
-        ),
+        utilities={
+            candidate_id: tuple(values)
+            for candidate_id, values in utility_values.items()
+        },
         effective_weights=tuple(item.effective_weight for item in resolved),
         provenance=provenance,
     )
@@ -684,19 +681,17 @@ def weighted_utility_totals(
     profile: CandidateUtilityProfile,
 ) -> Mapping[str, float]:
     """Combine one exact Utility profile with its normalized weights."""
-    return MappingProxyType(
-        {
-            candidate_id: math.fsum(
-                utility * weight
-                for utility, weight in zip(
-                    utilities,
-                    profile.effective_weights,
-                    strict=True,
-                )
+    return {
+        candidate_id: math.fsum(
+            utility * weight
+            for utility, weight in zip(
+                utilities,
+                profile.effective_weights,
+                strict=True,
             )
-            for candidate_id, utilities in profile.utilities.items()
-        }
-    )
+        )
+        for candidate_id, utilities in profile.utilities.items()
+    }
 
 
 def rank_candidates_by_weighted_utility(
