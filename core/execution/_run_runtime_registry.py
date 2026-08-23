@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from core.catalog.model import FrozenCatalog
-from core.catalog.errors import ContractResolutionError
 from core.execution._run_runtime_evidence import _run_catalog_digest
 from core.execution._run_runtime_models import _RunRecord
 from core.execution.ledger import (
@@ -41,14 +40,10 @@ class _RunRegistry:
                 try:
                     self._load_persisted_run(project_id, run_id)
                 except (
-                    ContractResolutionError,
-                    KeyError,
                     OSError,
                     RuntimeError,
                     StoragePathError,
-                    TypeError,
                     V2RunError,
-                    ValueError,
                 ):
                     self._damaged_runs[(project_id, run_id)] = run_cursor(
                         0,

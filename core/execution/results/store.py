@@ -98,7 +98,7 @@ class ResultStore:
     ) -> StoredObject:
         try:
             return self._objects.store(project_id, payload)
-        except (ObjectIntegrityError, OSError, StoragePathError, ValueError) as error:
+        except (ObjectIntegrityError, OSError, StoragePathError) as error:
             raise ResultStoreWriteError(stage) from error
 
     def _read_reference(
@@ -108,7 +108,7 @@ class ResultStore:
     ) -> bytes:
         try:
             payload = self._objects.read(project_id, reference.content_digest)
-        except (ObjectIntegrityError, OSError, StoragePathError, ValueError) as error:
+        except (ObjectIntegrityError, StoragePathError) as error:
             raise ResultIntegrityError(
                 reference.content_digest,
                 expected_size=reference.size,
