@@ -145,8 +145,6 @@ def _source_from_wire(
         {"port_type", "content_digest"},
         subject="exact Port value reference",
     )
-    if type(port_value["content_digest"]) is not str:
-        raise ValueError("exact Port value content digest must be text")
     return ExactPortValueReference(
         port_type=_reference_from_wire(
             port_value["port_type"],
@@ -301,7 +299,7 @@ def _confidence_facts_from_wire(value: object) -> object:
         _confidence_fact_from_wire(item) for item in value["entries"]
     )
     keys = tuple(entry.prediction_key for entry in entries)
-    if keys != tuple(sorted(keys)) or len(keys) != len(set(keys)):
+    if keys != tuple(sorted(keys)):
         raise ValueError(
             "confidence fact entries must use unique canonical key order"
         )

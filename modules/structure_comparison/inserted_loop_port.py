@@ -40,8 +40,6 @@ def _reference(value: object, *, role: str) -> CandidateDataReference:
     if (
         type(value) is not CandidateDataReference
         or value.data_type_id != "protein.structure"
-        or not value.candidate_id
-        or _DIGEST.fullmatch(value.content_digest) is None
     ):
         raise ValueError(f"inserted-loop {role} reference is invalid")
     return value

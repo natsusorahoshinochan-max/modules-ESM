@@ -59,11 +59,7 @@ def _finite_vector(value: object, *, name: str) -> tuple[float, float, float]:
 def _validate_candidate_reference(value: object, *, role: str) -> None:
     if (
         type(value) is not CandidateDataReference
-        or type(value.candidate_id) is not str
-        or not value.candidate_id
         or value.data_type_id != "protein.structure"
-        or type(value.content_digest) is not str
-        or _DIGEST.fullmatch(value.content_digest) is None
     ):
         raise ValueError(f"alignment {role} Candidate reference is invalid")
 

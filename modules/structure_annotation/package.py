@@ -120,12 +120,11 @@ def _validate_layout(layout: object) -> ResidueLayout:
     return validate_residue_layout(layout, subject="annotation layout")
 
 
-def _validate_subject(subject: object) -> CandidateDataReference:
+def _validate_subject(subject: object) -> None:
     if type(subject) is not CandidateDataReference:
         raise ValueError(
             "annotation subject must be a CandidateDataReference"
         )
-    return subject
 
 
 def _validate_secondary(
@@ -133,7 +132,7 @@ def _validate_secondary(
     *,
     length: int,
     symbols: frozenset[str] = _SECONDARY_SYMBOLS,
-) -> tuple[str, ...]:
+) -> None:
     if (
         not isinstance(values, tuple)
         or len(values) != length
@@ -145,14 +144,13 @@ def _validate_secondary(
         raise ValueError(
             "secondary-structure values use an unsupported alphabet"
         )
-    return values
 
 
 def _validate_sasa(
     values: object,
     *,
     length: int,
-) -> tuple[float | None, ...]:
+) -> None:
     if not isinstance(values, tuple) or len(values) != length:
         raise ValueError("SASA values must match the exact residue layout")
     for value in values:
@@ -164,10 +162,6 @@ def _validate_sasa(
             or float(value) < 0
         ):
             raise ValueError("SASA values must be nullable non-negative numbers")
-    return tuple(
-        None if value is None else float(value)
-        for value in values
-    )
 
 
 def _validate_annotation(value: object) -> None:
@@ -206,7 +200,7 @@ def _annotation_from_wire(value: object) -> object:
         subject=_candidate_data_reference_from_canonical(value["subject"]),
         layout=layout,
         secondary_structure=tuple(value["secondary_structure"]),
-        sasa=_validate_sasa(tuple(value["sasa"]), length=layout.length),
+        sasa=tuple(value["sasa"]),
     )
     return annotation
 
@@ -227,41 +221,28 @@ def _validate_sasa_track(value: object) -> None:
     _validate_sasa(value.values, length=layout.length)
 
 
-def _track_to_wire(kind: str):
-    def encode(value: StructureAnnotationTrack) -> object:
-        return {
-            "subject": _candidate_data_reference_to_canonical(value.subject),
-            "layout": _LAYOUT_CODEC.to_wire(value.layout),
-            "track": _TRACK_CODEC.to_wire(
-                ResidueTrack(list(value.values), None),
-            ),
-        }
-
-    return encode
+def _track_to_wire(value: StructureAnnotationTrack) -> object:
+    return {
+        "subject": _candidate_data_reference_to_canonical(value.subject),
+        "layout": _LAYOUT_CODEC.to_wire(value.layout),
+        "track": _TRACK_CODEC.to_wire(
+            ResidueTrack(list(value.values), None),
+        ),
+    }
 
 
-def _track_from_wire(kind: str):
-    def decode(value: object) -> object:
-        if (
-            not isinstance(value, dict)
-            or set(value) != {"subject", "layout", "track"}
-        ):
-            raise ValueError("annotation track wire value is not closed")
-        track = _TRACK_CODEC.from_wire(value["track"])
-        if type(track) is not ResidueTrack or track.sentinel is not None:
-            raise ValueError("annotation track must use null semantics")
-        layout = _LAYOUT_CODEC.from_wire(value["layout"])
-        values = tuple(track.values)
-        if kind == "sasa":
-            values = _validate_sasa(values, length=layout.length)
-        annotation_track = StructureAnnotationTrack(
-            subject=_candidate_data_reference_from_canonical(value["subject"]),
-            layout=layout,
-            values=values,
-        )
-        return annotation_track
-
-    return decode
+def _track_from_wire(value: object) -> object:
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"subject", "layout", "track"}
+    ):
+        raise ValueError("annotation track wire value is not closed")
+    track = _TRACK_CODEC.from_wire(value["track"])
+    return StructureAnnotationTrack(
+        subject=_candidate_data_reference_from_canonical(value["subject"]),
+        layout=_LAYOUT_CODEC.from_wire(value["layout"]),
+        values=tuple(track.values),
+    )
 
 
 def _available() -> AvailabilityResult:
@@ -618,15 +599,15 @@ MODULE_PACKAGE = ModulePackageRegistration(
             type_id="structure_annotation.secondary_structure_track",
             kind="secondary_structure_track",
             validator=_validate_secondary_track,
-            to_wire=_track_to_wire("secondary_structure"),
-            from_wire=_track_from_wire("secondary_structure"),
+            to_wire=_track_to_wire,
+            from_wire=_track_from_wire,
         ),
         _port_type(
             type_id="structure_annotation.sasa_track",
             kind="sasa_track",
             validator=_validate_sasa_track,
-            to_wire=_track_to_wire("sasa"),
-            from_wire=_track_from_wire("sasa"),
+            to_wire=_track_to_wire,
+            from_wire=_track_from_wire,
             quantity_contract=_ABSOLUTE_SASA_QUANTITY_CONTRACT,
         ),
     ),

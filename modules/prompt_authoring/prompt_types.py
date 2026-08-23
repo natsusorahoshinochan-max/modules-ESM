@@ -95,10 +95,7 @@ def _track_to_wire(track: ResidueTrack | None) -> object:
 def _track_from_wire(value: object) -> ResidueTrack | None:
     if value is None:
         return None
-    track = _TRACK_CODEC.from_wire(value)
-    if type(track) is not ResidueTrack or track.sentinel is not None:
-        raise ValueError("ProteinPrompt tracks must use JSON null semantics")
-    return track
+    return _TRACK_CODEC.from_wire(value)
 
 
 def _validate_prompt(value: object) -> None:

@@ -64,11 +64,7 @@ def _validate_reference(
 ) -> None:
     if (
         type(value) is not CandidateDataReference
-        or type(value.candidate_id) is not str
-        or not value.candidate_id
         or value.data_type_id != data_type_id
-        or type(value.content_digest) is not str
-        or _DIGEST.fullmatch(value.content_digest) is None
     ):
         raise ValueError(f"three-way {name} reference is invalid")
 

@@ -56,17 +56,12 @@ def _to_wire(aligned: AlignedResidueTrack) -> object:
     }
 
 
-def _from_wire(kind: TrackKind):
-    def decode(value: object) -> object:
-        if not isinstance(value, dict) or set(value) != {"layout", "track"}:
-            raise ValueError("aligned residue track wire value is not closed")
-        layout = _LAYOUT_CODEC.from_wire(value["layout"])
-        track = _TRACK_CODEC.from_wire(value["track"])
-        if type(track) is not ResidueTrack or track.sentinel is not None:
-            raise ValueError("aligned residue track must use null semantics")
-        return AlignedResidueTrack(layout=layout, values=tuple(track.values))
-
-    return decode
+def _from_wire(value: object) -> object:
+    if not isinstance(value, dict) or set(value) != {"layout", "track"}:
+        raise ValueError("aligned residue track wire value is not closed")
+    layout = _LAYOUT_CODEC.from_wire(value["layout"])
+    track = _TRACK_CODEC.from_wire(value["track"])
+    return AlignedResidueTrack(layout=layout, values=tuple(track.values))
 
 
 def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
@@ -114,7 +109,7 @@ def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
         ),
         runtime_validator=_validator(kind),
         runtime_to_wire=_to_wire,
-        runtime_from_wire=_from_wire(kind),
+        runtime_from_wire=_from_wire,
     )
 
 

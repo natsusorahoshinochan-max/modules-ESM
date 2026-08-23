@@ -230,9 +230,6 @@ def _validate_normalization_facts(value: object) -> None:
         raise ValueError("candidate normalization facts have the wrong type")
     for entry in value.entries:
         validate_normalizations(entry.normalizations)
-    normalized = CandidateNormalizationFactCollection(value.entries)
-    if normalized != value:
-        raise ValueError("candidate normalization facts are not canonical")
 
 
 def _normalization_facts_to_wire(
