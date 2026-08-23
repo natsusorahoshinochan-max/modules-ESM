@@ -30,7 +30,6 @@ class _RunQueries:
 
     def projection(self, project_id: str, run_id: str) -> RunProjection:
         record = self._registry.require_record(project_id, run_id)
-        self._registry.require_available_evidence(record)
         return record.ledger.projection()
 
     @staticmethod
@@ -177,7 +176,6 @@ class _RunQueries:
         run_id: str,
     ) -> tuple[Fact, ...]:
         record = self._registry.require_record(project_id, run_id)
-        self._registry.require_available_evidence(record)
         return record.ledger.events()
 
     def ledger_cursor(self, project_id: str, run_id: str) -> RunCursor:
@@ -190,7 +188,6 @@ class _RunQueries:
         cursor: RunCursor | None,
     ) -> ReplayWindow:
         record = self._registry.require_record(project_id, run_id)
-        self._registry.require_available_evidence(record)
         return record.ledger.replay(cursor)
 
     def wait_for_events(
@@ -202,10 +199,7 @@ class _RunQueries:
         timeout_seconds: float = 1.0,
     ) -> tuple[tuple[Fact, ...], int, bool]:
         record = self._registry.require_record(project_id, run_id)
-        self._registry.require_available_evidence(record)
-        observed = record.ledger.wait_for_events(
+        return record.ledger.wait_for_events(
             after_sequence,
             timeout_seconds=timeout_seconds,
         )
-        self._registry.require_available_evidence(record)
-        return observed

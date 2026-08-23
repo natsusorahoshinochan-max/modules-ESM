@@ -457,13 +457,7 @@ class V2RunService:
                 error = caught
                 if record is not None:
                     record.execution_error = caught
-                    if (
-                        isinstance(caught, V2RunError)
-                        and caught.code == "evidence_unavailable"
-                    ):
-                        record.evidence_unavailable = caught
                     record.finished.set()
-                    record.ledger.notify_waiters()
             finally:
                 if execution_slot_acquired:
                     self._execution_lock.release()
@@ -517,7 +511,6 @@ class V2RunService:
     ) -> CancellationDecision:
         """Persist cancellation before signalling active work."""
         record = self._registry.require_record(project_id, run_id)
-        self._registry.require_available_evidence(record)
         decision = record.ledger.request_cancellation(after_cursor)
         if decision.outcome in {
             "cancellation_requested",

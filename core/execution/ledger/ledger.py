@@ -208,11 +208,6 @@ class Ledger:
             self._evidence_unavailable = error
         self._condition.notify_all()
 
-    def retain_evidence_unavailable(self, error: V2RunError) -> None:
-        """Order one unavailable-evidence decision against Run writers."""
-        with self._condition:
-            self._mark_evidence_unavailable(error)
-
     def _require_available_evidence(self) -> None:
         unavailable = self._evidence_unavailable
         if unavailable is not None:
@@ -744,11 +739,6 @@ class Ledger:
                 len(self._state.facts),
                 self._state.run_terminal,
             )
-
-    def notify_waiters(self) -> None:
-        """Wake event consumers after an active Run state transition."""
-        with self._condition:
-            self._condition.notify_all()
 
     def reconcile_restart(self) -> None:
         """Mark a previously admitted process as interrupted."""

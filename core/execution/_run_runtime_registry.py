@@ -125,13 +125,3 @@ class _RunRegistry:
                 "Run was not found",
                 details={"resource_kind": "run", "resource_id": run_id},
             ) from error
-
-    @staticmethod
-    def require_available_evidence(record: _RunRecord) -> None:
-        unavailable = record.evidence_unavailable
-        if unavailable is not None:
-            raise V2RunError(
-                unavailable.code,
-                str(unavailable),
-                details=unavailable.details,
-            ) from unavailable

@@ -394,12 +394,6 @@ class _NodeAttempt:
     ) -> AttemptOutcome:
         if self._ledger.cancellation_requested:
             state.cancellation.wait_for_cleanup()
-        if (
-            isinstance(error, V2RunError)
-            and error.code == "evidence_unavailable"
-        ):
-            self._ledger.retain_evidence_unavailable(error)
-            raise error
         terminal_status = (
             "failed"
             if state.cancellation.cleanup_error is not None

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import threading
 
-from core.execution.ledger import Ledger, V2RunError
+from core.execution.ledger import Ledger
 from core.execution.resources import CancellationControl
 from core.workflow.authoring import VerifiedWorkflowCommit
 
@@ -19,4 +19,3 @@ class _RunRecord:
     )
     finished: threading.Event = field(default_factory=threading.Event)
     execution_error: BaseException | None = None
-    evidence_unavailable: V2RunError | None = None
