@@ -53,7 +53,6 @@ from .port_types import (
 
 
 _PACKAGE_VERSION = "3.0.0"
-_VERSION = "2.1.0"
 _CANDIDATE_NODE_VERSION = "4.0.0"
 _STRUCTURE_NODE_VERSION = "4.0.0"
 _NORMALIZE_CSH_NODE_VERSION = "5.0.0"
@@ -142,7 +141,7 @@ def _build(
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    binding_version = _NODE_BINDING_VERSIONS.get(operation, _VERSION)
+    binding_version = _NODE_BINDING_VERSIONS[operation]
     return ExecutionBindingDefinition(
         binding_id=f"structure_transform.{operation}.direct",
         version=binding_version,
@@ -154,7 +153,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         method=ContractIdentity(
             "method",
             f"structure_transform.{operation}.method",
-            _METHOD_VERSIONS.get(operation, _VERSION),
+            _METHOD_VERSIONS[operation],
         ),
         binding_parameters={},
         execution_route="direct",
