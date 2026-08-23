@@ -211,9 +211,9 @@ def test_model_backed_soluprot_golden_methods(
     import modules.solubility.soluprot as adapter
 
     recorded: list[dict[str, Any]] = []
-    original_invoke = adapter.invoke_soluprot
+    original_run_process = adapter._run_local_process
 
-    def record_and_delegate(**kwargs: Any) -> None:
+    def record_and_delegate(**kwargs: Any) -> int:
         staging_directory = kwargs["staging_directory"]
         record = {
             "command": tuple(kwargs["command"]),
@@ -222,13 +222,14 @@ def test_model_backed_soluprot_golden_methods(
                 staging_directory / "input.fasta"
             ).read_text(encoding="ascii"),
         }
-        original_invoke(**kwargs)
+        return_code = original_run_process(**kwargs)
         record["raw_output"] = (
             staging_directory / "output.csv"
         ).read_bytes()
         recorded.append(record)
+        return return_code
 
-    monkeypatch.setattr(adapter, "invoke_soluprot", record_and_delegate)
+    monkeypatch.setattr(adapter, "_run_local_process", record_and_delegate)
 
     catalog, service, projection, events = _run(tmp_path, mode=mode)
 

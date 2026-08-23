@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+from typing import cast
 
 from core.operation import OperationResources
 
@@ -18,10 +19,6 @@ class SolubilityReadinessUnavailable(RuntimeError):
 
 class LocalProviderTimeout(RuntimeError):
     """One local provider exceeded its closed execution budget."""
-
-
-class LocalProviderOutputUnavailable(RuntimeError):
-    """One local provider produced no readable output."""
 
 
 def _regular_file_sha256(
@@ -113,4 +110,4 @@ def _run_local_process(
         raise LocalProviderTimeout(
             "Local provider invocation timed out safely"
         ) from error
-    return process.returncode
+    return cast(int, process.returncode)

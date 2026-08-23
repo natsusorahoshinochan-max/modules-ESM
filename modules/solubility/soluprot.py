@@ -16,7 +16,6 @@ from core.operation import OperationResources, ReadinessResult
 from datatypes.candidate import CandidateDataReference
 
 from ._local_support import (
-    LocalProviderOutputUnavailable,
     SolubilityReadinessUnavailable,
     _provider_sequence_id,
     _require_digest,
@@ -375,26 +374,6 @@ def _prepare_soluprot_invocation(
     return tuple(command), output_path
 
 
-def invoke_soluprot(
-    *,
-    command: Sequence[str],
-    staging_directory: Path,
-    run_resources: OperationResources,
-) -> None:
-    """Run exactly one already-staged SoluProt provider process."""
-    return_code = _run_local_process(
-        command=command,
-        staging_directory=staging_directory,
-        resources=run_resources,
-    )
-    if return_code != 0:
-        raise SoluProtProviderNonzeroExit(
-            f"SoluProt provider invocation failed safely "
-            f"(exit status {return_code})"
-        )
-
-
-
 def parse_soluprot_output(
     payload: bytes,
     *,
@@ -449,17 +428,17 @@ class LocalSoluProtAdapter:
             with self.resources.engine_invocation(
                 engine_role=f"soluprot_{self.mode}",
             ):
-                invoke_soluprot(
+                return_code = _run_local_process(
                     command=command,
                     staging_directory=staging_directory,
-                    run_resources=self.resources,
+                    resources=self.resources,
                 )
-            try:
-                raw_output = output_path.read_bytes()
-            except OSError as error:
-                raise LocalProviderOutputUnavailable(
-                    "SoluProt provider produced no readable output"
-                ) from error
+                if return_code != 0:
+                    raise SoluProtProviderNonzeroExit(
+                        "SoluProt provider invocation failed safely "
+                        f"(exit status {return_code})"
+                    )
+            raw_output = output_path.read_bytes()
             values = parse_soluprot_output(
                 raw_output,
                 staged_subjects=staged_subjects,

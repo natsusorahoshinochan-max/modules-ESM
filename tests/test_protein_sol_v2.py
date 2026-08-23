@@ -94,7 +94,7 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
             yield "invocation-1"
             events.append("engine-succeeded")
 
-    def invoke(**kwargs: Any) -> None:
+    def run_process(**kwargs: Any) -> int:
         assert kwargs["command"] == (
             str(bash_executable),
             "multiple_prediction_wrapper_export.sh",
@@ -111,8 +111,9 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
             b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
             b"0.446,7.130\n"
         )
+        return 0
 
-    monkeypatch.setattr(adapter, "invoke_protein_sol", invoke)
+    monkeypatch.setattr(adapter, "_run_local_process", run_process)
     local = adapter.LocalProteinSolAdapter(
         environment={
             "source_root": source_root,
@@ -588,7 +589,7 @@ def _run_protein_sol(
     )
     calls: list[list[str]] = []
 
-    def invoke(**kwargs: Any) -> None:
+    def run_process(**kwargs: Any) -> int:
         calls.append(
             [
                 line
@@ -606,8 +607,9 @@ def _run_protein_sol(
         )
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(payload)
+        return 0
 
-    monkeypatch.setattr(adapter, "invoke_protein_sol", invoke)
+    monkeypatch.setattr(adapter, "_run_local_process", run_process)
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",

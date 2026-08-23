@@ -619,7 +619,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         prepared_sequences[:] = kwargs["sequences"]
         return (("provider-free-protein-sol",), kwargs["staging_directory"] / "seq_prediction.txt")
 
-    def invoke_protein_sol(**kwargs: Any) -> None:
+    def run_protein_sol(**kwargs: Any) -> int:
         rows = [
             "HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,population-sol,pI"
         ]
@@ -631,9 +631,10 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             "\n".join(rows) + "\n",
             encoding="ascii",
         )
+        return 0
 
     monkeypatch.setattr(solubility_adapter, "_prepare_protein_sol_invocation", prepare_protein_sol)
-    monkeypatch.setattr(solubility_adapter, "invoke_protein_sol", invoke_protein_sol)
+    monkeypatch.setattr(solubility_adapter, "_run_local_process", run_protein_sol)
 
     normalized, _ = normalize_csh_parent_span(
         ProteinStructure(INPUT_PATH.read_text(encoding="ascii"))

@@ -136,7 +136,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             yield "invocation-1"
             events.append("engine-succeeded")
 
-    def invoke(**kwargs: Any) -> None:
+    def run_process(**kwargs: Any) -> int:
         assert kwargs["command"] == (
             str(python_executable),
             "-I",
@@ -174,8 +174,9 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             b"runtime_id,fa_id,soluble\n"
             b"0,candidate_0,0.331\n"
         )
+        return 0
 
-    monkeypatch.setattr(adapter, "invoke_soluprot", invoke)
+    monkeypatch.setattr(adapter, "_run_local_process", run_process)
     local = adapter.LocalSoluProtAdapter(
         mode="full",
         environment={
@@ -616,6 +617,16 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
 
     class Resources:
         @contextmanager
+        def temporary_directory(self, *, prefix: str):
+            assert prefix == "soluprot-full-"
+            yield tmp_path
+
+        @contextmanager
+        def engine_invocation(self, *, engine_role: str):
+            assert engine_role == "soluprot_full"
+            yield "invocation-1"
+
+        @contextmanager
         def cancellable_process_group(
             self,
             process_group: int,
@@ -631,16 +642,29 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
         "Popen",
         lambda *args, **kwargs: FailedProcess(),
     )
+    monkeypatch.setattr(
+        adapter,
+        "_trusted_soluprot_environment",
+        lambda *_args, **_kwargs: object(),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_prepare_soluprot_invocation",
+        lambda **_kwargs: (
+            (("/private/python", "--no_tmhmm")),
+            tmp_path / "output.csv",
+        ),
+    )
 
     with pytest.raises(
         adapter.SoluProtProviderNonzeroExit,
         match="failed safely",
     ) as rejected:
-        adapter.invoke_soluprot(
-            command=("/private/python", "--no_tmhmm"),
-            staging_directory=tmp_path,
-            run_resources=Resources(),
-        )
+        adapter.LocalSoluProtAdapter(
+            mode="full",
+            environment={},
+            resources=Resources(),
+        ).predict(())
 
     assert "secret-token" not in str(rejected.value)
     assert "/private/" not in str(rejected.value)
@@ -693,7 +717,7 @@ def _run_soluprot(
     )
     calls: list[tuple[list[str], str]] = []
 
-    def invoke(**kwargs: Any) -> None:
+    def run_process(**kwargs: Any) -> int:
         sequences = [
             line
             for line in (
@@ -716,8 +740,9 @@ def _run_soluprot(
         )
         output_path = kwargs["staging_directory"] / "output.csv"
         output_path.write_bytes(payload)
+        return 0
 
-    monkeypatch.setattr(adapter, "invoke_soluprot", invoke)
+    monkeypatch.setattr(adapter, "_run_local_process", run_process)
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
@@ -1014,7 +1039,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         _prepare_soluprot_fixture,
     )
 
-    def invoke_soluprot_fixture(**kwargs: Any) -> None:
+    def run_soluprot_fixture(**kwargs: Any) -> int:
         output_path = kwargs["staging_directory"] / "output.csv"
         mode = (
             "no_tm"
@@ -1029,11 +1054,12 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
                 else b"0,candidate_0,0.3465\n"
             )
         )
+        return 0
 
     monkeypatch.setattr(
         soluprot_adapter,
-        "invoke_soluprot",
-        invoke_soluprot_fixture,
+        "_run_local_process",
+        run_soluprot_fixture,
     )
     monkeypatch.setattr(
         protein_sol_adapter,
@@ -1041,7 +1067,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         _prepare_protein_sol_fixture,
     )
 
-    def invoke_protein_sol_fixture(**kwargs: Any) -> None:
+    def run_protein_sol_fixture(**kwargs: Any) -> int:
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(
             b"HEADERS PREDICTIONS LINE,ID,percent-sol,scaled-sol,"
@@ -1049,11 +1075,12 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
             b"SEQUENCE PREDICTIONS,>candidate_0,32.419,0.252,"
             b"0.446,7.130\n"
         )
+        return 0
 
     monkeypatch.setattr(
         protein_sol_adapter,
-        "invoke_protein_sol",
-        invoke_protein_sol_fixture,
+        "_run_local_process",
+        run_protein_sol_fixture,
     )
     source = WorkflowNodeInstance(
         node_id="source",

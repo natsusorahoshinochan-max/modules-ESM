@@ -16,7 +16,6 @@ from core.operation import OperationResources, ReadinessResult
 from datatypes.candidate import CandidateDataReference
 
 from ._local_support import (
-    LocalProviderOutputUnavailable,
     SolubilityReadinessUnavailable,
     _provider_sequence_id,
     _require_digest,
@@ -237,25 +236,6 @@ def _prepare_protein_sol_invocation(
     )
 
 
-def invoke_protein_sol(
-    *,
-    command: Sequence[str],
-    staging_directory: Path,
-    run_resources: OperationResources,
-) -> None:
-    """Run exactly one already-staged Protein-Sol provider process."""
-    return_code = _run_local_process(
-        command=command,
-        staging_directory=staging_directory,
-        resources=run_resources,
-    )
-    if return_code != 0:
-        raise ProteinSolProviderNonzeroExit(
-            "Protein-Sol provider invocation failed safely"
-        )
-
-
-
 def parse_protein_sol_output(
     payload: bytes,
     *,
@@ -311,17 +291,16 @@ class LocalProteinSolAdapter:
             with self.resources.engine_invocation(
                 engine_role="protein_sol_sequence_prediction",
             ):
-                invoke_protein_sol(
+                return_code = _run_local_process(
                     command=command,
                     staging_directory=staging_directory,
-                    run_resources=self.resources,
+                    resources=self.resources,
                 )
-            try:
-                raw_output = output_path.read_bytes()
-            except OSError as error:
-                raise LocalProviderOutputUnavailable(
-                    "Protein-Sol provider produced no readable output"
-                ) from error
+                if return_code != 0:
+                    raise ProteinSolProviderNonzeroExit(
+                        "Protein-Sol provider invocation failed safely"
+                    )
+            raw_output = output_path.read_bytes()
             results = parse_protein_sol_output(
                 raw_output,
                 staged_subjects=staged_subjects,
