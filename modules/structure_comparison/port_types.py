@@ -413,6 +413,10 @@ def alignment_evidence_to_wire(value: StructureAlignmentEvidence) -> object:
     }
 
 
+def _float_from_wire(value: object) -> object:
+    return float(value) if type(value) is int else value
+
+
 def alignment_evidence_from_wire(value: object) -> StructureAlignmentEvidence:
     """Decode only the exact closed v4 evidence wire shape."""
     if value["schema_version"] != EVIDENCE_VERSION:
@@ -435,12 +439,22 @@ def alignment_evidence_from_wire(value: object) -> StructureAlignmentEvidence:
                 AlignmentAtomCorrespondence(
                     **{
                         **entry,
-                        "subject_coordinate": tuple(entry["subject_coordinate"]),
+                        "subject_coordinate": tuple(
+                            _float_from_wire(item)
+                            for item in entry["subject_coordinate"]
+                        ),
                         "reference_coordinate": tuple(
-                            entry["reference_coordinate"]
+                            _float_from_wire(item)
+                            for item in entry["reference_coordinate"]
                         ),
                         "transformed_subject_coordinate": tuple(
-                            entry["transformed_subject_coordinate"]
+                            _float_from_wire(item)
+                            for item in entry[
+                                "transformed_subject_coordinate"
+                            ]
+                        ),
+                        "residual_distance": _float_from_wire(
+                            entry["residual_distance"]
                         ),
                     }
                 )
@@ -450,14 +464,20 @@ def alignment_evidence_from_wire(value: object) -> StructureAlignmentEvidence:
                 **{
                     **transform,
                     "row_vector_rotation": tuple(
-                        tuple(row) for row in transform["row_vector_rotation"]
+                        tuple(_float_from_wire(item) for item in row)
+                        for row in transform["row_vector_rotation"]
                     ),
-                    "translation": tuple(transform["translation"]),
+                    "translation": tuple(
+                        _float_from_wire(item)
+                        for item in transform["translation"]
+                    ),
                 }
             ),
             "normalization": StructureAlignmentNormalization(
                 **value["normalization"]
             ),
+            "rmsd": _float_from_wire(value["rmsd"]),
+            "coverage": _float_from_wire(value["coverage"]),
             "method": ExactContractReference(**value["method"]),
         }
     )

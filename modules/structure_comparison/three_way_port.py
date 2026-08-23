@@ -269,12 +269,19 @@ def _method_from_wire(value: object) -> ExactContractReference:
     return ExactContractReference(**value)
 
 
+def _float_from_wire(value: object) -> object:
+    return float(value) if type(value) is int else value
+
+
 def _confidence_from_wire(value: object) -> ThreeWayConfidenceEvidence:
     return ThreeWayConfidenceEvidence(
         **{
             **value,
             "subject": _candidate_data_reference_from_canonical(value["subject"]),
             "method": _method_from_wire(value["method"]),
+            "mean_residue_plddt": _float_from_wire(
+                value["mean_residue_plddt"]
+            ),
         }
     )
 
@@ -290,6 +297,8 @@ def _edge_from_wire(value: object) -> ThreeWayComparisonEdge:
             "alignment_method": _method_from_wire(value["alignment_method"]),
             "tm_score_method": _method_from_wire(value["tm_score_method"]),
             "rmsd_method": _method_from_wire(value["rmsd_method"]),
+            "tm_score": _float_from_wire(value["tm_score"]),
+            "rmsd_angstrom": _float_from_wire(value["rmsd_angstrom"]),
         }
     )
 
@@ -327,9 +336,15 @@ def three_way_consistency_from_wire(value: object) -> ThreeWayConsistencyEvidenc
             "classification_method": _method_from_wire(
                 value["classification_method"]
             ),
-            "plddt_threshold": thresholds["mean_residue_plddt"],
-            "tm_score_threshold": thresholds["reference_normalized_tm_score"],
-            "rmsd_threshold_angstrom": thresholds["ca_rmsd_angstrom"],
+            "plddt_threshold": _float_from_wire(
+                thresholds["mean_residue_plddt"]
+            ),
+            "tm_score_threshold": _float_from_wire(
+                thresholds["reference_normalized_tm_score"]
+            ),
+            "rmsd_threshold_angstrom": _float_from_wire(
+                thresholds["ca_rmsd_angstrom"]
+            ),
             "confidences": tuple(
                 _confidence_from_wire(item) for item in value["confidences"]
             ),

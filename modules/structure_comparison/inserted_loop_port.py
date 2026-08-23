@@ -373,12 +373,23 @@ def _method_from_wire(value: object) -> ExactContractReference:
     return ExactContractReference(**value)
 
 
+def _float_from_wire(value: object) -> object:
+    return float(value) if type(value) is int else value
+
+
 def _atom_from_wire(value: object) -> AtomPairDistanceEvidence:
     return AtomPairDistanceEvidence(
         **{
             **value,
-            "left_coordinate": tuple(value["left_coordinate"]),
-            "right_coordinate": tuple(value["right_coordinate"]),
+            "left_coordinate": tuple(
+                _float_from_wire(item) for item in value["left_coordinate"]
+            ),
+            "right_coordinate": tuple(
+                _float_from_wire(item) for item in value["right_coordinate"]
+            ),
+            "distance_angstrom": _float_from_wire(
+                value["distance_angstrom"]
+            ),
         }
     )
 
@@ -408,7 +419,30 @@ def _entry_from_wire(value: object) -> InsertedLoopCandidateEvidence:
             "minimum_loop_core_nonbonded_distance": _atom_from_wire(
                 value["minimum_loop_core_nonbonded_distance"]
             ),
-            "thresholds": InsertedLoopThresholds(**value["thresholds"]),
+            "thresholds": InsertedLoopThresholds(
+                **{
+                    key: _float_from_wire(item)
+                    for key, item in value["thresholds"].items()
+                }
+            ),
+            "resolved_core_tm_score": _float_from_wire(
+                value["resolved_core_tm_score"]
+            ),
+            "resolved_core_rmsd_angstrom": _float_from_wire(
+                value["resolved_core_rmsd_angstrom"]
+            ),
+            "counterpart_tm_score": _float_from_wire(
+                value["counterpart_tm_score"]
+            ),
+            "counterpart_rmsd_angstrom": _float_from_wire(
+                value["counterpart_rmsd_angstrom"]
+            ),
+            "resolved_core_mean_plddt": _float_from_wire(
+                value["resolved_core_mean_plddt"]
+            ),
+            "loop_mean_plddt": _float_from_wire(
+                value["loop_mean_plddt"]
+            ),
             "method": _method_from_wire(value["method"]),
         }
     )

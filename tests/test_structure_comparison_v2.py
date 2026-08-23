@@ -639,6 +639,29 @@ def test_v5_alignment_evidence_codec_carries_axis_provenance_and_counts() -> Non
         "aligned_atom_count": 2,
     }
     assert alignment_evidence_from_wire(wire) == evidence
+    decoded = ALIGNMENT_EVIDENCE_PORT_TYPE.decode(
+        ALIGNMENT_EVIDENCE_PORT_TYPE.encode(evidence)
+    )
+    assert type(decoded.rmsd) is float
+    assert type(decoded.coverage) is float
+    assert all(
+        type(number) is float
+        for correspondence in decoded.correspondence
+        for number in (
+            *correspondence.subject_coordinate,
+            *correspondence.reference_coordinate,
+            *correspondence.transformed_subject_coordinate,
+            correspondence.residual_distance,
+        )
+    )
+    assert all(
+        type(number) is float
+        for row in decoded.transform.row_vector_rotation
+        for number in row
+    )
+    assert all(
+        type(number) is float for number in decoded.transform.translation
+    )
 
     impossible = replace(
         evidence,
@@ -2035,6 +2058,25 @@ def test_three_way_thresholds_are_inclusive_and_exact() -> None:
         )
 
 
+def test_three_way_codec_preserves_declared_float_values() -> None:
+    value = _three_way_consistency_value()
+    decoded = THREE_WAY_CONSISTENCY_PORT_TYPE.decode(
+        THREE_WAY_CONSISTENCY_PORT_TYPE.encode(value)
+    )
+
+    assert all(
+        type(number) is float
+        for number in (
+            decoded.plddt_threshold,
+            decoded.tm_score_threshold,
+            decoded.rmsd_threshold_angstrom,
+            *(item.mean_residue_plddt for item in decoded.confidences),
+            *(item.tm_score for item in decoded.edges),
+            *(item.rmsd_angstrom for item in decoded.edges),
+        )
+    )
+
+
 def test_three_way_port_requires_tuples_and_exact_method_references() -> None:
     value = _three_way_consistency_value()
     with pytest.raises(ValueError, match="exact tuple"):
@@ -2237,6 +2279,47 @@ def _inserted_loop_port_case() -> ModulePackagePortCase:
                 ),
             ),
         ),
+    )
+
+
+def test_inserted_loop_codec_preserves_declared_float_values() -> None:
+    value = _inserted_loop_port_case().valid_value
+    decoded = INSERTED_LOOP_EVALUATION_PORT_TYPE.decode(
+        INSERTED_LOOP_EVALUATION_PORT_TYPE.encode(value)
+    )
+    entry = decoded.entries[0]
+
+    assert all(
+        type(number) is float
+        for number in (
+            entry.resolved_core_tm_score,
+            entry.resolved_core_rmsd_angstrom,
+            entry.counterpart_tm_score,
+            entry.counterpart_rmsd_angstrom,
+            entry.resolved_core_mean_plddt,
+            entry.loop_mean_plddt,
+            entry.thresholds.resolved_core_tm_score_minimum,
+            entry.thresholds.resolved_core_rmsd_angstrom_maximum,
+            entry.thresholds.counterpart_tm_score_minimum,
+            entry.thresholds.counterpart_rmsd_angstrom_maximum,
+            entry.thresholds.resolved_core_mean_plddt_minimum,
+            entry.thresholds.junction_cn_distance_angstrom_minimum,
+            entry.thresholds.junction_cn_distance_angstrom_maximum,
+            entry.thresholds.loop_core_nonbonded_distance_angstrom_minimum,
+        )
+    )
+    assert all(
+        type(number) is float
+        for atom_pair in (
+            entry.left_junction,
+            entry.right_junction,
+            entry.minimum_loop_core_nonbonded_distance,
+        )
+        for number in (
+            *atom_pair.left_coordinate,
+            *atom_pair.right_coordinate,
+            atom_pair.distance_angstrom,
+        )
     )
 
 

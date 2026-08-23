@@ -385,6 +385,10 @@ def _axis_to_wire(value: ResolvedStructureResidueAxis) -> object:
     }
 
 
+def _float_from_wire(value: object) -> object:
+    return float(value) if type(value) is int else value
+
+
 def _axis_from_wire(value: object) -> ResolvedStructureResidueAxis:
     return ResolvedStructureResidueAxis(
         **{
@@ -420,7 +424,10 @@ def _axis_from_wire(value: object) -> ResolvedStructureResidueAxis:
                             StructureAtomCoordinate(
                                 **{
                                     **atom,
-                                    "coordinate": tuple(atom["coordinate"]),
+                                    "coordinate": tuple(
+                                        _float_from_wire(number)
+                                        for number in atom["coordinate"]
+                                    ),
                                 }
                             )
                             for atom in item["atom_coordinates"]

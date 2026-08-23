@@ -524,7 +524,14 @@ def test_resolved_axis_wire_is_closed_and_identity_associated() -> None:
     )
 
     encoded = port_type.encode(_RESOLVED_AXIS)
-    assert port_type.decode(encoded) == _RESOLVED_AXIS
+    decoded = port_type.decode(encoded)
+    assert decoded == _RESOLVED_AXIS
+    assert all(
+        type(number) is float
+        for residue in decoded.residue_coordinates
+        for atom in residue.atom_coordinates
+        for number in atom.coordinate
+    )
     source_bearing = json.loads(encoded)
     source_bearing["value"]["source"] = "guessed-provenance"
     with pytest.raises(PortValueError, match="could not decode"):
