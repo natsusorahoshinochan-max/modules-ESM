@@ -274,6 +274,7 @@ class _LocalProteinMPNNProvider:
         key = (model_name, backbone_noise, self._provider_root)
         resident = self._model_cache.get(key)
         if resident is None:
+            self._model_cache.clear()
             resident = _load_model(
                 model_name,
                 backbone_noise,

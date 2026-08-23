@@ -202,61 +202,58 @@ class ProteinMPNNDesignImplementation:
             else constraint_input.content_digest
         )
         candidates: list[Candidate] = []
-        try:
-            for parent_index, (
-                parent_candidate,
-                parent_reference,
-                residue_axis,
-                _axis_reference,
-            ) in enumerate(parents):
-                if reference is not None:
-                    _require_sequence_axis(reference, residue_axis, "reference")
-                if (
-                    constraints is not None
-                    and constraints.layout != residue_axis.layout
-                ):
-                    raise ValueError(
-                        "constraints must use the exact resolved residue axis"
-                    )
-                parent_ids = (parent_candidate.candidate_id,)
-                call_seed = self._call_seed(
-                    seed,
-                    parent_reference.content_digest,
-                    parent_index,
+        for parent_index, (
+            parent_candidate,
+            parent_reference,
+            residue_axis,
+            _axis_reference,
+        ) in enumerate(parents):
+            if reference is not None:
+                _require_sequence_axis(reference, residue_axis, "reference")
+            if (
+                constraints is not None
+                and constraints.layout != residue_axis.layout
+            ):
+                raise ValueError(
+                    "constraints must use the exact resolved residue axis"
                 )
-                sequences = self._adapter.design(
-                    residue_axis=residue_axis,
-                    num_sequences=count,
-                    temperature=temperature,
-                    backbone_noise=noise,
-                    seed=call_seed,
-                    constraints=constraints,
-                    reference_sequence=reference,
-                    engine_role=f"design_parent_{parent_index}",
-                )
-                for sample_index, sequence in enumerate(sequences):
-                    candidates.append(
-                        Candidate(
-                            (
-                                f"proteinmpnn-parent-{parent_index}-"
-                                f"sample-{sample_index}"
-                            ),
-                            sequence,
-                            parent_ids,
-                            {
-                                "parent_index": parent_index,
-                                "sample_index": sample_index,
-                                "effective_seed": seed,
-                                "effective_call_seed": call_seed,
-                                "num_sequences": count,
-                                "temperature": temperature,
-                                "backbone_noise": noise,
-                                "constraint_digest": constraint_digest,
-                            },
-                        )
+            parent_ids = (parent_candidate.candidate_id,)
+            call_seed = self._call_seed(
+                seed,
+                parent_reference.content_digest,
+                parent_index,
+            )
+            sequences = self._adapter.design(
+                residue_axis=residue_axis,
+                num_sequences=count,
+                temperature=temperature,
+                backbone_noise=noise,
+                seed=call_seed,
+                constraints=constraints,
+                reference_sequence=reference,
+                engine_role=f"design_parent_{parent_index}",
+            )
+            for sample_index, sequence in enumerate(sequences):
+                candidates.append(
+                    Candidate(
+                        (
+                            f"proteinmpnn-parent-{parent_index}-"
+                            f"sample-{sample_index}"
+                        ),
+                        sequence,
+                        parent_ids,
+                        {
+                            "parent_index": parent_index,
+                            "sample_index": sample_index,
+                            "effective_seed": seed,
+                            "effective_call_seed": call_seed,
+                            "num_sequences": count,
+                            "temperature": temperature,
+                            "backbone_noise": noise,
+                            "constraint_digest": constraint_digest,
+                        },
                     )
-        finally:
-            self._adapter.close()
+                )
         return {
             "sequence_candidates": CandidateCollection(
                 "proteinmpnn-sequence-candidates",
@@ -321,23 +318,20 @@ class ProteinMPNNScoreImplementation:
         )
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        try:
-            (
-                _structure_candidate,
-                sequence_candidate,
-                _structure_reference,
-                sequence_reference,
-                residue_axis,
-                axis_reference,
-            ) = self._subject(call)
-            sequence = cast(ProteinSequence, sequence_candidate.data)
-            _require_sequence_axis(sequence, residue_axis, "scoring")
-            score = self._adapter.score(
-                residue_axis=residue_axis,
-                sequence=sequence,
-            )
-        finally:
-            self._adapter.close()
+        (
+            _structure_candidate,
+            sequence_candidate,
+            _structure_reference,
+            sequence_reference,
+            residue_axis,
+            axis_reference,
+        ) = self._subject(call)
+        sequence = cast(ProteinSequence, sequence_candidate.data)
+        _require_sequence_axis(sequence, residue_axis, "scoring")
+        score = self._adapter.score(
+            residue_axis=residue_axis,
+            sequence=sequence,
+        )
         observation = ScoreObservation(
             subject=sequence_reference,
             metric=self._metric,

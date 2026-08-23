@@ -1239,10 +1239,6 @@ def test_design_operation_joins_axes_by_full_reference_not_collection_order(
                 ),
             )
 
-        @staticmethod
-        def close() -> None:
-            return None
-
     adapter = RecordingAdapter()
     operation = ProteinMPNNDesignImplementation(adapter=adapter)
     output = operation.execute(call(associations))["sequence_candidates"]
@@ -1560,15 +1556,11 @@ def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> No
     class TrustingAdapter:
         def __init__(self) -> None:
             self.calls = 0
-            self.close_count = 0
 
         def score(self, **kwargs: Any) -> float:
             del kwargs
             self.calls += 1
             return 2.75
-
-        def close(self) -> None:
-            self.close_count += 1
 
     structure = _fixture_structure(0)
     structure_candidate = Candidate("score-parent", structure)
@@ -1640,7 +1632,6 @@ def test_scoring_rejects_sequence_residue_layout_drift_before_model_call() -> No
             )
         )
     assert adapter.calls == 0
-    assert adapter.close_count == 1
 
 
 def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -> None:
@@ -3458,10 +3449,6 @@ def test_design_operation_owns_reference_and_constraint_axis_closure() -> None:
             del kwargs
             self.calls += 1
             return (ProteinSequence("AGSTW", TARGET_LAYOUT.residue_ids),)
-
-        @staticmethod
-        def close() -> None:
-            return None
 
     structure = _fixture_structure(0)
     candidate = Candidate("exact-parent", structure)

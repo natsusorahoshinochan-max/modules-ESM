@@ -38,6 +38,10 @@ _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
+_RESIDENT_MODELS: dict[
+    tuple[str, float, Path],
+    tuple[Any, Any],
+] = {}
 
 
 class ProteinMPNNProvider(Protocol):
@@ -340,10 +344,7 @@ class LocalProteinMPNNAdapter:
     ) -> None:
         self._environment = environment
         self._resources = resources
-        self._resident_models: dict[
-            tuple[str, float, Path],
-            tuple[Any, Any],
-        ] = {}
+        self._resident_models = _RESIDENT_MODELS
 
     def _provider(self, staging_directory: Path) -> ProteinMPNNProvider:
         return _LocalProteinMPNNProvider(
@@ -427,7 +428,3 @@ class LocalProteinMPNNAdapter:
                 ),
             ):
                 return provider.score(request, sequence)
-
-    def close(self) -> None:
-        """Release operation-scoped resident models after the Operation."""
-        self._resident_models.clear()
