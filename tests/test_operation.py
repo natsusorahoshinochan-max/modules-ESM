@@ -830,19 +830,6 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
                 ),
                 CandidatePairingIntentEntry(
                     "raw-subject",
-                    "raw-reference",
-                ),
-            ),
-            "duplicate exact pair",
-        ),
-        (
-            (
-                CandidatePairingIntentEntry(
-                    "raw-subject",
-                    "raw-reference",
-                ),
-                CandidatePairingIntentEntry(
-                    "raw-subject",
                     "raw-subject",
                 ),
             ),
@@ -850,7 +837,7 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
         ),
     ),
 )
-def test_pairing_intent_fails_closed_before_port_admission(
+def test_pairing_intent_requires_known_distinct_candidates(
     entries: tuple[CandidatePairingIntentEntry, ...],
     message: str,
 ) -> None:
@@ -883,6 +870,10 @@ def test_candidate_lineage_resolution_does_not_depend_on_output_port_sort() -> N
                     "raw-child",
                     ProteinSequence("AT"),
                     parent_ids=("raw-parent",),
+                    metadata={
+                        "runtime_path": "/trusted/producer/value",
+                        "experiment_label": "sample-a",
+                    },
                 )
             ],
         ),
@@ -928,6 +919,8 @@ def test_candidate_lineage_resolution_does_not_depend_on_output_port_sort() -> N
     assert child.candidate_id == expected_child_id
     assert child.parent_ids == (parent.candidate_id,)
     assert child.metadata == {
+        "runtime_path": "/trusted/producer/value",
+        "experiment_label": "sample-a",
         "producer_result_identity": "sha256:" + ("c" * 64),
         "output_port": "a_children",
         "sample_slot": "0:0",

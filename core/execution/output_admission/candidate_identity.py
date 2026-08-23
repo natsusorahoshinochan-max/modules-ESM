@@ -39,25 +39,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
 
-_RUNTIME_METADATA_KEYS = frozenset(
-    {
-        "run",
-        "run_id",
-        "node",
-        "node_id",
-        "timestamp",
-        "created_at",
-        "updated_at",
-        "credential",
-        "credentials",
-        "private_path",
-        "runtime_path",
-        "presentation",
-        "performance",
-    }
-)
-
-
 def _candidate_values(value: Any) -> tuple[Candidate, ...]:
     if type(value) is Candidate:
         return (value,)
@@ -331,12 +312,7 @@ def _normalize_candidate_outputs(
             raise PortValueError(
                 "Candidate data has no registered content identity"
             )
-        try:
-            candidate_data_port_type = candidate_data_port_types[type_id]
-        except KeyError as error:
-            raise PortValueError(
-                f"Execution Plan lacks Candidate data Port Type {type_id!r}"
-            ) from error
+        candidate_data_port_type = candidate_data_port_types[type_id]
         content_digest = identity_encoder.encode_value(
             port_type=candidate_data_port_type,
             value=candidate.data,
@@ -366,11 +342,7 @@ def _normalize_candidate_outputs(
             data=candidate.data,
             parent_ids=parents,
             metadata={
-                **{
-                    key: item
-                    for key, item in candidate.metadata.items()
-                    if key not in _RUNTIME_METADATA_KEYS
-                },
+                **candidate.metadata,
                 **resolved_metadata,
                 "producer_result_identity": result_identity,
                 "output_port": output.output_port,
@@ -471,24 +443,12 @@ def _normalize_candidate_outputs(
     def project_pairing_intent(
         value: CandidatePairingIntent,
     ) -> PairwiseCandidateMapping:
-        subject_counterparts: dict[str, str] = {}
-        reference_subjects: dict[str, str] = {}
-        exact_pairs: set[tuple[str, str]] = set()
         entries: list[PairwiseCandidateMatch] = []
         for entry in value.entries:
             if type(entry) is not CandidatePairingIntentEntry:
                 raise PortValueError(
                     "Candidate pairing intent contains an unsupported entry"
                 )
-            raw_pair = (
-                entry.subject_candidate_id,
-                entry.reference_candidate_id,
-            )
-            if raw_pair in exact_pairs:
-                raise PortValueError(
-                    "Candidate pairing intent contains a duplicate exact pair"
-                )
-            exact_pairs.add(raw_pair)
             try:
                 subject = normalized_output_candidate_reference(
                     entry.subject_candidate_id
@@ -500,32 +460,10 @@ def _normalize_candidate_outputs(
                 raise PortValueError(
                     "Candidate pairing intent names an unknown Candidate identity"
                 ) from error
-            known_reference = subject_counterparts.get(
-                entry.subject_candidate_id
-            )
-            known_subject = reference_subjects.get(
-                entry.reference_candidate_id
-            )
-            if (
-                (
-                    known_reference is not None
-                    and known_reference != entry.reference_candidate_id
-                )
-                or (
-                    known_subject is not None
-                    and known_subject != entry.subject_candidate_id
-                )
-                or entry.subject_candidate_id == entry.reference_candidate_id
-            ):
+            if entry.subject_candidate_id == entry.reference_candidate_id:
                 raise PortValueError(
                     "Candidate pairing intent declares a conflicting counterpart"
                 )
-            subject_counterparts[entry.subject_candidate_id] = (
-                entry.reference_candidate_id
-            )
-            reference_subjects[entry.reference_candidate_id] = (
-                entry.subject_candidate_id
-            )
             entries.append(
                 PairwiseCandidateMatch(
                     subject=subject,
