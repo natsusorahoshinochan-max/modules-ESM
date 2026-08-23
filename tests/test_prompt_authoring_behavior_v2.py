@@ -21,7 +21,7 @@ from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
-from protein_workbench_public.protocol import prepare_rest_request
+from tests.support.public_request import prepare_rest_request
 from tests.support.protocol import validate_response
 from tests.fixtures.prompt_authoring_v2 import (
     TARGET_LAYOUT,

@@ -44,7 +44,7 @@ from modules.structure_prediction.port_types import (
 from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
-from protein_workbench_public.protocol import encode_project_input_content
+from tests.support.public_request import encode_project_input_content
 from tests.fixtures.canonical_3gb1_v2 import (
     ControlledESMResponse,
     ControlledFoldingClient,

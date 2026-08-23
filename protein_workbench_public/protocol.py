@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import base64
 import copy
 from collections.abc import Mapping
-from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 import hashlib
@@ -28,24 +26,6 @@ _CANONICAL_BASE64 = re.compile(
 _BASE64_ALPHABET = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 )
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedRestRequest:
-    """One wire request derived from a bundle operation."""
-
-    method: str
-    route: str
-    json_body: dict[str, Any] | None
-
-
-@dataclass(frozen=True, slots=True)
-class PreparedEventStreamRequest:
-    """One WebSocket request derived from the bundle stream contract."""
-
-    transport: str
-    route: str
-    message_schema: str
 
 
 class ProtocolValidationError(ValueError):
@@ -114,19 +94,6 @@ def _project_input_max_decoded_bytes() -> int:
     return contract["max_decoded_bytes"]
 
 
-def encode_project_input_content(content: bytes) -> str:
-    """Encode opaque Project Input bytes in the bundle's exact JSON form."""
-    if type(content) is not bytes:
-        raise ProtocolValidationError("$.content", "must be bytes")
-    limit = _project_input_max_decoded_bytes()
-    if len(content) > limit:
-        raise ProtocolValidationError(
-            "$.content",
-            f"must contain at most {limit} bytes",
-        )
-    return base64.b64encode(content).decode("ascii")
-
-
 def _validate_project_input_content(
     content_base64: str,
     *,
@@ -161,15 +128,6 @@ def _validate_project_input_content(
             path,
             f"must decode to at most {limit} bytes",
         )
-
-
-def decode_project_input_content(content_base64: str) -> bytes:
-    """Decode only canonical RFC 4648 Project Input content."""
-    _validate_project_input_content(
-        content_base64,
-        path="$.content_base64",
-    )
-    return base64.b64decode(content_base64)
 
 
 def _resolve_schema(reference: str) -> dict[str, Any]:
@@ -368,48 +326,6 @@ def _rest_operation(operation_id: str) -> dict[str, Any]:
     return operation
 
 
-def prepare_rest_request(
-    operation_id: str,
-    payload: dict[str, Any],
-) -> PreparedRestRequest:
-    """Validate and map a combined request model to its declared wire shape."""
-    validate_request(operation_id, payload)
-    operation = _rest_operation(operation_id)
-    path_template, separator, query_template = operation["route"].partition("?")
-    path_fields = re.findall(r"{([A-Za-z0-9_]+)}", path_template)
-    query_fields = re.findall(r"{([A-Za-z0-9_]+)}", query_template)
-
-    def render(template: str) -> str:
-        rendered = template
-        for field in re.findall(r"{([A-Za-z0-9_]+)}", template):
-            rendered = rendered.replace(
-                f"{{{field}}}",
-                quote(str(payload[field]), safe=""),
-            )
-        return rendered
-
-    route = render(path_template)
-    if separator:
-        query_parts = []
-        for part in query_template.split("&"):
-            fields = re.findall(r"{([A-Za-z0-9_]+)}", part)
-            if any(field not in payload for field in fields):
-                continue
-            query_parts.append(render(part))
-        if query_parts:
-            route = f"{route}?{'&'.join(query_parts)}"
-    body = {
-        name: copy.deepcopy(value)
-        for name, value in payload.items()
-        if name not in {*path_fields, *query_fields}
-    }
-    return PreparedRestRequest(
-        method=operation["method"],
-        route=route,
-        json_body=body or None,
-    )
-
-
 def decode_rest_request(
     operation_id: str,
     *,
@@ -482,42 +398,6 @@ def decode_rest_request(
     }
     validate_request(operation_id, combined)
     return combined
-
-
-def prepare_run_event_stream_request(
-    payload: dict[str, Any],
-) -> PreparedEventStreamRequest:
-    """Validate and map a Run Event Stream request from its bundle contract."""
-    stream = _source_bundle().get("run_event_stream")
-    if not isinstance(stream, dict):
-        raise ValueError("Public protocol has no Run Event Stream contract")
-    validate_schema(stream["request_schema"], payload)
-    path_template, separator, query_template = stream["route"].partition("?")
-
-    def render(template: str) -> str:
-        rendered = template
-        for field in re.findall(r"{([A-Za-z0-9_]+)}", template):
-            rendered = rendered.replace(
-                f"{{{field}}}",
-                quote(str(payload[field]), safe=""),
-            )
-        return rendered
-
-    route = render(path_template)
-    if separator:
-        query_parts = []
-        for part in query_template.split("&"):
-            fields = re.findall(r"{([A-Za-z0-9_]+)}", part)
-            if any(field not in payload for field in fields):
-                continue
-            query_parts.append(render(part))
-        if query_parts:
-            route = f"{route}?{'&'.join(query_parts)}"
-    return PreparedEventStreamRequest(
-        transport=stream["transport"],
-        route=route,
-        message_schema=stream["message_schema"],
-    )
 
 
 def decode_run_event_stream_request(

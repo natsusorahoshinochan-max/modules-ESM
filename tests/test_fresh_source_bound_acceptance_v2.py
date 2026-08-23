@@ -1065,7 +1065,7 @@ def test_fresh_source_bound_public_run(
 ) -> None:
     from protein_workbench_public.bootstrap import create_application
     from fastapi.testclient import TestClient
-    from protein_workbench_public.protocol import encode_project_input_content
+    from tests.support.public_request import encode_project_input_content
 
     tier_name = os.environ["PROTEIN_WORKBENCH_SOURCE_BOUND_TIER"]
     contract = CONTRACTS[tier_name]

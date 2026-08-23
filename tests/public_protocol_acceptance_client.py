@@ -9,6 +9,8 @@ import httpx
 
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
+)
+from tests.support.public_request import (
     encode_project_input_content,
     prepare_rest_request,
 )

@@ -19,21 +19,22 @@ from core.catalog.builtins import (
 from tests.support.application import create_application
 from protein_workbench_public.protocol import (
     PUBLIC_PROTOCOL_NAMESPACE,
-    PreparedEventStreamRequest,
-    PreparedRestRequest,
     ProtocolValidationError,
     artifact_content_disposition,
     bundle_bytes,
     bundle_digest,
     decode_rest_request,
-    decode_project_input_content,
     decode_run_event_stream_request,
     load_bundle,
+    validate_request,
+    validate_schema,
+)
+from tests.support.public_request import (
+    PreparedEventStreamRequest,
+    PreparedRestRequest,
     encode_project_input_content,
     prepare_run_event_stream_request,
     prepare_rest_request,
-    validate_request,
-    validate_schema,
 )
 from tests.support.protocol import (
     validate_artifact_response,
@@ -1033,7 +1034,6 @@ def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
 
     encoded = encode_project_input_content(b"\x00protein\xff")
     assert encoded == "AHByb3RlaW7/"
-    assert decode_project_input_content(encoded) == b"\x00protein\xff"
     validate_request(
         "publish_project_input",
         {
@@ -1043,8 +1043,6 @@ def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
         },
     )
     for noncanonical in ("AHByb3RlaW7_", "AB==", "YQ"):
-        with pytest.raises(ProtocolValidationError, match="canonical base64"):
-            decode_project_input_content(noncanonical)
         with pytest.raises(ProtocolValidationError) as request_error:
             validate_request(
                 "publish_project_input",

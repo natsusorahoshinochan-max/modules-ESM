@@ -10,10 +10,12 @@ import pytest
 
 import protein_workbench_public.protocol as public_protocol
 from protein_workbench_public.protocol import (
-    PreparedRestRequest,
     ProtocolValidationError,
     decode_rest_request,
     load_bundle,
+)
+from tests.support.public_request import (
+    PreparedRestRequest,
     prepare_rest_request,
 )
 

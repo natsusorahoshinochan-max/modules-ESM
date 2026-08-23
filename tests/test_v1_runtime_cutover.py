@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from core.project.manager import ProjectManager
-from protein_workbench_public.protocol import encode_project_input_content
+from tests.support.public_request import encode_project_input_content
 import protein_workbench_public.bootstrap as bootstrap
 
 

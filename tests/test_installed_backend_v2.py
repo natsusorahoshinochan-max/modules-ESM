@@ -26,6 +26,8 @@ from verification.acceptance_campaign import acceptance_tier
 from protein_workbench_public.protocol import (
     bundle_bytes,
     bundle_digest,
+)
+from tests.support.public_request import (
     prepare_run_event_stream_request,
     prepare_rest_request,
 )

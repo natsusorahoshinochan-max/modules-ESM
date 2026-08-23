@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from protein_workbench_public.bootstrap import create_application
-from protein_workbench_public.protocol import (
+from tests.support.public_request import (
     encode_project_input_content,
     prepare_rest_request,
 )
