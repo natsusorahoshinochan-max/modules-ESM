@@ -2331,6 +2331,11 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         lambda *_args, **_kwargs: local_clients.pop(0),
     )
     monkeypatch.setattr(
+        local_adapter,
+        "release_local_esm3_client",
+        lambda _client: None,
+    )
+    monkeypatch.setattr(
         esmc_adapter,
         "build_biohub_esmc_client",
         lambda **_kwargs: esmc_client,

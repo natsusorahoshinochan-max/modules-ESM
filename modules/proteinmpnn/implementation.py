@@ -168,13 +168,6 @@ class ProteinMPNNDesignImplementation:
         ).digest()
         return int.from_bytes(digest[:7], "big") % 9_007_199_254_740_992
 
-    @staticmethod
-    def _constraint_digest(call: OperationCall) -> str | None:
-        admitted = call.inputs.get("constraints")
-        if admitted is None:
-            return None
-        return admitted.content_digest
-
     def execute(self, call: OperationCall) -> dict[str, Any]:
         parents = _structure_candidates_with_axes(call)
         seed = call.node_parameters["effective_seed"]
@@ -192,7 +185,11 @@ class ProteinMPNNDesignImplementation:
             ProteinMPNNConstraints | None,
             None if constraint_input is None else constraint_input.value,
         )
-        constraint_digest = self._constraint_digest(call)
+        constraint_digest = (
+            None
+            if constraint_input is None
+            else constraint_input.content_digest
+        )
         candidates: list[Candidate] = []
         try:
             for parent_index, (

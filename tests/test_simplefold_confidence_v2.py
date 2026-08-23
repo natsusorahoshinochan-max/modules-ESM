@@ -159,7 +159,10 @@ def _confidence_environment(
         return client.evaluate(
             residue_axis=kwargs["residue_axis"],
             staging_directory=kwargs["staging_directory"],
-            resolved_provider_identity=adapter.provider_identity(),
+            resolved_provider_identity=(
+                adapter.simplefold_contract
+                .SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
+            ),
         )
 
     monkeypatch.setattr(
@@ -512,7 +515,10 @@ def test_confidence_readiness_admits_only_the_exact_asset_closure(
     assert adapter.simplefold_confidence_readiness(
         environment
     ) == ReadinessResult(True, proof_source="direct-observation")
-    identity = adapter.provider_identity()
+    identity = (
+        adapter.simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
+        .provider_identity()
+    )
     assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",
         "plddt.ckpt",

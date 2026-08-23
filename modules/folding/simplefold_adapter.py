@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict, TypeAlias
@@ -19,7 +19,6 @@ from datatypes.structure import ProteinStructure
 
 from . import simplefold_contract
 from .simplefold_asset_closure import (
-    BoundSimpleFoldProviderAssetClosure,
     SimpleFoldAssetClosureAdmissionError,
     admit_simplefold_provider_asset_closure,
     bind_simplefold_provider_asset_closure,
@@ -73,14 +72,6 @@ def _translate_provider_structure(structure: ProteinStructure) -> ProteinStructu
     return ProteinStructure(structure.pdb_string.rsplit("\n", 1)[0] + "\n")
 
 
-def simplefold_folding_provider_identity() -> dict[str, Any]:
-    """Return evidence for only the assets actually used by this Binding."""
-    return (
-        simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
-        .provider_identity()
-    )
-
-
 def simplefold_runtime_structurally_available() -> bool:
     """Probe import/install structure without importing or loading a model."""
     return not (
@@ -110,10 +101,6 @@ def simplefold_readiness(
             reason_code="simplefold_runtime_unavailable",
         )
     return ReadinessResult(True, proof_source="direct-observation")
-
-
-def provider_identity() -> dict[str, Any]:
-    return simplefold_folding_provider_identity()
 
 
 def _decode_fold_result(
@@ -148,40 +135,6 @@ class LocalSimpleFoldAdapter:
         self._environment = environment
         self._resources = resources
 
-    def _provider_call(
-        self,
-        *,
-        sequence: ProteinSequence,
-        num_steps: int,
-        num_samples: int,
-        effective_seed: int,
-        staging_directory: Path,
-        bound_closure: BoundSimpleFoldProviderAssetClosure,
-    ) -> Callable[[], _SimpleFoldNativeResult]:
-        configured = {
-            "model_root": bound_closure.group_root("simplefold_models"),
-            "esm2_source_root": bound_closure.group_root("esm2_source"),
-            "esm2_model_root": bound_closure.group_root("esm2_models"),
-        }
-        from .simplefold_runtime import fold_sequence
-
-        def invoke_local_runtime() -> _SimpleFoldNativeResult:
-            return cast(
-                _SimpleFoldNativeResult,
-                fold_sequence(
-                    sequence=sequence,
-                    num_steps=num_steps,
-                    num_samples=num_samples,
-                    staging_directory=staging_directory,
-                    effective_seed=effective_seed,
-                    staged_model_root=configured["model_root"],
-                    staged_esm2_source_root=configured["esm2_source_root"],
-                    staged_esm2_model_root=configured["esm2_model_root"],
-                ),
-            )
-
-        return invoke_local_runtime
-
     def fold(
         self,
         *,
@@ -199,14 +152,8 @@ class LocalSimpleFoldAdapter:
                 simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
                 self._environment,
             )
-            provider_call = self._provider_call(
-                sequence=sequence,
-                num_steps=num_steps,
-                num_samples=num_samples,
-                effective_seed=derived_call_seed,
-                staging_directory=staging_directory,
-                bound_closure=bound_closure,
-            )
+            from .simplefold_runtime import fold_sequence
+
             with self._resources.engine_invocation(
                 engine_role=engine_role,
                 invocation_provenance=EngineInvocationProvenance(
@@ -216,7 +163,25 @@ class LocalSimpleFoldAdapter:
                     )
                 ),
             ):
-                raw_result = provider_call()
+                raw_result = cast(
+                    _SimpleFoldNativeResult,
+                    fold_sequence(
+                        sequence=sequence,
+                        num_steps=num_steps,
+                        num_samples=num_samples,
+                        staging_directory=staging_directory,
+                        effective_seed=derived_call_seed,
+                        staged_model_root=bound_closure.group_root(
+                            "simplefold_models"
+                        ),
+                        staged_esm2_source_root=bound_closure.group_root(
+                            "esm2_source"
+                        ),
+                        staged_esm2_model_root=bound_closure.group_root(
+                            "esm2_models"
+                        ),
+                    ),
+                )
             samples = _decode_fold_result(
                 raw_result=raw_result,
             )

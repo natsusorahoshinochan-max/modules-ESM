@@ -349,10 +349,6 @@ def complete_sequence(
     )
 
 
-def response_has_structure(result: Any) -> bool:
-    return result.coordinates is not None
-
-
 def complete_structure(
     result: Any,
 ) -> ProteinStructure:
@@ -492,7 +488,7 @@ class _BaseESM3Adapter:
         sequence = complete_sequence(result, prompt)
         reconstruction: ProteinStructure | None = None
         confidence: ESM3Confidence | None = None
-        if response_has_structure(result):
+        if result.coordinates is not None:
             reconstruction = complete_structure(result)
             confidence = self._admit_confidence(result)
         return ESM3SequenceResult(

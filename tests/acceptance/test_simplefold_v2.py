@@ -41,8 +41,10 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
 ) -> None:
     """Execute the exact v2 Binding; skips are forbidden by its full gate."""
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.folding.simplefold_adapter import provider_identity
-    from modules.folding.simplefold_contract import SIMPLEFOLD_DEVICE
+    from modules.folding.simplefold_contract import (
+        SIMPLEFOLD_DEVICE,
+        SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
+    )
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -235,7 +237,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         method_ref["contract_id"],
         method_ref["contract_version"],
     )
-    identity = provider_identity()
+    identity = SIMPLEFOLD_FOLDING_ASSET_CLOSURE.provider_identity()
     prerequisites = binding.descriptor["readiness_declaration"][
         "prerequisites"
     ]

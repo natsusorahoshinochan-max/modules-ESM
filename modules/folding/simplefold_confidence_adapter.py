@@ -11,7 +11,7 @@ import pickle
 import shutil
 import sys
 from argparse import Namespace
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from functools import partial
 from pathlib import Path
@@ -57,14 +57,6 @@ class SimpleFoldConfidenceAdapter(Protocol):
         residue_axis: ResolvedStructureResidueAxis,
         engine_role: str,
     ) -> SimpleFoldConfidenceAdapterResult: ...
-
-
-def provider_identity() -> dict[str, Any]:
-    """Return only scientific assets crossed by this engine boundary."""
-    return (
-        simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
-        .provider_identity()
-    )
 
 
 def simplefold_confidence_runtime_structurally_available() -> bool:
@@ -393,21 +385,6 @@ def _native_existing_structure_confidence(
     return run()
 
 
-def _normalize_native_confidence(
-    *,
-    native_plddt: list[float],
-    valid_protein_residues: list[bool],
-) -> tuple[float | None, ...]:
-    """Apply the fixed direct-head scale after exact validity masking."""
-    values, _, _ = normalize_residue_plddt(
-        native_plddt=native_plddt,
-        valid_residues=valid_protein_residues,
-        native_maximum=1.0,
-        project_to_valid_residues=False,
-    )
-    return values
-
-
 class LocalSimpleFoldConfidenceAdapter:
     """Translate one resolved structure axis through the confidence head."""
 
@@ -419,33 +396,6 @@ class LocalSimpleFoldConfidenceAdapter:
     ) -> None:
         self._environment = environment
         self._resources = resources
-
-    @staticmethod
-    def normalize_native_confidence(
-        *,
-        native_plddt: list[float],
-        valid_protein_residues: list[bool],
-    ) -> tuple[float | None, ...]:
-        return _normalize_native_confidence(
-            native_plddt=native_plddt,
-            valid_protein_residues=valid_protein_residues,
-        )
-
-    def _provider_call(
-        self,
-        *,
-        residue_axis: ResolvedStructureResidueAxis,
-        staging_directory: Path,
-        bound_closure: BoundSimpleFoldProviderAssetClosure,
-    ) -> Callable[[], _SimpleFoldConfidenceNativeResult]:
-        def invoke_local_runtime() -> _SimpleFoldConfidenceNativeResult:
-            return _native_existing_structure_confidence(
-                residue_axis=residue_axis,
-                staging_directory=staging_directory,
-                bound_closure=bound_closure,
-            )
-
-        return invoke_local_runtime
 
     def evaluate(
         self,
@@ -461,20 +411,21 @@ class LocalSimpleFoldConfidenceAdapter:
                 simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
                 self._environment,
             )
-            provider_call = self._provider_call(
-                residue_axis=residue_axis,
-                staging_directory=staging_directory,
-                bound_closure=bound_closure,
-            )
             with self._resources.engine_invocation(
                 engine_role=engine_role,
             ):
-                raw_result = provider_call()
-            values = _normalize_native_confidence(
+                raw_result = _native_existing_structure_confidence(
+                    residue_axis=residue_axis,
+                    staging_directory=staging_directory,
+                    bound_closure=bound_closure,
+                )
+            values, _, _ = normalize_residue_plddt(
                 native_plddt=raw_result["native_plddt"],
-                valid_protein_residues=raw_result[
+                valid_residues=raw_result[
                     "valid_protein_residues"
                 ],
+                native_maximum=1.0,
+                project_to_valid_residues=False,
             )
         return SimpleFoldConfidenceAdapterResult(
             per_residue_plddt=values,

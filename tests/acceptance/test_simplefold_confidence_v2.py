@@ -44,9 +44,6 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
 ) -> None:
     """Execute the exact confidence-only Binding; its full gate forbids skips."""
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.folding.simplefold_confidence_adapter import (
-        provider_identity,
-    )
     from modules.folding.simplefold_contract import (
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         SIMPLEFOLD_CONFIDENCE_DEVICE,
@@ -402,7 +399,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
-    identity = provider_identity()
+    identity = SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
     assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",
         "plddt.ckpt",

@@ -448,7 +448,11 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         True,
         proof_source="direct-observation",
     )
-    assert set(adapter.provider_identity()["artifact_sha256"]) == {
+    identity = (
+        adapter.simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
+        .provider_identity()
+    )
+    assert set(identity["artifact_sha256"]) == {
         "ccd.pkl",
         "plddt.ckpt",
         "simplefold_1.6B.ckpt",
