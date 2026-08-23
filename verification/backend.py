@@ -93,7 +93,7 @@ TIERS = {
         ),
         (
             "tests/test_run_cancel_derive_v2.py::"
-            "test_cancel_and_derive_reject_cross_project_scope_with_shared_errors"
+            "test_cancel_and_derive_are_scoped_by_project_run_lookup"
         ),
         "tests/deterministic_acceptance",
         "-m",
