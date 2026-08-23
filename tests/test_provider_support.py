@@ -16,7 +16,6 @@ from core.provider_support import (
     validate_installed_provider_checkout,
     validate_provider_checkout,
 )
-from modules.esm3.credentials import read_biohub_token
 
 
 def test_private_credential_is_read_without_exposing_its_value(
@@ -111,24 +110,6 @@ def test_private_credential_read_rejects_metadata_change_during_read(
 
     with pytest.raises(PermissionError, match="private"):
         read_private_credential_file(token_path)
-
-
-def test_biohub_reader_preserves_no_follow_for_configured_path(
-    monkeypatch,
-    tmp_path,
-) -> None:
-    token_path = tmp_path / "biohub-token"
-    token_path.write_text("secret-token\n")
-    token_path.chmod(0o600)
-    link_path = tmp_path / "configured-token"
-    link_path.symlink_to(token_path)
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
-        str(link_path),
-    )
-
-    with pytest.raises(FileNotFoundError, match="not found"):
-        read_biohub_token()
 
 
 class _Distribution:

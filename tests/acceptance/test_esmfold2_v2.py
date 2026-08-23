@@ -12,8 +12,8 @@ import pytest
 import torch
 
 from core.provider_support import validate_installed_provider_checkout
-from modules.esm3.credentials import read_biohub_token
 from modules.folding.esmfold2_contract import ESM_SDK_REVISION
+from tests.acceptance.biohub_environment import read_biohub_token
 from tests.acceptance.conftest import (
     PROJECT_ROOT,
     SEQUENCE_3GB1_SHA256,
@@ -78,7 +78,7 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
 
     delegate = SequenceStructureForgeInferenceClient(
         model=REMOTE_ESMFOLD2_MODEL,
-        token=read_biohub_token(str(PROJECT_ROOT)),
+        token=read_biohub_token(),
     )
     provider_calls: list[dict[str, Any]] = []
 

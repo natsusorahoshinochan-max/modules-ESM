@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 
 from tests.acceptance.conftest import PROJECT_ROOT
+from tests.acceptance.biohub_environment import read_biohub_token
 from tests.acceptance.retained_evidence import retain_service_run
 from tests.support.result_store import result_store
 
@@ -292,10 +293,9 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
         BIOHUB_ESM3_MEDIUM_MODEL,
         BIOHUB_ESM3_OPEN_MODEL,
     )
-    from modules.esm3.credentials import read_biohub_token
     from tests.fixtures.esm3_generation import decode_output
 
-    token = read_biohub_token(str(PROJECT_ROOT))
+    token = read_biohub_token()
     routes = {
         "biohub_medium": BIOHUB_ESM3_MEDIUM_MODEL,
         "biohub_open": BIOHUB_ESM3_OPEN_MODEL,
@@ -499,11 +499,10 @@ def test_biohub_esmfold2_executes_exact_method(
     tmp_path: Path,
 ) -> None:
     from modules.folding.esmfold2_contract import REMOTE_ESMFOLD2_MODEL
-    from modules.esm3.credentials import read_biohub_token
     from tests.acceptance.test_esmfold2_v2 import _fold_outputs
     from tests.test_folding_v2 import _run_fold
 
-    token = read_biohub_token(str(PROJECT_ROOT))
+    token = read_biohub_token()
     service, catalog, projection, events = _run_fold(
         tmp_path,
         route="remote",

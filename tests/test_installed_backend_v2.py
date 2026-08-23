@@ -665,10 +665,7 @@ def _run_installed_provider_case(
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
     if case in {"biohub_esm3", "biohub_esmfold2"}:
         token_file = Path(
-            env.get(
-                "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
-                PROJECT_ROOT / "keys" / "esmkey.txt",
-            )
+            env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"]
         )
         env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"] = str(token_file)
     if case == "simplefold_folding":
@@ -746,12 +743,7 @@ def _running_installed_biohub_esmc_server(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
 ) -> Iterator[tuple[int, str]]:
-    token_file = Path(
-        os.environ.get(
-            "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
-            PROJECT_ROOT / "keys" / "esmkey.txt",
-        )
-    )
+    token_file = Path(os.environ["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"])
     launcher = tmp_path / "installed_biohub_esmc_server.py"
     launcher.write_text(
         """
@@ -764,7 +756,7 @@ import modules
 import pdbs
 import protein_workbench_public
 from protein_workbench_public.bootstrap import create_application
-from modules.esm3.credentials import read_biohub_token
+from core.provider_support import read_private_credential_file
 
 source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
 for package in (
@@ -777,11 +769,14 @@ for package in (
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)
 binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "5.0.0")
+token = read_private_credential_file(
+    Path(os.environ["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"])
+)
 app = create_application(v2_environment_configuration={
     binding: {
         "values": {
             "endpoint_id": "biohub",
-            "credential_handle": read_biohub_token(),
+            "credential_handle": token,
         },
     },
 })

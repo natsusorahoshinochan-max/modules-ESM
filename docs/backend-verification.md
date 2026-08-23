@@ -99,10 +99,9 @@ only writes these values and does not interpret the protocol, Catalog, event
 causality, or science. There are no Evidence manifests, checksums, or digest
 graphs.
 
-The installed Biohub gates read one private credential file selected by
-`PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, or the repository's private
-`keys/esmkey.txt` when that variable is absent. They do not download or require
-local model shards. The direct ESMC Node, the six remote ESM-3 generation
+The installed Biohub gates read the one private credential file selected by
+the required `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`. They do not download or
+require local model shards. The direct ESMC Node, the six remote ESM-3 generation
 Bindings, and remote ESMFold2 are scientifically distinct and have separate
 installed gates. Local ESMFold2 also has a real zero-skip gate; the
 provider-free `local-esmfold2-v2-contract` remains a separate source and
@@ -124,7 +123,7 @@ variables required by the selected gate:
 
 | Gate | Required trusted configuration |
 | --- | --- |
-| Biohub ESMC, ESM-3, ESMFold2 | Optional `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, selecting one private regular credential file instead of `keys/esmkey.txt`. |
+| Biohub ESMC, ESM-3, ESMFold2 | `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, selecting one private regular credential file by absolute path. |
 | Local ESM-3 | `HF_HUB_CACHE` or `HF_HOME`, containing the locked snapshot. |
 | Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` and `PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT`. |
 | ProteinMPNN | `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT`. |
@@ -136,9 +135,7 @@ variables required by the selected gate:
 Missing or relative required path configuration fails a zero-skip gate.
 Acceptance files do not infer Provider runtimes from another workspace.
 The private Campaign Execution Profile supplies every canonical requirement
-explicitly, including `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`; the direct
-single-tier verifier may still use the repository credential-file convention
-described above.
+explicitly, including `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`.
 
 All declared canonical pytest file targets are required to exist. A developer
 may use a focused override for local work; only the Campaign's fixed selectors
