@@ -17,7 +17,9 @@ from core.catalog.declarations import (
 from core.catalog.port_contract import canonical_json_bytes
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
+    ObservationSelector,
     SelectionInput,
+    SelectionObjective,
     context_selector_canonical,
     selection_input_canonical,
 )
@@ -63,6 +65,12 @@ class _AdmittedWorkflowGraph:
     node_order: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class _SelectionConsumerCompilation:
+    objectives_by_node: Mapping[str, tuple[SelectionObjective, ...]]
+    selectors_by_node: Mapping[str, tuple[ObservationSelector, ...]]
+
+
 def _same_exact_contract(
     locked: ContractLockEntry | None,
     reference: ExactContractReference | None,
@@ -84,7 +92,7 @@ def _validate_static_semantics(
     ],
     lock_by_key: _LockedContracts,
     admitted_node_parameters: Mapping[str, AdmittedParameterValues],
-) -> _AdmittedWorkflowGraph:
+) -> tuple[_AdmittedWorkflowGraph, _SelectionConsumerCompilation]:
     nodes_by_id: dict[str, WorkflowNodeInstance] = {}
     for index, node in enumerate(workflow.nodes):
         if node.node_id in nodes_by_id:
@@ -241,14 +249,14 @@ def _validate_static_semantics(
         plan_nodes=plan_nodes,
         capabilities=capabilities,
     )
-    _validate_selection_objective_consumers(
+    selection_consumers = _validate_selection_objective_consumers(
         workflow,
         graph=graph,
         plan_nodes=plan_nodes,
         admitted_node_parameters=admitted_node_parameters,
     )
 
-    return graph
+    return graph, selection_consumers
 
 def _validate_selection_objectives(
     workflow: WorkflowDocument,
@@ -517,7 +525,7 @@ def _validate_selection_objective_consumers(
         tuple[NodeTypeDefinition, ExecutionBindingDefinition],
     ],
     admitted_node_parameters: Mapping[str, AdmittedParameterValues],
-) -> None:
+) -> _SelectionConsumerCompilation:
     """Bind generic declared selection consumers to exact Workflow sources."""
     objectives = {
         objective.objective_id: objective
@@ -532,6 +540,12 @@ def _validate_selection_objective_consumers(
     }
     selector_consumers: dict[str, list[str]] = {
         selector_id: [] for selector_id in selectors
+    }
+    objectives_by_node: dict[str, tuple[SelectionObjective, ...]] = {
+        node_id: () for node_id in plan_nodes
+    }
+    selectors_by_node: dict[str, tuple[ObservationSelector, ...]] = {
+        node_id: () for node_id in plan_nodes
     }
     node_indexes = {
         node.node_id: index for index, node in enumerate(workflow.nodes)
@@ -587,6 +601,7 @@ def _validate_selection_objective_consumers(
                             expected_node_id=reference.node_id,
                         ),
                     )
+            selectors_by_node[node_id] = (selector,)
             selector_consumers[selector.selector_id].append(node_id)
             continue
         consumption = binding.selection_objective_consumption
@@ -675,6 +690,7 @@ def _validate_selection_objective_consumers(
                     node_id=node_id,
                     field_path=field_path,
                 )
+        objectives_by_node[node_id] = selected_objectives
         for objective in selected_objectives:
             objective_consumers[objective.objective_id].append(node_id)
 
@@ -710,6 +726,10 @@ def _validate_selection_objective_consumers(
                 f"Selection Node; resolved consumers: {consumers!r}",
                 field_path=("observation_selectors", index),
             )
+    return _SelectionConsumerCompilation(
+        objectives_by_node=objectives_by_node,
+        selectors_by_node=selectors_by_node,
+    )
 
 def _capability_source(
     graph: _AdmittedWorkflowGraph,

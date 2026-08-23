@@ -99,8 +99,6 @@ from core.workflow._compiler.observation import (  # noqa: E402
 from core.workflow._compiler.selection import (  # noqa: E402
     _compile_observation_selector,
     _compile_selection_objectives,
-    _selected_objectives,
-    _selected_observation_selectors,
 )
 from core.workflow._compiler.validation import (  # noqa: E402
     _validate_static_semantics,
@@ -303,7 +301,7 @@ def compile(
         )
         for index, objective in enumerate(workflow.selection_objectives)
     }
-    graph = _validate_static_semantics(
+    graph, selection_consumers = _validate_static_semantics(
         workflow,
         plan_nodes=plan_nodes,
         lock_by_key=lock_by_key,
@@ -347,16 +345,8 @@ def compile(
         normalized_node_parameters, normalized_binding_parameters = (
             admitted_parameters[node.node_id]
         )
-        selected_objectives = _selected_objectives(
-            workflow,
-            node_parameters=normalized_node_parameters,
-            binding_definition=binding_definition,
-        )
-        selected_selectors = _selected_observation_selectors(
-            workflow,
-            node_parameters=normalized_node_parameters,
-            binding_definition=binding_definition,
-        )
+        selected_objectives = selection_consumers.objectives_by_node[node_id]
+        selected_selectors = selection_consumers.selectors_by_node[node_id]
         resolved_selected_objectives = _compile_selection_objectives(
             selected_objectives,
             compilation_by_id=objective_compilation_by_id,

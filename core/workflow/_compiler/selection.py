@@ -6,10 +6,7 @@ from collections.abc import Mapping
 import math
 from typing import Any, cast
 
-from core.catalog.declarations import (
-    ExecutionBindingDefinition,
-    UtilityTransformDefinition,
-)
+from core.catalog.declarations import UtilityTransformDefinition
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
     ObservationSelector,
@@ -20,48 +17,8 @@ from core.scoring.selection import (
     context_selector_canonical,
 )
 from core.workflow.compiler import WorkflowCompileError
-from core.workflow.document import WorkflowDocument
 from datatypes.exact_reference import ExactContractReference
 
-
-def _selected_objectives(
-    workflow: WorkflowDocument,
-    *,
-    node_parameters: Mapping[str, Any],
-    binding_definition: ExecutionBindingDefinition,
-) -> tuple[SelectionObjective, ...]:
-    consumption = binding_definition.selection_objective_consumption
-    if consumption is None:
-        return ()
-    if consumption.objective_id_parameter is not None:
-        objective_ids = (
-            node_parameters[consumption.objective_id_parameter],
-        )
-    else:
-        objective_ids = tuple(
-            node_parameters[consumption.objective_ids_parameter]
-        )
-    objectives = {
-        objective.objective_id: objective
-        for objective in workflow.selection_objectives
-    }
-    return tuple(objectives[item] for item in objective_ids)
-
-def _selected_observation_selectors(
-    workflow: WorkflowDocument,
-    *,
-    node_parameters: Mapping[str, Any],
-    binding_definition: ExecutionBindingDefinition,
-) -> tuple[ObservationSelector, ...]:
-    consumption = binding_definition.observation_selector_consumption
-    if consumption is None:
-        return ()
-    selector_id = node_parameters[consumption.selector_id_parameter]
-    selectors = {
-        selector.selector_id: selector
-        for selector in workflow.observation_selectors
-    }
-    return (selectors[selector_id],)
 
 def _resolved_reference(contract: Any) -> ExactContractReference:
     return ExactContractReference(**contract.reference())
