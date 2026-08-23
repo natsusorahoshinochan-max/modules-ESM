@@ -18,7 +18,10 @@ from core.operation import (
     OperationContext,
 )
 from core.scoring.observation_plan import ResolvedProducedObservation
-from tests.support.output_admission import admit_fixture_port
+from tests.support.output_admission import (
+    admit_fixture_port,
+    resolved_context_profile_fixture,
+)
 from core.scoring.selection import (
     ObservationSelector,
     ResolvedObservationSelector,
@@ -198,7 +201,9 @@ def operation_context(
             output_port=declaration["output_port"],
             output_partition=declaration["output_partition"],
             metric=_reference(declaration["metric"]),
-            context_profile=declaration["context_profile"],
+            context_profile=resolved_context_profile_fixture(
+                declaration["context_profile"]
+            ),
             subject_grain=declaration["subject_grain"],
             source_role=declaration["source_role"],
             subject_direction=declaration["subject_direction"],

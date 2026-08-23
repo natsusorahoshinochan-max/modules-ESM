@@ -11,8 +11,12 @@ from core.catalog.declarations import (
     ObservationPropagationDefinition,
 )
 from core.scoring.observation_plan import (
+    CalibrationContextProfile,
+    IntrinsicContextProfile,
+    ObservationContextProfile,
     ObservationPropagationFilter,
     ObservationPropagationPlan,
+    PairwiseContextProfile,
     ProducedObservationPlan,
     ResolvedProducedObservation,
     resolve_metric_facts,
@@ -22,6 +26,28 @@ from datatypes.exact_reference import ExactContractReference
 
 def _resolved_reference(contract: Any) -> ExactContractReference:
     return ExactContractReference(**contract.reference())
+
+
+def _resolved_context_profile(
+    profile: Mapping[str, Any],
+) -> ObservationContextProfile:
+    """Translate one Catalog-admitted profile without admitting it again."""
+    kind = profile["kind"]
+    if kind == "intrinsic":
+        return IntrinsicContextProfile()
+    if kind == "calibration":
+        return CalibrationContextProfile(
+            calibration_metric=profile["calibration_metric"],
+            calibration_value=profile["calibration_value"],
+            calibration_unit=profile["calibration_unit"],
+            population_id=profile["population_id"],
+        )
+    return PairwiseContextProfile(
+        subject_role=profile["subject_role"],
+        reference_role=profile["reference_role"],
+        pairing_mode=profile["pairing_mode"],
+        normalization=profile["normalization"],
+    )
 
 def _resolved_produced_observations(
     binding: ExecutionBindingDefinition,
@@ -34,7 +60,9 @@ def _resolved_produced_observations(
             metric=_resolved_reference(
                 resolved_by_key[declaration.metric.key]
             ),
-            context_profile=declaration.context_profile,
+            context_profile=_resolved_context_profile(
+                declaration.context_profile
+            ),
             subject_grain=declaration.subject_grain,
             source_role=declaration.source_role,
             subject_direction=declaration.subject_direction,
@@ -78,7 +106,11 @@ def _resolved_observation_propagation(
                 if filter_definition.get("method") is not None
                 else None
             ),
-            context_profile=filter_definition.get("context_profile"),
+            context_profile=(
+                _resolved_context_profile(filter_definition["context_profile"])
+                if filter_definition.get("context_profile") is not None
+                else None
+            ),
         )
     )
     return ObservationPropagationPlan(

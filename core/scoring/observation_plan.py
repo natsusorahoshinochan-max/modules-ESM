@@ -15,10 +15,6 @@ PropagationMode = Literal["pass_through", "union", "filter"]
 AbsentInputPolicy = Literal["reject", "ignore"]
 
 
-class ObservationPlanError(ValueError):
-    """Compiler-supplied observation facts are incomplete or inconsistent."""
-
-
 @dataclass(frozen=True, slots=True)
 class IntrinsicContextProfile:
     """Compiler-resolved intrinsic Observation Context contract."""
@@ -53,73 +49,6 @@ ObservationContextProfile = (
     | CalibrationContextProfile
     | PairwiseContextProfile
 )
-
-
-def admit_context_profile(
-    value: Mapping[str, Any] | ObservationContextProfile,
-) -> ObservationContextProfile:
-    """Resolve one Catalog Context profile into a closed typed contract."""
-    if isinstance(
-        value,
-        (
-            IntrinsicContextProfile,
-            CalibrationContextProfile,
-            PairwiseContextProfile,
-        ),
-    ):
-        return value
-    if not isinstance(value, Mapping):
-        raise ObservationPlanError("Observation Context profile must be an object")
-    kind = value.get("kind")
-    if kind == "intrinsic" and set(value) == {"kind"}:
-        return IntrinsicContextProfile()
-    if kind == "calibration" and set(value) == {
-        "kind",
-        "calibration_metric",
-        "calibration_value",
-        "calibration_unit",
-        "population_id",
-    }:
-        calibration_value = value["calibration_value"]
-        if (
-            type(value["calibration_metric"]) is not str
-            or type(calibration_value) not in {int, float}
-            or type(value["calibration_unit"]) is not str
-            or type(value["population_id"]) is not str
-        ):
-            raise ObservationPlanError(
-                "Calibration Context profile has invalid typed fields"
-            )
-        return CalibrationContextProfile(
-            calibration_metric=value["calibration_metric"],
-            calibration_value=calibration_value,
-            calibration_unit=value["calibration_unit"],
-            population_id=value["population_id"],
-        )
-    if kind == "pairwise" and set(value) == {
-        "kind",
-        "subject_role",
-        "reference_role",
-        "pairing_mode",
-        "normalization",
-    }:
-        fields = (
-            value["subject_role"],
-            value["reference_role"],
-            value["pairing_mode"],
-            value["normalization"],
-        )
-        if any(type(field) is not str for field in fields):
-            raise ObservationPlanError(
-                "Pairwise Context profile has invalid typed fields"
-            )
-        return PairwiseContextProfile(
-            subject_role=value["subject_role"],
-            reference_role=value["reference_role"],
-            pairing_mode=value["pairing_mode"],
-            normalization=value["normalization"],
-        )
-    raise ObservationPlanError("Observation Context profile is not closed")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,14 +100,6 @@ class ResolvedProducedObservation:
     method_direction: SourceDirection | None = None
     method_port: str | None = None
 
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "context_profile",
-            admit_context_profile(self.context_profile),
-        )
-
-
 @dataclass(frozen=True, slots=True)
 class ObservationPropagationFilter:
     """Typed exact filter for one controlled propagation operation."""
@@ -187,15 +108,6 @@ class ObservationPropagationFilter:
     metric: ExactContractReference | None = None
     method: ExactContractReference | None = None
     context_profile: ObservationContextProfile | None = None
-
-    def __post_init__(self) -> None:
-        if self.context_profile is not None:
-            object.__setattr__(
-                self,
-                "context_profile",
-                admit_context_profile(self.context_profile),
-            )
-
 
 @dataclass(frozen=True, slots=True)
 class ObservationPropagationPlan:

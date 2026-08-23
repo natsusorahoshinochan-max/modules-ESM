@@ -21,6 +21,7 @@ from core.scoring.observation_admission import (
     admit_produced_observations,
 )
 from core.scoring.observation_plan import (
+    IntrinsicContextProfile,
     ObservationPropagationFilter,
     ObservationPropagationPlan,
     ProducedObservationPlan,
@@ -318,7 +319,7 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
             output_port="scores",
             output_partition="default",
             metric=metric,
-            context_profile={"kind": "intrinsic"},
+            context_profile=IntrinsicContextProfile(),
             subject_grain="candidate",
             source_role="subject",
             subject_direction="input",

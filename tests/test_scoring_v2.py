@@ -42,6 +42,7 @@ from core.scoring.observation_admission import (
     admit_produced_observations,
 )
 from core.scoring.observation_plan import (
+    IntrinsicContextProfile,
     ProducedObservationPlan,
     ResolvedMetricFacts,
     ResolvedProducedObservation,
@@ -1338,7 +1339,7 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
                     output_port="scores",
                     output_partition="default",
                     metric=metric,
-                    context_profile={"kind": "intrinsic"},
+                    context_profile=IntrinsicContextProfile(),
                     subject_grain="candidate",
                     source_role="subject",
                     subject_direction="input",

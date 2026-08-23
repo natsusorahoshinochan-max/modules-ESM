@@ -12,7 +12,10 @@ from core.catalog.builder import (
 from core.operation import (
     OperationCall,
 )
-from core.scoring.observation_plan import ResolvedProducedObservation
+from core.scoring.observation_plan import (
+    IntrinsicContextProfile,
+    ResolvedProducedObservation,
+)
 from datatypes.candidate import (
     Candidate,
     CandidateCollection,
@@ -331,7 +334,7 @@ def _produced_observation(
             version,
             "sha256:" + metric_id.encode().hex()[:1].ljust(64, "0"),
         ),
-        context_profile={"kind": "intrinsic"},
+        context_profile=IntrinsicContextProfile(),
         subject_grain="candidate",
         source_role="subject",
         subject_direction="input",

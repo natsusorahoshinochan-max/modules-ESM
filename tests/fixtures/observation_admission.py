@@ -21,7 +21,10 @@ from core.scoring.observation_plan import (
     ResolvedProducedObservation,
     resolve_metric_facts,
 )
-from tests.support.output_admission import admit_fixture_port
+from tests.support.output_admission import (
+    admit_fixture_port,
+    resolved_context_profile_fixture,
+)
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import ScoreCollection
 
@@ -32,7 +35,9 @@ def _resolved_observations(binding: Any) -> tuple[ResolvedProducedObservation, .
             output_port=declaration["output_port"],
             output_partition=declaration["output_partition"],
             metric=ExactContractReference(**declaration["metric"]),
-            context_profile=declaration["context_profile"],
+            context_profile=resolved_context_profile_fixture(
+                declaration["context_profile"]
+            ),
             subject_grain=declaration["subject_grain"],
             source_role=declaration["source_role"],
             subject_direction=declaration["subject_direction"],
@@ -71,7 +76,13 @@ def _resolved_propagation(binding: Any) -> ObservationPropagationPlan | None:
                 if filter_descriptor.get("method") is not None
                 else None
             ),
-            context_profile=filter_descriptor.get("context_profile"),
+            context_profile=(
+                resolved_context_profile_fixture(
+                    filter_descriptor["context_profile"]
+                )
+                if filter_descriptor.get("context_profile") is not None
+                else None
+            ),
         )
     )
     return ObservationPropagationPlan(
