@@ -38,7 +38,6 @@ from datatypes.observation import (
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.prompt import FunctionAnnotation, FunctionAnnotations, ProteinPrompt
 from datatypes.residue import (
     ResidueLayout,
     ResidueMap,
@@ -190,20 +189,6 @@ def observation_context_canonical(
     if value.aligned_atom_count is not None:
         result["aligned_atom_count"] = value.aligned_atom_count
     return result
-
-
-def _function_annotation_to_canonical(
-    value: FunctionAnnotation,
-) -> dict[str, object]:
-    return {
-        "label": value.label,
-        "start": value.start,
-        "end": value.end,
-        "chain_id": value.chain_id,
-        "start_residue_id": value.start_residue_id,
-        "end_residue_id": value.end_residue_id,
-        "overlap_policy": value.overlap_policy,
-    }
 
 
 CONTRACT_NAMESPACE = "protein-workbench-contract/v2"
@@ -400,13 +385,11 @@ _DATACLASS_BY_TAG = {
     "candidate_data_reference": CandidateDataReference,
     "exact_contract_reference": ExactContractReference,
     "exact_port_value_reference": ExactPortValueReference,
-    "function_annotations": FunctionAnnotations,
     "intrinsic_observation_context": IntrinsicObservationContext,
     "pairwise_candidate_mapping": PairwiseCandidateMapping,
     "pairwise_candidate_match": PairwiseCandidateMatch,
     "pairwise_observation_context": PairwiseObservationContext,
     "pairwise_participant": PairwiseParticipant,
-    "protein_prompt": ProteinPrompt,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
     "residue_layout": ResidueLayout,
@@ -422,8 +405,6 @@ _TAG_BY_DATACLASS = {
 _VALUE_TYPE_BY_KIND = {
     "candidate_collection": CandidateCollection,
     "pairwise_candidate_mapping": PairwiseCandidateMapping,
-    "function_annotations": FunctionAnnotations,
-    "protein_prompt": ProteinPrompt,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
     "residue_layout": ResidueLayout,
@@ -437,15 +418,7 @@ _VALUE_TYPE_BY_KIND = {
 
 
 def _validate_domain_value(value: Any, *, path: str) -> None:
-    if type(value) is ExactPortValueReference:
-        _validate_domain_value(value.port_type, path=f"{path}.port_type")
-        return
-
     if type(value) is ResidueAxisReference:
-        _validate_domain_value(
-            value.axis_contract,
-            path=f"{path}.axis_contract",
-        )
         _validate_domain_value(value.layout, path=f"{path}.layout")
         return
 
@@ -475,87 +448,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             validate_residue_map(value, subject=path)
         except (TypeError, ValueError) as error:
             raise PortValueError(str(error)) from error
-        return
-
-    if type(value) is FunctionAnnotations:
-        expected_fields = {"label", "start", "end"}
-        for index, annotation in enumerate(value.annotations):
-            annotation_path = f"{path}.annotations[{index}]"
-            if set(annotation) != expected_fields:
-                raise PortValueError(
-                    f"{annotation_path} must contain label, start, and end"
-                )
-            if type(annotation["label"]) is not str or not annotation["label"]:
-                raise PortValueError(f"{annotation_path}.label must be non-empty text")
-            if (
-                type(annotation["start"]) is not int
-                or type(annotation["end"]) is not int
-                or annotation["start"] < 0
-                or annotation["end"] < annotation["start"]
-            ):
-                raise PortValueError(
-                    f"{annotation_path} range must be ordered non-negative integers"
-                )
-        return
-
-    if type(value) is ProteinPrompt:
-        if value.target_layout is not None:
-            _validate_domain_value(
-                value.target_layout,
-                path=f"{path}.target_layout",
-            )
-            expected_length = value.target_layout.length
-            for field_name in (
-                "sequence_track",
-                "structure_track",
-                "structure_visibility_track",
-                "secondary_structure_track",
-                "sasa_track",
-            ):
-                track = getattr(value, field_name)
-                if track is not None and len(track.values) != expected_length:
-                    raise PortValueError(
-                        f"{path}.{field_name} length must match target_layout"
-                    )
-            for field_name in ("sequence_track", "secondary_structure_track"):
-                track = getattr(value, field_name)
-                if track is None:
-                    continue
-                for index, item in enumerate(track.values):
-                    if item is track.sentinel:
-                        continue
-                    if type(item) is not str or len(item) != 1:
-                        raise PortValueError(
-                            f"{path}.{field_name}.values[{index}] "
-                            "must be one canonical code or the sentinel"
-                        )
-            visibility = value.structure_visibility_track
-            if visibility is not None and any(
-                item is not visibility.sentinel and type(item) is not bool
-                for item in visibility.values
-            ):
-                raise PortValueError(
-                    f"{path}.structure_visibility_track values must be "
-                    "boolean or the sentinel"
-                )
-            sasa = value.sasa_track
-            if sasa is not None:
-                for index, item in enumerate(sasa.values):
-                    if item is sasa.sentinel:
-                        continue
-                    if (
-                        isinstance(item, bool)
-                        or not isinstance(item, (int, float))
-                        or item < 0
-                    ):
-                        raise PortValueError(
-                            f"{path}.sasa_track.values[{index}] "
-                            "must be non-negative numeric or the sentinel"
-                        )
-        _validate_domain_value(
-            value.function_annotations,
-            path=f"{path}.function_annotations",
-        )
         return
 
     if type(value) is Candidate:

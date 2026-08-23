@@ -16,9 +16,6 @@ from datatypes.prompt import (
     validate_canonical_function_annotations,
 )
 from datatypes.residue import ResidueTrack
-from core.catalog.port_contract import (
-    _function_annotation_to_canonical,
-)
 
 from .prompts import validate_protein_prompt
 from .track_types import ABSOLUTE_SASA_QUANTITY_CONTRACT
@@ -47,6 +44,20 @@ _PROMPT_FIELDS = {
     "sasa_track",
     "function_annotations",
 }
+
+
+def _function_annotation_to_canonical(
+    value: FunctionAnnotation,
+) -> dict[str, object]:
+    return {
+        "label": value.label,
+        "start": value.start,
+        "end": value.end,
+        "chain_id": value.chain_id,
+        "start_residue_id": value.start_residue_id,
+        "end_residue_id": value.end_residue_id,
+        "overlap_policy": value.overlap_policy,
+    }
 
 
 def _validate_annotations(value: object) -> None:
