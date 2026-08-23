@@ -88,7 +88,6 @@ class V2RunService:
         self._worker_condition = threading.Condition(threading.RLock())
         self._workers: set[threading.Thread] = set()
         self._reserved_projects: set[str] = set()
-        self._closing_projects: set[str] = set()
         self._execution_lock = threading.Lock()
         self._closed = False
         self._derived = _DerivedRunStarter(
@@ -106,18 +105,10 @@ class V2RunService:
             while (
                 not self._closed
                 and project_id in self._reserved_projects
-                and project_id in self._closing_projects
             ):
                 self._worker_condition.wait()
-            if (
-                self._closed
-                or project_id in self._reserved_projects
-            ):
-                raise V2RunError(
-                    "evidence_unavailable",
-                    "Run execution admission is temporarily unavailable",
-                    details={"last_durable_cursor": run_cursor(0).value},
-                )
+            if self._closed:
+                raise RuntimeError("Run Runtime is closed")
             self._reserved_projects.add(project_id)
             if worker is not None:
                 self._workers.add(worker)
@@ -126,13 +117,8 @@ class V2RunService:
                 except BaseException:
                     self._workers.discard(worker)
                     self._reserved_projects.discard(project_id)
-                    self._closing_projects.discard(project_id)
                     self._worker_condition.notify_all()
                     raise
-
-    def _mark_project_closing(self, project_id: str) -> None:
-        with self._worker_condition:
-            self._closing_projects.add(project_id)
 
     def _release_project(
         self,
@@ -144,7 +130,6 @@ class V2RunService:
             if worker is not None:
                 self._workers.discard(worker)
             self._reserved_projects.discard(project_id)
-            self._closing_projects.discard(project_id)
             self._worker_condition.notify_all()
 
     @staticmethod
@@ -261,7 +246,13 @@ class V2RunService:
             raise V2RunError(
                 "evidence_unavailable",
                 "Required Run evidence workspace is unavailable",
-                details={"last_durable_cursor": run_cursor(0).value},
+                details={
+                    "last_durable_cursor": run_cursor(
+                        0,
+                        project_id=project_id,
+                        run_id=run_id,
+                    ).value
+                },
             ) from error
         ledger.record(
             RunScopeBinding(
@@ -414,7 +405,6 @@ class V2RunService:
                         error=_selection_error(error),
                     ),
                 )
-        self._mark_project_closing(project_id)
         ledger.record(RunClosure(selection_conclusions))
         record.finished.set()
         return receipt

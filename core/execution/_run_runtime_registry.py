@@ -33,7 +33,6 @@ class _RunRegistry:
         self._runs: dict[tuple[str, str], _RunRecord] = {}
         self._damaged_runs: dict[tuple[str, str], RunCursor] = {}
         self._inactive_runs: dict[tuple[str, str], str] = {}
-        self._run_owners: dict[str, str] = {}
         self._load_persisted_runs()
 
     def _load_persisted_runs(self) -> None:
@@ -56,7 +55,6 @@ class _RunRegistry:
                         project_id=project_id,
                         run_id=run_id,
                     )
-                    self._run_owners.setdefault(run_id, project_id)
 
     def _load_persisted_run(
         self,
@@ -71,9 +69,6 @@ class _RunRegistry:
         )
         if ledger is None or not ledger.admitted:
             return
-        owner = self._run_owners.get(run_id)
-        if owner is not None and owner != project_id:
-            raise RuntimeError("Run identity appears in multiple Projects")
         persisted_catalog_digest = _run_catalog_digest(
             ledger,
             self._catalog,
@@ -82,7 +77,6 @@ class _RunRegistry:
             self._inactive_runs[(project_id, run_id)] = (
                 persisted_catalog_digest
             )
-            self._run_owners[run_id] = project_id
             return
         ledger.reconcile_restart()
         record = _RunRecord(compiled=None, ledger=ledger)
@@ -96,23 +90,9 @@ class _RunRegistry:
         run_id: str,
         record: _RunRecord,
     ) -> None:
-        owner = self._run_owners.get(run_id)
-        if owner is not None and owner != project_id:
-            raise RuntimeError("Run identity appears in multiple Projects")
         self._runs[(project_id, run_id)] = record
-        self._run_owners[run_id] = project_id
 
     def require_record(self, project_id: str, run_id: str) -> _RunRecord:
-        owner = self._run_owners.get(run_id)
-        if owner is not None and owner != project_id:
-            raise V2RunError(
-                "cross_scope_access_denied",
-                "Run does not belong to the requested Project",
-                details={
-                    "requested_project_id": project_id,
-                    "requested_run_id": run_id,
-                },
-            )
         try:
             return self._runs[(project_id, run_id)]
         except KeyError as error:

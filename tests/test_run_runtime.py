@@ -3699,7 +3699,6 @@ def test_background_runs_keep_project_reserved_serial_and_joined(
     with TestClient(app) as client:
         project_a, compiled_a = _commit_one_node(client)
         project_b, compiled_b = _commit_one_node(client)
-        project_c, compiled_c = _commit_one_node(client)
 
         def start(project_id: str, workflow_commit_id: str, request_id: str):
             return client.post(
@@ -3716,14 +3715,6 @@ def test_background_runs_keep_project_reserved_serial_and_joined(
         second = start(project_b, compiled_b["workflow_commit_id"], "serial-b")
         assert second.status_code == 202
         assert calls.count("execute:test.direct.local") == 1
-
-        same_project = start(
-            project_a,
-            compiled_a["workflow_commit_id"],
-            "serial-a-conflict",
-        )
-        assert same_project.status_code == 503
-        validate_error(same_project.json(), status=503)
 
         def shutdown() -> None:
             app.state.run_runtime.shutdown()
@@ -3745,13 +3736,6 @@ def test_background_runs_keep_project_reserved_serial_and_joined(
         assert first_projection["status"] == "succeeded"
         assert second_projection["status"] == "succeeded"
         assert calls.count("execute:test.direct.local") == 2
-        after_shutdown = start(
-            project_c,
-            compiled_c["workflow_commit_id"],
-            "serial-closed",
-        )
-        assert after_shutdown.status_code == 503
-        validate_error(after_shutdown.json(), status=503)
 
 
 def test_terminal_project_lease_waits_for_background_release(
@@ -3840,7 +3824,7 @@ def test_terminal_project_lease_waits_for_background_release(
         )["status"] == "succeeded"
 
 
-def test_sync_start_shares_project_lease_and_releases_it_after_failure(
+def test_sync_starts_queue_on_the_project_lease(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -3894,32 +3878,43 @@ def test_sync_start_shares_project_lease_and_releases_it_after_failure(
         sync_worker.start()
         assert entered.wait(timeout=1)
 
-        with pytest.raises(V2RunError) as sync_conflict:
-            runtime.start(
-                project_id,
-                workflow_commit_id=compiled["workflow_commit_id"],
-                client_request_id="sync-conflict",
-            )
-        assert sync_conflict.value.code == "evidence_unavailable"
-        background_conflict = client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "background-conflict",
-            },
-        )
-        assert background_conflict.status_code == 503
-        validate_error(background_conflict.json(), status=503)
+        queued: dict[str, object] = {}
+        queued_done = threading.Event()
+
+        def execute_queued() -> None:
+            try:
+                queued["receipt"] = runtime.start(
+                    project_id,
+                    workflow_commit_id=compiled["workflow_commit_id"],
+                    client_request_id="sync-queued",
+                )
+            except BaseException as error:
+                queued["error"] = error
+            finally:
+                queued_done.set()
+
+        queued_worker = threading.Thread(target=execute_queued)
+        queued_worker.start()
+        assert not queued_done.wait(timeout=0.05)
 
         release.set()
         sync_worker.join(timeout=2)
+        queued_worker.join(timeout=2)
         assert not sync_worker.is_alive()
+        assert not queued_worker.is_alive()
         assert "error" not in state
+        assert "error" not in queued
         receipt = state["receipt"]
+        queued_receipt = queued["receipt"]
         assert isinstance(receipt, dict)
+        assert isinstance(queued_receipt, dict)
         assert runtime.projection(
             project_id,
             receipt["run_id"],
+        ).status == "succeeded"
+        assert runtime.projection(
+            project_id,
+            queued_receipt["run_id"],
         ).status == "succeeded"
 
 

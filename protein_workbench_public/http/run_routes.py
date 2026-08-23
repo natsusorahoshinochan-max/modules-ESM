@@ -61,7 +61,8 @@ def register_run_routes(
                 query_parameters=query_parameters,
                 json_body=json_body,
             )
-            receipt = runtime.start_background(
+            receipt = await asyncio.to_thread(
+                runtime.start_background,
                 admitted["project_id"],
                 workflow_commit_id=admitted["workflow_commit_id"],
                 client_request_id=admitted["client_request_id"],
@@ -141,14 +142,13 @@ def register_run_routes(
                 query_parameters=query_parameters,
                 json_body=json_body,
             )
-            receipt = (
-                runtime.start_derived_background(
-                    admitted["project_id"],
-                    source_run_id=admitted["source_run_id"],
-                    policy=admitted["policy"],
-                    node_ids=admitted["node_ids"],
-                    client_request_id=admitted["client_request_id"],
-                )
+            receipt = await asyncio.to_thread(
+                runtime.start_derived_background,
+                admitted["project_id"],
+                source_run_id=admitted["source_run_id"],
+                policy=admitted["policy"],
+                node_ids=admitted["node_ids"],
+                client_request_id=admitted["client_request_id"],
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)

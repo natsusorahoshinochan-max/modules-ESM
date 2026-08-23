@@ -108,8 +108,8 @@ def run_timestamp(value: datetime | None = None) -> str:
 def run_cursor(
     sequence: int,
     *,
-    project_id: str = "unavailable",
-    run_id: str = "unavailable",
+    project_id: str,
+    run_id: str,
     fact: Fact | None = None,
 ) -> RunCursor:
     return encode_cursor(
@@ -118,13 +118,6 @@ def run_cursor(
         run_id=run_id,
         fact=fact,
     )
-
-
-def _safe_cursor_detail(value: RunCursor) -> str:
-    if type(value) is not RunCursor or not value.value:
-        return "invalid"
-    return value.value[:512]
-
 
 class Ledger:
     """Causally closed typed evidence authority for one Run."""
@@ -312,7 +305,7 @@ class Ledger:
             raise V2RunError(
                 "invalid_cursor",
                 "Run Event Stream cursor is invalid",
-                details={"after_sequence": _safe_cursor_detail(cursor)},
+                details={"after_sequence": cursor.value},
             ) from error
         sequence = payload.sequence
         with self._condition:
@@ -329,7 +322,7 @@ class Ledger:
             raise V2RunError(
                 "invalid_cursor",
                 "Run Event Stream cursor is stale or belongs to another scope",
-                details={"after_sequence": _safe_cursor_detail(cursor)},
+                details={"after_sequence": cursor.value},
             )
         return sequence
 

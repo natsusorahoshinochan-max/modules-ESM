@@ -76,8 +76,6 @@ class _RunQueries:
         )
         if (
             descriptor is None
-            or type(value_index) is not int
-            or value_index < 0
             or value_index >= descriptor.value_count
         ):
             raise V2RunError(

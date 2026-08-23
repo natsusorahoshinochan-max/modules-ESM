@@ -1244,7 +1244,7 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
 
 
 @pytest.mark.deterministic_acceptance
-def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
+def test_cancel_and_derive_are_scoped_by_project_run_lookup(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1281,8 +1281,8 @@ def test_cancel_and_derive_reject_cross_project_scope_with_shared_errors(
         )
 
     assert cancel.status_code == derive.status_code == 404
-    assert cancel.json()["error"]["code"] == "cross_scope_access_denied"
-    assert derive.json()["error"]["code"] == "cross_scope_access_denied"
+    assert cancel.json()["error"]["code"] == "run_not_found"
+    assert derive.json()["error"]["code"] == "run_not_found"
     assert cancel.json()["error"]["details"] == derive.json()["error"]["details"]
 
 
