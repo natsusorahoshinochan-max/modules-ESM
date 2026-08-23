@@ -17,7 +17,6 @@ from core.operation import (
     ProviderResidueProjectionEntry,
     ReadinessResult,
 )
-from modules.proteinmpnn.assets import proteinmpnn_provider_identity
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ResolvedStructureResidueAxis
 from modules.proteinmpnn.domain import ProteinMPNNConstraints

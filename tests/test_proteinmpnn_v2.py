@@ -4218,6 +4218,8 @@ def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(
     monkeypatch.setattr(provider_runtime, "_load_model", load_model)
     provider = provider_runtime._LocalProteinMPNNProvider(
         provider_root=tmp_path,
+        temp_dir=tmp_path,
+        model_cache={},
     )
     first = provider._resident_model("v_48_020", 0.0)
     second = provider._resident_model("v_48_020", 0.0)
@@ -4227,6 +4229,7 @@ def test_local_provider_reuses_one_resident_model_for_exact_operation_stage(
 
 
 def test_exact_score_seed_is_independent_of_resident_model_load_history(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
@@ -4257,11 +4260,15 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_compute_score", compute_score)
 
     cold_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     cold_score = cold_provider.score(Request(), ProteinSequence("A"))
     warm_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     warm_provider._resident_model("v_48_020", 0.0)
     first_warm_score = warm_provider.score(Request(), ProteinSequence("A"))
@@ -4271,6 +4278,7 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
 
 
 def test_exact_design_seed_is_independent_of_resident_model_load_history(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import torch
@@ -4299,11 +4307,15 @@ def test_exact_design_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_run_design", run_design)
 
     cold_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     cold_design = cold_provider.design(Request())
     warm_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root()
+        provider_root=_proteinmpnn_provider_root(),
+        temp_dir=tmp_path,
+        model_cache={},
     )
     warm_provider._resident_model("v_48_020", 0.0)
     first_warm_design = warm_provider.design(Request())

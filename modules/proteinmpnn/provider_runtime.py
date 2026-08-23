@@ -25,7 +25,6 @@ from modules.proteinmpnn.domain import ProteinMPNNConstraints
 
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWYX"
 _ALPHABET_DICT = dict(zip(_ALPHABET, range(21)))
-_LOCAL_PROVIDER_IDENTITY = "local-proteinmpnn"
 _LOCKED_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
 
 
@@ -144,8 +143,6 @@ class ProteinMPNNDesignRequest:
 class ProteinMPNNProvider(Protocol):
     """External provider boundary used by the adapter."""
 
-    provider_identity: str
-
     def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
         """Parse a PDB string into ProteinMPNN's structure representation."""
 
@@ -221,21 +218,18 @@ def _load_model(
 
 def _parse_structure(
     pdb_string: str,
-    temp_dir: str | Path | None = None,
     *,
+    temp_dir: Path,
     provider_root: Path,
 ) -> list[dict[str, Any]]:
     """Convert a PDB string to ProteinMPNN's pdb_dict_list format."""
     parse_PDB = _provider_module(provider_root).parse_PDB
 
-    temporary_root = Path(temp_dir) if temp_dir is not None else None
-    if temporary_root is not None:
-        temporary_root.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
         mode="w",
         suffix=".pdb",
         delete=False,
-        dir=temporary_root,
+        dir=temp_dir,
     ) as tmp:
         tmp.write(pdb_string)
         pdb_path = tmp.name
@@ -306,7 +300,7 @@ def _run_design(
     chain_encoding_all = batch["chain_encoding_all"]
     residue_idx = batch["residue_idx"]
     chain_M_pos = batch["chain_M_pos"]
-    tied_position_batches = batch.get("tied_pos_list_of_lists_list")
+    tied_position_batches = batch["tied_pos_list_of_lists_list"]
 
     designable_without_backbone = (
         (chain_M > 0) & (chain_M_pos > 0) & (mask <= 0)
@@ -395,21 +389,19 @@ def _compute_score(
 
 
 class _LocalProteinMPNNProvider:
-    provider_identity = _LOCAL_PROVIDER_IDENTITY
-
     def __init__(
         self,
         *,
         provider_root: Path,
-        temp_dir: str | Path | None = None,
+        temp_dir: Path,
         model_cache: dict[
             tuple[str, float, Path],
             tuple[Any, Any],
-        ] | None = None,
+        ],
     ) -> None:
         self._temp_dir = temp_dir
         self._provider_root = provider_root
-        self._model_cache = model_cache if model_cache is not None else {}
+        self._model_cache = model_cache
 
     def _resident_model(
         self,
