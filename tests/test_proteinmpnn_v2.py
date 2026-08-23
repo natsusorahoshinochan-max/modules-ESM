@@ -26,6 +26,7 @@ from core.catalog.declarations import (
 )
 from core.catalog.errors import CatalogBuildError
 from core.operation import (
+    BindingEnvironment,
     OperationCall,
 )
 from core.execution.environment import (
@@ -3436,9 +3437,11 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
         "provider_root": provider_root,
     }
 
-    assert proteinmpnn_readiness(environment).passing is True
     assert proteinmpnn_readiness(
-        {**environment, "device": "cuda"}
+        BindingEnvironment(environment)
+    ).passing is True
+    assert proteinmpnn_readiness(
+        BindingEnvironment({**environment, "device": "cuda"})
     ).passing is False
 
 

@@ -37,6 +37,17 @@ from .domain import (
 _CANONICAL_AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWY")
 
 
+def _require_sequence_axis(
+    sequence: ProteinSequence,
+    residue_axis: ResolvedStructureResidueAxis,
+    subject: str,
+) -> None:
+    if not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS or (
+        sequence.residue_ids != residue_axis.layout.residue_ids
+    ):
+        raise ValueError(f"{subject} sequence must use the exact resolved residue axis")
+
+
 class _ResolvedAxisAssociations(Protocol):
     """Structural view of the admitted resolved-axis capability value."""
 
@@ -198,15 +209,8 @@ class ProteinMPNNDesignImplementation:
                 residue_axis,
                 _axis_reference,
             ) in enumerate(parents):
-                if reference is not None and (
-                    not set(reference.sequence) <= _CANONICAL_AMINO_ACIDS
-                    or reference.residue_ids
-                    != residue_axis.layout.residue_ids
-                ):
-                    raise ValueError(
-                        "reference sequence must use the exact resolved "
-                        "residue axis"
-                    )
+                if reference is not None:
+                    _require_sequence_axis(reference, residue_axis, "reference")
                 if (
                     constraints is not None
                     and constraints.layout != residue_axis.layout
@@ -327,13 +331,7 @@ class ProteinMPNNScoreImplementation:
                 axis_reference,
             ) = self._subject(call)
             sequence = cast(ProteinSequence, sequence_candidate.data)
-            if (
-                not set(sequence.sequence) <= _CANONICAL_AMINO_ACIDS
-                or sequence.residue_ids != residue_axis.layout.residue_ids
-            ):
-                raise ValueError(
-                    "scoring sequence must use the exact resolved residue axis"
-                )
+            _require_sequence_axis(sequence, residue_axis, "scoring")
             score = self._adapter.score(
                 residue_axis=residue_axis,
                 sequence=sequence,

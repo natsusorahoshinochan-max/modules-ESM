@@ -23,7 +23,6 @@ from modules.proteinmpnn.domain import (
     ProteinMPNNConstraints,
     validate_proteinmpnn_constraints,
 )
-from modules.proteinmpnn.domain import validate_constraints_against_layout
 from modules.prompt_authoring.annotations import validate_function_annotations
 
 
@@ -52,7 +51,6 @@ def test_signed_residue_identities_address_constraints_and_annotations() -> None
         ),
     ))
 
-    validate_constraints_against_layout(constraints, layout=layout)
     assert validate_function_annotations(annotations, layout) == annotations
 
     catalog = build_frozen_catalog(module_registrations())
@@ -85,12 +83,11 @@ def test_constraint_addresses_remain_closed_and_layout_bound() -> None:
             )
         )
     with pytest.raises(ValueError, match="is not present in the layout"):
-        validate_constraints_against_layout(
+        validate_proteinmpnn_constraints(
             ProteinMPNNConstraints(
                 layout=layout,
                 fixed_residue_ids=("A:-4",),
-            ),
-            layout=layout,
+            )
         )
 
 

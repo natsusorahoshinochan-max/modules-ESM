@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from core.operation import (
+    BindingEnvironment,
     OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
@@ -134,9 +135,10 @@ def _stage_provider_structure(
 
 
 def proteinmpnn_readiness(
-    environment: Mapping[str, Any],
+    check_input: BindingEnvironment,
 ) -> ReadinessResult:
     """Validate prerequisites without constructing or loading the model."""
+    environment = check_input.values
     try:
         torch_version = importlib.metadata.version("torch")
     except importlib.metadata.PackageNotFoundError:

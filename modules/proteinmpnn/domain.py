@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 import hashlib
 from math import isfinite
@@ -183,9 +183,11 @@ def _biases(value: Any) -> Mapping[str, Mapping[str, float]]:
 def validate_proteinmpnn_constraints(
     constraints: ProteinMPNNConstraints,
 ) -> None:
-    """Validate all structure-independent ProteinMPNN constraint rules."""
-    if type(constraints.layout) is not ResidueLayout:
-        raise ValueError("constraints layout must be a ResidueLayout")
+    """Validate one complete ProteinMPNN constraint value."""
+    layout = validate_residue_layout(
+        constraints.layout,
+        subject="constraints layout",
+    )
 
     designable = _residue_ids(
         constraints.designable_residue_ids,
@@ -246,21 +248,85 @@ def validate_proteinmpnn_constraints(
                     f"bias_by_residue {residue_id} targets globally "
                     f"omitted amino acid {amino_acid}"
                 )
-
-
-def validate_layout(
-    value: object,
-    *,
-    subject: str = "layout",
-) -> tuple[ResidueLayout, tuple[str, ...], tuple[str, ...]]:
-    """Validate an identity-complete contiguous-chain layout."""
-    layout = validate_residue_layout(value, subject=subject)
-    residue_ids = cast(tuple[str, ...], layout.residue_ids)
-    return (
-        layout,
-        tuple(layout.chain_id.split(",")),
-        tuple(residue_id.split(":", 1)[0] for residue_id in residue_ids),
+    known_chains = set(layout.chain_id.split(","))
+    requested_designed = set(designed_chains)
+    requested_fixed = set(fixed_chains)
+    unknown = sorted((requested_designed | requested_fixed) - known_chains)
+    if unknown:
+        raise ValueError(
+            "constraint chain IDs are not present in the layout: "
+            + ", ".join(unknown)
+        )
+    if requested_designed and requested_fixed and (
+        requested_designed | requested_fixed
+    ) != known_chains:
+        raise ValueError(
+            "designed_chains and fixed_chains must partition every layout chain"
+        )
+    effective_designed = (
+        requested_designed
+        if requested_designed
+        else known_chains - requested_fixed
     )
+    if not effective_designed:
+        raise ValueError("constraints must leave at least one designed chain")
+
+    residue_ids = cast(tuple[str, ...], layout.residue_ids)
+    residue_chains = tuple(
+        residue_id.split(":", 1)[0] for residue_id in residue_ids
+    )
+    position_by_id = {
+        residue_id: position
+        for position, residue_id in enumerate(residue_ids)
+    }
+
+    def validate_residue(residue_id: str, name: str) -> tuple[int, str]:
+        position = position_by_id.get(residue_id)
+        if position is None:
+            raise ValueError(
+                f"{name} residue {residue_id} is not present in the layout"
+            )
+        return position, residue_chains[position]
+
+    designable_set = set(designable)
+    fixed_set = set(fixed)
+    for residue_id in sorted(designable_set):
+        _, chain = validate_residue(residue_id, "designable")
+        if chain not in effective_designed:
+            raise ValueError(
+                f"designable residue {residue_id} belongs to fixed chain {chain}"
+            )
+    for residue_id in sorted(fixed_set):
+        _, chain = validate_residue(residue_id, "fixed")
+        if chain not in effective_designed:
+            raise ValueError(
+                f"fixed residue {residue_id} belongs to already-fixed chain {chain}"
+            )
+    effective_fixed = set(fixed_set)
+    if designable_set:
+        effective_fixed.update(
+            residue_id
+            for residue_id, chain in zip(
+                residue_ids,
+                residue_chains,
+                strict=True,
+            )
+            if chain in effective_designed and residue_id not in designable_set
+        )
+    for group_index, group in enumerate(tied_groups):
+        for residue_id in group:
+            _, chain = validate_residue(residue_id, "tied")
+            if chain not in effective_designed or residue_id in effective_fixed:
+                raise ValueError(
+                    f"tied residue group {group_index} includes non-designable "
+                    f"residue {residue_id}"
+                )
+    for residue_id in biases:
+        _, chain = validate_residue(residue_id, "bias_by_residue")
+        if chain not in effective_designed or residue_id in effective_fixed:
+            raise ValueError(
+                f"bias_by_residue {residue_id} is not designable"
+            )
 
 
 def _optional_list(value: object, name: str) -> list[Any] | None:
@@ -319,103 +385,6 @@ def author_constraints(
         ),
         bias_by_residue=bias_by_residue or None,
     )
-
-
-def validate_constraints_against_layout(
-    constraints: ProteinMPNNConstraints,
-    *,
-    layout: ResidueLayout,
-    chain_order: Sequence[str] | None = None,
-    residue_chains: Sequence[str] | None = None,
-) -> None:
-    """Apply every layout- and chain-dependent constraint invariant."""
-    validate_proteinmpnn_constraints(constraints)
-    if constraints.layout != layout:
-        raise ValueError(
-            "constraint layout identity does not match the target layout"
-        )
-    if chain_order is None or residue_chains is None:
-        _, resolved_order, resolved_residue_chains = validate_layout(layout)
-        chain_order = resolved_order
-        residue_chains = resolved_residue_chains
-    known_chains = set(chain_order)
-    requested_designed = set(constraints.designed_chains or ())
-    requested_fixed = set(constraints.fixed_chains or ())
-    unknown = sorted((requested_designed | requested_fixed) - known_chains)
-    if unknown:
-        raise ValueError(
-            "constraint chain IDs are not present in the layout: "
-            + ", ".join(unknown)
-        )
-    if requested_designed and requested_fixed and (
-        requested_designed | requested_fixed
-    ) != known_chains:
-        raise ValueError(
-            "designed_chains and fixed_chains must partition every layout chain"
-        )
-    effective_designed = (
-        requested_designed
-        if requested_designed
-        else known_chains - requested_fixed
-    )
-    if not effective_designed:
-        raise ValueError("constraints must leave at least one designed chain")
-
-    residue_ids = list(cast(tuple[str, ...], layout.residue_ids))
-    position_by_id = {
-        residue_id: position
-        for position, residue_id in enumerate(residue_ids)
-    }
-
-    def validate_residue(residue_id: str, name: str) -> tuple[int, str]:
-        position = position_by_id.get(residue_id)
-        if position is None:
-            raise ValueError(
-                f"{name} residue {residue_id} is not present in the layout"
-            )
-        return position, residue_chains[position]
-
-    designable = set(constraints.designable_residue_ids or ())
-    explicitly_fixed = set(constraints.fixed_residue_ids or ())
-    for residue_id in sorted(designable):
-        _, chain = validate_residue(residue_id, "designable")
-        if chain not in effective_designed:
-            raise ValueError(
-                f"designable residue {residue_id} belongs to fixed chain {chain}"
-            )
-    for residue_id in sorted(explicitly_fixed):
-        _, chain = validate_residue(residue_id, "fixed")
-        if chain not in effective_designed:
-            raise ValueError(
-                f"fixed residue {residue_id} belongs to already-fixed chain {chain}"
-            )
-    effective_fixed = set(explicitly_fixed)
-    if designable:
-        effective_fixed.update(
-            residue_id
-            for residue_id, chain in zip(
-                residue_ids,
-                residue_chains,
-                strict=True,
-            )
-            if chain in effective_designed and residue_id not in designable
-        )
-    for group_index, group in enumerate(
-        constraints.tied_residue_groups or ()
-    ):
-        for residue_id in group:
-            _, chain = validate_residue(residue_id, "tied")
-            if chain not in effective_designed or residue_id in effective_fixed:
-                raise ValueError(
-                    f"tied residue group {group_index} includes non-designable "
-                    f"residue {residue_id}"
-                )
-    for residue_id in (constraints.bias_by_residue or {}):
-        _, chain = validate_residue(residue_id, "bias_by_residue")
-        if chain not in effective_designed or residue_id in effective_fixed:
-            raise ValueError(
-                f"bias_by_residue {residue_id} is not designable"
-            )
 
 
 def random_fixed_positions(

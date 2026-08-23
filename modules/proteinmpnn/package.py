@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 import importlib.util
-from typing import Any, cast
+from typing import Any
 
 from core.catalog.declarations import (
     AvailabilityDeclaration,
@@ -22,20 +22,12 @@ from core.catalog.declarations import (
 from core.catalog.definition_resource import (
     DefinitionResource,
 )
-from core.catalog.port_contract import (
-    BehaviorReference,
-    PortTypeDefinition,
-)
+from core.catalog.port_contract import BehaviorReference
 from core.operation import (
     AdmittedPort,
-    BindingEnvironment,
     OperationContext,
-    ReadinessResult,
     ScientificOperation,
 )
-from modules.proteinmpnn.domain import ProteinMPNNConstraints
-from datatypes.i_json import thaw_i_json
-from datatypes.residue import ResidueLayout
 from modules.proteinmpnn.assets import (
     PROTEINMPNN_REVISION,
     PROTEINMPNN_V_48_020_SHA256,
@@ -49,13 +41,10 @@ from .adapter import (
     PROTEINMPNN_TORCH_VERSION,
     proteinmpnn_readiness,
 )
-from .domain import (
-    validate_constraints_against_layout,
-)
+from . import port_types as _port_types
 
 
 _PACKAGE_VERSION = "7.0.0"
-_CONSTRAINTS_VERSION = "4.0.0"
 _SCORE_METRIC_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
 _NODE_VERSIONS = {
@@ -78,151 +67,6 @@ _METHOD_VERSIONS = {
 }
 
 
-def _validate_constraints(value: object) -> None:
-    if type(value) is not ProteinMPNNConstraints:
-        raise ValueError("constraints must use the exact ProteinMPNN contract")
-    validate_constraints_against_layout(value, layout=value.layout)
-
-
-def _constraints_to_wire(value: object) -> dict[str, object]:
-    value = cast(ProteinMPNNConstraints, value)
-    return thaw_i_json({
-        "layout": {
-            "chain_id": value.layout.chain_id,
-            "length": value.layout.length,
-            "residue_ids": value.layout.residue_ids,
-        },
-        "designable_residue_ids": value.designable_residue_ids,
-        "fixed_residue_ids": value.fixed_residue_ids,
-        "designed_chains": value.designed_chains,
-        "fixed_chains": value.fixed_chains,
-        "omit_amino_acids": value.omit_amino_acids,
-        "tied_residue_groups": value.tied_residue_groups,
-        "bias_by_residue": (
-            None
-            if value.bias_by_residue is None
-            else [
-                [residue_id, dict(sorted(biases.items()))]
-                for residue_id, biases in sorted(
-                    value.bias_by_residue.items()
-                )
-            ]
-        ),
-    })
-
-
-def _constraints_from_wire(value: object) -> ProteinMPNNConstraints:
-    if not isinstance(value, dict) or set(value) != {
-        "layout",
-        "designable_residue_ids",
-        "fixed_residue_ids",
-        "designed_chains",
-        "fixed_chains",
-        "omit_amino_acids",
-        "tied_residue_groups",
-        "bias_by_residue",
-    }:
-        raise ValueError("ProteinMPNN constraints wire value is not closed")
-    raw_biases = value["bias_by_residue"]
-    if raw_biases is None:
-        biases = None
-    elif isinstance(raw_biases, list):
-        biases = {}
-        previous_residue_id: str | None = None
-        for entry in raw_biases:
-            if (
-                not isinstance(entry, list)
-                or len(entry) != 2
-                or type(entry[0]) is not str
-                or not isinstance(entry[1], dict)
-                or entry[0] in biases
-            ):
-                raise ValueError(
-                    "ProteinMPNN constraint biases are malformed"
-                )
-            if (
-                previous_residue_id is not None
-                and entry[0] <= previous_residue_id
-            ) or list(entry[1]) != sorted(entry[1]):
-                raise ValueError(
-                    "ProteinMPNN constraint biases require canonical key order"
-                )
-            biases[entry[0]] = entry[1]
-            previous_residue_id = entry[0]
-    else:
-        raise ValueError("ProteinMPNN constraint biases are malformed")
-    raw_layout = value["layout"]
-    if (
-        not isinstance(raw_layout, dict)
-        or set(raw_layout) != {"chain_id", "length", "residue_ids"}
-    ):
-        raise ValueError("ProteinMPNN constraint layout is malformed")
-
-    layout = ResidueLayout(
-        chain_id=raw_layout["chain_id"],
-        length=raw_layout["length"],
-        residue_ids=raw_layout["residue_ids"],
-    )
-    constraints = ProteinMPNNConstraints(
-        layout=layout,
-        designable_residue_ids=value["designable_residue_ids"],
-        fixed_residue_ids=value["fixed_residue_ids"],
-        designed_chains=value["designed_chains"],
-        fixed_chains=value["fixed_chains"],
-        omit_amino_acids=value["omit_amino_acids"],
-        tied_residue_groups=value["tied_residue_groups"],
-        bias_by_residue=biases,
-    )
-    return constraints
-
-
-def _constraints_port_type() -> PortTypeDefinition:
-    behavior_prefix = (
-        "protein-workbench.port-type/proteinmpnn.constraints"
-    )
-    return PortTypeDefinition(
-        type_id="proteinmpnn.constraints",
-        version=_CONSTRAINTS_VERSION,
-        validator=BehaviorReference(
-            behavior_id=f"{behavior_prefix}/validate",
-            behavior_version=_CONSTRAINTS_VERSION,
-            parameters={
-                "accepted_value_kind": "proteinmpnn_constraints",
-                "complete_values_only": True,
-            },
-        ),
-        codec=BehaviorReference(
-            behavior_id=f"{behavior_prefix}/canonical-json-codec",
-            behavior_version=_CONSTRAINTS_VERSION,
-            parameters={
-                "canonicalization": "RFC 8785",
-                "character_encoding": "UTF-8",
-                "envelope_namespace": "protein-workbench-port-value/v2",
-                "value_kind": "proteinmpnn_constraints",
-                "embedded_layout_contract": "residue.layout@3.0.0",
-            },
-        ),
-        content_identity=BehaviorReference(
-            behavior_id=f"{behavior_prefix}/content-sha256",
-            behavior_version=_CONSTRAINTS_VERSION,
-            parameters={
-                "digest_algorithm": "SHA-256",
-                "digest_input": "canonical_codec_bytes",
-                "digest_representation": (
-                    "sha256:<64 lowercase hexadecimal digits>"
-                ),
-            },
-        ),
-        runtime_validator=_validate_constraints,
-        runtime_to_wire=_constraints_to_wire,
-        runtime_from_wire=_constraints_from_wire,
-    )
-
-
-def _available() -> AvailabilityResult:
-    return AvailabilityResult.available()
-
-
 def _model_available() -> AvailabilityResult:
     if importlib.util.find_spec("torch") is not None:
         return AvailabilityResult.available()
@@ -231,10 +75,6 @@ def _model_available() -> AvailabilityResult:
         message="The ProteinMPNN Torch runtime is unavailable.",
         retryable=False,
     )
-
-
-def _model_ready(check_input: BindingEnvironment) -> ReadinessResult:
-    return proteinmpnn_readiness(check_input.values)
 
 
 def _build(
@@ -568,7 +408,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 if is_model
                 else {}
             ),
-            check=_model_available if is_model else _available,
+            check=(
+                _model_available
+                if is_model
+                else AvailabilityResult.available
+            ),
         ),
         readiness=(
             ReadinessDeclaration(
@@ -597,7 +441,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                         "exact_value": PROTEINMPNN_DEVICE,
                     },
                 },
-                check=_model_ready,
+                check=proteinmpnn_readiness,
             )
             if is_model
             else None
@@ -669,7 +513,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="proteinmpnn",
     package_version=_PACKAGE_VERSION,
     package_module=__package__,
-    port_types=(_constraints_port_type(),),
+    port_types=(_port_types.PROTEINMPNN_CONSTRAINTS_PORT_TYPE,),
     node_definitions=(
         DefinitionResource("definitions/constraints.yaml"),
         DefinitionResource("definitions/random_fixed_positions.yaml"),
