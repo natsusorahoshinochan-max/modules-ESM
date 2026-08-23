@@ -352,9 +352,8 @@ def test_successful_local_load_has_explicit_staging_cleanup(
     )
 
     client = local_adapter.load_local_esm3_client(
-        {},
+        runtime,
         model_name=local_adapter.LOCAL_ESM3_MODEL,
-        runtime=runtime,
     )
     staged_root = client._protein_workbench_staged_root
     assert staged_root.is_dir()
@@ -409,6 +408,7 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
         "load_local_esm3_client",
         lambda *_args, **_kwargs: client,
     )
+    monkeypatch.setattr(local_adapter, "release_local_esm3_client", lambda _: None)
     resources = InvocationResources()
     adapter = LocalESM3Adapter(
         environment=_local_environment(tmp_path),
@@ -707,7 +707,7 @@ def test_default_local_client_releases_staged_runtime_after_execution(
     monkeypatch.setattr(
         local_adapter,
         "load_local_esm3_client",
-        lambda environment, *, model_name, runtime: client,
+        lambda runtime, *, model_name: client,
     )
     monkeypatch.setattr(
         local_adapter,
@@ -764,7 +764,7 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
     monkeypatch.setattr(
         local_adapter,
         "load_local_esm3_client",
-        lambda environment, *, model_name, runtime: client,
+        lambda runtime, *, model_name: client,
     )
 
     def fail_cleanup(owned: object) -> None:

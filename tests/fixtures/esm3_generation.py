@@ -69,12 +69,16 @@ class ProviderClient:
 def _installed_test_client(binding_route: str, client: Any | None):
     with ExitStack() as stack:
         if client is not None:
-            target = (
-                "modules.esm3.local_adapter.load_local_esm3_client"
+            targets = (
+                (
+                    ("modules.esm3.local_adapter.load_local_esm3_client", client),
+                    ("modules.esm3.local_adapter.release_local_esm3_client", None),
+                )
                 if binding_route == "local_open"
-                else "modules.esm3.adapter.build_biohub_esm3_client"
+                else (("modules.esm3.adapter.build_biohub_esm3_client", client),)
             )
-            stack.enter_context(patch(target, return_value=client))
+            for target, return_value in targets:
+                stack.enter_context(patch(target, return_value=return_value))
         yield
 
 

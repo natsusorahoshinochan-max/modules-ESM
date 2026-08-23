@@ -278,14 +278,11 @@ def _bind_builder_to_staged_root(
 
 
 def load_local_esm3_client(
-    environment: Mapping[str, Any],
+    runtime: LocalESM3Runtime,
     *,
     model_name: str,
-    runtime: LocalESM3Runtime | None = None,
 ) -> Any:
     """Load only the exact readiness-validated local model on explicit demand."""
-    if runtime is None:
-        runtime = resolve_local_runtime(environment)
     import torch
     import esm.pretrained as esm_pretrained
 
@@ -324,12 +321,8 @@ def load_local_esm3_client(
 
 def release_local_esm3_client(client: Any) -> None:
     """Release private staged weights owned by an internally loaded client."""
-    cleanup = getattr(client, "_protein_workbench_staged_cleanup", None)
-    staged_root = getattr(client, "_protein_workbench_staged_root", None)
-    if isinstance(staged_root, Path) and staged_root.exists():
-        shutil.rmtree(staged_root)
-    if cleanup is not None and bool(getattr(cleanup, "alive", False)):
-        cleanup.detach()
+    shutil.rmtree(client._protein_workbench_staged_root)
+    client._protein_workbench_staged_cleanup.detach()
 
 
 def call_local_provider(
@@ -372,18 +365,15 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         )
         self._environment = environment
         self._resolved_client: Any | None = None
-        self._owned_local_client: Any | None = None
 
     def _client(self) -> Any:
         if self._resolved_client is not None:
             return self._resolved_client
         runtime = _trusted_local_runtime(self._environment)
         client = load_local_esm3_client(
-            self._environment,
+            runtime,
             model_name=self._model_name,
-            runtime=runtime,
         )
-        self._owned_local_client = client
         self._resolved_client = client
         return client
 
@@ -435,17 +425,16 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         traceback: object,
     ) -> None:
         del exception_type, traceback
-        client = self._owned_local_client
-        self._owned_local_client = None
+        client = self._resolved_client
         self._resolved_client = None
         if client is None:
             return
         try:
             release_local_esm3_client(client)
         except BaseException as cleanup_error:
-            if not isinstance(exception, BaseException):
+            if exception is None:
                 raise
-            exception.add_note(
+            cast(BaseException, exception).add_note(
                 "Local ESM-3 staged-weight cleanup also failed: "
                 f"{type(cleanup_error).__name__}"
             )
