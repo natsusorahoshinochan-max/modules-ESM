@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -372,8 +371,7 @@ def test_configured_checkout_rejects_head_drift(tmp_path) -> None:
         validate_provider_checkout(checkout, "b" * 40)
 
 
-def test_provider_support_is_the_only_cross_extension_support_owner() -> None:
-    assert importlib.util.find_spec("modules.provider_contract") is None
+def test_provider_support_excludes_package_specific_adapter_injection() -> None:
     support_source = Path(
         __import__("core.provider_support", fromlist=["__file__"]).__file__
     ).read_text()

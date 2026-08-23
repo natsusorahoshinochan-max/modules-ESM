@@ -8,9 +8,13 @@ from typing import Any
 
 import rfc8785
 
-from protein_workbench_public import PUBLIC_PROTOCOL_NAMESPACE, ProtocolValidationError
-from protein_workbench_public import artifact_content_disposition, load_bundle
-from protein_workbench_public import validate_schema
+from protein_workbench_public.protocol import (
+    PUBLIC_PROTOCOL_NAMESPACE,
+    ProtocolValidationError,
+    artifact_content_disposition,
+    load_bundle,
+    validate_schema,
+)
 
 
 def _require(condition: bool, path: str, message: str) -> None:

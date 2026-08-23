@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from core.execution.results import ProjectReplayIndex, ResultStore
+from core.execution.results.cache import ProjectReplayIndex
+from core.execution.results.store import ResultStore
 from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
 

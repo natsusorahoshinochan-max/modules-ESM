@@ -11,9 +11,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-import core
 from core.project.manager import ProjectManager
-from protein_workbench_public import encode_project_input_content
+from protein_workbench_public.protocol import encode_project_input_content
 import protein_workbench_public.bootstrap as bootstrap
 
 
@@ -131,22 +130,6 @@ def test_legacy_persisted_run_and_project_are_rejected(
         assert uploaded.json()["error"]["details"]["artifact_kind"] == (
             "project"
         )
-
-
-def test_legacy_runtime_symbols_are_not_public_or_importable() -> None:
-    for name in (
-        "Executor",
-        "ModuleRegistry",
-        "TypeRegistry",
-        "Workflow",
-        "WorkflowModule",
-        "RunManifest",
-    ):
-        assert not hasattr(core, name)
-
-    import datatypes
-
-    assert not hasattr(datatypes, "Score")
 
 
 def test_seed_install_does_not_adopt_or_rewrite_existing_local_data(

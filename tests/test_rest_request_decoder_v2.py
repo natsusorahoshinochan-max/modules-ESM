@@ -9,7 +9,7 @@ from urllib.parse import quote
 import pytest
 
 import protein_workbench_public.protocol as public_protocol
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     PreparedRestRequest,
     ProtocolValidationError,
     decode_rest_request,

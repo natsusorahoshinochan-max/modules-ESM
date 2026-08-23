@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from core.catalog.canonical import canonical_sha256
-from core.execution.output_admission import NodeOutputPlan, OutputPortPlan
+from core.execution.output_admission.admission import (
+    NodeOutputPlan,
+    OutputPortPlan,
+)
 from core.execution.output_admission.artifacts import (
     ArtifactOutputDeclaration,
 )

@@ -8,7 +8,7 @@ import pytest
 
 from core.catalog.builtins import builtin_frozen_catalog
 from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
-from core.execution.output_admission import admit_node_output
+from core.execution.output_admission.admission import admit_node_output
 from core.execution.output_admission.admission import (
     NodeOutputPlan,
     OutputPortPlan,
@@ -16,9 +16,11 @@ from core.execution.output_admission.admission import (
 from core.execution.output_admission.artifacts import (
     ArtifactOutputDeclaration,
 )
-from core.execution.results import (
+from core.execution.results.cache import (
     ProjectReplayIndex,
     ReplayIndexEntry,
+)
+from core.execution.results.store import (
     ResultIntegrityError,
     ResultStore,
 )

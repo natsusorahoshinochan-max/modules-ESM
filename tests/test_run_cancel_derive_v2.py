@@ -18,7 +18,7 @@ from core.operation import (
     BindingEnvironment,
     ReadinessResult,
 )
-from core.execution.results import ProjectReplayIndex, ReplayIndexEntry
+from core.execution.results.cache import ProjectReplayIndex, ReplayIndexEntry
 from core.project.objects import ProjectObjectStore
 from core.execution.node_attempt import (
     ExecutionTermination,

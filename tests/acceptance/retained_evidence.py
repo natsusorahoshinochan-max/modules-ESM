@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from protein_workbench_public import bundle_bytes
+from protein_workbench_public.protocol import bundle_bytes
 
 
 def _canonical_bytes(value: object) -> bytes:

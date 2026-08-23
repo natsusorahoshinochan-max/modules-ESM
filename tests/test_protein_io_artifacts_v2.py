@@ -36,7 +36,7 @@ from tests.support.application import create_application
 from core.project.objects import ProjectObjectStore
 from core.workflow.document import WorkflowEdge
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
-from protein_workbench_public import artifact_content_disposition
+from protein_workbench_public.protocol import artifact_content_disposition
 from tests.fixtures.protein_io_sources.package import (
     MODULE_PACKAGE as STRUCTURE_SOURCE_PACKAGE,
 )

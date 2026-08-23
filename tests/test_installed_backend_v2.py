@@ -23,7 +23,7 @@ import httpx
 import pytest
 
 from verification.acceptance_campaign import acceptance_tier
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     bundle_bytes,
     bundle_digest,
     prepare_run_event_stream_request,
@@ -148,7 +148,7 @@ import modules
 import pdbs
 import protein_workbench_public
 from core.catalog.builder import build_frozen_catalog
-from protein_workbench_public import bundle_bytes, bundle_digest
+from protein_workbench_public.protocol import bundle_bytes, bundle_digest
 from protein_workbench_public.bootstrap import module_registrations
 from protein_workbench_public.catalog_codec import encode_catalog_projection
 

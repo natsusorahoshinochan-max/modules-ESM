@@ -58,7 +58,7 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
-from protein_workbench_public import encode_project_input_content
+from protein_workbench_public.protocol import encode_project_input_content
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_canonical_bytes,

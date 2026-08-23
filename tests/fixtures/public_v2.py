@@ -10,7 +10,7 @@ from typing import Any
 from fastapi.testclient import TestClient
 from websockets.sync.client import connect
 
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     prepare_rest_request,
     prepare_run_event_stream_request,
 )

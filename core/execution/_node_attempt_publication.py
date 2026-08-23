@@ -23,8 +23,8 @@ from core.execution.ledger import (
     NodeTerminationPublication,
     StructuredError,
 )
-from core.execution.output_admission import AdmittedNodeOutput
-from core.execution.results import (
+from core.execution.output_admission.admission import AdmittedNodeOutput
+from core.execution.results.store import (
     ResultStore,
     ResultStoreWriteError,
     StoredNodeResult,

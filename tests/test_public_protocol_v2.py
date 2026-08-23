@@ -17,7 +17,7 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from tests.support.application import create_application
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     PUBLIC_PROTOCOL_NAMESPACE,
     PreparedEventStreamRequest,
     PreparedRestRequest,

@@ -13,7 +13,7 @@ from core.execution.ledger import (
     RunProjection,
     V2RunError,
 )
-from core.execution.results import ResultIntegrityError, ResultStore
+from core.execution.results.store import ResultIntegrityError, ResultStore
 
 
 class _RunQueries:

@@ -61,7 +61,7 @@ from tests.support.application import create_application
 from core.workflow.errors import WorkflowCompileError
 from core.workflow.document import WorkflowDocumentError
 from protein_workbench_public.workflow_codec import decode_workflow_document
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     validate_schema,
 )
 from tests.support.protocol import validate_event, validate_response

@@ -12,7 +12,8 @@ from core.catalog.model import FrozenCatalog
 from core.execution.environment import admit_environment_configuration
 from core.execution.ledger import LedgerStore
 from core.execution.node_attempt import NodeAttemptFactory
-from core.execution.results import ProjectReplayIndex, ResultStore
+from core.execution.results.cache import ProjectReplayIndex
+from core.execution.results.store import ResultStore
 from core.execution.runtime import V2RunService
 from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore

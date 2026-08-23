@@ -25,7 +25,7 @@ from tests.support.contract_test_kit import (
     verify_module_package_contract,
 )
 from tests.support.application import create_application
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     prepare_run_event_stream_request,
     prepare_rest_request,
 )

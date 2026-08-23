@@ -42,9 +42,9 @@ from core.execution.ledger import (
     V2RunError,
     run_timestamp,
 )
-from core.execution.output_admission import admit_node_output
+from core.execution.output_admission.admission import admit_node_output
 from core.execution.resources import RunResources
-from core.execution.results import ResultStore
+from core.execution.results.store import ResultStore
 from core.operation import (
     OperationCall,
     OperationContext,

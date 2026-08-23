@@ -43,7 +43,7 @@ from core.execution.ledger import (
 )
 from core.execution.node_attempt import AttemptSpec, NodeAttemptFactory
 from core.execution.output_admission.port_values import combine_admitted_port
-from core.execution.results import ResultStore
+from core.execution.results.store import ResultStore
 from core.operation import AdmittedPort
 from core.project.manager import ProjectManager
 from core.project.storage import StoragePathError

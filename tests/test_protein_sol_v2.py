@@ -464,7 +464,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         workflow.canonical_projection()
     ).selection_objectives == (objective,)
 
-    from protein_workbench_public import validate_schema
+    from protein_workbench_public.protocol import validate_schema
 
     validate_schema(
         "#/$defs/ObservationContextSelector",

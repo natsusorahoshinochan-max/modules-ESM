@@ -12,7 +12,7 @@ from core.execution.ledger import (
     PublishedArtifact,
     PublishedOutput,
 )
-from core.execution.output_admission import (
+from core.execution.output_admission.admission import (
     AdmittedNodeOutput,
     NodeOutputPlan,
     restore_node_output,

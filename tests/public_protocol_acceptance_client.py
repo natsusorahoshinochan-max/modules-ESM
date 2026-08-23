@@ -7,7 +7,7 @@ from typing import Any, Self
 
 import httpx
 
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     ProtocolValidationError,
     encode_project_input_content,
     prepare_rest_request,

@@ -42,7 +42,7 @@ from datatypes.observation import (
 from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
-from protein_workbench_public import artifact_content_disposition
+from protein_workbench_public.protocol import artifact_content_disposition
 from tests.fixtures.canonical_3gb1_v2 import (
     CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
     ControlledESM3Client,

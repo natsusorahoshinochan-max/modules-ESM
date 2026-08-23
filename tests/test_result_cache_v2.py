@@ -35,7 +35,7 @@ from core.execution.node_attempt import (
     result_contract_metadata,
     result_identity_descriptor,
 )
-from core.execution.results import ProjectReplayIndex
+from core.execution.results.cache import ProjectReplayIndex
 from tests.support.application import create_application
 from datatypes.candidate import (
     Candidate,

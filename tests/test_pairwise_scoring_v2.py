@@ -79,7 +79,7 @@ from datatypes.observation import (
 )
 from datatypes.sequence import ProteinSequence
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
-from protein_workbench_public import (
+from protein_workbench_public.protocol import (
     ProtocolValidationError,
     validate_schema,
 )
