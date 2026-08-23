@@ -38,7 +38,6 @@ from core.project.objects import (
     StoredObject,
 )
 from core.project.storage import StoragePathError
-from datatypes.i_json import freeze_i_json
 
 
 class ResultStoreWriteError(RuntimeError):
@@ -225,10 +224,9 @@ class ResultStore:
             published_artifacts.append(
                 self._published_artifact(admitted_output.node_id, node_artifact)
             )
-        metadata = freeze_i_json(result_contract_metadata)
         manifest = _NodeResultManifest(
             result_identity=admitted_output.result_identity,
-            result_contract_metadata=metadata,
+            result_contract_metadata=result_contract_metadata,
             outputs=tuple(node_outputs),
             artifacts=tuple(node_artifacts),
         )
@@ -331,11 +329,10 @@ class ResultStore:
     ) -> StoredNodeResult:
         """Restore one persisted result through the current exact Port codecs."""
         manifest = self._load_node_manifest(project_id, node_result_manifest)
-        expected_metadata = freeze_i_json(result_contract_metadata)
         if (
             manifest.result_identity != result_identity
             or canonical_json_bytes(manifest.result_contract_metadata)
-            != canonical_json_bytes(expected_metadata)
+            != canonical_json_bytes(result_contract_metadata)
         ):
             raise ResultIntegrityError(node_result_manifest.content_digest)
         declared_ports = node_plan.output_ports
