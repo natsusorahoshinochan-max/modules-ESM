@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import math
+from typing import Any
 
 from datatypes.observation import (
     PairwiseObservationContext,
@@ -10,6 +12,14 @@ from datatypes.observation import (
 )
 
 from .domain import StructureAlignmentEvidence
+
+
+def tm_score_identity(
+    value: Any,
+    _parameters: Mapping[str, Any],
+) -> float:
+    """Return an admitted TM-score on its declared utility scale."""
+    return float(value)
 
 
 def rmsd_from_evidence(evidence: StructureAlignmentEvidence) -> float:
@@ -45,11 +55,9 @@ def evidence_metric_context(
         normalization_length = (
             evidence.normalization.reference_axis_residue_count
         )
-    elif metric_kind == "rmsd":
+    else:
         normalization = "aligned-CA-mean-square-distance"
         normalization_length = evidence.normalization.aligned_atom_count
-    else:
-        raise ValueError("unknown structure-comparison evidence metric")
     return PairwiseObservationContext(
         subject=PairwiseParticipant(
             role="subject",
