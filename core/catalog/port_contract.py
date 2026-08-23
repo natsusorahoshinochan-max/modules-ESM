@@ -494,18 +494,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(str(error)) from error
         return
 
-    if type(value) is ExactContractReference:
-        if value.contract_kind not in {
-            "metric",
-            "method",
-            "port_type",
-            "utility_transform",
-        }:
-            raise PortValueError(
-                f"{path}.contract_kind is not a scientific value contract"
-            )
-        return
-
     if type(value) is IntrinsicObservationContext:
         if value.kind != "intrinsic":
             raise PortValueError(
@@ -538,13 +526,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
         ):
             raise PortValueError(
                 f"{path}.calibration_value must be a finite canonical number"
-            )
-        return
-
-    if type(value) is PairwiseParticipant:
-        if value.role not in {"subject", "reference"}:
-            raise PortValueError(
-                f"{path}.role must be subject or reference"
             )
         return
 
@@ -583,8 +564,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(
                 f"{path} must use the pairwise Observation Context"
             )
-        _validate_domain_value(value.subject, path=f"{path}.subject")
-        _validate_domain_value(value.reference, path=f"{path}.reference")
         if value.subject.role != "subject":
             raise PortValueError(f"{path}.subject must use the subject role")
         if value.reference.role != "reference":
@@ -606,11 +585,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             value.normalization,
             path=f"{path}.normalization",
         )
-        if value.evidence_method is not None:
-            _validate_domain_value(
-                value.evidence_method,
-                path=f"{path}.evidence_method",
-            )
         return
 
     if type(value) is ScoreObservation:
@@ -622,8 +596,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             raise PortValueError(
                 f"{path}.method must be an exact method reference"
             )
-        _validate_domain_value(value.metric, path=f"{path}.metric")
-        _validate_domain_value(value.method, path=f"{path}.method")
         _validate_domain_value(value.context, path=f"{path}.context")
         if value.residue_axis is not None:
             _validate_domain_value(

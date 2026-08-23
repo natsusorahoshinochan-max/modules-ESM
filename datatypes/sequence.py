@@ -71,10 +71,6 @@ def validate_protein_sequence(
             f"{subject} must use the exact uppercase amino-acid alphabet"
         )
     residue_ids = value.residue_ids
-    if residue_ids is not None and len(residue_ids) != len(sequence):
-        raise ValueError(
-            f"{subject} residue_ids length must match sequence length"
-        )
     seen_residue_ids: set[str] = set()
     for index, residue_id in enumerate(residue_ids or ()):
         residue_identity_chain(

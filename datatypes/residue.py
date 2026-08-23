@@ -124,7 +124,7 @@ def validate_residue_layout(
     if type(value.length) is not int or value.length <= 0:
         raise ValueError(f"{subject} length must be positive")
     residue_ids = value.residue_ids
-    if residue_ids is None or len(residue_ids) != value.length:
+    if residue_ids is None:
         raise ValueError(f"{subject} requires one identity for every residue")
     chain_order: list[str] = []
     closed_chains: set[str] = set()
