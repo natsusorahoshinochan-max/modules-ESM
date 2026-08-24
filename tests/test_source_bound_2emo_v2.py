@@ -59,6 +59,11 @@ from modules.structure_transform.domain import (
 )
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from tests.support.public_request import encode_project_input_content
+from tests.support.workflow_stress import (
+    StressRun,
+    emit_stress_report,
+    run_committed_workflow,
+)
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_canonical_bytes,
@@ -885,6 +890,38 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
                         **(acceptance_inputs | gap)
                     )
 
+        replay = run_committed_workflow(
+            client,
+            project_id,
+            committed.json()["workflow_commit_id"],
+            request_id=f"provider-free-2emo-replay-{expected_passing}",
+        )
+        assert replay.projection["status"] == "succeeded"
+        replay_dispositions = {
+            item["node_id"]: item["resolution"]
+            for item in replay.projection["node_dispositions"]
+        }
+        assert replay_dispositions["import-input"] == "executed"
+        assert replay_dispositions["design-sequences"] == "cache_replayed"
+        assert replay_dispositions["fold-esmfold2"] == "executed"
+        emit_stress_report(
+            "fixed_backbone_design_2emo",
+            runs={
+                "first": StressRun(
+                    committed.json()["workflow_commit_id"],
+                    projection,
+                    tuple(events),
+                ),
+                "replay": replay,
+            },
+            cardinalities={
+                "structure_parents": 1,
+                "designed_sequences": 8,
+                "folded_structures": 8,
+                "passing_candidates": expected_passing,
+            },
+        )
+
     assert len(proteinmpnn.requests) == 1
     request = proteinmpnn.requests[0]
     assert request.target_length == 224
@@ -902,7 +939,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     assert request.fixed_position_dict == {
         "target": {"A": [int(item.split(":")[1]) - 5 for item in FIXED_IDS]}
     }
-    assert len(folding.calls) == 8
+    assert len(folding.calls) == 16
     assert {model_name for _, model_name, _ in folding.calls} == {
         REMOTE_ESMFOLD2_MODEL
     }

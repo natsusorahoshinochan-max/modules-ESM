@@ -35,6 +35,7 @@ are ordinary local verification output.
 | --- | --- | --- |
 | Routine backend regression | `.venv/bin/python -m verification.backend routine` | Runs deterministic current-generation tests and excludes acceptance, installed-package, Provider, slow-model, and scientific-reproduction markers. |
 | Repository v2 examples | `.venv/bin/python -m verification.backend examples-v2` | Commits and compiles the maintained current-generation Workflow suite and compares its 12-package capability inventory with the active source Catalog. |
+| Task-shaped Workflow stress | `.venv/bin/python -m verification.backend workflow-stress` | Executes seven task-shaped scenarios through the public v2 protocol: source-bound three-way comparison, fixed-backbone design, function-conditioned Prompt generation, loop insertion, 2×2×2 multi-parent design/folding, all six Selection operations with a legal zero-pass result, and Provider-backed downstream-only Commit invalidation. Every scenario performs a second Run according to each Binding's declared Cache policy and emits a compact cardinality, disposition, Engine Invocation, and oracle report. |
 | Deterministic backend acceptance | `.venv/bin/python -m verification.backend deterministic-acceptance` | Runs the locked canonical v2 3GB1 public-protocol journey and its current failure, readiness, cancellation, isolation, and replay variants. |
 | Scientific reproduction | `.venv/bin/python -m verification.backend scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
 | Local ESMFold2 source contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
@@ -54,6 +55,12 @@ are ordinary local verification output.
 | Fresh source-bound 2EMO | `.venv/bin/python -m verification.backend fresh-2emo` | Runs the installed 2EMO Workflow and retains exact CSH normalization, ProteinMPNN, ESMFold2, Protein-Sol, four-filter, and public evidence. |
 | Fresh canonical 3GB1 | `.venv/bin/python -m verification.backend fresh-canonical-3gb1` | Runs the canonical scientific Workflow without historical Cache. Its four Provider stages require exactly 20 ESM-3 paired-generation calls, 10 preliminary folds, 3 ProteinMPNN parent-design calls, and 15 final folds, alongside the Workflow's valid local invocations. It is release evidence rather than a substitute for the smaller exact-Binding gates. |
 | Fresh source-bound 5G53 | `.venv/bin/python -m verification.backend fresh-5g53` | Runs the installed 5G53 Workflow and retains all six paired candidates, reconstruction, both PAE-bearing confidence collections, loop evidence, retrieval, and artifacts. |
+
+The locked stress documents live in `tests/fixtures/workflow_stress/`. After
+an intentional contract or scenario change, regenerate them with
+`.venv/bin/python -m tests.support.generate_workflow_stress_fixtures`; the
+stress suite independently verifies every stored Contract Lock.
+
 All fifteen Acceptance Campaign tiers are zero-skip gates: a missing Provider,
 fixture-only collection, missing Engine Invocation,
 or skipped test fails the gate. The copied acceptance harness is outside the

@@ -99,6 +99,30 @@ TIERS = {
         "-m",
         "deterministic_acceptance",
     )),
+    "workflow-stress": Tier((
+        (
+            "tests/test_source_bound_1pga_v2.py::"
+            "test_source_bound_1pga_public_journey_closes_complete_evidence"
+        ),
+        (
+            "tests/test_source_bound_2emo_v2.py::"
+            "test_source_bound_2emo_public_journey_closes_exact_evidence"
+        ),
+        (
+            "tests/test_source_bound_5g53_v2.py::"
+            "test_source_bound_5g53_public_journey_closes_large_scientific_evidence"
+        ),
+        "tests/test_workflow_stress_v2.py",
+        (
+            "tests/test_collection_ops_v2.py::"
+            "test_public_pairing_uses_common_parent_not_collection_order"
+        ),
+        (
+            "tests/test_collection_ops_v2.py::"
+            "test_public_score_merge_preserves_observation_identity_and_partitions"
+        ),
+        "-s",
+    ), timeout_seconds=10 * 60),
     "scientific-repro": Tier((
         (
             "tests/test_esm3_v2.py::"
