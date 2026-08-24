@@ -16,6 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY_VERIFICATION_TIERS = (
     "routine",
     "examples-v2",
+    "workflow-stress",
     "deterministic-acceptance",
     "scientific-repro",
     "local-esmfold2-v2-contract",

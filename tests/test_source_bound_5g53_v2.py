@@ -45,6 +45,11 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from tests.support.public_request import encode_project_input_content
+from tests.support.workflow_stress import (
+    StressRun,
+    emit_stress_report,
+    run_committed_workflow,
+)
 from tests.fixtures.canonical_3gb1_v2 import (
     ControlledESMResponse,
     ControlledFoldingClient,
@@ -770,5 +775,51 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 artifact["content_digest"].removeprefix("sha256:")
             )
 
-    assert len(esm3.sequence_prompts) == len(esm3.structure_prompts) == 6
-    assert len(folding.calls) == 6
+        replay = run_committed_workflow(
+            client,
+            project_id,
+            committed.json()["workflow_commit_id"],
+            request_id="provider-free-5g53-large-values-replay",
+            timeout_seconds=180,
+        )
+        assert replay.projection["status"] == "succeeded"
+        replay_dispositions = {
+            item["node_id"]: item["resolution"]
+            for item in replay.projection["node_dispositions"]
+        }
+        assert {
+            replay_dispositions[node_id]
+            for node_id in (
+                "select-chain-a",
+                "resolve-reference",
+                "project-reference-axis",
+                "author-base-prompt",
+            )
+        } == {"cache_replayed"}
+        assert replay_dispositions["import-input"] == "executed"
+        assert all(
+            replay_dispositions[f"generate-{branch}"] == "executed"
+            and replay_dispositions[f"fold-{branch}"] == "executed"
+            for branch, _, _ in BRANCHES
+        )
+        emit_stress_report(
+            "multi_length_loop_insertion_5g53",
+            runs={
+                "first": StressRun(
+                    committed.json()["workflow_commit_id"],
+                    projection,
+                    tuple(events),
+                ),
+                "replay": replay,
+            },
+            cardinalities={
+                "length_branches": 3,
+                "generated_sequences": 6,
+                "generated_counterparts": 6,
+                "folded_structures": 6,
+                "passing_candidates": 0,
+            },
+        )
+
+    assert len(esm3.sequence_prompts) == len(esm3.structure_prompts) == 12
+    assert len(folding.calls) == 12

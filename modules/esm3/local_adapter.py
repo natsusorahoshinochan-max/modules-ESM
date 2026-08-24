@@ -17,6 +17,7 @@ import weakref
 from core.operation import (
     OperationResources,
     ReadinessResult,
+    retain_secondary_cleanup_exception,
 )
 from core.provider_support import (
     ProviderInstallationUnavailable,
@@ -229,8 +230,11 @@ def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
             )
             shutil.copyfile(source, destination)
         return staged_root
-    except BaseException:
-        shutil.rmtree(staged_root)
+    except BaseException as error:
+        try:
+            shutil.rmtree(staged_root)
+        except BaseException as cleanup_error:
+            retain_secondary_cleanup_exception(error, cleanup_error)
         raise
 
 
@@ -289,8 +293,11 @@ def load_local_esm3_client(
             staged_root,
         )
         return client
-    except BaseException:
-        shutil.rmtree(staged_root)
+    except BaseException as error:
+        try:
+            shutil.rmtree(staged_root)
+        except BaseException as cleanup_error:
+            retain_secondary_cleanup_exception(error, cleanup_error)
         raise
 
 
@@ -406,22 +413,31 @@ class LocalESM3Adapter(_BaseESM3Adapter):
         exception: object,
         traceback: object,
     ) -> None:
+        primary = (
+            cast(BaseException, exception)
+            if exception is not None
+            else None
+        )
         try:
             client = self._resolved_client
             self._resolved_client = None
             if client is not None:
-                try:
-                    release_local_esm3_client(client)
-                except BaseException as cleanup_error:
-                    if exception is None:
-                        raise
-                    cast(BaseException, exception).add_note(
-                        "Local ESM-3 staged-weight cleanup also failed: "
-                        f"{type(cleanup_error).__name__}"
-                    )
-        finally:
+                release_local_esm3_client(client)
+        except BaseException as cleanup_error:
+            if primary is None:
+                primary = cleanup_error
+            else:
+                retain_secondary_cleanup_exception(primary, cleanup_error)
+        try:
             self._provider_lifecycle.__exit__(
                 exception_type,
                 exception,
                 traceback,
             )
+        except BaseException as cleanup_error:
+            if primary is None:
+                primary = cleanup_error
+            else:
+                retain_secondary_cleanup_exception(primary, cleanup_error)
+        if exception is None and primary is not None:
+            raise primary

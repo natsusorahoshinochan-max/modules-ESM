@@ -8,7 +8,7 @@ from contextlib import suppress
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import Response
 
 from core.execution.ledger import V2RunError
 from core.execution.runtime import V2RunService
@@ -29,8 +29,13 @@ from protein_workbench_public.http.errors import (
     public_rest_wire_sources,
     websocket_internal_error_boundary,
 )
+from protein_workbench_public.http.emission import (
+    emit_rest_json_success,
+    emit_run_event_stream_message,
+)
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
+    admit_binary_response_metadata,
     artifact_content_disposition,
     decode_rest_request,
     decode_run_event_stream_request,
@@ -77,7 +82,7 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        return JSONResponse(status_code=202, content=receipt)
+        return emit_rest_json_success("start_run", receipt)
 
     @app.post(
         rest_operations["cancel_run"]["route"],
@@ -122,7 +127,7 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        return receipt
+        return emit_rest_json_success("cancel_run", receipt)
 
     @app.post(
         rest_operations["start_derived_run"]["route"],
@@ -160,7 +165,7 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        return JSONResponse(status_code=202, content=receipt)
+        return emit_rest_json_success("start_derived_run", receipt)
 
     @app.get(
         rest_operations["run_projection"]["route"],
@@ -184,11 +189,9 @@ def register_run_routes(
                 query_parameters=query_parameters,
                 json_body=json_body,
             )
-            projection = encode_run_projection(
-                runtime.projection(
-                    admitted["project_id"],
-                    admitted["run_id"],
-                )
+            domain_projection = runtime.projection(
+                admitted["project_id"],
+                admitted["run_id"],
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error)
@@ -198,7 +201,8 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        return projection
+        projection = encode_run_projection(domain_projection)
+        return emit_rest_json_success("run_projection", projection)
 
     @app.get(
         rest_operations["typed_value_retrieval"]["route"],
@@ -243,6 +247,10 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
+        status, metadata = admit_binary_response_metadata(
+            "typed_value_retrieval",
+            metadata,
+        )
         typed_value = metadata["typed_value"]
         headers = {
             "Content-Length": str(typed_value["size"]),
@@ -268,7 +276,12 @@ def register_run_routes(
                 "value_manifest_reference"
             ],
         }
-        return Response(content=body, media_type=None, headers=headers)
+        return Response(
+            content=body,
+            status_code=status,
+            media_type=None,
+            headers=headers,
+        )
 
     @app.get(
         rest_operations["artifact_retrieval"]["route"],
@@ -307,17 +320,26 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        content_disposition = artifact_content_disposition(
-            artifact["filename"]
+        metadata = {
+            "artifact": artifact,
+            "content_disposition": artifact_content_disposition(
+                artifact["filename"]
+            ),
+        }
+        status, metadata = admit_binary_response_metadata(
+            "artifact_retrieval",
+            metadata,
         )
+        artifact = metadata["artifact"]
         headers = {
-            "Content-Disposition": content_disposition,
+            "Content-Disposition": metadata["content_disposition"],
             "Content-Length": str(artifact["size"]),
             "Content-Type": artifact["media_type"],
             "Digest": artifact["content_digest"],
         }
         return Response(
             content=body,
+            status_code=status,
             media_type=None,
             headers=headers,
         )
@@ -333,6 +355,7 @@ def register_run_routes(
     ) -> None:
         await websocket.accept()
         after_sequence: str | None = None
+        request_admitted = False
         try:
             query_parameters: dict[str, str] = {}
             for name, value in websocket.query_params.multi_items():
@@ -353,6 +376,7 @@ def register_run_routes(
             project_id = admitted["project_id"]
             run_id = admitted["run_id"]
             after_sequence = admitted.get("after_sequence")
+            request_admitted = True
             replay = runtime.replay(
                 project_id,
                 run_id,
@@ -380,14 +404,14 @@ def register_run_routes(
                     ),
                 },
             }
-            await websocket.send_json(replay_started)
+            await emit_run_event_stream_message(websocket, replay_started)
             for fact in replay.events:
                 event = encode_event(
                     project_id=project_id,
                     run_id=run_id,
                     fact=fact,
                 )
-                await websocket.send_json(event)
+                await emit_run_event_stream_message(websocket, event)
             replay_complete = {
                 "schema_namespace": "protein-workbench-public/v2",
                 "project_id": project_id,
@@ -400,7 +424,7 @@ def register_run_routes(
                     "live_from_cursor": replay_through_cursor,
                 },
             }
-            await websocket.send_json(replay_complete)
+            await emit_run_event_stream_message(websocket, replay_complete)
             live_after_sequence = replay_through_sequence
             while not terminal:
                 live_events, observed_sequence, terminal = await asyncio.to_thread(
@@ -416,10 +440,12 @@ def register_run_routes(
                         run_id=run_id,
                         fact=fact,
                     )
-                    await websocket.send_json(event)
+                    await emit_run_event_stream_message(websocket, event)
                 live_after_sequence = observed_sequence
             await websocket.close(code=1000)
         except (ProtocolValidationError, V2RunError) as error:
+            if isinstance(error, ProtocolValidationError) and request_admitted:
+                raise
             if isinstance(error, V2RunError):
                 code = error.code
                 message = str(error)
@@ -447,5 +473,5 @@ def register_run_routes(
                     }
             _, payload = public_error_payload(code, message, details)
             with suppress(RuntimeError, WebSocketDisconnect):
-                await websocket.send_json(payload)
+                await emit_run_event_stream_message(websocket, payload)
             await websocket.close(code=1008)

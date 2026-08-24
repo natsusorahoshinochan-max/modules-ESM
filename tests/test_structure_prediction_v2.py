@@ -24,8 +24,8 @@ from datatypes.candidate import (
 from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
-    validate_canonical_identifier,
 )
+from datatypes.identifier import validate_canonical_identifier
 from datatypes.residue import ResidueLayout
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure

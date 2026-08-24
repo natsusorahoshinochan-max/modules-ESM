@@ -55,6 +55,7 @@ class _DerivedRunStarter:
         """Start a new Run from one immutable terminal source reference."""
         source = self._registry.require_record(project_id, source_run_id)
         source_projection = source.ledger.projection()
+        source.require_lifecycle_evidence()
         terminal_sequence = source_projection.terminal_sequence
         if terminal_sequence is None:
             raise V2RunError(

@@ -326,6 +326,69 @@ def _rest_operation(operation_id: str) -> dict[str, Any]:
     return operation
 
 
+def admit_rest_success_payload(
+    operation_id: str,
+    payload: Any,
+) -> tuple[int, Any]:
+    """Admit one declared REST JSON success payload immediately before use."""
+    response = _rest_operation(operation_id)["response"]
+    validate_schema(response["schema"], payload)
+    return response["success_status"], payload
+
+
+def admit_run_event_stream_message(payload: Any) -> Any:
+    """Admit one complete Run Event Stream frame immediately before use."""
+    stream = _source_bundle()["run_event_stream"]
+    validate_schema(stream["message_schema"], payload)
+    return payload
+
+
+def project_structured_error(
+    code: str,
+    message: str,
+    details: Mapping[str, Any],
+    correlation_id: str,
+) -> tuple[int, dict[str, Any]]:
+    """Project one public Structured Error through its vocabulary entry."""
+    errors = _source_bundle()["structured_errors"]
+    definition = errors["vocabulary"][code]
+    projected_details = dict(details)
+    validate_schema(definition["details_schema"], projected_details)
+    details_size = len(rfc8785.dumps(projected_details))
+    if details_size > errors["details_max_bytes"]:
+        raise ProtocolValidationError(
+            "$.details",
+            (
+                "must be at most "
+                f"{errors['details_max_bytes']} canonical bytes"
+            ),
+        )
+    return definition["http_status"], {
+        "code": code,
+        "message": message,
+        "retryable": definition["retryable"],
+        "correlation_id": correlation_id,
+        "details": projected_details,
+    }
+
+
+def admit_structured_error_envelope(payload: Any) -> Any:
+    """Admit one standalone REST Structured Error envelope."""
+    errors = _source_bundle()["structured_errors"]
+    validate_schema(errors["envelope_schema"], payload)
+    return payload
+
+
+def admit_binary_response_metadata(
+    operation_id: str,
+    metadata: Any,
+) -> tuple[int, Any]:
+    """Admit one declared binary response metadata value."""
+    response = _rest_operation(operation_id)["response"]
+    validate_schema(response["metadata_schema"], metadata)
+    return response["success_status"], metadata
+
+
 def decode_rest_request(
     operation_id: str,
     *,

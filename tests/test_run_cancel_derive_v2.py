@@ -169,7 +169,7 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
             committed,
             "unacknowledged-conclusion",
         )
-        assert store.conclusion_published.is_set()
+        assert store.conclusion_published.wait(timeout=2)
         store.release_acknowledgement.set()
         app.state.run_runtime.shutdown()
 

@@ -127,7 +127,11 @@ _METRIC_VERSIONS = {
 
 
 def _remote_ready(check_input: BindingEnvironment) -> ReadinessResult:
-    return ReadinessResult(remote_readiness(check_input.values))
+    passing = remote_readiness(check_input.values)
+    return ReadinessResult(
+        passing,
+        reason_code=(None if passing else "remote_runtime_unavailable"),
+    )
 
 
 def _local_ready(check_input: BindingEnvironment) -> ReadinessResult:

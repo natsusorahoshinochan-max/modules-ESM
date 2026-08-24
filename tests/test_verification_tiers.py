@@ -82,6 +82,7 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
         "local-esmfold2-v2-contract",
         "routine",
         "scientific-repro",
+        "workflow-stress",
     }
     for tier in TIERS.values():
         for argument in tier.pytest_arguments:
@@ -95,6 +96,7 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
 def test_repository_verification_uses_one_profile_backed_serial_matrix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    assert "workflow-stress" in REPOSITORY_VERIFICATION_TIERS
     configuration = {
         name: f"/profile/{name.lower()}"
         for tier in CANONICAL_ACCEPTANCE_TIERS
@@ -236,6 +238,24 @@ def test_local_esmfold2_contract_tier_selects_current_translation_test() -> None
         test_folding_v2,
         "test_native_plddt_is_statically_scaled_and_projects_protein_tokens",
     )
+
+
+def test_workflow_stress_tier_includes_nonpositional_association_probes() -> None:
+    targets = TIERS["workflow-stress"].pytest_arguments
+    assert "tests/test_workflow_stress_v2.py" in targets
+    assert (
+        "tests/test_canonical_3gb1_v2.py::"
+        "test_canonical_v2_public_protocol_reproduces_scientific_intent"
+    ) not in targets
+    assert "-s" in targets
+    assert (
+        "tests/test_collection_ops_v2.py::"
+        "test_public_pairing_uses_common_parent_not_collection_order"
+    ) in targets
+    assert (
+        "tests/test_collection_ops_v2.py::"
+        "test_public_score_merge_preserves_observation_identity_and_partitions"
+    ) in targets
 
 
 def test_installed_provider_case_matrix_is_exact_and_collectable() -> None:

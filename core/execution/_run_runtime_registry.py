@@ -76,7 +76,7 @@ class _RunRegistry:
         ledger.reconcile_restart()
         record = _RunRecord(compiled=None, ledger=ledger)
         if ledger.terminal:
-            record.finished.set()
+            record.mark_worker_completed()
         self.register(project_id, run_id, record)
 
     def register(

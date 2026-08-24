@@ -888,6 +888,13 @@
     "ExceptionErrorDetails": {
       "additionalProperties": false,
       "properties": {
+        "cleanup_exception_types": {
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
         "exception_type": {
           "$ref": "#/$defs/Identifier"
         }

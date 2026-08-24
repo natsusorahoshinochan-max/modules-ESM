@@ -15,8 +15,8 @@ from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
     ResidueAxisReference,
-    validate_canonical_identifier,
 )
+from datatypes.identifier import validate_canonical_identifier
 from datatypes.i_json import thaw_i_json
 from datatypes.residue import ResidueLayout, validate_residue_layout
 from datatypes.sequence import ProteinSequence, validate_protein_sequence

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from core.execution.ledger import V2RunError
 from core.workflow.authoring import WorkflowAuthoringError
 from core.workflow.document import WorkflowEdge
 from datatypes.residue import ResidueTrack
@@ -147,18 +148,16 @@ def test_random_mask_rejects_impossible_counts_and_positions(
     tmp_path: Path,
     parameters: dict[str, object],
 ) -> None:
-    _, _, projection, _ = run_operation(
-        tmp_path,
-        operation="random_mask",
-        node_parameters=parameters,
-        source_edges=_SOURCE_EDGE,
-    )
+    with pytest.raises(V2RunError) as unavailable:
+        run_operation(
+            tmp_path,
+            operation="random_mask",
+            node_parameters=parameters,
+            source_edges=_SOURCE_EDGE,
+        )
 
-    assert projection["status"] == "failed"
-    assert not any(
-        output["node_id"] == "author"
-        for output in projection["outputs"]
-    )
+    assert unavailable.value.code == "evidence_unavailable"
+    assert isinstance(unavailable.value.__cause__, ValueError)
 
 
 def test_duplicate_mask_positions_fail_during_authoring(

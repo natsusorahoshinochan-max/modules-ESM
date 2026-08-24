@@ -42,7 +42,6 @@ from core.execution.ledger import (
     run_timestamp,
 )
 from core.execution.node_attempt import AttemptSpec, NodeAttemptFactory
-from core.execution.output_admission.port_values import combine_admitted_port
 from core.execution.results.store import ResultStore
 from core.operation import AdmittedPort
 from core.project.manager import ProjectManager
@@ -53,10 +52,6 @@ from core.workflow.authoring import (
     WorkflowAuthoringService,
 )
 from core.workflow.plan import ExecutionPlanNode
-
-
-FAST_RUN_COMPLETION_GRACE_SECONDS = 0.25
-
 
 class V2RunService:
     """Execute compiled direct Nodes behind readiness and durable evidence."""
@@ -151,37 +146,6 @@ class V2RunService:
                 continue
             blockers.update(reference.node_id for reference in sources)
         return tuple(sorted(blockers))
-
-    @staticmethod
-    def _admitted_inputs_for(
-        node: ExecutionPlanNode,
-        values: Mapping[tuple[str, str], AdmittedPort],
-    ) -> Mapping[str, AdmittedPort]:
-        """Combine already-admitted upstream values for one planned Node."""
-        admitted_inputs: dict[str, list[Any]] = {}
-        for port_name, sources in node._runtime.input_sources.items():
-            for source_reference in sources:
-                source = values.get(
-                    (
-                        source_reference.node_id,
-                        source_reference.output_port,
-                    )
-                )
-                if source is None or not source.values:
-                    continue
-                admitted_inputs.setdefault(port_name, []).extend(source.values)
-
-        inputs: dict[str, AdmittedPort] = {}
-        for port_name, admitted in admitted_inputs.items():
-            declaration = node._runtime.input_ports[port_name]
-            inputs[port_name] = combine_admitted_port(
-                port_type=_exact_contract_reference(
-                    declaration.reference
-                ),
-                multiplicity=declaration.multiplicity,
-                values=tuple(admitted),
-            )
-        return inputs
 
     def start(
         self,
@@ -373,10 +337,7 @@ class V2RunService:
                     candidate_data_port_types=(
                         plan._runtime.candidate_data_port_types
                     ),
-                    admitted_inputs=self._admitted_inputs_for(
-                        node,
-                        committed_values,
-                    ),
+                    committed_values=committed_values,
                     cancellation=record.cancellation,
                     cache_bypassed=node.node_id in _cache_bypass_nodes,
                 )
@@ -407,7 +368,7 @@ class V2RunService:
                     ),
                 )
         ledger.record(RunClosure(selection_conclusions))
-        record.finished.set()
+        record.mark_worker_completed()
         return receipt
 
     def start_background(
@@ -457,8 +418,7 @@ class V2RunService:
             except BaseException as caught:
                 error = caught
                 if record is not None:
-                    record.execution_error = caught
-                    record.finished.set()
+                    record.mark_worker_completed(caught)
             finally:
                 if execution_slot_acquired:
                     self._execution_lock.release()
@@ -477,13 +437,6 @@ class V2RunService:
         admitted.wait()
         if receipt is None:
             raise cast(BaseException, error)
-        admitted_record = cast(_RunRecord, record)
-        admitted_record.finished.wait(FAST_RUN_COMPLETION_GRACE_SECONDS)
-        if (
-            admitted_record.finished.is_set()
-            and admitted_record.execution_error is not None
-        ):
-            raise admitted_record.execution_error
         return receipt
 
     def start_derived_background(
@@ -512,6 +465,7 @@ class V2RunService:
     ) -> CancellationDecision:
         """Persist cancellation before signalling active work."""
         record = self._registry.require_record(project_id, run_id)
+        record.require_lifecycle_evidence()
         decision = record.ledger.request_cancellation(after_cursor)
         if decision.outcome in {
             "cancellation_requested",

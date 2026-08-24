@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 import math
+from types import MappingProxyType
 from typing import Any, TypeAlias
 
-from core.parameters.model import AdmittedParameterValues
 from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
@@ -144,12 +144,36 @@ class SelectionObjective:
         frozen_parameters = freeze_i_json(self.utility_parameters)
         object.__setattr__(self, "utility_parameters", frozen_parameters)
 
+
+@dataclass(frozen=True, slots=True)
+class UtilityParameterFacts(Mapping[str, Any]):
+    """Compiler-resolved snapshot of already-admitted Utility parameters."""
+
+    _values: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "_values",
+            MappingProxyType(dict(self._values)),
+        )
+
+    def __getitem__(self, name: str) -> Any:
+        return self._values[name]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedUtilityTransform:
     """One compiler-resolved exact Utility Transform and admitted parameters."""
 
     reference: ExactContractReference
-    parameters: AdmittedParameterValues
+    parameters: UtilityParameterFacts
     apply: Callable[[Any, Mapping[str, Any]], Any] = field(
         repr=False,
         compare=False,
@@ -201,7 +225,7 @@ class SelectionObjectiveProvenance:
     method: ExactContractReference
     context_selector: ContextSelector
     utility_transform: ExactContractReference
-    utility_parameters: AdmittedParameterValues
+    utility_parameters: UtilityParameterFacts
     declared_weight: float
     effective_weight: float
     match_cardinality: str
@@ -241,7 +265,7 @@ class SelectionObjectiveIdentityFacts:
     method: ExactContractReference
     context_selector: ContextSelector
     utility_transform: ExactContractReference
-    utility_parameters: AdmittedParameterValues
+    utility_parameters: UtilityParameterFacts
     declared_weight: float
     effective_weight: float
     match_cardinality: str

@@ -30,7 +30,9 @@ class _RunQueries:
 
     def projection(self, project_id: str, run_id: str) -> RunProjection:
         record = self._registry.require_record(project_id, run_id)
-        return record.ledger.projection()
+        projection = record.ledger.projection()
+        record.require_lifecycle_evidence()
+        return projection
 
     @staticmethod
     def _typed_value_integrity_error(
@@ -188,7 +190,9 @@ class _RunQueries:
         cursor: RunCursor | None,
     ) -> ReplayWindow:
         record = self._registry.require_record(project_id, run_id)
-        return record.ledger.replay(cursor)
+        replay = record.ledger.replay(cursor)
+        record.require_lifecycle_evidence()
+        return replay
 
     def wait_for_events(
         self,
@@ -199,7 +203,9 @@ class _RunQueries:
         timeout_seconds: float = 1.0,
     ) -> tuple[tuple[Fact, ...], int, bool]:
         record = self._registry.require_record(project_id, run_id)
-        return record.ledger.wait_for_events(
+        result = record.ledger.wait_for_events(
             after_sequence,
             timeout_seconds=timeout_seconds,
         )
+        record.require_lifecycle_evidence()
+        return result

@@ -30,6 +30,31 @@ if TYPE_CHECKING:
 
 
 PortMultiplicity = Literal["one", "many"]
+_CLEANUP_EXCEPTION_TYPES_ATTRIBUTE = (
+    "_protein_workbench_cleanup_exception_types"
+)
+
+
+def retain_secondary_cleanup_exception(
+    primary: BaseException,
+    cleanup: BaseException,
+) -> None:
+    """Attach one ordered cleanup exception type to the primary exception."""
+    if cleanup is primary:
+        return
+    retained = getattr(primary, _CLEANUP_EXCEPTION_TYPES_ATTRIBUTE, ())
+    setattr(
+        primary,
+        _CLEANUP_EXCEPTION_TYPES_ATTRIBUTE,
+        (*retained, type(cleanup).__name__),
+    )
+
+
+def secondary_cleanup_exception_types(
+    error: BaseException,
+) -> tuple[str, ...]:
+    """Return ordered cleanup causality retained on one primary exception."""
+    return getattr(error, _CLEANUP_EXCEPTION_TYPES_ATTRIBUTE, ())
 
 
 @dataclass(frozen=True, slots=True)

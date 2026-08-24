@@ -2051,12 +2051,11 @@ def test_run_closure_failure_publishes_neither_selection_nor_run_terminal(
         "unavailable selection closure",
     )
 
-    with TestClient(
-        create_application(
-            frozen_catalog_override=catalog,
-            ledger_transaction_store=_FailRunClosureStore(),
-        )
-    ) as client:
+    app = create_application(
+        frozen_catalog_override=catalog,
+        ledger_transaction_store=_FailRunClosureStore(),
+    )
+    with TestClient(app) as client:
         committed = _commit_public_workflow(client, project_id, workflow)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
@@ -2065,9 +2064,14 @@ def test_run_closure_failure_publishes_neither_selection_nor_run_terminal(
                 "client_request_id": "unavailable-selection-closure",
             },
         )
+        assert started.status_code == 202
+        app.state.run_runtime.shutdown()
+        unavailable = client.get(
+            f"/api/v2/projects/{project_id}/runs/{started.json()['run_id']}"
+        )
 
-    assert started.status_code == 503
-    assert started.json()["error"]["code"] == "evidence_unavailable"
+    assert unavailable.status_code == 503
+    assert unavailable.json()["error"]["code"] == "evidence_unavailable"
     durable_facts = [
         fact
         for path in sorted(roots["RUN"].rglob("ledger/*.json"))

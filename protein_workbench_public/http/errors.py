@@ -20,10 +20,14 @@ from core.workflow.authoring import (
     WorkflowAuthoringError,
 )
 from core.workflow.document import WorkflowDocumentError
+from protein_workbench_public.http.emission import (
+    emit_run_event_stream_message,
+)
 from protein_workbench_public.protocol import (
     REST_BODY_ABSENT,
     ProtocolValidationError,
-    load_bundle,
+    admit_structured_error_envelope,
+    project_structured_error,
 )
 
 
@@ -35,18 +39,16 @@ def public_error_payload(
     message: str,
     details: Mapping[str, Any],
 ) -> tuple[int, dict[str, Any]]:
-    definition = load_bundle()["structured_errors"]["vocabulary"][code]
+    status, error = project_structured_error(
+        code,
+        message,
+        details,
+        f"error-{uuid.uuid4().hex}",
+    )
     payload = {
         "schema_namespace": "protein-workbench-public/v2",
-        "error": {
-            "code": code,
-            "message": message,
-            "retryable": definition["retryable"],
-            "correlation_id": f"error-{uuid.uuid4().hex}",
-            "details": dict(details),
-        },
+        "error": error,
     }
-    status = definition["http_status"]
     return status, payload
 
 
@@ -56,7 +58,8 @@ def public_error_response(
     details: Mapping[str, Any],
 ) -> JSONResponse:
     status, payload = public_error_payload(code, message, details)
-    return JSONResponse(status_code=status, content=payload)
+    admitted = admit_structured_error_envelope(payload)
+    return JSONResponse(status_code=status, content=admitted)
 
 
 def report_public_internal_error(
@@ -231,7 +234,7 @@ def websocket_internal_error_boundary(
                 {"incident_id": incident_id},
             )
             try:
-                await websocket.send_json(payload)
+                await emit_run_event_stream_message(websocket, payload)
             except (RuntimeError, WebSocketDisconnect):
                 pass
             await websocket.close(code=1011)

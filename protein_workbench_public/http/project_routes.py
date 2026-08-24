@@ -8,7 +8,6 @@ from typing import Any
 import uuid
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 
 from core.project.manager import (
     PROJECT_SCHEMA_VERSION,
@@ -20,6 +19,7 @@ from protein_workbench_public.http.errors import (
     public_error_response,
     public_rest_wire_sources,
 )
+from protein_workbench_public.http.emission import emit_rest_json_success
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
     decode_rest_request,
@@ -55,8 +55,7 @@ def register_project_routes(
             "modified_at": meta.modified_at,
             "seed": meta.seed,
         }
-        status = create_project_operation["response"]["success_status"]
-        return JSONResponse(status_code=status, content=payload)
+        return emit_rest_json_success("create_project", payload)
 
     publish_input_operation = rest_operations["publish_project_input"]
 
@@ -120,8 +119,7 @@ def register_project_routes(
             "size": published.size,
             "content_digest": published.content_digest,
         }
-        status = publish_input_operation["response"]["success_status"]
-        return JSONResponse(status_code=status, content=payload)
+        return emit_rest_json_success("publish_project_input", payload)
 
     input_metadata_operation = rest_operations["project_input_metadata"]
 
@@ -189,5 +187,4 @@ def register_project_routes(
             "size": descriptor.size,
             "content_digest": descriptor.content_digest,
         }
-        status = input_metadata_operation["response"]["success_status"]
-        return JSONResponse(status_code=status, content=payload)
+        return emit_rest_json_success("project_input_metadata", payload)

@@ -59,6 +59,11 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from tests.support.public_request import encode_project_input_content
+from tests.support.workflow_stress import (
+    StressRun,
+    emit_stress_report,
+    run_committed_workflow,
+)
 from tests.fixtures.canonical_3gb1_v2 import ControlledFoldResponse
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_canonical_bytes,
@@ -661,8 +666,49 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             == THREE_WAY_CONSISTENCY_METHOD_REFERENCE
         )
 
-    assert len(esmfold2.calls) == 1
-    assert len(simplefold.calls) == 1
+        replay = run_committed_workflow(
+            client,
+            project_id,
+            committed.json()["workflow_commit_id"],
+            request_id="provider-free-source-bound-1pga-replay",
+        )
+        assert replay.projection["status"] == "succeeded"
+        replay_dispositions = {
+            item["node_id"]: item["resolution"]
+            for item in replay.projection["node_dispositions"]
+        }
+        assert replay_dispositions["import-input"] == "executed"
+        assert {
+            replay_dispositions[node_id]
+            for node_id in ("resolve-input", "extract-sequence")
+        } == {"cache_replayed"}
+        assert replay_dispositions["fold-esmfold2"] == "executed"
+        assert replay_dispositions["fold-simplefold"] == "executed"
+        assert sum(
+            message["event"]["type"] == "engine_invocation_started"
+            for message in replay.events
+        ) == 3
+        emit_stress_report(
+            "three_way_refolding_1pga",
+            runs={
+                "first": StressRun(
+                    committed.json()["workflow_commit_id"],
+                    projection,
+                    tuple(events),
+                ),
+                "replay": replay,
+            },
+            cardinalities={
+                "input_structures": 1,
+                "sequence_parents": 1,
+                "esmfold2_structures": 1,
+                "simplefold_structures": 1,
+                "three_way_alignments": 3,
+            },
+        )
+
+    assert len(esmfold2.calls) == 2
+    assert len(simplefold.calls) == 2
 
 
 @pytest.mark.parametrize(

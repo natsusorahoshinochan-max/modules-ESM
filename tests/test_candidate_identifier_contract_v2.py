@@ -20,8 +20,8 @@ from datatypes.candidate import (
 )
 from datatypes.exact_reference import (
     ExactContractReference,
-    validate_canonical_identifier,
 )
+from datatypes.identifier import validate_canonical_identifier
 from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,

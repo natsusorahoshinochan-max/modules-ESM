@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import re
 from typing import Any
 
+from datatypes.identifier import validate_canonical_identifier
 from datatypes.i_json import FrozenList, freeze_i_json
 
 
@@ -28,8 +29,6 @@ class CandidateDataReference:
     content_digest: str
 
     def __post_init__(self) -> None:
-        from datatypes.exact_reference import validate_canonical_identifier
-
         for field_name in ("candidate_id", "data_type_id"):
             validate_canonical_identifier(getattr(self, field_name), field_name)
         if (
@@ -70,8 +69,6 @@ def validate_candidate_parent_ids(
     subject: str = "Candidate",
 ) -> Candidate:
     """Admit one ordered, unique list of canonical parent identities."""
-    from datatypes.exact_reference import validate_canonical_identifier
-
     if type(value) is not Candidate:
         raise ValueError(f"{subject} must be a Candidate")
     seen_parent_ids: set[str] = set()

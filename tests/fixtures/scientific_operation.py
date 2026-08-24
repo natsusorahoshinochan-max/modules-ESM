@@ -32,6 +32,7 @@ from core.scoring.selection import (
     SelectionResult,
     SelectionInput,
     SelectionObjective,
+    UtilityParameterFacts,
 )
 from core.parameters.contract import admit_values
 from datatypes.candidate import (
@@ -65,11 +66,13 @@ def _resolved_objective(
         context_selector=objective.context_selector,
         utility=ResolvedUtilityTransform(
             reference=objective.utility_transform,
-            parameters=admit_values(
-                utility_contract.definition.parameter_contract,
-                objective.utility_parameters,
+            parameters=UtilityParameterFacts(
+                admit_values(
+                    utility_contract.definition.parameter_contract,
+                    objective.utility_parameters,
+                )
             ),
-                apply=utility_contract.definition.transform,
+            apply=utility_contract.definition.transform,
         ),
         declared_weight=objective.weight,
         effective_weight=effective_weight,
