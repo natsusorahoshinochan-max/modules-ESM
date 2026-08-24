@@ -31,9 +31,9 @@ from core.execution.ledger import (
     StructuredError,
     run_cursor,
 )
-from core.operation import EngineInvocationProvenance
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import thaw_i_json
+from protein_workbench_public.protocol import project_structured_error
 
 
 def public_timestamp() -> str:
@@ -55,13 +55,13 @@ def _reference(value: ExactContractReference) -> dict[str, str]:
 
 
 def _error(value: StructuredError) -> dict[str, Any]:
-    return {
-        "code": value.code,
-        "message": value.message,
-        "retryable": value.retryable,
-        "correlation_id": value.correlation_id,
-        "details": thaw_i_json(value.details),
-    }
+    _, projected = project_structured_error(
+        value.code,
+        value.message,
+        thaw_i_json(value.details),
+        value.correlation_id,
+    )
+    return projected
 
 
 def _artifact(value: PublishedArtifact) -> dict[str, Any]:
@@ -177,10 +177,13 @@ def _selection(value: SelectionResult) -> dict[str, Any]:
     return result
 
 
-def _provenance(value: EngineInvocationProvenance) -> dict[str, Any]:
+def _provenance(value: EngineInvocationStarted) -> dict[str, Any]:
+    provenance = value.provenance
+    if provenance is None:
+        raise TypeError("Engine Invocation has no provenance to project")
     result: dict[str, Any] = {}
-    if value.effective_randomness is not None:
-        randomness = value.effective_randomness
+    if provenance.effective_randomness is not None:
+        randomness = provenance.effective_randomness
         result["effective_randomness"] = {
             "control": randomness.control,
             **(
@@ -189,10 +192,10 @@ def _provenance(value: EngineInvocationProvenance) -> dict[str, Any]:
                 else {}
             ),
         }
-    if value.project_input_filename is not None:
-        result["project_input_filename"] = value.project_input_filename
-    if value.provider_residue_projection is not None:
-        projection = value.provider_residue_projection
+    if provenance.project_input_filename is not None:
+        result["project_input_filename"] = provenance.project_input_filename
+    if provenance.provider_residue_projection is not None:
+        projection = provenance.provider_residue_projection
         result["provider_residue_projection"] = {
             "position_semantics": projection.position_semantics,
             "workbench_chain_order": list(projection.workbench_chain_order),
@@ -311,7 +314,7 @@ def _event_payload(fact: Fact) -> dict[str, Any]:
         if payload.parent_invocation_id is not None:
             result["parent_invocation_id"] = payload.parent_invocation_id
         if payload.provenance is not None:
-            result["invocation_provenance"] = _provenance(payload.provenance)
+            result["invocation_provenance"] = _provenance(payload)
         return result
     if isinstance(payload, EngineInvocationTerminal):
         result = {

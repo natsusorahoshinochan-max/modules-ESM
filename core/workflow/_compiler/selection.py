@@ -14,6 +14,7 @@ from core.scoring.selection import (
     ResolvedSelectionObjective,
     ResolvedUtilityTransform,
     SelectionObjective,
+    UtilityParameterFacts,
     context_selector_canonical,
 )
 from core.workflow.errors import WorkflowCompileError
@@ -79,7 +80,7 @@ def _compile_selection_objective(
         context_selector=objective.context_selector,
         utility=ResolvedUtilityTransform(
             reference=_resolved_reference(utility),
-            parameters=utility_parameters,
+            parameters=UtilityParameterFacts(utility_parameters),
             apply=utility_definition.transform,
         ),
         declared_weight=objective.weight,

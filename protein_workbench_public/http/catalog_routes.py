@@ -13,6 +13,7 @@ from protein_workbench_public.http.errors import (
     protocol_error_response,
     public_rest_wire_sources,
 )
+from protein_workbench_public.http.emission import emit_rest_json_success
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
     bundle_digest,
@@ -44,4 +45,4 @@ def register_catalog_routes(
             catalog.projection(),
             protocol_digest=bundle_digest(),
         )
-        return payload
+        return emit_rest_json_success("catalog_snapshot", payload)

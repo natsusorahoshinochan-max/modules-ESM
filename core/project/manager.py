@@ -311,21 +311,6 @@ class ProjectManager:
             stored.append(validate_identifier(path.name, "project_id"))
         return tuple(stored)
 
-    def run_context(
-        self,
-        project_id: str,
-        run_id: str,
-        node_id: str,
-    ) -> "RunContext":
-        """Build a context whose mutable paths are project/run contained."""
-        from core.execution.run_context import RunContext
-
-        safe_node_id = validate_identifier(node_id, "node_id")
-        run_dir = self.run_storage_directory(project_id, run_id)
-        return RunContext(
-            temp_dir=str(run_dir / "temp" / safe_node_id),
-        )
-
     def _ensure_dir(self, project_id: str) -> Path:
         d = self._project_storage_root(project_id)
         d.mkdir(parents=True, exist_ok=True)

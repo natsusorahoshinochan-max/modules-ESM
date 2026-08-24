@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from core.execution.ledger import V2RunError
 from core.workflow.document import WorkflowEdge
 from datatypes.residue import (
     ResidueLayout,
@@ -174,18 +177,20 @@ def test_zero_insertion_and_chain_restriction_are_explicit(
 def test_masked_insertion_rejects_unknown_chain_constraints(
     tmp_path: Path,
 ) -> None:
-    _, _, projection, _ = run_operation(
-        tmp_path,
-        operation="random_insert_masked",
-        node_parameters={
-            "effective_seed": 73,
-            "count": 1,
-            "eligible_chain_ids": ["C"],
-        },
-        source_edges=_SOURCE_EDGE,
-    )
+    with pytest.raises(V2RunError) as unavailable:
+        run_operation(
+            tmp_path,
+            operation="random_insert_masked",
+            node_parameters={
+                "effective_seed": 73,
+                "count": 1,
+                "eligible_chain_ids": ["C"],
+            },
+            source_edges=_SOURCE_EDGE,
+        )
 
-    assert projection["status"] == "failed"
+    assert unavailable.value.code == "evidence_unavailable"
+    assert isinstance(unavailable.value.__cause__, ValueError)
 
 
 def test_masked_insertion_rejects_generated_residue_identity_collision(

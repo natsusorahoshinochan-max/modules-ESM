@@ -21,6 +21,7 @@ from protein_workbench_public.http.errors import (
     public_rest_wire_sources,
     workflow_document_error_response,
 )
+from protein_workbench_public.http.emission import emit_rest_json_success
 from protein_workbench_public.protocol import (
     REST_BODY_ABSENT,
     ProtocolValidationError,
@@ -62,7 +63,7 @@ def register_workflow_routes(
             return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        return payload
+        return emit_rest_json_success("project_workflow_draft", payload)
 
     @app.put(
         rest_operations["save_project_workflow_draft"]["route"],
@@ -98,7 +99,10 @@ def register_workflow_routes(
             return protocol_error_response(error, json_body)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        return snapshot
+        return emit_rest_json_success(
+            "save_project_workflow_draft",
+            snapshot,
+        )
 
     @app.get(
         rest_operations["project_active_workflow_commit"]["route"],
@@ -127,7 +131,10 @@ def register_workflow_routes(
             return protocol_error_response(error)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        return receipt
+        return emit_rest_json_success(
+            "project_active_workflow_commit",
+            receipt,
+        )
 
     @app.post(
         rest_operations["commit_project_workflow"]["route"],
@@ -163,4 +170,4 @@ def register_workflow_routes(
             return protocol_error_response(error, json_body)
         except WorkflowAuthoringError as error:
             return authoring_error_response(error)
-        return receipt
+        return emit_rest_json_success("commit_project_workflow", receipt)

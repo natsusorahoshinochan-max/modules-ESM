@@ -6,12 +6,10 @@ from dataclasses import dataclass
 import re
 
 from datatypes.candidate import CandidateDataReference
+from datatypes.identifier import validate_canonical_identifier
 from datatypes.residue import ResidueLayout
 
 
-_CANONICAL_IDENTIFIER = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9_.:/+-]{0,127}$"
-)
 _SEMANTIC_VERSION = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
 )
@@ -26,22 +24,6 @@ _CONTRACT_KINDS = frozenset(
         "utility_transform",
     }
 )
-
-
-def validate_canonical_identifier(
-    value: object,
-    field_name: str = "identifier",
-) -> str:
-    """Return one exact canonical identifier."""
-    if (
-        type(value) is not str
-        or not 1 <= len(value) <= 128
-        or _CANONICAL_IDENTIFIER.fullmatch(value) is None
-    ):
-        raise ValueError(f"{field_name} must be a canonical identifier")
-    return value
-
-
 @dataclass(frozen=True, slots=True)
 class ExactContractReference:
     """Exact versioned scientific contract identity carried by typed values."""

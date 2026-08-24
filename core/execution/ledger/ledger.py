@@ -217,6 +217,16 @@ class Ledger:
                 details=unavailable.details,
             ) from unavailable
 
+    def ensure_evidence_available(self) -> None:
+        """Raise the Ledger-owned unavailable conclusion, when present."""
+        with self._condition:
+            self._require_available_evidence()
+
+    def wake_waiters(self) -> None:
+        """Wake event waiters after an external Run worker conclusion."""
+        with self._condition:
+            self._condition.notify_all()
+
     @property
     def cursor(self) -> RunCursor:
         with self._condition:

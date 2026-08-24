@@ -12,6 +12,7 @@ import time
 from typing import Any, ContextManager, Protocol
 
 from core.operation import EngineInvocationProvenance
+from core.execution.run_context import RunContext
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 
 
@@ -231,6 +232,24 @@ class RunResources:
         repr=False,
         compare=False,
     )
+    _run_context: RunContext = field(
+        init=False,
+        repr=False,
+        compare=False,
+    )
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "_run_context",
+            RunContext.for_node(
+                self._projects.run_storage_directory(
+                    self.project_id,
+                    self.run_id,
+                ),
+                self.node_id,
+            ),
+        )
 
     def read_project_input(
         self,
@@ -246,18 +265,10 @@ class RunResources:
 
     def temporary_directory(self, *, prefix: str):
         """Create one temporary workspace in this Run and Node namespace."""
-        return self._projects.run_context(
-            self.project_id,
-            self.run_id,
-            self.node_id,
-        ).temporary_directory(prefix=prefix)
+        return self._run_context.temporary_directory(prefix=prefix)
 
     def cleanup_temporary_work(self) -> None:
-        self._projects.run_context(
-            self.project_id,
-            self.run_id,
-            self.node_id,
-        ).cleanup_temporary_work()
+        self._run_context.cleanup_temporary_work()
 
     def local_provider(
         self,

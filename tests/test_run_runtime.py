@@ -18,6 +18,7 @@ from starlette.websockets import WebSocketDisconnect
 from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
 from core.execution.resources import CancellationControl, RunResources
+from core.execution.results.store import ResultIntegrityError, ResultStore
 import core.execution.node_attempt as node_attempt
 from core.execution._run_runtime_evidence import (
     _exact_contract_reference,
@@ -473,8 +474,12 @@ def _direct_catalog(
                     == "credential-value"
                 )
                 calls.append(f"readiness:{exact_binding_id}")
+                passing = exact_binding_id != failing_binding_id
                 return ReadinessResult(
-                    exact_binding_id != failing_binding_id
+                    passing,
+                    reason_code=(
+                        None if passing else "fixture_readiness_rejected"
+                    ),
                 )
 
             return readiness
@@ -1615,7 +1620,7 @@ def test_direct_cache_miss_enters_its_operation_without_readiness(
     )
 
 
-def test_adapter_preoperation_error_precedes_provider_readiness(
+def test_preparation_error_emits_no_attempt_evidence(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1673,34 +1678,34 @@ def test_adapter_preoperation_error_precedes_provider_readiness(
             },
         )
         assert started.status_code == 202
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            started.json()["run_id"],
-        )
+        with pytest.raises(V2RunError) as unavailable:
+            wait_for_testclient_run_terminal(
+                client,
+                project_id,
+                started.json()["run_id"],
+            )
         events = _public_events(
             app.state.run_runtime,
             project_id,
             started.json()["run_id"],
         )
 
-    assert projection["status"] == "failed"
-    terminal = next(
-        item["event"]
-        for item in events
-        if item["event"]["type"] == "node_attempt_terminal"
-    )
-    assert terminal["failure_origin"] == "attempt"
-    assert terminal["error"]["code"] == "node_execution_failed"
-    assert terminal["error"]["details"]["exception_type"] == "RuntimeError"
+    assert unavailable.value.code == "evidence_unavailable"
     assert not any(
         fact["fact_type"]
         in {
+            "node_attempt_started",
             "operation_attempt_started",
             "readiness_attested",
             "engine_invocation_started",
+            "node_attempt_terminal",
+            "node_disposition",
         }
         for fact in _durable_facts(tmp_path / "runs")
+    )
+    assert not any(
+        item["event"]["type"].startswith("node_")
+        for item in events
     )
     assert calls == ["randomness"]
 
@@ -1751,18 +1756,19 @@ def test_readiness_programming_error_fails_after_attempt_start(
             },
         )
         assert started.status_code == 202
-        projection = wait_for_testclient_run_terminal(
-            client,
-            project_id,
-            started.json()["run_id"],
-        )
+        with pytest.raises(V2RunError) as unavailable:
+            wait_for_testclient_run_terminal(
+                client,
+                project_id,
+                started.json()["run_id"],
+            )
         events = _public_events(
             app.state.run_runtime,
             project_id,
             started.json()["run_id"],
         )
 
-    assert projection["status"] == "failed"
+    assert unavailable.value.code == "evidence_unavailable"
     terminal = next(
         item["event"]
         for item in events
@@ -1780,6 +1786,194 @@ def test_readiness_programming_error_fails_after_attempt_start(
     assert "operation_attempt_started" not in fact_types
     assert "engine_invocation_started" not in fact_types
     assert fact_types.count("node_attempt_terminal") == 1
+    assert "node_disposition" in fact_types
+    assert "run_terminal" not in fact_types
+
+
+def test_result_store_preoperation_failure_retains_typed_run_closure(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    def fail_replay(
+        _store: ResultStore,
+        **_kwargs: Any,
+    ) -> None:
+        raise ResultIntegrityError("sha256:" + "7" * 64)
+
+    monkeypatch.setattr(ResultStore, "lookup_replay", fail_replay)
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROJECT_ROOT",
+        str(tmp_path / "projects"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_RUN_ROOT",
+        str(tmp_path / "runs"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
+        str(tmp_path / "outputs"),
+    )
+    app = create_application(
+        frozen_catalog_override=_direct_catalog([], cacheable=True),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "result-store-preoperation-failure",
+            },
+        )
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+        events = _public_events(
+            app.state.run_runtime,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "failed"
+    assert projection["node_dispositions"][0]["outcome"] == "failed"
+    node_terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "node_attempt_terminal"
+    )
+    assert node_terminal["failure_origin"] == "attempt"
+    assert node_terminal["error"]["details"] == {
+        "exception_type": "ResultIntegrityError",
+    }
+    assert not any(
+        event["event"]["type"] == "operation_attempt_started"
+        for event in events
+    )
+
+
+def test_late_worker_failure_gates_every_lifecycle_use_case_and_restart(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+
+    def fail_after_receipt(
+        _check_input: BindingEnvironment,
+    ) -> ReadinessResult:
+        calls.append("readiness")
+        entered.set()
+        assert release.wait(timeout=3)
+        raise RuntimeError("private delayed worker failure")
+
+    project_root = tmp_path / "projects"
+    run_root = tmp_path / "runs"
+    output_root = tmp_path / "outputs"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    catalog = _direct_catalog(
+        calls,
+        readiness_checks={"test.direct.local": fail_after_receipt},
+    )
+    environment = {
+        ("test.direct.local", "2.1.0"): {
+            "values": {"credential": "credential-value"},
+        }
+    }
+    app = create_application(
+        frozen_catalog_override=catalog,
+        v2_environment_configuration=environment,
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "late-worker-failure",
+            },
+        )
+        assert started.status_code == 202
+        run_id = started.json()["run_id"]
+        assert entered.wait(timeout=2)
+        assert app.state.run_runtime.projection(project_id, run_id).status == (
+            "running"
+        )
+
+        release.set()
+        app.state.run_runtime.shutdown()
+
+        lifecycle_calls = (
+            lambda: app.state.run_runtime.projection(project_id, run_id),
+            lambda: app.state.run_runtime.replay(project_id, run_id, None),
+            lambda: app.state.run_runtime.wait_for_events(
+                project_id,
+                run_id,
+                0,
+                timeout_seconds=0.1,
+            ),
+            lambda: app.state.run_runtime.cancel(
+                project_id,
+                run_id,
+                after_cursor=None,
+            ),
+            lambda: app.state.run_runtime.start_derived_background(
+                project_id,
+                source_run_id=run_id,
+                policy="retry_failed",
+                node_ids=["direct"],
+                client_request_id="derived-after-worker-failure",
+            ),
+        )
+        for use_case in lifecycle_calls:
+            with pytest.raises(V2RunError) as unavailable:
+                use_case()
+            assert unavailable.value.code == "evidence_unavailable"
+
+        with client.websocket_connect(
+            f"/api/v2/projects/{project_id}/runs/{run_id}/events"
+        ) as websocket:
+            unavailable_message = websocket.receive_json()
+            with pytest.raises(WebSocketDisconnect) as closed:
+                websocket.receive_json()
+
+    assert unavailable_message["error"]["code"] == "evidence_unavailable"
+    assert closed.value.code == 1008
+    facts_before_restart = _durable_facts(run_root)
+    assert not any(
+        fact["fact_type"] == "run_terminal"
+        for fact in facts_before_restart
+    )
+    assert calls == ["readiness"]
+
+    for _ in range(2):
+        restarted = create_application(
+            frozen_catalog_override=catalog,
+            v2_environment_configuration=environment,
+        )
+        with TestClient(restarted) as client:
+            projection = client.get(
+                f"/api/v2/projects/{project_id}/runs/{run_id}"
+            )
+            assert projection.status_code == 200
+            assert projection.json()["status"] == "interrupted"
+
+    assert sum(
+        fact["fact_type"] == "run_terminal"
+        and fact["payload"] == {"status": "interrupted"}
+        for fact in _durable_facts(run_root)
+    ) == 1
 
 
 def test_public_terminal_wait_helper_never_returns_a_running_projection(
@@ -1790,11 +1984,6 @@ def test_public_terminal_wait_helper_never_returns_a_running_projection(
     release = threading.Event()
     returned = threading.Event()
     projections: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        run_runtime,
-        "FAST_RUN_COMPLETION_GRACE_SECONDS",
-        0.0,
-    )
     monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
     monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
@@ -2130,7 +2319,7 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
                 candidate_data_port_types=(
                     plan._runtime.candidate_data_port_types
                 ),
-                admitted_inputs={},
+                committed_values={},
                 cancellation=CancellationControl(),
                 cache_bypassed=False,
             )
@@ -2606,12 +2795,17 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
 
     with TestClient(app) as client:
         project_id, compiled = _commit_one_node(client)
-        response = client.post(
+        started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
                 "workflow_commit_id": compiled["workflow_commit_id"],
                 "client_request_id": "disposition-commit-failure",
             },
+        )
+        assert started.status_code == 202
+        app.state.run_runtime.shutdown()
+        response = client.get(
+            f"/api/v2/projects/{project_id}/runs/{started.json()['run_id']}"
         )
 
     assert response.status_code == 503
@@ -2755,12 +2949,106 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
             "node_attempt_terminal",
         }
     ] == ["succeeded", "failed", "failed"]
+    for event in events:
+        if event["event"]["type"] in {
+            "operation_attempt_terminal",
+            "node_attempt_terminal",
+        }:
+            assert event["event"]["error"]["details"] == {
+                "exception_type": "PermissionError",
+            }
     retained = b"".join(
         path.read_bytes()
         for path in (tmp_path / "runs").rglob("*.json")
     )
     assert secret.encode() not in retained
     assert secret not in json.dumps(events)
+
+
+def test_operation_failure_retains_ordered_workspace_cleanup_causality(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    primary_secret = "private-operation-primary"
+    cleanup_secret = "private-workspace-cleanup"
+
+    def fail_operation(_resources) -> None:
+        raise RuntimeError(primary_secret)
+
+    def fail_cleanup(_resources) -> None:
+        raise PermissionError(cleanup_secret)
+
+    monkeypatch.setattr(
+        RunResources,
+        "cleanup_temporary_work",
+        fail_cleanup,
+    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    app = create_application(
+        frozen_catalog_override=_direct_catalog(
+            [],
+            execution_action=fail_operation,
+        ),
+        v2_environment_configuration={
+            ("test.direct.local", "2.1.0"): {
+                "values": {"credential": "credential-value"},
+            }
+        },
+    )
+
+    with TestClient(app) as client:
+        project_id, compiled = _commit_one_node(client)
+        started = client.post(
+            f"/api/v2/projects/{project_id}/runs",
+            json={
+                "workflow_commit_id": compiled["workflow_commit_id"],
+                "client_request_id": "dual-operation-cleanup-failure",
+            },
+        )
+        projection = wait_for_testclient_run_terminal(
+            client,
+            project_id,
+            started.json()["run_id"],
+        )
+        events = _public_events(
+            app.state.run_runtime,
+            project_id,
+            started.json()["run_id"],
+        )
+
+    assert projection["status"] == "failed"
+    terminals = {
+        event["event"]["type"]: event["event"]
+        for event in events
+        if event["event"]["type"] in {
+            "engine_invocation_terminal",
+            "operation_attempt_terminal",
+            "node_attempt_terminal",
+        }
+    }
+    assert terminals["engine_invocation_terminal"]["status"] == "failed"
+    assert terminals["engine_invocation_terminal"]["error"]["details"] == {
+        "exception_type": "RuntimeError",
+    }
+    for event_type in (
+        "operation_attempt_terminal",
+        "node_attempt_terminal",
+    ):
+        assert terminals[event_type]["status"] == "failed"
+        assert terminals[event_type]["error"]["details"] == {
+            "exception_type": "RuntimeError",
+            "cleanup_exception_types": ["PermissionError"],
+        }
+    retained = b"".join(
+        path.read_bytes() for path in (tmp_path / "runs").rglob("*.json")
+    )
+    public = json.dumps(events)
+    assert primary_secret.encode() not in retained
+    assert cleanup_secret.encode() not in retained
+    assert primary_secret not in public
+    assert cleanup_secret not in public
 
 
 def test_connected_ports_publish_and_consume_only_canonical_validated_values(

@@ -24,8 +24,8 @@ from core.parameters.contract import (
 from core.parameters.model import ParameterContract
 from datatypes.exact_reference import (
     ExactContractReference,
-    validate_canonical_identifier,
 )
+from datatypes.identifier import validate_canonical_identifier
 
 from core.catalog.errors import CatalogBuildError
 from core.catalog.canonical import canonical_json_bytes

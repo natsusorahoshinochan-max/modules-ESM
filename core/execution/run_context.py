@@ -18,6 +18,12 @@ class RunContext:
 
     temp_dir: str
 
+    @classmethod
+    def for_node(cls, run_directory: Path, node_id: str) -> RunContext:
+        """Construct one Node context from its exact Project Run scope."""
+        safe_node_id = validate_identifier(node_id, "node_id")
+        return cls(temp_dir=str(run_directory / "temp" / safe_node_id))
+
     @contextmanager
     def temporary_directory(self, *, prefix: str) -> Iterator[Path]:
         """Yield and remove one owned invocation directory."""

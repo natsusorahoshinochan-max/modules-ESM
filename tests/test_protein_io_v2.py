@@ -806,24 +806,13 @@ def test_import_rejects_private_paths_and_cross_project_references(
         )
     assert rejected.value.code == "compile_rejected"
 
-    _, _, projection, events = _run_single_node(
-        tmp_path / "cross-project",
-        operation="import_sequence",
-        node_parameters={"project_input_ref": "belongs-to-another-project"},
-    )
-    assert projection["status"] == "failed"
-    assert projection["outputs"] == []
-    terminal = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_terminal"
-    )
-    assert terminal["failure_origin"] == "attempt"
-    assert terminal["error"]["code"] == "node_execution_failed"
-    assert terminal["error"]["details"]["exception_type"] == (
-        "FileNotFoundError"
-    )
-    assert not any(
-        event["event"]["type"] == "operation_attempt_started"
-        for event in events
-    )
+    with pytest.raises(V2RunError) as unavailable:
+        _run_single_node(
+            tmp_path / "cross-project",
+            operation="import_sequence",
+            node_parameters={
+                "project_input_ref": "belongs-to-another-project"
+            },
+        )
+    assert unavailable.value.code == "evidence_unavailable"
+    assert isinstance(unavailable.value.__cause__, FileNotFoundError)

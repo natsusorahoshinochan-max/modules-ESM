@@ -45,9 +45,28 @@ class AttemptSpec:
     run_id: str
     node: ExecutionPlanNode
     candidate_data_port_types: Mapping[str, Any]
-    admitted_inputs: Mapping[str, AdmittedPort]
+    committed_values: Mapping[tuple[str, str], AdmittedPort]
     cancellation: CancellationControl
     cache_bypassed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _EffectiveRandomnessSnapshot:
+    effective_randomness: Mapping[str, Any]
+    node_parameters: Mapping[str, Any]
+    binding_parameters: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedNodeExecution:
+    """Preparation facts established before Attempt evidence begins."""
+
+    inputs: Mapping[str, AdmittedPort]
+    project_inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]]
+    resource_identities: tuple[Mapping[str, Any], ...]
+    effective_randomness: _EffectiveRandomnessSnapshot
+    cache_eligible: bool
+    result_identity: str | None
 
 
 @dataclass(slots=True)
@@ -64,7 +83,7 @@ class _NodeExecutionAttemptState:
     inputs: Mapping[str, AdmittedPort]
     project_inputs: Mapping[str, tuple[ProjectInputDescriptor, bytes]]
     resource_identities: tuple[Mapping[str, Any], ...]
-    cache_eligible: bool = False
+    cache_eligible: bool
     resolution: Literal["executed", "cache_replayed"] = "executed"
     resources: RunResources | None = None
     operation_started: bool = False

@@ -292,6 +292,45 @@ def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
     assert staged_artifact.read_bytes() == payload
 
 
+def test_staging_failure_retains_staged_root_cleanup_type(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.operation import secondary_cleanup_exception_types
+    import modules.esm3.local_adapter as local_adapter
+
+    runtime_directory = tmp_path / "runtime"
+    runtime_directory.mkdir()
+    source = tmp_path / "fixture.pth"
+    source.write_bytes(b"fixture")
+    runtime = local_adapter.LocalESM3Runtime(
+        snapshot_path=tmp_path,
+        runtime_directory=runtime_directory,
+        device="cpu",
+        performance_settings={},
+        artifact_sources={"fixture.pth": source},
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "LOCAL_ESM3_WEIGHT_SHA256",
+        {"fixture.pth": hashlib.sha256(b"fixture").hexdigest()},
+    )
+
+    def fail_copy(_source: Path, _destination: Path) -> None:
+        raise RuntimeError("private staging failure")
+
+    def fail_delete(_root: Path) -> None:
+        raise OSError("private staged-root cleanup failure")
+
+    monkeypatch.setattr(local_adapter.shutil, "copyfile", fail_copy)
+    monkeypatch.setattr(local_adapter.shutil, "rmtree", fail_delete)
+
+    with pytest.raises(RuntimeError, match="private staging failure") as caught:
+        local_adapter.stage_local_runtime(runtime)
+
+    assert secondary_cleanup_exception_types(caught.value) == ("OSError",)
+
+
 def test_successful_local_load_has_explicit_staging_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -808,9 +847,9 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
                 derived_call_seed=17,
             )
 
-    assert caught.value.__notes__ == [
-        "Local ESM-3 staged-weight cleanup also failed: OSError"
-    ]
+    from core.operation import secondary_cleanup_exception_types
+
+    assert secondary_cleanup_exception_types(caught.value) == ("OSError",)
 
 
 def test_local_binding_never_falls_back_to_remote_client(

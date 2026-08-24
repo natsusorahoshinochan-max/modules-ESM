@@ -293,11 +293,17 @@ def _local_available() -> AvailabilityResult:
 
 def _ready(check_input: BindingEnvironment) -> ReadinessResult:
     if check_input.values["endpoint_id"] != "biohub":
-        return ReadinessResult(False)
+        return ReadinessResult(
+            False,
+            reason_code="biohub_endpoint_mismatch",
+        )
     try:
         validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
     except ProviderInstallationUnavailable:
-        return ReadinessResult(False)
+        return ReadinessResult(
+            False,
+            reason_code="esm_sdk_revision_unavailable",
+        )
     return ReadinessResult(True)
 
 

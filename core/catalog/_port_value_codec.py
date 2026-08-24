@@ -21,8 +21,8 @@ from datatypes.exact_reference import (
     ExactContractReference,
     ExactPortValueReference,
     ResidueAxisReference,
-    validate_canonical_identifier,
 )
+from datatypes.identifier import validate_canonical_identifier
 from datatypes.i_json import FrozenList
 from datatypes.observation import (
     CalibrationObservationContext,

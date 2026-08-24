@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any
 
@@ -15,18 +14,11 @@ from core.execution.output_admission.admission import (
 from core.execution.output_admission.artifacts import (
     ArtifactOutputDeclaration,
 )
+from core.execution._node_attempt_models import _EffectiveRandomnessSnapshot
 from core.operation import AdmittedPort
 from core.workflow.plan import ExecutionPlanNode
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json, thaw_i_json
-
-
-@dataclass(frozen=True, slots=True)
-class _EffectiveRandomnessSnapshot:
-    effective_randomness: Mapping[str, Any]
-    node_parameters: Mapping[str, Any]
-    binding_parameters: Mapping[str, Any]
-
 
 def _resolve_effective_randomness(
     node: ExecutionPlanNode,

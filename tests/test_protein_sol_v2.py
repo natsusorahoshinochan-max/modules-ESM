@@ -412,8 +412,8 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         resolve_objective_observations,
         ResolvedSelectionObjective,
         ResolvedUtilityTransform,
+        UtilityParameterFacts,
     )
-    from core.parameters.model import AdmittedParameterValues
     from tests.support.output_admission import admit_fixture_port
     from datatypes.candidate import (
         Candidate,
@@ -527,7 +527,7 @@ def test_calibration_context_is_an_exact_selection_selector() -> None:
         context_selector=objective.context_selector,
         utility=ResolvedUtilityTransform(
             reference=objective.utility_transform,
-            parameters=AdmittedParameterValues({}),
+            parameters=UtilityParameterFacts({}),
             apply=lambda value, _parameters: value,
         ),
         declared_weight=objective.weight,
