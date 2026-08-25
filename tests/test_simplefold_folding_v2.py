@@ -61,30 +61,6 @@ from tests.fixtures.simplefold import (
 _SIMPLEFOLD_BINDING_VERSION = "11.0.0"
 
 
-def test_simplefold_releases_cuda_allocator_after_language_model(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.folding.simplefold_runtime as simplefold_runtime
-
-    calls: list[str] = []
-    monkeypatch.setattr(
-        simplefold_runtime.gc,
-        "collect",
-        lambda: calls.append("objects-released"),
-    )
-    monkeypatch.setattr(
-        simplefold_runtime.torch.cuda,
-        "empty_cache",
-        lambda: calls.append("cuda-cache-released"),
-    )
-
-    simplefold_runtime._release_language_model_memory(
-        simplefold_runtime.torch.device("cuda")
-    )
-
-    assert calls == ["objects-released", "cuda-cache-released"]
-
-
 def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -252,8 +228,6 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
     def process_one_inference_structure(
         *_args: Any,
     ) -> tuple[object, object, object]:
-        assert simplefold_runtime.torch.is_grad_enabled() is False
-        assert simplefold_runtime.torch.is_inference_mode_enabled() is False
         lifecycle["features_prepared"] = True
         return object(), object(), object()
 

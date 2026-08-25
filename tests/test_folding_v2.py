@@ -8,10 +8,12 @@ from protein_workbench_public.bootstrap import module_registrations
 
 from contextlib import ExitStack
 from pathlib import Path
+import gc
 import hashlib
 import json
 from typing import Any, cast
 from unittest.mock import patch
+import weakref
 
 import pytest
 from core.local_torch_device import expected_local_torch_device
@@ -730,6 +732,100 @@ def test_local_esmfold2_loads_esmc_at_exact_policy_device_and_float32_precision(
     )
     assert calls["device"] == expected_local_torch_device()
     assert calls["eval"] is True
+
+
+def test_local_esmfold2_releases_its_model_before_cuda_cache_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.models.esmfold2 as esmfold2
+    from core.execution.resources import LocalProviderMemory
+    import modules.folding.esmfold2_local as adapter
+    from transformers.models.esmfold2.configuration_esmfold2 import (
+        ESMFold2Config,
+    )
+    from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model
+
+    model_reference: weakref.ReferenceType[object] | None = None
+
+    class Configuration:
+        esmc_id = "unset"
+
+    class Model:
+        def to(self, _device: str) -> "Model":
+            return self
+
+        def eval(self) -> "Model":
+            return self
+
+    def load_model(_path: Path, **_kwargs: Any) -> Model:
+        nonlocal model_reference
+        model = Model()
+        model_reference = weakref.ref(model)
+        return model
+
+    monkeypatch.setattr(
+        ESMFold2Config,
+        "from_pretrained",
+        staticmethod(lambda _path, **_kwargs: Configuration()),
+    )
+    monkeypatch.setattr(
+        ESMFold2Model,
+        "from_pretrained",
+        staticmethod(load_model),
+    )
+    monkeypatch.setattr(
+        esmfold2,
+        "ESMFold2InputBuilder",
+        lambda *, ccd_cache: object(),
+    )
+    cuda_cache_releases = 0
+
+    class Cuda:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def empty_cache() -> None:
+            nonlocal cuda_cache_releases
+            assert model_reference is not None
+            assert model_reference() is None
+            cuda_cache_releases += 1
+
+    class TorchModule:
+        cuda = Cuda()
+
+    runtime = adapter.LocalESMFold2Runtime(
+        model_snapshot_path=tmp_path / "esmfold2",
+        language_model_snapshot_path=tmp_path / "esmc",
+        device=expected_local_torch_device(),
+    )
+    memory = LocalProviderMemory(torch_module=TorchModule())
+    cyclic_gc_was_enabled = gc.isenabled()
+    real_gc_collect = gc.collect
+    gc.disable()
+    monkeypatch.setattr(
+        gc,
+        "collect",
+        lambda: pytest.fail("provider transition invoked cyclic GC"),
+    )
+    try:
+        with memory.use("local-esmfold2") as state:
+            state[runtime] = adapter.load_local_engine(runtime)
+        assert model_reference is not None
+        assert model_reference() is not None
+
+        with memory.use("simplefold-folding"):
+            pass
+
+        assert model_reference() is None
+        assert cuda_cache_releases == 1
+    finally:
+        monkeypatch.setattr(gc, "collect", real_gc_collect)
+        if cyclic_gc_was_enabled:
+            gc.enable()
+        real_gc_collect()
 
 
 def test_native_plddt_is_statically_scaled_and_projects_protein_tokens() -> None:
