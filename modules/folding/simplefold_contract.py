@@ -9,8 +9,6 @@ from .simplefold_asset_closure import (
 
 
 SIMPLEFOLD_MODEL = "simplefold_100M"
-SIMPLEFOLD_DEVICE = "cpu"
-SIMPLEFOLD_CONFIDENCE_DEVICE = "cpu"
 SIMPLEFOLD_CONFIDENCE_FEATURIZATION = (
     "simplefold-existing-structure-featurization/v2"
 )

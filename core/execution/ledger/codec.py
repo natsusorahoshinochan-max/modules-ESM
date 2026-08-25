@@ -645,6 +645,8 @@ def _provenance_to_canonical(value: EngineInvocationProvenance) -> dict[str, Any
                 for entry in projection.entries
             ],
         }
+    if value.provider_device is not None:
+        result["provider_device"] = value.provider_device
     return result
 
 
@@ -670,6 +672,7 @@ def _provenance_from_canonical(value: object) -> EngineInvocationProvenance:
                 position_semantics=projection["position_semantics"],
             ) if isinstance(projection, Mapping) else None
         ),
+        provider_device=cast(str | None, value.get("provider_device")),
     )
 
 

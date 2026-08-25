@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from core.local_torch_device import expected_local_torch_device
 
 from core.catalog.builder import build_frozen_catalog
 from core.catalog.declarations import (
@@ -472,9 +473,9 @@ def test_user_can_design_two_by_two_by_two_with_exact_lineage(
     )
     catalog = _controlled_stress_catalog()
     environment = {
-        ("proteinmpnn.design.local", "11.0.0"): {
+        ("proteinmpnn.design.local", "12.0.0"): {
             "values": {
-                "device": "cpu",
+                "device": expected_local_torch_device(),
                 "provider_root": PROJECT_ROOT / "repositories" / "ProteinMPNN",
             }
         },
@@ -590,7 +591,7 @@ def test_user_can_design_two_by_two_by_two_with_exact_lineage(
             for folded in folds.items
         } == {4}
 
-    assert len(proteinmpnn.parsed) == len(proteinmpnn.requests) == 2
+    assert len(proteinmpnn.parsed) == len(proteinmpnn.requests) == 4
     assert len(folding.calls) == 16
     replay_dispositions = {
         item["node_id"]: item["resolution"]
@@ -599,7 +600,7 @@ def test_user_can_design_two_by_two_by_two_with_exact_lineage(
     assert replay_dispositions == {
         "structure-parents": "cache_replayed",
         "resolve-parent-axes": "cache_replayed",
-        "design-children": "cache_replayed",
+        "design-children": "executed",
         "fold-children": "executed",
         "materialize-confidence": "executed",
     }
@@ -615,11 +616,11 @@ def test_user_can_design_two_by_two_by_two_with_exact_lineage(
     )
 
 
-def test_downstream_commit_replays_cacheable_provider_without_invocation(
+def test_downstream_commit_reexecutes_device_specific_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Changing only a terminal prefix does not re-enter ProteinMPNN."""
+    """Device-specific ProteinMPNN output is never satisfied by Cache."""
     configure_isolated_roots(tmp_path, monkeypatch)
     proteinmpnn = ControlledStressProteinMPNN()
     monkeypatch.setattr(
@@ -630,9 +631,9 @@ def test_downstream_commit_replays_cacheable_provider_without_invocation(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("proteinmpnn.design.local", "11.0.0"): {
+            ("proteinmpnn.design.local", "12.0.0"): {
                 "values": {
-                    "device": "cpu",
+                    "device": expected_local_torch_device(),
                     "provider_root": (
                         PROJECT_ROOT / "repositories" / "ProteinMPNN"
                     ),
@@ -695,11 +696,17 @@ def test_downstream_commit_replays_cacheable_provider_without_invocation(
             "take-designs",
         )) == 3
 
-    assert len(proteinmpnn.parsed) == len(proteinmpnn.requests) == 2
-    assert all(
-        item["resolution"] == "cache_replayed"
+    assert len(proteinmpnn.parsed) == len(proteinmpnn.requests) == 6
+    replay_dispositions = {
+        item["node_id"]: item["resolution"]
         for item in replay.projection["node_dispositions"]
-    )
+    }
+    assert replay_dispositions == {
+        "structure-parents": "cache_replayed",
+        "resolve-parent-axes": "cache_replayed",
+        "design-children": "executed",
+        "take-designs": "cache_replayed",
+    }
     second_dispositions = {
         item["node_id"]: item["resolution"]
         for item in second.projection["node_dispositions"]
@@ -707,13 +714,15 @@ def test_downstream_commit_replays_cacheable_provider_without_invocation(
     assert second_dispositions == {
         "structure-parents": "cache_replayed",
         "resolve-parent-axes": "cache_replayed",
-        "design-children": "cache_replayed",
+        "design-children": "executed",
         "take-designs": "executed",
     }
-    assert not any(
-        message["event"]["type"] == "engine_invocation_started"
+    assert all(
+        any(
+            message["event"]["type"] == "engine_invocation_started"
+            for message in run.events
+        )
         for run in (replay, second)
-        for message in run.events
     )
     emit_stress_report(
         "provider_downstream_commit",

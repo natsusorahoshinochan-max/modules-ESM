@@ -679,6 +679,18 @@
           "$ref": "#/$defs/RandomnessAndProjectionInvocationProvenance"
         },
         {
+          "$ref": "#/$defs/DeviceOnlyInvocationProvenance"
+        },
+        {
+          "$ref": "#/$defs/RandomnessAndDeviceInvocationProvenance"
+        },
+        {
+          "$ref": "#/$defs/ProjectionAndDeviceInvocationProvenance"
+        },
+        {
+          "$ref": "#/$defs/RandomnessProjectionAndDeviceInvocationProvenance"
+        },
+        {
           "$ref": "#/$defs/ProjectInputInvocationProvenance"
         }
       ]
@@ -734,6 +746,77 @@
       "required": [
         "effective_randomness",
         "provider_residue_projection"
+      ],
+      "type": "object"
+    },
+    "ProviderDeviceInvocationProvenance": {
+      "enum": [
+        "cpu",
+        "cuda"
+      ],
+      "type": "string"
+    },
+    "DeviceOnlyInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_device": {
+          "$ref": "#/$defs/ProviderDeviceInvocationProvenance"
+        }
+      },
+      "required": [
+        "provider_device"
+      ],
+      "type": "object"
+    },
+    "RandomnessAndDeviceInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_randomness": {
+          "$ref": "#/$defs/EffectiveRandomnessInvocationProvenance"
+        },
+        "provider_device": {
+          "$ref": "#/$defs/ProviderDeviceInvocationProvenance"
+        }
+      },
+      "required": [
+        "effective_randomness",
+        "provider_device"
+      ],
+      "type": "object"
+    },
+    "ProjectionAndDeviceInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "provider_residue_projection": {
+          "$ref": "#/$defs/ProviderResidueProjectionInvocationProvenance"
+        },
+        "provider_device": {
+          "$ref": "#/$defs/ProviderDeviceInvocationProvenance"
+        }
+      },
+      "required": [
+        "provider_residue_projection",
+        "provider_device"
+      ],
+      "type": "object"
+    },
+    "RandomnessProjectionAndDeviceInvocationProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "effective_randomness": {
+          "$ref": "#/$defs/EffectiveRandomnessInvocationProvenance"
+        },
+        "provider_residue_projection": {
+          "$ref": "#/$defs/ProviderResidueProjectionInvocationProvenance"
+        },
+        "provider_device": {
+          "$ref": "#/$defs/ProviderDeviceInvocationProvenance"
+        }
+      },
+      "required": [
+        "effective_randomness",
+        "provider_residue_projection",
+        "provider_device"
       ],
       "type": "object"
     },

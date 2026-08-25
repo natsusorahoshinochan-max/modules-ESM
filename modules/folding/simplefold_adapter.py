@@ -14,6 +14,10 @@ from core.operation import (
     InvocationRandomness,
     ReadinessResult,
 )
+from core.local_torch_device import (
+    expected_local_torch_device,
+    local_torch_device_is_available,
+)
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
@@ -88,7 +92,16 @@ def simplefold_runtime_structurally_available() -> bool:
 def simplefold_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    if environment["device"] != simplefold_contract.SIMPLEFOLD_DEVICE:
+    expected_device = expected_local_torch_device()
+    if environment["device"] != expected_device:
+        return ReadinessResult(
+            False,
+            proof_source="direct-observation",
+            reason_code="simplefold_runtime_unavailable",
+        )
+    import torch
+
+    if not local_torch_device_is_available(torch, expected_device):
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -168,7 +181,8 @@ class LocalSimpleFoldAdapter:
                     effective_randomness=InvocationRandomness(
                         control="exact_seed",
                         effective_seed=derived_call_seed,
-                    )
+                    ),
+                    provider_device=cast(str, self._environment["device"]),
                 ),
             ):
                 raw_result = cast(
@@ -188,6 +202,7 @@ class LocalSimpleFoldAdapter:
                         staged_esm2_model_root=bound_closure.group_root(
                             "esm2_models"
                         ),
+                        device=cast(str, self._environment["device"]),
                     ),
                 )
             samples = _decode_fold_result(

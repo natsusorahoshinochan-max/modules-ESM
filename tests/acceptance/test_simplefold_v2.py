@@ -40,9 +40,9 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     tmp_path: Path,
 ) -> None:
     """Execute the exact v2 Binding; skips are forbidden by its full gate."""
+    from core.local_torch_device import expected_local_torch_device
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.folding.simplefold_contract import (
-        SIMPLEFOLD_DEVICE,
         SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
     )
     from modules.structure_prediction.package import (
@@ -69,7 +69,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         node_type_id="folding.fold",
         node_type_version="8.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="10.0.0",
+        binding_version="11.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
@@ -129,7 +129,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         workflow=workflow,
     )
     environment = admit_environment_configuration(catalog, {
-        ("folding.fold.simplefold_local", "10.0.0"): {
+        ("folding.fold.simplefold_local", "11.0.0"): {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -142,7 +142,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
                         "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
                     ]
                 ),
-                "device": SIMPLEFOLD_DEVICE,
+                "device": expected_local_torch_device(),
             },
         }
     })
@@ -226,7 +226,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     binding = catalog.require_contract(
         "binding",
         "folding.fold.simplefold_local",
-        "10.0.0",
+        "11.0.0",
     )
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"
@@ -289,13 +289,16 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     assert type(
         randomness["effective_seed"]
     ) is int
+    assert started["invocation_provenance"]["provider_device"] == (
+        expected_local_torch_device()
+    )
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "10.0.0"
+        and event["event"]["binding"]["contract_version"] == "11.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

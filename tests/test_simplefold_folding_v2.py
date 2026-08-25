@@ -15,6 +15,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from core.local_torch_device import (
+    LOCAL_TORCH_DEVICE_POLICY,
+    expected_local_torch_device,
+)
 
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
@@ -51,7 +55,7 @@ from tests.fixtures.simplefold import (
 )
 
 
-_SIMPLEFOLD_BINDING_VERSION = "10.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "11.0.0"
 
 
 def test_simplefold_runtime_applies_the_exact_normalized_step_count(
@@ -124,6 +128,7 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
             staged_model_root=model_root,
             staged_esm2_source_root=esm2_source_root,
             staged_esm2_model_root=esm2_model_root,
+            device="cpu",
         )
 
     assert captured == {"num_steps": 75}
@@ -288,6 +293,7 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
             staged_model_root=model_root,
             staged_esm2_source_root=esm2_source_root,
             staged_esm2_model_root=esm2_model_root,
+            device="cpu",
         )
 
     assert loaded_checkpoints == [
@@ -377,7 +383,7 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     esmfold2 = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "10.0.0",
+        "11.0.0",
     )
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
@@ -400,8 +406,10 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     assert simplefold.descriptor["implementation_identity"]["model"] == (
         "simplefold_100M"
     )
-    assert simplefold.descriptor["implementation_identity"]["device"] == (
-        "cpu"
+    assert simplefold.descriptor["implementation_identity"][
+        "device_policy"
+    ] == (
+        LOCAL_TORCH_DEVICE_POLICY
     )
     assert simplefold.descriptor["produced_observations"] == ()
 
@@ -498,7 +506,7 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     assert catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "10.0.0",
+        "11.0.0",
     )
     snapshots = {
         item.binding.contract_id: item
@@ -509,6 +517,28 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         "folding.fold.esmfold2_remote",
         "folding.fold.esmfold2_local",
     }.issubset(snapshots)
+
+
+def test_simplefold_readiness_rejects_linux_without_cuda(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    import torch
+
+    import modules.folding.simplefold_adapter as adapter
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        adapter,
+        "admit_simplefold_provider_asset_closure",
+        lambda *_args: pytest.fail(
+            "CUDA readiness must fail before Provider asset admission"
+        ),
+    )
+
+    assert adapter.simplefold_readiness({"device": "cuda"}).passing is False
 
 
 def _two_residue_pdb() -> str:
@@ -578,6 +608,7 @@ def _simplefold_environment(
     import modules.folding.simplefold_adapter as adapter
     import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
+    from core.local_torch_device import expected_local_torch_device
     import modules.folding.simplefold_runtime as simplefold_runtime
 
     def fixture_fold_sequence(**kwargs: Any) -> Any:
@@ -587,6 +618,7 @@ def _simplefold_environment(
             num_samples=kwargs["num_samples"],
             effective_seed=kwargs["effective_seed"],
             staging_directory=kwargs["staging_directory"],
+            device=kwargs["device"],
         )
 
     monkeypatch.setattr(
@@ -637,7 +669,7 @@ def _simplefold_environment(
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
-        "device": contract.SIMPLEFOLD_DEVICE,
+        "device": expected_local_torch_device(),
     }
 
 
@@ -997,7 +1029,8 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
             "effective_seed": structures.items[0].metadata[
                 "effective_call_seed"
             ],
-        }
+        },
+        "provider_device": expected_local_torch_device(),
     }
     assert {
         "provider",
@@ -1069,10 +1102,14 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
     from modules.folding.simplefold_adapter import LocalSimpleFoldAdapter
 
     class Client:
+        def __init__(self) -> None:
+            self.devices: list[str] = []
+
         def fold(
             self,
             **_kwargs: Any,
         ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
+            self.devices.append(_kwargs["device"])
             return (
                 [
                     ProteinStructure(
@@ -1101,12 +1138,14 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
         def engine_invocation(self, **_kwargs: Any):
             yield
 
+    client = Client()
+    environment = _simplefold_environment(
+        tmp_path / "device-environment",
+        monkeypatch,
+        client,
+    )
     result = LocalSimpleFoldAdapter(
-        environment=_simplefold_environment(
-            tmp_path / "environment",
-            monkeypatch,
-            Client(),
-        ),
+        environment=environment,
         resources=Resources(),
     ).fold(
         sequence=ProteinSequence("AG", ("Q:-2A", "Q:10")),
@@ -1125,6 +1164,7 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
         )
         + "\n"
     )
+    assert client.devices == [environment["device"]]
 
 
 def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> None:

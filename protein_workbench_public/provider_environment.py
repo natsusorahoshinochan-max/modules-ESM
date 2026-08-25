@@ -9,21 +9,15 @@ import shutil
 from typing import Any
 
 from core.provider_support import read_private_credential_file
+from core.local_torch_device import expected_local_torch_device
 from modules.esm3.local_adapter import (
-    LOCAL_ESM3_DEVICE,
     LOCAL_ESM3_PERFORMANCE_SETTINGS,
     LOCAL_ESM3_SNAPSHOT_REVISION,
 )
 from modules.folding.esmfold2_contract import (
-    LOCAL_DEVICE as LOCAL_ESMFOLD2_DEVICE,
     LOCAL_ESMC_REVISION,
     LOCAL_ESMFOLD2_REVISION,
 )
-from modules.folding.simplefold_contract import (
-    SIMPLEFOLD_CONFIDENCE_DEVICE,
-    SIMPLEFOLD_DEVICE,
-)
-from modules.proteinmpnn.adapter import PROTEINMPNN_DEVICE
 from protein_workbench_public.application_environment import (
     application_storage_roots,
 )
@@ -70,6 +64,7 @@ def provider_environment_configuration(
     """Load current Provider roots and credentials from process variables."""
     values = os.environ if environment is None else environment
     configuration: ProviderEnvironmentConfiguration = {}
+    local_torch_device = expected_local_torch_device()
 
     token_file = _configured_path(
         values,
@@ -108,7 +103,7 @@ def provider_environment_configuration(
             "model_snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
             "model_snapshot_path": esm3_model_root,
             "runtime_directory": runtime_directory,
-            "device": LOCAL_ESM3_DEVICE,
+            "device": local_torch_device,
             "performance_settings": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
         }
         for operation in (
@@ -116,7 +111,7 @@ def provider_environment_configuration(
             "generate_structure",
             "generate_paired",
         ):
-            configuration[(f"esm3.{operation}.local_open", "8.0.0")] = {
+            configuration[(f"esm3.{operation}.local_open", "9.0.0")] = {
                 "values": dict(local_esm3_values),
             }
 
@@ -133,13 +128,13 @@ def provider_environment_configuration(
             "local ESMFold2 requires both configured model roots"
         )
     if esmfold2_root is not None and esmfold2_esmc_root is not None:
-        configuration[("folding.fold.esmfold2_local", "10.0.0")] = {
+        configuration[("folding.fold.esmfold2_local", "11.0.0")] = {
             "values": {
                 "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
                 "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
                 "model_snapshot_path": esmfold2_root,
                 "language_model_snapshot_path": esmfold2_esmc_root,
-                "device": LOCAL_ESMFOLD2_DEVICE,
+                "device": local_torch_device,
             },
         }
 
@@ -165,20 +160,17 @@ def provider_environment_configuration(
             "SimpleFold requires all three configured roots"
         )
     if len(configured_simplefold_roots) == 3:
-        for identity, device in (
-            (("folding.fold.simplefold_local", "10.0.0"), SIMPLEFOLD_DEVICE),
+        for identity in (
+            ("folding.fold.simplefold_local", "11.0.0"),
             (
-                (
-                    "folding.simplefold_confidence.simplefold_local",
-                    "6.0.0",
-                ),
-                SIMPLEFOLD_CONFIDENCE_DEVICE,
+                "folding.simplefold_confidence.simplefold_local",
+                "7.0.0",
             ),
         ):
             configuration[identity] = {
                 "values": {
                     **simplefold_roots,
-                    "device": device,
+                    "device": local_torch_device,
                 },
             }
 
@@ -188,13 +180,13 @@ def provider_environment_configuration(
     )
     if proteinmpnn_root is not None:
         for identity in (
-            ("proteinmpnn.design.local", "11.0.0"),
-            ("proteinmpnn.score.local", "8.0.0"),
+            ("proteinmpnn.design.local", "12.0.0"),
+            ("proteinmpnn.score.local", "9.0.0"),
         ):
             configuration[identity] = {
                 "values": {
                     "provider_root": proteinmpnn_root,
-                    "device": PROTEINMPNN_DEVICE,
+                    "device": local_torch_device,
                 },
             }
 

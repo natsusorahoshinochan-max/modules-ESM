@@ -1,7 +1,10 @@
 # Backend-only deployment
 
-This deployment contract targets a second macOS or Linux machine. No frontend
-is built or installed. The bundled full SoluProt Method is supported only on
+This deployment contract has real-provider acceptance coverage on macOS and
+Linux. No frontend is built or installed. The local Torch Binding policy also
+selects CUDA by default on Windows, but Windows remains release-unverified until
+the same installed real-provider gates pass on a Windows NVIDIA host. The
+bundled full SoluProt Method is supported only on
 macOS ARM64 and Linux x86-64 because those are the decoder pairs carried by its
 wheel and subject to their target-machine Provider gates.
 
@@ -15,6 +18,11 @@ git clone <repository-url> protein-workbench
 cd protein-workbench
 uv sync --frozen --extra providers
 ```
+
+The lock resolves the CUDA-enabled Torch build on Linux and selects the
+explicit `pytorch-cu130` index on Windows; macOS resolves the CPU build. Do not
+replace the frozen Windows resolution with the CPU-only PyPI wheel. A Windows
+deployment is not admitted until the synchronized CUDA kernel probe passes.
 
 Select stable absolute data and Provider roots outside the checkout. These shell
 variables are operator-selected examples, not universal installation locations:
@@ -89,6 +97,14 @@ not inspect `HF_HUB_CACHE`, `HF_HOME`, or their internal cache layout. The
 Biohub credential file must be owned by the current user and readable only by
 that user.
 
+The local ESM-3, local ESMFold2, SimpleFold folding/confidence, and ProteinMPNN
+Bindings use one fixed platform policy: Linux and Windows require `cuda`; macOS
+uses `cpu`. Device selection is not a Workflow option. On Linux or Windows,
+Readiness executes and synchronizes a CUDA probe before Provider entry; a
+missing or unusable CUDA runtime fails the selected Binding and never retries on
+CPU. SoluProt, Protein-Sol, and mkdssp are native/external CPU tools and do not
+declare a fictitious Torch device.
+
 ## 4. Start the backend
 
 The standard CLI reads the variables above and constructs Binding-scoped
@@ -116,3 +132,6 @@ Run the additional existing Provider tiers corresponding to the Providers
 installed on that machine. SoluProt, Protein-Sol, and mkdssp readiness use
 portable runtime/version checks plus exact scientific source and asset checks;
 they do not require the executable bytes to match a macOS/ARM64 machine.
+For every local Torch gate on Linux, retained Engine Invocation evidence must
+report `provider_device="cuda"`; pair that evidence with the gate's real model
+execution and target-machine GPU telemetry.

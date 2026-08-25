@@ -30,6 +30,7 @@ from core.operation import (
     ReadinessResult,
     ScientificOperation,
 )
+from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
 
 from . import simplefold_contract
 from .contracts import (
@@ -45,7 +46,6 @@ from .contracts import (
 
 from .esmfold2_contract import (
     ESM_SDK_REVISION,
-    LOCAL_DEVICE,
     LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_MODEL,
     LOCAL_ESMC_PRECISION,
@@ -79,9 +79,7 @@ from .simplefold_confidence_adapter import (
 )
 from .simplefold_contract import (
     SIMPLEFOLD_CONFIDENCE_ADAPTER,
-    SIMPLEFOLD_CONFIDENCE_DEVICE,
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
-    SIMPLEFOLD_DEVICE,
     SIMPLEFOLD_MODEL,
 )
 
@@ -111,13 +109,13 @@ _SIMPLEFOLD_ENVIRONMENT_FIELDS = (
 )
 
 
-_PACKAGE_VERSION = "10.0.0"
+_PACKAGE_VERSION = "11.0.0"
 _FOLD_NODE_TYPE_VERSION = "8.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "9.0.0"
-_LOCAL_ESMFOLD2_BINDING_VERSION = "10.0.0"
-_SIMPLEFOLD_FOLD_BINDING_VERSION = "10.0.0"
+_LOCAL_ESMFOLD2_BINDING_VERSION = "11.0.0"
+_SIMPLEFOLD_FOLD_BINDING_VERSION = "11.0.0"
 _CONFIDENCE_NODE_TYPE_VERSION = "5.0.0"
-_SIMPLEFOLD_CONFIDENCE_BINDING_VERSION = "6.0.0"
+_SIMPLEFOLD_CONFIDENCE_BINDING_VERSION = "7.0.0"
 _METRIC_VERSIONS = {
     "structure.ptm": "2.1.0",
     "structure.plddt.per_residue": "3.0.0",
@@ -365,7 +363,8 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                 },
                 "device": {
                     "source": "trusted_environment_configuration",
-                    "exact_value": LOCAL_DEVICE,
+                    "policy": LOCAL_TORCH_DEVICE_POLICY,
+                    "fallback": "forbidden",
                 },
             },
             check=_local_ready,
@@ -378,7 +377,8 @@ def _binding(route: str) -> ExecutionBindingDefinition:
             "language_model": LOCAL_ESMC_MODEL,
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
             "language_model_precision": LOCAL_ESMC_PRECISION,
-            "device": LOCAL_DEVICE,
+            "device_policy": LOCAL_TORCH_DEVICE_POLICY,
+            "device_fallback": "forbidden",
             "torch_version": LOCAL_TORCH_VERSION,
             "transformers_source_revision": TRANSFORMERS_REVISION,
             "seed_control": "python_numpy_mt19937_torch_shared",
@@ -546,7 +546,8 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
                 "provider_asset_closure": closure.readiness_prerequisite(),
                 "device": {
                     "source": "trusted_environment_configuration",
-                    "exact_value": SIMPLEFOLD_DEVICE,
+                    "policy": LOCAL_TORCH_DEVICE_POLICY,
+                    "fallback": "forbidden",
                 },
             },
             check=_simplefold_ready,
@@ -557,7 +558,8 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             "name": "folding.simplefold.local-adapter",
             "model": SIMPLEFOLD_MODEL,
             "source_revision": closure_identity["source_revision"],
-            "device": SIMPLEFOLD_DEVICE,
+            "device_policy": LOCAL_TORCH_DEVICE_POLICY,
+            "device_fallback": "forbidden",
             "seed_control": "torch_local",
             "determinism_contract": (
                 "one exact Torch seed per parent batched call derived from "
@@ -672,17 +674,22 @@ def _simplefold_confidence_binding() -> ExecutionBindingDefinition:
                 "provider_asset_closure": closure.readiness_prerequisite(),
                 "device": {
                     "source": "trusted_environment_configuration",
-                    "exact_value": SIMPLEFOLD_CONFIDENCE_DEVICE,
+                    "policy": LOCAL_TORCH_DEVICE_POLICY,
+                    "fallback": "forbidden",
                 },
             },
             check=_simplefold_confidence_ready,
         ),
         deterministic=True,
-        cacheable=True,
+        cacheable=False,
         implementation_identity={
             "name": SIMPLEFOLD_CONFIDENCE_ADAPTER,
             "operation": "existing_structure_confidence_no_refold",
-            "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
+            "device_policy": LOCAL_TORCH_DEVICE_POLICY,
+            "device_fallback": "forbidden",
+            "cache_policy": (
+                "runtime-device-specific-confidence-not-cacheable"
+            ),
             "featurization": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
             "simplefold_artifact_sha256": (
                 closure.file_sha256("model_root")

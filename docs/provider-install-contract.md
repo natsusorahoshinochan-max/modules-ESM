@@ -12,6 +12,16 @@ scientific model, operation, fixed configuration, and exact result-affecting ass
 identity. Environment Configuration supplies locations for those already selected
 facts; it does not select a different scientific route.
 
+All local Torch Bindings share the stable
+`cuda_on_linux_windows_cpu_elsewhere` device policy. Environment Configuration
+materializes it as `cuda` on Linux and Windows and as `cpu` on macOS. On a
+CUDA-selected platform, Readiness allocates a CUDA tensor, executes a kernel,
+and synchronizes it before Provider entry. Failure is a visible Binding failure;
+CPU fallback is forbidden. The concrete admitted device is retained in Engine
+Invocation provenance. Windows is policy-defined but remains
+release-unverified until its installed real-provider matrix runs on a Windows
+NVIDIA host.
+
 ## Locked provider sources
 
 | Provider | Source | Commit | Installation |
@@ -21,9 +31,13 @@ facts; it does not select a different scientific route.
 | ProteinMPNN | `https://github.com/dauparas/ProteinMPNN.git` | `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57` | external checkout selected with `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT` |
 | SoluProt-next | [`repositories/soluprot-next`](../repositories/soluprot-next) | current repository revision | build a wheel from source with Python 3.12 on the target machine |
 
-The `providers` extra also installs the PyTorch runtime. Model artifacts remain
-external downloads and are not release package data. The identifiers below are
-the frozen inputs used by the single current Acceptance Campaign.
+The `providers` extra also installs the PyTorch runtime. The frozen resolution
+uses the CUDA-enabled PyPI build on Linux, the explicit PyTorch `cu130` index on
+Windows, and the CPU build on macOS. The Windows source marker and exact
+`win_amd64` CUDA wheel are part of `pyproject.toml` and `uv.lock`; replacing
+them with the CPU-only PyPI wheel violates this contract. Model artifacts
+remain external downloads and are not release package data. The identifiers
+below are the frozen inputs used by the single current Acceptance Campaign.
 
 Before Provider entry, the owner checks the installed package's PEP 610 or
 editable-checkout Git revision. It does not hash an entire package tree, require
@@ -83,8 +97,8 @@ The local folding Binding fixes two Hugging Face snapshots:
 The current required filenames and SHA-256 manifests are owned once by
 [`modules/folding/esmfold2_contract.py`](../modules/folding/esmfold2_contract.py).
 Readiness admits those exact manifests before Provider entry; the local operation
-then trusts the admitted assets. The environment cannot select another checkpoint,
-precision, device, or model identity.
+then trusts the admitted assets. The environment cannot select another
+checkpoint, precision, device policy, or model identity.
 
 ## Current SimpleFold assets
 
@@ -185,10 +199,11 @@ this checkpoint hash once before using it:
 
 The score Method publishes the Provider-native binary32 masked mean. Locked
 source, checkpoint, seed, mask, reduction, scale, and provenance are exact; the
-Method does not promise bitwise equality between different supported CPU and
-PyTorch FP32 kernels. The 3GB1 acceptance oracle therefore uses a pure absolute
-16-binary32-ULP envelope around its reference value and does not round or
-rewrite the published observation.
+Method does not promise bitwise equality between different CPU/GPU PyTorch FP32
+kernels. Its design and score Bindings are therefore not cacheable across the
+platform-selected device boundary. The 3GB1 acceptance oracle uses a
+device-qualified binary32 envelope established by the target-machine real-model
+gate and never rounds or rewrites the published observation.
 
 Example setup using an operator-owned absolute Provider root:
 
@@ -244,7 +259,7 @@ deployment facts required by an exact active Binding:
   network location as a fallback; local ESM-3 receives its already selected
   snapshot through the absolute `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`;
 - environment values cannot change model identity, Method semantics, scientific
-  parameters, device/precision fixed by the Method, or the selected route;
+  parameters, the Binding-owned device policy/precision, or the selected route;
 - after the owner admits an exact source/asset closure once, internal Provider
   execution trusts it and does not repeat the same proof.
 

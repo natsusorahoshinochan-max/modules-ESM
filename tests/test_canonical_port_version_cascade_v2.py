@@ -123,22 +123,22 @@ _CANDIDATE_PROJECTION_BINDING_GENERATIONS = {
     "collection_ops.take_candidates.direct": ("4.0.0", "3.0.0"),
     "esm3.generate_paired.biohub_medium": ("8.0.0", "7.0.0"),
     "esm3.generate_paired.biohub_open": ("8.0.0", "7.0.0"),
-    "esm3.generate_paired.local_open": ("8.0.0", "7.0.0"),
+    "esm3.generate_paired.local_open": ("9.0.0", "8.0.0"),
     "esm3.generate_sequence.biohub_medium": ("8.0.0", "7.0.0"),
     "esm3.generate_sequence.biohub_open": ("8.0.0", "7.0.0"),
-    "esm3.generate_sequence.local_open": ("8.0.0", "7.0.0"),
+    "esm3.generate_sequence.local_open": ("9.0.0", "8.0.0"),
     "esm3.generate_structure.biohub_medium": ("8.0.0", "7.0.0"),
     "esm3.generate_structure.biohub_open": ("8.0.0", "7.0.0"),
-    "esm3.generate_structure.local_open": ("8.0.0", "7.0.0"),
-    "folding.fold.esmfold2_local": ("10.0.0", "9.0.0"),
+    "esm3.generate_structure.local_open": ("9.0.0", "8.0.0"),
+    "folding.fold.esmfold2_local": ("11.0.0", "10.0.0"),
     "folding.fold.esmfold2_remote": ("9.0.0", "8.0.0"),
-    "folding.fold.simplefold_local": ("10.0.0", "9.0.0"),
-    "folding.simplefold_confidence.simplefold_local": ("6.0.0", "5.0.0"),
+    "folding.fold.simplefold_local": ("11.0.0", "10.0.0"),
+    "folding.simplefold_confidence.simplefold_local": ("7.0.0", "6.0.0"),
     "protein_io.export_structure.direct": ("6.0.0", "5.0.0"),
     "protein_io.import_sequence.direct": ("6.0.0", "5.0.0"),
     "protein_io.import_structure.direct": ("6.0.0", "5.0.0"),
-    "proteinmpnn.design.local": ("11.0.0", "10.0.0"),
-    "proteinmpnn.score.local": ("8.0.0", "7.0.0"),
+    "proteinmpnn.design.local": ("12.0.0", "11.0.0"),
+    "proteinmpnn.score.local": ("9.0.0", "8.0.0"),
     "selection.diversity.direct": ("5.0.0", "4.0.0"),
     "selection.filter.direct": ("5.0.0", "4.0.0"),
     "selection.pareto.direct": ("5.0.0", "4.0.0"),
@@ -479,7 +479,9 @@ def test_esm3_nodes_bindings_cascade_without_method_or_port_aliases() -> None:
             assert output_port["contract_id"] != "score.collection"
         for route in routes:
             binding = catalog.require_contract(
-                "binding", f"{node_id}.{route}", "8.0.0"
+                "binding",
+                f"{node_id}.{route}",
+                "9.0.0" if route == "local_open" else "8.0.0",
             )
             assert binding.descriptor["method"]["contract_version"] == "5.0.0"
             assert binding.descriptor["produced_observations"] == ()
@@ -514,17 +516,17 @@ def test_proteinmpnn_cascade_uses_exact_axis_and_score_generations() -> None:
         ),
         "design": (
             "10.0.0",
-            "11.0.0",
+            "12.0.0",
             "6.0.0",
             "9.0.0",
-            "10.0.0",
+            "11.0.0",
         ),
         "score": (
             "7.0.0",
+            "9.0.0",
+            "6.0.0",
+            "6.0.0",
             "8.0.0",
-            "6.0.0",
-            "6.0.0",
-            "7.0.0",
         ),
     }
     for operation, (
@@ -658,8 +660,8 @@ def test_folding_and_confidence_materialization_use_fact_then_score_generations(
     }
     for binding_id, binding_version in (
         ("folding.fold.esmfold2_remote", "9.0.0"),
-        ("folding.fold.esmfold2_local", "10.0.0"),
-        ("folding.fold.simplefold_local", "10.0.0"),
+        ("folding.fold.esmfold2_local", "11.0.0"),
+        ("folding.fold.simplefold_local", "11.0.0"),
     ):
         binding = catalog.require_contract(
             "binding",

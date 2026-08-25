@@ -550,7 +550,7 @@
       "node_type_id": "proteinmpnn.design",
       "node_type_version": "10.0.0",
       "binding_id": "proteinmpnn.design.local",
-      "binding_version": "11.0.0",
+      "binding_version": "12.0.0",
       "node_parameters": {
         "effective_seed": 1603,
         "num_sequences": 5,
@@ -1065,8 +1065,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
-      "contract_version": "11.0.0",
-      "contract_digest": "sha256:fd38cce333c76a208d4d7d33a574c86a0486ef1726226f2fe43040814018d8c1"
+      "contract_version": "12.0.0",
+      "contract_digest": "sha256:40e13cd81cfe4ed4fb8f7da18310bf19f50068282c8288a0a587fef9e321c841"
     },
     {
       "contract_kind": "binding",

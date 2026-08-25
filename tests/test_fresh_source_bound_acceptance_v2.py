@@ -971,11 +971,11 @@ def _retain_fresh_2emo_provider_transition(
 
 
 def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
+    from core.local_torch_device import expected_local_torch_device
+
     environment = biohub_esm3_esmfold2_environment()
     if tier_name == "fresh-1pga":
-        from modules.folding.simplefold_contract import SIMPLEFOLD_DEVICE
-
-        environment[("folding.fold.simplefold_local", "10.0.0")] = {
+        environment[("folding.fold.simplefold_local", "11.0.0")] = {
             "values": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
@@ -988,20 +988,17 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
                         "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
                     ]
                 ).resolve(),
-                "device": SIMPLEFOLD_DEVICE,
+                "device": expected_local_torch_device(),
             },
         }
     elif tier_name == "fresh-2emo":
-        from modules.proteinmpnn.adapter import (
-            PROTEINMPNN_DEVICE,
-        )
         from protein_workbench_public.provider_environment import (
             provider_environment_configuration,
         )
 
-        environment[("proteinmpnn.design.local", "11.0.0")] = {
+        environment[("proteinmpnn.design.local", "12.0.0")] = {
             "values": {
-                "device": PROTEINMPNN_DEVICE,
+                "device": expected_local_torch_device(),
                 "provider_root": Path(
                     os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
                 ).resolve(),

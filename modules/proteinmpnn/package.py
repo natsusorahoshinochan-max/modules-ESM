@@ -28,6 +28,7 @@ from core.operation import (
     OperationContext,
     ScientificOperation,
 )
+from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
 from modules.proteinmpnn.assets import (
     PROTEINMPNN_REVISION,
     PROTEINMPNN_V_48_020_SHA256,
@@ -36,7 +37,6 @@ from modules.proteinmpnn.assets import (
 from .adapter import (
     LocalProteinMPNNAdapter,
     PROTEINMPNN_CHECKPOINT,
-    PROTEINMPNN_DEVICE,
     PROTEINMPNN_MODEL,
     PROTEINMPNN_TORCH_VERSION,
     proteinmpnn_readiness,
@@ -44,7 +44,7 @@ from .adapter import (
 from . import port_types as _port_types
 
 
-_PACKAGE_VERSION = "7.0.0"
+_PACKAGE_VERSION = "8.0.0"
 _SCORE_METRIC_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
 _NODE_VERSIONS = {
@@ -56,8 +56,8 @@ _NODE_VERSIONS = {
 _BINDING_VERSIONS = {
     "constraints": "4.0.0",
     "random_fixed_positions": "4.0.0",
-    "design": "11.0.0",
-    "score": "8.0.0",
+    "design": "12.0.0",
+    "score": "9.0.0",
 }
 _METHOD_VERSIONS = {
     "constraints": "3.0.0",
@@ -373,7 +373,8 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     ),
                     "model": PROTEINMPNN_MODEL,
                     "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
-                    "device": PROTEINMPNN_DEVICE,
+                    "device_policy": LOCAL_TORCH_DEVICE_POLICY,
+                    "device_fallback": "forbidden",
                     "structure_projection": (
                         "resolved-axis-segment-provider-native-staging-v2"
                     ),
@@ -438,7 +439,8 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     },
                     "device": {
                         "source": "trusted_environment_configuration",
-                        "exact_value": PROTEINMPNN_DEVICE,
+                        "policy": LOCAL_TORCH_DEVICE_POLICY,
+                        "fallback": "forbidden",
                     },
                 },
                 check=proteinmpnn_readiness,
@@ -447,7 +449,7 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             else None
         ),
         deterministic=True,
-        cacheable=True,
+        cacheable=not is_model,
         implementation_identity=(
             {
                 "name": f"proteinmpnn.{operation}.local-adapter",
@@ -455,7 +457,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 "checkpoint": PROTEINMPNN_CHECKPOINT,
                 "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
                 "source_revision": PROTEINMPNN_REVISION,
-                "device": PROTEINMPNN_DEVICE,
+                "device_policy": LOCAL_TORCH_DEVICE_POLICY,
+                "device_fallback": "forbidden",
+                "cache_policy": (
+                    "runtime-device-specific-output-not-cacheable"
+                ),
                 "torch_version": PROTEINMPNN_TORCH_VERSION,
                 "seed_control": (
                     "torch_local"

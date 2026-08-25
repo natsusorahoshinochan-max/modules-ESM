@@ -325,13 +325,13 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "10.0.0"
+        and event["event"]["binding"]["contract_version"] == "11.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "10.0.0",
+        "11.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -385,6 +385,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from core.local_torch_device import expected_local_torch_device
     """Invoke the real local Engine; a fixture cannot satisfy this gate."""
     import esm.models.esmfold2 as esmfold2
     from modules.folding.esmfold2_contract import (
@@ -456,7 +457,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
         "language_model_snapshot_path": language_snapshot,
         "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
-        "device": "cpu",
+        "device": expected_local_torch_device(),
     }
     service, catalog, projection, events = _run_fold(
         tmp_path,
@@ -519,13 +520,13 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "10.0.0"
+        and event["event"]["binding"]["contract_version"] == "11.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_local",
-        "10.0.0",
+        "11.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -552,7 +553,8 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         "effective_randomness": {
             "control": "exact_seed",
             "effective_seed": metadata["effective_call_seed"],
-        }
+        },
+        "provider_device": expected_local_torch_device(),
     }
     invocation_index = next(
         index

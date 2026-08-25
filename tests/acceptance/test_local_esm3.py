@@ -14,6 +14,7 @@ def test_local_esm3_all_generation_modes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from core.local_torch_device import expected_local_torch_device
     import esm.pretrained as esm_pretrained
     import esm.utils.constants.esm3 as esm3_constants
 
@@ -46,10 +47,10 @@ def test_local_esm3_all_generation_modes(
 
     process_configuration = provider_environment_configuration()
     environment = process_configuration[
-        ("esm3.generate_sequence.local_open", "8.0.0")
+        ("esm3.generate_sequence.local_open", "9.0.0")
     ]["values"]
     assert all(
-        process_configuration[(f"esm3.{operation}.local_open", "8.0.0")][
+        process_configuration[(f"esm3.{operation}.local_open", "9.0.0")][
             "values"
         ]
         == environment
@@ -86,7 +87,7 @@ def test_local_esm3_all_generation_modes(
         binding = catalog.require_contract(
             "binding",
             binding_id,
-            "8.0.0",
+            "9.0.0",
         )
         assert binding.descriptor["method"]["contract_id"] == (
             f"esm3.{operation}.esm3_sm_open_v1_local"
@@ -102,7 +103,7 @@ def test_local_esm3_all_generation_modes(
             for index, event in enumerate(events)
             if event["event"]["type"] == "readiness_attested"
             and event["event"]["binding"]["contract_id"] == binding_id
-            and event["event"]["binding"]["contract_version"] == "8.0.0"
+            and event["event"]["binding"]["contract_version"] == "9.0.0"
             and event["event"]["conclusion"] == "passing"
         )
         invocations = [
@@ -141,6 +142,10 @@ def test_local_esm3_all_generation_modes(
             is int
             for invocation in invocations
         )
+        assert {
+            invocation["invocation_provenance"]["provider_device"]
+            for invocation in invocations
+        } == {expected_local_torch_device()}
         terminals = [
             event["event"]
             for event in events

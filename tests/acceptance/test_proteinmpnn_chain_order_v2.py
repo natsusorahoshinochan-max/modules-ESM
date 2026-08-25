@@ -14,6 +14,8 @@ import pytest
 from core.operation import (
     EngineInvocationProvenance,
 )
+from core.execution.ledger.codec import _provenance_to_canonical
+from core.local_torch_device import expected_local_torch_device
 from datatypes.residue import ResidueLayout
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
@@ -61,7 +63,9 @@ class _RunResources:
             details = dict(invocation)
             provenance = details.get("invocation_provenance")
             if type(provenance) is EngineInvocationProvenance:
-                details["invocation_provenance"] = provenance.to_public()
+                details["invocation_provenance"] = (
+                    _provenance_to_canonical(provenance)
+                )
             result.append(details)
         return result
 
@@ -153,7 +157,7 @@ def test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_layout(
     resources = _RunResources(tmp_path)
     adapter = LocalProteinMPNNAdapter(
         environment={
-            "device": "cpu",
+            "device": expected_local_torch_device(),
             "provider_root": provider_root,
         },
         resources=resources,
@@ -190,6 +194,7 @@ def test_real_proteinmpnn_reversed_axis_design_restores_b_then_a_layout(
         {
             "engine_role": "design_parent_0",
             "invocation_provenance": {
+                "provider_device": expected_local_torch_device(),
                 "effective_randomness": {
                     "control": "exact_seed",
                     "effective_seed": 1603,
@@ -235,7 +240,7 @@ def test_real_proteinmpnn_design_and_score_preserve_same_chain_segments(
     resources = _RunResources(tmp_path)
     adapter = LocalProteinMPNNAdapter(
         environment={
-            "device": "cpu",
+            "device": expected_local_torch_device(),
             "provider_root": provider_root,
         },
         resources=resources,
@@ -303,7 +308,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
     resources = _RunResources(tmp_path)
     adapter = LocalProteinMPNNAdapter(
         environment={
-            "device": "cpu",
+            "device": expected_local_torch_device(),
             "provider_root": provider_root,
         },
         resources=resources,
@@ -371,6 +376,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
         {
             "engine_role": "design_parent_0",
             "invocation_provenance": {
+                "provider_device": expected_local_torch_device(),
                 "effective_randomness": {
                     "control": "exact_seed",
                     "effective_seed": 1603,
@@ -381,6 +387,7 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
         {
             "engine_role": "score_subject",
             "invocation_provenance": {
+                "provider_device": expected_local_torch_device(),
                 "effective_randomness": {
                     "control": "exact_seed",
                     "effective_seed": 42,
@@ -402,7 +409,7 @@ def test_real_proteinmpnn_scores_signed_insertion_and_gap_axis(
     resources = _RunResources(tmp_path)
     adapter = LocalProteinMPNNAdapter(
         environment={
-            "device": "cpu",
+            "device": expected_local_torch_device(),
             "provider_root": provider_root,
         },
         resources=resources,
