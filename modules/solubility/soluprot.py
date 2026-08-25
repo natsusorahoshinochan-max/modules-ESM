@@ -262,7 +262,7 @@ def _validate_usearch_runtime(path: Path) -> Path:
         ) from error
     banner = f"{completed.stdout}\n{completed.stderr}"
     if re.search(
-        rf"(?m)^usearch v{re.escape(SOLUPROT_USEARCH_VERSION)}(?:\s|$)",
+        rf"(?m)^usearch v{re.escape(SOLUPROT_USEARCH_VERSION)}(?=[,\s]|$)",
         banner,
     ) is None:
         raise SolubilityReadinessUnavailable(

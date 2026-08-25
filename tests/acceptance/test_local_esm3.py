@@ -12,7 +12,11 @@ from tests.acceptance.retained_evidence import retain_service_run
 @pytest.mark.slow
 def test_local_esm3_all_generation_modes(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import esm.pretrained as esm_pretrained
+    import esm.utils.constants.esm3 as esm3_constants
+
     from modules.esm3.local_adapter import (
         LOCAL_ESM3_SNAPSHOT_REVISION,
     )
@@ -23,6 +27,21 @@ def test_local_esm3_all_generation_modes(
         decode_output,
         generation_catalog,
         run_generation,
+    )
+
+    def forbidden_data_root(_model: str) -> Path:
+        pytest.fail(
+            "explicit local ESM-3 execution must not use an SDK data fallback"
+        )
+
+    monkeypatch.setattr(esm3_constants, "data_root", forbidden_data_root)
+    monkeypatch.setattr(esm_pretrained, "data_root", forbidden_data_root)
+    monkeypatch.setattr(
+        esm3_constants,
+        "snapshot_download",
+        lambda **_kwargs: pytest.fail(
+            "explicit local ESM-3 execution must not access Hugging Face"
+        ),
     )
 
     process_configuration = provider_environment_configuration()
@@ -62,6 +81,7 @@ def test_local_esm3_all_generation_modes(
             catalog=shared_catalog,
         )
         assert projection["status"] == "succeeded"
+        assert esm3_constants.data_root is forbidden_data_root
         binding_id = f"esm3.{operation}.local_open"
         binding = catalog.require_contract(
             "binding",

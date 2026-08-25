@@ -275,7 +275,13 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         "proteinmpnn.score.v_48_020_8907e667"
     )
     assert observation.context == IntrinsicObservationContext()
-    assert observation.value == 1.385357141494751
+    expected = 1.385357141494751
+    binary32_cross_platform_tolerance = 16 * 2**-23
+    assert observation.value == pytest.approx(
+        expected,
+        rel=0.0,
+        abs=binary32_cross_platform_tolerance,
+    )
     invocation = next(
         item["event"]
         for item in events

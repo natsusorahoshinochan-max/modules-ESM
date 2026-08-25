@@ -134,13 +134,13 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 - design 精确进入 `tied_sample`，并证明 seed、temperature、number of sequences、omit `X`、fixed-position/chain constraints、backbone noise 等参数；
 - score 精确进入固定上游 forward，loss mask 是 `mask * chain_M * chain_M_pos`，decoding order 的随机种子与 provenance 一致；
 - 输入 residue IDs 到 Provider `chain-local 1-based` position 的完整 mapping；至少一个 fixture 的 Workbench chain order 与 Provider design-first order 不同，并分别测试“同一 partition 内的顺序”和“design/fixed partition 间的顺序”；
-- design 输出 exact sequence digest、effective seed 和恢复后的 residue IDs；score 输出固定结构/序列的 exact native NLL；
+- design 输出 exact sequence digest、effective seed 和恢复后的 residue IDs；score 输出固定结构/序列的 provider-native binary32 NLL，并以明确的窄数值容差验证跨 CPU kernel 一致性；
 - designable residue 缺失所需 N/CA/C/O 时在调用前 fail fast；fixed parent 中缺失 backbone atom 时仍按固定上游 mask 语义保留。这两个是科学输入/translation 事实，不是 malformed Provider 测试。
 
 现有门禁已有很好的正向基础：
 
 - [installed design and score gate](../tests/acceptance/test_installed_provider_gates_v2.py) 证明真实 Binding/Method 执行；
-- [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时的 3GB1 NLL `1.385357141494751`；
+- [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时的 3GB1 macOS ARM64 NLL reference `1.385357141494751`；Linux x86_64 观测为 `1.385355830192566`，二者相差 11 binary32 ULP。gate 使用 16 binary32 ULP（`1.9073486328125e-6 nats/residue`）的纯绝对容差容纳不同受支持 CPU/PyTorch FP32 kernel 的末位差异，不改写 provider-native 值；
 - 同一文件固定 design sequence digest 与 effective seed；
 - [chain-order gate](../tests/acceptance/test_proteinmpnn_chain_order_v2.py) 证明 design B/fix A 后恢复 A,B，并验证 fixed CSH parent 缠有 missing backbone atom 时的保留行为。
 

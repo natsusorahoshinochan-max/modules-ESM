@@ -63,6 +63,14 @@ cache variables or internal cache directories. Its required weight objects are:
 | `data/weights/esm3_structure_decoder_v0.pth` | `3b726258a44274792b40ce7ea307e10c5da09936368a4ffa2970264d909da65b` |
 | `data/weights/esm3_function_decoder_v0.pth` | `f76d074efcaccfe21365a4fa96f212dadd66798e1e49d809ab7ffbe025d227c9` |
 
+Keep the complete selected snapshot at that root. The Workbench validates and
+privately stages the four weight objects above; the pinned SDK's residue and
+function tokenizers read their revision-owned auxiliary data directly from the
+same configured snapshot. Local execution binds those SDK lookups to the
+configured root and never calls Hugging Face snapshot download or cache
+discovery. A snapshot missing required auxiliary data therefore fails locally
+instead of falling back to the network.
+
 ## Current local ESMFold2 assets
 
 The local folding Binding fixes two Hugging Face snapshots:
@@ -174,6 +182,13 @@ this checkpoint hash once before using it:
 | Checkpoint | SHA-256 |
 | --- | --- |
 | `vanilla_model_weights/v_48_020.pt` | `c9cb4a671d79604111231f8dbfc7c590e06f1197453b7a6854ac6661a642f5bd` |
+
+The score Method publishes the Provider-native binary32 masked mean. Locked
+source, checkpoint, seed, mask, reduction, scale, and provenance are exact; the
+Method does not promise bitwise equality between different supported CPU and
+PyTorch FP32 kernels. The 3GB1 acceptance oracle therefore uses a pure absolute
+16-binary32-ULP envelope around its reference value and does not round or
+rewrite the published observation.
 
 Example setup using an operator-owned absolute Provider root:
 

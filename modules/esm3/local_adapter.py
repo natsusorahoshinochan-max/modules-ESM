@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from contextlib import ExitStack
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import hashlib
 import importlib.util
 from pathlib import Path
 import shutil
 import tempfile
+from threading import RLock
 from types import FunctionType
 from typing import Any, cast
 import weakref
@@ -52,6 +53,7 @@ LOCAL_ESM3_WEIGHT_SHA256 = {
 LOCAL_ESM3_DEVICE = "cpu"
 LOCAL_ESM3_TORCH_VERSION = "2.13.0"
 LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
+_LOCAL_ESM3_SDK_ROOT_LOCK = RLock()
 
 
 class LocalESM3RuntimeUnavailable(RuntimeError):
@@ -257,6 +259,43 @@ def _bind_builder_to_staged_root(
     return bound
 
 
+@contextmanager
+def _sdk_snapshot_root(snapshot_path: Path) -> Iterator[None]:
+    """Temporarily bind SDK-owned ESM-3 lookups to one snapshot."""
+    import esm.utils.constants.esm3 as esm3_constants
+
+    with _LOCAL_ESM3_SDK_ROOT_LOCK:
+        original_data_root = esm3_constants.data_root
+
+        def snapshot_data_root(model: str) -> Path:
+            if model != "esm3":
+                raise LocalESM3RuntimeUnavailable(
+                    "local ESM-3 SDK requested an undeclared model root"
+                )
+            return snapshot_path
+
+        esm3_constants.data_root = snapshot_data_root
+        try:
+            yield
+        finally:
+            esm3_constants.data_root = original_data_root
+
+
+def _bind_builder_to_local_roots(
+    builder: FunctionType,
+    staged_root: Path,
+    snapshot_path: Path,
+) -> Callable[[Any], Any]:
+    """Bind one SDK builder to staged weights and snapshot data."""
+    staged_builder = _bind_builder_to_staged_root(builder, staged_root)
+
+    def load(device: Any = "cpu") -> Any:
+        with _sdk_snapshot_root(snapshot_path):
+            return staged_builder(device)
+
+    return load
+
+
 def load_local_esm3_client(
     runtime: LocalESM3Runtime,
     *,
@@ -265,6 +304,7 @@ def load_local_esm3_client(
     """Load only the exact readiness-validated local model on explicit demand."""
     import torch
     import esm.pretrained as esm_pretrained
+    import esm.utils.constants.esm3 as esm3_constants
 
     staged_root = stage_local_runtime(runtime)
     try:
@@ -279,13 +319,20 @@ def load_local_esm3_client(
             )
         }
         bound = {
-            name: _bind_builder_to_staged_root(builder, staged_root)
+            name: _bind_builder_to_local_roots(
+                builder,
+                staged_root,
+                runtime.snapshot_path,
+            )
             for name, builder in required_builders.items()
         }
         client = bound[model_name](torch.device(runtime.device))
         client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
         client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
         client.function_decoder_fn = bound["esm3_function_decoder_v0"]
+        client.tokenizers.function.lsh_path = (
+            runtime.snapshot_path / esm3_constants.LSH_TABLE_PATHS["8bit"]
+        )
         client = client.float()
         client._protein_workbench_staged_root = staged_root
         client._protein_workbench_staged_cleanup = weakref.finalize(
