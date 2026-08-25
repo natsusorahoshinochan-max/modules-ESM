@@ -27,7 +27,6 @@ from datatypes.observation import (
     ScoreCollection,
 )
 from modules.structure_comparison.contracts import (
-    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
     SIMPLEFOLD_FOLD_METHOD_REFERENCE,
@@ -90,6 +89,50 @@ _FRESH_2EMO_PROVIDER_NODES = (
     "design-sequences",
     "score-protein-sol",
 )
+_LOCAL_TIER_PREFIX = "fresh-local-"
+_LOCAL_BINDING_REPLACEMENTS = {
+    ("esm3.generate_paired.biohub_medium", "8.0.0"): (
+        "esm3.generate_paired.local_open",
+        "9.0.0",
+    ),
+    ("folding.fold.esmfold2_remote", "9.0.0"): (
+        "folding.fold.esmfold2_local",
+        "11.0.0",
+    ),
+}
+_LOCAL_SERVICE_TIMEOUT_SECONDS = {
+    "fresh-local-1pga": 110 * 60,
+    "fresh-local-2emo": 170 * 60,
+    "fresh-local-5g53": 230 * 60,
+}
+_LOCAL_EXTERNAL_TIMEOUT_SECONDS = {
+    "fresh-local-1pga": 115 * 60,
+    "fresh-local-2emo": 175 * 60,
+    "fresh-local-5g53": 235 * 60,
+}
+
+
+def _base_tier_name(tier_name: str) -> str:
+    if tier_name.startswith(_LOCAL_TIER_PREFIX):
+        return "fresh-" + tier_name.removeprefix(_LOCAL_TIER_PREFIX)
+    return tier_name
+
+
+def _uses_local_models(tier_name: str) -> bool:
+    return tier_name.startswith(_LOCAL_TIER_PREFIX)
+
+
+def _select_local_model_bindings(workflow: dict[str, Any]) -> None:
+    replaced = 0
+    for node in workflow["nodes"]:
+        replacement = _LOCAL_BINDING_REPLACEMENTS.get(
+            (node["binding_id"], node["binding_version"])
+        )
+        if replacement is None:
+            continue
+        node["binding_id"], node["binding_version"] = replacement
+        replaced += 1
+    assert replaced > 0
 
 
 def _decode(
@@ -222,6 +265,8 @@ def _assert_1pga_science(
     workflow: Mapping[str, Any],
     events: tuple[dict[str, Any], ...],
     projection: dict[str, Any],
+    *,
+    local_models: bool,
 ) -> None:
     live_invocations = _assert_live_node_contracts(
         catalog,
@@ -229,7 +274,10 @@ def _assert_1pga_science(
         events,
         projection,
         {
-            "fold-esmfold2": (1, "provider_uncontrolled"),
+            "fold-esmfold2": (
+                1,
+                "exact_seed" if local_models else "provider_uncontrolled",
+            ),
             "fold-simplefold": (1, "exact_seed"),
         },
     )
@@ -315,8 +363,19 @@ def _assert_1pga_science(
     )
     assert len(consistency.edges) == 3
     assert len(consistency.confidences) == 2
+    esmfold2_node = workflow_nodes["fold-esmfold2"]
+    esmfold2_binding = catalog.require_contract(
+        "binding",
+        esmfold2_node["binding_id"],
+        esmfold2_node["binding_version"],
+    )
+    esmfold2_method = catalog.require_contract(
+        "method",
+        esmfold2_binding.descriptor["method"]["contract_id"],
+        esmfold2_binding.descriptor["method"]["contract_version"],
+    )
     assert tuple(item.method for item in consistency.confidences) == (
-        REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
+        esmfold2_method.reference(),
         SIMPLEFOLD_FOLD_METHOD_REFERENCE,
     )
     assert all(
@@ -347,6 +406,8 @@ def _assert_2emo_science(
     workflow: Mapping[str, Any],
     events: tuple[dict[str, Any], ...],
     projection: dict[str, Any],
+    *,
+    local_models: bool,
 ) -> None:
     live_invocations = _assert_live_node_contracts(
         catalog,
@@ -355,7 +416,10 @@ def _assert_2emo_science(
         projection,
         {
             "design-sequences": (1, "exact_seed"),
-            "fold-esmfold2": (8, "provider_uncontrolled"),
+            "fold-esmfold2": (
+                8,
+                "exact_seed" if local_models else "provider_uncontrolled",
+            ),
             "score-protein-sol": (1, None),
         },
     )
@@ -522,9 +586,25 @@ def _assert_2emo_science(
         for invocation in live_invocations["fold-esmfold2"]
     ) == tuple(f"fold_parent_{index}_sample_0" for index in range(8))
     assert all(
-        invocation["invocation_provenance"]
-        == {"effective_randomness": {"control": "provider_uncontrolled"}}
-        for invocation in live_invocations["fold-esmfold2"]
+        (
+            invocation["invocation_provenance"]["effective_randomness"]
+            == {
+                "control": "exact_seed",
+                "effective_seed": fold.metadata["effective_call_seed"],
+            }
+            if local_models
+            else invocation["invocation_provenance"]
+            == {
+                "effective_randomness": {
+                    "control": "provider_uncontrolled"
+                }
+            }
+        )
+        for invocation, fold in zip(
+            live_invocations["fold-esmfold2"],
+            folds.items,
+            strict=True,
+        )
     )
     assert len(alignments) == 8
     structure_port = build_frozen_catalog(module_registrations()).require_port_type(
@@ -631,22 +711,27 @@ def _assert_5g53_science(
     workflow: Mapping[str, Any],
     events: tuple[dict[str, Any], ...],
     projection: dict[str, Any],
+    *,
+    local_models: bool,
 ) -> None:
+    randomness_control = (
+        "exact_seed" if local_models else "provider_uncontrolled"
+    )
     live_invocations = _assert_live_node_contracts(
         catalog,
         workflow,
         events,
         projection,
         {
-            "generate-shorter-8": (4, "provider_uncontrolled"),
-            "fold-shorter-8": (2, "provider_uncontrolled"),
+            "generate-shorter-8": (4, randomness_control),
+            "fold-shorter-8": (2, randomness_control),
             "generate-numbering-implied-12": (
                 4,
-                "provider_uncontrolled",
+                randomness_control,
             ),
-            "fold-numbering-implied-12": (2, "provider_uncontrolled"),
-            "generate-longer-16": (4, "provider_uncontrolled"),
-            "fold-longer-16": (2, "provider_uncontrolled"),
+            "fold-numbering-implied-12": (2, randomness_control),
+            "generate-longer-16": (4, randomness_control),
+            "fold-longer-16": (2, randomness_control),
         },
     )
     assert live_invocations
@@ -948,7 +1033,14 @@ def _assert_science(
         "fresh-2emo": _assert_2emo_science,
         "fresh-5g53": _assert_5g53_science,
     }
-    assertions[tier_name](service, catalog, workflow, events, projection)
+    assertions[_base_tier_name(tier_name)](
+        service,
+        catalog,
+        workflow,
+        events,
+        projection,
+        local_models=_uses_local_models(tier_name),
+    )
 
 
 def _retain_fresh_2emo_provider_transition(
@@ -979,8 +1071,15 @@ def _retain_fresh_2emo_provider_transition(
 def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
     from core.local_torch_device import expected_local_torch_device
 
+    if _uses_local_models(tier_name):
+        from protein_workbench_public.provider_environment import (
+            provider_environment_configuration,
+        )
+
+        return provider_environment_configuration(os.environ)
+
     environment = biohub_esm3_esmfold2_environment()
-    if tier_name == "fresh-1pga":
+    if _base_tier_name(tier_name) == "fresh-1pga":
         environment[("folding.fold.simplefold_local", "11.0.0")] = {
             "values": {
                 "model_root": Path(
@@ -997,7 +1096,7 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
                 "device": expected_local_torch_device(),
             },
         }
-    elif tier_name == "fresh-2emo":
+    elif _base_tier_name(tier_name) == "fresh-2emo":
         from protein_workbench_public.provider_environment import (
             provider_environment_configuration,
         )
@@ -1032,7 +1131,8 @@ def test_fresh_source_bound_public_run() -> None:
     from tests.support.public_request import encode_project_input_content
 
     tier_name = os.environ["PROTEIN_WORKBENCH_SOURCE_BOUND_TIER"]
-    contract = CONTRACTS[tier_name]
+    base_tier_name = _base_tier_name(tier_name)
+    contract = CONTRACTS[base_tier_name]
     input_bytes = (
         files("examples")
         .joinpath("v2", "structures", contract["input"])
@@ -1044,6 +1144,8 @@ def test_fresh_source_bound_public_run() -> None:
             encoding="utf-8"
         )
     )
+    if _uses_local_models(tier_name):
+        _select_local_model_bindings(workflow)
     catalog = build_frozen_catalog(module_registrations())
     app = create_application(
         v2_environment_configuration=_environment(tier_name),
@@ -1093,7 +1195,10 @@ def test_fresh_source_bound_public_run() -> None:
             service,
             project_id,
             started.json()["run_id"],
-            timeout_seconds=170 * 60,
+            timeout_seconds=_LOCAL_SERVICE_TIMEOUT_SECONDS.get(
+                tier_name,
+                170 * 60,
+            ),
         )
         projection = public_run_projection(
             service,
@@ -1115,7 +1220,7 @@ def test_fresh_source_bound_public_run() -> None:
             tier_name,
             projection,
         )
-        if tier_name == "fresh-2emo":
+        if base_tier_name == "fresh-2emo":
             _retain_fresh_2emo_provider_transition(
                 catalog,
                 workflow,
@@ -1152,13 +1257,16 @@ def _run_fresh(
             "test_fresh_source_bound_public_run",
         ),
         environment=env,
-        timeout_seconds=175 * 60,
+        timeout_seconds=_LOCAL_EXTERNAL_TIMEOUT_SECONDS.get(
+            tier_name,
+            175 * 60,
+        ),
     )
     assert "Bearer " not in output
     require_retained_evidence(
         evidence_root,
         required_runs=(tier_name,),
-        lifecycle_required=tier_name == "fresh-2emo",
+        lifecycle_required=_base_tier_name(tier_name) == "fresh-2emo",
     )
 
 
@@ -1187,3 +1295,30 @@ def test_fresh_5g53_installed_public_run_retains_auditable_bundle(
     tmp_path: Path,
 ) -> None:
     _run_fresh("fresh-5g53", installed_artifact, tmp_path)
+
+
+@pytest.mark.acceptance
+@pytest.mark.local_provider
+def test_fresh_local_1pga_installed_public_run_retains_auditable_bundle(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_fresh("fresh-local-1pga", installed_artifact, tmp_path)
+
+
+@pytest.mark.acceptance
+@pytest.mark.local_provider
+def test_fresh_local_2emo_installed_public_run_retains_auditable_bundle(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_fresh("fresh-local-2emo", installed_artifact, tmp_path)
+
+
+@pytest.mark.acceptance
+@pytest.mark.local_provider
+def test_fresh_local_5g53_installed_public_run_retains_auditable_bundle(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_fresh("fresh-local-5g53", installed_artifact, tmp_path)

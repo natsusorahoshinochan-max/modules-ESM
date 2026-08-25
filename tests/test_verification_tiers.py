@@ -62,6 +62,10 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
         "fresh-2emo",
         "fresh-canonical-3gb1",
         "fresh-5g53",
+        "fresh-local-1pga",
+        "fresh-local-2emo",
+        "fresh-local-canonical-3gb1",
+        "fresh-local-5g53",
         "installed-biohub-esm3",
         "installed-biohub-esmc",
         "installed-biohub-esmfold2",
@@ -155,6 +159,10 @@ def test_required_installed_provider_tiers_fail_on_any_skip() -> None:
         "fresh-2emo",
         "fresh-canonical-3gb1",
         "fresh-5g53",
+        "fresh-local-1pga",
+        "fresh-local-2emo",
+        "fresh-local-canonical-3gb1",
+        "fresh-local-5g53",
     }
 
 
@@ -172,6 +180,7 @@ def test_complete_acceptance_campaign_is_exact_and_retains_evidence() -> None:
     }
     assert lifecycle_requirements["installed-proteinmpnn"] is False
     assert lifecycle_requirements["fresh-2emo"] is True
+    assert lifecycle_requirements["fresh-local-2emo"] is True
 
 
 def test_external_acceptance_tree_uses_canonical_pytest_configuration(

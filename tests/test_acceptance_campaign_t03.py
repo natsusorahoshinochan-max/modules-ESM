@@ -141,9 +141,13 @@ def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
         "installed-soluprot",
         "installed-protein-sol",
         "fresh-1pga",
+        "fresh-local-1pga",
         "fresh-2emo",
+        "fresh-local-2emo",
         "fresh-canonical-3gb1",
+        "fresh-local-canonical-3gb1",
         "fresh-5g53",
+        "fresh-local-5g53",
     )
     assert all(
         tier.pytest_arguments
@@ -161,13 +165,25 @@ def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
         "fresh-1pga": (
             "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
         ),
+        "fresh-local-1pga": (
+            "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
+        ),
         "fresh-2emo": (
+            "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
+        ),
+        "fresh-local-2emo": (
             "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
         ),
         "fresh-canonical-3gb1": (
             "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
         ),
+        "fresh-local-canonical-3gb1": (
+            "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
+        ),
         "fresh-5g53": (
+            "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
+        ),
+        "fresh-local-5g53": (
             "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
         ),
     }
