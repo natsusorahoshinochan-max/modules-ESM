@@ -50,6 +50,7 @@ from tests.fixtures.canonical_3gb1_v2 import (
     ControlledProteinMPNNProvider,
     controlled_catalog,
     controlled_environment,
+    controlled_module_registrations,
 )
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_canonical_bytes,
@@ -457,6 +458,11 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         monkeypatch,
         esm3,
         folding,
+    )
+    controlled_registrations = controlled_module_registrations()
+    monkeypatch.setattr(
+        "protein_workbench_public.bootstrap.module_registrations",
+        lambda: controlled_registrations,
     )
     app = create_application(
         v2_environment_configuration=controlled_configuration,

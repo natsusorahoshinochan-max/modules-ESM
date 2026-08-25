@@ -270,8 +270,8 @@ class ControlledProteinMPNNProvider:
         return sequences
 
 
-def controlled_catalog() -> Any:
-    """Preserve every public contract byte while opening provider test seams."""
+def controlled_module_registrations() -> tuple[ModulePackageRegistration, ...]:
+    """Preserve contract bytes while opening explicit Provider test seams."""
 
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
@@ -302,7 +302,12 @@ def controlled_catalog() -> Any:
         registrations.append(
             replace(registration, bindings=tuple(bindings))
         )
-    return build_frozen_catalog(tuple(registrations))
+    return tuple(registrations)
+
+
+def controlled_catalog() -> Any:
+    """Freeze the explicit Provider-controlled production registrations."""
+    return build_frozen_catalog(controlled_module_registrations())
 
 
 def controlled_environment(
