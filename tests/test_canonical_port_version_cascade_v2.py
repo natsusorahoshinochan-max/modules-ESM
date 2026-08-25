@@ -70,10 +70,10 @@ _CANDIDATE_PROJECTION_NODE_GENERATIONS = {
     "structure_comparison.align_fixed_reference": ("5.0.0", "4.0.0"),
     "structure_comparison.align_single": ("5.0.0", "4.0.0"),
     "structure_comparison.classify_three_way_consistency": (
+        "4.0.0",
         "3.0.0",
-        "2.0.0",
     ),
-    "structure_comparison.evaluate_inserted_loop": ("2.0.0", "1.0.0"),
+    "structure_comparison.evaluate_inserted_loop": ("3.0.0", "2.0.0"),
     "structure_comparison.rmsd_counterparts": ("6.0.0", "5.0.0"),
     "structure_comparison.rmsd_fixed_reference": ("6.0.0", "5.0.0"),
     "structure_comparison.tm_score_counterparts": ("6.0.0", "5.0.0"),
@@ -95,8 +95,8 @@ _CANDIDATE_PROJECTION_NODE_GENERATIONS = {
 
 _CANDIDATE_PROJECTION_METHOD_GENERATIONS = {
     "structure_comparison.inserted_loop.exact_evidence_gate": (
+        "3.0.0",
         "2.0.0",
-        "1.0.0",
     ),
     "structure_comparison.rmsd.from_alignment_evidence.method": (
         "4.0.0",
@@ -174,10 +174,10 @@ _CANDIDATE_PROJECTION_BINDING_GENERATIONS = {
         "4.0.0",
     ),
     "structure_comparison.classify_three_way_consistency.direct": (
+        "4.0.0",
         "3.0.0",
-        "2.0.0",
     ),
-    "structure_comparison.evaluate_inserted_loop.direct": ("2.0.0", "1.0.0"),
+    "structure_comparison.evaluate_inserted_loop.direct": ("3.0.0", "2.0.0"),
     "structure_comparison.rmsd_counterparts.from_alignment_evidence": (
         "6.0.0",
         "5.0.0",
@@ -228,8 +228,8 @@ def test_candidate_reference_projection_ports_publish_new_exact_generations(
         "candidate.pairing": "4.0.0",
         "score.collection": "5.0.0",
         "structure_comparison.alignment_evidence": "5.0.0",
-        "structure_comparison.inserted_loop_evaluation": "2.0.0",
-        "structure_comparison.three_way_consistency": "3.0.0",
+        "structure_comparison.inserted_loop_evaluation": "3.0.0",
+        "structure_comparison.three_way_consistency": "4.0.0",
         "structure_prediction.confidence_facts": "2.0.0",
         "structure_prediction.prediction_residue_axis": "2.0.0",
         (
@@ -246,8 +246,8 @@ def test_candidate_reference_projection_ports_publish_new_exact_generations(
         "candidate.pairing": "3.0.0",
         "score.collection": "4.0.0",
         "structure_comparison.alignment_evidence": "4.0.0",
-        "structure_comparison.inserted_loop_evaluation": "1.0.0",
-        "structure_comparison.three_way_consistency": "2.0.0",
+        "structure_comparison.inserted_loop_evaluation": "2.0.0",
+        "structure_comparison.three_way_consistency": "3.0.0",
         "structure_prediction.confidence_facts": "1.0.0",
         "structure_prediction.prediction_residue_axis": "1.0.0",
         (
@@ -613,16 +613,16 @@ def test_structure_comparison_conclusion_ports_follow_embedded_methods() -> None
 
     expected_outputs = {
         "structure_comparison.classify_three_way_consistency": (
-            "3.0.0",
+            "4.0.0",
             "consistency",
             "structure_comparison.three_way_consistency",
-            "3.0.0",
+            "4.0.0",
         ),
         "structure_comparison.evaluate_inserted_loop": (
-            "2.0.0",
+            "3.0.0",
             "quality_evidence",
             "structure_comparison.inserted_loop_evaluation",
-            "2.0.0",
+            "3.0.0",
         ),
     }
     for node_id, (

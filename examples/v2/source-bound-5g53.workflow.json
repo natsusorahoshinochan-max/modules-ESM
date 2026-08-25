@@ -211,9 +211,9 @@
     {
       "node_id": "evaluate-shorter-8",
       "node_type_id": "structure_comparison.evaluate_inserted_loop",
-      "node_type_version": "2.0.0",
+      "node_type_version": "3.0.0",
       "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "resolved_core_residue_ids": [
           "A:6",
@@ -685,9 +685,9 @@
     {
       "node_id": "evaluate-numbering-implied-12",
       "node_type_id": "structure_comparison.evaluate_inserted_loop",
-      "node_type_version": "2.0.0",
+      "node_type_version": "3.0.0",
       "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "resolved_core_residue_ids": [
           "A:6",
@@ -1167,9 +1167,9 @@
     {
       "node_id": "evaluate-longer-16",
       "node_type_id": "structure_comparison.evaluate_inserted_loop",
-      "node_type_version": "2.0.0",
+      "node_type_version": "3.0.0",
       "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "binding_version": "2.0.0",
+      "binding_version": "3.0.0",
       "node_parameters": {
         "resolved_core_residue_ids": [
           "A:6",
@@ -2660,8 +2660,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:d38ae0c06e96474081dfdaf5e5d860f71edc888e757d42afb9a4fac95ba8c762"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:d62afea30cd086f07b7874259a3629fafadcc6a2596954254d92f8aff97d3410"
     },
     {
       "contract_kind": "binding",
@@ -2768,8 +2768,8 @@
     {
       "contract_kind": "method",
       "contract_id": "structure_comparison.inserted_loop.exact_evidence_gate",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:d380ea2e61ec3cb1c8908a950677bfbe0c4ed09e1780ea68e038f7b634dac290"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a1342419b6660e337e02a735730998e5cea91b7224b3ffd376033c7378ec1f67"
     },
     {
       "contract_kind": "method",
@@ -2918,8 +2918,8 @@
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.evaluate_inserted_loop",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:0510fff1e7b73f95c7d159fe218c0f714bbc2b862822f014d1eb3a3719d46f8f"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:983bddc69f23c46cd2e30dccfb71624bdb238144f2b30d1bf2f2ac6fc9f8feaf"
     },
     {
       "contract_kind": "node_type",
@@ -3026,8 +3026,8 @@
     {
       "contract_kind": "port_type",
       "contract_id": "structure_comparison.inserted_loop_evaluation",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:307e63ca07b32c748f632bf391faa2042cf0876dcb4de596b05c0449c0f1a325"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:5d246693bf665b441eceb3703fa2dfe0d27b95b3a3e0031e9130a437112f146c"
     },
     {
       "contract_kind": "port_type",

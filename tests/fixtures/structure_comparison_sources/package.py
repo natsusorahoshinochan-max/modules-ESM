@@ -661,6 +661,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
             if method.method_id
             in {
                 "folding.fold.esmfold2_fast_biohub_2026_05",
+                "folding.fold.esmfold2_hf_1ebf0e3",
                 "folding.fold.simplefold_100m_c7a5570",
             }
         ),
@@ -761,11 +762,65 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
         ),
         _fixture_binding(
+            binding_id=(
+                "contract_test.local_inserted_loop_confidence_source.fixture"
+            ),
+            node_type_id="contract_test.prediction_confidence_source",
+            method_id="folding.fold.esmfold2_hf_1ebf0e3",
+            method_version="6.0.0",
+            factory_name=(
+                "contract_test.local_inserted_loop_confidence_source/factory"
+            ),
+            build=_build_inserted_loop_confidence_source,
+            produced_observations=(
+                ProducedObservationDefinition(
+                    output_port="observations",
+                    output_partition="prediction_confidence",
+                    metric=ContractIdentity(
+                        "metric", "structure.plddt.per_residue", "3.0.0"
+                    ),
+                    context_profile={"kind": "intrinsic"},
+                    subject_grain="candidate",
+                    source_role="subject",
+                    subject_direction="input",
+                    subject_port="structures",
+                    axis_direction="input",
+                    axis_port="confidence_facts",
+                    guaranteed_multiplicity="one",
+                ),
+            ),
+        ),
+        _fixture_binding(
             binding_id="contract_test.esmfold2_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
             method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_source/factory",
+            build=_build_esmfold2_confidence_source,
+            produced_observations=(
+                ProducedObservationDefinition(
+                    output_port="observations",
+                    output_partition="prediction_confidence",
+                    metric=ContractIdentity(
+                        "metric", "structure.plddt.mean_residue", "3.0.0"
+                    ),
+                    context_profile={"kind": "intrinsic"},
+                    subject_grain="candidate",
+                    source_role="subject",
+                    subject_direction="input",
+                    subject_port="structures",
+                    axis_direction="input",
+                    axis_port="confidence_facts",
+                    guaranteed_multiplicity="one",
+                ),
+            ),
+        ),
+        _fixture_binding(
+            binding_id="contract_test.local_esmfold2_confidence_source.fixture",
+            node_type_id="contract_test.prediction_confidence_source",
+            method_id="folding.fold.esmfold2_hf_1ebf0e3",
+            method_version="6.0.0",
+            factory_name="contract_test.local_esmfold2_confidence_source/factory",
             build=_build_esmfold2_confidence_source,
             produced_observations=(
                 ProducedObservationDefinition(
@@ -816,6 +871,18 @@ MODULE_PACKAGE = ModulePackageRegistration(
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
             method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_fact_source/factory",
+            build=_build_confidence_fact_source,
+        ),
+        _fixture_binding(
+            binding_id=(
+                "contract_test.local_esmfold2_confidence_fact_source.fixture"
+            ),
+            node_type_id="contract_test.prediction_confidence_fact_source",
+            method_id="folding.fold.esmfold2_hf_1ebf0e3",
+            method_version="6.0.0",
+            factory_name=(
+                "contract_test.local_esmfold2_confidence_fact_source/factory"
+            ),
             build=_build_confidence_fact_source,
         ),
         _fixture_binding(

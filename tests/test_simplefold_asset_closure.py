@@ -358,22 +358,22 @@ def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
         (
             "method",
             "structure_comparison.three_way_consistency.threshold_graph",
-            "2.0.0",
+            "3.0.0",
         ),
         (
             "port_type",
             "structure_comparison.three_way_consistency",
-            "3.0.0",
+            "4.0.0",
         ),
         (
             "node_type",
             "structure_comparison.classify_three_way_consistency",
-            "3.0.0",
+            "4.0.0",
         ),
         (
             "binding",
             "structure_comparison.classify_three_way_consistency.direct",
-            "3.0.0",
+            "4.0.0",
         ),
     ):
         catalog.require_contract(contract_kind, contract_id, version)

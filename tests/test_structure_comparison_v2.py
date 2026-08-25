@@ -51,6 +51,7 @@ from modules.structure_comparison.alignment import (
 )
 from modules.structure_comparison.contracts import (
     INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
+    LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE,
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD,
@@ -1085,10 +1086,10 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         ("structure_comparison.align_single", "5.0.0"),
         ("structure_comparison.align_fixed_reference", "5.0.0"),
         ("structure_comparison.align_counterparts", "5.0.0"),
-        ("structure_comparison.evaluate_inserted_loop", "2.0.0"),
+        ("structure_comparison.evaluate_inserted_loop", "3.0.0"),
         (
             "structure_comparison.classify_three_way_consistency",
-            "3.0.0",
+            "4.0.0",
         ),
         ("structure_comparison.rmsd_fixed_reference", "6.0.0"),
         ("structure_comparison.rmsd_counterparts", "6.0.0"),
@@ -1099,7 +1100,7 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         contract.contract_version
         for contract in contracts
         if contract.contract_kind in {"method", "metric", "utility_transform"}
-    } == {"2.0.0", "3.0.0", "4.0.0"}
+    } == {"3.0.0", "4.0.0"}
     assert {
         (contract.contract_id, contract.contract_version)
         for contract in contracts
@@ -1125,11 +1126,11 @@ def test_structure_comparison_catalog_has_only_active_split_paths() -> None:
         ),
         (
             "structure_comparison.classify_three_way_consistency.direct",
-            "3.0.0",
+            "4.0.0",
         ),
         (
             "structure_comparison.evaluate_inserted_loop.direct",
-            "2.0.0",
+            "3.0.0",
         ),
         (
             "structure_comparison.rmsd_fixed_reference."
@@ -1433,9 +1434,13 @@ def _three_way_node(
 
 def _inserted_loop_ctk_case(
     *,
+    case_id: str = "evaluate-inserted-loop",
     missing_loop_plddt: bool = False,
     confidence_binding_id: str = (
         "contract_test.inserted_loop_confidence_source.fixture"
+    ),
+    confidence_fact_binding_id: str = (
+        "contract_test.esmfold2_confidence_fact_source.fixture"
     ),
 ) -> ModulePackageContractCase:
     def operation_node(
@@ -1517,7 +1522,7 @@ def _inserted_loop_ctk_case(
         "loop-confidence-facts",
         "contract_test.prediction_confidence_fact_source",
         "5.0.0",
-        "contract_test.esmfold2_confidence_fact_source.fixture",
+        confidence_fact_binding_id,
         {"missing_loop_plddt": missing_loop_plddt},
     )
     confidence = operation_node(
@@ -1572,11 +1577,11 @@ def _inserted_loop_ctk_case(
         WorkflowEdge("loop-confidence", "observations", "contract-test-node", "confidence_observations"),
     )
     return ModulePackageContractCase(
-        case_id="evaluate-inserted-loop",
+        case_id=case_id,
         node_type_id="structure_comparison.evaluate_inserted_loop",
-        node_type_version="2.0.0",
+        node_type_version="3.0.0",
         binding_id="structure_comparison.evaluate_inserted_loop.direct",
-        binding_version="2.0.0",
+        binding_version="3.0.0",
         node_parameters={
             "resolved_core_residue_ids": ["A:1", "A:2", "A:3", "A:4"],
             "loop_residue_ids": ["A:loop"],
@@ -1718,7 +1723,16 @@ def test_inserted_loop_rejects_the_wrong_confidence_metric(
     _assert_inserted_loop_failure(projection)
 
 
-def _three_way_ctk_case() -> ModulePackageContractCase:
+def _three_way_ctk_case(
+    *,
+    case_id: str = "classify-1pga-three-way-consistency",
+    esmfold2_confidence_binding_id: str = (
+        "contract_test.esmfold2_confidence_source.fixture"
+    ),
+    esmfold2_confidence_fact_binding_id: str = (
+        "contract_test.esmfold2_confidence_fact_source.fixture"
+    ),
+) -> ModulePackageContractCase:
     source = _three_way_node(
         "source",
         "contract_test.1pga_three_way_source",
@@ -1795,14 +1809,14 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
             "confidence-esmfold2",
             "contract_test.prediction_confidence_source",
             "5.0.0",
-            "contract_test.esmfold2_confidence_source.fixture",
+            esmfold2_confidence_binding_id,
             "5.0.0",
         ),
         _three_way_node(
             "confidence-fact-esmfold2",
             "contract_test.prediction_confidence_fact_source",
             "5.0.0",
-            "contract_test.esmfold2_confidence_fact_source.fixture",
+            esmfold2_confidence_fact_binding_id,
             "5.0.0",
         ),
         _three_way_node(
@@ -1917,11 +1931,11 @@ def _three_way_ctk_case() -> ModulePackageContractCase:
         for target_port, (source_node, source_port) in target_ports.items()
     )
     return ModulePackageContractCase(
-        case_id="classify-1pga-three-way-consistency",
+        case_id=case_id,
         node_type_id="structure_comparison.classify_three_way_consistency",
-        node_type_version="3.0.0",
+        node_type_version="4.0.0",
         binding_id="structure_comparison.classify_three_way_consistency.direct",
-        binding_version="3.0.0",
+        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -2099,11 +2113,47 @@ def test_three_way_port_requires_tuples_and_exact_method_references() -> None:
                 ),
             )
         )
+    with pytest.raises(ValueError, match="confidence evidence"):
+        validate_three_way_consistency(
+            replace(
+                value,
+                confidences=(
+                    value.confidences[0],
+                    replace(
+                        value.confidences[1],
+                        method=LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE,
+                    ),
+                ),
+            )
+        )
     wrong_kind = replace(value.classification_method, contract_kind="metric")
     with pytest.raises(ValueError, match="not canonical"):
         validate_three_way_consistency(
             replace(value, classification_method=wrong_kind)
         )
+
+
+def test_three_way_port_accepts_exact_local_esmfold2_method() -> None:
+    value = _three_way_consistency_value()
+    local_value = replace(
+        value,
+        confidences=(
+            replace(
+                value.confidences[0],
+                method=LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE,
+            ),
+            value.confidences[1],
+        ),
+    )
+
+    decoded = THREE_WAY_CONSISTENCY_PORT_TYPE.decode(
+        THREE_WAY_CONSISTENCY_PORT_TYPE.encode(local_value)
+    )
+
+    assert (
+        decoded.confidences[0].method
+        == LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE
+    )
 
 
 def test_package_ports_project_all_nested_candidate_data_references() -> None:
@@ -2217,7 +2267,7 @@ def _inserted_loop_port_case() -> ModulePackagePortCase:
     )
     return ModulePackagePortCase(
         "structure_comparison.inserted_loop_evaluation",
-        "2.0.0",
+        "3.0.0",
         loop_evidence,
         (
             object(),
@@ -2323,6 +2373,28 @@ def test_inserted_loop_codec_preserves_declared_float_values() -> None:
     )
 
 
+def test_inserted_loop_port_accepts_exact_local_esmfold2_method() -> None:
+    value = _inserted_loop_port_case().valid_value
+    local_value = replace(
+        value,
+        entries=(
+            replace(
+                value.entries[0],
+                confidence_method=LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE,
+            ),
+        ),
+    )
+
+    decoded = INSERTED_LOOP_EVALUATION_PORT_TYPE.decode(
+        INSERTED_LOOP_EVALUATION_PORT_TYPE.encode(local_value)
+    )
+
+    assert (
+        decoded.entries[0].confidence_method
+        == LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE
+    )
+
+
 def test_structure_comparison_contract_test_kit(
     tmp_path: Path,
 ) -> None:
@@ -2407,7 +2479,25 @@ def test_structure_comparison_contract_test_kit(
             )
             ),
             _three_way_ctk_case(),
+            _three_way_ctk_case(
+                case_id="classify-1pga-three-way-consistency-local-esmfold2",
+                esmfold2_confidence_binding_id=(
+                    "contract_test.local_esmfold2_confidence_source.fixture"
+                ),
+                esmfold2_confidence_fact_binding_id=(
+                    "contract_test.local_esmfold2_confidence_fact_source.fixture"
+                ),
+            ),
             _inserted_loop_ctk_case(),
+            _inserted_loop_ctk_case(
+                case_id="evaluate-inserted-loop-local-esmfold2",
+                confidence_binding_id=(
+                    "contract_test.local_inserted_loop_confidence_source.fixture"
+                ),
+                confidence_fact_binding_id=(
+                    "contract_test.local_esmfold2_confidence_fact_source.fixture"
+                ),
+            ),
         )
 
     support = (
@@ -2517,7 +2607,7 @@ def test_structure_comparison_contract_test_kit(
         classification_method=reference(
             "method",
             "structure_comparison.three_way_consistency.threshold_graph",
-            "2.0.0",
+            "3.0.0",
         ),
         input_b_factor_semantics="uninterpreted_coordinate_temperature_factor",
         residue_count=75,
@@ -2543,7 +2633,7 @@ def test_structure_comparison_contract_test_kit(
             ),
                 ModulePackagePortCase(
                     "structure_comparison.three_way_consistency",
-                "3.0.0",
+                "4.0.0",
                 consistency,
                 (object(), replace(consistency, classification="all_disagree")),
                 ),
@@ -2553,5 +2643,5 @@ def test_structure_comparison_contract_test_kit(
         work_root=tmp_path,
     )
 
-    assert len(report.case_reports) == 10
+    assert len(report.case_reports) == 12
     assert {case.status for case in report.case_reports} == {"succeeded"}

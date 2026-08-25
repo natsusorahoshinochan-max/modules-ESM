@@ -390,14 +390,14 @@
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.classify_three_way_consistency.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:b9427eaf03177b7381ef3f9cdd9312d8694c6db663d23c8946d9477829dc1dd7"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:66e80c074678f09ec61098d211e56c705cc047cb0b658195515c71c5e328af03"
     },
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:d38ae0c06e96474081dfdaf5e5d860f71edc888e757d42afb9a4fac95ba8c762"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:d62afea30cd086f07b7874259a3629fafadcc6a2596954254d92f8aff97d3410"
     },
     {
       "contract_kind": "binding",
@@ -852,8 +852,8 @@
     {
       "contract_kind": "method",
       "contract_id": "structure_comparison.inserted_loop.exact_evidence_gate",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:d380ea2e61ec3cb1c8908a950677bfbe0c4ed09e1780ea68e038f7b634dac290"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:a1342419b6660e337e02a735730998e5cea91b7224b3ffd376033c7378ec1f67"
     },
     {
       "contract_kind": "method",
@@ -876,8 +876,8 @@
     {
       "contract_kind": "method",
       "contract_id": "structure_comparison.three_way_consistency.threshold_graph",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:1c76fb32a4933ec66ac2773e261053aac3497462881915c4c0ac1e8e4f14bf0a"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7f498945a7582a821b0ec344d096224ed1b27168c5f2f9d50a2a55608ad382b3"
     },
     {
       "contract_kind": "method",
@@ -1356,14 +1356,14 @@
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.classify_three_way_consistency",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:d32d22cff8d599297a6a0943d5e7bcf22d84eae04e47ed96a2c0dc5fb2273662"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:9b2b6db860cb3759207f61bee67a2c49e5b21cd788f8756cf09695ec7c5d1e2f"
     },
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.evaluate_inserted_loop",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:0510fff1e7b73f95c7d159fe218c0f714bbc2b862822f014d1eb3a3719d46f8f"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:983bddc69f23c46cd2e30dccfb71624bdb238144f2b30d1bf2f2ac6fc9f8feaf"
     },
     {
       "contract_kind": "node_type",

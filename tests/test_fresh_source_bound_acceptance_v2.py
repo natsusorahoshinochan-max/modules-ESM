@@ -22,6 +22,7 @@ from datatypes.candidate import (
     CandidateCollection,
     CandidateDataReference,
 )
+from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
     PairwiseCandidateMapping,
     ScoreCollection,
@@ -90,14 +91,29 @@ _FRESH_2EMO_PROVIDER_NODES = (
     "score-protein-sol",
 )
 _LOCAL_TIER_PREFIX = "fresh-local-"
+_REMOTE_ESMFOLD2_BINDING = ("folding.fold.esmfold2_remote", "9.0.0")
+_LOCAL_ESMFOLD2_BINDING = ("folding.fold.esmfold2_local", "11.0.0")
 _LOCAL_BINDING_REPLACEMENTS = {
     ("esm3.generate_paired.biohub_medium", "8.0.0"): (
         "esm3.generate_paired.local_open",
         "9.0.0",
     ),
-    ("folding.fold.esmfold2_remote", "9.0.0"): (
-        "folding.fold.esmfold2_local",
-        "11.0.0",
+    _REMOTE_ESMFOLD2_BINDING: _LOCAL_ESMFOLD2_BINDING,
+}
+_REMOTE_ESMFOLD2_METHOD = {
+    "contract_kind": "method",
+    "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
+    "contract_version": "4.0.0",
+    "contract_digest": (
+        "sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8"
+    ),
+}
+_LOCAL_ESMFOLD2_METHOD = {
+    "contract_kind": "method",
+    "contract_id": "folding.fold.esmfold2_hf_1ebf0e3",
+    "contract_version": "6.0.0",
+    "contract_digest": (
+        "sha256:8073e63f0291d1af2bc644f50307b298a02a2cb73e2de4159582da2295daaa7a"
     ),
 }
 _LOCAL_SERVICE_TIMEOUT_SECONDS = {
@@ -124,15 +140,65 @@ def _uses_local_models(tier_name: str) -> bool:
 
 def _select_local_model_bindings(workflow: dict[str, Any]) -> None:
     replaced = 0
+    local_esmfold2_node_ids: set[str] = set()
     for node in workflow["nodes"]:
-        replacement = _LOCAL_BINDING_REPLACEMENTS.get(
-            (node["binding_id"], node["binding_version"])
-        )
+        binding = (node["binding_id"], node["binding_version"])
+        replacement = _LOCAL_BINDING_REPLACEMENTS.get(binding)
         if replacement is None:
             continue
         node["binding_id"], node["binding_version"] = replacement
+        if binding == _REMOTE_ESMFOLD2_BINDING:
+            local_esmfold2_node_ids.add(node["node_id"])
         replaced += 1
     assert replaced > 0
+    for selector in workflow["observation_selectors"]:
+        if (
+            selector["candidate_input"]["node_id"] in local_esmfold2_node_ids
+            and selector["method"] == _REMOTE_ESMFOLD2_METHOD
+        ):
+            selector["method"] = dict(_LOCAL_ESMFOLD2_METHOD)
+
+
+def test_local_2emo_workflow_selects_exact_local_esmfold2_confidence() -> None:
+    workflow_path = files("examples").joinpath(
+        "v2", "source-bound-2emo.workflow.json"
+    )
+    workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+
+    _select_local_model_bindings(workflow)
+
+    fold = next(
+        node for node in workflow["nodes"] if node["node_id"] == "fold-esmfold2"
+    )
+    assert (fold["binding_id"], fold["binding_version"]) == (
+        _LOCAL_ESMFOLD2_BINDING
+    )
+    selector = next(
+        item
+        for item in workflow["observation_selectors"]
+        if item["selector_id"] == "mean-plddt"
+    )
+    assert selector["method"] == _LOCAL_ESMFOLD2_METHOD
+
+    source_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+    source_selector = next(
+        item
+        for item in source_workflow["observation_selectors"]
+        if item["selector_id"] == "mean-plddt"
+    )
+    assert source_selector["method"] == _REMOTE_ESMFOLD2_METHOD
+
+    non_exact_workflow = json.loads(workflow_path.read_text(encoding="utf-8"))
+    non_exact_selector = next(
+        item
+        for item in non_exact_workflow["observation_selectors"]
+        if item["selector_id"] == "mean-plddt"
+    )
+    non_exact_selector["method"]["contract_digest"] = "sha256:not-exact"
+    _select_local_model_bindings(non_exact_workflow)
+    assert non_exact_selector["method"]["contract_digest"] == (
+        "sha256:not-exact"
+    )
 
 
 def _decode(
@@ -375,7 +441,7 @@ def _assert_1pga_science(
         esmfold2_binding.descriptor["method"]["contract_version"],
     )
     assert tuple(item.method for item in consistency.confidences) == (
-        esmfold2_method.reference(),
+        ExactContractReference(**esmfold2_method.reference()),
         SIMPLEFOLD_FOLD_METHOD_REFERENCE,
     )
     assert all(
@@ -424,6 +490,21 @@ def _assert_2emo_science(
         },
     )
     workflow_nodes = {node["node_id"]: node for node in workflow["nodes"]}
+    fold_node = workflow_nodes["fold-esmfold2"]
+    fold_binding = catalog.require_contract(
+        "binding",
+        fold_node["binding_id"],
+        fold_node["binding_version"],
+    )
+    fold_method = ExactContractReference(
+        **dict(fold_binding.descriptor["method"])
+    )
+    mean_plddt_selector = next(
+        selector
+        for selector in workflow["observation_selectors"]
+        if selector["selector_id"] == "mean-plddt"
+    )
+    assert mean_plddt_selector["method"] == fold_binding.descriptor["method"]
     assert workflow_nodes["design-sequences"]["node_parameters"] == {
         "effective_seed": 2066001,
         "num_sequences": 8,
@@ -669,6 +750,9 @@ def _assert_2emo_science(
     }
     assert set(tm_by_subject) == set(rmsd_by_subject) == fold_ids
     assert set(mean_plddt) == fold_ids
+    assert {observation.method for observation in mean_plddt.values()} == {
+        fold_method
+    }
     assert set(scaled_solubility) == design_ids
     assert subjects(tm_passing) == {
         subject
@@ -779,6 +863,15 @@ def _assert_5g53_science(
         ("numbering-implied-12", 295),
         ("longer-16", 299),
     ):
+        fold_node = workflow_nodes[f"fold-{branch}"]
+        fold_binding = catalog.require_contract(
+            "binding",
+            fold_node["binding_id"],
+            fold_node["binding_version"],
+        )
+        fold_method = ExactContractReference(
+            **dict(fold_binding.descriptor["method"])
+        )
         for port in (
             "confidence_facts",
             "sequence_reconstruction_confidence_facts",
@@ -961,6 +1054,7 @@ def _assert_5g53_science(
             for counterpart in branch_counterparts.items
         }
         for evidence in quality.entries:
+            assert evidence.confidence_method == fold_method
             assert len(evidence.resolved_core_residue_ids) == 283
             assert len(evidence.loop_residue_ids) == length - 283
             assert len(

@@ -419,9 +419,9 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         ("structure_comparison.align_single", "5.0.0"),
         (
             "structure_comparison.classify_three_way_consistency",
-            "3.0.0",
+            "4.0.0",
         ),
-        ("structure_comparison.evaluate_inserted_loop", "2.0.0"),
+        ("structure_comparison.evaluate_inserted_loop", "3.0.0"),
         ("structure_comparison.rmsd_counterparts", "6.0.0"),
         ("structure_comparison.rmsd_fixed_reference", "6.0.0"),
         ("structure_comparison.tm_score_counterparts", "6.0.0"),
@@ -454,11 +454,11 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         ),
         (
             "structure_comparison.classify_three_way_consistency.direct",
-            "3.0.0",
+            "4.0.0",
         ),
         (
             "structure_comparison.evaluate_inserted_loop.direct",
-            "2.0.0",
+            "3.0.0",
         ),
         (
             "structure_comparison.rmsd_counterparts.from_alignment_evidence",
@@ -491,7 +491,6 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
     }
     assert comparison_scientific_contracts
     assert {version for _, _, version in comparison_scientific_contracts} == {
-        "2.0.0",
         "3.0.0",
         "4.0.0",
     }

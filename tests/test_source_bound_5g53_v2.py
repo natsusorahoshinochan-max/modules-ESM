@@ -184,34 +184,43 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     catalog.require_contract(
         "node_type",
         "structure_comparison.evaluate_inserted_loop",
-        "2.0.0",
+        "3.0.0",
     )
-    confidence_method = catalog.require_contract(
+    remote_confidence_method = catalog.require_contract(
         "binding",
         "folding.fold.esmfold2_remote",
         "9.0.0",
     ).descriptor["method"]
+    local_confidence_method = catalog.require_contract(
+        "binding",
+        "folding.fold.esmfold2_local",
+        "11.0.0",
+    ).descriptor["method"]
+    confidence_methods = (
+        remote_confidence_method,
+        local_confidence_method,
+    )
     evaluation_method = catalog.require_contract(
         "method",
         "structure_comparison.inserted_loop.exact_evidence_gate",
-        "2.0.0",
+        "3.0.0",
     )
     assert (
-        evaluation_method.descriptor["algorithm_identity"]["confidence_method"]
-        == confidence_method
+        evaluation_method.descriptor["algorithm_identity"]["confidence_methods"]
+        == confidence_methods
     )
     assert (
-        evaluation_method.descriptor["featurization_identity"]["confidence"]["method"]
-        == confidence_method
+        evaluation_method.descriptor["featurization_identity"]["confidence"]["methods"]
+        == confidence_methods
     )
     evidence_port = catalog.require_contract(
         "port_type",
         "structure_comparison.inserted_loop_evaluation",
-        "2.0.0",
+        "3.0.0",
     )
     assert (
-        evidence_port.descriptor()["validator"]["parameters"]["confidence_method"]
-        == confidence_method
+        evidence_port.descriptor()["validator"]["parameters"]["confidence_methods"]
+        == [dict(method) for method in confidence_methods]
     )
     workflow = decode_workflow_document(_payload())
     assert workflow.workflow_id == "source-bound-5g53"

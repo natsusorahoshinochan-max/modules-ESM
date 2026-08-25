@@ -18,8 +18,8 @@ from core.catalog.port_contract import (
 )
 
 from .contracts import (
+    ESMFOLD2_FOLD_METHOD_REFERENCES,
     INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
-    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
 )
 from .domain import (
     AtomPairDistanceEvidence,
@@ -32,7 +32,7 @@ from .domain import (
 )
 
 
-VERSION = "2.0.0"
+VERSION = "3.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -160,7 +160,7 @@ def _validate_entry(value: object) -> InsertedLoopCandidateEvidence:
             raise ValueError(f"inserted-loop {name} is invalid")
     if value.method != INSERTED_LOOP_EVALUATION_METHOD_REFERENCE:
         raise ValueError("inserted-loop evaluation Method is not current")
-    if value.confidence_method != REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE:
+    if value.confidence_method not in ESMFOLD2_FOLD_METHOD_REFERENCES:
         raise ValueError("inserted-loop confidence Method is not ESMFold2")
 
     core_ids = _ids(value.resolved_core_residue_ids, name="core residue IDs")
@@ -492,9 +492,10 @@ INSERTED_LOOP_EVALUATION_PORT_TYPE = PortTypeDefinition(
             "clash_atom_population": "non-hydrogen",
             "excluded_nonbonded_pairs": "direct-junction-C-N-bonds",
             "method_digest": INSERTED_LOOP_EVALUATION_METHOD_REFERENCE.contract_digest,
-            "confidence_method": (
-                _method_to_wire(REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE)
-            ),
+            "confidence_methods": [
+                _method_to_wire(method)
+                for method in ESMFOLD2_FOLD_METHOD_REFERENCES
+            ],
         },
     ),
     codec=BehaviorReference(

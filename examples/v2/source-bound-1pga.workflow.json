@@ -186,9 +186,9 @@
     {
       "node_id": "classify-consistency",
       "node_type_id": "structure_comparison.classify_three_way_consistency",
-      "node_type_version": "3.0.0",
+      "node_type_version": "4.0.0",
       "binding_id": "structure_comparison.classify_three_way_consistency.direct",
-      "binding_version": "3.0.0",
+      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     }
@@ -627,8 +627,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "structure_comparison.classify_three_way_consistency.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:b9427eaf03177b7381ef3f9cdd9312d8694c6db663d23c8946d9477829dc1dd7"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:66e80c074678f09ec61098d211e56c705cc047cb0b658195515c71c5e328af03"
     },
     {
       "contract_kind": "binding",
@@ -711,8 +711,8 @@
     {
       "contract_kind": "method",
       "contract_id": "structure_comparison.three_way_consistency.threshold_graph",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:1c76fb32a4933ec66ac2773e261053aac3497462881915c4c0ac1e8e4f14bf0a"
+      "contract_version": "3.0.0",
+      "contract_digest": "sha256:7f498945a7582a821b0ec344d096224ed1b27168c5f2f9d50a2a55608ad382b3"
     },
     {
       "contract_kind": "method",
@@ -807,8 +807,8 @@
     {
       "contract_kind": "node_type",
       "contract_id": "structure_comparison.classify_three_way_consistency",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:d32d22cff8d599297a6a0943d5e7bcf22d84eae04e47ed96a2c0dc5fb2273662"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:9b2b6db860cb3759207f61bee67a2c49e5b21cd788f8756cf09695ec7c5d1e2f"
     },
     {
       "contract_kind": "node_type",
@@ -885,8 +885,8 @@
     {
       "contract_kind": "port_type",
       "contract_id": "structure_comparison.three_way_consistency",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:0b8f52624060e5082b5b54735ffe54c9033b8d3b7e374eda33a082ee34992266"
+      "contract_version": "4.0.0",
+      "contract_digest": "sha256:836474505f05182b45d1532cbdb7db0129dd9eb1df818e5a49ea84d2bb91a9e6"
     },
     {
       "contract_kind": "port_type",
