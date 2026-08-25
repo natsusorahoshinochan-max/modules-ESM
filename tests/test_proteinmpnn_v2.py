@@ -19,6 +19,9 @@ from core.local_torch_device import (
     LOCAL_TORCH_DEVICE_POLICY,
     expected_local_torch_device,
 )
+
+pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
+
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
