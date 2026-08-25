@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
 
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
@@ -151,6 +152,7 @@ def _confidence_environment(
     client: Any,
     asset_prefix: str = "fixture",
 ) -> dict[str, Any]:
+    from core.local_torch_device import expected_local_torch_device
     import modules.folding.simplefold_confidence_adapter as adapter
     import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
@@ -163,6 +165,7 @@ def _confidence_environment(
                 adapter.simplefold_contract
                 .SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
             ),
+            device=kwargs["device"],
         )
 
     monkeypatch.setattr(
@@ -218,7 +221,7 @@ def _confidence_environment(
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
-        "device": contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
+        "device": expected_local_torch_device(),
     }
 
 
@@ -270,7 +273,7 @@ def _run_confidence(
         node_type_id="folding.simplefold_confidence",
         node_type_version="5.0.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="6.0.0",
+        binding_version="7.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -343,7 +346,7 @@ def _run_confidence(
     environment = admit_environment_configuration(
         catalog,
         {
-            ("folding.simplefold_confidence.simplefold_local", "6.0.0"): {
+            ("folding.simplefold_confidence.simplefold_local", "7.0.0"): {
                 "values": environment_values,
             }
         },
@@ -390,7 +393,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "6.0.0",
+        "7.0.0",
     )
     node = catalog.require_contract(
         "node_type",
@@ -424,6 +427,9 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     assert binding.descriptor["binding_parameters"] == {}
     assert binding.descriptor["deterministic"] is True
     assert binding.descriptor["cacheable"] is True
+    assert binding.descriptor["implementation_identity"][
+        "device_policy"
+    ] == LOCAL_TORCH_DEVICE_POLICY
     assert {
         item["metric"]["contract_id"]
         for item in binding.descriptor["produced_observations"]
@@ -600,6 +606,9 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
     assert len({entry.candidate_id for entry in scores.entries}) == 1
     assert scores.entries[0].candidate_id.startswith("candidate-")
     assert len(client.calls) == 1
+    from core.local_torch_device import expected_local_torch_device
+
+    assert client.calls[0]["device"] == expected_local_torch_device()
     residue_axis = client.calls[0]["residue_axis"]
     assert residue_axis.layout.residue_ids == ("A:1", "A:2")
     assert residue_axis.sequence == "AG"
@@ -622,7 +631,7 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "6.0.0",
+        "7.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -728,7 +737,7 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="6.0.0",
+        binding_version="7.0.0",
         environment={"native_tensor": object()},
     )
     adapter = Adapter()
@@ -761,7 +770,7 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
     call = operation_call(
         catalog=catalog,
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="6.0.0",
+        binding_version="7.0.0",
         inputs={
             "structure_candidates": CandidateCollection(
                 "structures",
@@ -860,7 +869,7 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="6.0.0",
+        binding_version="7.0.0",
     )
     adapter = Adapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -908,7 +917,7 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="6.0.0",
+            binding_version="7.0.0",
             inputs={
                 "structure_candidates": CandidateCollection(
                     "structures",
@@ -972,7 +981,7 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="6.0.0",
+        binding_version="7.0.0",
     )
     adapter = BombAdapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -1001,7 +1010,7 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
     call = operation_call(
         catalog=catalog,
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="6.0.0",
+        binding_version="7.0.0",
         inputs={
             "structure_candidates": CandidateCollection(
                 "structures",
@@ -1053,7 +1062,7 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="6.0.0",
+        binding_version="7.0.0",
     )
     adapter = BombAdapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -1096,7 +1105,7 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
                 binding_id=(
                     "folding.simplefold_confidence.simplefold_local"
                 ),
-                binding_version="6.0.0",
+                binding_version="7.0.0",
                 inputs={
                     "structure_candidates": CandidateCollection(
                         "structures",

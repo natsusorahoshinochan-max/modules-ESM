@@ -17,6 +17,10 @@ from core.operation import (
     OperationResources,
     ReadinessResult,
 )
+from core.local_torch_device import (
+    expected_local_torch_device,
+    local_torch_device_is_available,
+)
 from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
@@ -34,7 +38,6 @@ from .domain import (
 )
 from .esmfold2_contract import (
     ESM_SDK_REVISION,
-    LOCAL_DEVICE,
     LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_PRECISION,
     LOCAL_ESMC_REVISION,
@@ -195,9 +198,14 @@ def resolve_local_runtime(
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 snapshot revision is not exact"
         )
-    if environment["device"] != LOCAL_DEVICE:
+    expected_device = expected_local_torch_device()
+    if environment["device"] != expected_device:
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 device does not match the Binding"
+        )
+    if not local_torch_device_is_available(torch, expected_device):
+        raise LocalESMFold2RuntimeUnavailable(
+            "local ESMFold2 policy-selected Torch device is unavailable"
         )
     model_path = cast(Path, environment["model_snapshot_path"])
     language_path = cast(Path, environment["language_model_snapshot_path"])
@@ -208,7 +216,7 @@ def resolve_local_runtime(
     return LocalESMFold2Runtime(
         model_snapshot_path=model_path,
         language_model_snapshot_path=language_path,
-        device=LOCAL_DEVICE,
+        device=expected_device,
     )
 
 
@@ -222,7 +230,7 @@ def _trusted_local_runtime(
             Path,
             environment["language_model_snapshot_path"],
         ),
-        device=LOCAL_DEVICE,
+        device=cast(str, environment["device"]),
     )
 
 

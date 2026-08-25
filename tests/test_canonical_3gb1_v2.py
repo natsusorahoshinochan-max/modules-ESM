@@ -163,7 +163,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
     } == expected_node_versions
     expected_binding_versions = dict(expected_node_versions)
     expected_binding_versions.update({
-        "design-children": "11.0.0",
+        "design-children": "12.0.0",
         "fold-sequences": "9.0.0",
         "fold-final": "9.0.0",
     })
@@ -1011,7 +1011,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             == "proteinmpnn.design.local"
         )
         assert proteinmpnn_readiness["binding"]["contract_version"] == (
-            "11.0.0"
+            "12.0.0"
         )
 
         esm_calls_before = len(esm3.sequence_prompts)

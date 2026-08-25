@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from core.local_torch_device import expected_local_torch_device
 import torch
 
 from core.catalog.builder import (
@@ -648,9 +649,9 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     )
 
     environment = {
-        ("proteinmpnn.design.local", "11.0.0"): {
+        ("proteinmpnn.design.local", "12.0.0"): {
             "values": {
-                "device": "cpu",
+                "device": expected_local_torch_device(),
                 "provider_root": ROOT / "repositories" / "ProteinMPNN",
             },
         },

@@ -12,6 +12,10 @@ scientific model, operation, fixed configuration, and exact result-affecting ass
 identity. Environment Configuration supplies locations for those already selected
 facts; it does not select a different scientific route.
 
+Local Torch Bindings use CUDA by default on Linux and Windows and CPU on
+macOS. On CUDA platforms, Readiness runs a synchronized CUDA kernel before
+Provider entry; failure is reported and never falls back to CPU.
+
 ## Locked provider sources
 
 | Provider | Source | Commit | Installation |

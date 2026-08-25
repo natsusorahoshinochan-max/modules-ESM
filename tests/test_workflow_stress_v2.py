@@ -9,6 +9,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from core.local_torch_device import expected_local_torch_device
 
 from core.catalog.builder import build_frozen_catalog
 from core.catalog.declarations import (
@@ -472,9 +473,9 @@ def test_user_can_design_two_by_two_by_two_with_exact_lineage(
     )
     catalog = _controlled_stress_catalog()
     environment = {
-        ("proteinmpnn.design.local", "11.0.0"): {
+        ("proteinmpnn.design.local", "12.0.0"): {
             "values": {
-                "device": "cpu",
+                "device": expected_local_torch_device(),
                 "provider_root": PROJECT_ROOT / "repositories" / "ProteinMPNN",
             }
         },
@@ -630,9 +631,9 @@ def test_downstream_commit_replays_cacheable_provider_without_invocation(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("proteinmpnn.design.local", "11.0.0"): {
+            ("proteinmpnn.design.local", "12.0.0"): {
                 "values": {
-                    "device": "cpu",
+                    "device": expected_local_torch_device(),
                     "provider_root": (
                         PROJECT_ROOT / "repositories" / "ProteinMPNN"
                     ),

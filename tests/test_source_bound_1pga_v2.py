@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from core.local_torch_device import expected_local_torch_device
 import torch
 
 from core.catalog.builder import (
@@ -182,7 +183,7 @@ def _provider_free_simplefold_environment(
             path.write_bytes(f"provider-free-{relative}".encode())
     return {
         **configured_roots,
-        "device": simplefold_contract.SIMPLEFOLD_DEVICE,
+        "device": expected_local_torch_device(),
     }
 
 
@@ -357,7 +358,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
                 "credential_handle": "provider-free-folding-credential",
             },
         },
-        ("folding.fold.simplefold_local", "10.0.0"): {
+        ("folding.fold.simplefold_local", "11.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,
@@ -771,7 +772,7 @@ def test_source_bound_1pga_public_classification_contract(
                 "credential_handle": "provider-free-folding-credential",
             },
         },
-        ("folding.fold.simplefold_local", "10.0.0"): {
+        ("folding.fold.simplefold_local", "11.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,

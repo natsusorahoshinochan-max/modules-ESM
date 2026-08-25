@@ -78,8 +78,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_paired.local_open",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:622a9cb415e59a7c685abb4975ec9ea9847912ab5d686b6b5491a917eedcc87f"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:1a8b245c5df5909dbb9504b9e36b658037c0d23f701949c3883d68f48c9226f3"
     },
     {
       "contract_kind": "binding",
@@ -96,8 +96,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_sequence.local_open",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:a58099cfdf7409ffa0166872966c0c15853398b790813b67ab17d3b190f1610f"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:59f4fc0e2cd3cf37c43ab575c314da851f045d8b3065ab986a0771d9a6c6afad"
     },
     {
       "contract_kind": "binding",
@@ -114,8 +114,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "esm3.generate_structure.local_open",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:4e53e3b82acd93912f0ba91a0524c0db4192b15c75e682b24843aeecc45043d2"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:c6b9cd8376326fe786690c875da4e73d02c7c3a3ed7f95428c1d29c151a7ebc7"
     },
     {
       "contract_kind": "binding",
@@ -126,8 +126,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.esmfold2_local",
-      "contract_version": "10.0.0",
-      "contract_digest": "sha256:7da017058781c07c5b2ef0bff7c7a46ee0aaee80025a5e3731c1f5c03f937504"
+      "contract_version": "11.0.0",
+      "contract_digest": "sha256:0e8e1ea252c868af382d9312eb97465198a40bf7b4f551c387b89ad3c0fd2679"
     },
     {
       "contract_kind": "binding",
@@ -138,14 +138,14 @@
     {
       "contract_kind": "binding",
       "contract_id": "folding.fold.simplefold_local",
-      "contract_version": "10.0.0",
-      "contract_digest": "sha256:feac3dd4669fa275db27b9a5fdb2f98568c0399b88e09dd1ad0394bafdbfcd71"
+      "contract_version": "11.0.0",
+      "contract_digest": "sha256:9b5c684aa9c0711cf17ec22eb1b3e71e8cca60ff503111975a33fa9c29dbf9e4"
     },
     {
       "contract_kind": "binding",
       "contract_id": "folding.simplefold_confidence.simplefold_local",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:a2314e3cc34d1cb40c07f11c5ce3f8819eddf2c4e74fafc575eba2a54f0efc63"
+      "contract_version": "7.0.0",
+      "contract_digest": "sha256:40070194a56ea8c32482e38dec1e6da7b08cb759c334af27b26e6aba7cf980be"
     },
     {
       "contract_kind": "binding",
@@ -252,8 +252,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.design.local",
-      "contract_version": "11.0.0",
-      "contract_digest": "sha256:fd38cce333c76a208d4d7d33a574c86a0486ef1726226f2fe43040814018d8c1"
+      "contract_version": "12.0.0",
+      "contract_digest": "sha256:595cfad6917ad8ce35cbc86f2f991262881da8bc84e39b149fe6accf871bfe13"
     },
     {
       "contract_kind": "binding",
@@ -264,8 +264,8 @@
     {
       "contract_kind": "binding",
       "contract_id": "proteinmpnn.score.local",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:4b2988fa025645e41a82ea4231e25560d4c91ff8a7786ae9e0f66399cadd0c29"
+      "contract_version": "9.0.0",
+      "contract_digest": "sha256:eaf1e068d7a2e311c0262cd46f83f1660b3e0bd6af1c0d39bcf6d1b31874574c"
     },
     {
       "contract_kind": "binding",

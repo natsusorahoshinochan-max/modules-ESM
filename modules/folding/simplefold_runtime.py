@@ -23,9 +23,6 @@ import torch
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
-from .simplefold_contract import SIMPLEFOLD_DEVICE
-
-
 _SIMPLEFOLD_PROCESS_LOCK = threading.RLock()
 
 
@@ -188,6 +185,7 @@ def fold_sequence(
     staged_model_root: Path,
     staged_esm2_source_root: Path,
     staged_esm2_model_root: Path,
+    device: str,
 ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
     """Fold a protein sequence using SimpleFold.
 
@@ -234,7 +232,7 @@ def fold_sequence(
         ccd_path=cache / "ccd.pkl",
     )
 
-    device = torch.device(SIMPLEFOLD_DEVICE)
+    torch_device = torch.device(device)
 
     # Initialize inference wrapper
     inf_wrapper = InferenceWrapper(
@@ -243,7 +241,7 @@ def fold_sequence(
         num_steps=num_steps,
         nsample_per_protein=num_samples,
         tau=0.1,
-        device=device,
+        device=torch_device,
         backend="torch",
     )
 
@@ -272,14 +270,16 @@ def fold_sequence(
     inf_wrapper.af2_to_esm = None
     gc.collect()
 
-    model, plddt_models = _load_reviewed_folding_models(model_dir, device)
+    model, plddt_models = _load_reviewed_folding_models(
+        model_dir,
+        torch_device,
+    )
 
     structures: list[ProteinStructure] = []
     confidence_results: list[dict[str, Any]] = []
 
     for batch, structure, record in prepared_inputs:
         # Run inference
-        torch_device = torch.device(device)
         fork_devices = (
             [
                 torch_device.index
@@ -295,7 +295,7 @@ def fold_sequence(
                 batch,
                 model,
                 plddt_models,
-                device,
+                torch_device,
             )
 
         sampled_coord = results["sampled_coord"]
