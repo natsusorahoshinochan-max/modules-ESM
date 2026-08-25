@@ -7,22 +7,13 @@ from pathlib import Path
 import warnings
 
 
-ROOT_VARIABLES = (
-    "PROTEIN_WORKBENCH_PROJECT_ROOT",
-    "PROTEIN_WORKBENCH_CACHE_ROOT",
-    "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-    "PROTEIN_WORKBENCH_RUN_ROOT",
-)
-
-
 def test_backend_roots_are_isolated_for_the_verification_process() -> None:
-    roots = [Path(os.environ[variable]).resolve() for variable in ROOT_VARIABLES]
+    data_root = Path(os.environ["PROTEIN_WORKBENCH_DATA_ROOT"])
 
-    assert len(set(roots)) == len(ROOT_VARIABLES)
-    assert all(root.is_dir() for root in roots)
-    assert all("protein-workbench-" in str(root) for root in roots)
-    for root in roots:
-        (root / "probe").write_text("isolated")
+    assert data_root.is_absolute()
+    assert data_root.is_dir()
+    assert "protein-workbench-" in str(data_root)
+    (data_root / "probe").write_text("isolated")
     if os.environ.get("PROTEIN_WORKBENCH_RESOURCE_WARNING_PROBE") == "1":
         warnings.warn(
             "ResourceTracker called reentrantly for resource cleanup, "

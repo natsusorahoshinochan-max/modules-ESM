@@ -128,10 +128,15 @@ Provider filesystem locations and credentials are Environment Configuration,
 not Workflow parameters and not workstation-specific literals. Set the exact
 variables required by the selected gate:
 
+The installed server requires one absolute `PROTEIN_WORKBENCH_DATA_ROOT` and
+derives `projects/`, `cache/`, `outputs/`, `runs/`, and Provider runtime state
+from it. Verification supplies an isolated absolute data root for each child
+process; it never relies on the caller's working directory.
+
 | Gate | Required trusted configuration |
 | --- | --- |
 | Biohub ESMC, ESM-3, ESMFold2 | `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`, selecting one private regular credential file by absolute path. |
-| Local ESM-3 | `HF_HUB_CACHE` or `HF_HOME`, containing the locked snapshot. |
+| Local ESM-3 | `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`, selecting the locked snapshot root by absolute path. |
 | Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` and `PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT`. |
 | ProteinMPNN | `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT`. |
 | mkdssp | `PROTEIN_WORKBENCH_MKDSSP_BINARY`, selecting the exact 4.6.1 binary by absolute path. |

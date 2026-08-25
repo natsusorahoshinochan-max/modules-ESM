@@ -67,6 +67,23 @@ SOURCE_NODE_VERSION = CANDIDATE_NODE_VERSION
 SCORER_NODE_VERSION = SCORE_NODE_VERSION
 
 
+def _application_roots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, Path]:
+    data_root = tmp_path / "application-data"
+    roots = {
+        "PROJECT": data_root / "projects",
+        "CACHE": data_root / "cache",
+        "OUTPUT": data_root / "outputs",
+        "RUN": data_root / "runs",
+    }
+    for root in roots.values():
+        root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
+    return roots
+
+
 def test_candidate_intersection_and_child_selection_preserve_exact_candidates() -> None:
     parents = CandidateCollection(
         "passing-parents",
@@ -831,10 +848,7 @@ def _run_public_collection_workflow(
     )
 
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir(parents=True)
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    roots = _application_roots(tmp_path, monkeypatch)
     operation_version = (
         SCORE_NODE_VERSION
         if operation == "merge_scores"
@@ -904,9 +918,7 @@ def _run_public_collection_workflow(
             )
             for partition in connected_partitions
         )
-    project_id = ProjectManager(
-        root_dir=tmp_path / "project"
-    ).create(
+    project_id = ProjectManager(root_dir=roots["PROJECT"]).create(
         f"collection operations {operation}"
     ).id
     app = create_application(frozen_catalog_override=catalog)
@@ -1207,13 +1219,8 @@ def _commit_through_public_rest(
     catalog: object,
     workflow: WorkflowDocument,
 ):
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir(parents=True)
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(
-        root_dir=tmp_path / "project"
-    ).create(workflow.workflow_id).id
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(root_dir=roots["PROJECT"]).create(workflow.workflow_id).id
     app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         public_workflow = replace(
@@ -1244,13 +1251,8 @@ def _run_through_public_rest(
     catalog: object,
     workflow: WorkflowDocument,
 ) -> tuple[object, dict, tuple[dict, ...]]:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir(parents=True)
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(
-        root_dir=tmp_path / "project"
-    ).create(workflow.workflow_id).id
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(root_dir=roots["PROJECT"]).create(workflow.workflow_id).id
     app = create_application(frozen_catalog_override=catalog)
     with TestClient(app) as client:
         public_workflow = replace(

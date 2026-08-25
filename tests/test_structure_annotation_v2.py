@@ -85,6 +85,9 @@ from tests.fixtures.scientific_operation import (
 from tests.fixtures.structure_transform_sources.package import _FIXTURES
 
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
 def _operation_call(
     *,
     inputs,
@@ -226,9 +229,9 @@ def test_structure_annotation_is_one_package_with_seven_nodes() -> None:
 def test_repository_capability_agreement_tracks_distinct_bound_participants(
 ) -> None:
     workflow = json.loads(
-        Path("examples/v2/repository-capabilities.workflow.json").read_text(
-            encoding="utf-8"
-        )
+        (
+            PROJECT_ROOT / "examples/v2/repository-capabilities.workflow.json"
+        ).read_text(encoding="utf-8")
     )
     incoming = {
         (edge["target_node_id"], edge["target_port"]): (

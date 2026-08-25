@@ -33,12 +33,7 @@ from verification.backend import TIERS
 
 PROJECT_ROOT = Path(__file__).parent.parent
 VERIFY_COMMAND = (sys.executable, "-m", "verification.backend")
-ROOT_VARIABLES = (
-    "PROTEIN_WORKBENCH_PROJECT_ROOT",
-    "PROTEIN_WORKBENCH_CACHE_ROOT",
-    "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-    "PROTEIN_WORKBENCH_RUN_ROOT",
-)
+ROOT_VARIABLES = ("PROTEIN_WORKBENCH_DATA_ROOT",)
 
 
 def _run_verifier(
@@ -102,7 +97,6 @@ def test_repository_verification_uses_one_profile_backed_serial_matrix(
         for tier in CANONICAL_ACCEPTANCE_TIERS
         for alternatives in tier.environment_configuration
         for name in alternatives
-        if name != "HF_HOME"
     }
     configuration["PROTEIN_WORKBENCH_SOLUPROT_ROOT"] = "/profile/soluprot"
     profile = ExecutionProfile(
@@ -310,6 +304,30 @@ def test_installed_provider_case_matrix_is_exact_and_collectable() -> None:
                 "test_proteinmpnn_v2_sibling_design_remains_exact_and_"
                 "complete"
             ),
+            (
+                "tests/test_proteinmpnn_v2.py::"
+                "test_design_projects_canonical_axis_into_provider_safe_"
+                "structure"
+            ),
+            (
+                "tests/test_proteinmpnn_v2.py::"
+                "test_scoring_stages_numbering_gaps_and_preserves_backbone_"
+                "mask"
+            ),
+            (
+                "tests/test_proteinmpnn_v2.py::"
+                "test_design_and_score_preserve_same_chain_segment_topology"
+            ),
+            (
+                "tests/test_proteinmpnn_v2.py::"
+                "test_provider_staging_capacity_counts_segments_not_"
+                "workbench_chains"
+            ),
+            (
+                "tests/test_proteinmpnn_v2.py::"
+                "test_readiness_validates_the_exact_checkout_checkpoint_and_"
+                "runtime"
+            ),
         ),
         "mkdssp": (
             (
@@ -403,10 +421,48 @@ def test_installed_provider_case_matrix_is_exact_and_collectable() -> None:
         check=False,
     )
     assert collected.returncode == 0, collected.stdout + collected.stderr
-    assert all(
-        selector in collected.stdout
-        for selector in selectors
+    assert all(selector in collected.stdout for selector in selectors)
+
+
+def test_installed_soluprot_gate_exercises_a_provider_root_with_spaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import tests.test_installed_backend_v2 as installed_backend
+
+    provider_root = tmp_path / "configured-soluprot"
+    provider_root.mkdir()
+    monkeypatch.setenv("PROTEIN_WORKBENCH_SOLUPROT_ROOT", str(provider_root))
+    observed: dict[str, str] = {}
+
+    def run_external_acceptance(
+        _installed: object,
+        _tmp_path: Path,
+        *,
+        selectors: tuple[str, ...],
+        environment: dict[str, str],
+        timeout_seconds: int,
+    ) -> None:
+        assert selectors
+        assert timeout_seconds == 30 * 60
+        observed.update(environment)
+
+    monkeypatch.setattr(
+        installed_backend,
+        "run_external_acceptance",
+        run_external_acceptance,
     )
+
+    installed_backend._run_installed_provider_case(
+        object(),
+        tmp_path,
+        "soluprot",
+    )
+
+    selected = Path(observed["PROTEIN_WORKBENCH_SOLUPROT_ROOT"])
+    assert " " in selected.name
+    assert selected.is_symlink()
+    assert selected.resolve() == provider_root.resolve()
 
 
 def test_solubility_gates_require_explicit_trusted_runtime_roots(
@@ -510,6 +566,34 @@ def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
         method["contract_id"],
         method["contract_version"],
     ).contract_digest == method["contract_digest"]
+
+
+def test_verification_git_authority_uses_configured_path_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import verification.acceptance_campaign as campaign
+
+    commands: list[list[str]] = []
+
+    class Completed:
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def run(command: list[str], **_kwargs: object) -> Completed:
+        commands.append(command)
+        return Completed("a" * 40 if "rev-parse" in command else "")
+
+    monkeypatch.setattr(verify_backend.subprocess, "run", run)
+    monkeypatch.setattr(campaign.subprocess, "run", run)
+
+    assert verify_backend._git_state() == ("a" * 40, False)
+    assert campaign._git_authority() == ("a" * 40, False)
+    assert commands == [
+        ["git", "rev-parse", "HEAD"],
+        ["git", "status", "--porcelain"],
+        ["git", "rev-parse", "HEAD"],
+        ["git", "status", "--porcelain"],
+    ]
 
 
 def test_routine_tier_reports_result_and_preserves_configured_roots(
@@ -622,10 +706,13 @@ def test_verifier_retains_a_failed_tier_result_without_reporting_passed(
             retain_evidence_bundle=True,
         ),
     )
-    results_root = tmp_path / "verification-results"
+    home = tmp_path / "operator-home"
+    home.mkdir()
+    results_root = home / "verification-results"
+    monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
-        str(results_root),
+        "~/verification-results",
     )
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_RETAINED_EVIDENCE_PROBE_FAIL",
@@ -643,6 +730,20 @@ def test_verifier_retains_a_failed_tier_result_without_reporting_passed(
     assert tier_result["tests"] == 1
     assert tier_result["failures"] == 1
     assert tier_result["conclusion"] == "failed"
+
+
+@pytest.mark.parametrize("configured", ("", "relative/results"))
+def test_verifier_rejects_non_absolute_explicit_results_root(
+    configured: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
+        configured,
+    )
+
+    with pytest.raises(RuntimeError, match="must be absolute"):
+        verify_backend.run("routine", ())
 
 
 def test_verifier_rejects_retired_v1_tiers() -> None:
@@ -850,7 +951,7 @@ def test_terminate_group_kills_members_after_the_leader_exits(
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
             status = subprocess.run(
-                ["/bin/ps", "-o", "stat=", "-p", str(child_pid)],
+                ["ps", "-o", "stat=", "-p", str(child_pid)],
                 text=True,
                 capture_output=True,
                 check=False,

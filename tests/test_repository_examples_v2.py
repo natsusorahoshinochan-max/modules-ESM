@@ -519,13 +519,8 @@ def test_routine_example_verification_is_pure_and_provider_free(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isolated_roots = {
-        name: tmp_path / name.lower()
-        for name in ("PROJECT", "CACHE", "OUTPUT", "RUN")
-    }
-    for name, root in isolated_roots.items():
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    data_root = tmp_path / "application-data"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
 
     assert verify_repository_examples() == {
         "catalog_contract_digest": (
@@ -535,7 +530,7 @@ def test_routine_example_verification_is_pure_and_provider_free(
         "node_type_count": 70,
         "workflow_count": len(PRODUCTION_WORKFLOW_PATHS),
     }
-    assert all(not any(root.iterdir()) for root in isolated_roots.values())
+    assert not data_root.exists()
 
 
 def test_example_verification_is_deterministic() -> None:

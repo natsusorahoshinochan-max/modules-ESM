@@ -9,6 +9,7 @@ from protein_workbench_public.bootstrap import module_registrations
 from contextlib import nullcontext
 from dataclasses import replace
 import hashlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -1286,14 +1287,30 @@ def _install_test_provider(
         "modules.proteinmpnn.adapter._LocalProteinMPNNProvider",
         lambda **_kwargs: provider,
     )
+    from modules.proteinmpnn.assets import ProteinMPNNReadiness
+
+    monkeypatch.setattr(
+        "modules.proteinmpnn.adapter.check_proteinmpnn_readiness",
+        lambda provider_root: ProteinMPNNReadiness(
+            ready=True,
+            provider_root=provider_root,
+        ),
+    )
 
 
 def _proteinmpnn_provider_root() -> Path:
-    return (
-        Path(__file__).resolve().parent.parent
-        / "repositories"
-        / "ProteinMPNN"
+    configured = os.environ.get("PROTEIN_WORKBENCH_PROTEINMPNN_ROOT")
+    assert configured is not None, (
+        "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT must select the trusted "
+        "ProteinMPNN checkout"
     )
+    root = Path(configured).expanduser()
+    assert root.is_absolute()
+    return root.resolve()
+
+
+def _controlled_proteinmpnn_provider_root() -> Path:
+    return Path(__file__).resolve().parent
 
 
 def _proteinmpnn_environment(
@@ -1303,7 +1320,7 @@ def _proteinmpnn_environment(
             (binding_id, version): {
                 "values": {
                     "device": "cpu",
-                    "provider_root": _proteinmpnn_provider_root(),
+                    "provider_root": _controlled_proteinmpnn_provider_root(),
                 },
             }
             for binding_id, version in (
@@ -1314,6 +1331,25 @@ def _proteinmpnn_environment(
     if catalog is None:
         return raw
     return admit_environment_configuration(catalog, raw)
+
+
+def test_controlled_proteinmpnn_environment_is_test_owned() -> None:
+    environment = _proteinmpnn_environment()
+
+    assert {
+        entry["values"]["provider_root"]
+        for entry in environment.values()
+    } == {Path(__file__).resolve().parent}
+
+
+def test_real_proteinmpnn_root_comes_from_environment_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "external ProteinMPNN"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_PROTEINMPNN_ROOT", str(root))
+
+    assert _proteinmpnn_provider_root() == root.resolve()
 
 
 def _score_workflow() -> tuple[
@@ -1727,6 +1763,7 @@ def test_scoring_uses_identity_complete_sequence_layout_for_provider_mapping() -
     ]
 
 
+@pytest.mark.local_provider
 def test_design_projects_canonical_axis_into_provider_safe_structure(
     tmp_path: Path,
 ) -> None:
@@ -1741,7 +1778,7 @@ def test_design_projects_canonical_axis_into_provider_safe_structure(
             return _parse_structure(
                 pdb_string,
                 temp_dir=tmp_path,
-                provider_root=(Path("repositories/ProteinMPNN").resolve()),
+                provider_root=_proteinmpnn_provider_root(),
             )
 
         def design(self, request: Any) -> list[ProteinSequence]:
@@ -1871,6 +1908,7 @@ def test_design_projects_canonical_axis_into_provider_safe_structure(
     ]
 
 
+@pytest.mark.local_provider
 def test_scoring_stages_numbering_gaps_and_preserves_backbone_mask(
     tmp_path: Path,
 ) -> None:
@@ -1891,7 +1929,7 @@ def test_scoring_stages_numbering_gaps_and_preserves_backbone_mask(
             return _parse_structure(
                 pdb_string,
                 temp_dir=tmp_path,
-                provider_root=(Path("repositories/ProteinMPNN").resolve()),
+                provider_root=_proteinmpnn_provider_root(),
             )
 
         def score(self, request: Any, sequence: ProteinSequence) -> float:
@@ -1899,7 +1937,7 @@ def test_scoring_stages_numbering_gaps_and_preserves_backbone_mask(
             self.batch = _featurize(
                 request,
                 torch.device("cpu"),
-                Path("repositories/ProteinMPNN").resolve(),
+                _proteinmpnn_provider_root(),
             )
             return 1.5
 
@@ -1965,6 +2003,7 @@ def test_scoring_stages_numbering_gaps_and_preserves_backbone_mask(
     }
 
 
+@pytest.mark.local_provider
 def test_design_and_score_preserve_same_chain_segment_topology(
     tmp_path: Path,
 ) -> None:
@@ -1986,7 +2025,7 @@ def test_design_and_score_preserve_same_chain_segment_topology(
             return _parse_structure(
                 pdb_string,
                 temp_dir=tmp_path,
-                provider_root=Path("repositories/ProteinMPNN").resolve(),
+                provider_root=_proteinmpnn_provider_root(),
             )
 
         def design(self, request: Any) -> list[ProteinSequence]:
@@ -2002,7 +2041,7 @@ def test_design_and_score_preserve_same_chain_segment_topology(
             self.score_batch = _featurize(
                 request,
                 torch.device("cpu"),
-                Path("repositories/ProteinMPNN").resolve(),
+                _proteinmpnn_provider_root(),
             )
             return 1.25
 
@@ -2133,6 +2172,7 @@ def test_design_and_score_preserve_same_chain_segment_topology(
     ] == expected_projection
 
 
+@pytest.mark.local_provider
 def test_provider_staging_capacity_counts_segments_not_workbench_chains(
     tmp_path: Path,
 ) -> None:
@@ -2144,7 +2184,7 @@ def test_provider_staging_capacity_counts_segments_not_workbench_chains(
             return _parse_structure(
                 pdb_string,
                 temp_dir=tmp_path,
-                provider_root=Path("repositories/ProteinMPNN").resolve(),
+                provider_root=_proteinmpnn_provider_root(),
             )
 
         def design(self, request: Any) -> list[ProteinSequence]:
@@ -2765,7 +2805,7 @@ def test_provider_scoring_uses_exact_backbone_and_designability_mask(
         },
         "ACD",
         torch.device("cpu"),
-        _proteinmpnn_provider_root(),
+        _controlled_proteinmpnn_provider_root(),
     )
 
     assert score == 1.25
@@ -3416,16 +3456,13 @@ def test_design_binding_fixes_model_source_checkpoint_and_runtime_identity(
     ]["model_load"] == "forbidden"
 
 
+@pytest.mark.local_provider
 def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from modules.proteinmpnn.adapter import proteinmpnn_readiness
 
-    provider_root = (
-        Path(__file__).resolve().parent.parent
-        / "repositories"
-        / "ProteinMPNN"
-    )
+    provider_root = _proteinmpnn_provider_root()
     monkeypatch.setattr(
         "modules.proteinmpnn.provider_runtime._load_model",
         lambda *args, **kwargs: (_ for _ in ()).throw(
@@ -4078,7 +4115,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             binding_parameters={},
             environment_values={
                     "device": "cpu",
-                    "provider_root": _proteinmpnn_provider_root(),
+                    "provider_root": _controlled_proteinmpnn_provider_root(),
             },
             workflow_nodes=(source, design_axis_resolver),
             workflow_edges=(
@@ -4120,7 +4157,7 @@ def test_proteinmpnn_passes_the_shared_contract_test_kit(
             binding_parameters={},
             environment_values={
                     "device": "cpu",
-                    "provider_root": _proteinmpnn_provider_root(),
+                    "provider_root": _controlled_proteinmpnn_provider_root(),
             },
             workflow_nodes=(
                 score_source,
@@ -4257,13 +4294,13 @@ def test_exact_score_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_compute_score", compute_score)
 
     cold_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root(),
+        provider_root=_controlled_proteinmpnn_provider_root(),
         temp_dir=tmp_path,
         model_cache={},
     )
     cold_score = cold_provider.score(Request(), ProteinSequence("A"))
     warm_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root(),
+        provider_root=_controlled_proteinmpnn_provider_root(),
         temp_dir=tmp_path,
         model_cache={},
     )
@@ -4304,13 +4341,13 @@ def test_exact_design_seed_is_independent_of_resident_model_load_history(
     monkeypatch.setattr(provider_runtime, "_run_design", run_design)
 
     cold_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root(),
+        provider_root=_controlled_proteinmpnn_provider_root(),
         temp_dir=tmp_path,
         model_cache={},
     )
     cold_design = cold_provider.design(Request())
     warm_provider = provider_runtime._LocalProteinMPNNProvider(
-        provider_root=_proteinmpnn_provider_root(),
+        provider_root=_controlled_proteinmpnn_provider_root(),
         temp_dir=tmp_path,
         model_cache={},
     )

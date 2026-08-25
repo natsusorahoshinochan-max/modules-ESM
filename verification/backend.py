@@ -33,12 +33,7 @@ from verification.acceptance_campaign import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-ROOT_VARIABLES = (
-    "PROTEIN_WORKBENCH_PROJECT_ROOT",
-    "PROTEIN_WORKBENCH_CACHE_ROOT",
-    "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-    "PROTEIN_WORKBENCH_RUN_ROOT",
-)
+ROOT_VARIABLES = ("PROTEIN_WORKBENCH_DATA_ROOT",)
 RESOURCE_CLEANUP_WARNING = (
     "ResourceTracker called reentrantly for resource cleanup"
 )
@@ -170,6 +165,11 @@ TIERS = {
         ),
         (
             "tests/test_installed_backend_v2.py::"
+            "test_installed_server_preserves_project_identity_across_"
+            "working_directories"
+        ),
+        (
+            "tests/test_installed_backend_v2.py::"
             "test_installed_backend_completes_full_public_v2_journey"
         ),
     )),
@@ -187,7 +187,7 @@ TIERS = {
 
 def _git_state() -> tuple[str, bool]:
     revision = subprocess.run(
-        ["/usr/bin/git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", "HEAD"],
         cwd=PROJECT_ROOT,
         check=True,
         text=True,
@@ -195,7 +195,7 @@ def _git_state() -> tuple[str, bool]:
     ).stdout.strip()
     dirty = bool(
         subprocess.run(
-            ["/usr/bin/git", "status", "--porcelain"],
+            ["git", "status", "--porcelain"],
             cwd=PROJECT_ROOT,
             check=True,
             text=True,
@@ -406,7 +406,7 @@ def _redacted_diagnostic(
         and (
             name in ROOT_VARIABLES
             or name.endswith(path_suffixes)
-            or name in {"HF_HUB_CACHE", "HF_HOME", *PROXY_VARIABLES}
+            or name in PROXY_VARIABLES
         )
     }
     for name, configured in sorted(
@@ -424,6 +424,17 @@ def run(
     *,
     acceptance_outcome_path: Path | None = None,
 ) -> int:
+    configured_results_root = os.environ.get(
+        "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT"
+    )
+    if configured_results_root is None:
+        results_root = PROJECT_ROOT / ".local" / "verification-results"
+    else:
+        results_root = Path(configured_results_root).expanduser()
+        if not results_root.is_absolute():
+            raise RuntimeError(
+                "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT must be absolute"
+            )
     tier = TIERS[tier_name]
     arguments = pytest_override or tier.pytest_arguments
     revision, dirty = _git_state()
@@ -532,12 +543,6 @@ def run(
             and tests > 0
         )
 
-        results_root = Path(
-            os.environ.get(
-                "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
-                PROJECT_ROOT / ".local" / "verification-results",
-            )
-        )
         result_dir = (
             results_root
             / tier_name

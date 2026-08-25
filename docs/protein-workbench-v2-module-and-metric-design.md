@@ -425,8 +425,8 @@ fingerprint，而不是由运行时默认值推断。无需修改 `core/`。
 
 ### 6.3 SoluProt 与 Protein-Sol
 
-调研范围只采用 `/Users/sorachan/Documents/ESM-workflow-NEXT` 中作为依赖仓库存在的
-SoluProt 与 Protein-Sol，不采用该目录其他实现。
+历史调研范围只采用当时固定为依赖来源的 SoluProt 与 Protein-Sol，不采用同一历史工作区
+中的其他实现。
 
 - SoluProt 的 full 与 no-TM 预测器是不同 Methods/Bindings，不是同一 Method 的自由
   `model_name` 参数。

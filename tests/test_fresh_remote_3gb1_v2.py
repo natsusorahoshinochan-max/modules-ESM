@@ -866,10 +866,7 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        isolated = tmp_path / name.lower()
-        isolated.mkdir(mode=0o700)
-        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(isolated)
+    env["PROTEIN_WORKBENCH_DATA_ROOT"] = str(tmp_path)
     output = run_external_acceptance(
         installed_artifact,
         tmp_path,

@@ -51,8 +51,10 @@ identities through public Runs.
 
 The canonical local model is the Hugging Face snapshot
 `biohub/esm3-sm-open-v1@47f0545b2b6daf26a93439a3cd610f4f7f3d5478`.
-Download that revision explicitly and use `HF_HUB_OFFLINE=1` for reproducible local
-runs. Its required weight objects are:
+Download that revision explicitly, place the selected snapshot at one absolute
+deployment root, and configure that root with
+`PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`. The Workbench does not search Hugging Face
+cache variables or internal cache directories. Its required weight objects are:
 
 | Object | SHA-256 |
 | --- | --- |
@@ -173,12 +175,15 @@ this checkpoint hash once before using it:
 | --- | --- |
 | `vanilla_model_weights/v_48_020.pt` | `c9cb4a671d79604111231f8dbfc7c590e06f1197453b7a6854ac6661a642f5bd` |
 
-Example setup:
+Example setup using an operator-owned absolute Provider root:
 
 ```bash
-git clone https://github.com/dauparas/ProteinMPNN.git /opt/proteinmpnn
-git -C /opt/proteinmpnn checkout 8907e6671bfbfc92303b5f79c4b5e6ce47cdef57
-export PROTEIN_WORKBENCH_PROTEINMPNN_ROOT=/opt/proteinmpnn
+export WORKBENCH_PROVIDER_ROOT="$HOME/protein-workbench-providers"
+git clone https://github.com/dauparas/ProteinMPNN.git \
+  "$WORKBENCH_PROVIDER_ROOT/ProteinMPNN"
+git -C "$WORKBENCH_PROVIDER_ROOT/ProteinMPNN" checkout \
+  8907e6671bfbfc92303b5f79c4b5e6ce47cdef57
+export PROTEIN_WORKBENCH_PROTEINMPNN_ROOT="$WORKBENCH_PROVIDER_ROOT/ProteinMPNN"
 ```
 
 The backend raises a visible `FileNotFoundError` when this root is absent or does
@@ -204,10 +209,12 @@ turn an upstream inventory into a new product capability.
 
 SoluProt-next is built from [`repositories/soluprot-next`](../repositories/soluprot-next)
 on the target machine. Its wheel includes TMHMM 2.0d scripts, model files, and
-the `Darwin_arm64` and `Linux_x86_64` decoders used by this personal deployment.
-Readiness selects `decodeanhmm.<uname -s>_<uname -m>` from the installed wheel
-and fixes the portable scripts/model files without requiring platform binary or
-wheel byte equality. USEARCH remains an external target-platform executable.
+the `Darwin_arm64` and `Linux_x86_64` decoders supported by the full Method.
+Readiness selects the exact decoder for the current supported platform from the
+installed wheel and fixes the portable scripts/model files without requiring
+platform binary or wheel byte equality. Intel macOS and Linux ARM64 are not
+supported by the full Method. USEARCH remains an external target-platform
+executable.
 Existing real-Provider gates remain the target-machine acceptance.
 
 ## Environment Configuration rules
@@ -218,9 +225,9 @@ deployment facts required by an exact active Binding:
 - required Provider filesystem paths are explicit and absolute;
 - a missing or mismatched source, model, checkpoint, binary, or credential fails
   the Binding's Readiness before Provider entry;
-- no owner searches `repositories/`, another workspace, an undeclared downloader
-  cache, or a network location as a fallback; an explicitly selected
-  `HF_HUB_CACHE`/`HF_HOME` remains normal Environment Configuration;
+- no owner searches `repositories/`, another workspace, a downloader cache, or a
+  network location as a fallback; local ESM-3 receives its already selected
+  snapshot through the absolute `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`;
 - environment values cannot change model identity, Method semantics, scientific
   parameters, device/precision fixed by the Method, or the selected route;
 - after the owner admits an exact source/asset closure once, internal Provider

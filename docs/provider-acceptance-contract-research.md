@@ -111,7 +111,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 ### 官方/固定契约
 
-仓库固定 [ProteinMPNN source](../repositories/ProteinMPNN) 到 commit `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57`。官方 README 定义 `score` 为 designed residues 的平均 negative log probability，`global_score` 为全部 residues 的平均 NLL，并记录 model、git hash 和 seed：[pinned README](https://github.com/dauparas/ProteinMPNN/blob/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/README.md#L80-L95)。
+仓库固定 [ProteinMPNN source](https://github.com/dauparas/ProteinMPNN/tree/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57) 到 commit `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57`。官方 README 定义 `score` 为 designed residues 的平均 negative log probability，`global_score` 为全部 residues 的平均 NLL，并记录 model、git hash 和 seed：[pinned README](https://github.com/dauparas/ProteinMPNN/blob/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/README.md#L80-L95)。
 
 固定上游的重要行为是：
 
@@ -156,7 +156,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 ### 官方/固定契约
 
-仓库固定 [Biohub ESM SDK](../repositories/esm) 到 commit `917af90b624535eed1e072d343c717e3ec11fef4`。`ESMProtein`、`ESMProteinError` 和 `GenerationConfig` 的类型及默认值由 [pinned SDK api.py](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L27-L48) 与 [GenerationConfig](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L315-L360) 定义。
+仓库固定 [Biohub ESM SDK](https://github.com/Biohub/esm/tree/917af90b624535eed1e072d343c717e3ec11fef4) 到 commit `917af90b624535eed1e072d343c717e3ec11fef4`。`ESMProtein`、`ESMProteinError` 和 `GenerationConfig` 的类型及默认值由 [pinned SDK api.py](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L27-L48) 与 [GenerationConfig](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L315-L360) 定义。
 
 固定 SDK 的 Forge 客户端把 sequence、secondary structure、SASA、function annotations、coordinates 和 GenerationConfig 映射到 wire request；坐标 NaN 在 wire 上转为 `None`，response 字段再转回 `ESMProtein`：[request/response translation](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/forge.py#L521-L594)。`generate` 的官方结果是 `ESMProtein | ESMProteinError`，并会把 `num_steps` 限制到目标 track 长度：[generate behavior](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/forge.py#L842-L902)。因此，处理 `ESMProteinError` 是官方 operational contract，应保留。
 
@@ -227,7 +227,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 ### 上游事实与当前 Method 的性质
 
-仓库固定 [Apple ml-simplefold](../repositories/ml-simplefold) 到 commit `c7a5570a6be9f5c695126e27c804e77567209934`。上游 `ModelWrapper.from_pretrained_plddt_model` 加载 `plddt.ckpt` 的 confidence head、`simplefold_1.6B.ckpt` latent model 并设 eval：[wrapper.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L117-L196)。官方 folding path 的 processor 使用 coordinate scale 16/reference scale 5；sampler 生成坐标后，以 `t = 1` 调 latent module 和 output module，最后 `plddt * 100`：[processor/sampler setup](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L264-L291) 和 [confidence decode](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L321-L354)。官方 inference CLI 使用相同模块与尺度：[inference.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/inference.py#L119-L179)。
+仓库固定 [Apple ml-simplefold](https://github.com/apple/ml-simplefold/tree/c7a5570a6be9f5c695126e27c804e77567209934) 到 commit `c7a5570a6be9f5c695126e27c804e77567209934`。上游 `ModelWrapper.from_pretrained_plddt_model` 加载 `plddt.ckpt` 的 confidence head、`simplefold_1.6B.ckpt` latent model 并设 eval：[wrapper.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L117-L196)。官方 folding path 的 processor 使用 coordinate scale 16/reference scale 5；sampler 生成坐标后，以 `t = 1` 调 latent module 和 output module，最后 `plddt * 100`：[processor/sampler setup](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L264-L291) 和 [confidence decode](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L321-L354)。官方 inference CLI 使用相同模块与尺度：[inference.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/inference.py#L119-L179)。
 
 上游没有公开“给定现有结构，仅评估 confidence 而不采样/refold”的 API。当前项目的 [simplefold_confidence_adapter.py](../modules/folding/simplefold_confidence_adapter.py) 是一个 **project-defined composition**：
 

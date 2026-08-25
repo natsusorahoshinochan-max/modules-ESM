@@ -340,10 +340,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     source_bytes = INPUT_PATH.read_bytes()
     source_text = source_bytes.decode("ascii")
@@ -754,10 +751,7 @@ def test_source_bound_1pga_public_classification_contract(
     expected_classification: str,
     expected_subreason: str | None,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     source = INPUT_PATH.read_text(encoding="ascii")
     esmfold2 = _ControlledESMFold2(
         _deformed_source(source, esmfold2_deformation)

@@ -42,7 +42,6 @@ def _write_profile(tmp_path: Path) -> Path:
         for alternatives in tier.environment_configuration
         for name in alternatives
     }
-    names.remove("HF_HOME")
     path = tmp_path / "acceptance-profile.json"
     path.write_text(
         json.dumps({
@@ -234,6 +233,14 @@ def test_campaign_definition_projects_every_execution_fact_from_that_sequence() 
     }
 
 
+def test_local_esm3_tier_requires_one_explicit_snapshot_root() -> None:
+    tier = acceptance_tier("installed-local-esm3")
+
+    assert tier.environment_configuration == (
+        ("PROTEIN_WORKBENCH_ESM3_MODEL_ROOT",),
+    )
+
+
 def test_execution_profile_projects_only_one_tiers_declared_configuration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -396,7 +403,6 @@ def test_campaign_admits_structured_outcomes_once_in_exact_serial_order(
             name
             for name in environment
             if name.startswith("PROTEIN_WORKBENCH_")
-            or name in {"HF_HUB_CACHE", "HF_HOME"}
         }
         observed.append((tier_name, configured_names))
         return _outcome(campaign_root, tier_name, "passed")

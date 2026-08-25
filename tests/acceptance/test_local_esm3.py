@@ -1,6 +1,5 @@
 """Acceptance: all local ESM-3 v2 generation modes through public contracts."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -17,31 +16,30 @@ def test_local_esm3_all_generation_modes(
     from modules.esm3.local_adapter import (
         LOCAL_ESM3_SNAPSHOT_REVISION,
     )
+    from protein_workbench_public.provider_environment import (
+        provider_environment_configuration,
+    )
     from tests.fixtures.esm3_generation import (
         decode_output,
         generation_catalog,
         run_generation,
     )
 
-    if configured_cache := os.environ.get("HF_HUB_CACHE"):
-        hub_cache = Path(configured_cache)
-    else:
-        hub_cache = Path(os.environ["HF_HOME"]) / "hub"
-    snapshot = (
-        hub_cache
-        / "models--biohub--esm3-sm-open-v1"
-        / "snapshots"
-        / LOCAL_ESM3_SNAPSHOT_REVISION
+    process_configuration = provider_environment_configuration()
+    environment = process_configuration[
+        ("esm3.generate_sequence.local_open", "8.0.0")
+    ]["values"]
+    assert all(
+        process_configuration[(f"esm3.{operation}.local_open", "8.0.0")][
+            "values"
+        ]
+        == environment
+        for operation in (
+            "generate_paired",
+            "generate_sequence",
+            "generate_structure",
+        )
     )
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
-    environment = {
-        "model_snapshot_path": snapshot,
-        "model_snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-        "device": "cpu",
-        "runtime_directory": runtime_directory,
-        "performance_settings": {},
-    }
     results = {}
     shared_catalog = generation_catalog(include_protein_io=True)
     for operation, sequence in (

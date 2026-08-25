@@ -221,22 +221,7 @@ def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_eviden
         if path.is_file()
     }
 
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_CACHE_ROOT",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     with TestClient(
         create_application(frozen_catalog_override=active_catalog)
     ) as client:
@@ -298,22 +283,7 @@ def test_artifact_route_returns_exact_utf8_filename_provenance(
         "size": len(body),
         "content_digest": f"sha256:{hashlib.sha256(body).hexdigest()}",
     }
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_CACHE_ROOT",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     with TestClient(
         create_application(
             frozen_catalog_override=builtin_frozen_catalog(),

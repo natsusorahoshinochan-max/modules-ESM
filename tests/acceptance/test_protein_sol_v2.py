@@ -7,7 +7,6 @@ from tests.support.ledger import public_run_events, public_run_projection
 import csv
 import os
 from pathlib import Path
-import shutil
 from typing import Any
 
 import pytest
@@ -78,11 +77,17 @@ def _trusted_source_root() -> Path:
 
 
 def _environment() -> dict[str, Any]:
-    return {
-        "source_root": _trusted_source_root(),
-        "bash_executable": Path(str(shutil.which("bash"))),
-        "perl_executable": Path(str(shutil.which("perl"))),
-    }
+    from protein_workbench_public.provider_environment import (
+        provider_environment_configuration,
+    )
+
+    identity = ("solubility.protein_sol.local", "5.0.0")
+    return provider_environment_configuration(
+        {
+            "PATH": os.environ.get("PATH", ""),
+            "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT": str(_trusted_source_root()),
+        }
+    )[identity]["values"]
 
 
 def _decode_output(
@@ -239,7 +244,7 @@ def test_local_protein_sol_golden_multiple_metrics(
     assert len(candidate_ids) == len(SEQUENCES) == len(EXPECTED) == 2
     assert len(recorded) == 1
     assert recorded[0]["command"] == (
-        "/bin/bash",
+        str(_environment()["bash_executable"]),
         "multiple_prediction_wrapper_export.sh",
         "input.fasta",
     )

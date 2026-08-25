@@ -995,6 +995,9 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
         from modules.proteinmpnn.adapter import (
             PROTEINMPNN_DEVICE,
         )
+        from protein_workbench_public.provider_environment import (
+            provider_environment_configuration,
+        )
 
         environment[("proteinmpnn.design.local", "11.0.0")] = {
             "values": {
@@ -1004,15 +1007,17 @@ def _environment(tier_name: str) -> dict[tuple[str, str], Any]:
                 ).resolve(),
             },
         }
-        environment[("solubility.protein_sol.local", "5.0.0")] = {
-            "values": {
-                "source_root": Path(
-                    os.environ["PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT"]
-                ).resolve(),
-                "bash_executable": Path("/bin/bash"),
-                "perl_executable": Path("/usr/bin/perl"),
-            },
-        }
+        protein_sol_identity = ("solubility.protein_sol.local", "5.0.0")
+        environment[protein_sol_identity] = (
+            provider_environment_configuration(
+                {
+                    "PATH": os.environ.get("PATH", ""),
+                    "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT": os.environ[
+                        "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT"
+                    ],
+                }
+            )[protein_sol_identity]
+        )
     return environment
 
 
@@ -1135,10 +1140,7 @@ def _run_fresh(
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
     env["PROTEIN_WORKBENCH_SOURCE_BOUND_TIER"] = tier_name
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        isolated = tmp_path / name.lower()
-        isolated.mkdir(mode=0o700)
-        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(isolated)
+    env["PROTEIN_WORKBENCH_DATA_ROOT"] = str(tmp_path)
     output = run_external_acceptance(
         installed_artifact,
         tmp_path,

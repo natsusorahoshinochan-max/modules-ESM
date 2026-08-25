@@ -1,7 +1,9 @@
 # Backend-only deployment
 
-This is the lightweight deployment path for a second macOS or Linux machine.
-The retired frontend is not built or installed.
+This deployment contract targets a second macOS or Linux machine. No frontend
+is built or installed. The bundled full SoluProt Method is supported only on
+macOS ARM64 and Linux x86-64 because those are the decoder pairs carried by its
+wheel and subject to their target-machine Provider gates.
 
 ## 1. Install the Workbench
 
@@ -14,6 +16,18 @@ cd protein-workbench
 uv sync --frozen --extra providers
 ```
 
+Select stable absolute data and Provider roots outside the checkout. These shell
+variables are operator-selected examples, not universal installation locations:
+
+```bash
+export PROTEIN_WORKBENCH_DATA_ROOT="$HOME/protein-workbench-data"
+export WORKBENCH_PROVIDER_ROOT="$HOME/protein-workbench-providers"
+```
+
+The server derives its Project, Cache, output, Run, and Provider runtime roots
+from `PROTEIN_WORKBENCH_DATA_ROOT`; it does not derive storage from the process
+working directory.
+
 Install only the Provider sources and assets required by the Workflows that will
 run on that machine. The complete source and asset identities are listed in
 [`provider-install-contract.md`](provider-install-contract.md).
@@ -24,7 +38,7 @@ Use one Provider root with the layout consumed by
 `PROTEIN_WORKBENCH_SOLUPROT_ROOT`:
 
 ```bash
-export PROTEIN_WORKBENCH_SOLUPROT_ROOT=/opt/protein-workbench-providers
+export PROTEIN_WORKBENCH_SOLUPROT_ROOT="$WORKBENCH_PROVIDER_ROOT/soluprot"
 
 python3.12 -m venv \
   "$PROTEIN_WORKBENCH_SOLUPROT_ROOT/var/environments/soluprot"
@@ -44,32 +58,36 @@ $PROTEIN_WORKBENCH_SOLUPROT_ROOT/var/tools/soluprot/usearch
 ```
 
 The source-built wheel includes TMHMM 2.0d scripts, model files, and decoders for
-`Darwin_arm64` and `Linux_x86_64`. The full Method selects
-`decodeanhmm.<uname -s>_<uname -m>` from the installed wheel; no separate TMHMM
-root is configured. SoluProt no-TM requires only USEARCH.
+`Darwin_arm64` and `Linux_x86_64`. The full Method selects the exact decoder for
+the current supported platform from the installed wheel; no separate TMHMM root
+is configured. Intel macOS and Linux ARM64 are not supported by the full Method.
+SoluProt no-TM requires only USEARCH and does not enter TMHMM.
 
 ## 3. Configure other Providers
 
 Set only the variables needed by the selected Workflows:
 
 ```bash
-export PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT=/opt/protein-sol
-export PROTEIN_WORKBENCH_PROTEINMPNN_ROOT=/opt/ProteinMPNN
-export PROTEIN_WORKBENCH_MKDSSP_BINARY=/usr/local/bin/mkdssp
+export PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT="$WORKBENCH_PROVIDER_ROOT/protein-sol"
+export PROTEIN_WORKBENCH_PROTEINMPNN_ROOT="$WORKBENCH_PROVIDER_ROOT/ProteinMPNN"
+export PROTEIN_WORKBENCH_MKDSSP_BINARY="$(command -v mkdssp)"
 
-export PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT=/opt/models/ESMFold2
-export PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT=/opt/models/ESMC-6B
+export PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT="$WORKBENCH_PROVIDER_ROOT/models/ESMFold2"
+export PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT="$WORKBENCH_PROVIDER_ROOT/models/ESMC-6B"
 
-export PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT=/opt/models/simplefold
-export PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT=/opt/facebook-esm
-export PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT=/opt/models/esm2
+export PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT="$WORKBENCH_PROVIDER_ROOT/models/simplefold"
+export PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT="$WORKBENCH_PROVIDER_ROOT/facebook-esm"
+export PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT="$WORKBENCH_PROVIDER_ROOT/models/esm2"
 
-export PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE=/absolute/private/biohub-token
+export PROTEIN_WORKBENCH_ESM3_MODEL_ROOT="$WORKBENCH_PROVIDER_ROOT/models/esm3-sm-open-v1-47f0545"
+export PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE="$HOME/protein-workbench-private/biohub-token"
 ```
 
-For local ESM-3, set `HF_HUB_CACHE` or `HF_HOME` to the cache containing the
-locked snapshot. The Biohub credential file must be owned by the current user
-and readable only by that user.
+Every configured root is expanded once and must be absolute. Local ESM-3 reads
+the locked snapshot directly from `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`; it does
+not inspect `HF_HUB_CACHE`, `HF_HOME`, or their internal cache layout. The
+Biohub credential file must be owned by the current user and readable only by
+that user.
 
 ## 4. Start the backend
 

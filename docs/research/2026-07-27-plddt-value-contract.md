@@ -52,7 +52,7 @@
   `c7a5570a6be9f5c695126e27c804e77567209934`；
 - `repositories/esm/pixi.lock` 中的 Biohub Transformers ESMFold2 源码固定为
   `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf`，见
-  [`pixi.lock`](../../repositories/esm/pixi.lock)。
+  [固定版本的 `pixi.lock`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/pixi.lock)。
 
 旧 ESMFold 仅用于厘清名称与尺度差异，使用 Meta 官方归档仓库提交
 `2b369911bb5b4b0dda914521b9475cad1656b2ac`。当前 Workbench 没有 Meta ESMFold v1
@@ -190,7 +190,7 @@ SimpleFold 的 Torch 和 MLX confidence module 都以 `end=1.0` 构造 bin 中�
 期望：
 
 - [官方 Torch 实现](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/model/torch/confidence_module.py#L10-L36)；
-- [`repositories/ml-simplefold` 中的 MLX 实现](../../repositories/ml-simplefold/src/simplefold/model/mlx/confidence_module.py)
+- [固定上游版本中的 MLX 实现](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/model/mlx/confidence_module.py)
   （10–34 行）。
 
 ### 7.2 官方高层推理结果：`0–100`

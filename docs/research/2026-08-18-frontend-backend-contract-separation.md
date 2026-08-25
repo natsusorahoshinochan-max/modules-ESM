@@ -263,16 +263,16 @@ limits、pattern、exclusive bounds、unit、group、resource kind 等当前后�
 
 ### 3.3 当前前端绕过了 public protocol
 
-[`frontend/src/currentProtocol.ts`](../../frontend/src/currentProtocol.ts) 手写 DTO，并把
+已退役实现的 [`frontend/src/currentProtocol.ts`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/ef8e253d0754d13ee6b9dab635393396de683608/frontend/src/currentProtocol.ts) 手写 DTO，并把
 `response.json()` 直接 cast 为泛型 `T`。Catalog translation 通过
 `as unknown as NodeTypeDescriptor` 绕过结构证明。Workflow schema version
 `2.1.0` 也作为 TypeScript literal 手写。
 
-[`frontend/src/App.tsx`](../../frontend/src/App.tsx) 直接手写 Catalog、Project、Draft、
+已退役实现的 [`frontend/src/App.tsx`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/ef8e253d0754d13ee6b9dab635393396de683608/frontend/src/App.tsx) 直接手写 Catalog、Project、Draft、
 Commit、Run 和 Cancel URL；WebSocket 使用当前页面的 host；没有读 protocol discovery，
 没有 reconnect/resume，也没有检查 stream event envelope 的完整 schema。
 
-[`frontend/src/typedOutputs.ts`](../../frontend/src/typedOutputs.ts) 再次手写 Typed Value
+已退役实现的 [`frontend/src/typedOutputs.ts`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/ef8e253d0754d13ee6b9dab635393396de683608/frontend/src/typedOutputs.ts) 再次手写 Typed Value
 route 与 header 名，并以 non-null assertion 接受所有 header。旧前端因此会把 protocol
 drift 变成运行时 null、错误状态或静默错误，而不会在 adapter boundary 失败。
 

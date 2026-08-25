@@ -3,12 +3,16 @@
 Protein Workbench is a local scientific workflow backend for protein design,
 structure prediction, comparison, annotation, and scoring.
 
-The scientific vocabulary and architectural boundaries are defined in
-[`CONTEXT.md`](CONTEXT.md). Backend verification commands and real-Provider
-acceptance tiers are documented in
-[`docs/backend-verification.md`](docs/backend-verification.md).
-Backend-only deployment on another machine is documented in
-[`docs/backend-deployment.md`](docs/backend-deployment.md).
+The source repository owns the
+[scientific vocabulary and architectural boundaries](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/CONTEXT.md),
+[backend verification tiers](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/backend-verification.md),
+and [backend deployment contract](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/main/docs/backend-deployment.md).
+Operational documentation, repository tests, verification tooling, and Provider
+source trees belong to the source checkout. Wheels contain the installable backend,
+maintained Workflow examples, and package metadata. Source distributions contain
+the sources needed to build that wheel and additionally carry the root lockfile;
+neither artifact promises a runnable repository verification or Provider-install
+workspace.
 
 ## Repository layout
 
@@ -21,14 +25,25 @@ Backend-only deployment on another machine is documented in
 - `repositories/` contains pinned Provider sources, including the maintained
   SoluProt-next port.
 
-Local Project state and retained verification output live under the ignored
-`.local/` directory by default:
+Before launching the server, configure one stable absolute application data root:
 
-```text
-.local/
-  projects/
-  verification-results/
+```bash
+export PROTEIN_WORKBENCH_DATA_ROOT="$HOME/protein-workbench-data"
 ```
 
-`PROTEIN_WORKBENCH_PROJECT_ROOT` and
-`PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT` may select different locations.
+For repository development, keep the same explicit contract while placing the
+ignored state inside the checkout:
+
+```bash
+export PROTEIN_WORKBENCH_DATA_ROOT="$PWD/.local"
+```
+
+The backend derives `projects/`, `cache/`, `outputs/`, `runs/`, and Provider runtime
+state from that root, so storage identity does not depend on the launch directory.
+The configured value is expanded once and must be absolute. Repository verification
+evidence remains separately configurable with
+`PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT`.
+
+Local ESM-3 additionally requires `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT` to name the
+absolute root of the already selected locked model snapshot. The backend does not
+search Hugging Face cache layouts for that snapshot.

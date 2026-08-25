@@ -303,10 +303,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        path = tmp_path / name.lower()
-        path.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(path))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     esm3 = _Controlled5G53ESM3()
     folding = ControlledFoldingClient()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import os
 from typing import Any
 
 from fastapi import FastAPI
@@ -19,6 +18,9 @@ from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
 from core.workflow.authoring import WorkflowAuthoringService
 from protein_workbench_public.http.app import create_http_app
+from protein_workbench_public.application_environment import (
+    application_storage_roots,
+)
 
 
 def create_application(
@@ -31,14 +33,12 @@ def create_application(
 ) -> FastAPI:
     """Compose an app around explicit test-owned dependencies."""
     catalog = frozen_catalog_override
+    storage = application_storage_roots()
     projects = ProjectManager(
-        root_dir=os.environ.get(
-            "PROTEIN_WORKBENCH_PROJECT_ROOT",
-            ".local/projects",
-        ),
-        cache_root=os.environ.get("PROTEIN_WORKBENCH_CACHE_ROOT"),
-        output_root=os.environ.get("PROTEIN_WORKBENCH_OUTPUT_ROOT"),
-        run_root=os.environ.get("PROTEIN_WORKBENCH_RUN_ROOT"),
+        root_dir=storage.projects,
+        cache_root=storage.cache,
+        output_root=storage.outputs,
+        run_root=storage.runs,
     )
     authoring = WorkflowAuthoringService(projects, catalog)
     environment = admit_environment_configuration(

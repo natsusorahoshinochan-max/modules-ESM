@@ -9,12 +9,7 @@ from pathlib import Path
 import pytest
 
 
-ROOT_VARIABLES = (
-    "PROTEIN_WORKBENCH_PROJECT_ROOT",
-    "PROTEIN_WORKBENCH_CACHE_ROOT",
-    "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-    "PROTEIN_WORKBENCH_RUN_ROOT",
-)
+DATA_ROOT_VARIABLE = "PROTEIN_WORKBENCH_DATA_ROOT"
 _owned_test_root: tempfile.TemporaryDirectory[str] | None = None
 
 
@@ -25,14 +20,10 @@ def _initialize_isolated_roots() -> None:
         _owned_test_root = tempfile.TemporaryDirectory(
             prefix=f"protein-workbench-{tier}-"
         )
-        base = Path(_owned_test_root.name)
-        for variable in ROOT_VARIABLES:
-            name = variable.removeprefix("PROTEIN_WORKBENCH_").removesuffix("_ROOT")
-            os.environ[variable] = str(base / name.lower())
+        os.environ[DATA_ROOT_VARIABLE] = _owned_test_root.name
         os.environ["PROTEIN_WORKBENCH_TEST_ROOTS_INITIALIZED"] = "1"
 
-    for variable in ROOT_VARIABLES:
-        Path(os.environ[variable]).mkdir(parents=True, exist_ok=True)
+    Path(os.environ[DATA_ROOT_VARIABLE]).mkdir(parents=True, exist_ok=True)
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -47,7 +38,8 @@ def pytest_report_header(config: pytest.Config) -> str:
 @pytest.fixture
 def isolated_project_dir() -> str:
     """Return a per-test directory beneath the isolated project root."""
-    project_root = Path(os.environ["PROTEIN_WORKBENCH_PROJECT_ROOT"])
+    project_root = Path(os.environ[DATA_ROOT_VARIABLE]) / "projects"
+    project_root.mkdir(parents=True, exist_ok=True)
     return tempfile.mkdtemp(prefix="test-project-", dir=project_root)
 
 

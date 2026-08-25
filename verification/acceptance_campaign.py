@@ -86,7 +86,7 @@ def _tier(
 
 
 _BIOHUB = (("PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",),)
-_LOCAL_ESM3 = (("HF_HUB_CACHE", "HF_HOME"),)
+_LOCAL_ESM3 = (("PROTEIN_WORKBENCH_ESM3_MODEL_ROOT",),)
 _LOCAL_ESMFOLD2 = (
     ("PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT",),
     ("PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT",),
@@ -383,8 +383,6 @@ class ExecutionProfile:
             if name.startswith("PROTEIN_WORKBENCH_")
         }
         controlled.update({
-            "HF_HUB_CACHE",
-            "HF_HOME",
             "PYTHONPATH",
             "PYTEST_ADDOPTS",
         })
@@ -610,7 +608,7 @@ def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
 
 def _git_authority() -> tuple[str, bool]:
     revision = subprocess.run(
-        ["/usr/bin/git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", "HEAD"],
         cwd=PROJECT_ROOT,
         check=True,
         text=True,
@@ -618,7 +616,7 @@ def _git_authority() -> tuple[str, bool]:
     ).stdout.strip()
     dirty = bool(
         subprocess.run(
-            ["/usr/bin/git", "status", "--porcelain"],
+            ["git", "status", "--porcelain"],
             cwd=PROJECT_ROOT,
             check=True,
             text=True,

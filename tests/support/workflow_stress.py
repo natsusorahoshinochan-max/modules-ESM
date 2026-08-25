@@ -116,10 +116,7 @@ def configure_isolated_roots(
     root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        path = root / name.lower()
-        path.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(path))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(root))
 
 
 def commit_and_run(

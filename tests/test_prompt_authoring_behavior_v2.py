@@ -505,10 +505,7 @@ def test_prompt_authoring_executes_through_the_public_protocol(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     catalog_override = build_frozen_catalog(
         (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)

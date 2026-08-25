@@ -607,10 +607,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
 ) -> None:
     import modules.solubility.protein_sol as solubility_adapter
 
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        path = tmp_path / name.lower()
-        path.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(path))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     proteinmpnn = _ControlledProteinMPNN()
 

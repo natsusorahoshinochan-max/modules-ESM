@@ -219,10 +219,7 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     esm3 = ControlledESM3Client()
     folding = ControlledFoldingClient()
     workflow = _workflow_payload()
@@ -444,10 +441,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
     monkeypatch,
 ) -> None:
     """One provider-backed run proves the complete v2 canonical journey."""
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     esm3 = ControlledESM3Client()
     folding = ControlledFoldingClient()
     proteinmpnn = ControlledProteinMPNNProvider()

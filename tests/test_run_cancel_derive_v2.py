@@ -147,10 +147,7 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
     run_root = tmp_path / "runs"
     output_root = tmp_path / "outputs"
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_environment_configuration={
@@ -240,9 +237,7 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
     calls: list[str] = []
     entered = threading.Event()
     release = threading.Event()
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -315,9 +310,7 @@ def test_cancel_before_schedule_disposes_every_node_without_attempts(
     first_entered = threading.Event()
     first_release = threading.Event()
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -366,9 +359,7 @@ def test_completion_race_is_decided_by_the_ledger_cursor(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
@@ -427,9 +418,7 @@ def test_run_terminal_precedence_uses_durable_node_dispositions(
         second_entered.set()
         assert second_release.wait(timeout=2)
 
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -489,9 +478,7 @@ def test_cancel_during_cache_lookup_closes_only_the_node_attempt(
         return original_lookup(replay_index, project_id, result_identity)
 
     monkeypatch.setattr(ProjectReplayIndex, "lookup", blocking_lookup)
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
@@ -539,9 +526,7 @@ def test_cancel_during_readiness_closes_only_the_node_attempt(
         assert release.wait(timeout=2)
         return ReadinessResult(True)
 
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -591,9 +576,7 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
         cacheable=True,
         execution_gate=(entered, release),
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
@@ -659,9 +642,7 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
 ) -> None:
     calls: list[str] = []
     catalog = _direct_catalog(calls, cacheable=True)
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
@@ -731,9 +712,7 @@ def test_force_recompute_bypasses_the_selected_downstream_closure(
 ) -> None:
     calls: list[str] = []
     catalog = _pipeline_catalog(calls, cacheable=True)
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=catalog,
     )
@@ -803,9 +782,7 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
                 entered.set()
                 worker.wait(timeout=5)
 
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -896,9 +873,7 @@ def test_process_group_registered_after_cancel_uses_full_cleanup_protocol(
         with resources.cancellable_process_group(os.getpgid(worker.pid)):
             worker.wait(timeout=5)
 
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -953,9 +928,7 @@ def test_successful_process_fallback_is_confirmed_when_context_exits(
             entered.set()
             assert release.wait(timeout=3)
 
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -995,9 +968,7 @@ def test_cancel_during_factory_closes_started_node_before_operation_attempt(
         entered.set()
         assert release.wait(timeout=3)
 
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -1053,9 +1024,7 @@ def test_cancel_factory_cleanup_failure_interrupts_started_node_attempt(
         "core.execution.resources.RunResources.cleanup_temporary_work",
         fail_cleanup,
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -1111,9 +1080,7 @@ def test_cancel_during_artifact_materialization_keeps_object_unpublished(
         "store",
         hold_artifact_object,
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
@@ -1156,9 +1123,7 @@ def test_normal_temp_cleanup_failure_does_not_publish_artifact(
         "core.execution.resources.RunResources.cleanup_temporary_work",
         fail_cleanup,
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
@@ -1204,9 +1169,7 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
                 entered.set()
                 worker.wait(timeout=5)
 
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -1248,9 +1211,7 @@ def test_cancel_and_derive_are_scoped_by_project_run_lookup(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
@@ -1290,9 +1251,7 @@ def test_derived_artifacts_and_source_run_remain_independently_immutable(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
@@ -1343,9 +1302,7 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
         ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
@@ -1432,9 +1389,7 @@ def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
         ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},

@@ -89,11 +89,7 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_direct_catalog([]))
 
     with TestClient(app) as client:
@@ -155,11 +151,7 @@ def test_undeclared_seed_like_parameter_remains_a_normalized_parameter(
     monkeypatch: pytest.MonkeyPatch,
     parameter_name: str,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog(
         [],
         node_parameter_declarations={
@@ -391,15 +383,7 @@ def test_deterministic_result_replays_without_rechecking_provider_readiness(
 ) -> None:
     """The public projection exposes one stable identity and honest replay."""
     calls: list[str] = []
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
@@ -450,11 +434,7 @@ def test_node_instance_rename_reuses_the_same_scientific_result(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
@@ -502,16 +482,7 @@ def test_cache_v5_is_manifest_only_and_ledger_commits_node_result_manifest(
     calls: list[str] = []
     cache_root = tmp_path / "cache"
     run_root = tmp_path / "runs"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
@@ -558,16 +529,7 @@ def test_cached_manifest_restores_ordinary_and_artifact_output_ports(
     monkeypatch,
 ) -> None:
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
@@ -599,22 +561,7 @@ def test_project_cache_reuses_admitted_canonical_bytes_without_reencoding(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_CACHE_ROOT",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
@@ -649,15 +596,7 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
 
     monkeypatch.setattr(ProjectReplayIndex, "index", fail_index)
 
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_environment_configuration={
@@ -705,19 +644,7 @@ def test_candidate_identity_is_run_independent_and_preserved_on_replay(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_CACHE_ROOT",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_candidate_catalog(calls))
 
     with TestClient(app) as client:
@@ -773,19 +700,7 @@ def test_duplicate_candidate_producer_identity_fails_closed(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_CACHE_ROOT",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_candidate_catalog(
             [],
@@ -817,19 +732,7 @@ def test_root_candidate_cannot_declare_node_id_as_pseudo_parent(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_CACHE_ROOT",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_candidate_catalog(
             [],
@@ -864,13 +767,7 @@ def test_same_result_identity_is_physically_isolated_between_projects(
     calls: list[str] = []
     project_root = tmp_path / "projects"
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -937,13 +834,7 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
 ) -> None:
     project_root = tmp_path / "projects"
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     readiness = {
         "test.direct.local": lambda check_input: ReadinessResult(
             bool(check_input.values)
@@ -1037,13 +928,7 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
     project_root = tmp_path / "projects"
     cache_root = tmp_path / "cache"
     run_root = tmp_path / "runs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
         ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
@@ -1156,13 +1041,7 @@ def test_changed_implementation_identity_rejects_the_old_workflow_generation(
 ) -> None:
     project_root = tmp_path / "projects"
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
         ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
@@ -1230,16 +1109,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
 ) -> None:
     calls: list[str] = []
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -1319,16 +1189,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
             raise RuntimeError("fixture failure")
         raise ExecutionTermination(termination)
 
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -1370,16 +1231,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
 ) -> None:
     calls: list[str] = []
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -1415,19 +1267,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
 ) -> None:
     calls: list[str] = []
     resolver_calls: list[int] = []
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_CACHE_ROOT",
-        str(tmp_path / "cache"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     def resolve_randomness(
         *,

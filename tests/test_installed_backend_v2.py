@@ -9,6 +9,7 @@ from protein_workbench_public.bootstrap import module_registrations
 import hashlib
 import json
 import os
+import re
 import socket
 import subprocess
 import tarfile
@@ -99,6 +100,27 @@ REQUIRED_PROVIDER_CASES = {
         (
             "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
             "test_proteinmpnn_v2_sibling_design_remains_exact_and_complete"
+        ),
+        (
+            "tests/test_proteinmpnn_v2.py::"
+            "test_design_projects_canonical_axis_into_provider_safe_structure"
+        ),
+        (
+            "tests/test_proteinmpnn_v2.py::"
+            "test_scoring_stages_numbering_gaps_and_preserves_backbone_mask"
+        ),
+        (
+            "tests/test_proteinmpnn_v2.py::"
+            "test_design_and_score_preserve_same_chain_segment_topology"
+        ),
+        (
+            "tests/test_proteinmpnn_v2.py::"
+            "test_provider_staging_capacity_counts_segments_not_workbench_"
+            "chains"
+        ),
+        (
+            "tests/test_proteinmpnn_v2.py::"
+            "test_readiness_validates_the_exact_checkout_checkpoint_and_runtime"
         ),
     ),
     "mkdssp": (
@@ -292,6 +314,12 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
             Path(*Path(entry.name).parts[1:]).as_posix()
             for entry in sdist_entries
         }
+        readme_entry = next(
+            entry for entry in sdist_entries if entry.name.endswith("/README.md")
+        )
+        extracted_readme = archive.extractfile(readme_entry)
+        assert extracted_readme is not None
+        packaged_readme = extracted_readme.read().decode("utf-8")
         assert all(
             not entry.issym()
             and not entry.islnk()
@@ -318,7 +346,15 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
         "protein_workbench_public/resources/v2/bundle.json",
     }
     assert required <= names
-    assert required <= sdist_names
+    assert required | {"README.md", "uv.lock"} <= sdist_names
+    assert not any(
+        name.startswith("docs/") or name.startswith("repositories/")
+        for name in sdist_names
+    )
+    assert re.findall(
+        r"\]\(((?!https://)[^)]+\.md(?:#[^)]+)?)\)",
+        packaged_readme,
+    ) == []
     assert not any(
         name.startswith("tests/")
         or name.startswith("verification/")
@@ -362,6 +398,63 @@ def test_installed_protocol_catalog_identity_and_separate_availability(
     )
 
 
+def test_installed_server_preserves_project_identity_across_working_directories(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    data_root = tmp_path / "stable-data"
+    data_root.mkdir()
+    working_directories = (tmp_path / "first-cwd", tmp_path / "second-cwd")
+    for working_directory in working_directories:
+        working_directory.mkdir()
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment["PROTEIN_WORKBENCH_DATA_ROOT"] = str(data_root)
+
+    retained: tuple[str, str] | None = None
+    for index, working_directory in enumerate(working_directories):
+        port = _free_port()
+        server = subprocess.Popen(
+            [
+                str(installed_artifact.python),
+                "-I",
+                "-m",
+                "protein_workbench_public.cli",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+            ],
+            cwd=working_directory,
+            env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        try:
+            _wait_for_server(port, server)
+            with PublicProtocolAcceptanceClient(
+                f"http://127.0.0.1:{port}"
+            ) as client:
+                if index == 0:
+                    project_id = client.create_project("stable installed data")[
+                        "id"
+                    ]
+                    published = client.publish_project_input(
+                        project_id,
+                        filename="identity.txt",
+                        content=b"same installed application data\n",
+                    )
+                    retained = (project_id, published["project_input_ref"])
+                else:
+                    assert retained is not None
+                    recovered = client.project_input_metadata(*retained)
+                    assert recovered["filename"] == "identity.txt"
+                    assert recovered["size"] == 32
+        finally:
+            _stop_server(server)
+
+
 def test_installed_backend_completes_full_public_v2_journey(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
@@ -381,10 +474,9 @@ def test_installed_backend_completes_full_public_v2_journey(
     port = _free_port()
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(root)
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    env["PROTEIN_WORKBENCH_DATA_ROOT"] = str(data_root)
     server = subprocess.Popen(
         [
             str(installed_artifact.python),
@@ -672,6 +764,11 @@ def _run_installed_provider_case(
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
+    if case == "soluprot":
+        configured_root = Path(env["PROTEIN_WORKBENCH_SOLUPROT_ROOT"])
+        spaced_root = tmp_path / "SoluProt Provider Root With Spaces"
+        spaced_root.symlink_to(configured_root, target_is_directory=True)
+        env["PROTEIN_WORKBENCH_SOLUPROT_ROOT"] = str(spaced_root)
     if case in {"biohub_esm3", "biohub_esmfold2"}:
         token_file = Path(
             env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"]
@@ -769,10 +866,9 @@ if __name__ == "__main__":
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
     env["PW_SERVER_PORT"] = str(port)
     env["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"] = str(token_file)
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(root)
+    data_root = tmp_path / "data"
+    data_root.mkdir()
+    env["PROTEIN_WORKBENCH_DATA_ROOT"] = str(data_root)
     server = subprocess.Popen(
         [str(installed_artifact.python), "-I", str(launcher)],
         cwd=installed_artifact.run_root,

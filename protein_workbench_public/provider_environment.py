@@ -24,6 +24,9 @@ from modules.folding.simplefold_contract import (
     SIMPLEFOLD_DEVICE,
 )
 from modules.proteinmpnn.adapter import PROTEINMPNN_DEVICE
+from protein_workbench_public.application_environment import (
+    application_storage_roots,
+)
 
 
 ProviderEnvironmentConfiguration = dict[
@@ -93,27 +96,17 @@ def provider_environment_configuration(
         for identity in biohub_bindings:
             configuration[identity] = {"values": dict(biohub_values)}
 
-    configured_hub_cache = values.get("HF_HUB_CACHE")
-    configured_hf_home = values.get("HF_HOME")
-    if configured_hub_cache is not None or configured_hf_home is not None:
-        hub_cache = (
-            Path(configured_hub_cache).expanduser()
-            if configured_hub_cache is not None
-            else Path(str(configured_hf_home)).expanduser() / "hub"
-        )
-        run_root = Path(
-            values.get("PROTEIN_WORKBENCH_RUN_ROOT", ".local")
-        ).expanduser()
-        runtime_directory = run_root / "provider-runtime/esm3"
+    esm3_model_root = _configured_path(
+        values,
+        "PROTEIN_WORKBENCH_ESM3_MODEL_ROOT",
+    )
+    if esm3_model_root is not None:
+        storage = application_storage_roots(values)
+        runtime_directory = storage.data / "provider-runtime/esm3"
         runtime_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         local_esm3_values = {
             "model_snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-            "model_snapshot_path": (
-                hub_cache
-                / "models--biohub--esm3-sm-open-v1"
-                / "snapshots"
-                / LOCAL_ESM3_SNAPSHOT_REVISION
-            ),
+            "model_snapshot_path": esm3_model_root,
             "runtime_directory": runtime_directory,
             "device": LOCAL_ESM3_DEVICE,
             "performance_settings": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),

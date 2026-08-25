@@ -108,7 +108,7 @@ SOLUPROT_CODE_SHA256 = {
 }
 SOLUPROT_TMHMM_SHA256 = {
     "bin/tmhmm": (
-        "dfbcf6a8a2d7eb604d83e61b158d652d20e94353f7e1f8a1601d14d9f09a371e"
+        "b28ed8ae92966ab1ee76fbe63ce4498abbb17f2cb9c07af01325b8f0388a33c8"
     ),
     "bin/tmhmmformat.pl": (
         "80b561f6c8035cd93f4653dea0183f765f9b08928057a938e98a872389f8a166"

@@ -1728,7 +1728,7 @@
       "contract_kind": "binding",
       "contract_id": "solubility.soluprot_full.local",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:3c5dc35d244ff03070b43f697cd377575f9c04538d5a32efd420d055ba920acf"
+      "contract_digest": "sha256:ed515e42b308b90ba77ec3ae104ae8866aecd1432f54ffbc7cd207373e2c8228"
     },
     {
       "contract_kind": "binding",
@@ -2094,7 +2094,7 @@
       "contract_kind": "method",
       "contract_id": "solubility.soluprot_full.v1_1_0",
       "contract_version": "3.0.0",
-      "contract_digest": "sha256:b13b1e699bb1eca69a12f1083f3c99d133656373140f714d876bd40558037f24"
+      "contract_digest": "sha256:d761f7f70ed226515e437a76f0788330acf5f59b5c07161829be8df38a6c28db"
     },
     {
       "contract_kind": "method",

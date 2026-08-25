@@ -9,6 +9,8 @@
 
 # OPTION PARSING ##########################################
 use Getopt::Long;
+use Cwd qw(abs_path);
+use POSIX ();
 
 # $opt_basedir: basis directory for TMHMM package
 # $opt_scrdir: Script directory (defaults basedir/bin)
@@ -46,42 +48,80 @@ $opt_basedir .= "/" if ($opt_basedir !~ /\/$/ );
 $opt_scrdir = $opt_basedir."bin" if (!defined($opt_scrdir));
 $opt_bindir = $opt_basedir."bin" if (!defined($opt_bindir));
 $opt_libdir = $opt_basedir."lib" if (!defined($opt_libdir));
+$opt_scrdir = abs_path($opt_scrdir);
+$opt_bindir = abs_path($opt_bindir);
+$opt_libdir = abs_path($opt_libdir);
 
 ###########################################
 
 # Choose old model if requested
-if ( $opt_v1) { $modelfile="$opt_libdir/TMHMM1.0.model"; }
-else {          $modelfile="$opt_libdir/TMHMM2.0.model"; }
+if ( $opt_v1) { $modelname="TMHMM1.0.model"; }
+else {          $modelname="TMHMM2.0.model"; }
 
-$optfile="$opt_libdir/TMHMM2.0.options";
-
-# Debugging?
-if ($opt_d) { $err = ""; }
-else { $err = "2>/dev/null"; }
+$optname="TMHMM2.0.options";
 
 # Make working dir (initail path MUST exist)
 $wd = "TMHMM_$$";
 mkdir "$opt_workdir/$wd",0777 if ($opt_plot);
 
 # Programs to run
-my $unix = `uname -s`;
-my $arch = `uname -m`;
-chomp $unix; chomp $arch;
-$tmhmmformat = "$opt_scrdir/tmhmmformat.pl -workdir $opt_workdir/$wd -wwwdir $opt_wwwdir/$wd -serverhome $opt_serverhome";
-$decode = "$opt_bindir/decodeanhmm.${unix}_$arch $modelfile -f $optfile -plp";
+my @uname = POSIX::uname();
+my $unix = $uname[0];
+my $arch = $uname[4];
+my $tmhmmformat = "$opt_scrdir/tmhmmformat.pl";
+my $decode = "$opt_bindir/decodeanhmm.${unix}_$arch";
+my @tmhmmformat_args = (
+    "-workdir", "$opt_workdir/$wd",
+    "-wwwdir", "$opt_wwwdir/$wd",
+    "-serverhome", $opt_serverhome,
+);
 
 # options to $tmhmmformat
-$tmhmmformat .= " -html" if ($opt_html);
-$tmhmmformat .= " -v1" if ($opt_v1);
+push @tmhmmformat_args, "-html" if ($opt_html);
+push @tmhmmformat_args, "-v1" if ($opt_v1);
 if ( $opt_short ) {
-    $tmhmmformat .= " -short -noplot";
+    push @tmhmmformat_args, "-short", "-noplot";
 }
 elsif (!$opt_plot) {
-    $tmhmmformat .= " -noplot";
+    push @tmhmmformat_args, "-noplot";
 }
 
-# Set up the proper pipe
-open(DECODE,"| $decode $err | $tmhmmformat $err");
+# Set up a shell-free decoder-to-formatter pipeline. Paths are passed as exact
+# arguments so an installed asset root may contain spaces.
+pipe(DECODE_READ, DECODE_WRITE) or die "Cannot create decoder input pipe: $!";
+pipe(FORMAT_READ, FORMAT_WRITE) or die "Cannot create formatter pipe: $!";
+
+my $decode_pid = fork();
+die "Cannot start TMHMM decoder: $!" unless defined($decode_pid);
+if ($decode_pid == 0) {
+    close(DECODE_WRITE);
+    close(FORMAT_READ);
+    open(STDIN, "<&", \*DECODE_READ) or die "Cannot connect decoder input: $!";
+    open(STDOUT, ">&", \*FORMAT_WRITE) or die "Cannot connect decoder output: $!";
+    close(DECODE_READ);
+    close(FORMAT_WRITE);
+    open(STDERR, ">", "/dev/null") unless ($opt_d);
+    chdir($opt_libdir) or die "Cannot select TMHMM model directory: $!";
+    exec { $decode } $decode, $modelname, "-f", $optname, "-plp";
+    exit 127;
+}
+
+my $format_pid = fork();
+die "Cannot start TMHMM formatter: $!" unless defined($format_pid);
+if ($format_pid == 0) {
+    close(DECODE_READ);
+    close(DECODE_WRITE);
+    close(FORMAT_WRITE);
+    open(STDIN, "<&", \*FORMAT_READ) or die "Cannot connect formatter input: $!";
+    close(FORMAT_READ);
+    open(STDERR, ">", "/dev/null") unless ($opt_d);
+    exec { $tmhmmformat } $tmhmmformat, @tmhmmformat_args;
+    exit 127;
+}
+
+close(DECODE_READ);
+close(FORMAT_READ);
+close(FORMAT_WRITE);
 
 # Read and process sequences
 $lastline = ">WEBSEQUENCE";
@@ -89,7 +129,7 @@ $lastline = ">WEBSEQUENCE";
 
 if ($#ARGV<0) {
 #    print STDERR "Reading from STDIN\n";
-    do_file(\*STDIN,\*DECODE);
+    do_file(\*STDIN,\*DECODE_WRITE);
 }
 else {
     # Read all files given on cmdline
@@ -103,12 +143,18 @@ else {
 #	print STDERR "Reading from $sfile\n";
 	next if ( -z $sfile );
 	open(SEQF,"<$sfile");
-	do_file(\*SEQF,\*DECODE);
+	do_file(\*SEQF,\*DECODE_WRITE);
 	close(SEQF);
     }
 }
 
-close(DECODE);
+close(DECODE_WRITE);
+waitpid($decode_pid, 0);
+my $decode_status = $?;
+waitpid($format_pid, 0);
+my $format_status = $?;
+die "TMHMM decoder failed" if ($decode_status != 0);
+die "TMHMM formatter failed" if ($format_status != 0);
 
 
 
