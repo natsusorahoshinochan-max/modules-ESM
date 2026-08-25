@@ -160,6 +160,13 @@ def _load_reviewed_plddt_models(
     }
 
 
+def _release_language_model_memory(device: Any) -> None:
+    """Return released ESM2 allocations before loading folding weights."""
+    gc.collect()
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+
 def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
     """Serialize and restore the provider's process-global import state."""
     @wraps(function)
@@ -268,7 +275,7 @@ def fold_sequence(
     inf_wrapper.esm_model = None
     inf_wrapper.esm_dict = None
     inf_wrapper.af2_to_esm = None
-    gc.collect()
+    _release_language_model_memory(torch_device)
 
     model, plddt_models = _load_reviewed_folding_models(
         model_dir,
