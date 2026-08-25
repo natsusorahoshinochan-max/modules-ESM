@@ -201,6 +201,70 @@ def test_local_2emo_workflow_selects_exact_local_esmfold2_confidence() -> None:
     )
 
 
+def _expected_5g53_effective_generation_parameters(
+    branch: str,
+    requested_generation_parameters: dict[str, Any],
+    *,
+    local_models: bool,
+) -> dict[str, dict[str, dict[str, Any]]]:
+    sequence = {
+        **requested_generation_parameters,
+        "num_steps": (
+            {
+                "shorter-8": 8,
+                "numbering-implied-12": 12,
+                "longer-16": 16,
+            }[branch]
+            if local_models
+            else 20
+        ),
+    }
+    return {
+        "sequence": {"sequence": sequence},
+        "counterpart": {
+            "sequence": sequence,
+            "structure": requested_generation_parameters,
+        },
+        "reconstruction": {"sequence": sequence},
+    }
+
+
+@pytest.mark.parametrize(
+    ("branch", "local_models", "expected_sequence_num_steps"),
+    (
+        ("shorter-8", True, 8),
+        ("numbering-implied-12", True, 12),
+        ("longer-16", True, 16),
+        ("shorter-8", False, 20),
+        ("numbering-implied-12", False, 20),
+        ("longer-16", False, 20),
+    ),
+)
+def test_5g53_generation_metadata_expectations_are_route_aware(
+    branch: str,
+    local_models: bool,
+    expected_sequence_num_steps: int,
+) -> None:
+    expectations = _expected_5g53_effective_generation_parameters(
+        branch,
+        {"num_steps": 20},
+        local_models=local_models,
+    )
+
+    assert expectations == {
+        "sequence": {
+            "sequence": {"num_steps": expected_sequence_num_steps}
+        },
+        "counterpart": {
+            "sequence": {"num_steps": expected_sequence_num_steps},
+            "structure": {"num_steps": 20},
+        },
+        "reconstruction": {
+            "sequence": {"num_steps": expected_sequence_num_steps}
+        },
+    }
+
+
 def _decode(
     service: Any,
     catalog: Any,
@@ -963,22 +1027,33 @@ def _assert_5g53_science(
             "strategy": "random",
             "temperature_annealing": True,
         }
+        expected_effective_generation_parameters = (
+            _expected_5g53_effective_generation_parameters(
+                branch,
+                expected_generation_parameters,
+                local_models=local_models,
+            )
+        )
         assert all(
             sequence.metadata["requested_generation_parameters"]
             == expected_generation_parameters
             and sequence.metadata["effective_generation_parameters"]
-            == {"sequence": expected_generation_parameters}
+            == expected_effective_generation_parameters["sequence"]
             for sequence in branch_sequences.items
         )
         assert all(
             counterpart.metadata["requested_generation_parameters"]
             == expected_generation_parameters
             and counterpart.metadata["effective_generation_parameters"]
-            == {
-                "sequence": expected_generation_parameters,
-                "structure": expected_generation_parameters,
-            }
+            == expected_effective_generation_parameters["counterpart"]
             for counterpart in branch_counterparts.items
+        )
+        assert all(
+            reconstruction.metadata["requested_generation_parameters"]
+            == expected_generation_parameters
+            and reconstruction.metadata["effective_generation_parameters"]
+            == expected_effective_generation_parameters["reconstruction"]
+            for reconstruction in branch_reconstructions.items
         )
         assert tuple(
             counterpart.parent_ids
