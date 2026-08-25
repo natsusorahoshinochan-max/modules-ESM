@@ -42,6 +42,9 @@ from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM,
 )
 from protein_workbench_public.http.app import create_http_app
+from protein_workbench_public.provider_environment import (
+    provider_environment_configuration,
+)
 from protein_workbench_public.workflow_codec import decode_workflow_document
 
 
@@ -75,7 +78,10 @@ def create_application(
     """Construct the current backend and bind it to the public HTTP app."""
     catalog = build_frozen_catalog(module_registrations())
     projects = ProjectManager(
-        root_dir=os.environ.get("PROTEIN_WORKBENCH_PROJECT_ROOT", "projects"),
+        root_dir=os.environ.get(
+            "PROTEIN_WORKBENCH_PROJECT_ROOT",
+            ".local/projects",
+        ),
         cache_root=os.environ.get("PROTEIN_WORKBENCH_CACHE_ROOT"),
         output_root=os.environ.get("PROTEIN_WORKBENCH_OUTPUT_ROOT"),
         run_root=os.environ.get("PROTEIN_WORKBENCH_RUN_ROOT"),
@@ -83,7 +89,13 @@ def create_application(
     authoring = WorkflowAuthoringService(projects, catalog)
     with ExitStack() as asset_stack:
         canonical_structure = asset_stack.enter_context(
-            as_file(files("pdbs").joinpath("3GB1.pdb"))
+            as_file(
+                files("examples").joinpath(
+                    "v2",
+                    "structures",
+                    "3GB1.pdb",
+                )
+            )
         )
         canonical_workflow_path = asset_stack.enter_context(
             as_file(
@@ -105,7 +117,7 @@ def create_application(
     environment = admit_environment_configuration(
         catalog,
         (
-            {}
+            provider_environment_configuration()
             if v2_environment_configuration is None
             else v2_environment_configuration
         ),

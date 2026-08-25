@@ -6,6 +6,7 @@ from tests.support.ledger import public_run_events, public_run_projection
 
 import os
 from pathlib import Path
+import shutil
 from typing import Any
 
 import pytest
@@ -66,10 +67,6 @@ def _environment(mode: str) -> dict[str, Any]:
         "python_executable": (
             external_root / "var/environments/soluprot/bin/python"
         ),
-        "wheel_path": (
-            external_root
-            / "vendor/packages/soluprot-1.1.0-py3-none-any.whl"
-        ),
         "site_packages_root": (
             external_root
             / "var/environments/soluprot/lib/python3.12/site-packages"
@@ -79,10 +76,9 @@ def _environment(mode: str) -> dict[str, Any]:
         ),
     }
     if mode == "full":
-        environment["tmhmm_root"] = (
-            external_root / "var/tools/soluprot/tmhmm"
+        environment["perl_executable"] = Path(
+            str(shutil.which("perl"))
         )
-        environment["perl_executable"] = Path("/usr/bin/perl")
     return environment
 
 
@@ -301,7 +297,10 @@ def test_model_backed_soluprot_golden_methods(
         expected_command.extend(
             [
                 "--tmhmm",
-                str(environment["tmhmm_root"] / "bin" / "tmhmm"),
+                str(
+                    site_packages_root
+                    / "soluprot_assets/tmhmm-2.0d/bin/tmhmm"
+                ),
             ]
         )
     else:

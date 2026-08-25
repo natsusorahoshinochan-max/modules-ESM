@@ -41,7 +41,7 @@ preserves Result Identity; changing those bytes changes Result Identity.
 
 The scientific Result Identity namespace is
 `protein-workbench-cache/v3`. ADR-0039 owns the current physical schemas:
-Cache entry `v4` and Run Evidence Ledger `4.0.0`.
+Cache entry `v5` and Run Evidence Ledger `5.0.0`.
 Only these current schemas and namespace are admitted. Cache storage is
 Project-scoped even
 though the scientific Result Identity excludes Project identity. Cache entries

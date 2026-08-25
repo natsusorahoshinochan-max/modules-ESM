@@ -1,0 +1,15 @@
+._*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.venv37/
+.venv37-legacy/
+venv/
+build/
+dist/
+*.egg-info/
+tmp/
+/test.csv

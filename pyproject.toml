@@ -46,17 +46,12 @@ include = [
     "datatypes*",
     "examples*",
     "modules*",
-    "pdbs*",
     "protein_workbench_public*",
-    "verification",
-    "verification.*",
 ]
-exclude = ["verification-results", "verification-results.*"]
 
 [tool.setuptools.package-data]
-examples = ["*.json", "v2/*.json", "v2/*.md"]
+examples = ["*.json", "v2/*.json", "v2/*.md", "v2/structures/*.pdb"]
 modules = ["**/*.yaml"]
-pdbs = ["1PGA-75-gen1_0690.pdb", "2EMO.pdb", "3GB1.pdb", "5G53.pdb"]
 protein_workbench_public = ["resources/v2/*.json"]
 
 [tool.setuptools.exclude-package-data]

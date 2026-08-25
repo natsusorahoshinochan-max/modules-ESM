@@ -25,7 +25,7 @@ Observations and Utility Transforms cover all six selection operations. Those
 independent fixtures are not shipped as production capabilities.
 
 `source-bound-1pga.workflow.json` is the exact 75-residue acceptance Workflow
-for `pdbs/1PGA-75-gen1_0690.pdb` (SHA-256
+for `examples/v2/structures/1PGA-75-gen1_0690.pdb` (SHA-256
 `d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30`).
 It admits the structure through Project Input, derives the shared sequence
 parent inside the Workbench, runs one explicitly seeded ESMFold2 sample and one
@@ -36,7 +36,7 @@ uninterpreted. Provider-free public REST/WebSocket acceptance uses lawful
 controlled Binding clients and never invokes a remote Provider or local model.
 
 `source-bound-2emo.workflow.json` is the exact 224-residue acceptance Workflow
-for `pdbs/2EMO.pdb` (SHA-256
+for `examples/v2/structures/2EMO.pdb` (SHA-256
 `6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700`).
 It materializes the CSH A:66 parent-span normalization as A:65–A:67 `SHG`,
 retains the explicit A:64–A:68 residue correspondence, and generates eight
@@ -48,7 +48,7 @@ public REST/WebSocket acceptance uses lawful controlled Binding clients and
 does not invoke a remote Provider or load ProteinMPNN or Protein-Sol.
 
 `source-bound-5g53.workflow.json` is the exact source-bound loop-insertion
-acceptance Workflow for `pdbs/5G53.pdb` (SHA-256
+acceptance Workflow for `examples/v2/structures/5G53.pdb` (SHA-256
 `a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537`).
 It imports the four-chain source bytes with HETATM records and provenance,
 selects chain A explicitly, and retains the 283-residue reference axis with

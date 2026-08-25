@@ -26,7 +26,7 @@ Each invocation replaces Project, Cache, output, and Run roots only in the
 child process. It never writes configured production roots. After pytest exits,
 the verifier retains a bounded JUnit file, sanitized command transcript, and
 environment summary under the ignored
-`verification-results/<tier>/<UTC-run-id>/` directory. Retained directories
+`.local/verification-results/<tier>/<UTC-run-id>/` directory. Retained directories
 are ordinary local verification output.
 
 ## Available tiers
@@ -143,6 +143,11 @@ Missing or relative required path configuration fails a zero-skip gate.
 Acceptance files do not infer Provider runtimes from another workspace.
 The private Campaign Execution Profile supplies every canonical requirement
 explicitly, including `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`.
+
+The installed `protein-workbench-server` command loads these variables into the
+same Binding-scoped Environment Configuration used by verification. A separate
+Python launcher that calls `create_application(v2_environment_configuration=...)`
+is no longer required for ordinary backend deployment.
 
 All declared canonical pytest file targets are required to exist. A developer
 may use a focused override for local work; only the Campaign's fixed selectors
@@ -279,14 +284,14 @@ they are never embedded in the projection or lifecycle WebSocket stream.
 ## Acceptance campaign
 
 Keep every Provider path in one private Execution Profile outside the repository
-and `verification-results/`. The profile contains paths and transport policy,
+and `.local/verification-results/`. The profile contains paths and transport policy,
 never token contents, and is injected explicitly into each child process.
 
-After the provider-free/backend/frontend matrix passes, commit the clean
+After the provider-free/backend matrix passes, commit the clean
 candidate and run one canonical Campaign:
 
 ```bash
-CAMPAIGN=verification-results/acceptance-campaign
+CAMPAIGN=.local/verification-results/acceptance-campaign
 PROFILE=/absolute/private/acceptance-profile.json
 .venv/bin/python -m verification.acceptance_cli prepare "$CAMPAIGN" --profile "$PROFILE"
 .venv/bin/python -m verification.acceptance_cli run "$CAMPAIGN" --profile "$PROFILE"

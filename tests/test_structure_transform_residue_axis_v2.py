@@ -218,7 +218,15 @@ def test_unknown_atom_polymer_is_not_guessed_as_sequence_x() -> None:
 
 
 def test_2emo_normalization_repairs_parent_span_topology_and_masks() -> None:
-    raw = ProteinStructure((_PROJECT_ROOT / "pdbs" / "2EMO.pdb").read_text())
+    raw = ProteinStructure(
+        (
+            _PROJECT_ROOT
+            / "examples"
+            / "v2"
+            / "structures"
+            / "2EMO.pdb"
+        ).read_text()
+    )
     with pytest.raises(
         ValueError,
         match=r"^unsupported_modified_polymer: CSH at A:66",

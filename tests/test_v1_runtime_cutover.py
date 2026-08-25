@@ -143,7 +143,9 @@ def test_seed_install_does_not_adopt_or_rewrite_existing_local_data(
     manager = ProjectManager(project_root)
 
     result = manager.ensure_seed_project_v2(
-        input_sources={"3GB1.pdb": Path("pdbs/3GB1.pdb")},
+        input_sources={
+            "3GB1.pdb": Path("examples/v2/structures/3GB1.pdb")
+        },
     )
 
     assert result is None

@@ -307,19 +307,19 @@
       "contract_kind": "binding",
       "contract_id": "solubility.protein_sol.local",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:d483d547c1da4a1d549ef062f76f74ecaea4cbcd5e92ec30630d358fee5ecfff"
+      "contract_digest": "sha256:d9cce7dbaa10762863a6508d1a17f8a5332e96c9076b101ed32843a7181f0c5f"
     },
     {
       "contract_kind": "binding",
       "contract_id": "solubility.soluprot_full.local",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:c857d03f17b9d6166d73fbbc79ae09ee2e0a0ed495ccf36658cd442993aea46b"
+      "contract_digest": "sha256:3c5dc35d244ff03070b43f697cd377575f9c04538d5a32efd420d055ba920acf"
     },
     {
       "contract_kind": "binding",
       "contract_id": "solubility.soluprot_no_tm.local",
       "contract_version": "5.0.0",
-      "contract_digest": "sha256:0c9eab2a75eb03b861db5c1399fc5d538a0f597465fa644bd0541f06364253c6"
+      "contract_digest": "sha256:7253db0c41120d9ea7356642767aff23a41f1a19b8a817363d5b44a63b698fee"
     },
     {
       "contract_kind": "binding",
@@ -799,13 +799,13 @@
       "contract_kind": "method",
       "contract_id": "solubility.soluprot_full.v1_1_0",
       "contract_version": "3.0.0",
-      "contract_digest": "sha256:c99458b0d8c6acc08f86b0f8fd4af1678dba115f23c2a049d93ce7d51443441f"
+      "contract_digest": "sha256:b13b1e699bb1eca69a12f1083f3c99d133656373140f714d876bd40558037f24"
     },
     {
       "contract_kind": "method",
       "contract_id": "solubility.soluprot_no_tm.v1_1_0",
       "contract_version": "3.0.0",
-      "contract_digest": "sha256:5fb7687a470a5b3733e3aa7788b545f280d9cb8fa23e46163702105a8f93c29e"
+      "contract_digest": "sha256:16a6500c9446cc96fdee2e919d81e953d259ac292425515364a3bb77c6048a92"
     },
     {
       "contract_kind": "method",

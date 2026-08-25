@@ -1,0 +1,119 @@
+# SoluProt 现代化修改说明
+
+本文档记录本次对当前目录项目的主要修改内容。
+
+## 修改目标
+
+本次修改的目标是将项目从旧版 Python / 旧版依赖运行方式迁移为仅依赖现代 Python 包栈运行，并移除旧版兼容层。
+
+当前项目目标环境：
+
+- Python 3.12 或 3.13
+- 现代 Biopython、NumPy、pandas、tqdm
+- 不再依赖旧版 scikit-learn/joblib/pickle 模型文件进行运行时预测
+
+## 主要改动
+
+### 1. 项目结构现代化
+
+- 引入标准 Python 包结构 `soluprot_core/`
+- 使用 `pyproject.toml` 管理项目元数据、依赖和 console script
+- 提供现代命令行入口：
+
+```bash
+soluprot --i_fa seqs.fasta --o_csv out.csv --tmp_dir tmp
+```
+
+源码目录中也可以直接使用：
+
+```bash
+python -m soluprot_core.cli --help
+```
+
+### 2. 移除旧版兼容路径
+
+已删除旧版运行和转换相关内容：
+
+- 顶层兼容脚本 `soluprot.py`
+- 旧版 pickle 模型文件
+- 旧版 scikit-learn wrapper 文件
+- legacy model export 工具
+- legacy export 相关测试
+- 运行依赖中的 `joblib`
+
+打包配置也已同步清理，不再包含 `.pkl` 文件或旧版导出脚本。
+
+### 3. 模型运行方式更新
+
+运行时模型已改为使用 `data/models/` 下的 JSON/NPZ 模型资产：
+
+- `data/models/grad_clf_v1_tc/model.json`
+- `data/models/grad_clf_v1_tc/trees.npz`
+- `data/models/grad_clf_v1_tc_notmhmm/model.json`
+- `data/models/grad_clf_v1_tc_notmhmm/trees.npz`
+
+这些模型由项目内置推理逻辑直接加载，不需要 scikit-learn、joblib 或 pickle 文件。
+
+模型元数据也已清理：
+
+- 删除旧 pickle 来源字段
+- 将模型类型改为中性的导出模型类型
+- 保留 float32 树阈值语义，以保证导出模型输出稳定
+
+### 4. Biopython 兼容现代版本
+
+旧版 Biopython API 已替换为现代兼容写法，包括：
+
+- 移除已废弃的 `Bio.Alphabet` 依赖
+- 替换旧版氨基酸百分比 API
+- 保持现代 Biopython 下特征计算结果稳定
+
+### 5. 外部工具处理
+
+项目仍依赖为目标平台单独安装的外部工具完成部分特征计算：
+
+- USEARCH
+- TMHMM
+
+命令行会按以下顺序解析工具路径：
+
+1. 显式传入的 `--usearch` / `--tmhmm`
+2. 系统 `PATH`
+源码和 wheel 不包含 USEARCH；TMHMM 2.0d 作为个人部署资产随包提供，包含
+`Darwin_arm64` 与 `Linux_x86_64` decoder。
+
+## 测试与验证
+
+本次修改后已执行并通过以下验证：
+
+```bash
+python3.12 -m venv .venv-build
+.venv-build/bin/python -m pip install build pytest
+.venv-build/bin/python -m build --wheel
+.venv-build/bin/python -m pytest -q
+```
+
+还执行了完整 CLI 示例，使用显式配置的 USEARCH/TMHMM 对 `data/test.fa` 进行预测，并确认输出与 `data/test.csv` 一致。
+
+构建产物检查结果：
+
+- clean wheel 中不再包含旧 `.pkl` 模型
+- 不再包含 legacy exporter
+- 不再包含旧 scikit-learn wrapper
+- package metadata 中不再声明 `joblib`
+- USEARCH 由部署环境提供；Workbench 从 wheel 中选择与目标平台匹配的 TMHMM decoder
+
+## 当前状态
+
+当前项目已经转为仅现代版本运行。
+
+保留的核心运行资产为：
+
+- `soluprot_core/`
+- `data/models/`
+- `feature_scripts/`
+- `data/test.fa` / `data/test.csv`
+- 由部署环境提供的 USEARCH，以及 wheel 内的 TMHMM 资产
+
+不再维护 Python 3.7 legacy 运行路径。历史 `.venv37` / `.venv37-legacy`
+目录若存在，仅作为迁移残留，不参与当前构建或验证。

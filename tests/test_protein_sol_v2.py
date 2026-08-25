@@ -111,6 +111,7 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
         assert (
             staging_directory / "multiple_prediction_wrapper_export.sh"
         ).read_bytes() == b"multiple_prediction_wrapper_export.sh"
+        assert kwargs["path_entries"] == (tmp_path,)
         events.append("provider-invoked")
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(

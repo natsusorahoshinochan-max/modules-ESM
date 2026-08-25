@@ -391,7 +391,13 @@ class _Source:
             )))
             if fixture == "2emo":
                 structure = ProteinStructure(
-                    (_PROJECT_ROOT / "pdbs" / "2EMO.pdb").read_text(),
+                    (
+                        _PROJECT_ROOT
+                        / "examples"
+                        / "v2"
+                        / "structures"
+                        / "2EMO.pdb"
+                    ).read_text(),
                 )
                 normalized, normalizations = normalize_csh_parent_span(
                     structure
@@ -402,7 +408,13 @@ class _Source:
                 )
             elif fixture == "5g53":
                 structure = ProteinStructure(
-                    (_PROJECT_ROOT / "pdbs" / "5G53.pdb").read_text(),
+                    (
+                        _PROJECT_ROOT
+                        / "examples"
+                        / "v2"
+                        / "structures"
+                        / "5G53.pdb"
+                    ).read_text(),
                 )
                 resolved_residue_axis = resolve_residue_axis(structure)
             else:

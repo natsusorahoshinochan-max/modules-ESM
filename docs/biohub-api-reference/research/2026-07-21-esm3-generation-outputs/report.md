@@ -31,8 +31,7 @@ case 均一次成功；没有重试，也没有失败 case。
 但不能把当前 `Direct generate(track="sequence")` 返回的任何 coordinates 都自动解释成新生成
 结构。** 输出合同必须同时记录结构来源与 lineage。
 
-完整机器观测见 [`observations.json`](observations.json)，结构见同目录 PDB，文件摘要见
-[`checksums.json`](checksums.json)。
+完整机器观测见 [`observations.json`](observations.json)，结构见同目录 PDB。
 
 ## 研究边界与配置
 
@@ -41,17 +40,17 @@ case 均一次成功；没有重试，也没有失败 case。
 - 仓库提交：`d030204ed7cc67201d6b03e0fd3a21a3ec8ca927`。
 - Biohub endpoint：`https://biohub.ai`，受控 endpoint ID 为 `biohub`。
 - 模型：`esm3-open-2024-03`、`esm3-medium-2024-08`。
-- SDK：`esm==3.3.0`。仓库的 [`vendor/manifest.json`](../../../../../vendor/manifest.json)
-  记录固定 archive 及其 SHA-256 `12d0fef...699c`，[`requirements.lock`](../../../../../requirements.lock)
+- SDK：`esm==3.3.0`。历史提交中的 `vendor/manifest.json`
+  记录固定 archive 及其 SHA-256 `12d0fef...699c`，`requirements.lock`
   直接从该 archive 安装。
 - 凭据只通过仓库的 `scripts/verify/provider-authorization` 加载到进程环境；报告、JSON、PDB
   与命令输出均未保存 token、Authorization header、secret 文件路径或 provider traceback。
-- 调用通过当前 deployment 所建立的受控 Forge client，且仓库明确把 SDK 外层 retry 设为
-  `0`，见 [`deployment.py`](../../../../../src/workflow/v2/deployment.py#L242-L279)。
+- 调用通过当时 deployment 所建立的受控 Forge client，且历史提交明确把 SDK 外层 retry
+  设为 `0`，见当时的 `src/workflow/v2/deployment.py:242-279`。
 
 ### Prompt
 
-使用仓库中的 GB1 结构 [`resources/structures/1PGA.pdb`](../../../../../resources/structures/1PGA.pdb)，
+使用历史提交中的 GB1 结构 `resources/structures/1PGA.pdb`，
 chain A，长度 `56`。保存了一份自包含输入证据 [`input-1pga.pdb`](input-1pga.pdb)。
 
 每个 Direct 模型各测试：
@@ -177,9 +176,9 @@ ESMProtein Prompt
 ```
 
 Biohub `generate` 的官方用途是“生成由输入条件约束的一个 output track”，本地固定 reference
-见 [`generate.md`](../../v1/endpoints/generate.md#用途)。当前项目由
-[`EsmSdkRuntime._generation_config()`](../../../../../src/workflow/v2/providers.py#L470-L488)
-把计划编译为 `track="sequence"`，再执行恰好一次 public `generate`。
+见 [`generate.md`](../../v1/endpoints/generate.md#用途)。研究提交由当时的
+`src/workflow/v2/providers.py:470-488` 把计划编译为 `track="sequence"`，再执行恰好一次
+public `generate`。
 
 SDK `generate()` 的接口说明也把它定义为填充 `GenerationConfig.track` 指定轨道；官方源码见
 [`esm/sdk/api.py`](https://github.com/Biohub/esm/blob/e2f7a1c1dfb97ade0a9cc8fc057bfbd59c719a5d/esm/sdk/api.py#L505-L561)。本地
@@ -208,10 +207,9 @@ structure 分别拥有 SamplingTrackConfig，见 [`forward_and_sample.md`](../..
 [`esm/sdk/api.py`](https://github.com/Biohub/esm/blob/e2f7a1c1dfb97ade0a9cc8fc057bfbd59c719a5d/esm/sdk/api.py#L486-L501)；Forge parser
 见 [`esm/sdk/forge.py`](https://github.com/Biohub/esm/blob/e2f7a1c1dfb97ade0a9cc8fc057bfbd59c719a5d/esm/sdk/forge.py#L636-L685)。
 
-当前项目的 `complete=True` 是内部 builder 语义：它明确同时构造 sequence 和 structure 两个
-sampling config，随后 forward 并 decode，见
-[`providers.py`](../../../../../src/workflow/v2/providers.py#L596-L622) 与
-[`predict_denoised_once()`](../../../../../src/workflow/v2/providers.py#L689-L711)。
+研究提交的 `complete=True` 是内部 builder 语义：它明确同时构造 sequence 和 structure
+两个 sampling config，随后 forward 并 decode，见当时的
+`src/workflow/v2/providers.py:596-622` 和 `:689-711`。
 
 ### 3. 完整 Guided loop
 
@@ -228,27 +226,27 @@ for each decoding step:
   select one proposal and carry its partial sequence state forward
 ```
 
-逐步 unmask 与 complete denoise 的两次调用见
-[`EsmGuidedProposalBackend.propose()`](../../../../../src/workflow/v2/providers.py#L817-L895)。因此本研究的
+逐步 unmask 与 complete denoise 的两次调用见当时的
+`src/workflow/v2/providers.py:817-895`。因此本研究的
 single denoise observation 证明了 proposal 能产生结构，但不证明完整 Guided scoring、constraint、
 selection 或 terminal admission 在这组最小 Prompt 上成功。
 
 ## 当前项目会保留什么、丢弃什么
 
-Direct adapter 读取完整 `ESMProtein` 后只提取 `output.sequence`，并创建 sequence-only
-`GeneratedCandidate`，见 [`providers.py`](../../../../../src/workflow/v2/providers.py#L745-L767) 和
-[`execution.py`](../../../../../src/workflow/v2/execution.py#L53-L63)。因此坐标条件 Direct 的
+当时的 Direct adapter 读取完整 `ESMProtein` 后只提取 `output.sequence`，并创建
+sequence-only `GeneratedCandidate`，见历史提交的 `src/workflow/v2/providers.py:745-767`
+和 `src/workflow/v2/execution.py:53-63`。因此坐标条件 Direct 的
 coordinates、pTM 与 pLDDT 当前全部被丢弃。
 
-Guided proposal 的 `EsmGuidedProposalState` 会临时携带 `denoised_protein` 供中间评分，见
-[`providers.py`](../../../../../src/workflow/v2/providers.py#L770-L773)。但最终
-[`GuidedSuccess`](../../../../../src/workflow/v2/guided.py#L37-L42) 仍只有 proposal ID 与 sequence。
+当时 Guided proposal 的 `EsmGuidedProposalState` 会临时携带 `denoised_protein` 供中间
+评分，见历史提交的 `src/workflow/v2/providers.py:770-773`。但当时的
+`src/workflow/v2/guided.py:37-42` 中 `GuidedSuccess` 仍只有 proposal ID 与 sequence。
 所以 terminal selected structure 也没有成为正式 generation evidence。
 
-官方普通 generation 教程本身采用“先 sequence generation，再单独 structure generation”的拓扑，
-见 [`esm3_generate.ipynb`](../../../../esm-tutorials/esm3_generate.ipynb)。官方 GFP 教程进一步演示了
+官方普通 generation 教程本身采用“先 sequence generation，再单独 structure generation”的拓扑；
+研究环境中的历史副本路径为 `esm-tutorials/esm3_generate.ipynb`。官方 GFP 教程进一步演示了
 “生成 structure token → decode/筛选结构 → structure-conditioned sequence generation → 清除旧
-structure 后 refold”的链路，见 [`gfp_design.ipynb`](../../../../esm-tutorials/gfp_design.ipynb)。
+structure 后 refold”的链路；研究环境中的历史副本路径为 `esm-tutorials/gfp_design.ipynb`。
 这为后续把结构作为可连接的中间产物提供了第一方科学先例，但不改变当前项目尚未持久化该产物的事实。
 
 ## 对后续模块化设计的直接约束

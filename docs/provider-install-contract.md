@@ -2,9 +2,9 @@
 
 Status: current operational contract for the active Catalog generation.
 
-Provider repositories are external, read-only dependencies. They are never copied
-into Protein Workbench wheels or sdists and are not repair surfaces for this
-project.
+Provider repositories are source dependencies and are not copied into Protein
+Workbench wheels or sdists. Third-party checkouts remain read-only; the
+project-maintained SoluProt-next port is owned in this repository.
 
 This document owns source installation, local asset preparation, and environment
 selection. Active Module Package Method and Execution Binding descriptors own the
@@ -19,6 +19,7 @@ facts; it does not select a different scientific route.
 | ESM / Biohub | `https://github.com/Biohub/esm.git` | `917af90b624535eed1e072d343c717e3ec11fef4` | `uv sync --frozen --extra providers` |
 | SimpleFold | `https://github.com/apple/ml-simplefold.git` | `c7a5570a6be9f5c695126e27c804e77567209934` | `uv sync --frozen --extra providers` |
 | ProteinMPNN | `https://github.com/dauparas/ProteinMPNN.git` | `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57` | external checkout selected with `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT` |
+| SoluProt-next | [`repositories/soluprot-next`](../repositories/soluprot-next) | current repository revision | build a wheel from source with Python 3.12 on the target machine |
 
 The `providers` extra also installs the PyTorch runtime. Model artifacts remain
 external downloads and are not release package data. The identifiers below are
@@ -156,12 +157,11 @@ boundary instead of being guessed or repaired.
 The canonical Workflow requires `mkdssp` 4.6.1. The upstream source archive is
 `https://github.com/PDB-REDO/dssp/archive/refs/tags/v4.6.1.tar.gz` with SHA-256
 `5ddb8274f03ac0338adffcd661989f515fffb95d40afca404cf2677024256ae3`.
-The accepted macOS ARM64 Sequoia Homebrew bottle SHA-256 is
-`b9cb866c727431d129fbb11f3c60f0b3c4e325822cb8e3330f86ecb45996595e`.
 Provider Readiness must report exactly `mkdssp version 4.6.1`; the binary must be
 selected by the absolute `PROTEIN_WORKBENCH_MKDSSP_BINARY` path.
-`/opt/homebrew/bin/mkdssp` is one accepted macOS ARM64 example, not a default or
-fallback.
+Build the tagged source on the target platform or install a package providing
+that version; platform-specific executable bytes are not part of the Binding
+identity.
 
 ## Current ProteinMPNN checkpoint
 
@@ -201,6 +201,14 @@ The exact source, runtime, model, database, tool, and digest manifests are decla
 once in [`modules/solubility`](../modules/solubility/package.py). The configured
 root must contain that already selected closure; it cannot select another model or
 turn an upstream inventory into a new product capability.
+
+SoluProt-next is built from [`repositories/soluprot-next`](../repositories/soluprot-next)
+on the target machine. Its wheel includes TMHMM 2.0d scripts, model files, and
+the `Darwin_arm64` and `Linux_x86_64` decoders used by this personal deployment.
+Readiness selects `decodeanhmm.<uname -s>_<uname -m>` from the installed wheel
+and fixes the portable scripts/model files without requiring platform binary or
+wheel byte equality. USEARCH remains an external target-platform executable.
+Existing real-Provider gates remain the target-machine acceptance.
 
 ## Environment Configuration rules
 

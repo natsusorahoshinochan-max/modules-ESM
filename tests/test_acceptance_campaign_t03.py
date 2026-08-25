@@ -226,7 +226,7 @@ def test_campaign_definition_projects_every_execution_fact_from_that_sequence() 
         "source_bound": None,
     }
     assert tiers[-1]["source_bound"] == {
-        "input_path": "pdbs/5G53.pdb",
+        "input_path": "examples/v2/structures/5G53.pdb",
         "input_sha256": (
             "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
         ),

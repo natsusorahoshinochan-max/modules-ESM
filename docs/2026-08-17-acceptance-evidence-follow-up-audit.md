@@ -142,7 +142,7 @@ All exit criteria were met for source revision
   `git diff --check` passed.
 - Standards and Spec review found no remaining HIGH or MEDIUM issue.
 - The one-stage Campaign at
-  `verification-results/acceptance-campaign-21bd098` ran every canonical tier
+  `.local/verification-results/acceptance-campaign-21bd098` ran every canonical tier
   once in serial order and finished `passed` with 15/15 results.
 - No second Provider run, Certification generation, Evidence promotion, or
   secondary digest was performed.

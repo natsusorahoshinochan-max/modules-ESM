@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "soluprot"
+version = "1.1.0"
+description = "Prediction of soluble protein expression in Escherichia coli"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "biopython>=1.85",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "build>=1.2",
+]
+
+[project.scripts]
+soluprot = "soluprot_core.cli:main"
+
+[tool.setuptools]
+packages = [
+    "soluprot_core",
+    "soluprot_assets",
+    "data",
+    "data.models",
+    "data.models.grad_clf_v1_tc",
+    "data.models.grad_clf_v1_tc_notmhmm",
+    "feature_scripts",
+    "feature_scripts.common",
+]
+
+[tool.setuptools.package-data]
+data = [
+    "*.fa",
+    "*.fasta",
+    "*.csv",
+    "models/*/*.json",
+    "models/*/*.npz",
+]
+soluprot_assets = [
+    "tmhmm-2.0d/README",
+    "tmhmm-2.0d/TMHMM2.0.html",
+    "tmhmm-2.0d/bin/*",
+    "tmhmm-2.0d/lib/*",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

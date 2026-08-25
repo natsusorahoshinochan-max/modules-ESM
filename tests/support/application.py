@@ -32,7 +32,10 @@ def create_application(
     """Compose an app around explicit test-owned dependencies."""
     catalog = frozen_catalog_override
     projects = ProjectManager(
-        root_dir=os.environ.get("PROTEIN_WORKBENCH_PROJECT_ROOT", "projects"),
+        root_dir=os.environ.get(
+            "PROTEIN_WORKBENCH_PROJECT_ROOT",
+            ".local/projects",
+        ),
         cache_root=os.environ.get("PROTEIN_WORKBENCH_CACHE_ROOT"),
         output_root=os.environ.get("PROTEIN_WORKBENCH_OUTPUT_ROOT"),
         run_root=os.environ.get("PROTEIN_WORKBENCH_RUN_ROOT"),

@@ -43,7 +43,7 @@ Protein Workbench 是用 Node 连线组合蛋白质设计、折叠、评价、�
 
 ```mermaid
 flowchart TB
-    UI["Workbench UI"] --> AUTHOR["Workflow authoring"]
+    CLIENT["Public v2 client"] --> AUTHOR["Workflow authoring"]
     AUTHOR --> COMMIT["Commit: save, relock, compile"]
     CATALOG["One active FrozenCatalog generation"] --> COMMIT
     COMMIT --> PLAN["Immutable Execution Plan"]
@@ -59,7 +59,7 @@ flowchart TB
 
 这组 Module 形成四个关键 seam：
 
-1. **公开协议 seam**：UI 和本地调用者只使用当前 `protein_workbench_public` v2 协议。
+1. **公开协议 seam**：当前本地调用者和未来替代 UI 都只使用当前 `protein_workbench_public` v2 协议。
 2. **Catalog seam**：Module Package Registration 经一次原子构建发布一个 `FrozenCatalog`。
 3. **科学操作 seam**：Run runtime 只向 canonical scientific operation 传入 admitted typed values 和已解析上下文。
 4. **Provider seam**：Adapter 独占 Workbench 表示与真实外部表示之间的翻译。
@@ -785,16 +785,22 @@ project/
 │       └── payload
 ├── outputs/
 ├── cache/
-└── run-ledger/
+└── runs/
 ```
 
-UI layout 是非科学 Project state，与 Workflow scientific document 分开保存。开发期持久化 state 不因架构升级获得迁移承诺。
+`runs/` 是 Run runtime、Run Evidence Ledger 与公开投影所使用的 Project 物理目录；Run
+Evidence Ledger 仍是其中 evidence facts 的领域 owner。未来 UI layout 属于非科学 Project
+state，必须与 Workflow scientific document 分开保存。开发期持久化 state 不因架构升级
+获得迁移承诺。
 
-## 15. UI
+## 15. 计划中的替代图形客户端边界
 
-UI 是当前 v2 public protocol 的 Catalog-driven Workbench interface。它从 active Catalog 获得 Node Definitions、Ports、parameters、Binding choices、Availability 和 user-visible meaning，不维护第二份 Node/Port schema。
+当前 `frontend/` 已退役，不是现行产品实现或 verification target。替代图形客户端尚未
+实施；完成后它将作为当前 v2 public protocol 的 Catalog-driven Workbench interface，从
+active Catalog 获得 Node Definitions、Ports、parameters、Binding choices、Availability 和
+user-visible meaning，不维护第二份 Node/Port schema。
 
-UI 负责：
+替代图形客户端负责：
 
 - Node canvas、连接和布局；
 - exact compatible Port 的 authoring feedback；
@@ -803,7 +809,9 @@ UI 负责：
 - Run、replay、cancel、Artifact 和 evidence projection；
 - Candidate、Score Observation 和 lineage 的科学可视化。
 
-UI 不推断 science、不选择隐式 Binding、不转换单位、不修复 missing module，也不保留 v1 route。无法由 active Catalog 解析的旧 Node Instance 以 unsupported 状态 fail closed。
+替代图形客户端不推断 science、不选择隐式 Binding、不转换单位、不修复 missing module，
+也不保留 v1 route。无法由 active Catalog 解析的旧 Node Instance 以 unsupported 状态 fail
+closed。这些是未来客户端的产品边界，不表示当前退役源码已经实现它们。
 
 ## 16. 代码所有权
 
@@ -832,15 +840,15 @@ modules/structure_prediction/
 protein_workbench_public/
   current versioned protocol bundle and wire validation
 
-frontend/src/
-  Catalog-driven current Workbench interface
-
 tests/
   tests through public or Module Package contract seams
 
 examples/v2/
   maintained active-generation Workflows
 ```
+
+退役的 `frontend/` 不拥有当前合同。替代客户端的代码所有权将在其技术栈和独立构建边界
+完成裁决后加入。
 
 所有 owner 都遵守 locality：ResidueLayout invariant 不在多个 caller 复制，Provider payload 不进入 core，public versions 不进入 scientific operation，Run Evidence 不在 Adapter 旁路写入。
 

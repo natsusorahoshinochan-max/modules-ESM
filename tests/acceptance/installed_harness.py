@@ -116,7 +116,10 @@ def _copy_external_acceptance_tree(destination: Path) -> Path:
         destination / "tests",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
-    shutil.copytree(PROJECT_ROOT / "pdbs", destination / "pdbs")
+    shutil.copytree(
+        PROJECT_ROOT / "examples" / "v2" / "structures",
+        destination / "examples" / "v2" / "structures",
+    )
     fixture_root = destination / "modules" / "solubility" / "fixtures"
     fixture_root.parent.mkdir(parents=True)
     shutil.copytree(
@@ -134,7 +137,6 @@ import core
 import datatypes
 import examples
 import modules
-import pdbs
 import protein_workbench_public
 source = Path(os.environ["PW_SOURCE_ROOT"]).resolve()
 for package in (
@@ -142,7 +144,6 @@ for package in (
     datatypes,
     examples,
     modules,
-    pdbs,
     protein_workbench_public,
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)

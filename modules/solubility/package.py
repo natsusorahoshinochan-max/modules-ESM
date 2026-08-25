@@ -27,12 +27,10 @@ from core.operation import (
 
 from .protein_sol import (
     PROTEIN_SOL_ARCHIVE_SHA256,
-    PROTEIN_SOL_BASH_SHA256,
-    PROTEIN_SOL_BASH_VERSION,
+    PROTEIN_SOL_BASH_RUNTIME_FAMILY,
     PROTEIN_SOL_CALIBRATION_CONTEXT,
     PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
-    PROTEIN_SOL_PERL_SHA256,
-    PROTEIN_SOL_PERL_VERSION,
+    PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION,
     PROTEIN_SOL_RELEASE,
     PROTEIN_SOL_SOURCE_SHA256,
     LocalProteinSolAdapter,
@@ -44,14 +42,12 @@ from .soluprot import (
     SOLUPROT_FEATURES_SHA256,
     SOLUPROT_MODEL_SHA256,
     SOLUPROT_MODEL_TREES_SHA256,
-    SOLUPROT_PERL_SHA256,
-    SOLUPROT_PERL_VERSION,
-    SOLUPROT_PYTHON_VERSION,
-    SOLUPROT_PYTHON_SHA256,
-    SOLUPROT_RUNTIME_VERSIONS,
-    SOLUPROT_SOURCE_SHA256,
+    SOLUPROT_MINIMUM_PYTHON_VERSION,
+    SOLUPROT_PERL_MINIMUM_MAJOR_VERSION,
+    SOLUPROT_TMHMM_INCLUDED_DECODERS,
+    SOLUPROT_TMHMM_RELATIVE_ROOT,
     SOLUPROT_TMHMM_SHA256,
-    SOLUPROT_USEARCH_SHA256,
+    SOLUPROT_USEARCH_VERSION,
     SOLUPROT_PORT_VERSION,
     LocalSoluProtAdapter,
     SoluProtMode,
@@ -66,7 +62,6 @@ _NODE_BINDING_VERSION = "5.0.0"
 _MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
 _SOLUPROT_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("python_executable", "filesystem_path"),
-    EnvironmentFieldDeclaration("wheel_path", "filesystem_path"),
     EnvironmentFieldDeclaration("site_packages_root", "filesystem_path"),
     EnvironmentFieldDeclaration("usearch_executable", "filesystem_path"),
 )
@@ -147,9 +142,14 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
             "minimum_sequence_length": 20,
             "provider_features_sha256": SOLUPROT_FEATURES_SHA256,
             "reference_database_sha256": SOLUPROT_DATABASE_SHA256,
-            "usearch_sha256": SOLUPROT_USEARCH_SHA256,
+            "usearch_version": SOLUPROT_USEARCH_VERSION,
             "tmhmm": (
-                dict(SOLUPROT_TMHMM_SHA256)
+                {
+                    "bundled_asset_root": str(SOLUPROT_TMHMM_RELATIVE_ROOT),
+                    "portable_asset_sha256": dict(SOLUPROT_TMHMM_SHA256),
+                    "decoder_selection": "uname-system-and-machine",
+                    "included_decoders": SOLUPROT_TMHMM_INCLUDED_DECODERS,
+                }
                 if tm_feature
                 else "not-used-or-probed"
             ),
@@ -157,9 +157,10 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
         source_identity={
             "kind": "project_maintained_locked_port",
             "upstream_project": "SoluProt",
+            "repository_path": "repositories/soluprot-next",
+            "build_backend": "setuptools.build_meta",
             "port_distribution": "soluprot",
             "port_artifact_version": SOLUPROT_PORT_VERSION,
-            "wheel_sha256": SOLUPROT_SOURCE_SHA256,
             "installed_code_sha256": SOLUPROT_CODE_SHA256,
             "official_release_equivalence": "not_claimed",
         },
@@ -197,7 +198,6 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         environment_fields=(
             _SOLUPROT_ENVIRONMENT_FIELDS
             + (
-                EnvironmentFieldDeclaration("tmhmm_root", "filesystem_path"),
                 EnvironmentFieldDeclaration(
                     "perl_executable",
                     "filesystem_path",
@@ -254,15 +254,8 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
             ),
             prerequisites={
                 "python_runtime": {
-                    "version": SOLUPROT_PYTHON_VERSION,
-                    "sha256": SOLUPROT_PYTHON_SHA256,
-                    "installed_distribution_versions": (
-                        SOLUPROT_RUNTIME_VERSIONS
-                    ),
-                    "path_source": "trusted_environment_configuration",
-                },
-                "dependency_wheel": {
-                    "sha256": SOLUPROT_SOURCE_SHA256,
+                    "minimum_version": SOLUPROT_MINIMUM_PYTHON_VERSION,
+                    "soluprot_distribution_version": SOLUPROT_PORT_VERSION,
                     "path_source": "trusted_environment_configuration",
                 },
                 "model": {
@@ -275,16 +268,27 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                     "path_source": "trusted_environment_configuration",
                 },
                 "usearch": {
-                    "sha256": SOLUPROT_USEARCH_SHA256,
+                    "version": SOLUPROT_USEARCH_VERSION,
                     "path_source": "trusted_environment_configuration",
                 },
                 "tmhmm": (
                     {
                         "required": True,
-                        "asset_sha256": dict(SOLUPROT_TMHMM_SHA256),
-                        "perl_version": SOLUPROT_PERL_VERSION,
-                        "perl_sha256": SOLUPROT_PERL_SHA256,
-                        "path_source": "trusted_environment_configuration",
+                        "bundled_asset_root": str(
+                            SOLUPROT_TMHMM_RELATIVE_ROOT
+                        ),
+                        "portable_asset_sha256": dict(
+                            SOLUPROT_TMHMM_SHA256
+                        ),
+                        "decoder": {
+                            "selection": "uname-system-and-machine",
+                            "identity": "executable-presence",
+                            "included": SOLUPROT_TMHMM_INCLUDED_DECODERS,
+                        },
+                        "perl_minimum_major_version": (
+                            SOLUPROT_PERL_MINIMUM_MAJOR_VERSION
+                        ),
+                        "path_source": "installed_distribution",
                     }
                     if tm_feature
                     else {"required": False, "must_not_be_probed": True}
@@ -301,27 +305,40 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
             "name": f"solubility.soluprot_{mode}.local-adapter",
             "provider": "protein-workbench-soluprot-port",
             "port_artifact_version": SOLUPROT_PORT_VERSION,
-            "wheel_sha256": SOLUPROT_SOURCE_SHA256,
+            "repository_path": "repositories/soluprot-next",
+            "build_backend": "setuptools.build_meta",
             "installed_code_sha256": SOLUPROT_CODE_SHA256,
             "official_release_equivalence": "not_claimed",
             "mode": mode,
             "model_json_sha256": SOLUPROT_MODEL_SHA256[mode],
             "model_arrays_sha256": SOLUPROT_MODEL_TREES_SHA256[mode],
             "reference_database_sha256": SOLUPROT_DATABASE_SHA256,
-            "usearch_sha256": SOLUPROT_USEARCH_SHA256,
+            "usearch_version": SOLUPROT_USEARCH_VERSION,
             "transmembrane_features": tm_feature,
             "tmhmm_sha256": (
                 dict(SOLUPROT_TMHMM_SHA256)
                 if tm_feature
                 else {}
             ),
-            "python_version": SOLUPROT_PYTHON_VERSION,
-            "python_sha256": SOLUPROT_PYTHON_SHA256,
-            "runtime_distribution_versions": SOLUPROT_RUNTIME_VERSIONS,
+            **(
+                {
+                    "tmhmm_bundled_asset_root": str(
+                        SOLUPROT_TMHMM_RELATIVE_ROOT
+                    ),
+                    "tmhmm_included_decoders": (
+                        SOLUPROT_TMHMM_INCLUDED_DECODERS
+                    ),
+                }
+                if tm_feature
+                else {}
+            ),
+            "python_minimum_version": SOLUPROT_MINIMUM_PYTHON_VERSION,
+            "soluprot_distribution_version": SOLUPROT_PORT_VERSION,
             "perl": (
                 {
-                    "version": SOLUPROT_PERL_VERSION,
-                    "sha256": SOLUPROT_PERL_SHA256,
+                    "minimum_major_version": (
+                        SOLUPROT_PERL_MINIMUM_MAJOR_VERSION
+                    ),
                 }
                 if tm_feature
                 else "not-used-or-probed"
@@ -510,12 +527,12 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 },
                 "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
                 "bash": {
-                    "version": PROTEIN_SOL_BASH_VERSION,
-                    "sha256": PROTEIN_SOL_BASH_SHA256,
+                    "runtime_family": PROTEIN_SOL_BASH_RUNTIME_FAMILY,
                 },
                 "perl": {
-                    "version": PROTEIN_SOL_PERL_VERSION,
-                    "sha256": PROTEIN_SOL_PERL_SHA256,
+                    "minimum_major_version": (
+                        PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION
+                    ),
                 },
                 "path_source": "trusted_environment_configuration",
             },
@@ -532,10 +549,10 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
             "official_download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
             "official_archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
             "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
-            "bash_version": PROTEIN_SOL_BASH_VERSION,
-            "bash_sha256": PROTEIN_SOL_BASH_SHA256,
-            "perl_version": PROTEIN_SOL_PERL_VERSION,
-            "perl_sha256": PROTEIN_SOL_PERL_SHA256,
+            "bash_runtime_family": PROTEIN_SOL_BASH_RUNTIME_FAMILY,
+            "perl_minimum_major_version": (
+                PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION
+            ),
             "runtime_directory_policy": "private-per-run-invocation",
         },
         produced_observations=tuple(

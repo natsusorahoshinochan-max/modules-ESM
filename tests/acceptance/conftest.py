@@ -1,7 +1,7 @@
 """Shared fixtures for acceptance tests.
 
 Provides:
-- pdb_3gb1 / pdb_1pga: ProteinStructure fixtures from pdbs/
+- pdb_3gb1 / pdb_1pga: ProteinStructure fixtures from examples/v2/structures/
 - run_root: auto-creates var/runs/acceptance/{date}_{run_id}/
 """
 
@@ -40,7 +40,7 @@ def _read_pdb(path: str) -> str:
 @pytest.fixture(scope="session")
 def pdb_3gb1() -> ProteinStructure:
     """Load 3GB1 PDB as a ProteinStructure."""
-    pdb_str = _read_pdb("pdbs/3GB1.pdb")
+    pdb_str = _read_pdb("examples/v2/structures/3GB1.pdb")
     if hashlib.sha256(pdb_str.encode()).hexdigest() != PDB_3GB1_SHA256:
         pytest.fail("3GB1 acceptance fixture does not match its locked SHA-256")
     return ProteinStructure(pdb_string=pdb_str)
@@ -49,7 +49,9 @@ def pdb_3gb1() -> ProteinStructure:
 @pytest.fixture(scope="session")
 def pdb_1pga() -> ProteinStructure:
     """Load 1PGA variant PDB as a ProteinStructure."""
-    pdb_str = _read_pdb("pdbs/1PGA-75-gen1_0690.pdb")
+    pdb_str = _read_pdb(
+        "examples/v2/structures/1PGA-75-gen1_0690.pdb"
+    )
     return ProteinStructure(pdb_string=pdb_str)
 
 

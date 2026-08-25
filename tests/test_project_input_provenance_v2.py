@@ -18,6 +18,19 @@ _ATOM_DIGEST = (
 )
 
 
+def test_project_manager_defaults_to_ignored_local_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    project = ProjectManager().create("default local state")
+
+    assert (
+        tmp_path / ".local" / "projects" / project.id / "project.json"
+    ).is_file()
+
+
 def test_project_input_filename_survives_manager_restart(tmp_path: Path) -> None:
     project_root = tmp_path / "projects"
     projects = ProjectManager(project_root)

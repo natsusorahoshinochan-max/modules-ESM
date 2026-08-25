@@ -72,7 +72,13 @@ from tests.fixtures.public_v2 import (
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-INPUT_PATH = PROJECT_ROOT / "pdbs" / "1PGA-75-gen1_0690.pdb"
+INPUT_PATH = (
+    PROJECT_ROOT
+    / "examples"
+    / "v2"
+    / "structures"
+    / "1PGA-75-gen1_0690.pdb"
+)
 WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "source-bound-1pga.workflow.json"
 )

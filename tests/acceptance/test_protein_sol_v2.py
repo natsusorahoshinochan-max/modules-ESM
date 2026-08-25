@@ -7,6 +7,7 @@ from tests.support.ledger import public_run_events, public_run_projection
 import csv
 import os
 from pathlib import Path
+import shutil
 from typing import Any
 
 import pytest
@@ -79,8 +80,8 @@ def _trusted_source_root() -> Path:
 def _environment() -> dict[str, Any]:
     return {
         "source_root": _trusted_source_root(),
-        "bash_executable": Path("/bin/bash"),
-        "perl_executable": Path("/usr/bin/perl"),
+        "bash_executable": Path(str(shutil.which("bash"))),
+        "perl_executable": Path(str(shutil.which("perl"))),
     }
 
 

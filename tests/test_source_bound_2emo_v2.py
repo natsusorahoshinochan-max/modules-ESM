@@ -72,7 +72,7 @@ from tests.fixtures.public_v2 import (
 
 
 ROOT = Path(__file__).resolve().parent.parent
-INPUT_PATH = ROOT / "pdbs" / "2EMO.pdb"
+INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "2EMO.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-2emo.workflow.json"
 INPUT_SHA256 = "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
 FIXED_IDS = (

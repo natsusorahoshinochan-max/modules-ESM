@@ -19,7 +19,8 @@
 
 - Git HEAD：`5dfb2c9`（`Refactor Protein Workbench modules and protocol workflows`）；
 - 分支：`main`；
-- `pdbs/2EMO.pdb`、`pdbs/5G53.pdb` 与 `pdbs/1PGA-75-gen1_0690.pdb`
+- `examples/v2/structures/2EMO.pdb`、`examples/v2/structures/5G53.pdb` 与
+  `examples/v2/structures/1PGA-75-gen1_0690.pdb`
   均是纳入 Git 的项目测试输入。
 
 本文采用 `CONTEXT.md` 中的准确领域词汇。Node Type、Node Instance、Workflow、Run、
@@ -144,9 +145,9 @@ residue，可记录为 `valid_rejection`，顶层状态为 `SAFELY_BLOCKED`，�
 
 | 样例 | 理论 Workflow | 首要设计检验 |
 |---|---|---|
-| `pdbs/2EMO.pdb` | 已知骨架的约束序列重设计 | modified residue、功能位点约束、结构比较解释 |
-| `pdbs/5G53.pdb` | 多轨、可变长度的结构条件生成 | 多链选择、缺失 layout、显式长度分支 |
-| `pdbs/1PGA-75-gen1_0690.pdb` | 多 folding Method 的结构共识验证 | structure-to-sequence lineage、多 Binding、sibling pairing |
+| `examples/v2/structures/2EMO.pdb` | 已知骨架的约束序列重设计 | modified residue、功能位点约束、结构比较解释 |
+| `examples/v2/structures/5G53.pdb` | 多轨、可变长度的结构条件生成 | 多链选择、缺失 layout、显式长度分支 |
+| `examples/v2/structures/1PGA-75-gen1_0690.pdb` | 多 folding Method 的结构共识验证 | structure-to-sequence lineage、多 Binding、sibling pairing |
 
 测试直接引用上述 Git 管理的文件路径。执行记录通过 Git HEAD 固定输入版本，不得以仓库外
 同名文件替代这些 Project Input。
@@ -164,7 +165,7 @@ Workflow 不证明荧光、光谱性质、成熟效率或实验稳定性。
 
 ### 7.2 原始输入事实
 
-`pdbs/2EMO.pdb` 在固化时包含：
+`examples/v2/structures/2EMO.pdb` 在固化时包含：
 
 - 单链 A；
 - 1,740 条 `ATOM`；
@@ -314,7 +315,7 @@ core 是否保持。
 
 ### 8.2 原始输入事实
 
-`pdbs/5G53.pdb` 在固化时包含：
+`examples/v2/structures/5G53.pdb` 在固化时包含：
 
 - 四条蛋白链 A、B、C、D；
 - A、B 为 A2A receptor 的两个结构副本；
@@ -485,7 +486,7 @@ Execution Binding 独立重新折叠，并判断输入结构与两种 Method 输
 
 ### 9.2 原始输入事实
 
-`pdbs/1PGA-75-gen1_0690.pdb` 在固化时包含：
+`examples/v2/structures/1PGA-75-gen1_0690.pdb` 在固化时包含：
 
 - 单链 A；
 - 连续 A:1 至 A:75；
@@ -825,7 +826,7 @@ terminal outcome，应记录 `OPAQUE_FAILURE` 和相应 `evidence_gap`，不能�
 - 原始 Run Evidence Ledger、manifest、Candidate 与 artifact 保持在所属 Project/Run 的
   durable storage 中，报告通过 identity 和 Run ID 引用，不复制改写；
 - 公开 protocol 响应副本写入
-  `verification-results/workflow-usability-debug/2026-07-31/<workflow-id>/`，该目录不得提交；
+  `.local/verification-results/workflow-usability-debug/2026-07-31/<workflow-id>/`，该目录不得提交；
 - 报告按第 12 节逐项登记 finding，并明确 primary Run 与 diagnostic/confirmation Run；
 - credential、key、未脱敏 provider payload 和本地私有路径不得进入提交的报告。
 

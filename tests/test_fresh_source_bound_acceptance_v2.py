@@ -1025,7 +1025,11 @@ def test_fresh_source_bound_public_run() -> None:
 
     tier_name = os.environ["PROTEIN_WORKBENCH_SOURCE_BOUND_TIER"]
     contract = CONTRACTS[tier_name]
-    input_bytes = files("pdbs").joinpath(contract["input"]).read_bytes()
+    input_bytes = (
+        files("examples")
+        .joinpath("v2", "structures", contract["input"])
+        .read_bytes()
+    )
     assert hashlib.sha256(input_bytes).hexdigest() == contract["input_digest"]
     workflow = json.loads(
         files("examples").joinpath("v2", contract["workflow"]).read_text(

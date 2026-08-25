@@ -1,0 +1,2 @@
+"""Exported SoluProt model artifacts."""
+

@@ -309,7 +309,13 @@ def test_real_proteinmpnn_preserves_fixed_csh_parent_with_missing_backbone_atom(
         resources=resources,
     )
     source = ProteinStructure(
-        (Path(__file__).parent.parent.parent / "pdbs" / "2EMO.pdb").read_text(),
+        (
+            Path(__file__).parent.parent.parent
+            / "examples"
+            / "v2"
+            / "structures"
+            / "2EMO.pdb"
+        ).read_text(),
     )
     structure, normalizations = normalize_csh_parent_span(source)
     residue_axis = resolve_residue_axis(structure, normalizations)

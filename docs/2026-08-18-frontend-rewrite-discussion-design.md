@@ -805,7 +805,8 @@ fixtures 和 capability-specific InMemory Adapters 并行开发，但不能手�
 2. 写出精确 v2 protocol diff；
 3. 建立 protocol codegen、runtime validators 和 parity fixtures；
 4. 确认 Capability Manifest、domain/transport digest、ETag、pagination 和 WS resume；
-5. 确认 ADR-0016/0037 的修订范围。
+5. 删除冻结旧前端技术栈的 ADR-0016，并确认 ADR-0037 的修订范围；替代前端的技术选择
+   仍需重新裁决。
 
 ### Phase 1：空目录前端与场景 1
 
@@ -895,9 +896,10 @@ mock 声称 Provider 已验收，也不应无理由重复昂贵 Provider campaig
 
 如果本文方向最终被接受：
 
-- ADR-0016 中 React/TypeScript/Vite/React Flow 可作为重新评估后的技术选择保留；其旧 source
-  layout、`App.tsx` orchestration、手写 `currentProtocol.ts`、无专用 Prompt Editor、以及由
-  FastAPI 直接包含 frontend dist 的结论需要被明确 supersede。
+- 已删除的 ADR-0016 只记录了旧前端技术栈。React/TypeScript/Vite/React Flow 只能作为
+  重新评估后的候选，不能从旧实现继承；旧 source layout、`App.tsx` orchestration、手写
+  `currentProtocol.ts`、无专用 Prompt Editor、以及由 FastAPI 直接包含 frontend dist 的结论
+  不保留。
 - route 与 payload 只由当前 `protein-workbench-public/v2` 合同定义。
 - ADR-0034 的单一现行 Catalog 与无兼容路径规则继续适用。
 - ADR-0033 的 ResidueIdentity/Candidate lineage、ADR-0037 的 Draft/Commit、ADR-0038 的
