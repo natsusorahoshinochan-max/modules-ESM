@@ -255,20 +255,21 @@ def fold_sequence(
     struct_files = list(output_dir.glob("structures/*.npz"))
 
     prepared_inputs: list[tuple[Any, Any, Any]] = []
-    for struct_file in struct_files:
-        record_file = output_dir / "records" / f"{struct_file.stem}.json"
-        prepared_inputs.append(
-            process_one_inference_structure(
-                struct_file,
-                record_file,
-                inf_wrapper.tokenizer,
-                inf_wrapper.featurizer,
-                inf_wrapper.processor,
-                inf_wrapper.esm_model,
-                inf_wrapper.esm_dict,
-                inf_wrapper.af2_to_esm,
+    with torch.no_grad():
+        for struct_file in struct_files:
+            record_file = output_dir / "records" / f"{struct_file.stem}.json"
+            prepared_inputs.append(
+                process_one_inference_structure(
+                    struct_file,
+                    record_file,
+                    inf_wrapper.tokenizer,
+                    inf_wrapper.featurizer,
+                    inf_wrapper.processor,
+                    inf_wrapper.esm_model,
+                    inf_wrapper.esm_dict,
+                    inf_wrapper.af2_to_esm,
+                )
             )
-        )
 
     # ESM2 is only needed to materialize the detached language-model features.
     # Release its 3B parameters before loading folding and pLDDT weights.

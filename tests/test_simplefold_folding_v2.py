@@ -252,6 +252,8 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
     def process_one_inference_structure(
         *_args: Any,
     ) -> tuple[object, object, object]:
+        assert simplefold_runtime.torch.is_grad_enabled() is False
+        assert simplefold_runtime.torch.is_inference_mode_enabled() is False
         lifecycle["features_prepared"] = True
         return object(), object(), object()
 
