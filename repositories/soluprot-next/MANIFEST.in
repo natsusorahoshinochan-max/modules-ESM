@@ -1,0 +1,11 @@
+include soluprot_environment.yml
+recursive-include soluprot_assets/tmhmm-2.0d *
+prune .venv
+prune .venv37
+prune build
+prune dist
+prune soluprot.egg-info
+global-exclude ._*
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude .DS_Store

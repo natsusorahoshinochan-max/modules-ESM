@@ -1,0 +1,9 @@
+name: soluprot
+dependencies:
+  - python=3.12
+  - biopython
+  - numpy
+  - pandas
+  - tqdm
+  - pytest
+  - build

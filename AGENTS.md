@@ -18,6 +18,10 @@ Biohub and its official API specification are authoritative. Assume conforming r
 
 Fail fast on local invariant violations. Avoid broad catches, silent coercion, guessed defaults, catch-and-continue behavior, and undocumented retries or fallbacks. Retain checks only for scientific correctness, explicit contracts, durable writes, accidental data loss, and credential hygiene.
 
+## Remote Development
+
+Use the SSH command in `remote/ssh.md` to connect to the remote development server.
+
 ## Verification
 
 Use Python 3.12, typed code, pytest, Oxlint, and `tsc`. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance.

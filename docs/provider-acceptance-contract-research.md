@@ -34,7 +34,7 @@ Engine Invocation 与 Run 正常终止。
 
 | 优先级 | 发现 | 判定 |
 |---|---|---|
-| P0 | 当前所谓 SoluProt `1.1.0` 是本地现代化 wheel；官方站点目前提供的是 legacy standalone `1.0.1.0`。仓库没有固定前者的源码树、构建配方或从官方 release 派生的可复现证据 | 在来源身份闭合前，不能把它称为“官方 SoluProt 1.1.0 Provider contract”；现有 golden 只能证明本地 wheel 自洽 |
+| 已处理 | SoluProt `1.1.0` 已明确为 project-maintained port，完整 Python 源码、模型、参考数据库与构建配方固定在 `repositories/soluprot-next`；不再把它称为官方 `1.1.0` | port 的实现身份已闭合；与 legacy official release 的全局等价性不作声明，也不是当前 Method 的验收前提 |
 | P1 | ProteinMPNN score 的实际 loss mask 是 `mask * chain_M`，固定上游 score-only 使用 `mask * chain_M * chain_M_pos`；score invocation provenance 又没有记录固定 seed `42` | 真实算法和 Method/evidence 身份存在可修复漂移；固定上游更好 |
 | P1 | mkdssp 输出已经提供官方 label identifiers，但 Adapter 用残基名加 CA 坐标容差重新匹配 canonical residue axis | 应使用官方标识符和 canonical mapping；当前坐标启发式既更弱，又制造了 Provider 矛盾假设 |
 | P1 | Biohub ESM-3/ESMFold2 和 local ESMFold2 gate 证明了 Binding/Method 被执行，却没有证明 prompt/config、tensor/wire 翻译和输出尺度；ESM-3 PAE 还“接受两种形状” | 应增加 record-and-delegate 观察层和富输入正向 gate；不能用宽容解析替代固定契约 |
@@ -279,7 +279,7 @@ multiple_prediction_wrapper_export.sh sequence_input_file
 
 ## 7. SoluProt
 
-### 无法闭合的来源身份
+### 已闭合的项目维护 port 身份
 
 [SoluProt official download page](https://loschmidt.chemi.muni.cz/soluprot/?page=download) 当前提供 standalone version 1，下载链接为 `?f=soluprot.zip`；页面列出的环境是 Python 3.7、scikit-learn 0.20.1、BioPython 1.74、pandas、TMHMM 和 USEARCH。官方论文把它定义为预测 E. coli soluble overexpression 概率的 gradient boosting model，并说明 standalone availability：[SoluProt paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC8034534/)。
 
@@ -291,23 +291,23 @@ b7e716a8e611577a465bd3510702fcd12a5de5a38299946707ca8a0995630e4c
 
 它包含 `soluprot-1.0.1.0` legacy `soluprot.py` 和 pickle models；不包含 `soluprot_core`、JSON/NPZ models 或所谓 `1.1.0` wheel。
 
-当前 [solubility adapter](../modules/solubility/adapter.py) 则声明：
+当前 [solubility adapter](../modules/solubility/soluprot.py) 声明：
 
 - `SOLUPROT_VERSION = "1.1.0"`；
-- Python 3.12 wheel 和固定 wheel digest；
+- 由目标机从 [`repositories/soluprot-next`](../repositories/soluprot-next) 构建并安装的 `soluprot 1.1.0`；
 - entry point `python -I -m soluprot_core.cli`；
 - JSON/NPZ models；
 - `--i_fa`、`--o_csv`、`--tmp_dir`、`--model`、`--usearch`、`--pdb`、`--check_unknown`、`--no_proc 1`，再选择 TMHMM 或 `--no_tmhmm`。
 
-该 wheel 的本地内容显示它是一个现代化/repackaged derivative，但当前仓库没有它的源码树、构建 recipe、上游 commit、模型转换脚本，或从官方 `1.0.1.0` release 推导到该 wheel 的可复现证明。官方站点和论文也没有定义 `soluprot_core 1.1.0` 的 CLI contract。
+仓库现已包含该现代化 derivative 的完整运行源码、JSON/NPZ 模型、参考数据库、构建 recipe 和测试。Method identity 固定项目维护源码及资产，不固定目标平台生成的 wheel 字节。
 
-因此当前不能把它称为“官方 SoluProt 1.1.0”。这不是兼容或供应链安全问题，而是科学 provenance 不完整：无法仅凭 wheel 自称版本判断实际算法、features 和 model conversion 是否仍与官方 SoluProt 相同。
+它仍不能称为“官方 SoluProt 1.1.0”。当前合同明确把它作为 project-maintained port；官方 release equivalence 为 `not_claimed`，所以无需用平台身份验收或额外兼容路径冒充官方实现。
 
-### 在修复 provenance 前，gate 能证明和不能证明什么
+### 当前 gate 能证明和不能证明什么
 
-现有 [SoluProt acceptance](../tests/acceptance/test_soluprot_v2.py) 真实执行 full/no-TM 两个 Method，固定 wheel/tool/model assets，并对官方来源 fixture 验证 exact golden 概率、Method/Metric/evidence/readiness。它能证明：
+现有 [SoluProt acceptance](../tests/acceptance/test_soluprot_v2.py) 真实执行 full/no-TM 两个 Method，固定 port 源码、模型与参考资产，并对来源 fixture 验证 exact golden 概率、Method/Metric/evidence/readiness。它能证明：
 
-- 当前锁定的本地 wheel 在当前锁定环境中可执行；
+- 目标平台从锁定源码构建的 port 可执行；
 - 两个项目 Method 的 command/config 和 golden 结果当前自洽；
 - full 与 no-TM 的差别被调用和证据记录。
 
@@ -318,14 +318,9 @@ b7e716a8e611577a465bd3510702fcd12a5de5a38299946707ca8a0995630e4c
 - Python 3.12 port 与官方 legacy pipeline 对任意有效输入科学等价；
 - 当前 CLI 参数是官方契约，而不是本项目 port 的契约。
 
-### 必须先做的身份决策
+### 已采用的身份决策
 
-二选一，不应继续维持含糊身份：
-
-1. **项目维护的 SoluProt port**：把它明确命名为 project-maintained port；把完整源码树、build recipe、官方 release archive digest、模型/feature conversion 程序和产物 digest 固定在本仓库或固定 repository；用一组覆盖长度、composition、unknown policy、TM/no-TM 的 conformance corpus 比较 legacy official artifact 与 port。Method identity 记录 port commit/build，而不冒充官方 `1.1.0`。
-2. **官方 standalone Method**：按官方 `1.0.1.0` artifact 和官方运行时/CLI 直接调用，Method 和 provenance 记录官方 release/digests。
-
-在作出选择后，真实 gate 应证明 exact command/args、tool/model assets、full/no-TM distinction、Candidate association、exact positive goldens 和完整 provenance。如果选择 port，还必须把 conformance corpus 作为 release/acceptance gate；单个 fixture 不足以证明全局等价。
+当前采用 **项目维护的 SoluProt port**。Method identity 记录 repository source、installed code、模型和参考资产，并明确不声称 official release equivalence。真实 gate 继续证明 exact command/args、full/no-TM distinction、Candidate association、exact positive goldens 和完整 provenance。
 
 删除：输出文件 byte/race 防御、Provider probability precision/range/field-type malformed 检查、trusted wheel 内路径攻击假设。保留：所选实现的精确源码/model/tool identity、canonical alphabet/minimum length、full/no-TM 科学区别、命令参数以及 process operational failures。
 
@@ -340,11 +335,11 @@ b7e716a8e611577a465bd3510702fcd12a5de5a38299946707ca8a0995630e4c
 | `local_esmfold2` | real local model、fixed Method、seed、output exists | builder input/args 未观察；无 deterministic full golden | wrapped real builder + exact inputs/args + output digest |
 | `simplefold_confidence` | real assets、3GB1、明确禁止 refold/contact/unneeded models | project-defined identity需更明确；输出只范围/均值；mask fixture缺失 | composition observer + full vector digest + missing-CA axis fixture |
 | `protein_sol` | real official code、two-sequence batch、exact multi-metric goldens、association | canonical official archive provenance/argv evidence | 正式固定 archive digest + command/evidence closure |
-| `soluprot` | real locked wheel、full/no-TM、exact fixture goldens | 无官方 `1.1.0` 来源/构建/派生链 | 先决定 official standalone 或 project port，再建立相应 gate |
+| `soluprot` | project-maintained source、目标机源码构建、full/no-TM、exact fixture goldens | 不声明与官方 legacy release 全局等价 | 保持现有真实 Provider gate |
 
 ## 建议修复顺序
 
-1. **先闭合 SoluProt identity**。这是唯一一个在“不改 Adapter 逻辑”的情况下也无法说清实际 Provider 是谁的问题；在身份决策完成前，不应把该 gate 计为“官方 Provider acceptance 已完成”。
+1. **SoluProt identity 已闭合**。当前是 project-maintained port，不计为官方 `1.1.0` Provider，也不需要平台专用二进制身份门禁。
 2. **修正 ProteinMPNN score 算法与 provenance**。对齐固定上游 `chain_M_pos`，记录 score seed，然后用现有 exact NLL 防回归。
 3. **把 mkdssp mapping 移到官方 identifiers**。这应与 canonical modified-polymer/residue-axis 修复一起做，避免另一条坐标启发式科学路径。
 4. **为 Biohub ESM-3/ESMFold2 和 local ESMFold2 增加 record-and-delegate observer**。先证明实际调用，再收紧为唯一输出 shape/scale；不要保留“多个 shape 都接受”的猜测。
@@ -358,5 +353,5 @@ b7e716a8e611577a465bd3510702fcd12a5de5a38299946707ca8a0995630e4c
 
 - mkdssp、ProteinMPNN、Biohub ESM-3/ESMFold2、local ESMFold2 和 Protein-Sol 都有足以定义正向契约的固定/官方来源；预期的精确调用—翻译—provenance 架构优于当前以 malformed defense 补洞的实现。
 - SimpleFold confidence 的当前 project-defined composition 可以比“假装存在一个上游 API”更好，但必须把组合本身当作 Method 的科学身份并进行 deterministic acceptance。
-- SoluProt 当前实现不能在 provenance 未闭合时与官方 release 等同；这里不是测试数量问题，而是 Provider identity 问题。
+- SoluProt 当前实现是来源明确的 project-maintained port；它不与官方 legacy release 等同，也不作该等价性声明。
 - 本地无攻击者和 trusted Provider 前提不会降低科学门禁强度；它只是把检查从“防御坏 Provider/坏用户”集中到“精确 identity、调用、翻译、随机性、residue mapping 和 evidence”。

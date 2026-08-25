@@ -144,6 +144,11 @@ Acceptance files do not infer Provider runtimes from another workspace.
 The private Campaign Execution Profile supplies every canonical requirement
 explicitly, including `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`.
 
+The installed `protein-workbench-server` command loads these variables into the
+same Binding-scoped Environment Configuration used by verification. A separate
+Python launcher that calls `create_application(v2_environment_configuration=...)`
+is no longer required for ordinary backend deployment.
+
 All declared canonical pytest file targets are required to exist. A developer
 may use a focused override for local work; only the Campaign's fixed selectors
 constitute canonical acceptance.

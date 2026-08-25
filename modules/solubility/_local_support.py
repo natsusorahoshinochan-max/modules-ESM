@@ -64,6 +64,19 @@ def _require_digest(
     return path
 
 
+def _require_executable(
+    path: Path,
+    *,
+    provider_name: str,
+) -> Path:
+    """Require one configured executable without binding its platform bytes."""
+    if not path.is_file() or not os.access(path, os.X_OK):
+        raise SolubilityReadinessUnavailable(
+            f"configured {provider_name} executable is unavailable"
+        )
+    return path
+
+
 def _provider_sequence_id(index: int) -> str:
     """Return the exact staged FASTA identity shared with Provider output."""
     return f"candidate_{index}"
@@ -80,6 +93,7 @@ def _run_local_process(
     command: Sequence[str],
     staging_directory: Path,
     resources: OperationResources,
+    path_entries: Sequence[Path] = (),
 ) -> int:
     process = subprocess.Popen(
         list(command),
@@ -91,7 +105,9 @@ def _run_local_process(
             "HOME": str(staging_directory),
             "LANG": "C",
             "LC_ALL": "C",
-            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PATH": os.pathsep.join(
+                (*map(str, path_entries), os.defpath)
+            ),
         },
         start_new_session=True,
     )

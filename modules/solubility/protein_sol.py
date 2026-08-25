@@ -19,6 +19,7 @@ from ._local_support import (
     SolubilityReadinessUnavailable,
     _provider_sequence_id,
     _require_digest,
+    _require_executable,
     _run_local_process,
     _write_fasta,
 )
@@ -41,16 +42,8 @@ PROTEIN_SOL_CALIBRATION_CONTEXT = {
     "calibration_unit": "dimensionless",
     "population_id": "niwa_non_membrane_2396",
 }
-PROTEIN_SOL_PERL_VERSION = "v5.34.1"
-PROTEIN_SOL_PERL_SHA256 = (
-    "626702a74f85d2664872f6a7aa9b639306a2035211d442a24ea32ef0d48c8afd"
-)
-PROTEIN_SOL_BASH_VERSION = (
-    "GNU bash, version 3.2.57(1)-release (arm64-apple-darwin25)"
-)
-PROTEIN_SOL_BASH_SHA256 = (
-    "a4c638ae036d92d55661de7d50896ec630145acaa3afeb1818ef4fc4e0ee45a7"
-)
+PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION = 5
+PROTEIN_SOL_BASH_RUNTIME_FAMILY = "GNU bash"
 PROTEIN_SOL_SOURCE_SHA256 = {
     "fasta_seq_reformat_export.pl": (
         "ee671b4121e343e0dd660377a8204c2e5058fcf9185e8ea629b2c3c64562a8e9"
@@ -96,22 +89,12 @@ class ProteinSolProviderNonzeroExit(RuntimeError):
 def _validate_executable_runtime(
     path: Path,
     *,
-    expected_path: Path,
-    expected_sha256: str,
     version_command: Sequence[str],
-    expected_version: str,
+    expected_prefix: str,
     runtime_name: str,
 ) -> Path:
-    if (
-        path.resolve() != expected_path.resolve()
-    ):
-        raise SolubilityReadinessUnavailable(
-            f"configured Protein-Sol {runtime_name} is unavailable"
-        )
-    runtime_path = _require_digest(
+    runtime_path = _require_executable(
         path,
-        expected_sha256,
-        executable=True,
         provider_name="Protein-Sol",
     )
     try:
@@ -125,7 +108,7 @@ def _validate_executable_runtime(
                 "HOME": os.devnull,
                 "LANG": "C",
                 "LC_ALL": "C",
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PATH": os.defpath,
             },
         )
     except (
@@ -137,7 +120,7 @@ def _validate_executable_runtime(
             f"configured Protein-Sol {runtime_name} identity is unavailable"
         ) from error
     observed = completed.stdout.splitlines()[0] if completed.stdout else ""
-    if observed != expected_version:
+    if not observed.startswith(expected_prefix):
         raise SolubilityReadinessUnavailable(
             f"configured Protein-Sol {runtime_name} identity changed"
         )
@@ -157,18 +140,19 @@ def _admit_protein_sol_environment(
         )
     _validate_executable_runtime(
         cast(Path, environment["bash_executable"]),
-        expected_path=Path("/bin/bash"),
-        expected_sha256=PROTEIN_SOL_BASH_SHA256,
         version_command=("--version",),
-        expected_version=PROTEIN_SOL_BASH_VERSION,
+        expected_prefix=PROTEIN_SOL_BASH_RUNTIME_FAMILY,
         runtime_name="Bash",
     )
+    perl_executable = cast(Path, environment["perl_executable"])
+    if perl_executable.name != "perl":
+        raise SolubilityReadinessUnavailable(
+            "configured Protein-Sol Perl command is unavailable"
+        )
     _validate_executable_runtime(
-        cast(Path, environment["perl_executable"]),
-        expected_path=Path("/usr/bin/perl"),
-        expected_sha256=PROTEIN_SOL_PERL_SHA256,
+        perl_executable,
         version_command=("-e", "print $^V"),
-        expected_version=PROTEIN_SOL_PERL_VERSION,
+        expected_prefix=f"v{PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION}.",
         runtime_name="Perl",
     )
 
@@ -302,6 +286,7 @@ class LocalProteinSolAdapter:
                     command=command,
                     staging_directory=staging_directory,
                     resources=self.resources,
+                    path_entries=(resolved.perl_executable.parent,),
                 )
                 if return_code != 0:
                     raise ProteinSolProviderNonzeroExit(

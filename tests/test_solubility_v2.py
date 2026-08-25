@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -78,13 +79,11 @@ def _soluprot_admitted_environment(
     private_root = Path(private_runtime_path)
     environment = {
         "python_executable": private_root / "python",
-        "wheel_path": private_root / "soluprot.whl",
         "site_packages_root": private_root / "site-packages",
         "usearch_executable": private_root / "usearch",
     }
     if include_tm:
         environment.update({
-            "tmhmm_root": private_root / "tmhmm",
             "perl_executable": private_root / "perl",
         })
     return environment
@@ -117,7 +116,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     site_packages_root = tmp_path / "site-packages"
     python_executable = tmp_path / "python"
     usearch_executable = tmp_path / "usearch"
-    tmhmm_root = tmp_path / "tmhmm"
+    tmhmm_root = site_packages_root / "soluprot_assets/tmhmm-2.0d"
 
     class Resources:
         @staticmethod
@@ -175,6 +174,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             "--tmhmm",
             str(tmhmm_root / "bin/tmhmm"),
         )
+        assert kwargs["path_entries"] == (tmp_path,)
         events.append("provider-invoked")
         output_path = kwargs["staging_directory"] / "output.csv"
         output_path.write_bytes(
@@ -188,10 +188,8 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
         mode="full",
         environment={
             "python_executable": python_executable,
-            "wheel_path": tmp_path / "soluprot.whl",
             "site_packages_root": site_packages_root,
             "usearch_executable": usearch_executable,
-            "tmhmm_root": tmhmm_root,
             "perl_executable": tmp_path / "perl",
         },
         resources=Resources(),
@@ -500,27 +498,50 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
     assert methods["full"].descriptor["source_identity"] == (
         methods["no_tm"].descriptor["source_identity"]
     )
-    assert methods["full"].descriptor["source_identity"] == {
+    source_identity = methods["full"].descriptor["source_identity"]
+    installed_code = source_identity["installed_code_sha256"]
+    assert {
+        key: value
+        for key, value in source_identity.items()
+        if key != "installed_code_sha256"
+    } == {
         "kind": "project_maintained_locked_port",
         "upstream_project": "SoluProt",
+        "repository_path": "repositories/soluprot-next",
+        "build_backend": "setuptools.build_meta",
         "port_distribution": "soluprot",
         "port_artifact_version": "1.1.0",
-        "wheel_sha256": (
-            "71566eb9a5e78099cf82e0da55bf7f4f173c06a0c22395ba7a18324d9234db96"
-        ),
-        "installed_code_sha256": {
-            "soluprot_core/cli.py": (
-                "f22b6d7687c3a10b30e5f622add1acf7b28950aae05c3311cdd680ff9e6e4a8d"
-            ),
-            "soluprot_core/features.py": (
-                "4dd9252e10efcd033aa8f43d555c05615cf2e6bfa004f77e25277b89219c6281"
-            ),
-            "soluprot_core/model.py": (
-                "c15b914967f32a679fd5d99c93c5af8f110410f2a88624a0b28b8bb633d821e1"
-            ),
-        },
         "official_release_equivalence": "not_claimed",
     }
+    assert set(installed_code) == {
+        "feature_scripts/KMerF.py",
+        "feature_scripts/__init__.py",
+        "feature_scripts/blast6_to_max_id_csv.py",
+        "feature_scripts/common/FastaChunk.py",
+        "feature_scripts/common/__init__.py",
+        "feature_scripts/common/clear_dir.py",
+        "feature_scripts/common/get_abs_path.py",
+        "feature_scripts/common/prefix.py",
+        "feature_scripts/common/seq_count_fa.py",
+        "feature_scripts/dimers_comb.py",
+        "feature_scripts/physico_chemical.py",
+        "soluprot_core/__init__.py",
+        "soluprot_core/cli.py",
+        "soluprot_core/exceptions.py",
+        "soluprot_core/features.py",
+        "soluprot_core/model.py",
+        "soluprot_core/parsers.py",
+        "soluprot_core/paths.py",
+    }
+    assert installed_code["soluprot_core/cli.py"] == (
+        "dbc94f9fc512f1b4cca000520896d49e5bab38b307312fbe2da0fb1f4159dbf5"
+    )
+    assert installed_code["soluprot_core/features.py"] == (
+        "4dd9252e10efcd033aa8f43d555c05615cf2e6bfa004f77e25277b89219c6281"
+    )
+    assert installed_code["soluprot_core/model.py"] == (
+        "c15b914967f32a679fd5d99c93c5af8f110410f2a88624a0b28b8bb633d821e1"
+    )
     assert methods["full"].descriptor["model_identity"] == {
         "provider": "Protein Workbench project-maintained SoluProt port",
         "port_artifact_version": "1.1.0",
@@ -605,6 +626,77 @@ def test_soluprot_requires_no_core_dispatch_or_readiness_branch() -> None:
     assert "soluprot" not in core_source
 
 
+def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
+    from modules.solubility.package import MODULE_PACKAGE
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    soluprot = catalog.require_contract(
+        "binding",
+        "solubility.soluprot_full.local",
+        "5.0.0",
+    ).descriptor
+    protein_sol = catalog.require_contract(
+        "binding",
+        "solubility.protein_sol.local",
+        "5.0.0",
+    ).descriptor
+
+    assert {
+        field["name"] for field in soluprot["environment_fields"]
+    } == {
+        "python_executable",
+        "site_packages_root",
+        "usearch_executable",
+        "perl_executable",
+    }
+    soluprot_prerequisites = soluprot["readiness_declaration"][
+        "prerequisites"
+    ]
+    assert soluprot_prerequisites["python_runtime"] == {
+        "minimum_version": "3.12",
+        "soluprot_distribution_version": "1.1.0",
+        "path_source": "trusted_environment_configuration",
+    }
+    assert soluprot_prerequisites["usearch"] == {
+        "version": "12.0",
+        "path_source": "trusted_environment_configuration",
+    }
+    assert soluprot_prerequisites["tmhmm"]["decoder"] == {
+        "selection": "uname-system-and-machine",
+        "identity": "executable-presence",
+        "included": (
+            "decodeanhmm.Darwin_arm64",
+            "decodeanhmm.Linux_x86_64",
+        ),
+    }
+    assert soluprot_prerequisites["tmhmm"]["bundled_asset_root"] == (
+        "soluprot_assets/tmhmm-2.0d"
+    )
+    assert soluprot_prerequisites["tmhmm"]["path_source"] == (
+        "installed_distribution"
+    )
+
+    protein_sol_prerequisites = protein_sol["readiness_declaration"][
+        "prerequisites"
+    ]
+    assert protein_sol_prerequisites["bash"] == {
+        "runtime_family": "GNU bash",
+    }
+    assert protein_sol_prerequisites["perl"] == {
+        "minimum_major_version": 5,
+    }
+    runtime_contracts = repr(
+        {
+            "soluprot": soluprot_prerequisites,
+            "protein_sol": protein_sol_prerequisites,
+        }
+    ).lower()
+    assert "sha256" not in repr(
+        soluprot_prerequisites["tmhmm"]["decoder"]
+    ).lower()
+    assert "macos" not in runtime_contracts
+
+
 def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -659,7 +751,9 @@ def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
     monkeypatch.setattr(
         adapter,
         "_trusted_soluprot_environment",
-        lambda *_args, **_kwargs: object(),
+        lambda *_args, **_kwargs: SimpleNamespace(
+            perl_executable=Path("/private/perl")
+        ),
     )
     monkeypatch.setattr(
         adapter,
