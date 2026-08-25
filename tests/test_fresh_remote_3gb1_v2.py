@@ -5,6 +5,11 @@ from __future__ import annotations
 from tests.support.ledger import public_run_events, public_run_projection
 
 from core.catalog.builder import build_frozen_catalog
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile as compile_workflow,
+    lock_workflow,
+)
 
 from protein_workbench_public.bootstrap import module_registrations
 
@@ -122,6 +127,67 @@ def _select_local_model_bindings(workflow: dict[str, Any]) -> None:
         node["binding_id"], node["binding_version"] = replacement
         replaced += 1
     assert replaced == 3
+
+
+def _author_local_workflow(
+    workflow: dict[str, Any],
+    *,
+    workflow_id: str,
+    project_input_ref: str,
+) -> None:
+    _select_local_model_bindings(workflow)
+    workflow["workflow_id"] = workflow_id
+    workflow["contract_lock"] = []
+    input_nodes = [
+        node
+        for node in workflow["nodes"]
+        if node["node_id"] == "import-3gb1"
+    ]
+    assert len(input_nodes) == 1
+    input_node = input_nodes[0]
+    assert input_node["node_type_id"] == "protein_io.import_structure"
+    input_node["node_parameters"] = {
+        "project_input_ref": project_input_ref
+    }
+
+
+def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
+    catalog = build_frozen_catalog(module_registrations())
+    workflow = json.loads(
+        files("examples").joinpath(
+            "v2", "canonical-3gb1.workflow.json"
+        ).read_text(encoding="utf-8")
+    )
+    project_input_ref = "input-0123456789abcdef0123456789abcdef"
+
+    _author_local_workflow(
+        workflow,
+        workflow_id="fresh-local-canonical-3gb1",
+        project_input_ref=project_input_ref,
+    )
+
+    nodes = {node["node_id"]: node for node in workflow["nodes"]}
+    assert {
+        node_id: (
+            nodes[node_id]["binding_id"],
+            nodes[node_id]["binding_version"],
+        )
+        for node_id in ("generate-paired", "fold-sequences", "fold-final")
+    } == {
+        "generate-paired": ("esm3.generate_paired.local_open", "9.0.0"),
+        "fold-sequences": ("folding.fold.esmfold2_local", "11.0.0"),
+        "fold-final": ("folding.fold.esmfold2_local", "11.0.0"),
+    }
+    assert workflow["workflow_id"] == "fresh-local-canonical-3gb1"
+    assert workflow["contract_lock"] == []
+    assert nodes["import-3gb1"]["node_parameters"] == {
+        "project_input_ref": project_input_ref
+    }
+
+    decoded = decode_workflow_document(workflow)
+    locked = lock_workflow(decoded, catalog)
+    compiled = compile_workflow(CompilationRequest(locked, 1), catalog)
+    assert compiled.resolved_contracts == locked.contract_lock
 
 
 def _environment(route: str) -> dict[tuple[str, str], Any]:
@@ -948,8 +1014,6 @@ def test_fresh_canonical_3gb1_public_run() -> None:
             "v2", "canonical-3gb1.workflow.json"
         ).read_text(encoding="utf-8")
     )
-    if route == "local":
-        _select_local_model_bindings(workflow)
     catalog = build_frozen_catalog(module_registrations())
     app = create_application(v2_environment_configuration=_environment(route))
     with TestClient(app) as client:
@@ -988,15 +1052,11 @@ def test_fresh_canonical_3gb1_public_run() -> None:
                 },
             )
             uploaded.raise_for_status()
-            workflow["workflow_id"] = project_id
-            workflow["contract_lock"] = []
-            next(
-                node
-                for node in workflow["nodes"]
-                if node["node_id"] == "import-input"
-            )["node_parameters"] = {
-                "project_input_ref": uploaded.json()["project_input_ref"]
-            }
+            _author_local_workflow(
+                workflow,
+                workflow_id=project_id,
+                project_input_ref=uploaded.json()["project_input_ref"],
+            )
             committed = client.post(
                 f"/api/v2/projects/{project_id}/workflow:commit",
                 json={"workflow": workflow},
