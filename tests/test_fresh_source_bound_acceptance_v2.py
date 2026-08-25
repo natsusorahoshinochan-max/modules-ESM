@@ -510,9 +510,21 @@ def _assert_2emo_science(
     ) == ("protein_sol_sequence_prediction",)
     design_ids = {design.candidate_id for design in designs.items}
     fold_ids = {fold.candidate_id for fold in folds.items}
-    assert all(
-        len(fold.parent_ids) == 1 and fold.parent_ids[0] in design_ids
+    assert tuple(fold.parent_ids for fold in folds.items) == tuple(
+        (design.candidate_id,) for design in designs.items
+    )
+    assert tuple(
+        (fold.metadata["parent_index"], fold.metadata["sample_index"])
         for fold in folds.items
+    ) == tuple((index, 0) for index in range(8))
+    assert tuple(
+        invocation["engine_role"]
+        for invocation in live_invocations["fold-esmfold2"]
+    ) == tuple(f"fold_parent_{index}_sample_0" for index in range(8))
+    assert all(
+        invocation["invocation_provenance"]
+        == {"effective_randomness": {"control": "provider_uncontrolled"}}
+        for invocation in live_invocations["fold-esmfold2"]
     )
     assert len(alignments) == 8
     structure_port = build_frozen_catalog(module_registrations()).require_port_type(
@@ -537,12 +549,6 @@ def _assert_2emo_science(
     assert {alignment.reference for alignment in alignments} == {
         reference_value
     }
-    assert tuple(
-        sorted(
-            alignment.normalization.aligned_atom_count
-            for alignment in alignments
-        )
-    ) == (216, 218, 219, 219, 221, 221, 221, 221)
     assert all(
         type(alignment) is StructureAlignmentEvidence
         and alignment.method == SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE

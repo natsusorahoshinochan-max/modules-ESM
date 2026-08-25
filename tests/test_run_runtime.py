@@ -66,6 +66,7 @@ from core.operation import (
     ResolvedOutputIdentity,
 )
 from core.parameters.contract import admit_declarations
+from core.local_torch_device import expected_local_torch_device
 from core.execution.node_attempt import ExecutionTermination
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.support.application import create_application
@@ -2485,10 +2486,10 @@ def test_simplefold_bindings_receive_independent_run_scoped_readiness(
     )
     environment = {
         (binding_id, "2.1.0"): {
-                "values": {
-                    "credential": "credential-value",
-                    "device": "cpu",
-                },
+            "values": {
+                "credential": "credential-value",
+                "device": expected_local_torch_device(),
+            },
         }
         for binding_id in bindings
     }
