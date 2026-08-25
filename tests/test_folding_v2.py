@@ -1532,7 +1532,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
 ) -> None:
     import modules.folding.esmfold2_local as local_adapter
     import modules.folding.esmfold2_remote as remote_adapter
-    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    import modules.folding.package as folding_package
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -1826,8 +1826,18 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ),
     )
 
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_runtime_structurally_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_confidence_runtime_structurally_available",
+        lambda: True,
+    )
     report = verify_module_package_contract(
-        FOLDING_PACKAGE,
+        folding_package.MODULE_PACKAGE,
         execution_cases=cases,
         supporting_registrations=(
             SOURCE_PACKAGE,
