@@ -246,9 +246,7 @@ def run_generation(
             node_type_id=f"esm3.{operation}",
             node_type_version="8.0.0",
             binding_id=f"esm3.{operation}.{binding_route}",
-            binding_version=(
-                "9.0.0" if binding_route == "local_open" else "8.0.0"
-            ),
+            binding_version="8.0.0",
             node_parameters=resolved_generation_parameters,
             binding_parameters={},
         )
@@ -338,10 +336,7 @@ def run_generation(
     environment = admit_environment_configuration(
         catalog,
         {
-            (
-                f"esm3.{operation}.{binding_route}",
-                "9.0.0" if binding_route == "local_open" else "8.0.0",
-            ): {
+            (f"esm3.{operation}.{binding_route}", "8.0.0"): {
                 "values": environment_values,
             }
         }

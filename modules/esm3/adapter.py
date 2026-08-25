@@ -401,12 +401,10 @@ class _BaseESM3Adapter:
         resources: OperationResources,
         model_name: str,
         exact_seed_control: bool,
-        provider_device: str | None = None,
     ) -> None:
         self._resources = resources
         self._model_name = model_name
         self._exact_seed_control = exact_seed_control
-        self._provider_device = provider_device
 
     def __enter__(self) -> _BaseESM3Adapter:
         return self
@@ -462,8 +460,7 @@ class _BaseESM3Adapter:
             engine_role=role,
             parent_invocation_id=parent_invocation_id,
             invocation_provenance=EngineInvocationProvenance(
-                effective_randomness=randomness,
-                provider_device=self._provider_device,
+                effective_randomness=randomness
             ),
         ) as invocation_id:
             result = self._call_provider(

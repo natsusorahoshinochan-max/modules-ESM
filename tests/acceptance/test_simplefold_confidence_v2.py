@@ -41,10 +41,10 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Execute the exact confidence-only Binding; its full gate forbids skips."""
-    from core.local_torch_device import expected_local_torch_device
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
     from modules.folding.simplefold_contract import (
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
+        SIMPLEFOLD_CONFIDENCE_DEVICE,
     )
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -84,7 +84,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         node_type_id="folding.simplefold_confidence",
         node_type_version="5.0.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="7.0.0",
+        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -244,14 +244,14 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "lstat", guarded_os_lstat)
     monkeypatch.setattr(os, "access", guarded_os_access)
     environment = admit_environment_configuration(catalog, {
-        ("folding.simplefold_confidence.simplefold_local", "7.0.0"): {
+        ("folding.simplefold_confidence.simplefold_local", "6.0.0"): {
             "values": {
                 "model_root": model_root,
                 "esm2_source_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT"]
                 ),
                 "esm2_model_root": esm2_model_root,
-                "device": expected_local_torch_device(),
+                "device": SIMPLEFOLD_CONFIDENCE_DEVICE,
             },
         }
     })
@@ -368,7 +368,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "7.0.0",
+        "6.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
@@ -377,16 +377,13 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         method_ref["contract_version"],
     )
     assert started[0]["engine_identity"] == method.contract_digest
-    assert started[0]["invocation_provenance"] == {
-        "provider_device": expected_local_torch_device(),
-    }
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.simplefold_confidence.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "7.0.0"
+        and event["event"]["binding"]["contract_version"] == "6.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(

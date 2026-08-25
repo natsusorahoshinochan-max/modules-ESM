@@ -424,7 +424,7 @@ def test_provider_transition_receipt_contains_public_binding_order(
         {
             "contract_kind": "binding",
             "contract_id": "proteinmpnn.design.local",
-            "contract_version": "12.0.0",
+            "contract_version": "11.0.0",
             "contract_digest": "sha256:" + "1" * 64,
         },
         {

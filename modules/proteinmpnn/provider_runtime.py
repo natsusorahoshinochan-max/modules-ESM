@@ -51,7 +51,6 @@ def _load_model(
     model_name: str,
     backbone_noise: float,
     provider_root: Path,
-    device_name: str,
 ) -> Any:
     """Load a ProteinMPNN model from checkpoint."""
     import torch
@@ -59,7 +58,7 @@ def _load_model(
     MPNNModel = _provider_module(provider_root).ProteinMPNN
 
     checkpoint_path = _checkpoint_path(provider_root)
-    device = torch.device(device_name)
+    device = torch.device("cpu")
 
     model = MPNNModel(
         num_letters=21,
@@ -258,15 +257,13 @@ class _LocalProteinMPNNProvider:
         *,
         provider_root: Path,
         temp_dir: Path,
-        device: str,
         model_cache: dict[
-            tuple[str, float, Path, str],
+            tuple[str, float, Path],
             tuple[Any, Any],
         ],
     ) -> None:
         self._temp_dir = temp_dir
         self._provider_root = provider_root
-        self._device = device
         self._model_cache = model_cache
 
     def _resident_model(
@@ -274,12 +271,7 @@ class _LocalProteinMPNNProvider:
         model_name: str,
         backbone_noise: float,
     ) -> tuple[Any, Any]:
-        key = (
-            model_name,
-            backbone_noise,
-            self._provider_root,
-            self._device,
-        )
+        key = (model_name, backbone_noise, self._provider_root)
         resident = self._model_cache.get(key)
         if resident is None:
             self._model_cache.clear()
@@ -287,7 +279,6 @@ class _LocalProteinMPNNProvider:
                 model_name,
                 backbone_noise,
                 self._provider_root,
-                self._device,
             )
             self._model_cache[key] = resident
         return resident
@@ -304,17 +295,7 @@ class _LocalProteinMPNNProvider:
     ) -> list[ProteinSequence]:
         import torch
 
-        device = torch.device(self._device)
-        fork_devices = (
-            [
-                device.index
-                if device.index is not None
-                else torch.cuda.current_device()
-            ]
-            if device.type == "cuda"
-            else []
-        )
-        with torch.random.fork_rng(devices=fork_devices):
+        with torch.random.fork_rng():
             model, device = self._resident_model(
                 request.model_name,
                 request.backbone_noise,
@@ -357,17 +338,7 @@ class _LocalProteinMPNNProvider:
     ) -> float:
         import torch
 
-        device = torch.device(self._device)
-        fork_devices = (
-            [
-                device.index
-                if device.index is not None
-                else torch.cuda.current_device()
-            ]
-            if device.type == "cuda"
-            else []
-        )
-        with torch.random.fork_rng(devices=fork_devices):
+        with torch.random.fork_rng():
             model, device = self._resident_model(
                 request.model_name,
                 request.backbone_noise,

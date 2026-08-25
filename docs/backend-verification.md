@@ -43,12 +43,12 @@ are ordinary local verification output.
 | Installed Biohub ESMC | `.venv/bin/python -m verification.backend installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
 | Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and fixes SDK retries to one attempt per call. |
 | Installed Biohub ESMFold2 | `.venv/bin/python -m verification.backend installed-biohub-esmfold2` | Invokes the exact remote `esmfold2-fast-2026-05` Binding once through a fresh Run with one SDK attempt. |
-| Installed local ESM-3 | `.venv/bin/python -m verification.backend installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation, forbids Hugging Face snapshot download/cache fallback, and requires policy-selected device evidence (`cuda` on Linux/Windows, `cpu` on macOS). |
-| Installed local ESMFold2 | `.venv/bin/python -m verification.backend installed-local-esmfold2` | Invokes the exact locked ESMFold2 and ESMC snapshots at the policy-selected device and fixed FP32 precision through a fresh Run and requires exact-seed/device evidence. |
-| Installed ProteinMPNN | `.venv/bin/python -m verification.backend installed-proteinmpnn` | Invokes exact design, score, native-score, and sibling-design contracts through four public Runs and proves the selected device entered the model runtime. Direct Adapter edge cases remain non-authoritative Provider regressions. |
+| Installed local ESM-3 | `.venv/bin/python -m verification.backend installed-local-esm3` | Invokes the installed locked local model for paired, sequence, and structure generation, explicitly forbids Hugging Face snapshot download/cache fallback, and requires complete invocation evidence. |
+| Installed local ESMFold2 | `.venv/bin/python -m verification.backend installed-local-esmfold2` | Invokes the exact locked ESMFold2 and ESMC snapshots at the declared CPU/FP32 precision through a fresh Run and requires exact-seed Method evidence. |
+| Installed ProteinMPNN | `.venv/bin/python -m verification.backend installed-proteinmpnn` | Invokes exact design, score, native-score, and sibling-design contracts through four public Runs. Direct Adapter edge cases remain non-authoritative Provider regressions. |
 | Installed mkdssp | `.venv/bin/python -m verification.backend installed-mkdssp` | Invokes exact mkdssp 4.6.1 through the public Run seam and verifies the canonical DSSP residue layout, secondary-structure track, SASA track, and complete Method evidence. |
-| Installed SimpleFold folding | `.venv/bin/python -m verification.backend installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model/ESM-2 assets and policy-selected device. |
-| Installed SimpleFold confidence | `.venv/bin/python -m verification.backend installed-simplefold-confidence` | Invokes the installed exact confidence asset closure on the policy-selected device and proves direct-confidence output without refolding. |
+| Installed SimpleFold folding | `.venv/bin/python -m verification.backend installed-simplefold-folding` | Invokes the installed locked SimpleFold folding model with its exact model and ESM-2 assets. |
+| Installed SimpleFold confidence | `.venv/bin/python -m verification.backend installed-simplefold-confidence` | Invokes the installed exact confidence asset closure and proves direct-confidence output without refolding. |
 | Installed SoluProt | `.venv/bin/python -m verification.backend installed-soluprot` | Invokes both full and no-TM locked SoluProt methods and checks their exact observations and terminal evidence. |
 | Installed Protein-Sol | `.venv/bin/python -m verification.backend installed-protein-sol` | Invokes the source-bound Protein-Sol model for multiple sequences and all three declared Metrics. |
 | Fresh source-bound 1PGA | `.venv/bin/python -m verification.backend fresh-1pga` | Runs the installed 1PGA Workflow and retains the complete three-way structure, confidence, pairing, retrieval, and classification evidence. |
@@ -148,17 +148,6 @@ Missing or relative required path configuration fails a zero-skip gate.
 Acceptance files do not infer Provider runtimes from another workspace.
 The private Campaign Execution Profile supplies every canonical requirement
 explicitly, including `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`.
-
-For local Torch Bindings, no operator device override is accepted. The
-application materializes the Binding policy: Linux/Windows use `cuda`, macOS
-uses `cpu`. CUDA-selected Readiness performs a real synchronized kernel probe
-and fails before Provider entry if CUDA is hidden, unavailable, or unusable.
-The dependency lock selects the explicit PyTorch `cu130` wheel source on
-Windows, so the normal frozen Provider install does not silently create a
-CPU-only Windows environment.
-Successful local Torch Engine Invocation events retain the concrete
-`provider_device`; the installed heavy gates execute real models, so a
-configuration-only assertion cannot satisfy acceptance.
 
 The installed `protein-workbench-server` command loads these variables into the
 same Binding-scoped Environment Configuration used by verification. A separate

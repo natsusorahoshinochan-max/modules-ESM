@@ -213,8 +213,6 @@ def _provenance(value: EngineInvocationStarted) -> dict[str, Any]:
                 for entry in projection.entries
             ],
         }
-    if provenance.provider_device is not None:
-        result["provider_device"] = provenance.provider_device
     return result
 
 

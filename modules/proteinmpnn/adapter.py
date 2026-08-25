@@ -18,10 +18,6 @@ from core.operation import (
     ProviderResidueProjectionEntry,
     ReadinessResult,
 )
-from core.local_torch_device import (
-    expected_local_torch_device,
-    local_torch_device_is_available,
-)
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ResolvedStructureResidueAxis
 from modules.proteinmpnn.domain import ProteinMPNNConstraints
@@ -36,6 +32,7 @@ from .provider_runtime import _LocalProteinMPNNProvider
 
 PROTEINMPNN_MODEL = "v_48_020"
 PROTEINMPNN_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
+PROTEINMPNN_DEVICE = "cpu"
 PROTEINMPNN_TORCH_VERSION = "2.13.0"
 PROTEINMPNN_SCORING_SEED = 42
 _PROVIDER_CHAIN_IDS = tuple(
@@ -43,7 +40,7 @@ _PROVIDER_CHAIN_IDS = tuple(
 )
 _PROVIDER_BACKBONE_ATOMS = ("N", "CA", "C", "O")
 type _ProteinMPNNModelCache = dict[
-    tuple[str, float, Path, str],
+    tuple[str, float, Path],
     tuple[Any, Any],
 ]
 
@@ -167,7 +164,7 @@ def proteinmpnn_readiness(
     """Validate prerequisites without constructing or loading the model."""
     environment = check_input.values
     try:
-        torch_version = importlib.metadata.version("torch").partition("+")[0]
+        torch_version = importlib.metadata.version("torch")
     except importlib.metadata.PackageNotFoundError:
         return ReadinessResult(
             False,
@@ -180,16 +177,7 @@ def proteinmpnn_readiness(
             proof_source="direct-observation",
             reason_code="proteinmpnn_runtime_unavailable",
         )
-    expected_device = expected_local_torch_device()
-    if environment["device"] != expected_device:
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
-    import torch
-
-    if not local_torch_device_is_available(torch, expected_device):
+    if environment["device"] != PROTEINMPNN_DEVICE:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -366,7 +354,6 @@ class LocalProteinMPNNAdapter:
         return _LocalProteinMPNNProvider(
             temp_dir=staging_directory,
             provider_root=cast(Path, self._environment["provider_root"]),
-            device=cast(str, self._environment["device"]),
             model_cache=cast(_ProteinMPNNModelCache, resident_models),
         )
 
@@ -420,7 +407,6 @@ class LocalProteinMPNNAdapter:
                     provider_residue_projection=(
                         _provider_residue_projection(request)
                     ),
-                    provider_device=cast(str, self._environment["device"]),
                 ),
             ):
                 raw_sequences = provider.design(request)
@@ -455,7 +441,6 @@ class LocalProteinMPNNAdapter:
                     provider_residue_projection=(
                         _provider_residue_projection(request)
                     ),
-                    provider_device=cast(str, self._environment["device"]),
                 ),
             ):
                 return provider.score(request, sequence)

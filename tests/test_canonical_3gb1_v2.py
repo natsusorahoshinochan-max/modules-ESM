@@ -163,7 +163,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
     } == expected_node_versions
     expected_binding_versions = dict(expected_node_versions)
     expected_binding_versions.update({
-        "design-children": "12.0.0",
+        "design-children": "11.0.0",
         "fold-sequences": "9.0.0",
         "fold-final": "9.0.0",
     })
@@ -1011,7 +1011,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             == "proteinmpnn.design.local"
         )
         assert proteinmpnn_readiness["binding"]["contract_version"] == (
-            "12.0.0"
+            "11.0.0"
         )
 
         esm_calls_before = len(esm3.sequence_prompts)
@@ -1042,7 +1042,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ] == downloaded_hashes
         assert len(esm3.sequence_prompts) == esm_calls_before + 10
         assert len(folding.calls) == fold_calls_before + 25
-        assert len(proteinmpnn.requests) == mpnn_calls_before + 3
+        assert len(proteinmpnn.requests) == mpnn_calls_before
         replayed_nodes = {
             disposition["node_id"]
             for disposition in replay["node_dispositions"]

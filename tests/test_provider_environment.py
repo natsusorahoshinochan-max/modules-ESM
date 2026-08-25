@@ -8,7 +8,6 @@ import shutil
 
 import pytest
 
-from core.local_torch_device import expected_local_torch_device
 from protein_workbench_public.application_environment import (
     application_storage_roots,
 )
@@ -155,7 +154,7 @@ def test_process_environment_configures_every_selected_real_provider(
     )
 
     local_esm3 = configuration[
-        ("esm3.generate_sequence.local_open", "9.0.0")
+        ("esm3.generate_sequence.local_open", "8.0.0")
     ]["values"]
     assert local_esm3 == {
         "model_snapshot_revision": (
@@ -165,22 +164,19 @@ def test_process_environment_configures_every_selected_real_provider(
         "runtime_directory": (
             tmp_path / "workbench-data/provider-runtime/esm3"
         ),
-        "device": expected_local_torch_device(),
+        "device": "cpu",
         "performance_settings": {},
     }
     assert local_esm3["runtime_directory"].is_dir()
-    assert configuration[("folding.fold.esmfold2_local", "11.0.0")][
+    assert configuration[("folding.fold.esmfold2_local", "10.0.0")][
         "values"
     ]["model_snapshot_path"] == tmp_path / "esmfold2"
-    assert configuration[("folding.fold.simplefold_local", "11.0.0")][
+    assert configuration[("folding.fold.simplefold_local", "10.0.0")][
         "values"
     ]["esm2_source_root"] == tmp_path / "esm2-source"
-    assert configuration[("proteinmpnn.design.local", "12.0.0")][
+    assert configuration[("proteinmpnn.design.local", "11.0.0")][
         "values"
-    ] == {
-        "provider_root": tmp_path / "proteinmpnn",
-        "device": expected_local_torch_device(),
-    }
+    ] == {"provider_root": tmp_path / "proteinmpnn", "device": "cpu"}
     assert configuration[
         ("structure_annotation.dssp_compute.mkdssp_local", "7.0.0")
     ] == {"values": {"dssp_binary": tmp_path / "bin/mkdssp"}}
@@ -277,46 +273,7 @@ def test_local_esm3_model_root_expands_literal_tilde(
     })
 
     values = configuration[
-        ("esm3.generate_sequence.local_open", "9.0.0")
+        ("esm3.generate_sequence.local_open", "8.0.0")
     ]["values"]
     assert values["model_snapshot_path"] == home / "esm3-snapshot"
     assert values["runtime_directory"] == data_root / "provider-runtime/esm3"
-
-
-@pytest.mark.parametrize("platform_name", ("linux", "linux2", "win32"))
-def test_process_environment_selects_cuda_for_gpu_required_platforms(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    platform_name: str,
-) -> None:
-    import core.local_torch_device as device_policy
-
-    monkeypatch.setattr(device_policy.sys, "platform", platform_name)
-    configuration = provider_environment_configuration({
-        "PROTEIN_WORKBENCH_DATA_ROOT": str(tmp_path / "workbench-data"),
-        "PROTEIN_WORKBENCH_ESM3_MODEL_ROOT": str(tmp_path / "esm3"),
-        "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT": str(tmp_path / "esmfold2"),
-        "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT": str(tmp_path / "esmc"),
-        "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT": str(tmp_path / "simplefold"),
-        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT": str(tmp_path / "esm2-source"),
-        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT": str(
-            tmp_path / "esm2-model"
-        ),
-        "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT": str(tmp_path / "proteinmpnn"),
-    })
-
-    by_binding_id = {
-        binding_id: entry["values"]
-        for (binding_id, _version), entry in configuration.items()
-    }
-    assert {
-        by_binding_id[binding_id]["device"]
-        for binding_id in (
-            "esm3.generate_sequence.local_open",
-            "folding.fold.esmfold2_local",
-            "folding.fold.simplefold_local",
-            "folding.simplefold_confidence.simplefold_local",
-            "proteinmpnn.design.local",
-            "proteinmpnn.score.local",
-        )
-    } == {"cuda"}

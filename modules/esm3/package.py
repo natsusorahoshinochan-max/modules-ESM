@@ -29,7 +29,6 @@ from core.operation import (
     ReadinessResult,
     ScientificOperation,
 )
-from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
 from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
@@ -53,6 +52,7 @@ from .esmc_adapter import (
 )
 from . import port_types as _port_types
 from .local_adapter import (
+    LOCAL_ESM3_DEVICE,
     LOCAL_ESM3_MODEL,
     LOCAL_ESM3_PERFORMANCE_SETTINGS,
     LOCAL_ESM3_SNAPSHOT_REVISION,
@@ -65,11 +65,9 @@ from .local_adapter import (
 )
 
 
-_PACKAGE_VERSION = "7.0.0"
+_PACKAGE_VERSION = "6.0.0"
 _GENERATION_METHOD_VERSION = "5.0.0"
-_GENERATION_NODE_TYPE_VERSION = "8.0.0"
-_GENERATION_REMOTE_BINDING_VERSION = "8.0.0"
-_GENERATION_LOCAL_BINDING_VERSION = "9.0.0"
+_GENERATION_NODE_BINDING_VERSION = "8.0.0"
 _ESMC_METHOD_VERSION = "3.0.0"
 _ESMC_NODE_BINDING_VERSION = "5.0.0"
 _OPERATIONS = (
@@ -533,11 +531,11 @@ def _binding(
     method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.{model['route']}",
-        version=_GENERATION_REMOTE_BINDING_VERSION,
+        version=_GENERATION_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"esm3.{operation}",
-            _GENERATION_NODE_TYPE_VERSION,
+            _GENERATION_NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
@@ -550,7 +548,7 @@ def _binding(
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"esm3.{operation}/factory",
-                _GENERATION_REMOTE_BINDING_VERSION,
+                _GENERATION_NODE_BINDING_VERSION,
                 {
                     "route": "biohub",
                     "model": model["model"],
@@ -563,7 +561,7 @@ def _binding(
         ),
         adapter_behavior=BehaviorReference(
             "esm3.biohub/adapter",
-            _GENERATION_REMOTE_BINDING_VERSION,
+            _GENERATION_NODE_BINDING_VERSION,
             {
                 "provider_contract": "esm-sdk-generate@917af90b",
                 "track_translation": "documented-provider-output",
@@ -574,7 +572,7 @@ def _binding(
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub/availability",
-                _GENERATION_REMOTE_BINDING_VERSION,
+                _GENERATION_NODE_BINDING_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={
@@ -588,7 +586,7 @@ def _binding(
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub/readiness",
-                _GENERATION_REMOTE_BINDING_VERSION,
+                _GENERATION_NODE_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "secret_retention": "none",
@@ -625,11 +623,11 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
     method_id = f"esm3.{operation}.esm3_sm_open_v1_local"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.local_open",
-        version=_GENERATION_LOCAL_BINDING_VERSION,
+        version=_GENERATION_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"esm3.{operation}",
-            _GENERATION_NODE_TYPE_VERSION,
+            _GENERATION_NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
@@ -642,7 +640,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"esm3.{operation}/factory",
-                _GENERATION_LOCAL_BINDING_VERSION,
+                _GENERATION_NODE_BINDING_VERSION,
                 {
                     "route": "local_open",
                     "model": LOCAL_ESM3_MODEL,
@@ -656,7 +654,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         ),
         adapter_behavior=BehaviorReference(
             "esm3.local_open/adapter",
-            _GENERATION_LOCAL_BINDING_VERSION,
+            _GENERATION_NODE_BINDING_VERSION,
             {
                 "provider_contract": (
                     "esm-sdk-local-generate@917af90b"
@@ -672,7 +670,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.local_open/availability",
-                _GENERATION_LOCAL_BINDING_VERSION,
+                _GENERATION_NODE_BINDING_VERSION,
                 {
                     "observation": "startup",
                     "model_load": "forbidden",
@@ -693,7 +691,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.local_open/readiness",
-                _GENERATION_LOCAL_BINDING_VERSION,
+                _GENERATION_NODE_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "secret_retention": "none",
@@ -711,8 +709,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
                 },
                 "device": {
                     "source": "trusted_environment_configuration",
-                    "policy": LOCAL_TORCH_DEVICE_POLICY,
-                    "fallback": "forbidden",
+                    "exact_value": LOCAL_ESM3_DEVICE,
                 },
                 "runtime_directory": {
                     "source": "trusted_environment_configuration",
@@ -736,8 +733,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
             "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
             "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
             "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
-            "device_policy": LOCAL_TORCH_DEVICE_POLICY,
-            "device_fallback": "forbidden",
+            "device": LOCAL_ESM3_DEVICE,
             "torch_version": LOCAL_ESM3_TORCH_VERSION,
             "performance_settings": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
             "runtime_directory_policy": (
@@ -755,7 +751,7 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         effective_randomness_resolver=EffectiveRandomnessResolver(
             behavior=BehaviorReference(
                 "esm3.local/effective-randomness",
-                _GENERATION_LOCAL_BINDING_VERSION,
+                _GENERATION_NODE_BINDING_VERSION,
                 {
                     "provider_seed_control": "torch_local",
                     "sample_order": "zero-based",

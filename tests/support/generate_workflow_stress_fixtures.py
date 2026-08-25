@@ -213,7 +213,7 @@ def _multi_parent_batch() -> dict[str, Any]:
                 "node_type_id": "proteinmpnn.design",
                 "node_type_version": "10.0.0",
                 "binding_id": "proteinmpnn.design.local",
-                "binding_version": "12.0.0",
+                "binding_version": "11.0.0",
                 "node_parameters": {
                     "effective_seed": 2066001,
                     "num_sequences": 2,

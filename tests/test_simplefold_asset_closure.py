@@ -11,7 +11,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from core.local_torch_device import expected_local_torch_device
 
 from modules.folding.simplefold_asset_closure import (
     SimpleFoldClosureFile,
@@ -205,11 +204,11 @@ def test_readiness_does_not_rewrite_local_declaration_errors(
 
     with pytest.raises(RuntimeError, match="fixture declaration error"):
         folding_adapter.simplefold_readiness({
-            "device": expected_local_torch_device(),
+            "device": contract.SIMPLEFOLD_DEVICE,
         })
     with pytest.raises(RuntimeError, match="fixture declaration error"):
         confidence_adapter.simplefold_confidence_readiness({
-            "device": expected_local_torch_device(),
+            "device": contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
         })
 
 
@@ -324,12 +323,12 @@ def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
     for binding_id, version, closure in (
         (
             "folding.fold.simplefold_local",
-            "11.0.0",
+            "10.0.0",
             SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
         ),
         (
             "folding.simplefold_confidence.simplefold_local",
-            "7.0.0",
+            "6.0.0",
             SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         ),
     ):

@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from core.local_torch_device import expected_local_torch_device
 
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from datatypes.candidate import CandidateCollection
@@ -45,7 +44,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROJECT_ID = "canonical-3gb1"
 RUN_LABEL = "fresh-canonical-3gb1"
 PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
-PROTEINMPNN_BINDING_VERSION = "12.0.0"
+PROTEINMPNN_BINDING_VERSION = "11.0.0"
 PROTEINMPNN_METHOD_ID = "proteinmpnn.design.v_48_020_8907e667"
 PROTEINMPNN_METHOD_VERSION = "6.0.0"
 REMOTE_BINDINGS = {
@@ -74,7 +73,7 @@ def _environment() -> dict[tuple[str, str], Any]:
     environment = biohub_esm3_esmfold2_environment()
     environment[(PROTEINMPNN_BINDING_ID, PROTEINMPNN_BINDING_VERSION)] = {
         "values": {
-            "device": expected_local_torch_device(),
+            "device": "cpu",
             "provider_root": Path(
                 os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
             ).resolve(),

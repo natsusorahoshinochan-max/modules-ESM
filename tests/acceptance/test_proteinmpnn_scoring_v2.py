@@ -52,12 +52,10 @@ def _environment(
     binding_id: str,
     binding_version: str,
 ) -> dict[tuple[str, str], dict[str, dict[str, object]]]:
-    from core.local_torch_device import expected_local_torch_device
-
     return {
         (binding_id, binding_version): {
             "values": {
-                "device": expected_local_torch_device(),
+                "device": "cpu",
                 "provider_root": Path(
                     os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
                 ).resolve(),
@@ -154,10 +152,7 @@ def _decode(
 
 
 def _expected_3gb1_invocation_provenance() -> dict[str, Any]:
-    from core.local_torch_device import expected_local_torch_device
-
     return {
-        "provider_device": expected_local_torch_device(),
         "provider_residue_projection": {
             "position_semantics": "one_based_chain_local",
             "workbench_chain_order": ["A"],
@@ -217,7 +212,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
             node_type_id="proteinmpnn.score",
             node_type_version="7.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="9.0.0",
+            binding_version="8.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -259,7 +254,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.score.local",
-        binding_version="9.0.0",
+        binding_version="8.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -331,7 +326,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
             node_type_id="proteinmpnn.design",
             node_type_version="10.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="12.0.0",
+            binding_version="11.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -366,7 +361,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.design.local",
-        binding_version="12.0.0",
+        binding_version="11.0.0",
     )
 
     assert projection["status"] == "succeeded", events

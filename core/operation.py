@@ -271,11 +271,6 @@ class EngineInvocationProvenance:
     effective_randomness: InvocationRandomness | None = None
     project_input_filename: str | None = None
     provider_residue_projection: ProviderResidueProjection | None = None
-    provider_device: str | None = None
-
-    def __post_init__(self) -> None:
-        if self.provider_device not in (None, "cpu", "cuda"):
-            raise ValueError("provider device provenance is invalid")
 
 
 @dataclass(frozen=True, slots=True)

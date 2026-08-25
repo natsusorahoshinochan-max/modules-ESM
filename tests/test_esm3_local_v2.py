@@ -10,7 +10,6 @@ import hashlib
 from typing import Any
 
 import pytest
-from core.local_torch_device import expected_local_torch_device
 
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -82,15 +81,13 @@ def _local_environment(tmp_path: Path) -> dict[str, Any]:
         "model_snapshot_revision": (
             "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
         ),
-        "device": expected_local_torch_device(),
+        "device": "cpu",
         "runtime_directory": tmp_path / "local-runtime",
         "performance_settings": {},
     }
 
 
 def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
-    from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
-
     registrations = {
         registration.package_id: registration
         for registration in module_registrations()
@@ -114,7 +111,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         local = catalog.require_contract(
             "binding",
             f"esm3.{operation}.local_open",
-            "9.0.0",
+            "8.0.0",
         )
         remote = catalog.require_contract(
             "binding",
@@ -135,9 +132,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         assert local.descriptor["implementation_identity"][
             "model"
         ] == "esm3_sm_open_v1"
-        assert local.descriptor["implementation_identity"][
-            "device_policy"
-        ] == LOCAL_TORCH_DEVICE_POLICY
+        assert local.descriptor["implementation_identity"]["device"] == "cpu"
         assert local.descriptor["implementation_identity"][
             "torch_version"
         ] == "2.13.0"
@@ -223,7 +218,7 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
         "model_snapshot_revision": (
             local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
         ),
-        "device": expected_local_torch_device(),
+        "device": "cpu",
         "runtime_directory": runtime_directory,
         "performance_settings": {},
     }
@@ -261,43 +256,6 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
         local_adapter.resolve_local_runtime(environment)
 
 
-def test_local_readiness_rejects_linux_when_cuda_is_unavailable(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import sys
-
-    import torch
-
-    import modules.esm3.local_adapter as local_adapter
-
-    snapshot = tmp_path / "snapshot"
-    runtime_directory = tmp_path / "runtime"
-    snapshot.mkdir()
-    runtime_directory.mkdir()
-    monkeypatch.setattr(sys, "platform", "linux")
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    monkeypatch.setattr(
-        torch,
-        "__version__",
-        f"{local_adapter.LOCAL_ESM3_TORCH_VERSION}+cu130",
-    )
-    monkeypatch.setattr(
-        local_adapter,
-        "validate_installed_provider_checkout",
-        lambda *_args: None,
-    )
-    monkeypatch.setattr(local_adapter, "LOCAL_ESM3_WEIGHT_SHA256", {})
-
-    assert local_adapter.local_readiness({
-        "model_snapshot_path": snapshot,
-        "model_snapshot_revision": local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION,
-        "device": "cuda",
-        "runtime_directory": runtime_directory,
-        "performance_settings": {},
-    }).passing is False
-
-
 def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -333,7 +291,7 @@ def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
             "model_snapshot_revision": (
                 local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
             ),
-            "device": expected_local_torch_device(),
+            "device": "cpu",
             "runtime_directory": runtime_directory,
             "performance_settings": {},
         }
@@ -360,7 +318,7 @@ def test_staging_failure_retains_staged_root_cleanup_type(
     runtime = local_adapter.LocalESM3Runtime(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
-        device=expected_local_torch_device(),
+        device="cpu",
         performance_settings={},
         artifact_sources={"fixture.pth": source},
     )
@@ -415,10 +373,8 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
         def float(self) -> FakeESM3:
             return self
 
-    received_devices: list[str] = []
-
     def main_builder(device: object = "cpu") -> FakeESM3:
-        received_devices.append(str(device))
+        del device
         assert esm3_constants.data_root("esm3") == runtime.snapshot_path
         return FakeESM3()
 
@@ -436,7 +392,7 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
     runtime = local_adapter.LocalESM3Runtime(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
-        device=expected_local_torch_device(),
+        device="cpu",
         performance_settings={},
         artifact_sources={"fixture.pth": artifact},
     )
@@ -461,7 +417,6 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
         runtime,
         model_name=local_adapter.LOCAL_ESM3_MODEL,
     )
-    assert received_devices == [runtime.device]
     staged_root = client._protein_workbench_staged_root
     assert staged_root.is_dir()
     assert esm3_constants.data_root is original_data_root
@@ -901,7 +856,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     binding = catalog.require_contract(
         "binding",
         f"esm3.{operation}.local_open",
-        "9.0.0",
+        "8.0.0",
     )
     method = catalog.require_contract(
         "method",
@@ -1079,7 +1034,6 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         environment={
             "model_snapshot_path": runtime.snapshot_path,
             "runtime_directory": runtime.runtime_directory,
-            "device": expected_local_torch_device(),
         },
         resources=InvocationResources(),
         model_name=local_adapter.LOCAL_ESM3_MODEL,

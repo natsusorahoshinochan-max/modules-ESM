@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from core.local_torch_device import expected_local_torch_device
 
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
@@ -2035,7 +2034,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             "model_snapshot_revision": (
                 local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
             ),
-            "device": expected_local_torch_device(),
+            "device": "cpu",
             "runtime_directory": local_runtime_directory,
             "performance_settings": {},
         }
@@ -2066,10 +2065,6 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         "forbidden_public_fragments": (
             "ctk-secret-must-not-publish",
         ),
-    }
-    local_generation_common = {
-        **generation_common,
-        "binding_version": "9.0.0",
     }
     esmc_common = {
         **generation_common,
@@ -2242,7 +2237,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"sequence_candidates": 1},
-            **local_generation_common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="structure-local",
@@ -2262,7 +2257,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 ),
             ),
             expected_candidate_counts={"structure_candidates": 1},
-            **local_generation_common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="paired-local",
@@ -2287,7 +2282,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                 "sequence_candidates": 1,
                 "structure_candidates": 1,
             },
-            **local_generation_common,
+            **generation_common,
         ),
         ModulePackageContractCase(
             case_id="direct-esmc",

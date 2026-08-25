@@ -18,13 +18,8 @@ from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict
 
 from core.operation import (
-    EngineInvocationProvenance,
     OperationResources,
     ReadinessResult,
-)
-from core.local_torch_device import (
-    expected_local_torch_device,
-    local_torch_device_is_available,
 )
 from datatypes.structure import (
     ResolvedStructureResidueAxis,
@@ -75,16 +70,9 @@ def simplefold_confidence_runtime_structurally_available() -> bool:
 def simplefold_confidence_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    expected_device = expected_local_torch_device()
-    if environment["device"] != expected_device:
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="simplefold_confidence_runtime_unavailable",
-        )
-    import torch
-
-    if not local_torch_device_is_available(torch, expected_device):
+    if environment["device"] != (
+        simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
+    ):
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -211,7 +199,6 @@ def _native_existing_structure_confidence(
     residue_axis: ResolvedStructureResidueAxis,
     staging_directory: Path,
     bound_closure: BoundSimpleFoldProviderAssetClosure,
-    device: str,
 ) -> _SimpleFoldConfidenceNativeResult:
     """Run only the latent confidence path over supplied coordinates."""
     import numpy as np
@@ -287,17 +274,19 @@ def _native_existing_structure_confidence(
             record_file.write_text(
                 json.dumps(asdict(target.record), sort_keys=True)
             )
-            torch_device = torch.device(device)
+            device = torch.device(
+                simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE
+            )
             esm_model, esm_dict = esm_registry["esm2_3B"]()
-            esm_model = esm_model.to(torch_device).eval()
-            af2_to_esm = _af2_to_esm(esm_dict).to(torch_device)
+            esm_model = esm_model.to(device).eval()
+            af2_to_esm = _af2_to_esm(esm_dict).to(device)
             batch, provider_structure, _ = process_one_inference_structure(
                 structure_file,
                 record_file,
                 BoltzTokenizer(),
                 BoltzFeaturizer(),
                 ProteinDataProcessor(
-                    device=torch_device,
+                    device=device,
                     scale=16.0,
                     ref_scale=5.0,
                     multiplicity=1,
@@ -314,7 +303,7 @@ def _native_existing_structure_confidence(
             gc.collect()
             plddt_models = _load_reviewed_plddt_models(
                 model_dir,
-                torch_device,
+                device,
             )
             raw_coordinates = torch.zeros_like(batch["coords"])
             atom_mask = torch.zeros_like(
@@ -427,15 +416,11 @@ class LocalSimpleFoldConfidenceAdapter:
             )
             with self._resources.engine_invocation(
                 engine_role=engine_role,
-                invocation_provenance=EngineInvocationProvenance(
-                    provider_device=cast(str, self._environment["device"]),
-                ),
             ):
                 raw_result = _native_existing_structure_confidence(
                     residue_axis=residue_axis,
                     staging_directory=staging_directory,
                     bound_closure=bound_closure,
-                    device=cast(str, self._environment["device"]),
                 )
             values, _, _ = normalize_residue_plddt(
                 native_plddt=raw_result["native_plddt"],

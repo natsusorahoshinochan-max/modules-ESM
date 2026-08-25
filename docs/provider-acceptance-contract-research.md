@@ -120,7 +120,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 - 官方 CLI 同时设置 torch、Python random 和 NumPy seed：[protein_mpnn_run.py](https://github.com/dauparas/ProteinMPNN/blob/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/protein_mpnn_run.py#L24-L31)。
 - score-only 使用 `mask * chain_M * chain_M_pos` 传入 `_scores`：[score-only path](https://github.com/dauparas/ProteinMPNN/blob/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/protein_mpnn_run.py#L239-L264)。design 在 sample 后使用实际 decoding order 再 forward，并以同一 designed-residue mask 计分：[design path](https://github.com/dauparas/ProteinMPNN/blob/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/protein_mpnn_run.py#L309-L340)。
 
-当前 Provider runtime 的模型结构、21-token alphabet、hidden dimension/layers/neighbors、checkpoint、平台设备策略/eval、`parse_PDB` 和 `tied_featurize` 大体遵循该固定上游，见 [provider_runtime.py](../modules/proteinmpnn/provider_runtime.py)。Adapter 也显式记录 Workbench chain order、Provider chain order和 chain-local one-based residue projection，并把生成序列恢复回 Workbench order，见 [adapter.py](../modules/proteinmpnn/adapter.py)。这个翻译方向是正确的。
+当前 Provider runtime 的模型结构、21-token alphabet、hidden dimension/layers/neighbors、checkpoint、CPU/eval、`parse_PDB` 和 `tied_featurize` 大体遵循该固定上游，见 [provider_runtime.py](../modules/proteinmpnn/provider_runtime.py)。Adapter 也显式记录 Workbench chain order、Provider chain order和 chain-local one-based residue projection，并把生成序列恢复回 Workbench order，见 [adapter.py](../modules/proteinmpnn/adapter.py)。这个翻译方向是正确的。
 
 ### 已确认的算法/evidence 漂移
 
@@ -130,11 +130,11 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 ### gate 必须证明
 
-- 固定 commit、checkpoint digest、model name、Binding device policy、实际 invocation device、模型结构参数以及 `backbone_noise`；
+- 固定 commit、checkpoint digest、model name、CPU/device、模型结构参数以及 `backbone_noise`；
 - design 精确进入 `tied_sample`，并证明 seed、temperature、number of sequences、omit `X`、fixed-position/chain constraints、backbone noise 等参数；
 - score 精确进入固定上游 forward，loss mask 是 `mask * chain_M * chain_M_pos`，decoding order 的随机种子与 provenance 一致；
 - 输入 residue IDs 到 Provider `chain-local 1-based` position 的完整 mapping；至少一个 fixture 的 Workbench chain order 与 Provider design-first order 不同，并分别测试“同一 partition 内的顺序”和“design/fixed partition 间的顺序”；
-- design 输出 device-qualified sequence oracle、effective seed 和恢复后的 residue IDs；score 输出固定结构/序列的 provider-native binary32 NLL，并以明确的窄数值容差验证目标 CPU/GPU kernel；
+- design 输出 exact sequence digest、effective seed 和恢复后的 residue IDs；score 输出固定结构/序列的 provider-native binary32 NLL，并以明确的窄数值容差验证跨 CPU kernel 一致性；
 - designable residue 缺失所需 N/CA/C/O 时在调用前 fail fast；fixed parent 中缺失 backbone atom 时仍按固定上游 mask 语义保留。这两个是科学输入/translation 事实，不是 malformed Provider 测试。
 
 现有门禁已有很好的正向基础：
@@ -206,9 +206,8 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 [`esmfold2_remote.py`](../modules/folding/esmfold2_remote.py) 和
 [`esmfold2_local.py`](../modules/folding/esmfold2_local.py) 拥有。remote 路径调用官方
 `client.fold(sequence, model_name=..., config=...)`，固定 model
-`esmfold2-fast-2026-05`；local 路径固定 SDK revision、snapshot/artifact identities、
-Linux/Windows CUDA、macOS CPU 的 Binding device policy 和 ESMC `fp32` precision，
-并用固定 fold 参数与 seed 调用 Provider；CUDA 不可用时禁止回退 CPU。
+`esmfold2-fast-2026-05`；local 路径固定 SDK revision、snapshot/artifact identities、CPU device
+和 ESMC `fp32` precision，并用固定 fold 参数与 seed 调用 Provider。
 
 ### gate 必须证明
 

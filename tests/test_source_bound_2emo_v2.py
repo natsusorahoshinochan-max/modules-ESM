@@ -12,7 +12,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
-from core.local_torch_device import expected_local_torch_device
 import torch
 
 from core.catalog.builder import (
@@ -649,9 +648,9 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     )
 
     environment = {
-        ("proteinmpnn.design.local", "12.0.0"): {
+        ("proteinmpnn.design.local", "11.0.0"): {
             "values": {
-                "device": expected_local_torch_device(),
+                "device": "cpu",
                 "provider_root": ROOT / "repositories" / "ProteinMPNN",
             },
         },
@@ -901,7 +900,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             for item in replay.projection["node_dispositions"]
         }
         assert replay_dispositions["import-input"] == "executed"
-        assert replay_dispositions["design-sequences"] == "executed"
+        assert replay_dispositions["design-sequences"] == "cache_replayed"
         assert replay_dispositions["fold-esmfold2"] == "executed"
         emit_stress_report(
             "fixed_backbone_design_2emo",
@@ -921,9 +920,8 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             },
         )
 
-    assert len(proteinmpnn.requests) == 2
+    assert len(proteinmpnn.requests) == 1
     request = proteinmpnn.requests[0]
-    assert proteinmpnn.requests[1] == request
     assert request.target_length == 224
     assert request.model_name == "v_48_020"
     assert request.num_sequences == 8

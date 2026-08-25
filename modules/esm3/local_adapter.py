@@ -20,10 +20,6 @@ from core.operation import (
     ReadinessResult,
     retain_secondary_cleanup_exception,
 )
-from core.local_torch_device import (
-    expected_local_torch_device,
-    local_torch_device_is_available,
-)
 from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
@@ -54,6 +50,7 @@ LOCAL_ESM3_WEIGHT_SHA256 = {
         "f76d074efcaccfe21365a4fa96f212dadd66798e1e49d809ab7ffbe025d227c9"
     ),
 }
+LOCAL_ESM3_DEVICE = "cpu"
 LOCAL_ESM3_TORCH_VERSION = "2.13.0"
 LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
 _LOCAL_ESM3_SDK_ROOT_LOCK = RLock()
@@ -132,8 +129,7 @@ def _validated_performance_settings(
 
 
 def _validate_device(device: object) -> str:
-    expected_device = expected_local_torch_device()
-    if device != expected_device:
+    if device != LOCAL_ESM3_DEVICE:
         raise LocalESM3RuntimeUnavailable(
             "local ESM-3 device does not match the Binding"
         )
@@ -149,11 +145,7 @@ def _validate_device(device: object) -> str:
         raise LocalESM3RuntimeUnavailable(
             "local ESM-3 Torch runtime does not match the Binding"
         )
-    if not local_torch_device_is_available(torch, expected_device):
-        raise LocalESM3RuntimeUnavailable(
-            "local ESM-3 policy-selected Torch device is unavailable"
-        )
-    return expected_device
+    return LOCAL_ESM3_DEVICE
 
 
 def resolve_local_runtime(
@@ -196,7 +188,7 @@ def _trusted_local_runtime(
     return LocalESM3Runtime(
         snapshot_path=snapshot_path,
         runtime_directory=Path(environment["runtime_directory"]),
-        device=cast(str, environment["device"]),
+        device=LOCAL_ESM3_DEVICE,
         performance_settings=dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
         artifact_sources={
             relative_path: snapshot_path / relative_path
@@ -293,16 +285,13 @@ def _bind_builder_to_local_roots(
     builder: FunctionType,
     staged_root: Path,
     snapshot_path: Path,
-    default_device: Any,
 ) -> Callable[[Any], Any]:
     """Bind one SDK builder to staged weights and snapshot data."""
     staged_builder = _bind_builder_to_staged_root(builder, staged_root)
 
-    def load(device: Any = None) -> Any:
+    def load(device: Any = "cpu") -> Any:
         with _sdk_snapshot_root(snapshot_path):
-            return staged_builder(
-                default_device if device is None else device
-            )
+            return staged_builder(device)
 
     return load
 
@@ -334,7 +323,6 @@ def load_local_esm3_client(
                 builder,
                 staged_root,
                 runtime.snapshot_path,
-                torch.device(runtime.device),
             )
             for name, builder in required_builders.items()
         }
@@ -374,24 +362,13 @@ def call_local_provider(
     operation: str,
     *,
     effective_seed: int,
-    device: str,
 ) -> Any:
     """Execute one local call under the exact derived Torch seed."""
     import torch
     from esm.sdk.api import ESMProteinError
 
     try:
-        torch_device = torch.device(device)
-        fork_devices = (
-            [
-                torch_device.index
-                if torch_device.index is not None
-                else torch.cuda.current_device()
-            ]
-            if torch_device.type == "cuda"
-            else []
-        )
-        with torch.random.fork_rng(devices=fork_devices):
+        with torch.random.fork_rng():
             torch.manual_seed(effective_seed)
             result = client.generate(protein, config)
     except ESMProteinError as error:
@@ -415,7 +392,6 @@ class LocalESM3Adapter(_BaseESM3Adapter):
             resources=resources,
             model_name=model_name,
             exact_seed_control=True,
-            provider_device=cast(str, environment["device"]),
         )
         self._environment = environment
         self._resolved_client: Any | None = None
@@ -453,7 +429,6 @@ class LocalESM3Adapter(_BaseESM3Adapter):
             config,
             provider_operation,
             effective_seed=cast(int, effective_call_seed),
-            device=cast(str, self._environment["device"]),
         )
 
     def _admit_confidence(self, result: Any) -> ESM3Confidence:
