@@ -333,10 +333,16 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         isinstance(value, float) and 0.0 <= value <= 100.0
         for value in per_residue
     )
-    assert hashlib.sha256(
-        canonical_json_bytes(per_residue)
-    ).hexdigest() == (
-        "60722e00f6b0178d5cebc9c24fd51b75c14f9f92303c0b984af90121ff7570e3"
+    expected_digest = {
+        "cpu": (
+            "60722e00f6b0178d5cebc9c24fd51b75c14f9f92303c0b984af90121ff7570e3"
+        ),
+        "cuda": (
+            "e0b03f51fae6c2cb959612eb0230b0e3d34c8861b1ee3f44d39fcb6bf800d800"
+        ),
+    }[expected_local_torch_device()]
+    assert hashlib.sha256(canonical_json_bytes(per_residue)).hexdigest() == (
+        expected_digest
     )
     missing_ca_mask = tuple(value is None for value in per_residue)
     assert missing_ca_mask == (False,) * 56
