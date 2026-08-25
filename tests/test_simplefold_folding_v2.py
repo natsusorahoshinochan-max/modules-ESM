@@ -19,6 +19,7 @@ from core.local_torch_device import (
     LOCAL_TORCH_DEVICE_POLICY,
     expected_local_torch_device,
 )
+from tests.support.local_torch_device import provider_free_cpu_device_policy
 
 pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
 

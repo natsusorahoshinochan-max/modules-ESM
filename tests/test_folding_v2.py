@@ -16,6 +16,7 @@ from unittest.mock import patch
 import pytest
 from core.local_torch_device import expected_local_torch_device
 import torch
+from tests.support.local_torch_device import provider_free_cpu_device_policy
 
 pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
 

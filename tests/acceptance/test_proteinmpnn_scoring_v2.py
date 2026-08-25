@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from core.local_torch_device import expected_local_torch_device
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -52,8 +53,6 @@ def _environment(
     binding_id: str,
     binding_version: str,
 ) -> dict[tuple[str, str], dict[str, dict[str, object]]]:
-    from core.local_torch_device import expected_local_torch_device
-
     return {
         (binding_id, binding_version): {
             "values": {
@@ -277,7 +276,10 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         "proteinmpnn.score.v_48_020_8907e667"
     )
     assert observation.context == IntrinsicObservationContext()
-    expected = 1.385357141494751
+    expected = {
+        "cpu": 1.385357141494751,
+        "cuda": 1.3671133518218994,
+    }[expected_local_torch_device()]
     binary32_cross_platform_tolerance = 16 * 2**-23
     assert observation.value == pytest.approx(
         expected,
@@ -377,10 +379,16 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     assert candidates.item_type == "protein.sequence"
     assert len(candidates.items) == 1
     candidate = candidates.items[0]
-    assert hashlib.sha256(
-        candidate.data.sequence.encode()
-    ).hexdigest() == (
-        "b89c0a40b93d8b5cbfffd0b39d219a2b01703898e9956a3e893ba7ac02ec9eea"
+    expected_digest = {
+        "cpu": (
+            "b89c0a40b93d8b5cbfffd0b39d219a2b01703898e9956a3e893ba7ac02ec9eea"
+        ),
+        "cuda": (
+            "1a96539c4a8e0233e9910e05f75a4725b1a3f652095957af7123c44db5db41ac"
+        ),
+    }[expected_local_torch_device()]
+    assert hashlib.sha256(candidate.data.sequence.encode()).hexdigest() == (
+        expected_digest
     )
     assert candidate.metadata["effective_call_seed"] == 4484333622234277
     assert "model" not in candidate.metadata

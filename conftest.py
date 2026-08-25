@@ -43,16 +43,6 @@ def isolated_project_dir() -> str:
     return tempfile.mkdtemp(prefix="test-project-", dir=project_root)
 
 
-@pytest.fixture
-def provider_free_cpu_device_policy(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Keep provider-free runtime tests independent of host accelerators."""
-    import core.local_torch_device as local_torch_device
-
-    monkeypatch.setattr(local_torch_device.sys, "platform", "darwin")
-
-
 def pytest_unconfigure(config: pytest.Config) -> None:
     global _owned_test_root
     if _owned_test_root is not None:

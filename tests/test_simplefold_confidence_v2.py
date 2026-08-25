@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
+from tests.support.local_torch_device import provider_free_cpu_device_policy
 
 pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
 
