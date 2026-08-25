@@ -9,6 +9,7 @@ import hashlib
 import json
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any, Literal, Mapping
 
 from fastapi.testclient import TestClient
@@ -211,6 +212,34 @@ def test_local_provider_memory_retains_only_the_active_provider_state() -> None:
 
     memory.release()
     assert second == {}
+
+
+def test_local_provider_memory_releases_torch_cuda_cache_after_state() -> None:
+    from core.execution.resources import LocalProviderMemory
+
+    calls: list[str] = []
+
+    class ResidentModel:
+        def __del__(self) -> None:
+            calls.append("model-released")
+
+    class Cuda:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def empty_cache() -> None:
+            calls.append("cuda-cache-released")
+
+    memory = LocalProviderMemory(torch_module=SimpleNamespace(cuda=Cuda()))
+    with memory.use("local-esmfold2") as state:
+        state["model"] = ResidentModel()
+
+    with memory.use("simplefold-folding"):
+        pass
+
+    assert calls == ["model-released", "cuda-cache-released"]
 
 
 def _direct_catalog(

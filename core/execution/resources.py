@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 import os
 import signal
+import sys
 import threading
 import time
 from typing import Any, ContextManager, Protocol
@@ -33,9 +34,10 @@ class _InvocationRecorder(Protocol):
 class LocalProviderMemory:
     """Keep memory resident only for the active local Provider."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, torch_module: Any | None = None) -> None:
         self._active_provider_id: str | None = None
         self._state: dict[object, object] = {}
+        self._torch_module = torch_module
 
     @contextmanager
     def use(
@@ -49,8 +51,17 @@ class LocalProviderMemory:
         yield self._state
 
     def release(self) -> None:
+        had_active_provider = self._active_provider_id is not None
         self._state.clear()
         self._active_provider_id = None
+        if not had_active_provider:
+            return
+        torch_module = self._torch_module or sys.modules.get("torch")
+        if torch_module is None:
+            return
+        cuda = torch_module.cuda
+        if cuda.is_available():
+            cuda.empty_cache()
 
 
 def _signal_process_group(
