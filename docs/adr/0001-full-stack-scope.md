@@ -19,3 +19,9 @@ identity, masking, randomness, lineage, provenance, or evidence.
 The graphical client is one presentation of the current public contracts. Product
 feature scope belongs in product design and implementation plans rather than in
 this architecture decision.
+
+The existing `frontend/` source tree is a retired implementation and is not a
+current product client or verification target. The backend and public protocol
+remain independently deployable while its replacement is designed. Any future
+graphical client remains a separate public-protocol consumer and does not become
+a scientific or runtime contract owner.

@@ -287,7 +287,7 @@ Keep every Provider path in one private Execution Profile outside the repository
 and `.local/verification-results/`. The profile contains paths and transport policy,
 never token contents, and is injected explicitly into each child process.
 
-After the provider-free/backend/frontend matrix passes, commit the clean
+After the provider-free/backend matrix passes, commit the clean
 candidate and run one canonical Campaign:
 
 ```bash

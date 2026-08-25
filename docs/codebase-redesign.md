@@ -56,8 +56,9 @@ the value. They may serialize or copy it, but do not re-derive its meaning.
   safety scanner.
 - Real-Provider acceptance cannot be replaced by mocks.
 
-The detailed current acceptance resolution is recorded in
-[2026-08-17-acceptance-evidence-follow-up-audit.md](./2026-08-17-acceptance-evidence-follow-up-audit.md).
+The current acceptance contract is recorded in
+[backend-verification.md](./backend-verification.md). The dated follow-up audit
+remains evidence for its recorded revision rather than a current command source.
 
 ## Rejected designs
 
@@ -78,7 +79,6 @@ Run focused tests, then:
 ```bash
 .venv/bin/python -m verification.backend routine
 .venv/bin/python -m verification.backend deterministic-acceptance
-cd frontend && npm run lint && npm run build
 ```
 
 After these pass on a clean revision, run one serial 15-tier Acceptance Campaign.

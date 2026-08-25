@@ -50,7 +50,11 @@ Engine Invocation 与 Run 正常终止。
 3. **Translation**：至少一个富输入 fixture 覆盖所有非平凡输入翻译；正向输出 fixture 覆盖单位、尺度、shape、mask、chain order、residue identity 和 candidate association。这里测试“项目是否会翻译”，不是测试“Provider 会不会撒谎”。
 4. **Evidence**：readiness 在调用前通过；Method/Binding digest 正确；每个实际 Provider call 对应一个有正确 role、parent link、randomness、source/model identity 和 residue projection 的 Engine Invocation；Run 无 skip 地结束。
 
-`tests/test_installed_backend_v2.py` 当前的源码树外安装、`python -I`、零 skip 和 Provider-call-required 机制应保留。`tests/acceptance/test_installed_provider_gates_v2.py` 当前的 readiness/Method/Invocation/terminal 断言也应保留。需要补的是每个 Provider 的 invocation observer 与科学翻译断言，而不是再加一层通用“结果看起来合理”验证。
+`tests/test_installed_backend_v2.py` 当时的源码树外安装、`python -I` 和零 skip 机制应保留。
+重复的 Provider-call-required preflight 后来已经删除；当前真实调用由 Binding Readiness、
+Engine Invocation、zero-skip 和 terminal Ledger evidence 闭合。
+`tests/acceptance/test_installed_provider_gates_v2.py` 的 readiness/Method/Invocation/terminal
+断言仍是当前依据。
 
 在 trusted Provider 边界中，下面三类检查必须区分：
 
@@ -198,7 +202,12 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 本地实现的固定调用由 [ESMFold2 processor](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/models/esmfold2/processor.py#L327-L419) 定义：seed context、LM dropout、model args 和 no-grad 都是结果身份的一部分；raw model 到 `MolecularComplexResult` 的 pLDDT/pTM/PAE 解码见 [processor decode](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/models/esmfold2/processor.py#L237-L325)。
 
-当前 [folding adapter](../modules/folding/adapter.py) 的 remote 路径调用官方 `client.fold(sequence, model_name=..., config=...)`，固定 model `esmfold2-fast-2026-05`，FoldingConfig 包含 PAE、100 sampling steps、20 recycles/loops、dropout、LM mask、MSA depth/column mask等；随机性记录为 `provider_uncontrolled`。local 路径固定 SDK revision、snapshot/artifact digests、CPU device 和 ESMC `fp32` precision，并构造 chain A 的 `ProteinInput`/`StructurePredictionInput`，用固定 fold 参数与 seed 调 `ESMFold2InputBuilder.fold`。
+当前 remote/local 路径分别由
+[`esmfold2_remote.py`](../modules/folding/esmfold2_remote.py) 和
+[`esmfold2_local.py`](../modules/folding/esmfold2_local.py) 拥有。remote 路径调用官方
+`client.fold(sequence, model_name=..., config=...)`，固定 model
+`esmfold2-fast-2026-05`；local 路径固定 SDK revision、snapshot/artifact identities、CPU device
+和 ESMC `fp32` precision，并用固定 fold 参数与 seed 调用 Provider。
 
 ### gate 必须证明
 
@@ -259,9 +268,15 @@ archive README 标为 October 2017，规定运行：
 multiple_prediction_wrapper_export.sh sequence_input_file
 ```
 
-并从 `seq_prediction.txt` 读取 percent-sol、scaled-sol、population-sol 和 pI。当前 [solubility adapter](../modules/solubility/adapter.py) 固定的八个源文件 digest 与这次官方 archive 中对应文件逐一相同，当前 argv 也与官方 wrapper 一致。官方论文说明该模型使用 35 个 sequence-derived properties，并以 E. coli soluble-expression 数据训练：[Hebditch et al. 2017](https://pubmed.ncbi.nlm.nih.gov/28575391/)。
+并从 `seq_prediction.txt` 读取 percent-sol、scaled-sol、population-sol 和 pI。当前
+[`protein_sol.py`](../modules/solubility/protein_sol.py) 固定的八个源文件 digest 与这次官方
+archive 中对应文件逐一相同，当前 argv 也与官方 wrapper 一致。官方论文说明该模型使用
+35 个 sequence-derived properties，并以 E. coli soluble-expression 数据训练：
+[Hebditch et al. 2017](https://pubmed.ncbi.nlm.nih.gov/28575391/)。
 
-因此，Protein-Sol 的核心调用和结果字段目前有直接官方证据。当前不足主要在来源 provenance 表述：Method/package 仍把另一个 workspace 的 `vendor/protein-sol` 当 dependency path，而不是用官方 archive URL + archive digest + file digests 作为 canonical source identity。官方 URL 可变，所以 archive digest 必须被正式固定；不能只写下载 URL。
+因此，Protein-Sol 的核心调用和结果字段有直接官方证据。研究快照中的来源 provenance
+缺口后来已经闭合：当前 Module Package 固定官方 archive URL、archive digest 和实际执行
+文件 digests，并把外部位置仅作为 locator。
 
 ### gate 必须证明
 
@@ -271,7 +286,9 @@ multiple_prediction_wrapper_export.sh sequence_input_file
 - 至少两个序列的 batch fixture 和官方 exact golden percent-sol/scaled-sol/pI；
 - Method/evidence 记录官方 release/archive，而不是外部 workspace path。
 
-现有 [Protein-Sol acceptance](../tests/acceptance/test_protein_sol_v2.py) 已用两个官方 fixture 做真实 batch，并固定多个 exact metric 值、Candidate association、Method/evidence/readiness，是所有本次检查对象里较完整的正向 gate。修复重点是 canonical source provenance，并在 execution evidence 中显式闭合 archive/argv。
+当前 [Protein-Sol acceptance](../tests/acceptance/test_protein_sol_v2.py) 使用两个官方 fixture
+执行真实 batch，并固定 exact metric、Candidate association、Method/evidence/readiness。
+canonical source provenance 已由当前 package 和 execution evidence 闭合。
 
 删除：Provider output 是否保持三位小数、population-sol 是否仍恰好 `0.446`、percent 与 scaled 字段是否互相满足 Adapter 推测公式、输出文件是否在两次 stat 间变化、文件大小上限/截断等 trusted-provider 矛盾或本地攻击者分支。解析 documented fields 即可；Metric/Port boundary 拥有类型和尺度。
 
@@ -334,7 +351,7 @@ b7e716a8e611577a465bd3510702fcd12a5de5a38299946707ca8a0995630e4c
 | `biohub_esmfold2` | real client、exact Binding/Method、role、remote evidence | FoldingConfig/actual request 未观察；输出尺度/axis 仅范围 | record-and-delegate client + exact config + confidence/PAE mapping |
 | `local_esmfold2` | real local model、fixed Method、seed、output exists | builder input/args 未观察；无 deterministic full golden | wrapped real builder + exact inputs/args + output digest |
 | `simplefold_confidence` | real assets、3GB1、明确禁止 refold/contact/unneeded models | project-defined identity需更明确；输出只范围/均值；mask fixture缺失 | composition observer + full vector digest + missing-CA axis fixture |
-| `protein_sol` | real official code、two-sequence batch、exact multi-metric goldens、association | canonical official archive provenance/argv evidence | 正式固定 archive digest + command/evidence closure |
+| `protein_sol` | real official code、two-sequence batch、exact multi-metric goldens、association、official archive/file provenance 与 argv evidence | 已闭合 | 保持当前真实 Provider gate |
 | `soluprot` | project-maintained source、目标机源码构建、full/no-TM、exact fixture goldens | 不声明与官方 legacy release 全局等价 | 保持现有真实 Provider gate |
 
 ## 建议修复顺序
@@ -344,7 +361,8 @@ b7e716a8e611577a465bd3510702fcd12a5de5a38299946707ca8a0995630e4c
 3. **把 mkdssp mapping 移到官方 identifiers**。这应与 canonical modified-polymer/residue-axis 修复一起做，避免另一条坐标启发式科学路径。
 4. **为 Biohub ESM-3/ESMFold2 和 local ESMFold2 增加 record-and-delegate observer**。先证明实际调用，再收紧为唯一输出 shape/scale；不要保留“多个 shape 都接受”的猜测。
 5. **升级 SimpleFold confidence gate**。保留当前 no-refold 组合，明确 project-defined Method，增加完整向量 digest 与 missing-CA fixture。
-6. **规范 Protein-Sol source provenance**。固定官方下载物 archive digest，移除对另一个 workspace 的 dependency identity。
+6. **Protein-Sol source provenance 已闭合**。当前 package 固定官方下载物 archive digest，
+   外部 filesystem path 只作为 locator。
 7. **最后统一删除 malformed-provider/adversarial-local checks 和对应测试**。应在每个正向 gate 闭合之后删除，避免把真正的 translation invariant 一并误删。
 
 ## 最终判定

@@ -5,14 +5,13 @@ The retired frontend is not built or installed.
 
 ## 1. Install the Workbench
 
-Use Python 3.12 and a clean checkout:
+Use Python 3.12, `uv`, and a clean checkout. Resolve the exact locked Provider
+environment rather than performing an independent pip resolution:
 
 ```bash
 git clone <repository-url> protein-workbench
 cd protein-workbench
-python3.12 -m venv .venv
-.venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install '.[providers]' build
+uv sync --frozen --extra providers
 ```
 
 Install only the Provider sources and assets required by the Workflows that will
@@ -30,8 +29,8 @@ export PROTEIN_WORKBENCH_SOLUPROT_ROOT=/opt/protein-workbench-providers
 python3.12 -m venv \
   "$PROTEIN_WORKBENCH_SOLUPROT_ROOT/var/environments/soluprot"
 
-.venv/bin/python -m build --wheel \
-  --outdir /tmp/soluprot-dist \
+uv build --wheel \
+  --out-dir /tmp/soluprot-dist \
   repositories/soluprot-next
 
 "$PROTEIN_WORKBENCH_SOLUPROT_ROOT/var/environments/soluprot/bin/python" \

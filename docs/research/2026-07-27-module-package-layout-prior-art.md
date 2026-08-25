@@ -1,7 +1,7 @@
 # Module Package 与 Node Definition 组织方式的外部先例调研
 
 - 日期：2026-07-27
-- 状态：调研记录，尚未形成项目决策
+- 状态：历史 prior-art；建议已由 ADR-0018、ADR-0023 和 ADR-0024 裁决
 - 范围：Protein Workbench v2 的 Module Package、Node Definition、Python
   实现/Adapter、可选依赖与测试组织
 - 来源边界：仅使用官方规范、官方文档和第一方源码
@@ -401,13 +401,13 @@ Airflow 的经验尤其说明：源码中存在包级 YAML 不代表运行时必
 这综合了 pytest `pytester`、CWL conformance suite、nf-core module tests、
 KFP local execution 与 Galaxy Planemo 的共同方向。
 
-## 对当前待决问题的修正版建议
+## 后续采用的决策
 
 原问题是是否接受：
 
 > 每个 Node Type 一份 YAML，但不再为每个节点建立独立目录。
 
-基于以上先例，建议改成更精确的版本：
+基于以上先例，项目采用了更精确的版本：
 
 > 每个 Node Type 维护一份独立 YAML Definition，默认平铺于
 > `ModulePackage/definitions/`；Node Definition、Python 实现与目录不做
@@ -415,17 +415,20 @@ KFP local execution 与 Galaxy Planemo 的共同方向。
 > 专属的模板、脚本、资源或大型 fixtures 时，才创建按 Node ID 命名的资源/
 > 测试子目录。ModulePackage 仍是唯一启动发现和原子注册单位。
 
-推荐接受这个**带默认规则和明确例外**的版本，而不是绝对禁止节点专属目录。
+这个**带默认规则和明确例外**的版本已经由
+[ADR-0023](../adr/0023-independent-node-definitions-flat-by-default.md) 和
+[ADR-0024](../adr/0024-consolidate-nodes-into-capability-packages.md) 接受。
 
-## 仍需后续决定
+## 已裁决的实现边界
 
-本调研没有替项目决定以下实现细节：
+本调研当时没有替项目决定以下实现细节；当前裁决如下：
 
-- `package.py`、`PACKAGE` 是否是最终文件名/符号名；
-- `PACKAGE` 是逐项显式列出 Definition path，还是调用只扫描一层
-  `definitions/*.yaml` 的受控 helper；
-- Node-specific resources 的路径命名规则；
-- 测试工具要求每个 Node 都有真实 smoke fixture，还是允许仅做契约验证；
-- package-level availability 与 adapter-level availability 的合并规则。
+- [ADR-0018](../adr/0018-module-packages-and-startup-discovery.md) 固定入口为
+  `package.py:MODULE_PACKAGE`，每个 Definition resource 显式列出；
+- ADR-0023/0024 允许确有专属资源或大型 fixture 的 Node 使用子目录，默认 Definition 平铺；
+- Contract Test Kit 与 Provider acceptance 分别拥有契约 fixture 和真实 Provider gate；
+- Availability 与 Readiness 由 Execution Binding 拥有，不建立 package-level fallback。
 
-这些应在接受文件粒度原则后逐项讨论，不应从任一外部生态的目录名称机械推导。
+当前实现尚未达到 ADR-0018 的自动 immediate-child discovery，见
+[`known-implementation-gaps.md`](../known-implementation-gaps.md)。这属于实现缺口，不重新打开
+上述目录与注册合同。

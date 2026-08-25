@@ -1,7 +1,26 @@
 # Workflow usability debug：2026-08-03 修复后复测
 
-状态：修复后正式复测完成；三个理论 Workflow 仍无一达到 `FULLY_USABLE`。本轮只记录
-缺口和 Evidence，未修改实现。
+状态：历史复测快照。本文只描述 revision
+`ea9d5658177a36286a2cad9ec73ab0f0e15db7c6` 的缺口和 Evidence；下列 Findings 后来已经
+闭合，不代表当前实现状态。
+
+当前 resolution：
+
+- `WFRET-5G53-001` 的 output publication 与 terminal evidence 由
+  [ADR-0039](../adr/0039-node-outcomes-publish-atomically-through-immutable-value-objects.md)、
+  [ADR-0041](../adr/0041-one-deep-module-owns-node-execution-attempt-lifecycle.md) 和
+  [`test_typed_value_publication_v2.py`](../../tests/test_typed_value_publication_v2.py) 闭合；
+- `WFRET-RUN-001` 的 Readiness Run identity/terminal 行为由
+  [`test_run_runtime.py`](../../tests/test_run_runtime.py) 的当前 public Run tests 固定；
+- `WFRET-2EMO-001` 由 Candidate-associated
+  [`normalize_csh_parent_span_candidates`](../../modules/structure_transform/definitions/normalize_csh_parent_span_candidates.yaml)
+  Node 闭合；
+- `WFRET-5G53-002` 由
+  [`evaluate_inserted_loop`](../../modules/structure_comparison/definitions/evaluate_inserted_loop.yaml)
+  Node 和当前 5G53 Workflow 闭合。
+
+正文中的测试数字、Catalog identity、路径和“当前”都属于上述历史 revision，不应替换成
+今天的值。
 
 ## 1. 执行边界与快照
 

@@ -2,7 +2,8 @@
 
 Date: 2026-08-17
 
-Status: switched
+Status: historical switch record; current verification is owned by
+[`backend-verification.md`](./backend-verification.md)
 
 This switch replaces the earlier defensive Acceptance prototype with the
 trusted scientific design in [codebase-redesign.md](./codebase-redesign.md).
@@ -52,12 +53,12 @@ state machine.
   gates;
 - the standalone `provider-isolation` verification tier.
 
-## Required final verification
+## Verification used for this switch
 
 1. focused provider-free tests;
 2. `routine`;
 3. `deterministic-acceptance`;
-4. frontend lint and build;
+4. frontend lint and build for the implementation that existed at this revision;
 5. compile and diff checks;
 6. one clean-revision, serial, real-Provider Acceptance Campaign covering all
    15 tiers.
@@ -65,3 +66,7 @@ state machine.
 Revision `21bd098` subsequently completed the required one-stage Campaign with
 15/15 tiers. That scientific result remains accepted; the later provider-free
 trust-model cleanup did not rerun Providers.
+
+The frontend implementation covered by item 4 has since been retired. It is not
+part of the current verification gate; its replacement remains a separate future
+client of the public protocol.

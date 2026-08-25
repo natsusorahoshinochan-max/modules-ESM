@@ -2,11 +2,15 @@
 
 日期：2026-07-27
 
-状态：只读研究结论；本文不修改实现
+状态：ADR-0020 之前的历史研究；尺度裁决已经实现
 
-结论适用范围：当前 Protein Workbench、当前 `Biohub/esm` 与
-`apple/ml-simplefold` 检出版本。Meta ESMFold v1 只保留为历史名称辨析证据，
-不属于项目需求、迁移或验收范围。
+结论适用范围：本文中的“当前 Workbench”“当前 Adapter”和测试缺口均指
+2026-07-27 的研究快照。现行公共合同由
+[ADR-0020](../adr/0020-canonical-plddt-contract.md) 定义：所有公开 pLDDT 使用无量纲
+`0–100`，Provider-native `0–1` 只在声明该尺度的 Adapter 边界转换一次。当前实现见
+[`modules/esm3/adapter.py`](../../modules/esm3/adapter.py) 和
+[`modules/folding/domain.py`](../../modules/folding/domain.py)。Meta ESMFold v1 只保留为
+历史名称辨析证据，不属于项目需求、迁移或验收范围。
 
 ## 1. 结论
 
@@ -22,11 +26,11 @@
    当前从 wrapper 接收的是 `0–100`。
 4. 旧版 Meta ESMFold v1 与 ESMFold2 不能混为一谈：它的置信度头先产生 `0–1`，但
    `forward()`/`infer()` 对外返回前已经乘以 100。
-5. 当前 Workbench 因而确实存在公共尺度不一致：
+5. 研究快照中的 Workbench 因而确实存在公共尺度不一致：
    - ESM-3 Score：`0–1`；
    - ESMFold2 Score：`0–1`；
    - SimpleFold Score：`0–100`。
-6. Workbench v2 应在 Adapter 边界按方法的静态合同做一次转换，对外只暴露 `0–100`。
+6. Workbench v2 后来在 Adapter 边界按方法的静态合同实现了一次转换，对外只暴露 `0–100`。
    不能通过 `max(values) <= 1` 猜测尺度。
 7. 仅统一尺度仍不够。公共合同还必须区分逐残基 pLDDT 与“逐残基等权平均 pLDDT”，并保留
    method/model 身份；不同模型的同尺度置信度不代表已经完成跨模型校准。
@@ -48,7 +52,7 @@
   `c7a5570a6be9f5c695126e27c804e77567209934`；
 - `repositories/esm/pixi.lock` 中的 Biohub Transformers ESMFold2 源码固定为
   `3a8956fb4d4ea16b0ec8e71deef2c2909b6a5cbf`，见
-  [pixi.lock](/Users/sorachan/Documents/modules-ESM/repositories/esm/pixi.lock:150)。
+  [`pixi.lock`](../../repositories/esm/pixi.lock)。
 
 旧 ESMFold 仅用于厘清名称与尺度差异，使用 Meta 官方归档仓库提交
 `2b369911bb5b4b0dda914521b9475cad1656b2ac`。当前 Workbench 没有 Meta ESMFold v1
@@ -56,7 +60,7 @@ Module；它实现的是 ESM-3、ESMFold2 和 SimpleFold。
 
 ## 3. 四层尺度总表
 
-| 方法 | 模型头/解码器 | 公开 SDK 或 wrapper | 当前 Workbench Score | 结构文件 |
+| 方法 | 模型头/解码器 | 公开 SDK 或 wrapper | 研究快照中的 Workbench Score | 结构文件 |
 | --- | --- | --- | --- | --- |
 | ESM-3 | `0–1` | `ESMProtein.plddt`: `0–1` | `0–1` | 当前 ESM writer 乘 100 |
 | ESMFold2 | per-atom `0–1`，聚合后的 per-token 仍为 `0–1` | `ESMProtein` / `MolecularComplexResult.plddt`: `0–1` | `0–1` | 当前 ESM writer 乘 100 |
@@ -87,12 +91,11 @@ ESM-3 结构解码器使用默认 `start=0, end=1` 的 `CategoricalMixture`，�
 
 - [官方 `api.py`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L148-L163)。
 
-### 4.3 当前 Workbench Score：仍为 `0–1`
+### 4.3 研究快照中的 Workbench Score：仍为 `0–1`
 
 当前 Adapter 明确验证 provider pLDDT 必须位于 `[0, 1]`，随后计算平均值并原样写入
-`Score.value` 和 `details.per_residue`，见
-[modules/esm3_adapter.py](/Users/sorachan/Documents/modules-ESM/modules/esm3_adapter.py:544)
-（544–603 行）。这里没有 canonical `×100` 转换。
+`Score.value` 和 `details.per_residue`。该旧单体 Adapter 已删除；当前转换由
+[`modules/esm3/adapter.py`](../../modules/esm3/adapter.py) 拥有。
 
 ### 4.4 当前结构写出：`0–100`
 
@@ -103,17 +106,16 @@ ESM-3 结构解码器使用默认 `start=0, end=1` 的 `CategoricalMixture`，�
 - [PDB atom B-factor 乘 100](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/structure/protein_chain.py#L221-L237)；
 - [mmCIF local QA metric 乘 100](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/structure/protein_chain.py#L366-L373)。
 
-Workbench 的 ESM-3 结构路径调用 `esm_protein.to_pdb_string()`，见
-[modules/esm3_adapter.py](/Users/sorachan/Documents/modules-ESM/modules/esm3_adapter.py:465)
-（465–484 行），所以“PDB 已是 0–100”不能反推“Workbench Score 已是 0–100”。
+研究快照中的 ESM-3 结构路径调用 `esm_protein.to_pdb_string()`，所以“PDB 已是 0–100”
+不能反推“Workbench Score 已是 0–100”。当前翻译见
+[`modules/esm3/adapter.py`](../../modules/esm3/adapter.py)。
 
 ### 4.5 版本 caveat
 
 “ESM writer 一直会恢复到 0–100”并非历史上始终成立。当前缩放逻辑来自后续的官方
 `oss sync`；旧提交 `e2f7a1c...` 曾直接把 `0–1` confidence 写进 B-factor。仓库内
 2026-07-21 的封存研究包也明确是历史证据，不能替代当前实现，见
-[research/README.md](/Users/sorachan/Documents/modules-ESM/docs/biohub-api-reference/research/README.md:1)
-（1–20 行）。
+[`biohub-api-reference/research/README.md`](../biohub-api-reference/research/README.md)。
 
 因此 Adapter 和 manifest 必须记录 SDK/源码版本，不能把文件写出行为视为永恒不变。
 
@@ -135,17 +137,18 @@ Workbench 的 ESM-3 结构路径调用 `esm_protein.to_pdb_string()`，见
 ESM 的 processor 把 `output["plddt"]` 原样放入 `MolecularComplexResult.plddt`，见
 [官方 `processor.py`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/models/esmfold2/processor.py#L270-L299)。
 
-### 5.2 当前 Workbench Score：`0–1`
+### 5.2 研究快照中的 Workbench Score：`0–1`
 
-Workbench 从 `ESMProtein.plddt` 取值、求平均并原样写进 Score，见
-[modules/esmfold2_adapter.py](/Users/sorachan/Documents/modules-ESM/modules/esmfold2_adapter.py:108)
-（108–132 行）。当前代码既没有乘 100，也没有声明 Score 的数值尺度。
+Workbench 当时从 `ESMProtein.plddt` 取值、求平均并原样写进 Score。该旧单体 Adapter
+已经删除；当前一次性转换由
+[`modules/folding/domain.py`](../../modules/folding/domain.py) 以及 remote/local ESMFold2
+Adapters 使用。
 
 ### 5.3 结构写出：`0–100`
 
-Workbench 先把 `ESMProtein.plddt` 原样交给 `ProteinChain.confidence`，再使用 ESM writer，
-见 [modules/esmfold2_adapter.py](/Users/sorachan/Documents/modules-ESM/modules/esmfold2_adapter.py:38)
-（38–47 行）。共享 writer 会乘以 100；`MolecularComplex` 的 mmCIF 路径也执行同样转换：
+研究快照中的 Workbench 先把 `ESMProtein.plddt` 原样交给
+`ProteinChain.confidence`，再使用 ESM writer。共享 writer 会乘以 100；
+`MolecularComplex` 的 mmCIF 路径也执行同样转换：
 
 - [官方 `molecular_complex.py`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/structure/molecular_complex.py#L1048-L1071)。
 
@@ -187,7 +190,7 @@ SimpleFold 的 Torch 和 MLX confidence module 都以 `end=1.0` 构造 bin 中�
 期望：
 
 - [官方 Torch 实现](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/model/torch/confidence_module.py#L10-L36)；
-- [本地 MLX 实现](/Users/sorachan/Documents/modules-ESM/repositories/ml-simplefold/src/simplefold/model/mlx/confidence_module.py:10)
+- [`repositories/ml-simplefold` 中的 MLX 实现](../../repositories/ml-simplefold/src/simplefold/model/mlx/confidence_module.py)
   （10–34 行）。
 
 ### 7.2 官方高层推理结果：`0–100`
@@ -203,13 +206,12 @@ PDB 与 mmCIF writer 直接使用该数组，不再乘 100：
 - [官方 PDB writer](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/boltz_data_pipeline/write/pdb.py#L75-L94)；
 - [官方 mmCIF writer](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/boltz_data_pipeline/write/mmcif.py#L158-L199)。
 
-### 7.3 当前 Workbench Score：已经是 `0–100`
+### 7.3 研究快照中的 Workbench Score：已经是 `0–100`
 
-Workbench 调用高层 `run_inference()`，随后把 `results["plddts"]` 的平均值原样写入 Score，
-见 [modules/simplefold_adapter.py](/Users/sorachan/Documents/modules-ESM/modules/simplefold_adapter.py:138)
-（138–190 行）。Evaluate 路径也自行乘以 100，见
-[modules/simplefold_adapter.py](/Users/sorachan/Documents/modules-ESM/modules/simplefold_adapter.py:316)
-（316–333 行）。
+Workbench 当时调用高层 `run_inference()`，随后把 `results["plddts"]` 的平均值原样写入
+Score，Evaluate 路径则自行乘以 100。当前 folding 和 existing-structure confidence 路径分别
+见 [`simplefold_adapter.py`](../../modules/folding/simplefold_adapter.py) 和
+[`simplefold_confidence_adapter.py`](../../modules/folding/simplefold_confidence_adapter.py)。
 
 ### 7.4 method identity 的额外发现
 
@@ -221,12 +223,10 @@ SimpleFold 的 pLDDT 并不只由用户选择的 folding model 标识。官方 w
 证据见
 [官方 `wrapper.py`](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L117-L196)。
 
-当前 Workbench `simplefold.evaluate` 允许选择 `360M/700M/1.1B/1.6B/3B`，见
-[definition.yaml](/Users/sorachan/Documents/modules-ESM/modules/simplefold_evaluate/definition.yaml:28)
-（28–38 行）；但 evaluate 实际用于生成 pLDDT 的仍是固定 1.6B latent + pLDDT head，选中的
-folding model 被加载后没有参与 pLDDT 计算，见
-[modules/simplefold_adapter.py](/Users/sorachan/Documents/modules-ESM/modules/simplefold_adapter.py:253)
-（253–265、304–320 行）。
+研究快照中的 `simplefold.evaluate` 暴露过多个 model choice，但实际用于生成 pLDDT 的仍是
+固定 1.6B latent + pLDDT head。当前合同已经将该身份固定在
+[`simplefold_confidence.yaml`](../../modules/folding/definitions/simplefold_confidence.yaml) 和
+folding Method declarations 中。
 
 因此未来的 `method_id` 必须标识真实 confidence head/latent checkpoint，不能仅复用
 `model_name` 参数。
@@ -298,44 +298,20 @@ ESM writer 的输入 confidence 仍应保持 provider-native `0–1`。如果把
 - 调用 writer 前明确转回它要求的 native scale；
 - 不应从已经四舍五入的 PDB B-factor 反向构造 Workbench Score。
 
-## 9. 对当前下游合同的重写影响
+## 9. 历史下游影响与当前 resolution
 
-这不是只修改两个 Adapter 的局部变化。
-
-### 9.1 Filter 阈值需要重写
-
-`selection.filter` 直接用输入数字比较阈值，见
-[modules/filter_candidates/module.py](/Users/sorachan/Documents/modules-ESM/modules/filter_candidates/module.py:46)
-（46–76 行）。现有测试把 pLDDT 当作 `0–1`，使用 `plddt >= 0.7`，见
-[tests/test_selection.py](/Users/sorachan/Documents/modules-ESM/tests/test_selection.py:74)
-（74–103 行）。
-
-采用 canonical `0–100` 后，v2 测试与仓库示例中的该阈值应直接重写为 `70`。项目尚未投入
-使用，因此不实现旧 Workflow 的阈值迁移或兼容解释；旧本地开发状态在 v2 切换时废弃并
-重新生成。
-
-### 9.2 Weighted Rank 不能继续裸加异尺度值
-
-`selection.weighted_rank` 当前直接执行：
-
-```text
-total += weight * score_value
-```
-
-证据见 [modules/weighted_rank/module.py](/Users/sorachan/Documents/modules-ESM/modules/weighted_rank/module.py:89)
-（89–105 行）。测试也假定 pTM 与 pLDDT 都是 `0–1`，见
-[tests/test_selection.py](/Users/sorachan/Documents/modules-ESM/tests/test_selection.py:204)
-（204–236 行）。
-
-若 pLDDT 改成 `0–100`、pTM 保持 `0–1`，相同权重会让 pLDDT 数值贡献放大 100 倍。
-已确认的 v2 合同要求 Weighted Rank 先通过显式、版本化且可审计的 Utility Transform，
-把每个精确 `metric + method` 映射到无量纲 `[0, 1]`，再应用 weight。没有已声明转换时
-Workflow 验证失败。
+这项变化当时不只是两个 Adapter 的局部修改。Filter 阈值必须从 `0.7` 改为 canonical
+`70`；Weighted Rank 不能把 `0–100` pLDDT 与 `0–1` pTM 裸加。当前 Selection 实现和测试见
+[`modules/selection/implementation.py`](../../modules/selection/implementation.py)、
+[`tests/test_selection_v2.py`](../../tests/test_selection_v2.py) 和
+[`tests/test_multi_objective_selection_v2.py`](../../tests/test_multi_objective_selection_v2.py)。
+显式 Utility Transform 的当前裁决由
+[ADR-0021](../adr/0021-weighted-rank-uses-explicit-utilities.md) 拥有。
 
 禁止根据当前 Candidate 集合隐式 min-max，也禁止根据数值范围猜测转换。实际转换身份、
-版本与参数必须持久化并进入 run provenance。
+版本与参数必须持久化并进入 Run provenance。
 
-### 9.3 哪些操作对正比例换算不敏感
+### 9.1 哪些操作对正比例换算不敏感
 
 - 单指标升降序排序不受 `×100` 影响；
 - Pareto dominance 对每一维的正比例换算不变；
@@ -343,29 +319,19 @@ Workflow 验证失败。
 
 即使排序结果碰巧不变，manifest 中的值和 metric contract version 仍必须改变。
 
-### 9.4 v2 不读取旧运行时产物
+### 9.2 v2 不读取旧运行时产物
 
 v2 是首次正式发布前的破坏性合同重置。旧 Workflow、缓存与 manifest 不迁移、不重写，
 也不由 v2 读取；旧格式只产生结构化 `unsupported_schema_version`。仓库跟踪的示例、
 seed Workflow 与测试 fixture 直接重写为 v2，历史研究和 ADR 仅保留为设计证据。
 
-## 10. 当前测试缺口
+## 10. 已闭合的测试要求
 
-1. ESM-3 单元测试当前明确期待 mean pLDDT 为 `0.7`，见
-   [tests/test_esm3.py](/Users/sorachan/Documents/modules-ESM/tests/test_esm3.py:256)
-   （256–263 行）。
-2. ESMFold2 单元测试期待 `0.8`，见
-   [tests/test_folding.py](/Users/sorachan/Documents/modules-ESM/tests/test_folding.py:128)
-   （128–160 行）。
-3. SimpleFold acceptance 只检查 `0 <= value <= 100`，见
-   [tests/acceptance/test_simplefold.py](/Users/sorachan/Documents/modules-ESM/tests/acceptance/test_simplefold.py:33)
-   （33–41 行）。这个断言同时允许错误的 `0–1` 与正确的 `0–100`，不能证明尺度。
-4. ESMFold2 live acceptance 只检查 pLDDT 字段存在，不检查范围或 PDB B-factor 与 Score 的
-   一致关系，见
-   [tests/acceptance/test_biohub_folding.py](/Users/sorachan/Documents/modules-ESM/tests/acceptance/test_biohub_folding.py:38)
-   （38–49 行）。
-
-未来统一契约测试至少应验证：
+当前合同测试覆盖下列要求；现行入口包括
+[`tests/test_esm3_v2.py`](../../tests/test_esm3_v2.py)、
+[`tests/test_folding_v2.py`](../../tests/test_folding_v2.py)、
+[`tests/test_simplefold_confidence_v2.py`](../../tests/test_simplefold_confidence_v2.py) 和
+[`tests/acceptance/test_simplefold_v2.py`](../../tests/acceptance/test_simplefold_v2.py)：
 
 - 一个 native `0.8` 的 ESM-3/ESMFold2 provider 值公开为 `80`；
 - 一个 SimpleFold wrapper 值 `80` 公开后仍为 `80`；
@@ -376,7 +342,7 @@ seed Workflow 与测试 fixture 直接重写为 v2，历史研究和 ADR 仅保�
 
 ## 11. 最终裁决
 
-Workbench v2 应把 pLDDT 的公共尺度固定为 `0–100`。这项裁决不意味着把所有 provider
+Workbench v2 已把 pLDDT 的公共尺度固定为 `0–100`。这项裁决不意味着把所有 provider
 内部张量改成 `0–100`，而是确立一个清晰边界：
 
 ```text
