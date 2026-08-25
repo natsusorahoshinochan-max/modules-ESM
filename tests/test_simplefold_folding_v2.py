@@ -237,7 +237,18 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
             "simplefold.utils.datamodule_utils"
         ),
         "utils.esm_utils": ModuleType("utils.esm_utils"),
+        "hydra": ModuleType("hydra"),
+        "omegaconf": ModuleType("omegaconf"),
     }
+
+    class HydraUtils:
+        instantiate = staticmethod(lambda _config: None)
+
+    class OmegaConf:
+        load = staticmethod(lambda _path: None)
+
+    modules["hydra"].utils = HydraUtils
+    modules["omegaconf"].OmegaConf = OmegaConf
     modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
     modules["simplefold.utils.boltz_utils"].process_structure = object()
     modules["simplefold.utils.boltz_utils"].to_pdb = object()
@@ -639,7 +650,7 @@ def _run_simplefold(
     environment_values: dict[str, Any] | None = None,
     project_id: str = "simplefold",
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
-    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    import modules.folding.package as folding_package
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -680,9 +691,14 @@ def _run_simplefold(
         node_parameters={},
         binding_parameters={},
     )
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_runtime_structurally_available",
+        lambda: True,
+    )
     catalog = build_frozen_catalog(
         (
-            FOLDING_PACKAGE,
+            folding_package.MODULE_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_PREDICTION_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
@@ -821,6 +837,14 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.folding.package as folding_package
+
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_runtime_structurally_available",
+        lambda: False,
+    )
+
     class Client:
         def __init__(self) -> None:
             self.calls: list[dict[str, Any]] = []

@@ -181,7 +181,8 @@ def resolve_local_runtime(
         )
     import torch
 
-    if str(torch.__version__) != LOCAL_TORCH_VERSION:
+    torch_public_version = str(torch.__version__).partition("+")[0]
+    if torch_public_version != LOCAL_TORCH_VERSION:
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 Torch runtime is not exact"
         )

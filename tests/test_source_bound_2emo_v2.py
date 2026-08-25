@@ -892,6 +892,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             project_id,
             committed.json()["workflow_commit_id"],
             request_id=f"provider-free-2emo-replay-{expected_passing}",
+            timeout_seconds=90,
         )
         assert replay.projection["status"] == "succeeded"
         replay_dispositions = {

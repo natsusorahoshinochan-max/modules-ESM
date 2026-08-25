@@ -138,7 +138,8 @@ def _validate_device(device: object) -> str:
             "exact local ESM-3 runtime is unavailable"
         ) from error
 
-    if str(torch.__version__) != LOCAL_ESM3_TORCH_VERSION:
+    torch_public_version = str(torch.__version__).partition("+")[0]
+    if torch_public_version != LOCAL_ESM3_TORCH_VERSION:
         raise LocalESM3RuntimeUnavailable(
             "local ESM-3 Torch runtime does not match the Binding"
         )

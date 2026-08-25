@@ -246,7 +246,7 @@ def _run_confidence(
     environment_values: dict[str, Any] | None = None,
     pdb_string: str | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
-    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    import modules.folding.package as folding_package
     from modules.structure_transform.package import (
         MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
     )
@@ -283,9 +283,14 @@ def _run_confidence(
         node_parameters={},
         binding_parameters={},
     )
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_confidence_runtime_structurally_available",
+        lambda: True,
+    )
     catalog = build_frozen_catalog(
         (
-            FOLDING_PACKAGE,
+            folding_package.MODULE_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_PREDICTION_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
@@ -546,6 +551,14 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.folding.package as folding_package
+
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_confidence_runtime_structurally_available",
+        lambda: False,
+    )
+
     class Client:
         def __init__(self) -> None:
             self.calls: list[dict[str, Any]] = []

@@ -222,6 +222,13 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
         "runtime_directory": runtime_directory,
         "performance_settings": {},
     }
+    import torch
+
+    monkeypatch.setattr(
+        torch,
+        "__version__",
+        f"{local_adapter.LOCAL_ESM3_TORCH_VERSION}+cu130",
+    )
 
     runtime = local_adapter.resolve_local_runtime(environment)
     assert runtime.artifact_sources == {
@@ -243,6 +250,11 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
     wrong_device = {**environment, "device": "mps"}
     with pytest.raises(RuntimeError, match="device does not match"):
         local_adapter.resolve_local_runtime(wrong_device)
+
+    monkeypatch.setattr(torch, "__version__", "2.12.0+cu130")
+    with pytest.raises(RuntimeError, match="Torch runtime does not match"):
+        local_adapter.resolve_local_runtime(environment)
+
 
 def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
     tmp_path: Path,

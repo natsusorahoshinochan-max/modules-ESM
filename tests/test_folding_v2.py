@@ -613,12 +613,30 @@ def test_local_readiness_validates_both_exact_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.folding.esmfold2_local as adapter
+    import torch
 
     environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        torch,
+        "__version__",
+        f"{adapter.LOCAL_TORCH_VERSION}+cu130",
+    )
     conclusion = adapter.local_readiness(environment)
     assert conclusion == ReadinessResult(
         True,
         proof_source="direct-observation",
+    )
+
+    monkeypatch.setattr(torch, "__version__", "2.12.0+cu130")
+    assert adapter.local_readiness(environment) == ReadinessResult(
+        False,
+        proof_source="direct-observation",
+        reason_code="local_runtime_unavailable",
+    )
+    monkeypatch.setattr(
+        torch,
+        "__version__",
+        f"{adapter.LOCAL_TORCH_VERSION}+cu130",
     )
 
     (environment["model_snapshot_path"] / "model.bin").write_bytes(
