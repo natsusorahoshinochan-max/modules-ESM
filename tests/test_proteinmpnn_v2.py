@@ -3498,8 +3498,9 @@ def test_readiness_validates_the_exact_checkout_checkpoint_and_runtime(
     assert proteinmpnn_readiness(
         BindingEnvironment(environment)
     ).passing is True
+    wrong_device = "cpu" if environment["device"] == "cuda" else "cuda"
     assert proteinmpnn_readiness(
-        BindingEnvironment({**environment, "device": "cuda"})
+        BindingEnvironment({**environment, "device": wrong_device})
     ).passing is False
 
 
