@@ -232,7 +232,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
         required_run_labels=("fresh-1pga",),
         environment_configuration=(*_BIOHUB, *_SIMPLEFOLD),
         source_bound=SourceBoundAssets(
-            input_path="pdbs/1PGA-75-gen1_0690.pdb",
+            input_path="examples/v2/structures/1PGA-75-gen1_0690.pdb",
             input_sha256=(
                 "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
             ),
@@ -250,7 +250,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
         lifecycle_receipt_required=True,
         environment_configuration=(*_BIOHUB, *_PROTEINMPNN, *_PROTEIN_SOL),
         source_bound=SourceBoundAssets(
-            input_path="pdbs/2EMO.pdb",
+            input_path="examples/v2/structures/2EMO.pdb",
             input_sha256=(
                 "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
             ),
@@ -268,7 +268,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
         required_run_labels=("fresh-canonical-3gb1",),
         environment_configuration=(*_BIOHUB, *_PROTEINMPNN),
         source_bound=SourceBoundAssets(
-            input_path="pdbs/3GB1.pdb",
+            input_path="examples/v2/structures/3GB1.pdb",
             input_sha256=(
                 "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
             ),
@@ -285,7 +285,7 @@ CANONICAL_ACCEPTANCE_TIERS = (
         required_run_labels=("fresh-5g53",),
         environment_configuration=_BIOHUB,
         source_bound=SourceBoundAssets(
-            input_path="pdbs/5G53.pdb",
+            input_path="examples/v2/structures/5G53.pdb",
             input_sha256=(
                 "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
             ),

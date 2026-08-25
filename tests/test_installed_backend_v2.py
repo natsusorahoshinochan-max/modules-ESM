@@ -147,7 +147,6 @@ import core
 import datatypes
 import examples
 import modules
-import pdbs
 import protein_workbench_public
 from core.catalog.builder import build_frozen_catalog
 from protein_workbench_public.protocol import bundle_bytes, bundle_digest
@@ -160,7 +159,6 @@ origins = {
     "datatypes": str(Path(datatypes.__file__).resolve()),
     "examples": str(Path(examples.__file__).resolve()),
     "modules": str(Path(modules.__file__).resolve()),
-    "pdbs": str(Path(pdbs.__file__).resolve()),
     "public": str(Path(protein_workbench_public.__file__).resolve()),
 }
 assert all(not Path(path).is_relative_to(source_root) for path in origins.values())
@@ -313,18 +311,19 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
         "examples/v2/source-bound-1pga.workflow.json",
         "examples/v2/source-bound-2emo.workflow.json",
         "examples/v2/source-bound-5g53.workflow.json",
-        "pdbs/1PGA-75-gen1_0690.pdb",
-        "pdbs/2EMO.pdb",
-        "pdbs/3GB1.pdb",
-        "pdbs/5G53.pdb",
+        "examples/v2/structures/1PGA-75-gen1_0690.pdb",
+        "examples/v2/structures/2EMO.pdb",
+        "examples/v2/structures/3GB1.pdb",
+        "examples/v2/structures/5G53.pdb",
         "protein_workbench_public/resources/v2/bundle.json",
     }
     assert required <= names
     assert required <= sdist_names
     assert not any(
         name.startswith("tests/")
+        or name.startswith("verification/")
         or "zero_core_packages" in name
-        or "verification-results" in Path(name).parts
+        or ".local" in Path(name).parts
         or {"fixture", "fixtures", "test", "tests"}.intersection(
             Path(name).parts
         )
@@ -332,8 +331,9 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
     )
     assert not any(
         name.startswith("tests/")
+        or name.startswith("verification/")
         or "zero_core_packages" in name
-        or "verification-results" in Path(name).parts
+        or ".local" in Path(name).parts
         or {"fixture", "fixtures", "test", "tests"}.intersection(
             Path(name).parts
         )
@@ -420,7 +420,13 @@ def test_installed_backend_completes_full_public_v2_journey(
             uploaded = client.publish_project_input(
                 project_id,
                 filename="3GB1.pdb",
-                content=(PROJECT_ROOT / "pdbs" / "3GB1.pdb").read_bytes(),
+                content=(
+                    PROJECT_ROOT
+                    / "examples"
+                    / "v2"
+                    / "structures"
+                    / "3GB1.pdb"
+                ).read_bytes(),
             )
             input_reference = uploaded["project_input_ref"]
             assert client.project_input_metadata(
@@ -720,7 +726,6 @@ import core
 import datatypes
 import examples
 import modules
-import pdbs
 import protein_workbench_public
 from protein_workbench_public.bootstrap import create_application
 from core.provider_support import read_private_credential_file
@@ -731,7 +736,6 @@ for package in (
     datatypes,
     examples,
     modules,
-    pdbs,
     protein_workbench_public,
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)

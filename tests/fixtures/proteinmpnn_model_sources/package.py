@@ -39,7 +39,9 @@ from datatypes.structure import ProteinStructure
 _VERSION = "3.0.0"
 _NODE_BINDING_VERSION = "4.0.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_PDB_PATH = _PROJECT_ROOT / "pdbs" / "3GB1.pdb"
+_PDB_PATH = (
+    _PROJECT_ROOT / "examples" / "v2" / "structures" / "3GB1.pdb"
+)
 _PDB_SHA256 = (
     "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
 )
@@ -143,9 +145,9 @@ def _method(operation: str) -> MethodDefinition:
         featurization_identity={"kind": "exact-literal"},
         source_identity={
             "path": (
-                "pdbs/3GB1.pdb"
+                "examples/v2/structures/3GB1.pdb"
                 if operation == "structure"
-                else "pdbs/3GB1.pdb-derived-sequence"
+                else "examples/v2/structures/3GB1.pdb-derived-sequence"
             ),
             "sha256": (
                 _PDB_SHA256

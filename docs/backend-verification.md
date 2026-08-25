@@ -26,7 +26,7 @@ Each invocation replaces Project, Cache, output, and Run roots only in the
 child process. It never writes configured production roots. After pytest exits,
 the verifier retains a bounded JUnit file, sanitized command transcript, and
 environment summary under the ignored
-`verification-results/<tier>/<UTC-run-id>/` directory. Retained directories
+`.local/verification-results/<tier>/<UTC-run-id>/` directory. Retained directories
 are ordinary local verification output.
 
 ## Available tiers
@@ -279,14 +279,14 @@ they are never embedded in the projection or lifecycle WebSocket stream.
 ## Acceptance campaign
 
 Keep every Provider path in one private Execution Profile outside the repository
-and `verification-results/`. The profile contains paths and transport policy,
+and `.local/verification-results/`. The profile contains paths and transport policy,
 never token contents, and is injected explicitly into each child process.
 
 After the provider-free/backend/frontend matrix passes, commit the clean
 candidate and run one canonical Campaign:
 
 ```bash
-CAMPAIGN=verification-results/acceptance-campaign
+CAMPAIGN=.local/verification-results/acceptance-campaign
 PROFILE=/absolute/private/acceptance-profile.json
 .venv/bin/python -m verification.acceptance_cli prepare "$CAMPAIGN" --profile "$PROFILE"
 .venv/bin/python -m verification.acceptance_cli run "$CAMPAIGN" --profile "$PROFILE"

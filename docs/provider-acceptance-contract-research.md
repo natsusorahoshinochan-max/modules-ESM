@@ -12,7 +12,7 @@ release 等价。已经吸收进当前 Method、Adapter 与科学测试的结论
 
 ## 2026-08-03 实施后更新
 
-本文件下文保留发现问题时的证据与修复理由；其中描述的 ProteinMPNN mask/seed/chain-order、mkdssp identifier mapping、ESM-3/ESMFold2 翻译以及真实 Provider 门禁缺口已经在本轮后端修复中处理。最新门禁结果应以 `verification-results/` 中对应 tier 的保留证据为准。
+本文件下文保留发现问题时的证据与修复理由；其中描述的 ProteinMPNN mask/seed/chain-order、mkdssp identifier mapping、ESM-3/ESMFold2 翻译以及真实 Provider 门禁缺口已经在本轮后端修复中处理。最新门禁结果应以 `.local/verification-results/` 中对应 tier 的保留证据为准。
 
 真实 Biohub ESMC 门禁另外揭示了一个 Mock 未覆盖的科学合同错误：锁定 SDK revision `917af90b624535eed1e072d343c717e3ec11fef4` 的真实服务返回 `mean_embedding` shape `(1, 1, 1152)`，`logits.sequence` shape `(L + 2, 64)`。固定 SDK 的 `ESMCForgeInferenceClient._process_logits_response` 仅把服务值转为 float32 tensor，不会添加或删除 batch 轴；上游 cookbook 也明确把 sequence logits 记为 `(L + 2, V)`。原 Adapter 读取 `mean_embedding[0]` 并把 logits 合同写成 `(1, L + 2, 64)`，因此两个 Provider 调用成功后仍以 `TypeError` 失败。
 

@@ -371,11 +371,15 @@ def _csh() -> str:
 
 
 def _2emo() -> str:
-    return (_PROJECT_ROOT / "pdbs" / "2EMO.pdb").read_text()
+    return (
+        _PROJECT_ROOT / "examples" / "v2" / "structures" / "2EMO.pdb"
+    ).read_text()
 
 
 def _5g53() -> str:
-    return (_PROJECT_ROOT / "pdbs" / "5G53.pdb").read_text()
+    return (
+        _PROJECT_ROOT / "examples" / "v2" / "structures" / "5G53.pdb"
+    ).read_text()
 
 
 _FIXTURES = {

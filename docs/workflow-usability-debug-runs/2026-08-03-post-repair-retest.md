@@ -14,11 +14,11 @@
   14 个 Metric 和 2 个 Utility Transform；
 - 当前 React 前端按任务约定排除在测试范围外；唯一验收 surface 为 public v2
   REST/WebSocket protocol；
-- 输入为 Git 管理的 `pdbs/1PGA-75-gen1_0690.pdb`、`pdbs/2EMO.pdb` 和
-  `pdbs/5G53.pdb`；
+- 输入为 Git 管理的 `examples/v2/structures/1PGA-75-gen1_0690.pdb`、
+  `examples/v2/structures/2EMO.pdb` 和 `examples/v2/structures/5G53.pdb`；
 - 未安装依赖、未补下载模型资产、未修改 credential，也未用外部结构/序列处理绕过
   Workbench 合同；
-- `verification-results/` 中的 runtime、public responses、Ledger 和 console log 均为本轮
+- `.local/verification-results/` 中的 runtime、public responses、Ledger 和 console log 均为本轮
   原始 Evidence，不属于实现修改，也不应提交。
 
 本轮先执行能力链路测试；只有完整链路产生终态和要求的科学 Observation 后，才允许进入
@@ -30,23 +30,23 @@
 
 | Gate | 结果 | Evidence |
 |---|---:|---|
-| `routine` | 1190 passed | `verification-results/routine/20260803T122126.681308Z-42970-b754fd8f4bc4c6df/` |
-| `deterministic-acceptance` | 8 passed | `verification-results/deterministic-acceptance/20260803T122407.930942Z-48561-a30cd9e6167ce479/` |
-| `examples-v2` | 12 passed | `verification-results/examples-v2/20260803T122422.914636Z-49081-7eaaf7e119e7efb8/` |
-| `scientific-repro` | 1 passed | `verification-results/scientific-repro/20260803T122425.531540Z-48560-629f86d11e1bfac5/` |
-| `installed-package` | 3 passed | `verification-results/installed-package/20260803T122455.364620Z-49532-45a04666c33b8f3d/` |
-| `local-esmfold2-v2-contract` | 6 passed | `verification-results/local-esmfold2-v2-contract/20260803T122459.989706Z-49531-5f02c9babc81fdb2/` |
+| `routine` | 1190 passed | `.local/verification-results/routine/20260803T122126.681308Z-42970-b754fd8f4bc4c6df/` |
+| `deterministic-acceptance` | 8 passed | `.local/verification-results/deterministic-acceptance/20260803T122407.930942Z-48561-a30cd9e6167ce479/` |
+| `examples-v2` | 12 passed | `.local/verification-results/examples-v2/20260803T122422.914636Z-49081-7eaaf7e119e7efb8/` |
+| `scientific-repro` | 1 passed | `.local/verification-results/scientific-repro/20260803T122425.531540Z-48560-629f86d11e1bfac5/` |
+| `installed-package` | 3 passed | `.local/verification-results/installed-package/20260803T122455.364620Z-49532-45a04666c33b8f3d/` |
+| `local-esmfold2-v2-contract` | 6 passed | `.local/verification-results/local-esmfold2-v2-contract/20260803T122459.989706Z-49531-5f02c9babc81fdb2/` |
 
 ### 2.2 当前环境中的真实 provider gates
 
 | Gate | 结果 | Evidence |
 |---|---|---|
-| Biohub ESM C | passed | `verification-results/installed-biohub-esmc/20260803T122525.661111Z-49814-a03aca94a411eab9/` |
-| Biohub ESM-3 | passed | `verification-results/installed-biohub-esm3/20260803T122557.767791Z-49949-838145141167528b/` |
-| Biohub ESMFold2 | first failed, immediate rerun passed | `verification-results/installed-biohub-esmfold2/20260803T122621.223072Z-50292-f1135783fa3fdda6/` 与 `verification-results/installed-biohub-esmfold2/20260803T122659.684162Z-50510-8b479aa790b62985/` |
-| local ESM-3 | passed | `verification-results/installed-local-esm3/20260803T122815.786782Z-50674-333c0e5b80d9f125/` |
-| mkdssp | passed | `verification-results/installed-mkdssp/20260803T122833.470041Z-51006-b83fe8ed6372a4c5/` |
-| ProteinMPNN | passed | `verification-results/installed-proteinmpnn/20260803T122849.693755Z-51100-42154860c08ea0a3/` |
+| Biohub ESM C | passed | `.local/verification-results/installed-biohub-esmc/20260803T122525.661111Z-49814-a03aca94a411eab9/` |
+| Biohub ESM-3 | passed | `.local/verification-results/installed-biohub-esm3/20260803T122557.767791Z-49949-838145141167528b/` |
+| Biohub ESMFold2 | first failed, immediate rerun passed | `.local/verification-results/installed-biohub-esmfold2/20260803T122621.223072Z-50292-f1135783fa3fdda6/` 与 `.local/verification-results/installed-biohub-esmfold2/20260803T122659.684162Z-50510-8b479aa790b62985/` |
+| local ESM-3 | passed | `.local/verification-results/installed-local-esm3/20260803T122815.786782Z-50674-333c0e5b80d9f125/` |
+| mkdssp | passed | `.local/verification-results/installed-mkdssp/20260803T122833.470041Z-51006-b83fe8ed6372a4c5/` |
+| ProteinMPNN | passed | `.local/verification-results/installed-proteinmpnn/20260803T122849.693755Z-51100-42154860c08ea0a3/` |
 
 Biohub ESMFold2 的第一次失败只保留了公开 `node_execution_failed` / `RuntimeError`，同一
 命令随即通过。因此它是一个暂时性、原因不透明的 observation，不足以单独判为稳定回归。
@@ -165,14 +165,14 @@ schema validation 或 durable write error，publication exception 未被 termina
 ### 4.6 Evidence
 
 - confirmation 完整 console：
-  `verification-results/workflow-usability-debug/2026-08-03/5g53-confirmation/driver-console.log`；
+  `.local/verification-results/workflow-usability-debug/2026-08-03/5g53-confirmation/driver-console.log`；
 - confirmation public events：同目录
   `public/run-events.live.jsonl`；
 - public admission、cancel、Projection、event-reader state 和 summary：同目录 `public/`；
 - primary admission 与原始终止记录：
-  `verification-results/workflow-usability-debug/2026-08-03/current-run/public/5g53/`；
+  `.local/verification-results/workflow-usability-debug/2026-08-03/current-run/public/5g53/`；
 - 两个 Run 的 durable Ledger：
-  `verification-results/workflow-usability-debug/2026-08-03/current-run/runtime/runs/9575bb9d-f0b3-4381-b866-4186d82a4937/`。
+  `.local/verification-results/workflow-usability-debug/2026-08-03/current-run/runtime/runs/9575bb9d-f0b3-4381-b866-4186d82a4937/`。
 
 上述 confirmation log 和 public Evidence 已保留，未删除或覆盖。
 
@@ -202,10 +202,10 @@ Evidence 语义。
 
 Evidence：
 
-- `verification-results/workflow-usability-debug/2026-08-03/current-run/public/1pga-75/run-admission.json`；
-- `verification-results/workflow-usability-debug/2026-08-03/current-run/public/2emo/run-admission.json`；
+- `.local/verification-results/workflow-usability-debug/2026-08-03/current-run/public/1pga-75/run-admission.json`；
+- `.local/verification-results/workflow-usability-debug/2026-08-03/current-run/public/2emo/run-admission.json`；
 - 对应 runtime 位于
-  `verification-results/workflow-usability-debug/2026-08-03/current-run/runtime/runs/`。
+  `.local/verification-results/workflow-usability-debug/2026-08-03/current-run/runtime/runs/`。
 
 ## 6. Finding `WFRET-2EMO-001`：CSH normalization 缺少 Candidate-associated producer
 
@@ -228,8 +228,8 @@ public Catalog 的静态 composition 检查，不冒充该 Run 已执行到 Prot
 
 Evidence：
 
-- `verification-results/workflow-usability-debug/2026-08-03/current-run/public/catalog.json`；
-- `verification-results/workflow-usability-debug/2026-08-03/current-run/public/2emo/workflow-source.json`。
+- `.local/verification-results/workflow-usability-debug/2026-08-03/current-run/public/catalog.json`；
+- `.local/verification-results/workflow-usability-debug/2026-08-03/current-run/public/2emo/workflow-source.json`。
 
 ## 7. Finding `WFRET-5G53-002`：Phase 2 的 loop-specific 判定能力仍未闭合
 

@@ -51,7 +51,7 @@
 - 可复现性：同一 Project、revision 和 Workflow 的 public compile 会稳定返回同一
   `port_type_mismatch`；
 - Evidence：
-  `verification-results/workflow-usability-debug/2026-07-31/1pga-75/maximal-prefix.workflow.json`
+  `.local/verification-results/workflow-usability-debug/2026-07-31/1pga-75/maximal-prefix.workflow.json`
   以及同目录 `authoring-receipts.json`、`compile-response.json`。原始 relocked Workflow
   保持在该 Project 的 durable storage 中。
 
@@ -81,7 +81,7 @@
   因而没有采用；
 - 可复现性：同一请求连续两次稳定返回同一 Node、参数路径和 `invalid_parameter`；
 - Evidence：
-  `verification-results/workflow-usability-debug/2026-07-31/2emo/maximal-prefix.workflow.json`
+  `.local/verification-results/workflow-usability-debug/2026-07-31/2emo/maximal-prefix.workflow.json`
   与同目录 `authoring-response.json`。
 
 ## 5. Finding `WFDBG-5G53-001`
@@ -109,7 +109,7 @@
   非目标 gap 和三个分支插入 residue 的 lineage，因此没有采用；
 - 可复现性：同一请求连续两次稳定返回同一 Node、参数路径和 `invalid_parameter`；
 - Evidence：
-  `verification-results/workflow-usability-debug/2026-07-31/5g53/maximal-prefix.workflow.json`
+  `.local/verification-results/workflow-usability-debug/2026-07-31/5g53/maximal-prefix.workflow.json`
   与同目录 `authoring-response.json`。
 
 ## 6. 首轮结论
@@ -159,7 +159,7 @@ Environment Configuration 下的 provider/model Readiness 不通过，但本轮�
 且 ResidueMap 为 283 matches、零 deletes 与准确 insertion 数。
 
 真实 ProteinMPNN `v_48_020`（锁定 source revision `8907e667` 与 checkpoint SHA-256）
-验收使用规范化后的实际 `pdbs/2EMO.pdb`，返回一条完整 224-aa sequence 与一个有限 native
+验收使用规范化后的实际 `examples/v2/structures/2EMO.pdb`，返回一条完整 224-aa sequence 与一个有限 native
 score；`A:65/A:66/A:67` 固定 parent span 保持为 `SHG`。验收同时确认 provider 的几何
 有效 mask 不再被误用作输出 sequence layout mask：缺少完整 backbone 的固定 residue 会按
 输入身份保留，而同一位置若被声明为 designable 则明确 fail closed。

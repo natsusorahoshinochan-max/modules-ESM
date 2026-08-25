@@ -535,7 +535,7 @@ def run(
         results_root = Path(
             os.environ.get(
                 "PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT",
-                PROJECT_ROOT / "verification-results",
+                PROJECT_ROOT / ".local" / "verification-results",
             )
         )
         result_dir = (

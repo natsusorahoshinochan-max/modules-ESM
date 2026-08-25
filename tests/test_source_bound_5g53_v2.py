@@ -64,7 +64,7 @@ from tests.fixtures.public_v2 import (
 
 
 ROOT = Path(__file__).resolve().parent.parent
-INPUT_PATH = ROOT / "pdbs" / "5G53.pdb"
+INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "5G53.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-5g53.workflow.json"
 INPUT_SHA256 = "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
 BRANCH_LOOP_IDS = {

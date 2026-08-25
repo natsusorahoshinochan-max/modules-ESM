@@ -30,4 +30,4 @@ Run focused tests plus:
 cd frontend && npm run lint && npm run build
 ```
 
-Never commit `keys/`, `projects/`, `verification-results/`, environments, or frontend build output.
+Never commit `.local/`, `keys/`, environments, or frontend build output.

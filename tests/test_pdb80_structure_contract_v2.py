@@ -133,7 +133,9 @@ def test_structure_v4_requires_exactly_80_coordinate_columns(line: str) -> None:
 )
 def test_tracked_project_pdbs_are_canonical_pdb80(filename: str) -> None:
     structure = ProteinStructure(
-        (_PROJECT_ROOT / "pdbs" / filename).read_text()
+        (
+            _PROJECT_ROOT / "examples" / "v2" / "structures" / filename
+        ).read_text()
     )
 
     assert _STRUCTURE_TYPE.decode(_STRUCTURE_TYPE.encode(structure)) == structure
