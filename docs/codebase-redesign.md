@@ -47,7 +47,7 @@ the value. They may serialize or copy it, but do not re-derive its meaning.
 ## Acceptance
 
 - One Execution Profile owns configured Provider paths and remote transport.
-- One Campaign builds the clean candidate and runs all 15 tiers serially once.
+- One Campaign builds the clean candidate and runs all 19 tiers serially once.
 - The first failed tier terminates the Campaign; there is no retry or second
   Certification pass.
 - Each tier asserts its own scientific contract, then retains already-validated
@@ -81,4 +81,4 @@ Run focused tests, then:
 .venv/bin/python -m verification.backend deterministic-acceptance
 ```
 
-After these pass on a clean revision, run one serial 15-tier Acceptance Campaign.
+After these pass on a clean revision, run one serial 19-tier Acceptance Campaign.

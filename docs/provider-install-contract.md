@@ -88,7 +88,8 @@ The current required filenames and SHA-256 manifests are owned once by
 [`modules/folding/esmfold2_contract.py`](../modules/folding/esmfold2_contract.py).
 Readiness admits those exact manifests before Provider entry; the local operation
 then trusts the admitted assets. The environment cannot select another checkpoint,
-precision, device, or model identity.
+model identity, or precision, and it cannot override the Binding-owned platform
+device policy.
 
 ## Current SimpleFold assets
 
@@ -189,10 +190,13 @@ this checkpoint hash once before using it:
 
 The score Method publishes the Provider-native binary32 masked mean. Locked
 source, checkpoint, seed, mask, reduction, scale, and provenance are exact; the
-Method does not promise bitwise equality between different supported CPU and
-PyTorch FP32 kernels. The 3GB1 acceptance oracle therefore uses a pure absolute
-16-binary32-ULP envelope around its reference value and does not round or
-rewrite the published observation.
+Method does not promise bitwise equality or numerical proximity across CPU and
+CUDA devices. The 3GB1 acceptance oracle selects the reference fixed for the
+Binding-owned platform device policy—`1.385357141494751` on CPU and
+`1.3671133518218994` on CUDA—and applies the same pure absolute
+16-binary32-ULP envelope (`1.9073486328125e-6 nats/residue`) around the selected
+reference to admit supported kernel-level binary32 variation. It does not round
+or rewrite the published observation.
 
 Example setup using an operator-owned absolute Provider root:
 
@@ -247,8 +251,9 @@ deployment facts required by an exact active Binding:
 - no owner searches `repositories/`, another workspace, a downloader cache, or a
   network location as a fallback; local ESM-3 receives its already selected
   snapshot through the absolute `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`;
-- environment values cannot change model identity, Method semantics, scientific
-  parameters, device/precision fixed by the Method, or the selected route;
+- environment values cannot change model identity, Method semantics,
+  Method-fixed scientific parameters or precision, the Binding-owned platform
+  device policy, or the selected route;
 - after the owner admits an exact source/asset closure once, internal Provider
   execution trusts it and does not repeat the same proof.
 

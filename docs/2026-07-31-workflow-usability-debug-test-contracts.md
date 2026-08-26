@@ -749,17 +749,9 @@ identity，不能由 Binding version 推断。实际 Workflow 仍只能选择下
 | 1PGA-75 | `folding.fold` | `3.0.0` | `folding.fold.esmfold2_remote` | `3.0.0` |
 | 1PGA-75 | `folding.fold` | `3.0.0` | `folding.fold.simplefold_local` | `3.0.0` |
 
-表中的 source-bound Workflow 保持 Biohub Binding，另有对应的 fresh-local 验收变体。
-该变体按 tier 把声明的 provider-backed Node 换成其 exact local counterpart；不得改变
-阈值、residue scope、lineage 或 pairing。ESMFold2 路径还必须把依赖它的精确
-Observation Selector 与 Contract Lock 一起替换，并只接受、保留下列两个 exact Method
-identity：
-
-- `folding.fold.esmfold2_fast_biohub_2026_05@4.0.0`；
-- `folding.fold.esmfold2_hf_1ebf0e3@6.0.0`。
-
-两种变体都必须用实际执行 Method 记录 provenance，不能把本地 Method 重写成 Biohub
-Method，也不能把下游合同放宽为任意 pLDDT Method。
+当前 Campaign 后来增加的 fresh-local route、exact Method evidence、Observation Selector 与
+Contract Lock 规则不属于本历史版本矩阵；其现行 owner 是
+[`backend-verification.md`](backend-verification.md)。
 
 所需 repository-owned Binding 也必须逐个写入 Workflow，不允许依赖“唯一可用项”的隐式
 选择。本轮允许使用的准确 IDs 为：

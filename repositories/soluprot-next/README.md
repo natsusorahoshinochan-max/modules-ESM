@@ -42,6 +42,13 @@ decoder data files. That filename is not a platform-support claim: readiness
 admits only the two platform pairs above. A future decoder inventory or
 target-specific wheel policy requires an explicit packaging-contract change.
 
+The environment above is a standalone SoluProt runtime, not a complete Protein
+Workbench Provider root. Workbench deployment uses Python 3.12 and the fixed
+`PROTEIN_WORKBENCH_SOLUPROT_ROOT/var/environments/soluprot` plus
+`var/tools/soluprot/usearch` layout documented in the
+[backend deployment contract](../../docs/backend-deployment.md#2-build-soluprot-next-on-the-target-machine).
+Do not point `PROTEIN_WORKBENCH_SOLUPROT_ROOT` at `$SOLUPROT_RUNTIME`.
+
 ## Run
 
 ```bash

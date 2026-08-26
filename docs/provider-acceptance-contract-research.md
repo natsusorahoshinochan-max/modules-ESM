@@ -10,6 +10,16 @@
 release 等价。已经吸收进当前 Method、Adapter 与科学测试的结论仍有效；当前
 权威状态以 `protein_workbench_architecture.md` 和 `backend-verification.md` 为准。
 
+## 2026-08-26 当前裁决补记
+
+当前 local Torch device policy 由 active Execution Binding 拥有：Linux 与 Windows
+选择 CUDA，macOS 选择 CPU；CUDA 平台 Readiness 失败时绝不回退 CPU。当前
+ProteinMPNN native-scoring gate 使用 device-specific 3GB1 reference：CPU 为
+`1.385357141494751`，CUDA 为 `1.3671133518218994`，并在所选 reference 周围应用相同的
+16-binary32-ULP 纯绝对包络。本补记只记录裁决；现行 operational owner 仍是
+[`provider-install-contract.md`](provider-install-contract.md)，下文各节继续保留其带日期的
+历史快照地位。
+
 ## 2026-08-03 实施后更新
 
 本文件下文保留发现问题时的证据与修复理由；其中描述的 ProteinMPNN mask/seed/chain-order、mkdssp identifier mapping、ESM-3/ESMFold2 翻译以及真实 Provider 门禁缺口已经在本轮后端修复中处理。最新门禁结果应以 `.local/verification-results/` 中对应 tier 的保留证据为准。
@@ -140,7 +150,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 现有门禁已有很好的正向基础：
 
 - [installed design and score gate](../tests/acceptance/test_installed_provider_gates_v2.py) 证明真实 Binding/Method 执行；
-- [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时的 3GB1 macOS ARM64 NLL reference `1.385357141494751`；Linux x86_64 观测为 `1.385355830192566`，二者相差 11 binary32 ULP。gate 使用 16 binary32 ULP（`1.9073486328125e-6 nats/residue`）的纯绝对容差容纳不同受支持 CPU/PyTorch FP32 kernel 的末位差异，不改写 provider-native 值；
+- 当时的 [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时记录 3GB1 macOS ARM64 CPU NLL reference `1.385357141494751`，并观察到 Linux x86_64 CPU 值 `1.385355830192566`；这两个历史 CPU 值相差 11 binary32 ULP。当时的 gate 使用 16 binary32 ULP（`1.9073486328125e-6 nats/residue`）的纯绝对容差且不改写 provider-native 值；当前 device-specific gate 见本文件顶部的 2026-08-26 addendum；
 - 同一文件固定 design sequence digest 与 effective seed；
 - [chain-order gate](../tests/acceptance/test_proteinmpnn_chain_order_v2.py) 证明 design B/fix A 后恢复 A,B，并验证 fixed CSH parent 缠有 missing backbone atom 时的保留行为。
 
