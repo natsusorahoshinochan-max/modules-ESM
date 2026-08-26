@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: structure_transform.normalize_csh_parent_span_candidates
-version: "2.0.0"
 title: Normalize Candidate CSH parent spans
 summary: Expands exact CSH components for every structure Candidate while preserving exact parent lineage and publishing subjectless normalization facts for post-admission association.
 category: structure_transform
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact protein-structure parent Candidates containing CSH components.
 outputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One normalized protein-structure child per exact input parent Candidate.
   - name: normalization_facts
     port_type_id: structure_transform.candidate_normalization_facts
-    port_type_version: "1.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Subjectless exact CSH normalization facts keyed to future admitted output slots and structure content.

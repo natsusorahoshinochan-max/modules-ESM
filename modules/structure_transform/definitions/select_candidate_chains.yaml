@@ -1,20 +1,16 @@
-schema_version: "2.1.0"
 node_type_id: structure_transform.select_candidate_chains
-version: "4.0.0"
 title: Select structure Candidate chains
 summary: Selects ordered chains and their MODRES and SEQRES declarations from every structure Candidate while preserving exact parent lineage.
 category: structure_transform
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete structure Candidates whose identities become the sole parents of selected-chain Candidates.
 outputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered selected-chain structure Candidates in one-to-one correspondence with the input Candidates.

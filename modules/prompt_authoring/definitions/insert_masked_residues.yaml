@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: prompt_authoring.insert_masked_residues
-version: "3.0.0"
 title: Insert identity-addressed masked residues
 summary: Inserts explicit residue identities at exact adjacent source boundaries while preserving every source identity and present track value.
 category: prompt_authoring
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete ProteinPrompt whose modeled residues and present track assignments will be preserved.
 outputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Target Prompt with declared inserted identities explicitly masked on every present track.
   - name: residue_map
     port_type_id: residue.map
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete source-to-target map containing every source match and declared insertion, with no implicit deletion.

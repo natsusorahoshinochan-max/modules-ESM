@@ -49,9 +49,9 @@ Candidate metadata has one module-owned closed grammar: parent slot, sample
 slot, Prediction Key, and actual sampling facts. A controlled route may retain
 the applied call seed, and SimpleFold may retain the actual sampling-step
 count. The configured base seed remains a Node parameter and Result Identity
-fact. Provider, model, checkpoint, route, and other static identities remain
-owned by the exact Method, Execution Binding, and Run Evidence rather than
-being copied into every Candidate.
+fact. The stable Method and Binding IDs identify the scientific route and are
+not copied into every Candidate. Provider source, checkpoint bytes,
+installation form, and device are not scientific identity.
 
 ESMFold2 and SimpleFold retain distinct scientific implementations. Each owns
 its parameters, call-seed derivation, Provider batching, Adapter calls, and

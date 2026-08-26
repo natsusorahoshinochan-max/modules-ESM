@@ -1,50 +1,41 @@
-schema_version: "2.1.0"
 node_type_id: esm3.generate_paired
-version: "8.0.0"
 title: Generate paired sequences and structures with remote ESM-3
 summary: Generates each sequence from a Prompt with at least one masked sequence residue, then samples exactly one structure-track counterpart from that terminal sequence.
 category: generation
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete residue-aligned conditioning Prompt with at least one masked sequence residue, preserved for sequence generation and each counterpart structure request.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete terminal sequence Candidates.
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete structure Candidates with exact sequence-Candidate parents at the same sample slot.
   - name: counterpart_pairs
     port_type_id: candidate.pairing
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Explicit one-to-one sequence-to-structure identity and content-digest mapping independent of collection order.
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
-    port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Subjectless provider confidence facts keyed one-to-one to structure_candidates, carrying the exact prediction-input axis, pTM, per-residue pLDDT, and optional PAE for later admitted-Candidate materialization.
   - name: sequence_reconstruction_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Coordinate-conditioned prompt reconstructions returned by sequence calls, never sampled structure counterparts.
   - name: sequence_reconstruction_confidence_facts
     port_type_id: structure_prediction.confidence_facts
-    port_type_version: "2.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Subjectless provider confidence facts keyed one-to-one to sequence_reconstruction_candidates for later admitted-Candidate materialization.

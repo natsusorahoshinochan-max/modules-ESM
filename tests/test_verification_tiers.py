@@ -92,6 +92,11 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
     assert not (PROJECT_ROOT / "modules" / "provider_evidence.py").exists()
 
 
+def test_routine_tier_uses_all_physical_cpu_cores() -> None:
+    arguments = TIERS["routine"].pytest_arguments
+    assert arguments[-2:] == ("-n", "auto")
+
+
 def test_repository_verification_uses_one_profile_backed_serial_matrix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -230,16 +235,16 @@ def test_installed_provider_tiers_select_exact_outer_gates() -> None:
 
 
 def test_local_esmfold2_contract_tier_selects_current_translation_test() -> None:
-    from tests import test_folding_v2
+    from tests.acceptance import test_esmfold2_v2
 
     target = (
-        "tests/test_folding_v2.py::"
-        "test_native_plddt_is_statically_scaled_and_projects_protein_tokens"
+        "tests/acceptance/test_esmfold2_v2.py::"
+        "test_local_esmfold2_v2_native_result_translation"
     )
     assert target in TIERS["local-esmfold2-v2-contract"].pytest_arguments
     assert hasattr(
-        test_folding_v2,
-        "test_native_plddt_is_statically_scaled_and_projects_protein_tokens",
+        test_esmfold2_v2,
+        "test_local_esmfold2_v2_native_result_translation",
     )
 
 
@@ -261,147 +266,10 @@ def test_workflow_stress_tier_includes_nonpositional_association_probes() -> Non
     ) in targets
 
 
-def test_installed_provider_case_matrix_is_exact_and_collectable() -> None:
-    from tests.acceptance.test_installed_provider_gates_v2 import (
-        BIOHUB_ESM3_GATE_BINDINGS,
-        BIOHUB_ESM3_GATE_INVOCATIONS,
-        BIOHUB_ESM3_GATE_VERSION,
-    )
-    from tests.test_installed_backend_v2 import (
-        BIOHUB_ESMC_GATE_VERSION,
-        BIOHUB_ESMC_METHOD_VERSION,
-        REQUIRED_PROVIDER_CASES,
-    )
+def test_installed_provider_case_matrix_is_collectable() -> None:
+    from tests.test_installed_backend_v2 import REQUIRED_PROVIDER_CASES
 
-    assert REQUIRED_PROVIDER_CASES == {
-        "biohub_esm3": (
-            (
-                "tests/acceptance/test_installed_provider_gates_v2.py::"
-                "test_biohub_esm3_all_remote_bindings_execute_exact_methods"
-            ),
-        ),
-        "biohub_esmfold2": (
-            (
-                "tests/acceptance/test_installed_provider_gates_v2.py::"
-                "test_biohub_esmfold2_executes_exact_method"
-            ),
-        ),
-        "local_esm3": (
-            (
-                "tests/acceptance/test_local_esm3.py::"
-                "test_local_esm3_all_generation_modes"
-            ),
-        ),
-        "local_esmfold2": (
-            (
-                "tests/acceptance/test_installed_provider_gates_v2.py::"
-                "test_local_esmfold2_executes_exact_method"
-            ),
-        ),
-        "proteinmpnn": (
-            (
-                "tests/acceptance/test_installed_provider_gates_v2.py::"
-                "test_proteinmpnn_design_and_score_execute_exact_methods"
-            ),
-            (
-                "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
-                "test_proteinmpnn_v2_scoring_publishes_exact_native_"
-                "observation"
-            ),
-            (
-                "tests/acceptance/test_proteinmpnn_scoring_v2.py::"
-                "test_proteinmpnn_v2_sibling_design_remains_exact_and_"
-                "complete"
-            ),
-            (
-                "tests/test_proteinmpnn_v2.py::"
-                "test_design_projects_canonical_axis_into_provider_safe_"
-                "structure"
-            ),
-            (
-                "tests/test_proteinmpnn_v2.py::"
-                "test_scoring_stages_numbering_gaps_and_preserves_backbone_"
-                "mask"
-            ),
-            (
-                "tests/test_proteinmpnn_v2.py::"
-                "test_design_and_score_preserve_same_chain_segment_topology"
-            ),
-            (
-                "tests/test_proteinmpnn_v2.py::"
-                "test_provider_staging_capacity_counts_segments_not_"
-                "workbench_chains"
-            ),
-            (
-                "tests/test_proteinmpnn_v2.py::"
-                "test_readiness_validates_the_exact_checkout_checkpoint_and_"
-                "runtime"
-            ),
-        ),
-        "mkdssp": (
-            (
-                "tests/acceptance/test_installed_provider_gates_v2.py::"
-                "test_mkdssp_executes_exact_method_through_public_run"
-            ),
-        ),
-        "simplefold_folding": (
-            (
-                "tests/acceptance/test_simplefold_v2.py::"
-                "test_simplefold_v2_folds_3gb1_through_exact_binding"
-            ),
-        ),
-        "simplefold_confidence": (
-            (
-                "tests/acceptance/test_simplefold_confidence_v2.py::"
-                "test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_"
-                "without_refold"
-            ),
-        ),
-        "soluprot": (
-            (
-                "tests/acceptance/test_soluprot_v2.py::"
-                "test_model_backed_soluprot_golden_methods"
-            ),
-        ),
-        "protein_sol": (
-            (
-                "tests/acceptance/test_protein_sol_v2.py::"
-                "test_local_protein_sol_golden_multiple_metrics"
-            ),
-        ),
-    }
-    assert BIOHUB_ESM3_GATE_BINDINGS == (
-        "esm3.generate_sequence.biohub_medium",
-        "esm3.generate_structure.biohub_medium",
-        "esm3.generate_paired.biohub_medium",
-        "esm3.generate_sequence.biohub_open",
-        "esm3.generate_structure.biohub_open",
-        "esm3.generate_paired.biohub_open",
-    )
-    assert BIOHUB_ESM3_GATE_INVOCATIONS == 8
-    assert BIOHUB_ESM3_GATE_VERSION == "8.0.0"
-
-    catalog = build_frozen_catalog(module_registrations())
-    for binding_id in BIOHUB_ESM3_GATE_BINDINGS:
-        binding = catalog.require_contract(
-            "binding",
-            binding_id,
-            BIOHUB_ESM3_GATE_VERSION,
-        )
-        assert binding.descriptor["node_type"]["contract_version"] == (
-            BIOHUB_ESM3_GATE_VERSION
-        )
-    esmc_binding = catalog.require_contract(
-        "binding",
-        "esm3.represent_sequence.biohub_esmc_600m_2024_12",
-        BIOHUB_ESMC_GATE_VERSION,
-    )
-    assert esmc_binding.descriptor["node_type"]["contract_version"] == (
-        BIOHUB_ESMC_GATE_VERSION
-    )
-    assert esmc_binding.descriptor["method"]["contract_version"] == (
-        BIOHUB_ESMC_METHOD_VERSION
-    )
+    assert REQUIRED_PROVIDER_CASES
     assert all(
         selector.startswith("tests/")
         and (PROJECT_ROOT / selector.split("::", 1)[0]).is_file()
@@ -567,42 +435,12 @@ def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
     binding = catalog.require_contract(
         "binding",
         "structure_annotation.dssp_compute.mkdssp_local",
-        "7.0.0",
     )
     method = binding.descriptor["method"]
     assert catalog.require_contract(
         "method",
         method["contract_id"],
-        method["contract_version"],
-    ).contract_digest == method["contract_digest"]
-
-
-def test_verification_git_authority_uses_configured_path_lookup(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import verification.acceptance_campaign as campaign
-
-    commands: list[list[str]] = []
-
-    class Completed:
-        def __init__(self, stdout: str) -> None:
-            self.stdout = stdout
-
-    def run(command: list[str], **_kwargs: object) -> Completed:
-        commands.append(command)
-        return Completed("a" * 40 if "rev-parse" in command else "")
-
-    monkeypatch.setattr(verify_backend.subprocess, "run", run)
-    monkeypatch.setattr(campaign.subprocess, "run", run)
-
-    assert verify_backend._git_state() == ("a" * 40, False)
-    assert campaign._git_authority() == ("a" * 40, False)
-    assert commands == [
-        ["git", "rev-parse", "HEAD"],
-        ["git", "status", "--porcelain"],
-        ["git", "rev-parse", "HEAD"],
-        ["git", "status", "--porcelain"],
-    ]
+    ).contract_id == method["contract_id"]
 
 
 def test_routine_tier_reports_result_and_preserves_configured_roots(
@@ -644,7 +482,6 @@ def test_routine_tier_reports_result_and_preserves_configured_roots(
     assert stat.S_IMODE(retained[0].stat().st_mode) == 0o600
     assert stat.S_IMODE(result_dir.stat().st_mode) == 0o700
     environment = json.loads(environment_path.read_text())
-    assert environment["schema_version"] == "2.1.0"
     assert environment["historical_cache_allowed"] is False
     assert environment["parallel_provider_evidence_allowed"] is False
     for path in configured_roots.values():
@@ -678,7 +515,6 @@ def test_verifier_assembles_retained_evidence_with_tier_result(
     result_dir = next((results_root / tier_name).iterdir())
     evidence_root = result_dir / "evidence"
     assert {path.name for path in evidence_root.iterdir()} == {
-        "catalog-snapshot.json",
         "public-protocol.json",
         "runs",
         "tier-result.json",

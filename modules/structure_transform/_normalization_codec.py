@@ -11,7 +11,6 @@ from datatypes.residue import (
 )
 
 
-NORMALIZATION_VERSION = "3.0.0"
 _PARENT_SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWY")
 
 
@@ -160,10 +159,8 @@ def normalizations_from_wire(
 
 MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_transform.modified_residue_normalizations",
-    version=NORMALIZATION_VERSION,
     validator=BehaviorReference(
         "structure_transform.modified_residue_normalizations/validate",
-        NORMALIZATION_VERSION,
         {
             "accepted_value_kind": (
                 "modified_residue_normalization_collection"
@@ -175,12 +172,10 @@ MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "structure_transform.modified_residue_normalizations/codec",
-        NORMALIZATION_VERSION,
         {"canonicalization": "RFC 8785"},
     ),
     content_identity=BehaviorReference(
         "structure_transform.modified_residue_normalizations/content",
-        NORMALIZATION_VERSION,
         {"digest": "SHA-256"},
     ),
     runtime_validator=validate_normalizations,

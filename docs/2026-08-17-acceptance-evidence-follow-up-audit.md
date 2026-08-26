@@ -53,7 +53,6 @@ Runs:
 
 ```text
 evidence/
-  catalog-snapshot.json
   public-protocol.json
   runs/<label>/
     projection.json

@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.catalog.canonical import canonical_sha256
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.observation_plan import ProducedObservationPlan
 from core.scoring.selection import (
@@ -16,24 +15,17 @@ from core.scoring.selection import (
     SelectionObjective,
 )
 from core.workflow.document import (
-    ContractLockEntry,
     WorkflowEdge,
     _thaw_json,
 )
-
-
-EXECUTION_PLAN_NAMESPACE = "protein-workbench-execution-plan/v3"
-RESULT_IDENTITY_PLAN_FACTS_NAMESPACE = (
-    "protein-workbench-result-identity-plan-facts/v1"
-)
-RESULT_IDENTITY_NAMESPACE = "protein-workbench-cache/v3"
+from datatypes.exact_reference import ExactContractReference
 
 
 @dataclass(frozen=True, slots=True)
 class _ExecutionPlanPort:
     """One compiler-resolved typed Port plan."""
 
-    reference: ContractLockEntry
+    reference: ExactContractReference
     multiplicity: str
     required: bool
     artifact_kind: str | None
@@ -48,7 +40,7 @@ class ArtifactOutputPlan:
     output_port: str
     artifact_kind: str
     artifact_media_type: str | None
-    port_type: ContractLockEntry
+    port_type: ExactContractReference
     accepted_media_types: tuple[str, ...]
 
 @dataclass(frozen=True, slots=True)
@@ -70,19 +62,12 @@ class ResultIdentityPlanFacts:
         return _thaw_json(self.identity_facts)
 
     def canonical_projection(self) -> dict[str, Any]:
-        """Return the complete compiler-owned plan facts contract."""
+        """Return the complete compiler-owned scientific plan facts."""
         return {
-            "schema_namespace": RESULT_IDENTITY_PLAN_FACTS_NAMESPACE,
             "identity_facts": self.identity_projection(),
             "node_parameter_indirections": list(
                 self.node_parameter_indirections
             ),
-        }
-
-    def cache_contract_metadata(self) -> dict[str, Any]:
-        """Project the exact static identity facts stored beside Cache data."""
-        return {
-            "result_identity_plan_facts": self.canonical_projection()
         }
 
     def result_identity_projection(
@@ -104,7 +89,6 @@ class ResultIdentityPlanFacts:
             ]
         }
         descriptor: dict[str, Any] = {
-            "schema_namespace": RESULT_IDENTITY_NAMESPACE,
             "result_identity_plan_facts": canonical_plan_facts,
             "inputs": [
                 {
@@ -131,11 +115,6 @@ class ResultIdentityPlanFacts:
                 resolved_resource_inputs
             )
         return descriptor
-
-    @property
-    def digest(self) -> str:
-        """Identify the exact compiler-owned facts recorded in Run evidence."""
-        return canonical_sha256(self.canonical_projection())
 
 @dataclass(frozen=True, slots=True)
 class _ExecutionPlanNodeRuntime:
@@ -198,9 +177,9 @@ class ExecutionPlanNode:
     """One fully resolved immutable private plan Node."""
 
     node_id: str
-    node_type: ContractLockEntry
-    binding: ContractLockEntry
-    method: ContractLockEntry
+    node_type: ExactContractReference
+    binding: ExactContractReference
+    method: ExactContractReference
     node_parameters: AdmittedParameterValues
     binding_parameters: AdmittedParameterValues
     result_identity_plan_facts: ResultIdentityPlanFacts
@@ -211,15 +190,10 @@ class ExecutionPlan:
     """Private immutable result of one successful compilation."""
 
     workflow_id: str
-    workflow_commit_revision: int
-    workflow_digest: str
-    catalog_contract_digest: str
-    contract_lock_digest: str
-    execution_plan_digest: str
     nodes: tuple[ExecutionPlanNode, ...]
     edges: tuple[WorkflowEdge, ...]
     node_order: tuple[str, ...]
-    resolved_contracts: tuple[ContractLockEntry, ...]
+    scientific_definitions: tuple[Mapping[str, Any], ...]
     _runtime: _ExecutionPlanRuntime = field(repr=False, compare=False)
     observation_selectors: tuple[ObservationSelector, ...]
     selection_objectives: tuple[SelectionObjective, ...]

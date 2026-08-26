@@ -1,28 +1,25 @@
 # Protein Workbench v2 examples
 
 `repository-capabilities.workflow.json` is a provider-free-to-verify authoring
-example: it fixes every production Execution Binding that can be connected
-using production values, separates Node and Binding parameters, and locks only
-its reachable Catalog closure. Verification parses, relocks, and runs the
-compiler's complete static checks but does not invoke any provider. An installed
-artifact without a selected provider must reach the compiler's explicit
-`binding_unavailable` conclusion; no sibling Binding is selected.
+example. It fixes its production Execution Bindings by stable ID, separates Node
+and Binding parameters, and uses production scientific values. Verification
+parses and compiles the Workflow against the current Catalog without invoking a
+Provider or selecting a sibling Binding.
 
-`capability-inventory.json` records every accepted production Node Type,
-Execution Binding, Method, and Metric identity from the twelve cohesive Module
-Packages. Prediction and folding Nodes publish subjectless confidence facts;
-the Workflows join those facts to admitted structure Candidates only through
+The repository examples are representative scientific Workflows, not a
+mechanical inventory of every Catalog registration. Prediction and folding
+Nodes publish subjectless confidence facts; the Workflows join those facts to
+admitted structure Candidates only through
 `structure_prediction.materialize_confidence`. Run:
 
 ```bash
 uv run --no-sync python -m examples.v2_suite
 ```
 
-The remaining production Bindings are covered through locked Contract Test Kit
-Workflows under `tests/fixtures/v2_workflows`: exact prompt-track inputs cover
-the two track transformations, and exact fixed-3GB1/paired-ESM3 Score
-Observations and Utility Transforms cover all six selection operations. Those
-independent fixtures are not shipped as production capabilities.
+Focused owner tests cover scientific Node and Binding behavior, Adapter
+translation, and every scientific Port codec's valid, invalid, and round-trip
+contract. Real Provider routes remain covered by their acceptance tiers; neither
+the examples nor a Catalog identity inventory substitutes for those tests.
 
 `source-bound-1pga.workflow.json` is the exact 75-residue acceptance Workflow
 for `examples/v2/structures/1PGA-75-gen1_0690.pdb` (SHA-256

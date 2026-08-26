@@ -271,8 +271,6 @@ def _method_to_wire(value: ExactContractReference) -> dict[str, str]:
     return {
         "contract_kind": value.contract_kind,
         "contract_id": value.contract_id,
-        "contract_version": value.contract_version,
-        "contract_digest": value.contract_digest,
     }
 
 
@@ -481,17 +479,17 @@ def _candidate_data_references(
 
 INSERTED_LOOP_EVALUATION_PORT_TYPE = PortTypeDefinition(
     type_id="structure_comparison.inserted_loop_evaluation",
-    version=VERSION,
     validator=BehaviorReference(
         "structure_comparison.inserted_loop_evaluation/validate",
-        VERSION,
         {
             "participants": ["subject", "fixed_reference", "counterpart"],
             "prediction_to_structure_correspondence": "exact-residue-order",
             "junction_atoms": ["left-C-N", "right-C-N"],
             "clash_atom_population": "non-hydrogen",
             "excluded_nonbonded_pairs": "direct-junction-C-N-bonds",
-            "method_digest": INSERTED_LOOP_EVALUATION_METHOD_REFERENCE.contract_digest,
+            "method": _method_to_wire(
+                INSERTED_LOOP_EVALUATION_METHOD_REFERENCE
+            ),
             "confidence_methods": [
                 _method_to_wire(method)
                 for method in ESMFOLD2_FOLD_METHOD_REFERENCES
@@ -500,12 +498,10 @@ INSERTED_LOOP_EVALUATION_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "structure_comparison.inserted_loop_evaluation/codec",
-        VERSION,
         {"canonicalization": "RFC 8785", "schema_version": VERSION},
     ),
     content_identity=BehaviorReference(
         "structure_comparison.inserted_loop_evaluation/content",
-        VERSION,
         {"digest": "SHA-256"},
     ),
     runtime_validator=validate_inserted_loop_evaluation,
@@ -514,7 +510,6 @@ INSERTED_LOOP_EVALUATION_PORT_TYPE = PortTypeDefinition(
     candidate_data_projection=BehaviorReference(
         "structure_comparison.inserted_loop_evaluation/"
         "candidate_data_projection",
-        VERSION,
         {
             "fields": [
                 "entries[].subject",

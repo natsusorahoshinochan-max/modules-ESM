@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: structure_transform.resolve_residue_axis
-version: "4.0.0"
 title: Resolve structure residue axis
 summary: Classifies every observed component and emits one identity-complete protein residue axis with explicit topology, coordinates, masks, and modified-residue provenance.
 category: structure_transform
 inputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact single-model PDB structure preserved inside the resolved value.
   - name: modified_residue_normalizations
     port_type_id: structure_transform.modified_residue_normalizations
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Exact upstream component-to-parent correspondence already applied to this structure.
 outputs:
   - name: residue_axis
     port_type_id: structure_transform.resolved_residue_axis
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: The sole admitted protein axis, component dispositions, segment topology, selected atom coordinates, masks, and normalization records for this structure.

@@ -1,19 +1,15 @@
-schema_version: "2.1.0"
 node_type_id: protein_io.export_structure
-version: "6.0.0"
 title: Export protein structure
 summary: Serializes one protein structure as a validated Run-bound artifact.
 category: protein_io
 inputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Protein structure to serialize in provider-native PDB text.
   - name: structures
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Ordered protein structure Candidates to serialize without changing identity or PDB text.
@@ -25,7 +21,6 @@ input_constraints:
 outputs:
   - name: standalone_artifact
     port_type_id: protein_io.artifact_payload
-    port_type_version: "2.1.0"
     required: false
     multiplicity: one
     scientific_meaning: Cache-safe native PDB bytes for opaque Run-bound publication.
@@ -33,7 +28,6 @@ outputs:
     artifact_media_type: chemical/x-pdb
   - name: candidate_artifacts
     port_type_id: protein_io.artifact_payload
-    port_type_version: "2.1.0"
     required: false
     multiplicity: many
     scientific_meaning: Ordered Candidate-bound native PDB bytes for opaque Run-bound publication.

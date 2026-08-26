@@ -8,25 +8,13 @@ from pathlib import Path
 import shutil
 from typing import Any
 
-from core.local_torch_device import expected_local_torch_device
 from core.provider_support import read_private_credential_file
-from modules.esm3.local_adapter import (
-    LOCAL_ESM3_PERFORMANCE_SETTINGS,
-    LOCAL_ESM3_SNAPSHOT_REVISION,
-)
-from modules.folding.esmfold2_contract import (
-    LOCAL_ESMC_REVISION,
-    LOCAL_ESMFOLD2_REVISION,
-)
 from protein_workbench_public.application_environment import (
     application_storage_roots,
 )
 
 
-ProviderEnvironmentConfiguration = dict[
-    tuple[str, str],
-    dict[str, dict[str, Any]],
-]
+ProviderEnvironmentConfiguration = dict[str, dict[str, Any]]
 
 
 class ProviderEnvironmentError(RuntimeError):
@@ -64,7 +52,6 @@ def provider_environment_configuration(
     """Load current Provider roots and credentials from process variables."""
     values = os.environ if environment is None else environment
     configuration: ProviderEnvironmentConfiguration = {}
-    local_torch_device = expected_local_torch_device()
 
     token_file = _configured_path(
         values,
@@ -72,14 +59,13 @@ def provider_environment_configuration(
     )
     if token_file is not None:
         biohub_values = {
-            "endpoint_id": "biohub",
             "credential_handle": read_private_credential_file(token_file),
         }
         biohub_bindings = (
-            ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "5.0.0"),
-            ("folding.fold.esmfold2_remote", "9.0.0"),
+            "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+            "folding.fold.esmfold2_remote",
             *(
-                (f"esm3.{operation}.biohub_{scale}", "8.0.0")
+                f"esm3.{operation}.biohub_{scale}"
                 for operation in (
                     "generate_sequence",
                     "generate_structure",
@@ -88,8 +74,8 @@ def provider_environment_configuration(
                 for scale in ("medium", "open")
             ),
         )
-        for identity in biohub_bindings:
-            configuration[identity] = {"values": dict(biohub_values)}
+        for binding_id in biohub_bindings:
+            configuration[binding_id] = dict(biohub_values)
 
     esm3_model_root = _configured_path(
         values,
@@ -100,20 +86,17 @@ def provider_environment_configuration(
         runtime_directory = storage.data / "provider-runtime/esm3"
         runtime_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         local_esm3_values = {
-            "model_snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
             "model_snapshot_path": esm3_model_root,
             "runtime_directory": runtime_directory,
-            "device": local_torch_device,
-            "performance_settings": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
         }
         for operation in (
             "generate_sequence",
             "generate_structure",
             "generate_paired",
         ):
-            configuration[(f"esm3.{operation}.local_open", "9.0.0")] = {
-                "values": dict(local_esm3_values),
-            }
+            configuration[f"esm3.{operation}.local_open"] = dict(
+                local_esm3_values
+            )
 
     esmfold2_root = _configured_path(
         values,
@@ -128,14 +111,9 @@ def provider_environment_configuration(
             "local ESMFold2 requires both configured model roots"
         )
     if esmfold2_root is not None and esmfold2_esmc_root is not None:
-        configuration[("folding.fold.esmfold2_local", "11.0.0")] = {
-            "values": {
-                "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
-                "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
-                "model_snapshot_path": esmfold2_root,
-                "language_model_snapshot_path": esmfold2_esmc_root,
-                "device": local_torch_device,
-            },
+        configuration["folding.fold.esmfold2_local"] = {
+            "model_snapshot_path": esmfold2_root,
+            "language_model_snapshot_path": esmfold2_esmc_root,
         }
 
     simplefold_roots = {
@@ -160,18 +138,12 @@ def provider_environment_configuration(
             "SimpleFold requires all three configured roots"
         )
     if len(configured_simplefold_roots) == 3:
-        for identity in (
-            ("folding.fold.simplefold_local", "11.0.0"),
-            (
-                "folding.simplefold_confidence.simplefold_local",
-                "7.0.0",
-            ),
+        for binding_id in (
+            "folding.fold.simplefold_local",
+            "folding.simplefold_confidence.simplefold_local",
         ):
-            configuration[identity] = {
-                "values": {
-                    **simplefold_roots,
-                    "device": local_torch_device,
-                },
+            configuration[binding_id] = {
+                **simplefold_roots,
             }
 
     proteinmpnn_root = _configured_path(
@@ -179,15 +151,12 @@ def provider_environment_configuration(
         "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
     )
     if proteinmpnn_root is not None:
-        for identity in (
-            ("proteinmpnn.design.local", "12.0.0"),
-            ("proteinmpnn.score.local", "9.0.0"),
+        for binding_id in (
+            "proteinmpnn.design.local",
+            "proteinmpnn.score.local",
         ):
-            configuration[identity] = {
-                "values": {
-                    "provider_root": proteinmpnn_root,
-                    "device": local_torch_device,
-                },
+            configuration[binding_id] = {
+                "provider_root": proteinmpnn_root,
             }
 
     mkdssp_binary = _configured_path(
@@ -196,8 +165,8 @@ def provider_environment_configuration(
     )
     if mkdssp_binary is not None:
         configuration[
-            ("structure_annotation.dssp_compute.mkdssp_local", "7.0.0")
-        ] = {"values": {"dssp_binary": mkdssp_binary}}
+            "structure_annotation.dssp_compute.mkdssp_local"
+        ] = {"dssp_binary": mkdssp_binary}
 
     soluprot_root = _configured_path(
         values,
@@ -214,14 +183,12 @@ def provider_environment_configuration(
                 soluprot_root / "var/tools/soluprot/usearch"
             ),
         }
-        configuration[("solubility.soluprot_no_tm.local", "5.0.0")] = {
-            "values": dict(common_soluprot),
-        }
-        configuration[("solubility.soluprot_full.local", "5.0.0")] = {
-            "values": {
-                **common_soluprot,
-                "perl_executable": _executable(values, "perl"),
-            },
+        configuration["solubility.soluprot_no_tm.local"] = dict(
+            common_soluprot
+        )
+        configuration["solubility.soluprot_full.local"] = {
+            **common_soluprot,
+            "perl_executable": _executable(values, "perl"),
         }
 
     protein_sol_root = _configured_path(
@@ -229,12 +196,10 @@ def provider_environment_configuration(
         "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT",
     )
     if protein_sol_root is not None:
-        configuration[("solubility.protein_sol.local", "5.0.0")] = {
-            "values": {
-                "source_root": protein_sol_root,
-                "bash_executable": _executable(values, "bash"),
-                "perl_executable": _executable(values, "perl"),
-            },
+        configuration["solubility.protein_sol.local"] = {
+            "source_root": protein_sol_root,
+            "bash_executable": _executable(values, "bash"),
+            "perl_executable": _executable(values, "perl"),
         }
 
     return configuration

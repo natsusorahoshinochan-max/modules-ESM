@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 metric_id: solubility.protein_sol_pi
-version: "2.1.0"
 title: Protein-Sol isoelectric point
 description: Sequence isoelectric point calculated by the exact Protein-Sol preprocessing implementation.
 value_shape: scalar

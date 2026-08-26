@@ -22,9 +22,8 @@ source-bound tier may retain its public Provider-binding order, while the
 corresponding residency transition is tested at the application-resource seam;
 the tier does not reconstruct release from Provider-module internals.
 
-Preparation binds one clean source revision, one wheel and sdist built from
-that revision, the canonical plan, and one private Execution Profile to the
-Campaign. The candidate and plan cannot change during execution. Repository
+Preparation binds one wheel and sdist, the canonical plan, and one private
+Execution Profile to the Campaign. The candidate and plan cannot change during execution. Repository
 verification remains a separate process and is not added to the Campaign plan,
 even when it uses the same Execution Profile.
 
@@ -40,13 +39,13 @@ failed tier terminates the Campaign; interruption records the honest outer
 terminal without inventing results for unfinished tiers.
 
 Child execution returns a structured outcome through the Campaign-owned seam.
-That outcome identifies the tier, source revision, retained location, required
+That outcome identifies the tier, retained location, required
 run labels, lifecycle receipt, and verification conclusion. Standard output is
 diagnostic only and is not parsed to discover or authorize a retained result.
 The retained-result format, including JUnit where the tier declares it, is
 admitted once at this seam. Completion, summary, and redacted diagnostics are
 projected from that same admitted outcome. Console text, literal warning
-matches, and an interpreter executable digest are diagnostics only; none can
+matches are diagnostics only; none can
 authorize or deny an Acceptance Result.
 
 An Acceptance Result exists only after the tier's scientific assertions pass

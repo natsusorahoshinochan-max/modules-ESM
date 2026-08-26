@@ -44,8 +44,6 @@ from modules.structure_transform.csh_normalization import normalize_csh_parent_s
 from modules.structure_transform.residue_axis import resolve_residue_axis
 
 
-_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "4.0.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -509,41 +507,31 @@ def _factory(context: OperationContext) -> object:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.prompt_authoring_sources",
-    package_version=_VERSION,
     package_module=__package__,
     node_definitions=(DefinitionResource("definition.yaml"),),
     methods=(
         MethodDefinition(
             method_id="contract_test.prompt_authoring_values.method",
-            version=_VERSION,
             algorithm_identity={"name": "deterministic-fixture"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "identity-complete-layouts"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         ),
     ),
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.prompt_authoring_values.direct",
-            version=_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
-                "contract_test.prompt_authoring_values",
-                _NODE_BINDING_VERSION,
-            ),
+                "contract_test.prompt_authoring_values"),
             method=ContractIdentity(
                 "method",
-                "contract_test.prompt_authoring_values.method",
-                _VERSION,
-            ),
+                "contract_test.prompt_authoring_values.method"),
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.prompt_authoring_values/factory",
-                    _VERSION,
                     {},
                 ),
                 build=_factory,
@@ -551,7 +539,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.prompt_authoring_values/availability",
-                    _VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -560,18 +547,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.prompt_authoring_values/readiness",
-                    _VERSION,
                     {},
                 ),
                 prerequisites={},
                 check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
-            cacheable=True,
-            implementation_identity={
-                "name": "contract_test.prompt_authoring_values.direct",
-                "source": "contract-test-fixture",
-            },
-        ),
+            cacheable=True),
     ),
 )

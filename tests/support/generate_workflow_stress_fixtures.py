@@ -6,13 +6,10 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core.catalog.builder import build_frozen_catalog
-from core.workflow.compiler import lock_workflow
 from protein_workbench_public.workflow_codec import (
     decode_workflow_document,
     encode_workflow_document,
 )
-from tests.support.workflow_stress import stress_registrations
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -29,7 +26,6 @@ SELECTION_CAPABILITIES = (
 def _multi_selection() -> dict[str, Any]:
     payload = json.loads(SELECTION_CAPABILITIES.read_text(encoding="utf-8"))
     payload["workflow_id"] = "stress-multi-selection"
-    payload["contract_lock"] = []
     nodes = {node["node_id"]: node for node in payload["nodes"]}
     nodes["select-filter"]["node_parameters"]["threshold"] = 0.95
     for node_id in ("select-filter", "select-sort", "select-top_k"):
@@ -46,18 +42,14 @@ def _prompt_conditioning() -> dict[str, Any]:
             {
                 "node_id": "prompt-values",
                 "node_type_id": "contract_test.prompt_authoring_values",
-                "node_type_version": "4.0.0",
                 "binding_id": "contract_test.prompt_authoring_values.direct",
-                "binding_version": "4.0.0",
                 "node_parameters": {"fixture": "3gb1-intent"},
                 "binding_parameters": {},
             },
             {
                 "node_id": "add-function",
                 "node_type_id": "prompt_authoring.add_function_annotation",
-                "node_type_version": "3.0.0",
                 "binding_id": "prompt_authoring.add_function_annotation.direct",
-                "binding_version": "3.0.0",
                 "node_parameters": {
                     "annotation": {
                         "label": "binding_site",
@@ -72,18 +64,14 @@ def _prompt_conditioning() -> dict[str, Any]:
             {
                 "node_id": "assemble-prompt",
                 "node_type_id": "prompt_authoring.assemble_protein_prompt",
-                "node_type_version": "3.0.0",
                 "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
-                "binding_version": "3.0.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "mask-sequence",
                 "node_type_id": "prompt_authoring.random_mask",
-                "node_type_version": "3.0.0",
                 "binding_id": "prompt_authoring.random_mask.direct",
-                "binding_version": "3.0.0",
                 "node_parameters": {
                     "effective_seed": 1603,
                     "count": 3,
@@ -95,18 +83,14 @@ def _prompt_conditioning() -> dict[str, Any]:
             {
                 "node_id": "generate-paired",
                 "node_type_id": "esm3.generate_paired",
-                "node_type_version": "8.0.0",
                 "binding_id": "esm3.generate_paired.biohub_medium",
-                "binding_version": "8.0.0",
                 "node_parameters": {"effective_seed": 1603, "num_samples": 1},
                 "binding_parameters": {},
             },
             {
                 "node_id": "generate-sequence",
                 "node_type_id": "esm3.generate_sequence",
-                "node_type_version": "8.0.0",
                 "binding_id": "esm3.generate_sequence.biohub_medium",
-                "binding_version": "8.0.0",
                 "node_parameters": {"effective_seed": 1604, "num_samples": 1},
                 "binding_parameters": {},
             },
@@ -181,7 +165,6 @@ def _prompt_conditioning() -> dict[str, Any]:
         ],
         "observation_selectors": [],
         "selection_objectives": [],
-        "contract_lock": [],
     }
 
 
@@ -193,27 +176,21 @@ def _multi_parent_batch() -> dict[str, Any]:
             {
                 "node_id": "structure-parents",
                 "node_type_id": "contract_test.workflow_stress_structure_source",
-                "node_type_version": "1.0.0",
                 "binding_id": "contract_test.workflow_stress_structure_source.direct",
-                "binding_version": "1.0.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "resolve-parent-axes",
                 "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-                "node_type_version": "6.0.0",
                 "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-                "binding_version": "6.0.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "design-children",
                 "node_type_id": "proteinmpnn.design",
-                "node_type_version": "10.0.0",
                 "binding_id": "proteinmpnn.design.local",
-                "binding_version": "12.0.0",
                 "node_parameters": {
                     "effective_seed": 2066001,
                     "num_sequences": 2,
@@ -225,18 +202,14 @@ def _multi_parent_batch() -> dict[str, Any]:
             {
                 "node_id": "fold-children",
                 "node_type_id": "folding.fold",
-                "node_type_version": "8.0.0",
                 "binding_id": "folding.fold.esmfold2_remote",
-                "binding_version": "9.0.0",
                 "node_parameters": {"effective_seed": 2066002, "num_samples": 2},
                 "binding_parameters": {},
             },
             {
                 "node_id": "materialize-confidence",
                 "node_type_id": "structure_prediction.materialize_confidence",
-                "node_type_version": "2.0.0",
                 "binding_id": "structure_prediction.materialize_confidence.direct",
-                "binding_version": "2.0.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -287,7 +260,6 @@ def _multi_parent_batch() -> dict[str, Any]:
         ],
         "observation_selectors": [],
         "selection_objectives": [],
-        "contract_lock": [],
     }
 
 
@@ -303,9 +275,7 @@ def _provider_downstream_commit() -> dict[str, Any]:
     payload["nodes"].append({
         "node_id": "take-designs",
         "node_type_id": "collection_ops.take_candidates",
-        "node_type_version": "4.0.0",
         "binding_id": "collection_ops.take_candidates.direct",
-        "binding_version": "4.0.0",
         "node_parameters": {"k": 2},
         "binding_parameters": {},
     })
@@ -326,7 +296,6 @@ def _provider_downstream_commit() -> dict[str, Any]:
 
 
 def main() -> None:
-    catalog = build_frozen_catalog(stress_registrations())
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     payloads = {
         "multi_selection.workflow.json": _multi_selection(),
@@ -337,11 +306,11 @@ def main() -> None:
         ),
     }
     for filename, payload in payloads.items():
-        locked = lock_workflow(decode_workflow_document(payload), catalog)
+        workflow = decode_workflow_document(payload)
         path = OUTPUT_ROOT / filename
         path.write_text(
             json.dumps(
-                encode_workflow_document(locked),
+                encode_workflow_document(workflow),
                 indent=2,
                 ensure_ascii=False,
             )

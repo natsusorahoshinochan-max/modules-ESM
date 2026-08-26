@@ -315,9 +315,7 @@ def test_apply_secondary_structure_to_prompt_is_an_exact_direct_node() -> None:
 
     node = catalog.require_contract(
         "node_type",
-        "structure_annotation.apply_secondary_structure_to_prompt",
-        "5.0.0",
-    ).descriptor
+        "structure_annotation.apply_secondary_structure_to_prompt").descriptor
     assert [
         (port["name"], port["port_type"]["contract_id"])
         for port in node["inputs"]
@@ -336,9 +334,7 @@ def test_apply_secondary_structure_to_prompt_is_an_exact_direct_node() -> None:
 
     method = catalog.require_contract(
         "method",
-        "structure_annotation.apply_secondary_structure_to_prompt.method",
-        "2.2.0",
-    ).descriptor
+        "structure_annotation.apply_secondary_structure_to_prompt.method").descriptor
     assert method["algorithm_identity"] == {
         "name": "exact-annotation-SS8-to-ProteinPrompt-conditioning",
         "source_alphabet": "GHITEBSC_",
@@ -353,9 +349,7 @@ def test_apply_secondary_structure_to_prompt_is_an_exact_direct_node() -> None:
 
     binding = catalog.require_contract(
         "binding",
-        "structure_annotation.apply_secondary_structure_to_prompt.direct",
-        "5.0.0",
-    ).descriptor
+        "structure_annotation.apply_secondary_structure_to_prompt.direct").descriptor
     assert binding["binding_parameters"] == {}
     assert binding["execution_route"] == "direct"
     assert binding["deterministic"] is True
@@ -373,10 +367,8 @@ def test_apply_sasa_to_prompt_is_an_exact_angstrom_squared_direct_node() -> None
     }
 
     source_port = catalog.require_port_type(
-        "structure_annotation.sasa_track",
-        "4.0.0",
-    )
-    target_port = catalog.require_port_type("protein.prompt", "3.0.0")
+        "structure_annotation.sasa_track")
+    target_port = catalog.require_port_type("protein.prompt")
     assert source_port.validator.parameters["quantity_contract"] == (
         quantity_contract
     )
@@ -386,9 +378,7 @@ def test_apply_sasa_to_prompt_is_an_exact_angstrom_squared_direct_node() -> None
 
     node = catalog.require_contract(
         "node_type",
-        "structure_annotation.apply_sasa_to_prompt",
-        "5.0.0",
-    ).descriptor
+        "structure_annotation.apply_sasa_to_prompt").descriptor
     assert [
         (port["name"], port["port_type"]["contract_id"])
         for port in node["inputs"]
@@ -404,9 +394,7 @@ def test_apply_sasa_to_prompt_is_an_exact_angstrom_squared_direct_node() -> None
 
     method = catalog.require_contract(
         "method",
-        "structure_annotation.apply_sasa_to_prompt.method",
-        "2.2.0",
-    ).descriptor
+        "structure_annotation.apply_sasa_to_prompt.method").descriptor
     assert method["algorithm_identity"] == {
         "name": "exact-DSSP-SASA-to-ProteinPrompt-conditioning",
         "unit": "angstrom_squared",
@@ -420,9 +408,7 @@ def test_apply_sasa_to_prompt_is_an_exact_angstrom_squared_direct_node() -> None
 
     binding = catalog.require_contract(
         "binding",
-        "structure_annotation.apply_sasa_to_prompt.direct",
-        "5.0.0",
-    ).descriptor
+        "structure_annotation.apply_sasa_to_prompt.direct").descriptor
     assert binding["binding_parameters"] == {}
     assert binding["execution_route"] == "direct"
     assert binding["deterministic"] is True
@@ -434,9 +420,7 @@ def test_expected_secondary_structure_from_prompt_is_an_explicit_role_node() -> 
 
     node = catalog.require_contract(
         "node_type",
-        "structure_annotation.expected_secondary_structure_from_prompt",
-        "6.0.0",
-    ).descriptor
+        "structure_annotation.expected_secondary_structure_from_prompt").descriptor
     assert [
         (port["name"], port["port_type"]["contract_id"])
         for port in node["inputs"]
@@ -460,9 +444,7 @@ def test_expected_secondary_structure_from_prompt_is_an_explicit_role_node() -> 
         (
             "structure_annotation."
             "expected_secondary_structure_from_prompt.method"
-        ),
-        "3.0.0",
-    ).descriptor
+        )).descriptor
     assert method["algorithm_identity"] == {
         "name": "exact-ProteinPrompt-conditioning-to-expected-annotation-SS8",
         "source_alphabet": "GHITEBS-",
@@ -479,9 +461,7 @@ def test_expected_secondary_structure_from_prompt_is_an_explicit_role_node() -> 
         (
             "structure_annotation."
             "expected_secondary_structure_from_prompt.direct"
-        ),
-        "6.0.0",
-    ).descriptor
+        )).descriptor
     assert binding["binding_parameters"] == {}
     assert binding["execution_route"] == "direct"
     assert binding["deterministic"] is True

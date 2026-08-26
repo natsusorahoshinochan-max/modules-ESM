@@ -288,9 +288,6 @@
         "availability_observed_at": {
           "$ref": "#/$defs/Timestamp"
         },
-        "catalog_contract_digest": {
-          "$ref": "#/$defs/Digest"
-        },
         "contracts": {
           "items": {
             "$ref": "#/$defs/PublicContract"
@@ -308,7 +305,6 @@
       "required": [
         "schema_namespace",
         "protocol_digest",
-        "catalog_contract_digest",
         "contracts",
         "availability_observed_at",
         "availability"
@@ -371,14 +367,22 @@
         "accepted": {
           "const": true
         },
-        "catalog_contract_digest": {
-          "$ref": "#/$defs/Digest"
+        "workflow_commit_id": {
+          "$ref": "#/$defs/WorkflowCommitId"
         },
-        "contract_lock_digest": {
-          "$ref": "#/$defs/Digest"
+        "source_draft_revision": {
+          "minimum": 1,
+          "type": "integer"
         },
-        "execution_plan_digest": {
-          "$ref": "#/$defs/Digest"
+        "workflow": {
+          "$ref": "#/$defs/WorkflowDocument"
+        },
+        "scientific_definitions": {
+          "items": {
+            "$ref": "#/$defs/JsonObject"
+          },
+          "maxItems": 2048,
+          "type": "array"
         },
         "issues": {
           "items": {
@@ -386,76 +390,21 @@
           },
           "maxItems": 0,
           "type": "array"
-        },
-        "workflow_digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "source_draft_digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "source_draft_revision": {
-          "minimum": 1,
-          "type": "integer"
-        },
-        "workflow_commit_id": {
-          "$ref": "#/$defs/WorkflowCommitId"
-        },
-        "workflow_commit_revision": {
-          "minimum": 1,
-          "type": "integer"
         }
       },
       "required": [
         "accepted",
         "workflow_commit_id",
-        "workflow_commit_revision",
         "source_draft_revision",
-        "source_draft_digest",
-        "workflow_digest",
-        "catalog_contract_digest",
-        "contract_lock_digest",
-        "execution_plan_digest",
+        "workflow",
+        "scientific_definitions",
         "issues"
-      ],
-      "type": "object"
-    },
-    "ContractLockEntry": {
-      "additionalProperties": false,
-      "properties": {
-        "contract_digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "contract_id": {
-          "$ref": "#/$defs/Identifier"
-        },
-        "contract_kind": {
-          "enum": [
-            "binding",
-            "method",
-            "metric",
-            "node_type",
-            "port_type",
-            "utility_transform"
-          ]
-        },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
-        }
-      },
-      "required": [
-        "contract_kind",
-        "contract_id",
-        "contract_version",
-        "contract_digest"
       ],
       "type": "object"
     },
     "ContractReference": {
       "additionalProperties": false,
       "properties": {
-        "contract_digest": {
-          "$ref": "#/$defs/Digest"
-        },
         "contract_id": {
           "$ref": "#/$defs/Identifier"
         },
@@ -468,16 +417,11 @@
             "port_type",
             "utility_transform"
           ]
-        },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
         }
       },
       "required": [
         "contract_kind",
-        "contract_id",
-        "contract_version",
-        "contract_digest"
+        "contract_id"
       ],
       "type": "object"
     },
@@ -595,23 +539,6 @@
       ],
       "type": "object"
     },
-    "ContractDigestMismatchDetails": {
-      "additionalProperties": false,
-      "properties": {
-        "issues": {
-          "items": {
-            "$ref": "#/$defs/CompileIssue"
-          },
-          "maxItems": 4096,
-          "minItems": 1,
-          "type": "array"
-        }
-      },
-      "required": [
-        "issues"
-      ],
-      "type": "object"
-    },
     "CrossScopeErrorDetails": {
       "additionalProperties": false,
       "properties": {
@@ -636,9 +563,9 @@
     "EngineInvocationStartedEvent": {
       "additionalProperties": false,
       "properties": {
-        "engine_identity": {
-          "$ref": "#/$defs/Digest"
-        },
+      "engine_identity": {
+        "$ref": "#/$defs/Identifier"
+      },
         "engine_role": {
           "$ref": "#/$defs/Identifier"
         },
@@ -965,41 +892,8 @@
       "type": "string"
     },
     "WorkflowCommitId": {
-      "pattern": "^workflow-commit-[0-9a-f]{64}$",
+      "pattern": "^workflow-commit-[0-9a-f]{32}$",
       "type": "string"
-    },
-    "InactiveGenerationArtifactDetails": {
-      "additionalProperties": false,
-      "properties": {
-        "artifact_kind": {
-          "enum": [
-            "result_cache",
-            "run_evidence"
-          ]
-        },
-        "expected_catalog_contract_digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "received_catalog_contract_digest": {
-          "$ref": "#/$defs/Digest"
-        }
-      },
-      "required": [
-        "artifact_kind",
-        "expected_catalog_contract_digest",
-        "received_catalog_contract_digest"
-      ],
-      "type": "object"
-    },
-    "InactiveGenerationDetails": {
-      "oneOf": [
-        {
-          "$ref": "#/$defs/CompileErrorDetails"
-        },
-        {
-          "$ref": "#/$defs/InactiveGenerationArtifactDetails"
-        }
-      ]
     },
     "JsonObject": {
       "additionalProperties": {
@@ -1275,68 +1169,34 @@
       "type": "object"
     },
     "NodeBindingFailureError": {
-      "oneOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "code": {
-              "const": "binding_unavailable"
-            },
-            "correlation_id": {
-              "$ref": "#/$defs/Identifier"
-            },
-            "details": {
-              "$ref": "#/$defs/BindingErrorDetails"
-            },
-            "message": {
-              "maxLength": 2048,
-              "minLength": 1,
-              "type": "string"
-            },
-            "retryable": {
-              "const": false
-            }
-          },
-          "required": [
-            "code",
-            "message",
-            "retryable",
-            "correlation_id",
-            "details"
-          ],
-          "type": "object"
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "const": "readiness_rejected"
         },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "code": {
-              "const": "readiness_rejected"
-            },
-            "correlation_id": {
-              "$ref": "#/$defs/Identifier"
-            },
-            "details": {
-              "$ref": "#/$defs/BindingErrorDetails"
-            },
-            "message": {
-              "maxLength": 2048,
-              "minLength": 1,
-              "type": "string"
-            },
-            "retryable": {
-              "const": true
-            }
-          },
-          "required": [
-            "code",
-            "message",
-            "retryable",
-            "correlation_id",
-            "details"
-          ],
-          "type": "object"
+        "correlation_id": {
+          "$ref": "#/$defs/Identifier"
+        },
+        "details": {
+          "$ref": "#/$defs/BindingErrorDetails"
+        },
+        "message": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "retryable": {
+          "const": true
         }
-      ]
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable",
+        "correlation_id",
+        "details"
+      ],
+      "type": "object"
     },
     "NodeOperationFailureError": {
       "additionalProperties": false,
@@ -1539,9 +1399,6 @@
         "binding_parameters": {
           "$ref": "#/$defs/JsonObject"
         },
-        "binding_version": {
-          "$ref": "#/$defs/SemanticVersion"
-        },
         "node_id": {
           "$ref": "#/$defs/NodeInstanceId"
         },
@@ -1550,17 +1407,12 @@
         },
         "node_type_id": {
           "$ref": "#/$defs/Identifier"
-        },
-        "node_type_version": {
-          "$ref": "#/$defs/SemanticVersion"
         }
       },
       "required": [
         "node_id",
         "node_type_id",
-        "node_type_version",
         "binding_id",
-        "binding_version",
         "node_parameters",
         "binding_parameters"
       ],
@@ -1745,9 +1597,6 @@
     "ProjectWorkflowDraft": {
       "additionalProperties": false,
       "properties": {
-        "draft_digest": {
-          "$ref": "#/$defs/Digest"
-        },
         "draft_revision": {
           "minimum": 1,
           "type": "integer"
@@ -1762,7 +1611,6 @@
       "required": [
         "project_id",
         "draft_revision",
-        "draft_digest",
         "workflow"
       ],
       "type": "object"
@@ -1813,16 +1661,12 @@
         "behavior_id": {
           "$ref": "#/$defs/Identifier"
         },
-        "behavior_version": {
-          "$ref": "#/$defs/SemanticVersion"
-        },
         "parameters": {
           "$ref": "#/$defs/JsonObject"
         }
       },
       "required": [
         "behavior_id",
-        "behavior_version",
         "parameters"
       ],
       "type": "object"
@@ -1844,9 +1688,6 @@
         },
         "contract_kind": {
           "const": "binding"
-        },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
         },
         "deterministic": {
           "type": "boolean"
@@ -1894,9 +1735,6 @@
             "adapter",
             "direct"
           ]
-        },
-        "implementation_identity": {
-          "$ref": "#/$defs/JsonObject"
         },
         "method": {
           "$ref": "#/$defs/ContractReference"
@@ -1955,7 +1793,6 @@
         "schema_namespace",
         "contract_kind",
         "contract_id",
-        "contract_version",
         "node_type",
         "method",
         "binding_parameters",
@@ -1964,7 +1801,6 @@
         "availability_declaration",
         "deterministic",
         "cacheable",
-        "implementation_identity",
         "produced_observations"
       ],
       "type": "object"
@@ -1975,17 +1811,11 @@
         "algorithm_identity": {
           "$ref": "#/$defs/JsonObject"
         },
-        "checkpoint_identity": {
-          "$ref": "#/$defs/JsonObject"
-        },
         "contract_id": {
           "$ref": "#/$defs/Identifier"
         },
         "contract_kind": {
           "const": "method"
-        },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
         },
         "featurization_identity": {
           "$ref": "#/$defs/JsonObject"
@@ -1998,21 +1828,15 @@
         },
         "schema_namespace": {
           "const": "protein-workbench-contract/v2"
-        },
-        "source_identity": {
-          "$ref": "#/$defs/JsonObject"
         }
       },
       "required": [
         "schema_namespace",
         "contract_kind",
         "contract_id",
-        "contract_version",
         "algorithm_identity",
         "model_identity",
-        "checkpoint_identity",
         "featurization_identity",
-        "source_identity",
         "scale_contract"
       ],
       "type": "object"
@@ -2031,9 +1855,6 @@
         },
         "contract_kind": {
           "const": "metric"
-        },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
         },
         "description": {
           "maxLength": 4096,
@@ -2078,7 +1899,6 @@
         "schema_namespace",
         "contract_kind",
         "contract_id",
-        "contract_version",
         "title",
         "description",
         "value_shape",
@@ -2103,9 +1923,6 @@
         },
         "contract_kind": {
           "const": "node_type"
-        },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
         },
         "inputs": {
           "items": {
@@ -2175,7 +1992,6 @@
         "schema_namespace",
         "contract_kind",
         "contract_id",
-        "contract_version",
         "title",
         "summary",
         "category",
@@ -2201,9 +2017,6 @@
         "contract_kind": {
           "const": "port_type"
         },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
-        },
         "candidate_data_projection": {
           "$ref": "#/$defs/BehaviorReference"
         },
@@ -2224,7 +2037,6 @@
         "schema_namespace",
         "contract_kind",
         "contract_id",
-        "contract_version",
         "validator",
         "codec",
         "content_identity"
@@ -2397,15 +2209,11 @@
         "objective_ids_parameter": {
           "$ref": "#/$defs/Identifier"
         },
-        "schema_version": {
-          "const": "2.1.0"
-        },
         "score_collection_input_port": {
           "$ref": "#/$defs/Identifier"
         }
       },
       "required": [
-        "schema_version",
         "candidate_input_port",
         "score_collection_input_port",
         "candidate_output_port"
@@ -2421,9 +2229,6 @@
         "candidate_output_port": {
           "$ref": "#/$defs/Identifier"
         },
-        "schema_version": {
-          "const": "2.1.0"
-        },
         "score_collection_input_port": {
           "$ref": "#/$defs/Identifier"
         },
@@ -2432,7 +2237,6 @@
         }
       },
       "required": [
-        "schema_version",
         "candidate_input_port",
         "score_collection_input_port",
         "candidate_output_port",
@@ -2477,13 +2281,9 @@
         },
         "output_port": {
           "$ref": "#/$defs/Identifier"
-        },
-        "schema_version": {
-          "const": "2.1.0"
         }
       },
       "required": [
-        "schema_version",
         "mode",
         "output_port",
         "input_ports",
@@ -2616,9 +2416,6 @@
     "ReadinessAttestedEvent": {
       "additionalProperties": false,
       "properties": {
-        "attestation_digest": {
-          "$ref": "#/$defs/Digest"
-        },
         "binding": {
           "$ref": "#/$defs/ContractReference"
         },
@@ -2641,7 +2438,6 @@
       "required": [
         "type",
         "binding",
-        "attestation_digest",
         "observed_at",
         "conclusion",
         "proof_source"
@@ -2715,16 +2511,11 @@
         },
         "type": {
           "const": "run_admitted"
-        },
-        "workflow_commit_revision": {
-          "minimum": 1,
-          "type": "integer"
         }
       },
       "required": [
         "type",
-        "workflow_commit_id",
-        "workflow_commit_revision"
+        "workflow_commit_id"
       ],
       "type": "object"
     },
@@ -2902,21 +2693,12 @@
         "terminal_sequence": {
           "minimum": 1,
           "type": "integer"
-        },
-        "workflow_digest": {
-          "$ref": "#/$defs/Digest"
-        },
-        "workflow_commit_revision": {
-          "minimum": 1,
-          "type": "integer"
         }
       },
       "required": [
         "project_id",
         "run_id",
         "workflow_commit_id",
-        "workflow_commit_revision",
-        "workflow_digest",
         "status",
         "ledger_cursor",
         "node_dispositions",
@@ -2959,17 +2741,12 @@
         },
         "run_id": {
           "$ref": "#/$defs/RunId"
-        },
-        "workflow_commit_revision": {
-          "minimum": 1,
-          "type": "integer"
         }
       },
       "required": [
         "project_id",
         "run_id",
         "workflow_commit_id",
-        "workflow_commit_revision",
         "admitted_sequence",
         "event_cursor"
       ],
@@ -3721,9 +3498,6 @@
         "contract_kind": {
           "const": "utility_transform"
         },
-        "contract_version": {
-          "$ref": "#/$defs/SemanticVersion"
-        },
         "output_contract": {
           "$ref": "#/$defs/UnitIntervalContract"
         },
@@ -3738,7 +3512,6 @@
         "schema_namespace",
         "contract_kind",
         "contract_id",
-        "contract_version",
         "compatible_input_contract",
         "parameters",
         "behavior",
@@ -3791,13 +3564,6 @@
     "WorkflowDocument": {
       "additionalProperties": false,
       "properties": {
-        "contract_lock": {
-          "items": {
-            "$ref": "#/$defs/ContractLockEntry"
-          },
-          "maxItems": 16384,
-          "type": "array"
-        },
         "edges": {
           "items": {
             "$ref": "#/$defs/WorkflowEdge"
@@ -3837,8 +3603,7 @@
         "schema_version",
         "workflow_id",
         "nodes",
-        "edges",
-        "contract_lock"
+        "edges"
       ],
       "type": "object"
     },
@@ -3922,8 +3687,6 @@
           "X-Port-Content-Digest": "typed_value.port_content_digest",
           "X-Port-Type-Kind": "typed_value.port_type.contract_kind",
           "X-Port-Type-Id": "typed_value.port_type.contract_id",
-          "X-Port-Type-Version": "typed_value.port_type.contract_version",
-          "X-Port-Type-Digest": "typed_value.port_type.contract_digest",
           "X-Value-Count": "typed_value.value_count",
           "X-Value-Index": "typed_value.value_index",
           "X-Value-Manifest-Reference": "typed_value.value_manifest_reference"
@@ -4204,12 +3967,6 @@
         "http_status": 404,
         "retryable": false
       },
-      "binding_unavailable": {
-        "code": "binding_unavailable",
-        "details_schema": "#/$defs/BindingErrorDetails",
-        "http_status": 422,
-        "retryable": false
-      },
       "cancellation_conflict": {
         "code": "cancellation_conflict",
         "details_schema": "#/$defs/CancellationErrorDetails",
@@ -4220,12 +3977,6 @@
         "code": "compile_rejected",
         "details_schema": "#/$defs/CompileErrorDetails",
         "http_status": 422,
-        "retryable": false
-      },
-      "contract_digest_mismatch": {
-        "code": "contract_digest_mismatch",
-        "details_schema": "#/$defs/ContractDigestMismatchDetails",
-        "http_status": 409,
         "retryable": false
       },
       "cross_scope_access_denied": {
@@ -4239,12 +3990,6 @@
         "details_schema": "#/$defs/EvidenceErrorDetails",
         "http_status": 503,
         "retryable": true
-      },
-      "inactive_generation": {
-        "code": "inactive_generation",
-        "details_schema": "#/$defs/InactiveGenerationDetails",
-        "http_status": 409,
-        "retryable": false
       },
       "internal_error": {
         "code": "internal_error",

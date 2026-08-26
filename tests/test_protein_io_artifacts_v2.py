@@ -67,19 +67,7 @@ def _run_import_export(
         WorkflowNodeInstance(
             node_id=role,
             node_type_id=f"protein_io.{role}_{value_kind}",
-            node_type_version={
-                ("import", "sequence"): "6.0.0",
-                ("export", "sequence"): "3.0.0",
-                ("import", "structure"): "6.0.0",
-                ("export", "structure"): "6.0.0",
-            }[(role, value_kind)],
             binding_id=f"protein_io.{role}_{value_kind}.direct",
-            binding_version={
-                ("import", "sequence"): "6.0.0",
-                ("export", "sequence"): "3.0.0",
-                ("import", "structure"): "6.0.0",
-                ("export", "structure"): "6.0.0",
-            }[(role, value_kind)],
             node_parameters=(
                 {"project_input_ref": f"{value_kind}-input"}
                 if role == "import"
@@ -95,9 +83,7 @@ def _run_import_export(
         nodes=nodes,
         edges=(
             WorkflowEdge("import", value_kind, "export", value_kind),
-        ),
-        contract_lock=(),
-    )
+        ))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -105,10 +91,6 @@ def _run_import_export(
     compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
-    )
-    assert (
-        compiled.execution_plan.workflow_commit_revision
-        == committed.workflow_commit_revision
     )
     service = V2RunService(
         projects,
@@ -180,84 +162,6 @@ def test_sequence_export_publishes_only_an_opaque_run_bound_fasta(
     )
     assert descriptor == artifact
     assert body == b">protein-workbench-sequence\nACDEFG\n"
-
-
-def test_artifact_retrieval_rejects_inactive_generation_without_rewriting_evidence(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    service, project_id, projection, _ = _run_import_export(
-        tmp_path,
-        value_kind="sequence",
-        payload=b">source\nACDEFG\n",
-    )
-    service.shutdown()
-    original_catalog = build_frozen_catalog(module_registrations())
-    active_catalog = builtin_frozen_catalog()
-    assert original_catalog.contract_digest != active_catalog.contract_digest
-    assert original_catalog.get_contract(
-        "binding",
-        "protein_io.import_sequence.direct",
-        "6.0.0",
-    ) is not None
-    assert active_catalog.get_contract(
-        "binding",
-        "protein_io.import_sequence.direct",
-        "6.0.0",
-    ) is None
-
-    artifact = projection["artifact_index"][0]
-    run_id = projection["run_id"]
-    artifact_path = _artifact_object_path(
-        tmp_path / "outputs",
-        project_id,
-        artifact,
-    )
-    evidence_root = tmp_path / "runs" / project_id / run_id
-    artifact_before = artifact_path.read_bytes()
-    evidence_before = {
-        path.relative_to(evidence_root).as_posix(): path.read_bytes()
-        for path in sorted(evidence_root.rglob("*"))
-        if path.is_file()
-    }
-
-    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    with TestClient(
-        create_application(frozen_catalog_override=active_catalog)
-    ) as client:
-        with pytest.raises(V2RunError) as service_rejected:
-            client.app.state.run_runtime.artifact(
-                project_id,
-                run_id,
-                artifact["artifact_reference"],
-            )
-        rejected = client.get(
-            f"/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
-            f"{artifact['artifact_reference']}"
-        )
-
-    evidence_after = {
-        path.relative_to(evidence_root).as_posix(): path.read_bytes()
-        for path in sorted(evidence_root.rglob("*"))
-        if path.is_file()
-    }
-    assert rejected.status_code == 409
-    assert service_rejected.value.code == "inactive_generation"
-    assert service_rejected.value.details == {
-        "artifact_kind": "run_evidence",
-        "expected_catalog_contract_digest": active_catalog.contract_digest,
-        "received_catalog_contract_digest": original_catalog.contract_digest,
-    }
-    error = rejected.json()["error"]
-    assert error["code"] == "inactive_generation"
-    assert error["retryable"] is False
-    assert error["details"] == {
-        "artifact_kind": "run_evidence",
-        "expected_catalog_contract_digest": active_catalog.contract_digest,
-        "received_catalog_contract_digest": original_catalog.contract_digest,
-    }
-    assert artifact_path.read_bytes() == artifact_before
-    assert evidence_after == evidence_before
 
 
 @pytest.mark.parametrize(
@@ -360,27 +264,21 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.structure_candidates",
-                node_type_version="3.0.0",
                 binding_id="contract_test.structure_candidates.direct",
-                binding_version="3.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="6.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
         ),
         edges=(
             WorkflowEdge("source", "structures", "export", "structures"),
-        ),
-        contract_lock=(),
-    )
+        ))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -388,10 +286,6 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
     compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
-    )
-    assert (
-        compiled.execution_plan.workflow_commit_revision
-        == committed.workflow_commit_revision
     )
     service = V2RunService(
         projects,

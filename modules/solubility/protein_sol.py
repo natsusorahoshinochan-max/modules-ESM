@@ -1,4 +1,4 @@
-"""Exact local Adapter for the Protein-Sol provider."""
+"""Local Adapter for the Protein-Sol provider."""
 
 from __future__ import annotations
 
@@ -6,10 +6,8 @@ from collections.abc import Mapping, Sequence
 import csv
 from dataclasses import dataclass, field
 import io
-import os
 from pathlib import Path
 import shutil
-import subprocess
 from typing import Any, cast
 
 from core.operation import OperationResources, ReadinessResult
@@ -18,8 +16,8 @@ from datatypes.candidate import CandidateDataReference
 from ._local_support import (
     SolubilityReadinessUnavailable,
     _provider_sequence_id,
-    _require_digest,
     _require_executable,
+    _require_file,
     _run_local_process,
     _write_fasta,
 )
@@ -27,13 +25,6 @@ from .domain import SequenceSolubilitySubject
 
 
 PROTEIN_SOL_RELEASE = "2017-10"
-PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL = (
-    "https://protein-sol.manchester.ac.uk/cgi-bin/utilities/"
-    "download_sequence_code.php"
-)
-PROTEIN_SOL_ARCHIVE_SHA256 = (
-    "4df32c61fca53adcb2394a528babd1ad85cb5c551bf7bd1c56d134097fb2b1b8"
-)
 PROTEIN_SOL_POPULATION_SCALED = 0.446
 PROTEIN_SOL_CALIBRATION_CONTEXT = {
     "kind": "calibration",
@@ -42,34 +33,16 @@ PROTEIN_SOL_CALIBRATION_CONTEXT = {
     "calibration_unit": "dimensionless",
     "population_id": "niwa_non_membrane_2396",
 }
-PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION = 5
-PROTEIN_SOL_BASH_RUNTIME_FAMILY = "GNU bash"
-PROTEIN_SOL_SOURCE_SHA256 = {
-    "fasta_seq_reformat_export.pl": (
-        "ee671b4121e343e0dd660377a8204c2e5058fcf9185e8ea629b2c3c64562a8e9"
-    ),
-    "multiple_prediction_wrapper_export.sh": (
-        "a7e7d0137508f34734584a6b37157e980bed769f400032f8ecb36949d17dc232"
-    ),
-    "profiles_gather_export.pl": (
-        "ad1aadee73db9b828ed4e87b27bb75191cf48b4934cf8ab3855c80740b674eac"
-    ),
-    "seq_compositions_perc_pipeline_export.pl": (
-        "8e8888220984b77c472333fa57750585d33e7aff93d44cb6b090fccd728d87cb"
-    ),
-    "seq_props_ALL_export.pl": (
-        "f20eac44b526f9b694c6371b06a3a4a9c080d14da1241cb785d77230783efa15"
-    ),
-    "seq_reference_data.txt": (
-        "6943cd600741d5d22b7518b8be40f2850bfa5586e96d637de3db688c7337d1f0"
-    ),
-    "server_prediction_seq_export.pl": (
-        "80f8554e43d605c10a6feea983c222099869119b0a9d73411c5a1b2dd68c4b4d"
-    ),
-    "ss_propensities.txt": (
-        "3c634b252ed83ffd363e6b0936e95813584facddb399f0fcc6769710755fa33f"
-    ),
-}
+PROTEIN_SOL_SOURCE_FILES = (
+    "fasta_seq_reformat_export.pl",
+    "multiple_prediction_wrapper_export.sh",
+    "profiles_gather_export.pl",
+    "seq_compositions_perc_pipeline_export.pl",
+    "seq_props_ALL_export.pl",
+    "seq_reference_data.txt",
+    "server_prediction_seq_export.pl",
+    "ss_propensities.txt",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,81 +59,30 @@ class ProteinSolProviderNonzeroExit(RuntimeError):
     """The exact upstream invocation returned a nonzero exit status."""
 
 
-def _validate_executable_runtime(
-    path: Path,
-    *,
-    version_command: Sequence[str],
-    expected_prefix: str,
-    runtime_name: str,
-) -> Path:
-    runtime_path = _require_executable(
-        path,
-        provider_name="Protein-Sol",
-    )
-    try:
-        completed = subprocess.run(
-            [str(runtime_path), *version_command],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            env={
-                "HOME": os.devnull,
-                "LANG": "C",
-                "LC_ALL": "C",
-                "PATH": os.defpath,
-            },
-        )
-    except (
-        OSError,
-        subprocess.CalledProcessError,
-        subprocess.TimeoutExpired,
-    ) as error:
-        raise SolubilityReadinessUnavailable(
-            f"configured Protein-Sol {runtime_name} identity is unavailable"
-        ) from error
-    observed = completed.stdout.splitlines()[0] if completed.stdout else ""
-    if not observed.startswith(expected_prefix):
-        raise SolubilityReadinessUnavailable(
-            f"configured Protein-Sol {runtime_name} identity changed"
-        )
-    return runtime_path
-
-
 def _admit_protein_sol_environment(
     environment: Mapping[str, Any],
 ) -> None:
-    """Attest the exact upstream dependency tree without executing it."""
+    """Check configured source and interpreter paths without executing them."""
     source_root = cast(Path, environment["source_root"])
-    for relative, expected in PROTEIN_SOL_SOURCE_SHA256.items():
-        _require_digest(
+    for relative in PROTEIN_SOL_SOURCE_FILES:
+        _require_file(
             source_root / relative,
-            expected,
             provider_name="Protein-Sol",
         )
-    _validate_executable_runtime(
+    _require_executable(
         cast(Path, environment["bash_executable"]),
-        version_command=("--version",),
-        expected_prefix=PROTEIN_SOL_BASH_RUNTIME_FAMILY,
-        runtime_name="Bash",
+        provider_name="Protein-Sol Bash",
     )
-    perl_executable = cast(Path, environment["perl_executable"])
-    if perl_executable.name != "perl":
-        raise SolubilityReadinessUnavailable(
-            "configured Protein-Sol Perl command is unavailable"
-        )
-    _validate_executable_runtime(
-        perl_executable,
-        version_command=("-e", "print $^V"),
-        expected_prefix=f"v{PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION}.",
-        runtime_name="Perl",
+    _require_executable(
+        cast(Path, environment["perl_executable"]),
+        provider_name="Protein-Sol Perl",
     )
 
 
 def protein_sol_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    """Observe exact source and interpreter prerequisites for one Run."""
+    """Observe configured source and interpreter prerequisites for one Run."""
     try:
         _admit_protein_sol_environment(environment)
     except SolubilityReadinessUnavailable:
@@ -189,7 +111,7 @@ def _trusted_protein_sol_environment(
     return _TrustedProteinSolEnvironment(
         source_files={
             relative: source_root / relative
-            for relative in PROTEIN_SOL_SOURCE_SHA256
+            for relative in PROTEIN_SOL_SOURCE_FILES
         },
         bash_executable=cast(Path, environment["bash_executable"]),
         perl_executable=cast(Path, environment["perl_executable"]),
@@ -203,7 +125,7 @@ def _prepare_protein_sol_invocation(
     resolved_environment: _TrustedProteinSolEnvironment,
 ) -> tuple[tuple[str, ...], Path]:
     """Stage one exact Protein-Sol request before its Engine Invocation."""
-    for relative in PROTEIN_SOL_SOURCE_SHA256:
+    for relative in PROTEIN_SOL_SOURCE_FILES:
         shutil.copyfile(
             resolved_environment.source_files[relative],
             staging_directory / relative,

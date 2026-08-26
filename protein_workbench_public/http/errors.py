@@ -26,7 +26,6 @@ from protein_workbench_public.http.emission import (
 from protein_workbench_public.protocol import (
     REST_BODY_ABSENT,
     ProtocolValidationError,
-    admit_structured_error_envelope,
     project_structured_error,
 )
 
@@ -58,8 +57,7 @@ def public_error_response(
     details: Mapping[str, Any],
 ) -> JSONResponse:
     status, payload = public_error_payload(code, message, details)
-    admitted = admit_structured_error_envelope(payload)
-    return JSONResponse(status_code=status, content=admitted)
+    return JSONResponse(status_code=status, content=payload)
 
 
 def report_public_internal_error(
@@ -183,17 +181,6 @@ def workflow_document_error_response(
             "artifact_kind": "workflow",
             "expected_schema_version": "2.1.0",
             "received_schema_version": str(received)[:64] or "missing",
-        }
-    elif error.code == "contract_digest_mismatch":
-        details = {
-            "issues": [
-                {
-                    "code": error.code,
-                    "severity": "error",
-                    "message": str(error),
-                    "field_path": ["contract_lock"],
-                }
-            ]
         }
     else:
         details = {"field_path": ["workflow"]}

@@ -7,13 +7,13 @@ wheel and subject to their target-machine Provider gates.
 
 ## 1. Install the Workbench
 
-Use Python 3.12, `uv`, and a clean checkout. Resolve the exact locked Provider
-environment rather than performing an independent pip resolution:
+Use Python 3.12, `uv`, and the current checkout. Install the project and the
+Provider and verification dependencies required by this deployment contract:
 
 ```bash
 git clone <repository-url> protein-workbench
 cd protein-workbench
-uv sync --frozen --extra providers
+uv sync --frozen --extra dev --extra providers
 ```
 
 Select stable absolute data and Provider roots outside the checkout. These shell
@@ -29,7 +29,7 @@ from `PROTEIN_WORKBENCH_DATA_ROOT`; it does not derive storage from the process
 working directory.
 
 Install only the Provider sources and assets required by the Workflows that will
-run on that machine. The complete source and asset identities are listed in
+run on that machine. The required operational locations and resource roles are listed in
 [`provider-install-contract.md`](provider-install-contract.md).
 
 ## 2. Build SoluProt-next on the target machine
@@ -84,7 +84,7 @@ export PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE="$HOME/protein-workbench-private/bioh
 ```
 
 Every configured root is expanded once and must be absolute. Local ESM-3 reads
-the locked snapshot directly from `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`; it does
+the configured snapshot directly from `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`; it does
 not inspect `HF_HUB_CACHE`, `HF_HOME`, or their internal cache layout. The
 Biohub credential file must be owned by the current user and readable only by
 that user.
@@ -113,6 +113,8 @@ Run the existing tests; do not create a separate installation suite:
 ```
 
 Run the additional existing Provider tiers corresponding to the Providers
-installed on that machine. SoluProt, Protein-Sol, and mkdssp readiness use
-portable runtime/version checks plus exact scientific source and asset checks;
-they do not require the executable bytes to match a macOS/ARM64 machine.
+installed on that machine. SoluProt, Protein-Sol, and mkdssp Readiness checks
+their declared configured paths, required files, package discoverability, and
+executable presence. It does not import or load models, execute binaries, hash
+source or assets, require Git/PEP 610 identity, or require executable bytes to
+match a macOS/ARM64 machine; real-Provider tiers validate the scientific routes.

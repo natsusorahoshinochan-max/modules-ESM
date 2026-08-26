@@ -28,7 +28,6 @@ from .residue_axis import (
 
 _STRUCTURE_CONTENT_TYPE = builtin_frozen_catalog().require_port_type(
     "protein.structure",
-    "4.0.0",
 )
 
 

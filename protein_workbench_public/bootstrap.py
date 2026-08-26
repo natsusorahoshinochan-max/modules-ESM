@@ -74,7 +74,7 @@ def module_registrations() -> tuple[ModulePackageRegistration, ...]:
 def create_application(
     *,
     v2_environment_configuration: (
-        Mapping[tuple[str, str], Mapping[str, Any]] | None
+        Mapping[str, Mapping[str, Any]] | None
     ) = None,
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
@@ -111,7 +111,7 @@ def create_application(
             )
         )
         authoring.install_seed_commit(
-            locked_workflow=canonical_workflow,
+            workflow=canonical_workflow,
             input_sources={"3GB1.pdb": canonical_structure},
         )
     environment = admit_environment_configuration(

@@ -49,8 +49,6 @@ def _reference(value: ExactContractReference) -> dict[str, str]:
     return {
         "contract_kind": value.contract_kind,
         "contract_id": value.contract_id,
-        "contract_version": value.contract_version,
-        "contract_digest": value.contract_digest,
     }
 
 
@@ -64,11 +62,11 @@ def _error(value: StructuredError) -> dict[str, Any]:
     return projected
 
 
-def _artifact(value: PublishedArtifact) -> dict[str, Any]:
+def _artifact(value: PublishedArtifact, *, node_id: str) -> dict[str, Any]:
     result = {
         "artifact_reference": value.artifact_reference,
         "artifact_kind": value.artifact_kind,
-        "node_id": value.node_id,
+        "node_id": node_id,
         "output_port": value.output_port,
         "media_type": value.media_type,
         "filename": value.filename,
@@ -80,15 +78,24 @@ def _artifact(value: PublishedArtifact) -> dict[str, Any]:
     return result
 
 
-def _output(value: PublishedOutput) -> dict[str, Any]:
+def _output(
+    value: PublishedOutput,
+    *,
+    node_id: str,
+    result_identity: str,
+) -> dict[str, Any]:
     return {
-        "node_id": value.node_id,
+        "node_id": node_id,
         "output_port": value.output_port,
         "port_type": _reference(value.port_type),
         "content_digest": value.content_digest,
-        "result_identity": value.result_identity,
+        "result_identity": result_identity,
         "materialization": thaw_i_json(value.materialization),
-        "producer_provenance": thaw_i_json(value.producer_provenance),
+        "producer_provenance": {
+            "producer_run_id": value.producer_run_id,
+            "producer_result_identity": result_identity,
+            "output_port": value.output_port,
+        },
         "value_count": value.value_count,
         "value_manifest_reference": value.value_manifest_reference,
     }
@@ -236,8 +243,6 @@ def encode_run_projection(projection: RunProjection) -> dict[str, Any]:
         "project_id": projection.project_id,
         "run_id": projection.run_id,
         "workflow_commit_id": projection.workflow_commit_id,
-        "workflow_commit_revision": projection.workflow_commit_revision,
-        "workflow_digest": projection.workflow_digest,
         "status": projection.status,
         "ledger_cursor": projection.ledger_cursor.value,
         "node_dispositions": [
@@ -254,9 +259,19 @@ def encode_run_projection(projection: RunProjection) -> dict[str, Any]:
             }
             for disposition in projection.node_dispositions
         ],
-        "outputs": [_output(output) for output in projection.outputs],
+        "outputs": [
+            _output(
+                output,
+                node_id=publication.node_id,
+                result_identity=publication.result_identity,
+            )
+            for publication in projection.publications
+            for output in publication.outputs
+        ],
         "artifact_index": [
-            _artifact(artifact) for artifact in projection.artifacts
+            _artifact(artifact, node_id=publication.node_id)
+            for publication in projection.publications
+            for artifact in publication.artifacts
         ],
     }
     if projection.selection_results is not None:
@@ -278,7 +293,6 @@ def _event_payload(fact: Fact) -> dict[str, Any]:
         return {
             "type": "readiness_attested",
             "binding": _reference(payload.binding),
-            "attestation_digest": payload.attestation_digest,
             "observed_at": payload.observed_at,
             "conclusion": payload.conclusion,
             "proof_source": payload.proof_source,
@@ -287,7 +301,6 @@ def _event_payload(fact: Fact) -> dict[str, Any]:
         return {
             "type": "run_admitted",
             "workflow_commit_id": payload.workflow_commit_id,
-            "workflow_commit_revision": payload.workflow_commit_revision,
         }
     if isinstance(payload, RunStarted):
         return {"type": "run_started", "started_at": payload.started_at}
@@ -386,7 +399,6 @@ def encode_event(
             fact.sequence,
             project_id=project_id,
             run_id=run_id,
-            fact=fact,
         ).value,
         "emitted_at": fact.recorded_at,
         "event": _event_payload(fact),

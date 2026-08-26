@@ -60,11 +60,6 @@ from modules.collection_ops.implementation import CollectionOpsImplementation
 
 
 VERSION = "2.1.0"
-CANDIDATE_NODE_VERSION = "4.0.0"
-SCORE_NODE_VERSION = "5.0.0"
-PAIRING_METHOD_VERSION = "3.0.0"
-SOURCE_NODE_VERSION = CANDIDATE_NODE_VERSION
-SCORER_NODE_VERSION = SCORE_NODE_VERSION
 
 
 def _application_roots(
@@ -158,16 +153,12 @@ def test_score_merge_preserves_exact_i_json_value_types() -> None:
     metric = ExactContractReference(
         **catalog.require_contract(
             "metric",
-            "contract_test.collection_ops_value",
-            VERSION,
-        ).reference()
+            "contract_test.collection_ops_value").reference()
     )
     method = ExactContractReference(
         **catalog.require_contract(
             "method",
-            "contract_test.collection_ops_scorer.method",
-            VERSION,
-        ).reference()
+            "contract_test.collection_ops_scorer.method").reference()
     )
     observation = ScoreObservation(
         subject=CandidateDataReference(
@@ -184,7 +175,6 @@ def test_score_merge_preserves_exact_i_json_value_types() -> None:
     call = operation_call(
         catalog=catalog,
         binding_id="collection_ops.merge_scores.direct",
-        binding_version=SCORE_NODE_VERSION,
         inputs={
             "scores_a": ScoreCollection("scores-a", (observation,)),
             "scores_b": ScoreCollection(
@@ -203,7 +193,6 @@ def _assert_workflow_commit_owner(
     project_id: str,
     *,
     source_draft_revision: int,
-    workflow_commit_revision: int,
 ) -> None:
     owner = app.state.workflow_authoring
     commit = owner.load_active_commit(project_id)
@@ -216,17 +205,9 @@ def _assert_workflow_commit_owner(
 
     assert commit.source_draft_revision == source_draft_revision
     assert commit.source_draft_revision == draft.draft_revision
-    assert commit.source_draft_digest == draft.draft_digest
-    assert commit.workflow_commit_revision == workflow_commit_revision
-    assert plan.workflow_commit_revision == commit.workflow_commit_revision
-    assert plan.workflow_digest == commit.workflow_digest
-    assert plan.catalog_contract_digest == commit.catalog_contract_digest
-    assert plan.contract_lock_digest == commit.contract_lock_digest
-    assert plan.execution_plan_digest == commit.execution_plan_digest
-    assert commit.workflow_commit_id == plan.execution_plan_digest.replace(
-        "sha256:",
-        "workflow-commit-",
-    )
+    assert commit.workflow == draft.workflow
+    assert plan.workflow_id == commit.workflow.workflow_id
+    assert commit.scientific_definitions == plan.scientific_definitions
 
 
 def _source(
@@ -237,9 +218,7 @@ def _source(
     return WorkflowNodeInstance(
         node_id=f"source-{partition}",
         node_type_id="contract_test.collection_ops_source",
-        node_type_version=SOURCE_NODE_VERSION,
         binding_id=f"contract_test.collection_ops_source.{partition}",
-        binding_version=SOURCE_NODE_VERSION,
         node_parameters={"candidate_count": candidate_count},
         binding_parameters={},
     )
@@ -249,9 +228,7 @@ def _lineage_source(*, candidate_count: int = 2) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="lineage-source",
         node_type_id="contract_test.collection_ops_lineage_source",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="contract_test.collection_ops_lineage_source.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={"candidate_count": candidate_count},
         binding_parameters={},
     )
@@ -313,19 +290,14 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
         "rebind_candidate_pairing",
     ):
         method = contracts[("method", f"collection_ops.{operation}.method")]
-        assert method["contract_version"] == PAIRING_METHOD_VERSION
         assert method["algorithm_identity"]["pairing_contract"] == {
             "participant_identity": "CandidateDataReference",
             "join": "complete-reference-equality",
             "cardinality": "one-to-one",
         }
-        binding = contracts[("binding", f"collection_ops.{operation}.direct")]
-        assert binding["method"]["contract_version"] == (
-            PAIRING_METHOD_VERSION
-        )
 
 
-def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
+def test_collection_ports_and_score_union_keep_stable_scientific_types() -> None:
     contracts = _public_collection_contracts()
     candidates = contracts[
         ("node_type", "collection_ops.concat_candidates")
@@ -334,7 +306,6 @@ def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
     score_binding = contracts[
         ("binding", "collection_ops.merge_scores.direct")
     ]
-
     candidate_only_operations = {
         "concat_candidates",
         "concat_pairings",
@@ -346,35 +317,18 @@ def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
     }
     for operation in candidate_only_operations:
         node = contracts[("node_type", f"collection_ops.{operation}")]
-        binding = contracts[
-            ("binding", f"collection_ops.{operation}.direct")
-        ]
-        assert node["contract_version"] == CANDIDATE_NODE_VERSION
-        assert binding["contract_version"] == CANDIDATE_NODE_VERSION
-        assert binding["node_type"]["contract_version"] == (
-            CANDIDATE_NODE_VERSION
-        )
-
-    assert scores["contract_version"] == SCORE_NODE_VERSION
-    assert score_binding["contract_version"] == SCORE_NODE_VERSION
-    assert score_binding["node_type"]["contract_version"] == (
-        SCORE_NODE_VERSION
-    )
+        assert node["contract_id"] == f"collection_ops.{operation}"
 
     for (contract_kind, _), descriptor in contracts.items():
         if contract_kind != "node_type":
             continue
         for port in (*descriptor["inputs"], *descriptor["outputs"]):
             port_type = port["port_type"]
-            if port_type["contract_id"] in {
+            assert port_type["contract_id"] in {
                 "candidate.collection",
                 "candidate.pairing",
-            }:
-                assert port_type["contract_version"] == (
-                    CANDIDATE_NODE_VERSION
-                )
-            elif port_type["contract_id"] == "score.collection":
-                assert port_type["contract_version"] == SCORE_NODE_VERSION
+                "score.collection",
+            }
 
     assert [
         (
@@ -404,7 +358,6 @@ def test_collection_ports_and_score_union_are_closed_and_versioned() -> None:
     ]
     assert score_binding["produced_observations"] == []
     assert score_binding["observation_propagation"] == {
-        "schema_version": VERSION,
         "mode": "union",
         "output_port": "scores",
         "input_ports": ["scores_a", "scores_b", "scores_c"],
@@ -422,55 +375,44 @@ def test_score_fixture_separates_candidate_admission_from_score_production(
     catalog = build_frozen_catalog((SOURCE_PACKAGE,))
     source = catalog.require_contract(
         "node_type",
-        "contract_test.collection_ops_source",
-        SOURCE_NODE_VERSION,
-    ).descriptor
+        "contract_test.collection_ops_source").descriptor
     scorer = catalog.require_contract(
         "node_type",
-        "contract_test.collection_ops_scorer",
-        SCORER_NODE_VERSION,
-    ).descriptor
+        "contract_test.collection_ops_scorer").descriptor
     source_binding = catalog.require_contract(
         "binding",
-        "contract_test.collection_ops_source.a",
-        SOURCE_NODE_VERSION,
-    ).descriptor
+        "contract_test.collection_ops_source.a").descriptor
     scorer_binding = catalog.require_contract(
         "binding",
-        "contract_test.collection_ops_scorer.a",
-        SCORER_NODE_VERSION,
-    ).descriptor
+        "contract_test.collection_ops_scorer.a").descriptor
 
     assert source["inputs"] == ()
     assert [
         (
             port["name"],
             port["port_type"]["contract_id"],
-            port["port_type"]["contract_version"],
         )
         for port in source["outputs"]
     ] == [
-        ("candidates", "candidate.collection", CANDIDATE_NODE_VERSION),
+        ("candidates", "candidate.collection"),
     ]
     assert [
         (
             port["name"],
             port["port_type"]["contract_id"],
-            port["port_type"]["contract_version"],
         )
         for port in scorer["inputs"]
     ] == [
-        ("candidates", "candidate.collection", CANDIDATE_NODE_VERSION),
+        ("candidates", "candidate.collection"),
     ]
     assert [
         (
             port["name"],
             port["port_type"]["contract_id"],
-            port["port_type"]["contract_version"],
         )
         for port in scorer["outputs"]
     ] == [
-        ("scores", "score.collection", SCORE_NODE_VERSION),
+        ("scores", "score.collection"),
     ]
     assert source_binding["produced_observations"] == ()
     assert len(scorer_binding["produced_observations"]) == 1
@@ -505,9 +447,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     candidate_case = ModulePackageContractCase(
         case_id="collection-ops-concat-candidates",
         node_type_id="collection_ops.concat_candidates",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="collection_ops.concat_candidates.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -531,9 +471,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     score_case = ModulePackageContractCase(
         case_id="collection-ops-merge-scores",
         node_type_id="collection_ops.merge_scores",
-        node_type_version=SCORE_NODE_VERSION,
         binding_id="collection_ops.merge_scores.direct",
-        binding_version=SCORE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -569,9 +507,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     take_case = ModulePackageContractCase(
         case_id="collection-ops-take-candidates",
         node_type_id="collection_ops.take_candidates",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="collection_ops.take_candidates.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={"k": 1},
         binding_parameters={},
         environment_values={},
@@ -589,9 +525,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     rebind_case = ModulePackageContractCase(
         case_id="collection-ops-rebind-candidate-pairing",
         node_type_id="collection_ops.rebind_candidate_pairing",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="collection_ops.rebind_candidate_pairing.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -626,9 +560,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     concat_pairings_case = ModulePackageContractCase(
         case_id="collection-ops-concat-pairings",
         node_type_id="collection_ops.concat_pairings",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="collection_ops.concat_pairings.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -645,9 +577,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     pair_case = ModulePackageContractCase(
         case_id="collection-ops-pair-siblings-by-parent",
         node_type_id="collection_ops.pair_siblings_by_parent",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="collection_ops.pair_siblings_by_parent.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -670,9 +600,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     select_children_case = ModulePackageContractCase(
         case_id="collection-ops-select-children-by-parent",
         node_type_id="collection_ops.select_children_by_parent",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="collection_ops.select_children_by_parent.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -696,9 +624,7 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
     intersect_case = ModulePackageContractCase(
         case_id="collection-ops-intersect-candidates",
         node_type_id="collection_ops.intersect_candidates",
-        node_type_version=CANDIDATE_NODE_VERSION,
         binding_id="collection_ops.intersect_candidates.direct",
-        binding_version=CANDIDATE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -769,7 +695,7 @@ def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
     expected_message: str,
 ) -> None:
     catalog = build_frozen_catalog(module_registrations())
-    sequence_codec = catalog.require_port_type("protein.sequence", "3.0.0")
+    sequence_codec = catalog.require_port_type("protein.sequence")
     parent_data = ProteinSequence("AA")
     reference_data = ProteinSequence("CC")
     parent = Candidate("parent", parent_data)
@@ -823,12 +749,9 @@ def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
         build_operation(
             catalog,
             "collection_ops.rebind_candidate_pairing.direct",
-            None,
-            binding_version=CANDIDATE_NODE_VERSION,
-        ).execute(operation_call(
+            None).execute(operation_call(
             catalog=catalog,
             binding_id="collection_ops.rebind_candidate_pairing.direct",
-            binding_version=CANDIDATE_NODE_VERSION,
             inputs=inputs,
             node_parameters={},
             binding_parameters={},
@@ -849,17 +772,10 @@ def _run_public_collection_workflow(
 
     catalog = build_frozen_catalog((MODULE_PACKAGE, SOURCE_PACKAGE))
     roots = _application_roots(tmp_path, monkeypatch)
-    operation_version = (
-        SCORE_NODE_VERSION
-        if operation == "merge_scores"
-        else CANDIDATE_NODE_VERSION
-    )
     collection_op = WorkflowNodeInstance(
         node_id="collection-op",
         node_type_id=f"collection_ops.{operation}",
-        node_type_version=operation_version,
         binding_id=f"collection_ops.{operation}.direct",
-        binding_version=operation_version,
         node_parameters={},
         binding_parameters={},
     )
@@ -927,9 +843,7 @@ def _run_public_collection_workflow(
             schema_version=VERSION,
             workflow_id=project_id,
             nodes=workflow_nodes,
-            edges=workflow_edges,
-            contract_lock=(),
-        )
+            edges=workflow_edges)
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
@@ -940,9 +854,7 @@ def _run_public_collection_workflow(
         _assert_workflow_commit_owner(
             app,
             project_id,
-            source_draft_revision=1,
-            workflow_commit_revision=1,
-        )
+            source_draft_revision=1)
 
         def run(request_id: str) -> dict[str, object]:
             started = client.post(
@@ -1117,9 +1029,7 @@ def test_public_score_merge_preserves_observation_identity_and_partitions(
         *first_values[("source-b", "candidates")].items,
     )
     sequence_port = catalog.require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence")
     expected_subjects = {
         candidate.candidate_id: CandidateDataReference(
             candidate_id=candidate.candidate_id,
@@ -1225,9 +1135,7 @@ def _commit_through_public_rest(
     with TestClient(app) as client:
         public_workflow = replace(
             workflow,
-            workflow_id=project_id,
-            contract_lock=(),
-        )
+            workflow_id=project_id)
         response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
@@ -1238,9 +1146,7 @@ def _commit_through_public_rest(
             _assert_workflow_commit_owner(
                 app,
                 project_id,
-                source_draft_revision=1,
-                workflow_commit_revision=1,
-            )
+                source_draft_revision=1)
         return response
 
 
@@ -1257,9 +1163,7 @@ def _run_through_public_rest(
     with TestClient(app) as client:
         public_workflow = replace(
             workflow,
-            workflow_id=project_id,
-            contract_lock=(),
-        )
+            workflow_id=project_id)
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
@@ -1270,9 +1174,7 @@ def _run_through_public_rest(
         _assert_workflow_commit_owner(
             app,
             project_id,
-            source_draft_revision=1,
-            workflow_commit_revision=1,
-        )
+            source_draft_revision=1)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
@@ -1313,9 +1215,7 @@ def _scorer(partition: str, binding: str) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id=f"scorer-{partition}",
         node_type_id="contract_test.collection_ops_scorer",
-        node_type_version=SCORER_NODE_VERSION,
         binding_id=f"contract_test.collection_ops_scorer.{binding}",
-        binding_version=SCORER_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -1332,9 +1232,7 @@ def _score_union_workflow(second_binding: str) -> WorkflowDocument:
             WorkflowNodeInstance(
                 node_id="merge",
                 node_type_id="collection_ops.merge_scores",
-                node_type_version=SCORE_NODE_VERSION,
                 binding_id="collection_ops.merge_scores.direct",
-                binding_version=SCORE_NODE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1354,9 +1252,7 @@ def _score_union_workflow(second_binding: str) -> WorkflowDocument:
             ),
             WorkflowEdge("scorer-left", "scores", "merge", "scores_a"),
             WorkflowEdge("scorer-right", "scores", "merge", "scores_b"),
-        ),
-        contract_lock=(),
-    )
+        ))
 
 
 @pytest.mark.parametrize(
@@ -1419,9 +1315,7 @@ def test_public_collection_operations_reject_candidate_partition_aliasing(
             WorkflowNodeInstance(
                 node_id="concat",
                 node_type_id="collection_ops.concat_candidates",
-                node_type_version=CANDIDATE_NODE_VERSION,
                 binding_id="collection_ops.concat_candidates.direct",
-                binding_version=CANDIDATE_NODE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1439,9 +1333,7 @@ def test_public_collection_operations_reject_candidate_partition_aliasing(
                 "concat",
                 "candidates_b",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
 
     _, projection, _ = _run_through_public_rest(
         tmp_path,
@@ -1473,29 +1365,23 @@ def test_public_score_merge_rejects_legacy_subject_free_scores(
             WorkflowNodeInstance(
                 node_id="legacy",
                 node_type_id="contract_test.collection_ops_legacy_scores",
-                node_type_version=SCORE_NODE_VERSION,
                 binding_id=(
                     "contract_test.collection_ops_legacy_scores.direct"
                 ),
-                binding_version=SCORE_NODE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="merge",
                 node_type_id="collection_ops.merge_scores",
-                node_type_version=SCORE_NODE_VERSION,
                 binding_id="collection_ops.merge_scores.direct",
-                binding_version=SCORE_NODE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
         ),
         edges=(
             WorkflowEdge("legacy", "scores", "merge", "scores_a"),
-        ),
-        contract_lock=(),
-    )
+        ))
 
     _, projection, _ = _run_through_public_rest(
         tmp_path,
@@ -1525,23 +1411,17 @@ def test_compiler_derives_exact_capabilities_through_score_union(
     metric = ExactContractReference(
         **catalog.require_contract(
             "metric",
-            "contract_test.collection_ops_value",
-            VERSION,
-        ).reference()
+            "contract_test.collection_ops_value").reference()
     )
     method = ExactContractReference(
         **catalog.require_contract(
             "method",
-            "contract_test.collection_ops_scorer.method",
-            VERSION,
-        ).reference()
+            "contract_test.collection_ops_scorer.method").reference()
     )
     utility = ExactContractReference(
         **catalog.require_contract(
             "utility_transform",
-            "contract_test.collection_ops_identity.a",
-            VERSION,
-        ).reference()
+            "contract_test.collection_ops_identity.a").reference()
     )
     source_a = _source("a")
     source_b = _source("b")
@@ -1550,18 +1430,14 @@ def test_compiler_derives_exact_capabilities_through_score_union(
     merge = WorkflowNodeInstance(
         node_id="merge",
         node_type_id="collection_ops.merge_scores",
-        node_type_version=SCORE_NODE_VERSION,
         binding_id="collection_ops.merge_scores.direct",
-        binding_version=SCORE_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     select = WorkflowNodeInstance(
         node_id="select",
         node_type_id="selection.sort",
-        node_type_version=SCORE_NODE_VERSION,
         binding_id="selection.sort.direct",
-        binding_version=SCORE_NODE_VERSION,
         node_parameters={"objective_id": "partition-a-only"},
         binding_parameters={},
     )
@@ -1582,7 +1458,6 @@ def test_compiler_derives_exact_capabilities_through_score_union(
             ),
             WorkflowEdge("merge", "scores", "select", "scores"),
         ),
-        contract_lock=(),
         selection_objectives=(
             SelectionObjective(
                 objective_id="partition-a-only",
@@ -1618,9 +1493,7 @@ def test_compiler_derives_exact_capabilities_through_score_union(
                 workflow.selection_objectives[0],
                 source_partition="contract_test.partition.unknown",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
     rejected = _commit_through_public_rest(
         tmp_path / "unknown",
         monkeypatch,
@@ -1654,9 +1527,7 @@ def test_compiler_rejects_multiple_collections_on_one_optional_port(
             WorkflowNodeInstance(
                 node_id="merge",
                 node_type_id="collection_ops.merge_scores",
-                node_type_version=SCORE_NODE_VERSION,
                 binding_id="collection_ops.merge_scores.direct",
-                binding_version=SCORE_NODE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1666,9 +1537,7 @@ def test_compiler_rejects_multiple_collections_on_one_optional_port(
             WorkflowEdge("source-b", "candidates", "scorer-b", "candidates"),
             WorkflowEdge("scorer-a", "scores", "merge", "scores_a"),
             WorkflowEdge("scorer-b", "scores", "merge", "scores_a"),
-        ),
-        contract_lock=(),
-    )
+        ))
 
     rejected = _commit_through_public_rest(
         tmp_path,
@@ -1700,9 +1569,7 @@ def test_compiler_rejects_a_malformed_optional_collection_value(
             WorkflowNodeInstance(
                 node_id="merge",
                 node_type_id="collection_ops.merge_scores",
-                node_type_version=SCORE_NODE_VERSION,
                 binding_id="collection_ops.merge_scores.direct",
-                binding_version=SCORE_NODE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -1714,9 +1581,7 @@ def test_compiler_rejects_a_malformed_optional_collection_value(
                 "merge",
                 "scores_a",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
 
     rejected = _commit_through_public_rest(
         tmp_path,

@@ -1,32 +1,26 @@
-schema_version: "2.1.0"
 node_type_id: esm3.generate_sequence
-version: "8.0.0"
 title: Generate sequences with remote ESM-3
 summary: Samples the sequence track of one exact ProteinPrompt with at least one masked sequence residue, without changing any conditioning track.
 category: generation
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete residue-aligned conditioning Prompt with at least one masked sequence residue, translated without implicit track conversion.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete sequence Candidates produced by sequence-track generation.
   - name: sequence_reconstruction_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Coordinate-conditioned prompt reconstructions returned by the sequence operation, never independent structure samples.
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
-    port_type_version: "2.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Subjectless provider confidence facts keyed one-to-one to sequence_reconstruction_candidates, carrying the exact prediction-input axis, pTM, per-residue pLDDT, and optional PAE for later admitted-Candidate materialization.

@@ -1,45 +1,29 @@
-"""Exact v3 Method contracts for resolved-axis structure alignment."""
+"""Stable Method contracts for resolved-axis structure alignment."""
 
 from __future__ import annotations
 
-from importlib.metadata import version
-
 from core.catalog.declarations import MethodDefinition
 from core.catalog.definition_resource import load_method_definitions
-from core.catalog.canonical import canonical_sha256
 from datatypes.exact_reference import ExactContractReference
 
 
-VERSION = "3.0.0"
 
 
 def method_reference(method: MethodDefinition) -> ExactContractReference:
-    """Return the exact reference carried by scientific evidence."""
+    """Return the stable reference carried by scientific evidence."""
     return ExactContractReference(
         contract_kind="method",
         contract_id=method.method_id,
-        contract_version=method.version,
-        contract_digest=canonical_sha256(method.descriptor_template()),
     )
 
 
 REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = ExactContractReference(
     contract_kind="method",
     contract_id="folding.fold.esmfold2_fast_biohub_2026_05",
-    contract_version="4.0.0",
-    contract_digest=(
-        "sha256:96ba1f830ca71c844cc1ea506e6b60a3"
-        "27b5cf4c17bd0bfc2143b25bf669bee8"
-    ),
 )
 LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE = ExactContractReference(
     contract_kind="method",
     contract_id="folding.fold.esmfold2_hf_1ebf0e3",
-    contract_version="6.0.0",
-    contract_digest=(
-        "sha256:8073e63f0291d1af2bc644f50307b298"
-        "a02a2cb73e2de4159582da2295daaa7a"
-    ),
 )
 ESMFOLD2_FOLD_METHOD_REFERENCES = (
     REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
@@ -49,7 +33,6 @@ ESMFOLD2_FOLD_METHOD_REFERENCES = (
 
 SEQUENCE_PRIMARY_AFFINE_METHOD = MethodDefinition(
     method_id="structure_comparison.sequence_primary_affine_svd.method",
-    version=VERSION,
     algorithm_identity={
         "name": "resolved-axis-sequence-primary-affine-global-svd",
         "residue_correspondence": {
@@ -100,17 +83,10 @@ SEQUENCE_PRIMARY_AFFINE_METHOD = MethodDefinition(
         },
     },
     model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
     featurization_identity={
-        "input": "structure_transform.resolved_residue_axis@4.0.0",
+        "input": "structure_transform.resolved_residue_axis",
         "sequence": "resolved-axis-canonical-sequence",
         "coordinates": "resolved-axis-CA-coordinates",
-    },
-    source_identity={
-        "kind": "repository-owned",
-        "biopython_version": version("biopython"),
-        "numpy_version": version("numpy"),
-        "scipy_version": version("scipy"),
     },
     scale_contract={
         "coordinate_unit": "angstrom",
@@ -121,7 +97,6 @@ SEQUENCE_PRIMARY_AFFINE_METHOD = MethodDefinition(
 
 STRUCTURE_FIRST_TM_ALIGN_METHOD = MethodDefinition(
     method_id="structure_comparison.structure_first_tm_align.method",
-    version=VERSION,
     algorithm_identity={
         "name": "resolved-axis-single-segment-structure-first-tm-align",
         "segment_requirement": "exactly-one-segment-per-axis",
@@ -147,17 +122,10 @@ STRUCTURE_FIRST_TM_ALIGN_METHOD = MethodDefinition(
         },
     },
     model_identity={"kind": "none"},
-    checkpoint_identity={"kind": "none"},
     featurization_identity={
-        "input": "structure_transform.resolved_residue_axis@4.0.0",
+        "input": "structure_transform.resolved_residue_axis",
         "sequence": "CA-admitted-resolved-axis-subsequence",
         "coordinates": "resolved-axis-CA-coordinates",
-    },
-    source_identity={
-        "kind": "repository-owned",
-        "engine_api": "tmtools.tm_align",
-        "tmtools_version": version("tmtools"),
-        "numpy_version": version("numpy"),
     },
     scale_contract={
         "coordinate_unit": "angstrom",
@@ -213,9 +181,4 @@ INSERTED_LOOP_EVALUATION_METHOD_REFERENCE = method_reference(
 SIMPLEFOLD_FOLD_METHOD_REFERENCE = ExactContractReference(
     contract_kind="method",
     contract_id="folding.fold.simplefold_100m_c7a5570",
-    contract_version="5.0.0",
-    contract_digest=(
-        "sha256:010f5170d530d8b72445dc7a52295233"
-        "4853f263c3b6ac9d0f3eb414f6fb2b5e"
-    ),
 )

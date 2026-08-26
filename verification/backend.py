@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-import hashlib
 import io
 import json
 import os
@@ -70,14 +69,12 @@ TIERS = {
         "and not deterministic_acceptance "
         "and not live_provider and not local_provider "
         "and not slow and not scientific_repro",
+        "-n",
+        "auto",
     )),
     "examples-v2": Tier(("tests/test_repository_examples_v2.py",)),
     "deterministic-acceptance": Tier((
         "tests/test_canonical_3gb1_v2.py",
-        (
-            "tests/test_folding_v2.py::"
-            "test_readiness_rejects_before_fold_call"
-        ),
         (
             "tests/test_run_runtime.py::"
             "test_branch_failure_closes_every_disposition_and_unrelated_work_continues"
@@ -127,7 +124,7 @@ TIERS = {
     "local-esmfold2-v2-contract": Tier((
         (
             "tests/acceptance/test_esmfold2_v2.py::"
-            "test_local_esmfold2_v2_source_contract_and_native_result"
+            "test_local_esmfold2_v2_native_result_translation"
         ),
         (
             "tests/test_folding_v2.py::"
@@ -183,37 +180,6 @@ TIERS = {
         for tier in CANONICAL_ACCEPTANCE_TIERS
     },
 }
-
-
-def _git_state() -> tuple[str, bool]:
-    revision = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=PROJECT_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    ).stdout.strip()
-    dirty = bool(
-        subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=PROJECT_ROOT,
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout
-    )
-    return revision, dirty
-
-
-def _interpreter_digest() -> str | None:
-    digest = hashlib.sha256()
-    try:
-        with Path(sys.executable).resolve().open("rb") as source:
-            while chunk := source.read(1024 * 1024):
-                digest.update(chunk)
-    except OSError:
-        return None
-    return digest.hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -437,7 +403,6 @@ def run(
             )
     tier = TIERS[tier_name]
     arguments = pytest_override or tier.pytest_arguments
-    revision, dirty = _git_state()
     print(f"BACKEND VERIFICATION TIER: {tier_name}", flush=True)
     print(
         f"PROJECT ENVIRONMENT: {Path(sys.executable).resolve()}",
@@ -576,7 +541,6 @@ def run(
         )
         campaign_outcome = TierExecutionOutcome(
             tier=tier_name,
-            source_revision=revision,
             retained_location=result_dir.relative_to(results_root).as_posix(),
             conclusion=(
                 "interrupted"
@@ -646,14 +610,10 @@ def run(
             result_dir / "environment-summary.json",
             json.dumps(
                 {
-                    "schema_version": "2.1.0",
                     "tier": tier_name,
                     "recorded_at": datetime.now(timezone.utc).isoformat(),
-                    "project_revision": revision,
-                    "project_dirty": dirty,
                     "python": sys.version.split()[0],
                     "interpreter": str(Path(sys.executable).resolve()),
-                    "interpreter_sha256": _interpreter_digest(),
                     "isolated_roots": list(ROOT_VARIABLES),
                     "historical_cache_allowed": False,
                     "parallel_provider_evidence_allowed": False,

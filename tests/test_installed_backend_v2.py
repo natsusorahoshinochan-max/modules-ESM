@@ -54,15 +54,11 @@ pytestmark = pytest.mark.installed_package
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SOURCE_CATALOG = build_frozen_catalog(module_registrations())
-SOURCE_CATALOG_BYTES = SOURCE_CATALOG.catalog_descriptor_bytes
-SOURCE_CATALOG_DIGEST = SOURCE_CATALOG.contract_digest
 SOURCE_PROTOCOL_BYTES = bundle_bytes()
 SOURCE_PROTOCOL_DIGEST = bundle_digest()
 LOOPBACK_URL_OPENER = urllib.request.build_opener(
     urllib.request.ProxyHandler({})
 )
-BIOHUB_ESMC_GATE_VERSION = "5.0.0"
-BIOHUB_ESMC_METHOD_VERSION = "3.0.0"
 REQUIRED_PROVIDER_CASES = {
     "biohub_esm3": (
         (
@@ -117,10 +113,6 @@ REQUIRED_PROVIDER_CASES = {
             "tests/test_proteinmpnn_v2.py::"
             "test_provider_staging_capacity_counts_segments_not_workbench_"
             "chains"
-        ),
-        (
-            "tests/test_proteinmpnn_v2.py::"
-            "test_readiness_validates_the_exact_checkout_checkpoint_and_runtime"
         ),
     ),
     "mkdssp": (
@@ -189,8 +181,6 @@ print(json.dumps({
     "origins": origins,
     "protocol_hex": bundle_bytes().hex(),
     "protocol_digest": bundle_digest(),
-    "catalog_hex": catalog.catalog_descriptor_bytes.hex(),
-    "catalog_digest": catalog.contract_digest,
     "contracts": [contract.reference() for contract in catalog.contracts],
     "availability": encode_catalog_projection(
         catalog.projection(),
@@ -333,7 +323,6 @@ def test_built_artifact_is_reproducible_complete_and_fixture_free(
         if not {"fixture", "fixtures", "test", "tests"}.intersection(path.parts)
     }
     required |= {
-        "examples/v2/capability-inventory.json",
         "examples/v2/canonical-3gb1.workflow.json",
         "examples/v2/repository-capabilities.workflow.json",
         "examples/v2/source-bound-1pga.workflow.json",
@@ -383,8 +372,6 @@ def test_installed_protocol_catalog_identity_and_separate_availability(
     installed = _installed_probe(installed_artifact, PROJECT_ROOT)
     assert bytes.fromhex(str(installed["protocol_hex"])) == SOURCE_PROTOCOL_BYTES
     assert installed["protocol_digest"] == SOURCE_PROTOCOL_DIGEST
-    assert bytes.fromhex(str(installed["catalog_hex"])) == SOURCE_CATALOG_BYTES
-    assert installed["catalog_digest"] == SOURCE_CATALOG_DIGEST
     assert installed["contracts"] == [
         contract.reference() for contract in SOURCE_CATALOG.contracts
     ]
@@ -392,9 +379,6 @@ def test_installed_protocol_catalog_identity_and_separate_availability(
     assert all(
         set(snapshot) >= {"binding", "observed_at", "available"}
         for snapshot in installed["availability"]
-    )
-    assert "availability" not in json.loads(
-        bytes.fromhex(str(installed["catalog_hex"]))
     )
 
 
@@ -505,7 +489,7 @@ def test_installed_backend_completes_full_public_v2_journey(
             assert response.headers["Digest"] == SOURCE_PROTOCOL_DIGEST
         with PublicProtocolAcceptanceClient(base_url) as client:
             catalog = client.request("catalog_snapshot", {})
-            assert catalog["catalog_contract_digest"] == SOURCE_CATALOG_DIGEST
+            assert catalog["contracts"]
             project_id = client.create_project(
                 "installed public v2 acceptance"
             )["id"]
@@ -532,9 +516,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "import",
                         "node_type_id": "protein_io.import_structure",
-                        "node_type_version": "6.0.0",
                         "binding_id": "protein_io.import_structure.direct",
-                        "binding_version": "6.0.0",
                         "node_parameters": {
                             "project_input_ref": input_reference
                         },
@@ -543,9 +525,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                     {
                         "node_id": "export",
                         "node_type_id": "protein_io.export_structure",
-                        "node_type_version": "6.0.0",
                         "binding_id": "protein_io.export_structure.direct",
-                        "binding_version": "6.0.0",
                         "node_parameters": {},
                         "binding_parameters": {},
                     },
@@ -553,11 +533,9 @@ def test_installed_backend_completes_full_public_v2_journey(
                         {
                             "node_id": f"export-{index}",
                             "node_type_id": "protein_io.export_structure",
-                            "node_type_version": "6.0.0",
                             "binding_id": (
                                 "protein_io.export_structure.direct"
                             ),
-                            "binding_version": "6.0.0",
                             "node_parameters": {},
                             "binding_parameters": {},
                         }
@@ -581,9 +559,7 @@ def test_installed_backend_completes_full_public_v2_journey(
                         for index in range(32)
                     ],
                 ],
-                "selection_objectives": [],
-                "contract_lock": [],
-            }
+                "selection_objectives": []}
             saved = client.request(
                 "save_project_workflow_draft",
                 {
@@ -836,16 +812,13 @@ for package in (
     protein_workbench_public,
 ):
     assert not Path(package.__file__).resolve().is_relative_to(source)
-binding = ("esm3.represent_sequence.biohub_esmc_600m_2024_12", "5.0.0")
+binding = "esm3.represent_sequence.biohub_esmc_600m_2024_12"
 token = read_private_credential_file(
     Path(os.environ["PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE"])
 )
 app = create_application(v2_environment_configuration={
     binding: {
-        "values": {
-            "endpoint_id": "biohub",
-            "credential_handle": token,
-        },
+        "credential_handle": token,
     },
 })
 
@@ -891,16 +864,14 @@ def _assert_installed_esmc_catalog(
         (
             item["reference"]["contract_kind"],
             item["reference"]["contract_id"],
-            item["reference"]["contract_version"],
         ): item
         for item in catalog["contracts"]
     }
     binding_id = "esm3.represent_sequence.biohub_esmc_600m_2024_12"
-    binding_key = ("binding", binding_id, BIOHUB_ESMC_GATE_VERSION)
+    binding_key = ("binding", binding_id)
     method_key = (
         "method",
         "esm3.represent_sequence.esmc_600m_2024_12",
-        BIOHUB_ESMC_METHOD_VERSION,
     )
     assert contracts[binding_key]["descriptor"]["method"]["contract_id"] == (
         method_key[1]
@@ -908,7 +879,7 @@ def _assert_installed_esmc_catalog(
     assert contracts[method_key]["descriptor"]["model_identity"]["model"] == (
         "esmc-600m-2024-12"
     )
-    return binding_id, contracts[method_key]["reference"]["contract_digest"]
+    return binding_id, method_key[1]
 
 
 def _start_installed_esmc_run(
@@ -933,9 +904,7 @@ def _start_installed_esmc_run(
             {
                 "node_id": "import",
                 "node_type_id": "protein_io.import_sequence",
-                "node_type_version": "6.0.0",
                 "binding_id": "protein_io.import_sequence.direct",
-                "binding_version": "6.0.0",
                 "node_parameters": {
                     "project_input_ref": uploaded["project_input_ref"]
                 },
@@ -944,9 +913,7 @@ def _start_installed_esmc_run(
             {
                 "node_id": "represent",
                 "node_type_id": "esm3.represent_sequence",
-                "node_type_version": BIOHUB_ESMC_GATE_VERSION,
                 "binding_id": binding_id,
-                "binding_version": BIOHUB_ESMC_GATE_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -959,9 +926,7 @@ def _start_installed_esmc_run(
                 "target_port": "sequence",
             }
         ],
-        "selection_objectives": [],
-        "contract_lock": [],
-    }
+        "selection_objectives": []}
     saved = client.request(
         "save_project_workflow_draft",
         {
@@ -998,7 +963,7 @@ def test_installed_biohub_esmc_gate(
     ) as (port, base_url):
         with PublicProtocolAcceptanceClient(base_url) as client:
             catalog_snapshot = client.request("catalog_snapshot", {})
-            binding_id, method_digest = _assert_installed_esmc_catalog(
+            binding_id, method_id = _assert_installed_esmc_catalog(
                 catalog_snapshot
             )
             project_id, run_id = _start_installed_esmc_run(
@@ -1060,7 +1025,7 @@ def test_installed_biohub_esmc_gate(
                 event
                 for event in events
                 if event["type"] == "engine_invocation_started"
-                and event["engine_identity"] == method_digest
+                and event["engine_identity"] == method_id
             ]
             assert [event["engine_role"] for event in invocations] == [
                 "sequence_encode",
@@ -1078,7 +1043,6 @@ def test_installed_biohub_esmc_gate(
             )
             retain_rest_run(
                 "biohub-esmc",
-                catalog_snapshot=catalog_snapshot,
                 client=client,
                 projection=projection,
                 events=messages,

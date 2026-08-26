@@ -17,20 +17,14 @@ def read_biohub_token() -> str:
     )
 
 
-def biohub_esm3_esmfold2_environment() -> dict[tuple[str, str], Any]:
+def biohub_esm3_esmfold2_environment() -> dict[str, dict[str, Any]]:
     token = read_biohub_token()
 
     return {
-        ("esm3.generate_paired.biohub_medium", "8.0.0"): {
-            "values": {
-                "endpoint_id": "biohub",
-                "credential_handle": token,
-            },
+        "esm3.generate_paired.biohub_medium": {
+            "credential_handle": token,
         },
-        ("folding.fold.esmfold2_remote", "9.0.0"): {
-            "values": {
-                "endpoint_id": "biohub",
-                "credential_handle": token,
-            },
+        "folding.fold.esmfold2_remote": {
+            "credential_handle": token,
         },
     }

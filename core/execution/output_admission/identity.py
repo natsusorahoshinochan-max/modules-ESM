@@ -27,8 +27,6 @@ def _exact_port_type(port_type: Any) -> ExactContractReference:
     return ExactContractReference(
         contract_kind=reference["contract_kind"],
         contract_id=reference["contract_id"],
-        contract_version=reference["contract_version"],
-        contract_digest=reference["contract_digest"],
     )
 
 

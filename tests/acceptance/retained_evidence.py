@@ -41,23 +41,18 @@ def _configured_root() -> Path | None:
     return Path(configured)
 
 
-def _write_shared_documents(root: Path, catalog_bytes: bytes) -> None:
-    documents = {
-        "catalog-snapshot.json": catalog_bytes,
-        "public-protocol.json": bundle_bytes(),
-    }
-    for name, payload in documents.items():
-        path = root / name
-        if path.exists():
-            assert path.read_bytes() == payload
-        else:
-            _write(path, payload)
+def _write_shared_documents(root: Path) -> None:
+    path = root / "public-protocol.json"
+    payload = bundle_bytes()
+    if path.exists():
+        assert path.read_bytes() == payload
+    else:
+        _write(path, payload)
 
 
 def _retain_run(
     run_label: str,
     *,
-    catalog_bytes: bytes,
     projection: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]],
     typed_value_reader: Callable[
@@ -71,7 +66,7 @@ def _retain_run(
     if configured is None:
         return
     root = configured
-    _write_shared_documents(root, catalog_bytes)
+    _write_shared_documents(root)
 
     run_root = root / "runs" / run_label
     run_root.mkdir(parents=True)
@@ -108,7 +103,6 @@ def _retain_run(
 def retain_service_run(
     run_label: str,
     *,
-    catalog: Any,
     service: Any,
     projection: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]],
@@ -140,7 +134,6 @@ def retain_service_run(
 
     _retain_run(
         run_label,
-        catalog_bytes=catalog.catalog_descriptor_bytes,
         projection=projection,
         events=events,
         typed_value_reader=read_value,
@@ -151,7 +144,6 @@ def retain_service_run(
 def retain_rest_run(
     run_label: str,
     *,
-    catalog_snapshot: Mapping[str, Any],
     client: Any,
     projection: Mapping[str, Any],
     events: Sequence[Mapping[str, Any]],
@@ -190,7 +182,6 @@ def retain_rest_run(
 
     _retain_run(
         run_label,
-        catalog_bytes=_canonical_bytes(dict(catalog_snapshot)),
         projection=projection,
         events=events,
         typed_value_reader=read_value,
@@ -223,7 +214,6 @@ def require_retained_evidence(
     lifecycle_required: bool = False,
 ) -> None:
     """Require the public Runs written by one acceptance tier."""
-    assert (root / "catalog-snapshot.json").is_file()
     assert (root / "public-protocol.json").is_file()
 
     for run_label in required_runs:

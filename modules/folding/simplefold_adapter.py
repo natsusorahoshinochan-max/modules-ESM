@@ -92,13 +92,13 @@ def simplefold_runtime_structurally_available() -> bool:
 def simplefold_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    expected_device = expected_local_torch_device()
-    if environment["device"] != expected_device:
+    if not simplefold_runtime_structurally_available():
         return ReadinessResult(
             False,
             proof_source="direct-observation",
             reason_code="simplefold_runtime_unavailable",
         )
+    expected_device = expected_local_torch_device()
     import torch
 
     if not local_torch_device_is_available(torch, expected_device):
@@ -201,7 +201,7 @@ class LocalSimpleFoldAdapter:
                         staged_esm2_model_root=bound_closure.group_root(
                             "esm2_models"
                         ),
-                        device=cast(str, self._environment["device"]),
+                        device=expected_local_torch_device(),
                     ),
                 )
             samples = _decode_fold_result(

@@ -1,4 +1,4 @@
-"""Required source-bound heavy acceptance for the v2 SimpleFold Binding."""
+"""Required real-Provider acceptance for the v2 SimpleFold Binding."""
 
 from __future__ import annotations
 
@@ -40,11 +40,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     tmp_path: Path,
 ) -> None:
     """Execute the exact v2 Binding; skips are forbidden by its full gate."""
-    from core.local_torch_device import expected_local_torch_device
     from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
-    from modules.folding.simplefold_contract import (
-        SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
-    )
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -58,27 +54,21 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="4.0.0",
         node_parameters={"sequence": SEQUENCE_3GB1},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="8.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version="11.0.0",
         node_parameters={"effective_seed": 1603, "num_samples": 1},
         binding_parameters={"num_steps": 10},
     )
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",
         node_type_id="structure_prediction.materialize_confidence",
-        node_type_version="2.0.0",
         binding_id="structure_prediction.materialize_confidence.direct",
-        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -121,16 +111,13 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
                 "materialize-confidence",
                 "confidence_facts",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
     )
     environment = admit_environment_configuration(catalog, {
-        ("folding.fold.simplefold_local", "11.0.0"): {
-            "values": {
+        "folding.fold.simplefold_local": {
                 "model_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT"]
                 ),
@@ -142,9 +129,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
                         "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT"
                     ]
                 ),
-                "device": expected_local_torch_device(),
-            },
-        }
+            }
     })
     service = V2RunService(
         projects,
@@ -211,9 +196,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         entry.subject.candidate_id for entry in observations.entries
     } == {structures.items[0].candidate_id}
     structure_codec = catalog.require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure")
     assert {
         entry.subject.content_digest for entry in observations.entries
     } == {structure_codec.content_digest(structures.items[0].data)}
@@ -225,33 +208,14 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     )
     binding = catalog.require_contract(
         "binding",
-        "folding.fold.simplefold_local",
-        "11.0.0",
-    )
+        "folding.fold.simplefold_local")
     assert binding.descriptor["method"]["contract_id"] == (
         "folding.fold.simplefold_100m_c7a5570"
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
         "method",
-        method_ref["contract_id"],
-        method_ref["contract_version"],
-    )
-    identity = SIMPLEFOLD_FOLDING_ASSET_CLOSURE.provider_identity()
-    prerequisites = binding.descriptor["readiness_declaration"][
-        "prerequisites"
-    ]
-    declared_files = prerequisites["provider_asset_closure"]["files"]
-    assert {
-        item["runtime_filename"]: item["sha256"]
-        for item in declared_files
-        if item["environment_key"] == "model_root"
-    } == identity["artifact_sha256"]
-    assert {
-        item["runtime_filename"]: item["sha256"]
-        for item in declared_files
-        if item["environment_key"] == "esm2_model_root"
-    } == identity["esm2_artifact_sha256"]
+        method_ref["contract_id"])
     public_evidence = json.dumps(
         {"projection": projection, "events": events}
     )
@@ -283,7 +247,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["invocation_id"] == invocations[0]["invocation_id"]
     )
-    assert started["engine_identity"] == method.contract_digest
+    assert started["engine_identity"] == method.contract_id
     randomness = started["invocation_provenance"]["effective_randomness"]
     assert randomness["control"] == "exact_seed"
     assert type(
@@ -295,7 +259,6 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "11.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(
@@ -311,7 +274,6 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
     ] == ["succeeded"]
     retain_service_run(
         "simplefold-folding",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,

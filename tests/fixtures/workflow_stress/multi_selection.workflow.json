@@ -5,27 +5,21 @@
     {
       "node_id": "canonical-source",
       "node_type_id": "contract_test.multi_objective_selection_source",
-      "node_type_version": "4.0.0",
       "binding_id": "contract_test.multi_objective_selection_source.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "canonical-scores",
       "node_type_id": "contract_test.multi_objective_selection_scores",
-      "node_type_version": "5.0.0",
       "binding_id": "contract_test.multi_objective_selection_scores.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "select-filter",
       "node_type_id": "selection.filter",
-      "node_type_version": "5.0.0",
       "binding_id": "selection.filter.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {
         "selector_id": "fixed-3gb1-raw",
         "operator": ">=",
@@ -38,9 +32,7 @@
     {
       "node_id": "select-sort",
       "node_type_id": "selection.sort",
-      "node_type_version": "5.0.0",
       "binding_id": "selection.sort.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {
         "objective_id": "sort-fixed-3gb1",
         "out_of_scope_policy": "ignore",
@@ -51,9 +43,7 @@
     {
       "node_id": "select-top_k",
       "node_type_id": "selection.top_k",
-      "node_type_version": "5.0.0",
       "binding_id": "selection.top_k.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {
         "objective_id": "top-k-fixed-3gb1",
         "k": 2,
@@ -65,9 +55,7 @@
     {
       "node_id": "select-weighted_rank",
       "node_type_id": "selection.weighted_rank",
-      "node_type_version": "5.0.0",
       "binding_id": "selection.weighted_rank.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {
         "objective_ids": [
           "weighted-fixed-3gb1",
@@ -80,9 +68,7 @@
     {
       "node_id": "select-pareto",
       "node_type_id": "selection.pareto",
-      "node_type_version": "5.0.0",
       "binding_id": "selection.pareto.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {
         "objective_ids": [
           "pareto-fixed-3gb1",
@@ -95,9 +81,7 @@
     {
       "node_id": "select-diversity",
       "node_type_id": "selection.diversity",
-      "node_type_version": "5.0.0",
       "binding_id": "selection.diversity.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {
         "objective_ids": [
           "diversity-fixed-3gb1",
@@ -215,15 +199,11 @@
       "source_partition": "canonical.selection_score.fixed_3gb1",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -250,15 +230,11 @@
       "source_partition": "canonical.selection_score.fixed_3gb1",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -269,9 +245,7 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:59b37204cccee949ac0d155882fb852d35eadf71707693ed9048f47f6fd1d117"
+        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity"
       },
       "utility_parameters": {},
       "weight": 0.7,
@@ -291,15 +265,11 @@
       "source_partition": "canonical.selection_score.fixed_3gb1",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -310,9 +280,7 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:59b37204cccee949ac0d155882fb852d35eadf71707693ed9048f47f6fd1d117"
+        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity"
       },
       "utility_parameters": {},
       "weight": 0.7,
@@ -332,15 +300,11 @@
       "source_partition": "canonical.selection_score.fixed_3gb1",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -351,9 +315,7 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:59b37204cccee949ac0d155882fb852d35eadf71707693ed9048f47f6fd1d117"
+        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity"
       },
       "utility_parameters": {},
       "weight": 0.7,
@@ -373,15 +335,11 @@
       "source_partition": "canonical.selection_score.paired_esm3",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -392,9 +350,7 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.paired_esm3.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:6a6a4f415319b653da78c1553c8def9f8359c244231d39ef19819ffd6bb9cc9d"
+        "contract_id": "contract_test.multi_objective_selection_score.paired_esm3.identity"
       },
       "utility_parameters": {},
       "weight": 0.3,
@@ -414,15 +370,11 @@
       "source_partition": "canonical.selection_score.fixed_3gb1",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -433,9 +385,7 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:59b37204cccee949ac0d155882fb852d35eadf71707693ed9048f47f6fd1d117"
+        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity"
       },
       "utility_parameters": {},
       "weight": 0.7,
@@ -455,15 +405,11 @@
       "source_partition": "canonical.selection_score.paired_esm3",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -474,9 +420,7 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.paired_esm3.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:6a6a4f415319b653da78c1553c8def9f8359c244231d39ef19819ffd6bb9cc9d"
+        "contract_id": "contract_test.multi_objective_selection_score.paired_esm3.identity"
       },
       "utility_parameters": {},
       "weight": 0.3,
@@ -496,15 +440,11 @@
       "source_partition": "canonical.selection_score.fixed_3gb1",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -515,9 +455,7 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:59b37204cccee949ac0d155882fb852d35eadf71707693ed9048f47f6fd1d117"
+        "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity"
       },
       "utility_parameters": {},
       "weight": 0.7,
@@ -537,15 +475,11 @@
       "source_partition": "canonical.selection_score.paired_esm3",
       "metric": {
         "contract_kind": "metric",
-        "contract_id": "contract_test.multi_objective_selection_score",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
+        "contract_id": "contract_test.multi_objective_selection_score"
       },
       "method": {
         "contract_kind": "method",
-        "contract_id": "contract_test.multi_objective_selection_source.method",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
+        "contract_id": "contract_test.multi_objective_selection_source.method"
       },
       "context_selector": {
         "kind": "pairwise",
@@ -556,196 +490,12 @@
       },
       "utility_transform": {
         "contract_kind": "utility_transform",
-        "contract_id": "contract_test.multi_objective_selection_score.paired_esm3.identity",
-        "contract_version": "3.0.0",
-        "contract_digest": "sha256:6a6a4f415319b653da78c1553c8def9f8359c244231d39ef19819ffd6bb9cc9d"
+        "contract_id": "contract_test.multi_objective_selection_score.paired_esm3.identity"
       },
       "utility_parameters": {},
       "weight": 0.3,
       "match_cardinality": "exactly_one",
       "missing_policy": "error"
-    }
-  ],
-  "contract_lock": [
-    {
-      "contract_kind": "binding",
-      "contract_id": "contract_test.multi_objective_selection_scores.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:061217f02ceff0f43b19a67a60db4ab0d02cd2017a69eea4c69ebb9fd1fb110a"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "contract_test.multi_objective_selection_source.direct",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:7ff1ec438c28c7f13710b8b6ad22a24f4297e9d9a4b805b28ebd57e151978ff6"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "selection.diversity.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:9f23838fcf300538ff4799990fc29e2ce4aa90f568847d6ad5bbb76766bcf9f9"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "selection.filter.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:9d890f557d0433910ccc133f3d06d42861c19ebab49a8552a93f38575242ea4b"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "selection.pareto.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:3cc7b0bd91d504cfd1fd69cc4f339963f9e8d89049f63766cc968508c0791e49"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "selection.sort.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:cb2228cc211cfeb752b858c5a6f889bf31dd07a37ceaa48216203902d4490da6"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "selection.top_k.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:976c0e3b04ed2e7ee6890928d22e0a4c16379b9a4bc3fbc231a62cd6a7d6e1ce"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "selection.weighted_rank.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:ebacb8dcf8992889d696a5f3a760f6ef94a04312a8eacec02fa41a9524c0fa80"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "contract_test.multi_objective_selection_source.candidates.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:d595cb3ef2b0328c27d253e156216ec89de360265460fd0de73e22ab14e4eb59"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "contract_test.multi_objective_selection_source.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:98821cca8e002d801201078a79e4e6be557a13193615208d1a9b0f102806d991"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "selection.diversity.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:c994eba2f224d43d0083be2b37345702dddae121edc03722d82f406193060de1"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "selection.filter.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:edb5a42a6a0d6dd10cd24b2c87b06d88102032a61e92933d6e0a039a259aadec"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "selection.pareto.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:921cbfc8b2613d06e3b629b89d8bdde72076b90a24011be49f850af2cc95d6df"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "selection.sort.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:ce389779fdec6c9d0860ab07d4484653b5fda29bf7768e5d443c1567ad44dd1c"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "selection.top_k.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:84e19d34a1599fffed8ff6b7af30160ec0ebf982bdc904ca8c90d23f6a77c069"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "selection.weighted_rank.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:8f41fc413bff34ca052271490dede97c48fcab62a05fd6ccff8cda638aab7523"
-    },
-    {
-      "contract_kind": "metric",
-      "contract_id": "contract_test.multi_objective_selection_score",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:4110d38760eb29abeacc04efb3e03fee325320dd011024529687f4d3b78d6f11"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "contract_test.multi_objective_selection_scores",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:b5d7d923fe374abe92bc5d25d2cb18e5e728c33fd74ca4b5f54d833bc9bd1533"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "contract_test.multi_objective_selection_source",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:d58309efd38c72fa262605ea0845bdabeb6b66a76a3eef9d2d19a9794e31fb32"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "selection.diversity",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:0317409c48b4edf793493e0273c029e731d29c6a6bed4a1f3eb9c96518a7c319"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "selection.filter",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:e179708ee9eda8ac9dead5af51b5b2c1d4305635a8bfc3a68732de57d77b7a2a"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "selection.pareto",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:72f4e02f2a24e8ae597c788bd5ebf37e8c98749293da104bf6c60145f7d01572"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "selection.sort",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:5a6770533579370f91992a651e7655bed7946b468ed740302ccb7b86333c881d"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "selection.top_k",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:636e9a9aae2c47fd27b23819dc316cf1b3668842ba85f165f1aca26e9d8760ac"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "selection.weighted_rank",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:cf2de04fae01108d96a0209d5c4f3c2b70dbe0826f5223e886c706b260e13de4"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "candidate.collection",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:6319f8276636afb85ef8986f12b60645ca38ff5d1fec72e037345832b62bfc1d"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "candidate.pairing",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:f70a7ebcfb4a57c29148461d2aa84538cd677b5d1cc79b791054187a491bb12a"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "score.collection",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:0c8447a1a7d95e6bc56f2582eb961551fbb8413c9076a2bb0fb639be23d9a03d"
-    },
-    {
-      "contract_kind": "utility_transform",
-      "contract_id": "contract_test.multi_objective_selection_score.fixed_3gb1.identity",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:59b37204cccee949ac0d155882fb852d35eadf71707693ed9048f47f6fd1d117"
-    },
-    {
-      "contract_kind": "utility_transform",
-      "contract_id": "contract_test.multi_objective_selection_score.paired_esm3.identity",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6a6a4f415319b653da78c1553c8def9f8359c244231d39ef19819ffd6bb9cc9d"
     }
   ]
 }

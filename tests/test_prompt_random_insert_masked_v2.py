@@ -13,7 +13,6 @@ from datatypes.residue import (
     ResidueTrack,
 )
 from tests.fixtures.prompt_authoring_v2 import (
-    VERSION,
     decoded_output,
     run_operation,
 )
@@ -239,16 +238,12 @@ def test_canonical_3gb1_insertion_intent_is_an_ordinary_regression(
 
     assert inserted.target_layout.length == 71
     assert catalog.require_port_type(
-        "protein.prompt",
-        VERSION,
-    ).content_digest(inserted) == (
-        "sha256:4eab8a2f2da724eebd19ba5430de9c73afec264f59a07575b53aa0934eb73e19"
+        "protein.prompt").content_digest(inserted) == (
+        "sha256:d90203c4378e548264c833b2ab9a689ad3452e541f7d2e8964b16320a69c7c5b"
     )
     method = catalog.require_contract(
         "method",
-        "prompt_authoring.random_insert_masked.method",
-        "2.1.0",
-    )
+        "prompt_authoring.random_insert_masked.method")
     assert method.descriptor["algorithm_identity"]["sampling"] == (
         "sha256-boundary-set-digest-counter-modulo-v1"
     )

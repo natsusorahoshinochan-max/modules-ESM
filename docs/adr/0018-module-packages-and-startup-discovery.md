@@ -25,16 +25,25 @@ Helpers may construct an explicitly named resource reference but may not decide
 which production resources are registered. Internal implementation and test
 layout do not change this entry contract.
 
-Discovery occurs only at startup; one atomically resolved `FrozenCatalog` is
-published and remains immutable. A package entry point must not eagerly import
-optional provider dependencies:
-their absence is reported by availability checks. Malformed Definitions,
-package import or registration failures, and conflicting contracts fail startup
-atomically. ADR-0025 assigns Availability to the Execution Binding: a valid
-Node Type remains discovered while each binding whose optional model, runtime,
-accelerator, binary, or credentials are absent has its own structured
-`unavailable` state. ADR-0028 defines explicit Port Type contracts, and
-ADR-0029 separates startup Availability from per-Run Readiness.
+The Catalog builder admits repository-owned registrations once while constructing
+the startup `FrozenCatalog`. It validates stable-ID uniqueness, required
+references, implementation or Adapter resolvability, Port compatibility,
+Candidate and Observation subjects, Metric schemas, residue-axis relationships,
+dependency closure, and the other relationships that directly protect scientific
+module inputs and outputs. Build and focused tests exercise this same builder.
+
+Discovery occurs only at startup; one admitted `FrozenCatalog` is published and
+remains immutable. Catalog construction does not compute repository-owned
+descriptor digests, Contract Locks, semantic versions, or installation identity.
+A package entry point must not eagerly import optional provider dependencies;
+their absence is reported by diagnostic Availability observations.
+
+Package import, stable-ID/reference/factory, or scientific-relationship failures
+fail startup. A diagnostic `unavailable` Binding remains registered and can still
+proceed to fresh Run-scoped Readiness; Availability never rejects execution.
+ADR-0025 assigns that diagnostic to the Execution Binding, ADR-0028 defines Port
+Type scientific contracts, and ADR-0029 defines Readiness before actual Provider
+entry.
 
 The extension boundary supports repository-owned developer extensions,
 not third-party `pip install`, plugin management, runtime hot loading, or

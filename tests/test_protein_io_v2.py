@@ -71,18 +71,14 @@ from tests.fixtures.protein_io_sources.package import (
 _SEQUENCE_SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.protein_sequence",
-    node_type_version="3.0.0",
     binding_id="contract_test.protein_sequence.direct",
-    binding_version="3.0.0",
     node_parameters={},
     binding_parameters={},
 )
 _STRUCTURE_SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.protein_structure",
-    node_type_version="4.0.0",
     binding_id="contract_test.protein_structure.direct",
-    binding_version="4.0.0",
     node_parameters={},
     binding_parameters={},
 )
@@ -90,9 +86,7 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-sequence",
         node_type_id="protein_io.import_sequence",
-        node_type_version="6.0.0",
         binding_id="protein_io.import_sequence.direct",
-        binding_version="6.0.0",
         node_parameters={"project_input_ref": "sequence-input"},
         binding_parameters={},
         environment_values={},
@@ -101,9 +95,7 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-import-structure",
         node_type_id="protein_io.import_structure",
-        node_type_version="6.0.0",
         binding_id="protein_io.import_structure.direct",
-        binding_version="6.0.0",
         node_parameters={"project_input_ref": "structure-input"},
         binding_parameters={},
         environment_values={},
@@ -117,9 +109,7 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-export-sequence",
         node_type_id="protein_io.export_sequence",
-        node_type_version="3.0.0",
         binding_id="protein_io.export_sequence.direct",
-        binding_version="3.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -141,9 +131,7 @@ _CTK_CASES = (
     ModulePackageContractCase(
         case_id="protein-io-export-structure",
         node_type_id="protein_io.export_structure",
-        node_type_version="6.0.0",
         binding_id="protein_io.export_structure.direct",
-        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -168,7 +156,6 @@ _CTK_CASES = (
 )
 _CTK_PORT_CASE = ModulePackagePortCase(
     type_id="protein_io.artifact_payload",
-    version="2.1.0",
     valid_value=ArtifactPayload(
         body=b">ctk\nACD\n",
         media_type="text/x-fasta",
@@ -191,7 +178,7 @@ def test_artifact_payload_preserves_an_admitted_candidate_identifier(
 ) -> None:
     artifact_port = build_frozen_catalog(
         (PROTEIN_IO_PACKAGE,)
-    ).require_port_type("protein_io.artifact_payload", "2.1.0")
+    ).require_port_type("protein_io.artifact_payload")
     payload = ArtifactPayload(
         body=b"END\n",
         media_type="chemical/x-pdb",
@@ -279,56 +266,20 @@ def test_protein_io_is_one_package_with_four_independent_nodes() -> None:
 
     catalog = build_frozen_catalog(module_registrations())
     owned_nodes = {
-        (contract.contract_id, contract.contract_version)
+        contract.contract_id
         for contract in catalog.contracts
         if contract.contract_kind == "node_type"
         and contract.contract_id.startswith("protein_io.")
     }
     assert owned_nodes == {
-        ("protein_io.import_sequence", "6.0.0"),
-        ("protein_io.import_structure", "6.0.0"),
-        ("protein_io.export_sequence", "3.0.0"),
-        ("protein_io.export_structure", "6.0.0"),
+        "protein_io.import_sequence",
+        "protein_io.import_structure",
+        "protein_io.export_sequence",
+        "protein_io.export_structure",
     }
-    generations = {
-        "import_sequence": (
-            "6.0.0",
-            ("2.1.0", "3.0.0", "4.0.0", "5.0.0"),
-        ),
-        "import_structure": (
-            "6.0.0",
-            ("2.1.0", "3.0.0", "4.0.0", "5.0.0"),
-        ),
-        "export_sequence": ("3.0.0", ("2.1.0",)),
-        "export_structure": (
-            "6.0.0",
-            ("2.1.0", "3.0.0", "4.0.0", "5.0.0"),
-        ),
-    }
-    for operation, (active_version, inactive_versions) in generations.items():
-        for kind, contract_id in (
-            ("node_type", f"protein_io.{operation}"),
-            ("binding", f"protein_io.{operation}.direct"),
-        ):
-            assert (
-                catalog.get_contract(kind, contract_id, active_version)
-                is not None
-            )
-            for inactive_version in inactive_versions:
-                assert (
-                    catalog.get_contract(kind, contract_id, inactive_version)
-                    is None
-                )
     assert catalog.get_contract(
-        "method",
-        "protein_io.import_sequence.method",
-        "4.0.0",
+        "method", "protein_io.import_sequence.method"
     ) is not None
-    assert catalog.get_contract(
-        "method",
-        "protein_io.import_sequence.method",
-        "3.0.0",
-    ) is None
 
 
 def test_protein_io_passes_the_shared_contract_test_kit(
@@ -362,7 +313,6 @@ def test_artifact_output_requires_a_nominal_publication_contract() -> None:
         artifact_port,
         validator=BehaviorReference(
             "protein_io.artifact_payload/validate",
-            "2.1.0",
             {"accepted_value_kind": "artifact_payload"},
         ),
     )
@@ -435,16 +385,12 @@ def test_structure_export_xor_is_rejected_during_commit(
             WorkflowNodeInstance(
                 node_id="export",
                 node_type_id="protein_io.export_structure",
-                node_type_version="6.0.0",
                 binding_id="protein_io.export_structure.direct",
-                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
         ),
-        edges=(),
-        contract_lock=(),
-    )
+        edges=())
 
     with pytest.raises(WorkflowAuthoringError) as rejected:
         authoring.commit(
@@ -494,26 +440,12 @@ def _run_single_node(
             WorkflowNodeInstance(
                 node_id="protein-io",
                 node_type_id=f"protein_io.{operation}",
-                node_type_version={
-                    "import_sequence": "6.0.0",
-                    "import_structure": "6.0.0",
-                    "export_sequence": "3.0.0",
-                    "export_structure": "6.0.0",
-                }[operation],
                 binding_id=f"protein_io.{operation}.direct",
-                binding_version={
-                    "import_sequence": "6.0.0",
-                    "import_structure": "6.0.0",
-                    "export_sequence": "3.0.0",
-                    "export_structure": "6.0.0",
-                }[operation],
                 node_parameters=node_parameters,
                 binding_parameters={},
             ),
         ),
-        edges=(),
-        contract_lock=(),
-    )
+        edges=())
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -521,10 +453,6 @@ def _run_single_node(
     compiled = authoring.require_verified_commit(
         project.id,
         workflow_commit_id=committed.workflow_commit_id,
-    )
-    assert (
-        compiled.execution_plan.workflow_commit_revision
-        == committed.workflow_commit_revision
     )
     service = V2RunService(
         projects,
@@ -568,7 +496,7 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
     )
     from tests.fixtures.public_v2 import decode_service_typed_output_value
 
-    port_type = catalog.require_port_type("protein.sequence", "3.0.0")
+    port_type = catalog.require_port_type("protein.sequence")
     sequence = decode_service_typed_output_value(
         service,
         catalog,
@@ -724,7 +652,7 @@ def test_structure_import_parses_then_port_admits_canonical_project_pdb(
 
     assert projection["status"] == "succeeded"
     output = projection["outputs"][0]
-    port_type = catalog.require_port_type("protein.structure", "4.0.0")
+    port_type = catalog.require_port_type("protein.structure")
     from tests.fixtures.public_v2 import decode_service_typed_output_value
 
     structure = decode_service_typed_output_value(

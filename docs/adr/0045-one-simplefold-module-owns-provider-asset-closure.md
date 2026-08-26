@@ -2,96 +2,57 @@
 status: accepted
 ---
 
-# One SimpleFold module owns Provider Asset Closure admission and staging
+# One SimpleFold module owns Provider asset selection and binding
 
 The `folding` Module Package has one package-private deep module that owns the
-Provider Asset Closure grammar, exact file and source admission, and isolated
-staging shared by the two distinct SimpleFold Adapters. Each Execution Binding
-continues to own one immutable closure declaration; the module supplies one
-implementation of that declaration rather than merging the Bindings or their
-scientific Methods.
+minimal operational Provider Asset Closure shared by the two SimpleFold
+Adapters. Folding and existing-structure confidence remain distinct scientific
+Methods and Bindings; sharing resource-role selection does not merge their
+science.
 
-A Provider Asset Closure is the exact minimal set of result-affecting Provider
-source and artifact identities required by one Execution Binding. File entries
-fix their scientific or runtime role, runtime filename, and SHA-256. Source
-entries fix an exact revision and, where required, the reviewed runtime
-source-tree digest. Environment Configuration supplies locations only; private
-paths, unrelated files in those locations, and temporary staged copies are not
-closure identity. Expected byte counts and CDN ETags remain installation and
-acquisition metadata. Neither is Method or Execution Binding identity or a
-local Readiness content proof.
+The closure lists only the runtime roles and configured files or source
+locations needed for a Provider call. It is an operational selection, not a
+content or installation identity. It does not assign SHA-256 values, reviewed
+source-tree digests, Git revisions, PEP 610 forms, byte-count proofs, or CDN
+ETags to Method, Binding, Readiness, Result Identity, or provenance.
 
-The SimpleFold folding closure contains `simplefold_100M.ckpt`,
-`simplefold_1.6B.ckpt`, `plddt.ckpt`, and `ccd.pkl`; both the primary ESM2 weight
-and its contact-regression weight; the exact SimpleFold source revision; and the
-exact ESM2 revision and reviewed runtime source tree. The existing-structure
-confidence closure contains `simplefold_1.6B.ckpt`, `plddt.ckpt`, `ccd.pkl`, only
-the primary representation ESM2 weight, and the same exact source identities. It
-explicitly excludes the 100M and 360M folding checkpoints, ESM2 contact
-regression, and `boltz1_conf.ckpt`. Extra files may coexist in configured roots,
-but they are neither rejected nor admitted, hashed, staged, or promoted into a
-product capability.
+The folding route requires the checkpoints, ESM2 resources, and source locations
+that its actual implementation loads. The existing-structure confidence route
+requires only the resources that its actual implementation loads. Unrelated
+installed assets are ignored. The shared module prevents the Adapters from
+maintaining divergent file-role lists, while preserving separate
+route requirements.
 
-The Binding-owned closure declaration is the one source for Method and Binding
-descriptor projections, Readiness prerequisites, staging selection, and closure
-tests. Parallel handwritten file lists or digest maps in the two Adapters are not
-independent authorities. A result-affecting membership, role, content digest,
-source revision, or reviewed source-tree change creates a new Method and
-Execution Binding. A staging-only refactor that preserves all scientific inputs
-and Provider behavior does not change the Method.
+On the first Cache miss or bypass for a Binding in a Run, Readiness checks the
+configured locations, required files, package discoverability, and selected
+device. It does not import or load the model, hash files, verify checkout HEAD,
+inspect dirty-tree state, prove an installation origin, or build a replacement
+manifest or stat fingerprint. Nodes using the same Binding share that Run-scoped
+conclusion; overlapping Bindings do not need a shared proof cache.
 
-On the first Cache miss or bypass for one exact Binding, Readiness asks the deep
-module to admit that Binding's closure once. File admission checks the declared
-SHA-256 once. ESM2 source admission resolves the configured checkout, verifies
-its exact HEAD, and hashes the declaration-owned reviewed runtime file set into
-the declared aggregate digest once. The configured root is a location, not an
-identity. Admission does not require a clean checkout, hash an unrelated package
-tree, inspect extra files, or interpret an installed directory as the closure.
-Subsequent Node Execution Attempts using the same Binding reuse the Run-scoped
-Readiness conclusion fixed by ADR-0041.
+Before Provider entry, the module binds the selected Adapter directly to the
+trusted configured roots. It does not copy Provider source or checkpoints,
+search another workspace, download assets, select an alternate checkpoint, or
+fall back to another source. RunResources and the Node Execution Attempt
+lifecycle own the private per-invocation work directory and its cleanup; the
+Provider runtime uses that directory only for required working files and
+outputs.
 
-Folding and confidence retain separate Readiness conclusions even when their
-closures overlap. The implementation does not add cross-Binding memoization,
-shared proof caches, expiry, invalidation, or an opaque admitted-resource payload
-to the core Readiness interface. Under the trusted expected-use model, staging
-uses the same Environment Configuration and declared files after admission and
-trusts them without rehashing, querying Git, or rediscovering the source tree.
+Readiness failure prevents an Operation Attempt and Engine Invocation. After
+Readiness succeeds, direct binding trusts the admitted configured roots without
+another validation seam. Provider-module import, model loading, and scientific
+execution occur at their actual invocation seam. A successful Invocation
+followed by translation, normalization, or output admission failure remains a
+successful Invocation inside a failed Operation Attempt.
 
-Before each Adapter call enters its Engine Invocation, the module copies only the
-declared closure into a fresh private staging root and preserves the reviewed ESM2
-source layout. It does not search another workspace or cache, invoke a downloader,
-use the network, select another checkpoint, or fall back to an alternate source.
-RunResources and the Node Execution Attempt lifecycle continue to own temporary
-directory lifetime and cleanup.
+The Adapters retain their different model loading, namespace isolation,
+provider-native representations, and canonical scientific translation. The
+shared closure module does not construct Candidates, Prediction Keys,
+Prediction Residue Axes, Confidence Facts, Metrics, or published outputs.
 
-Closure admission failure is a Readiness failure and therefore a Binding Failure
-without an Operation Attempt or Engine Invocation. Failure to stage already
-admitted assets occurs during Operation preparation before Provider entry, so it
-fails the Operation without inventing an Engine Invocation. Provider import,
-model loading, and scientific execution occur after the Invocation starts. A
-successful Invocation followed by translation, normalization, or output admission
-failure remains a successful Invocation inside a failed Operation Attempt.
-
-The two Adapters remain the external seams and retain their different model
-loading, namespace isolation, deserialization, provider-native representations,
-and canonical translation. Folding retains the contact-regression loader,
-sampling, high-level pLDDT, and PDB-tail translation. Existing-structure
-confidence retains representation-only ESM2 loading, coordinate featurization,
-direct-head masking, and native-to-canonical pLDDT normalization. The closure
-module does not construct Candidates, Prediction Keys, Prediction Residue Axes,
-Confidence Facts, Metrics, or published outputs.
-
-Exact Provider, source, model, and checkpoint identities remain static Method and
-Execution Binding facts. Invocation provenance does not repeat them or expose
-private paths. A passing Readiness Attestation proves that the exact declared
-closure matched, so durable evidence does not need a second observed-digest map.
-
-Tests cross the shared module interface using temporary filesystems and real
-temporary Git checkouts. They prove the two exact memberships, exclusions,
-SHA and source-tree admission, the exclusion of byte count and ETag from
-Readiness identity, staged layout without a second proof, trust-after-admission
-behavior, and causal failure placement. Separate Adapter and real-Provider
-acceptance tests prove the two scientific Methods. The shared closure module is
-the sole hash, file-set, source-admission, and staging implementation for these
-Bindings and exposes no compatibility helper or alternate path. Folding and
-existing-structure confidence retain distinct Methods and Adapters.
+Focused tests cover route-specific required roles, exclusions, direct root
+binding, work-directory lifetime, and causal failure placement without asserting
+hashes or Git installation form. Real-Provider acceptance proves each scientific
+Method's input translation and output semantics. No compatibility helper,
+alternate asset path, content-proof cache, or defensive installation identity
+is added.

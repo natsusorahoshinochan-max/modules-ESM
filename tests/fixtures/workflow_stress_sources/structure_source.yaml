@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.workflow_stress_structure_source
-version: "1.0.0"
 title: Workflow stress structure parents
 summary: Supplies a small ordered collection of independent single-chain structure parents.
 category: contract_test
@@ -8,13 +6,11 @@ inputs: []
 outputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly two single-chain structure parent Candidates with stable independent identities.
   - name: sequence
     port_type_id: protein.sequence
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One complete single-chain reference sequence aligned to both parent structures.

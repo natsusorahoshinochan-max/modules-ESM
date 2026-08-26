@@ -45,47 +45,24 @@ from .stochastic import (
 from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
-_PACKAGE_VERSION = "2.1.0"
 _OPERATIONS = {
-    "add_function_annotation": (
-        AddFunctionAnnotationImplementation, "3.0.0", "2.1.0"
-    ),
-    "assemble_protein_prompt": (
-        AssembleProteinPromptImplementation, "3.0.0", "2.1.0"
-    ),
-    "build_residue_layout": (
-        BuildResidueLayoutImplementation, "3.0.0", "2.1.0"
-    ),
-    "edit_residue_layout": (
-        EditResidueLayoutImplementation, "3.0.0", "2.1.0"
-    ),
-    "insert_masked_residues": (
-        InsertMaskedResiduesImplementation, "3.0.0", "2.1.0"
-    ),
-    "map_residue_track": (
-        MapResidueTrackImplementation, "3.0.0", "2.1.0"
-    ),
-    "override_protein_prompt_track": (
-        OverrideProteinPromptTrackImplementation, "3.0.0", "2.1.0"
-    ),
-    "override_residue_track": (
-        OverrideResidueTrackImplementation, "3.0.0", "2.1.0"
-    ),
-    "prompt_from_structure": (
-        PromptFromStructureImplementation, "5.0.0", "3.0.0"
-    ),
-    "random_insert_masked": (
-        RandomInsertMaskedImplementation, "3.0.0", "2.1.0"
-    ),
-    "random_mask": (RandomMaskImplementation, "3.0.0", "2.1.0"),
-    "update_prompt_sequence": (
-        UpdatePromptSequenceImplementation, "3.0.0", "2.1.0"
-    ),
+    "add_function_annotation": AddFunctionAnnotationImplementation,
+    "assemble_protein_prompt": AssembleProteinPromptImplementation,
+    "build_residue_layout": BuildResidueLayoutImplementation,
+    "edit_residue_layout": EditResidueLayoutImplementation,
+    "insert_masked_residues": InsertMaskedResiduesImplementation,
+    "map_residue_track": MapResidueTrackImplementation,
+    "override_protein_prompt_track": OverrideProteinPromptTrackImplementation,
+    "override_residue_track": OverrideResidueTrackImplementation,
+    "prompt_from_structure": PromptFromStructureImplementation,
+    "random_insert_masked": RandomInsertMaskedImplementation,
+    "random_mask": RandomMaskImplementation,
+    "update_prompt_sequence": UpdatePromptSequenceImplementation,
 }
 
 
 def _build(operation: str):
-    implementation = _OPERATIONS[operation][0]
+    implementation = _OPERATIONS[operation]
 
     def factory(context: OperationContext) -> ScientificOperation:
         return implementation(context.resources)
@@ -94,7 +71,6 @@ def _build(operation: str):
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    _implementation, binding_version, method_version = _OPERATIONS[operation]
     randomness_parameters = {
         "random_mask": (
             "effective_seed",
@@ -114,23 +90,19 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     }
     return ExecutionBindingDefinition(
         binding_id=f"prompt_authoring.{operation}.direct",
-        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"prompt_authoring.{operation}",
-            binding_version,
         ),
         method=ContractIdentity(
             "method",
             f"prompt_authoring.{operation}.method",
-            method_version,
         ),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"prompt_authoring.{operation}/factory",
-                binding_version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation),
@@ -138,7 +110,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"prompt_authoring.{operation}/availability",
-                binding_version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -146,16 +117,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": f"prompt_authoring.{operation}.direct",
-            "source": "repository-owned",
-        },
         effective_randomness_parameters=randomness_parameters,
         effective_randomness_resolver=(
             EffectiveRandomnessResolver(
                 behavior=BehaviorReference(
                     f"prompt_authoring.{operation}/effective-randomness",
-                    binding_version,
                     {"normalization": "canonical-effective-set-v1"},
                 ),
                 resolve=randomness_resolvers[operation],
@@ -168,7 +134,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="prompt_authoring",
-    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/add_function_annotation.yaml"),

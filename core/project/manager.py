@@ -22,9 +22,6 @@ from core.project.storage import (
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
 MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
-PROJECT_SCHEMA_VERSION = "2.1.0"
-PROJECT_INPUT_SCHEMA_VERSION = "2.1.0"
-_PROJECT_INPUT_ARTIFACT_KIND = "project_input"
 _CANONICAL_STAGING_PREFIX = ".canonical-3gb1-staging-"
 
 
@@ -38,7 +35,7 @@ class ProtectedProjectError(PermissionError):
 
 @dataclass(frozen=True, slots=True)
 class ProjectMeta:
-    """Closed v2 metadata for one Project scope."""
+    """Metadata for one Project scope."""
 
     id: str
     name: str
@@ -103,8 +100,6 @@ class ProjectManager:
         descriptor: ProjectInputDescriptor,
     ) -> dict[str, Any]:
         return {
-            "schema_version": PROJECT_INPUT_SCHEMA_VERSION,
-            "artifact_kind": _PROJECT_INPUT_ARTIFACT_KIND,
             "project_input_ref": descriptor.project_input_ref,
             "filename": descriptor.filename,
             "size": descriptor.size,
@@ -223,16 +218,12 @@ class ProjectManager:
         )
         if (
             not isinstance(raw, dict)
-            or set(raw) != {
-                "schema_version",
-                "artifact_kind",
+            or not {
                 "project_input_ref",
                 "filename",
                 "size",
                 "content_digest",
-            }
-            or raw["schema_version"] != PROJECT_INPUT_SCHEMA_VERSION
-            or raw["artifact_kind"] != _PROJECT_INPUT_ARTIFACT_KIND
+            } <= raw.keys()
             or raw["project_input_ref"] != safe_reference
             or type(raw["size"]) is not int
             or not 0 <= raw["size"] <= MAX_PROJECT_INPUT_BYTES
@@ -433,7 +424,7 @@ class ProjectManager:
         return meta
 
     def load_meta(self, project_id: str) -> ProjectMeta | None:
-        """Load exactly one closed v2 Project metadata document."""
+        """Load one Project metadata document."""
         path = self._project_storage_root(project_id) / "project.json"
         if not path.exists():
             return None
@@ -442,26 +433,23 @@ class ProjectManager:
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
-            raise ValueError("unsupported Project schema version") from error
+            raise ValueError("Project metadata is invalid") from error
         if (
             not isinstance(raw, dict)
-            or set(raw)
-            != {
-                "schema_version",
+            or not {
                 "id",
                 "name",
                 "created_at",
                 "modified_at",
                 "seed",
-            }
-            or raw["schema_version"] != PROJECT_SCHEMA_VERSION
+            } <= raw.keys()
             or raw["id"] != project_id
             or not isinstance(raw["name"], str)
             or not isinstance(raw["created_at"], str)
             or not isinstance(raw["modified_at"], str)
             or type(raw["seed"]) is not bool
         ):
-            raise ValueError("unsupported Project schema version")
+            raise ValueError("Project metadata is invalid")
         return ProjectMeta(
             id=raw["id"],
             name=raw["name"],
@@ -473,7 +461,6 @@ class ProjectManager:
     @staticmethod
     def _meta_data(meta: ProjectMeta) -> dict[str, Any]:
         return {
-            "schema_version": PROJECT_SCHEMA_VERSION,
             "id": meta.id,
             "name": meta.name,
             "created_at": meta.created_at,

@@ -33,10 +33,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
 
-_PACKAGE_METHOD_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "4.0.0"
-
-
 class _SequenceSource:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
@@ -196,12 +192,9 @@ def _build(kind: str):
 def _method(kind: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.folding_{kind}_source.method",
-        version=_PACKAGE_METHOD_VERSION,
         algorithm_identity={"name": "independent-literal-source"},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "literal"},
-        source_identity={"kind": "contract-test-fixture"},
         scale_contract={"kind": "identity"},
     )
 
@@ -209,23 +202,17 @@ def _method(kind: str) -> MethodDefinition:
 def _binding(kind: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.folding_{kind}_source.direct",
-        version=_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
-            f"contract_test.folding_{kind}_source",
-            _NODE_BINDING_VERSION,
-        ),
+            f"contract_test.folding_{kind}_source"),
         method=ContractIdentity(
             "method",
-            f"contract_test.folding_{kind}_source.method",
-            _PACKAGE_METHOD_VERSION,
-        ),
+            f"contract_test.folding_{kind}_source.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.folding_{kind}_source/factory",
-                _NODE_BINDING_VERSION,
                 {},
             ),
             build=_build(kind),
@@ -233,7 +220,6 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.folding_{kind}_source/availability",
-                _NODE_BINDING_VERSION,
                 {},
             ),
             prerequisites={},
@@ -242,24 +228,17 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.folding_{kind}_source/readiness",
-                _NODE_BINDING_VERSION,
                 {},
             ),
             prerequisites={},
             check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": f"contract_test.folding_{kind}_source.direct",
-            "source": "contract-test-fixture",
-        },
-    )
+        cacheable=True)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.folding_sources",
-    package_version="3.0.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),

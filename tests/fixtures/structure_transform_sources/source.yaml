@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.structure_transform_source
-version: "6.0.0"
 title: Structure-transform fixture source
 summary: Emits one deterministic full-atom PDB structure for public contract tests.
 category: contract_test
@@ -8,13 +6,11 @@ inputs: []
 outputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One deterministic full-atom protein structure fixture.
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Singleton Candidate form of the exact same structure fixture.

@@ -59,11 +59,9 @@ def test_signed_residue_identities_address_constraints_and_annotations() -> None
     catalog = build_frozen_catalog(module_registrations())
     constraints_type = catalog.require_port_type(
         "proteinmpnn.constraints",
-        "4.0.0",
     )
     annotations_type = catalog.require_port_type(
         "function.annotations",
-        "3.0.0",
     )
     assert (
         constraints_type.decode(constraints_type.encode(constraints))
@@ -136,9 +134,7 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             WorkflowNodeInstance(
                 node_id="constraints",
                 node_type_id="proteinmpnn.constraints",
-                node_type_version="4.0.0",
                 binding_id="proteinmpnn.constraints.local",
-                binding_version="4.0.0",
                 node_parameters={
                     "designable_residue_ids": ["A:-3"],
                     "fixed_residue_ids": ["A:-3A"],
@@ -156,9 +152,7 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             WorkflowNodeInstance(
                 node_id="annotation",
                 node_type_id="prompt_authoring.add_function_annotation",
-                node_type_version="3.0.0",
                 binding_id="prompt_authoring.add_function_annotation.direct",
-                binding_version="3.0.0",
                 node_parameters={
                     "annotation": {
                         "label": "signed_region",
@@ -172,14 +166,12 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             ),
         ),
         edges=(),
-        contract_lock=(),
     )
 
     admit_values(
         catalog.require_contract(
             "node_type",
             workflow.nodes[0].node_type_id,
-            workflow.nodes[0].node_type_version,
         ).definition.parameter_contract,
         workflow.nodes[0].node_parameters,
     )
@@ -187,7 +179,6 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
         catalog.require_contract(
             "node_type",
             workflow.nodes[1].node_type_id,
-            workflow.nodes[1].node_type_version,
         ).definition.parameter_contract,
         workflow.nodes[1].node_parameters,
     )
@@ -199,9 +190,7 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             WorkflowNodeInstance(
                 node_id="annotation",
                 node_type_id="prompt_authoring.add_function_annotation",
-                node_type_version="3.0.0",
                 binding_id="prompt_authoring.add_function_annotation.direct",
-                binding_version="3.0.0",
                 node_parameters={
                     "annotation": {
                         "label": "invalid",
@@ -215,14 +204,12 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             ),
         ),
         edges=(),
-        contract_lock=(),
     )
     with pytest.raises(ParameterValueAdmissionError, match="must match"):
         admit_values(
             catalog.require_contract(
                 "node_type",
                 invalid.nodes[0].node_type_id,
-                invalid.nodes[0].node_type_version,
             ).definition.parameter_contract,
             invalid.nodes[0].node_parameters,
         )

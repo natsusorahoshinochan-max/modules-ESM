@@ -451,12 +451,9 @@ def _build(operation: str):
 def _method(operation: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.structure_transform.{operation}.method",
-        version="2.1.0",
         algorithm_identity={"name": f"deterministic-{operation}"},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "pdb-v3.3"},
-        source_identity={"kind": "contract-test"},
         scale_contract={"kind": "identity"},
     )
 
@@ -467,22 +464,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         if operation == "source"
         else "contract_test.backbone_sink"
     )
-    node_version = "6.0.0" if operation == "source" else "4.0.0"
     return ExecutionBindingDefinition(
         binding_id=f"{node_id}.direct",
-        version=node_version,
-        node_type=ContractIdentity("node_type", node_id, node_version),
+        node_type=ContractIdentity("node_type", node_id),
         method=ContractIdentity(
             "method",
-            f"contract_test.structure_transform.{operation}.method",
-            "2.1.0",
-        ),
+            f"contract_test.structure_transform.{operation}.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{node_id}/factory",
-                "2.1.0",
                 {},
             ),
             build=_build(operation),
@@ -490,7 +482,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"{node_id}/availability",
-                "2.1.0",
                 {},
             ),
             prerequisites={},
@@ -499,24 +490,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"{node_id}/readiness",
-                "2.1.0",
                 {},
             ),
             prerequisites={},
             check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": f"{node_id}.direct",
-            "source": "contract-test",
-        },
-    )
+        cacheable=True)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.structure_transform_sources",
-    package_version="3.0.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("source.yaml"),

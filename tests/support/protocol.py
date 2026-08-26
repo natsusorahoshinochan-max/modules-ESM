@@ -81,8 +81,6 @@ def validate_typed_value_response(
             "x-port-content-digest": value["port_content_digest"],
             "x-port-type-kind": value["port_type"]["contract_kind"],
             "x-port-type-id": value["port_type"]["contract_id"],
-            "x-port-type-version": value["port_type"]["contract_version"],
-            "x-port-type-digest": value["port_type"]["contract_digest"],
             "x-value-count": str(value["value_count"]),
             "x-value-index": str(value["value_index"]),
             "x-value-manifest-reference": value["value_manifest_reference"],

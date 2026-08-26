@@ -21,8 +21,6 @@ from core.execution.resources import CancellationControl, RunResources
 from core.execution.results.store import ResultIntegrityError, ResultStore
 import core.execution.node_attempt as node_attempt
 from core.execution._run_runtime_evidence import (
-    _exact_contract_reference,
-    _execution_plan_contract_roots,
     plan_evidence,
 )
 from core.execution.ledger import (
@@ -63,10 +61,8 @@ from core.operation import (
     OperationContext,
     BindingEnvironment,
     ReadinessResult,
-    ResolvedOutputIdentity,
 )
 from core.parameters.contract import admit_declarations
-from core.local_torch_device import expected_local_torch_device
 from core.execution.node_attempt import ExecutionTermination
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.support.application import create_application
@@ -86,7 +82,6 @@ from core.workflow.authoring import (
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from core.workflow.plan import ExecutionPlanNode
 from protein_workbench_public.ledger_codec import encode_event
@@ -149,12 +144,10 @@ def _contract(
     return catalog_contract(
         contract_kind,
         contract_id,
-        "2.1.0",
         {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": contract_kind,
             "contract_id": contract_id,
-            "contract_version": "2.1.0",
             **descriptor,
         },
         environment_fields=(
@@ -227,8 +220,6 @@ def _direct_catalog(
     execution_action: Any | None = None,
     factory_action: Any | None = None,
     execution_output: Any = "READY",
-    implementation_variant: str = "default",
-    implementation_label: str | None = None,
     deterministic: bool = True,
     execution_route: Literal["adapter", "direct"] = "adapter",
     node_parameter_declarations: Mapping[str, Any] | None = None,
@@ -248,13 +239,11 @@ def _direct_catalog(
         {
             "algorithm_identity": {"name": "deterministic-text"},
             "model_identity": {"kind": "none"},
-            "checkpoint_identity": {"kind": "none"},
             "featurization_identity": {"kind": "none"},
-            "source_identity": {"kind": "contract-test"},
             "scale_contract": {"kind": "identity"},
         },
     )
-    text = builtin.require_port_type("text", "2.1.0")
+    text = builtin.require_port_type("text")
     catalog_port_types = builtin.port_types
     if output_method_projection is not None:
         producing_method = ExactContractReference(**method.reference())
@@ -268,20 +257,16 @@ def _direct_catalog(
         )
         text = PortTypeDefinition(
             type_id="test.method_observation",
-            version="2.1.0",
             validator=BehaviorReference(
                 "test.method_observation/validate",
-                "2.1.0",
                 {},
             ),
             codec=BehaviorReference(
                 "test.method_observation/codec",
-                "2.1.0",
                 {},
             ),
             content_identity=BehaviorReference(
                 "test.method_observation/content",
-                "2.1.0",
                 {},
             ),
             runtime_validator=lambda value: None,
@@ -289,7 +274,6 @@ def _direct_catalog(
             runtime_from_wire=lambda value: value,
             observation_method_projection=BehaviorReference(
                 "test.method_observation/method_projection",
-                "2.1.0",
                 {},
             ),
             runtime_observation_method_projection=lambda _: (
@@ -324,17 +308,14 @@ def _direct_catalog(
     for binding_id in binding_ids:
         binding_factory_behavior = BehaviorReference(
             f"{binding_id}/factory",
-            "2.1.0",
             {"route": "direct"},
         )
         binding_readiness_behavior = BehaviorReference(
             f"{binding_id}/readiness",
-            "2.1.0",
             {"observation": "per-run"},
         )
         binding_adapter_behavior = BehaviorReference(
             f"{binding_id}/adapter",
-            "2.1.0",
             {"route": "provider"},
         )
         binding = _contract(
@@ -353,7 +334,6 @@ def _direct_catalog(
                 "availability_declaration": {
                     "behavior": {
                         "behavior_id": f"{binding_id}/availability",
-                        "behavior_version": "2.1.0",
                         "parameters": {},
                     },
                     "prerequisites": {},
@@ -368,30 +348,6 @@ def _direct_catalog(
                 },
                 "deterministic": deterministic,
                 "cacheable": cacheable,
-                "implementation_identity": {
-                    "name": binding_id,
-                    "variant": implementation_variant,
-                    **(
-                        {"label": implementation_label}
-                        if implementation_label is not None
-                        else {}
-                    ),
-                    "factory": binding_factory_behavior.descriptor(),
-                    **(
-                        {"adapter": binding_adapter_behavior.descriptor()}
-                        if execution_route == "adapter"
-                        else {}
-                    ),
-                    **(
-                        {
-                            "effective_randomness_resolver": (
-                                effective_randomness_resolver.behavior.descriptor()
-                            )
-                        }
-                        if effective_randomness_resolver is not None
-                        else {}
-                    ),
-                },
                 "produced_observations": [],
                 **(
                     {
@@ -511,11 +467,11 @@ def _direct_catalog(
 
             return factory
 
-        factories[(binding_id, "2.1.0")] = ScientificOperationFactory(
+        factories[binding_id] = ScientificOperationFactory(
             behavior=binding_factory_behavior,
             build=make_factory(binding_id),
         )
-        readiness_declarations[(binding_id, "2.1.0")] = ReadinessDeclaration(
+        readiness_declarations[binding_id] = ReadinessDeclaration(
             behavior=binding_readiness_behavior,
             prerequisites=(
                 readiness_prerequisites
@@ -534,7 +490,7 @@ def _direct_catalog(
             readiness=readiness_declarations,
             randomness=(
                 {
-                    (binding_id, "2.1.0"): effective_randomness_resolver
+                    binding_id: effective_randomness_resolver
                     for binding_id in binding_ids
                 }
                 if effective_randomness_resolver is not None
@@ -588,16 +544,12 @@ def _commit_one_node(client: TestClient) -> tuple[str, dict[str, Any]]:
             {
                 "node_id": "direct",
                 "node_type_id": "test.direct",
-                "node_type_version": "2.1.0",
                 "binding_id": "test.direct.local",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
         ],
-        "edges": [],
-        "contract_lock": [],
-    }
+        "edges": []}
     return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
@@ -616,17 +568,13 @@ def _commit_independent_nodes(
             {
                 "node_id": f"direct-{index}",
                 "node_type_id": "test.direct",
-                "node_type_version": "2.1.0",
                 "binding_id": binding_id,
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
             for index, binding_id in enumerate(binding_ids)
         ],
-        "edges": [],
-        "contract_lock": [],
-    }
+        "edges": []}
     return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
@@ -647,11 +595,9 @@ def _pipeline_catalog(
     builtin = builtin_frozen_catalog()
     candidate_collection_type = builtin.require_port_type(
         "candidate.collection",
-        "4.0.0",
     )
     candidate_data_type = builtin.require_port_type(
         "protein.sequence",
-        "3.0.0",
     )
     def validate_text(value: Any) -> None:
         calls.append(f"validate:{value!r}")
@@ -660,20 +606,16 @@ def _pipeline_catalog(
 
     canonical_text = PortTypeDefinition(
         type_id="test.canonical_text",
-        version="2.1.0",
         validator=BehaviorReference(
             "test.canonical_text/validate",
-            "2.1.0",
             {"accepted_value_kind": "text"},
         ),
         codec=BehaviorReference(
             "test.canonical_text/codec",
-            "2.1.0",
             {"normalization": "strip-and-lowercase"},
         ),
         content_identity=BehaviorReference(
             "test.canonical_text/content",
-            "2.1.0",
             {"digest": "SHA-256"},
         ),
         runtime_validator=validate_text,
@@ -686,9 +628,7 @@ def _pipeline_catalog(
         {
             "algorithm_identity": {"name": "canonical-pipeline"},
             "model_identity": {"kind": "none"},
-            "checkpoint_identity": {"kind": "none"},
             "featurization_identity": {"kind": "none"},
-            "source_identity": {"kind": "contract-test"},
             "scale_contract": {"kind": "identity"},
         },
     )
@@ -877,12 +817,10 @@ def _pipeline_catalog(
     ):
         factory_behavior = BehaviorReference(
             f"{binding_id}/factory",
-            "2.1.0",
             {},
         )
         readiness_behavior = BehaviorReference(
             f"{binding_id}/readiness",
-            "2.1.0",
             {},
         )
         binding = _contract(
@@ -897,7 +835,6 @@ def _pipeline_catalog(
                 "availability_declaration": {
                     "behavior": {
                         "behavior_id": f"{binding_id}/availability",
-                        "behavior_version": "2.1.0",
                         "parameters": {},
                     },
                     "prerequisites": {},
@@ -908,10 +845,6 @@ def _pipeline_catalog(
                 },
                 "deterministic": True,
                 "cacheable": cacheable,
-                "implementation_identity": {
-                    "name": binding_id,
-                    "factory": factory_behavior.descriptor(),
-                },
                 "produced_observations": [],
             },
         )
@@ -925,11 +858,11 @@ def _pipeline_catalog(
                 return implementation(node_id, context.resources)
             return implementation(context.resources)
 
-        factories[(binding_id, "2.1.0")] = ScientificOperationFactory(
+        factories[binding_id] = ScientificOperationFactory(
             behavior=factory_behavior,
             build=build_implementation,
         )
-        readiness[(binding_id, "2.1.0")] = ReadinessDeclaration(
+        readiness[binding_id] = ReadinessDeclaration(
             behavior=readiness_behavior,
             prerequisites={},
             check=lambda check_input: ReadinessResult(True),
@@ -1000,7 +933,6 @@ def _artifact_catalog(
                 "name": "summary",
                 "port_type": builtin.require_port_type(
                     "text",
-                    "2.1.0",
                 ).reference(),
                 "required": True,
                 "multiplicity": "one",
@@ -1013,9 +945,7 @@ def _artifact_catalog(
         {
             "algorithm_identity": {"name": "deterministic-artifact"},
             "model_identity": {"kind": "none"},
-            "checkpoint_identity": {"kind": "none"},
             "featurization_identity": {"kind": "none"},
-            "source_identity": {"kind": "contract-test"},
             "scale_contract": {"kind": "identity"},
         },
     )
@@ -1034,12 +964,10 @@ def _artifact_catalog(
     )
     factory_behavior = BehaviorReference(
         "test.artifact/factory",
-        "2.1.0",
         {},
     )
     readiness_behavior = BehaviorReference(
         "test.artifact/readiness",
-        "2.1.0",
         {},
     )
     binding = _contract(
@@ -1054,7 +982,6 @@ def _artifact_catalog(
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "test.artifact/availability",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -1065,10 +992,6 @@ def _artifact_catalog(
             },
             "deterministic": True,
             "cacheable": cacheable,
-            "implementation_identity": {
-                "name": "test.artifact.direct",
-                "factory": factory_behavior.descriptor(),
-            },
             "produced_observations": [],
         },
     )
@@ -1112,13 +1035,13 @@ def _artifact_catalog(
         contracts=install_runtime(
             (method, node, binding),
             factories={
-                ("test.artifact.direct", "2.1.0"): ScientificOperationFactory(
+                "test.artifact.direct": ScientificOperationFactory(
                     behavior=factory_behavior,
                     build=factory,
                 )
             },
             readiness={
-                ("test.artifact.direct", "2.1.0"): ReadinessDeclaration(
+                "test.artifact.direct": ReadinessDeclaration(
                     behavior=readiness_behavior,
                     prerequisites={},
                     check=lambda check_input: ReadinessResult(True),
@@ -1144,16 +1067,12 @@ def _commit_artifact_node(
             {
                 "node_id": "artifact",
                 "node_type_id": "test.artifact",
-                "node_type_version": "2.1.0",
                 "binding_id": "test.artifact.direct",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
         ],
-        "edges": [],
-        "contract_lock": [],
-    }
+        "edges": []}
     return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
@@ -1173,18 +1092,14 @@ def _commit_pipeline(
             {
                 "node_id": "source",
                 "node_type_id": "test.pipeline.source",
-                "node_type_version": "2.1.0",
                 "binding_id": "test.pipeline.source.direct",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "sink",
                 "node_type_id": "test.pipeline.sink",
-                "node_type_version": "2.1.0",
                 "binding_id": "test.pipeline.sink.direct",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -1208,9 +1123,7 @@ def _commit_pipeline(
                 if candidate_digest_probe
                 else []
             ),
-        ],
-        "contract_lock": [],
-    }
+        ]}
     return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
@@ -1225,9 +1138,7 @@ def _commit_branching_pipeline(
         {
             "node_id": node_id,
             "node_type_id": node_type_id,
-            "node_type_version": "2.1.0",
             "binding_id": binding_id,
-            "binding_version": "2.1.0",
             "node_parameters": {},
             "binding_parameters": {},
         }
@@ -1269,9 +1180,7 @@ def _commit_branching_pipeline(
                 ("failing", "blocked"),
                 ("independent", "successful"),
             )
-        ],
-        "contract_lock": [],
-    }
+        ]}
     return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
@@ -1502,7 +1411,7 @@ def test_started_engine_terminal_statuses_are_causally_closed(
     ) == 3
 
 
-def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
+def test_startup_unavailable_binding_still_runs_fresh_readiness(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -1515,9 +1424,7 @@ def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
             unavailable_binding_ids=("test.direct.local",),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1542,21 +1449,20 @@ def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
             started.json()["run_id"],
         )
 
-    assert projection["status"] == "failed"
-    assert calls == []
+    assert projection["status"] == "succeeded"
+    assert calls == [
+        "readiness:test.direct.local",
+        "factory:test.direct.local",
+        "execute:test.direct.local",
+    ]
     terminal = next(
         item["event"]
         for item in events
         if item["event"]["type"] == "node_attempt_terminal"
     )
-    assert terminal["failure_origin"] == "binding"
-    assert terminal["error"]["code"] == "binding_unavailable"
-    assert not any(
-        item["event"]["type"] in {
-            "readiness_attested",
-            "operation_attempt_started",
-            "engine_invocation_started",
-        }
+    assert terminal["status"] == "succeeded"
+    assert any(
+        item["event"]["type"] == "readiness_attested"
         for item in events
     )
 
@@ -1573,9 +1479,7 @@ def test_direct_cache_miss_enters_its_operation_without_readiness(
             execution_route="direct",
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1628,7 +1532,6 @@ def test_preparation_error_emits_no_attempt_evidence(
     resolver = EffectiveRandomnessResolver(
         behavior=BehaviorReference(
             "test.direct/failing-randomness",
-            "2.1.0",
             {},
         ),
         resolve=fail_randomness,
@@ -1651,9 +1554,7 @@ def test_preparation_error_emits_no_attempt_evidence(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1718,9 +1619,7 @@ def test_readiness_programming_error_fails_after_attempt_start(
             readiness_checks={"test.direct.local": invalid_readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1783,9 +1682,7 @@ def test_result_store_preoperation_failure_retains_typed_run_closure(
     app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1842,18 +1739,14 @@ def test_late_worker_failure_gates_every_lifecycle_use_case_and_restart(
         assert release.wait(timeout=3)
         raise RuntimeError("private delayed worker failure")
 
-    project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
-    output_root = tmp_path / "outputs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog(
         calls,
         readiness_checks={"test.direct.local": fail_after_receipt},
     )
     environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
     app = create_application(
         frozen_catalog_override=catalog,
@@ -1956,9 +1849,7 @@ def test_public_terminal_wait_helper_never_returns_a_running_projection(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2010,9 +1901,7 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
             invocation_count=invocation_count,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2051,7 +1940,7 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
     )
 
 
-def test_public_start_run_binds_the_exact_commit_before_direct_execution(
+def test_public_start_run_binds_the_workflow_commit_before_direct_execution(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -2060,9 +1949,7 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2094,10 +1981,6 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
             "project_id": project_id,
             "run_id": receipt["run_id"],
             "workflow_commit_id": compiled["workflow_commit_id"],
-            "workflow_commit_revision": compiled[
-                "workflow_commit_revision"
-            ],
-            "workflow_digest": compiled["workflow_digest"],
             "status": "succeeded",
             "terminal_sequence": projection["terminal_sequence"],
             "ledger_cursor": projection["ledger_cursor"],
@@ -2121,13 +2004,11 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
                     "port_type": (
                         _direct_catalog([]).require_port_type(
                             "text",
-                            "2.1.0",
                         ).reference()
                     ),
                     "content_digest": (
                         _direct_catalog([]).require_port_type(
                             "text",
-                            "2.1.0",
                         ).content_digest("READY")
                     ),
                     "result_identity": (
@@ -2172,9 +2053,7 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
     calls: list[str] = []
     catalog = _direct_catalog(calls)
     environment_configuration = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
@@ -2192,13 +2071,6 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         plan = compiled.execution_plan
         node = plan.nodes[0]
         run_id = "run-attempt-interface"
-        contract_roots = tuple(
-            _execution_plan_contract_roots(plan)
-        )
-        resolved_contracts = tuple(
-            _exact_contract_reference(entry)
-            for entry in plan.resolved_contracts
-        )
         ledger = Ledger(
             projects,
             project_id,
@@ -2209,23 +2081,14 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         ledger.record(
             RunScopeBinding(
                 workflow_commit_id=committed["workflow_commit_id"],
-                workflow_commit_revision=plan.workflow_commit_revision,
-                workflow_digest=plan.workflow_digest,
-                contract_lock_digest=plan.contract_lock_digest,
-                execution_plan_digest=plan.execution_plan_digest,
-                catalog_contract_digest=plan.catalog_contract_digest,
-                resolved_contracts=resolved_contracts,
-                resolved_contract_roots=contract_roots,
             )
         )
         availability = catalog.require_availability(
-            _exact_contract_reference(node.binding)
+            node.binding
         )
         ledger.record(
             AvailabilityBound(
-                binding=_exact_contract_reference(
-                    node.binding
-                ),
+                binding=node.binding,
                 catalog_observed_at=run_timestamp(availability.observed_at),
                 available=availability.result.is_available,
             )
@@ -2233,7 +2096,6 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
         ledger.record(
             RunAdmitted(
                 workflow_commit_id=committed["workflow_commit_id"],
-                workflow_commit_revision=plan.workflow_commit_revision,
             )
         )
         ledger.record(
@@ -2251,12 +2113,6 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
             attempt_results,
         ).create(
             ledger=ledger,
-            availability_by_binding={
-                (
-                    node.binding.contract_id,
-                    node.binding.contract_version,
-                ): availability,
-            },
         )
 
         outcome = attempts.execute(
@@ -2293,9 +2149,7 @@ def test_run_accepts_output_method_projected_by_its_binding(
             output_method_projection="binding",
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2330,9 +2184,7 @@ def test_run_rejects_output_method_not_owned_by_its_binding(
             output_method_projection="other",
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2393,7 +2245,6 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
     resolver = EffectiveRandomnessResolver(
         behavior=BehaviorReference(
             "test.direct/randomness",
-            "2.1.0",
             {"resolution": "exact-seed"},
         ),
         resolve=resolve_randomness,
@@ -2415,9 +2266,7 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2485,12 +2334,9 @@ def test_simplefold_bindings_receive_independent_run_scoped_readiness(
         "folding.simplefold_confidence.simplefold_local",
     )
     environment = {
-        (binding_id, "2.1.0"): {
-            "values": {
+        binding_id: {
                 "credential": "credential-value",
-                "device": expected_local_torch_device(),
-            },
-        }
+            }
         for binding_id in bindings
     }
 
@@ -2527,9 +2373,6 @@ def test_simplefold_bindings_receive_independent_run_scoped_readiness(
         frozen_catalog_override=_direct_catalog(
             calls,
             binding_ids=bindings,
-            binding_environment_fields=(
-                EnvironmentFieldDeclaration("device", "json_value"),
-            ),
             readiness_checks={
                 binding_id: readiness_for(binding_id)
                 for binding_id in bindings
@@ -2598,12 +2441,10 @@ def test_failed_readiness_closes_only_the_provider_bound_node(
             ),
         ),
         v2_environment_configuration={
-            (binding_id, "2.1.0"): {
-                "values": {
+            binding_id: {
                     "credential": "credential-value",
                     "api_key": secret,
                     "runtime_path": private_path,
-                },
                 }
             for binding_id in bindings
         },
@@ -2703,9 +2544,7 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
         ledger_transaction_store=FailNodeConclusionTransaction(),
     )
@@ -2752,9 +2591,7 @@ def test_run_without_selection_closes_after_its_node_disposition(
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2825,9 +2662,7 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -2903,9 +2738,7 @@ def test_operation_failure_retains_ordered_workspace_cleanup_causality(
             execution_action=fail_operation,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -3051,18 +2884,14 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
                     {
                         "node_id": "source",
                         "node_type_id": "test.pipeline.source",
-                        "node_type_version": "2.1.0",
                         "binding_id": "test.pipeline.source.direct",
-                        "binding_version": "2.1.0",
                         "node_parameters": {},
                         "binding_parameters": {},
                     },
                     {
                         "node_id": "sink",
                         "node_type_id": "test.pipeline.sink",
-                        "node_type_version": "2.1.0",
                         "binding_id": "test.pipeline.sink.direct",
-                        "binding_version": "2.1.0",
                         "node_parameters": {},
                         "binding_parameters": {},
                     },
@@ -3075,9 +2904,7 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
                         "target_port": output_port,
                     }
                     for output_port in ("text", "candidates")
-                ],
-                "contract_lock": [],
-            }
+                ]}
         ),
     )
     service = run_runtime.V2RunService(
@@ -3504,9 +3331,8 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
         transaction["transaction_sequence"] for transaction in transactions
     ] == list(range(1, len(transactions) + 1))
     assert all(
-        transaction["schema_namespace"]
-        == "protein-workbench-run-ledger-transaction/v5"
-        and transaction["schema_version"] == "5.0.0"
+        "schema_namespace" not in transaction
+        and "schema_version" not in transaction
         for transaction in transactions
     )
     assert [fact["sequence"] for fact in facts] == list(
@@ -3540,15 +3366,10 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     tmp_path,
     monkeypatch,
 ) -> None:
-    project_root = tmp_path / "projects"
-    run_root = tmp_path / "runs"
-    output_root = tmp_path / "outputs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog([])
     environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
 
     with TestClient(
@@ -3615,151 +3436,6 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     assert len(resumed_facts) == len(expected_sequences)
 
 
-def test_catalog_resolves_output_identity_source_contract_closure() -> None:
-    source_port = builtin_frozen_catalog().require_port_type("text", "2.1.0")
-    materializer = BehaviorReference(
-        "test.restart-identity/materialize",
-        "1.0.0",
-        {"source_roles": {"source": source_port.reference()}},
-    )
-    identity_port = PortTypeDefinition(
-        type_id="test.restart-identity",
-        version="1.0.0",
-        validator=BehaviorReference(
-            "test.restart-identity/validate",
-            "1.0.0",
-            {
-                "output_identity_materialization": (
-                    materializer.descriptor()
-                )
-            },
-        ),
-        codec=BehaviorReference(
-            "test.restart-identity/codec",
-            "1.0.0",
-            {},
-        ),
-        content_identity=BehaviorReference(
-            "test.restart-identity/content",
-            "1.0.0",
-            {},
-        ),
-        runtime_validator=lambda value: None,
-        runtime_to_wire=lambda value: value,
-        runtime_from_wire=lambda value: value,
-        output_identity_materialization=materializer,
-        runtime_output_identity_materializer=(
-            lambda value, _: ResolvedOutputIdentity(value)
-        ),
-        output_identity_source_port_types={"source": source_port},
-    )
-    catalog = FrozenCatalog(
-        (source_port, identity_port),
-        contracts=(),
-        availability=(),
-        availability_observed_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
-    )
-    roots = (
-        ExactContractReference(**identity_port.reference()),
-    )
-    expected_contracts = tuple(
-        sorted(
-            (
-                ExactContractReference(**source_port.reference()),
-                roots[0],
-            ),
-            key=lambda reference: (
-                reference.contract_kind,
-                reference.contract_id,
-                reference.contract_version,
-            ),
-        )
-    )
-
-    assert catalog.resolve_contract_closure(roots) == expected_contracts
-
-
-def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    entered = threading.Event()
-    release = threading.Event()
-    project_root = tmp_path / "projects"
-    run_root = tmp_path / "runs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
-    }
-    original_catalog = _direct_catalog(
-        [],
-        execution_gate=(entered, release),
-        node_title="Original Catalog generation",
-    )
-    active_catalog = _direct_catalog(
-        [],
-        node_title="Active Catalog generation",
-    )
-    assert original_catalog.contract_digest != active_catalog.contract_digest
-
-    first = TestClient(
-        create_application(
-            frozen_catalog_override=original_catalog,
-            v2_environment_configuration=environment,
-        )
-    )
-    try:
-        project_id, compiled = _commit_one_node(first)
-        started = first.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "inactive-generation-restart",
-            },
-        )
-        assert started.status_code == 202
-        assert entered.wait(timeout=1)
-        run_id = started.json()["run_id"]
-        first.close()
-
-        ledger_dir = run_root / project_id / run_id / "ledger"
-        before = {
-            path.name: path.read_bytes()
-            for path in sorted(ledger_dir.glob("*.json"))
-        }
-
-        with TestClient(
-            create_application(
-                frozen_catalog_override=active_catalog,
-                v2_environment_configuration=environment,
-            )
-        ) as restarted:
-            rejected = restarted.get(
-                f"/api/v2/projects/{project_id}/runs/{run_id}"
-            )
-
-        after = {
-            path.name: path.read_bytes()
-            for path in sorted(ledger_dir.glob("*.json"))
-        }
-    finally:
-        first.close()
-        release.set()
-        first.app.state.run_runtime.shutdown()
-
-    assert rejected.status_code == 409
-    validate_error(rejected.json(), status=409)
-    assert rejected.json()["error"]["code"] == "inactive_generation"
-    assert rejected.json()["error"]["details"] == {
-        "artifact_kind": "run_evidence",
-        "expected_catalog_contract_digest": active_catalog.contract_digest,
-        "received_catalog_contract_digest": original_catalog.contract_digest,
-    }
-    assert before == after
-
-
 def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
     tmp_path,
     monkeypatch,
@@ -3773,9 +3449,7 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -3872,9 +3546,7 @@ def test_background_runs_keep_project_reserved_serial_and_joined(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -3946,9 +3618,7 @@ def test_run_runtime_switches_and_releases_local_provider_state(
             execution_action=use_local_provider,
         ),
         v2_environment_configuration={
-            (binding_id, "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            binding_id: {"credential": "credential-value"}
             for binding_id in binding_ids
         },
     )
@@ -3992,9 +3662,7 @@ def test_sync_runs_share_the_application_execution_slot(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -4062,9 +3730,7 @@ def test_terminal_project_lease_waits_for_background_release(
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -4142,9 +3808,7 @@ def test_sync_starts_queue_on_the_project_lease(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -4226,9 +3890,7 @@ def test_background_thread_start_is_atomic_with_shutdown(
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -4293,18 +3955,13 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
 ) -> None:
     entered = threading.Event()
     release = threading.Event()
-    project_root = tmp_path / "projects"
-    run_root = tmp_path / "runs"
-    output_root = tmp_path / "outputs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog(
         [],
         execution_gate=(entered, release),
     )
     environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
 
     first = TestClient(
@@ -4384,9 +4041,7 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),

@@ -17,9 +17,7 @@ from .declarations import (
     ObservationPropagationDefinition,
     ProducedObservationDefinition,
     UtilityTransformDefinition,
-    _SCIENTIFIC_COLLECTION_PORT_TYPE_VERSIONS,
     _require_identifier,
-    _require_version,
 )
 from .definition_resource import (
     _load_definition_resource,
@@ -28,11 +26,7 @@ from .model import CatalogAvailabilityProjection, CatalogContract, FrozenCatalog
 from core.catalog.errors import CatalogBuildError
 from core.catalog.canonical import canonical_json_bytes
 from .port_contract import (
-    CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
-    CANDIDATE_PAIRING_PORT_TYPE_VERSION,
-    SCORE_COLLECTION_PORT_TYPE_VERSION,
     PortTypeDefinition,
-    _require_single_active_contract_version,
 )
 from datatypes.exact_reference import ExactContractReference
 
@@ -43,8 +37,6 @@ def _template_json(value: Any) -> Any:
             "$contract_reference": {
                 "contract_kind": value.contract_kind,
                 "contract_id": value.contract_id,
-                "contract_version": value.contract_version,
-                "expected_digest": value.expected_digest,
             }
         }
     if isinstance(value, Mapping):
@@ -271,18 +263,14 @@ def build_frozen_catalog(
 ) -> FrozenCatalog:
     """Validate all registrations in temporary state, then return one Catalog."""
     registration_tuple = tuple(registrations)
-    package_identities: set[tuple[str, str]] = set()
+    package_identities: set[str] = set()
     for registration in registration_tuple:
         _require_identifier(registration.package_id, "package_id")
-        _require_version(registration.package_version, "package_version")
-        package_identity = (
-            registration.package_id,
-            registration.package_version,
-        )
+        package_identity = registration.package_id
         if package_identity in package_identities:
             raise CatalogBuildError(
                 "duplicate Module Package identity "
-                f"{registration.package_id}@{registration.package_version}"
+                f"{registration.package_id}"
             )
         package_identities.add(package_identity)
 
@@ -293,7 +281,7 @@ def build_frozen_catalog(
     definitions: list[tuple[str, CatalogDefinition]] = []
     loaded_resources: set[tuple[str, str]] = set()
     bindings_by_key: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         tuple[str, ExecutionBindingDefinition],
     ] = {}
     for registration in registration_tuple:
@@ -339,26 +327,18 @@ def build_frozen_catalog(
         )
 
     entry_by_key: dict[
-        tuple[str, str, str],
+        tuple[str, str],
         tuple[set[str], PortTypeDefinition | CatalogDefinition],
     ] = {}
-    template_by_key: dict[tuple[str, str, str], bytes] = {}
     for owner, port_type in port_type_entries:
-        key = ("port_type", port_type.type_id, port_type.version)
-        fingerprint = port_type.descriptor_bytes
+        key = ("port_type", port_type.type_id)
         if key in entry_by_key:
-            if template_by_key[key] != fingerprint:
-                raise CatalogBuildError(
-                    "conflicting contract identity "
-                    f"port_type:{port_type.type_id}@{port_type.version}"
-                )
             raise CatalogBuildError(
                 "duplicate contract identity "
-                f"port_type:{port_type.type_id}@{port_type.version}"
+                f"port_type:{port_type.type_id}"
             )
         port_type.validate_runtime_contract()
         entry_by_key[key] = ({owner}, port_type)
-        template_by_key[key] = fingerprint
 
     for owner, definition in definitions:
         identity = _definition_identity(definition)
@@ -366,35 +346,14 @@ def build_frozen_catalog(
             identity.contract_id,
             f"{identity.contract_kind}_id",
         )
-        _require_version(
-            identity.contract_version,
-            f"{identity.contract_kind} version",
-        )
         key = identity.key
-        fingerprint = canonical_json_bytes(
-            _template_json(definition.descriptor_template())
-        )
         existing = entry_by_key.get(key)
         if existing is not None:
-            if template_by_key[key] != fingerprint:
-                raise CatalogBuildError(
-                    "conflicting contract identity "
-                    f"{identity.contract_kind}:{identity.contract_id}@"
-                    f"{identity.contract_version}"
-                )
-            existing_owners, _ = existing
-            if identity.contract_kind == "metric" and owner not in existing_owners:
-                existing_owners.add(owner)
-                continue
             raise CatalogBuildError(
                 "duplicate contract identity "
-                f"{identity.contract_kind}:{identity.contract_id}@"
-                f"{identity.contract_version}"
+                f"{identity.contract_kind}:{identity.contract_id}"
             )
         entry_by_key[key] = ({owner}, definition)
-        template_by_key[key] = fingerprint
-
-    _require_single_active_contract_version(sorted(entry_by_key))
 
     for _, definition in definitions:
         if not isinstance(definition, NodeTypeDefinition):
@@ -553,9 +512,6 @@ def build_frozen_catalog(
                         != (
                             "port_type",
                             expected_type,
-                            _SCIENTIFIC_COLLECTION_PORT_TYPE_VERSIONS[
-                                expected_type
-                            ],
                         )
                         or port.multiplicity != "one"
                         or port.required is not True
@@ -574,7 +530,6 @@ def build_frozen_catalog(
                     != (
                         "port_type",
                         "candidate.collection",
-                        CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
                     )
                     or output.multiplicity != "one"
                     or output.required is not True
@@ -606,13 +561,11 @@ def build_frozen_catalog(
                     != (
                         "port_type",
                         "score.collection",
-                        SCORE_COLLECTION_PORT_TYPE_VERSION,
                     )
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
-                        "output must use exact score.collection@"
-                        f"{SCORE_COLLECTION_PORT_TYPE_VERSION}"
+                        "output must use score.collection"
                     )
                 subject_ports = (
                     input_names
@@ -639,13 +592,11 @@ def build_frozen_catalog(
                     != (
                         "port_type",
                         "candidate.collection",
-                        CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
                     )
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Produced Observation "
-                        "subject must use exact candidate.collection@"
-                        f"{CANDIDATE_COLLECTION_PORT_TYPE_VERSION} "
+                        "subject must use candidate.collection "
                         "with candidate subject grain"
                     )
                 metric_entry = entry_by_key.get(observation.metric.key)
@@ -764,14 +715,12 @@ def build_frozen_catalog(
                         != (
                             "port_type",
                             "candidate.collection",
-                            CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
                         )
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Produced "
-                            "Observation reference source must use exact "
-                            "candidate.collection@"
-                            f"{CANDIDATE_COLLECTION_PORT_TYPE_VERSION}"
+                            "Observation reference source must use "
+                            "candidate.collection"
                         )
                 if observation.pairing_port is not None:
                     pairing_ports = (
@@ -793,14 +742,12 @@ def build_frozen_catalog(
                         != (
                             "port_type",
                             "candidate.pairing",
-                            CANDIDATE_PAIRING_PORT_TYPE_VERSION,
                         )
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Produced "
-                            "Observation pairing source must use exact "
-                            "candidate.pairing@"
-                            f"{CANDIDATE_PAIRING_PORT_TYPE_VERSION}"
+                            "Observation pairing source must use "
+                            "candidate.pairing"
                         )
             propagation = binding.observation_propagation
             if propagation is not None:
@@ -819,14 +766,11 @@ def build_frozen_catalog(
                     != (
                         "port_type",
                         "score.collection",
-                        SCORE_COLLECTION_PORT_TYPE_VERSION,
                     )
                 ):
                     raise CatalogBuildError(
                         f"Binding {binding.binding_id} Observation "
-                        "propagation output must use exact "
-                        "score.collection@"
-                        f"{SCORE_COLLECTION_PORT_TYPE_VERSION}"
+                        "propagation output must use score.collection"
                     )
                 if output_declaration.multiplicity != "one":
                     raise CatalogBuildError(
@@ -846,14 +790,11 @@ def build_frozen_catalog(
                         != (
                             "port_type",
                             "score.collection",
-                            SCORE_COLLECTION_PORT_TYPE_VERSION,
                         )
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Observation "
-                            "propagation inputs must use exact "
-                            "score.collection@"
-                            f"{SCORE_COLLECTION_PORT_TYPE_VERSION}"
+                            "propagation inputs must use score.collection"
                         )
                     if input_declaration.multiplicity != "one":
                         raise CatalogBuildError(
@@ -869,17 +810,17 @@ def build_frozen_catalog(
                             "propagation may ignore only optional inputs"
                         )
 
-    resolved: dict[tuple[str, str, str], CatalogContract] = {}
-    resolving: list[tuple[str, str, str]] = []
+    resolved: dict[tuple[str, str], CatalogContract] = {}
+    resolving: list[tuple[str, str]] = []
 
-    def resolve(key: tuple[str, str, str]) -> PortTypeDefinition | CatalogContract:
+    def resolve(key: tuple[str, str]) -> PortTypeDefinition | CatalogContract:
         if key in resolved:
             return resolved[key]
         entry = entry_by_key.get(key)
         if entry is None:
             raise CatalogBuildError(
                 "dangling contract reference "
-                f"{key[0]}:{key[1]}@{key[2]}"
+                f"{key[0]}:{key[1]}"
             )
         _, definition = entry
         if isinstance(definition, PortTypeDefinition):
@@ -887,15 +828,15 @@ def build_frozen_catalog(
         if key in resolving:
             cycle = resolving[resolving.index(key):] + [key]
             rendered = " -> ".join(
-                f"{kind}:{contract_id}@{version}"
-                for kind, contract_id, version in cycle
+                f"{kind}:{contract_id}"
+                for kind, contract_id in cycle
             )
             raise CatalogBuildError(
                 f"cyclic contract reference graph: {rendered}"
             )
         resolving.append(key)
         dependencies: dict[
-            tuple[str, str, str],
+            tuple[str, str],
             ExactContractReference,
         ] = {}
 
@@ -908,20 +849,9 @@ def build_frozen_catalog(
                     else {
                         "contract_kind": "port_type",
                         "contract_id": target.type_id,
-                        "contract_version": target.version,
-                        "contract_digest": target.contract_digest,
                     }
                 )
                 exact_reference = ExactContractReference(**reference)
-                if (
-                    value.expected_digest is not None
-                    and exact_reference.contract_digest != value.expected_digest
-                ):
-                    raise CatalogBuildError(
-                        "contract digest conflict for "
-                        f"{value.contract_kind}:{value.contract_id}@"
-                        f"{value.contract_version}"
-                    )
                 dependencies[exact_reference.key] = exact_reference
                 return reference
             if isinstance(value, Mapping):
@@ -937,7 +867,6 @@ def build_frozen_catalog(
         contract = CatalogContract(
             contract_kind=key[0],  # type: ignore[arg-type]
             contract_id=key[1],
-            contract_version=key[2],
             descriptor=descriptor,
             dependencies=tuple(
                 dependencies[identity]
@@ -963,8 +892,6 @@ def build_frozen_catalog(
                 binding=ExactContractReference(
                     contract.contract_kind,
                     contract.contract_id,
-                    contract.contract_version,
-                    contract.contract_digest,
                 ),
                 observed_at=observation_time,
                 result=availability,

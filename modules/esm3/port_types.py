@@ -11,7 +11,6 @@ from .domain import (
 )
 
 
-_VERSION = "4.0.0"
 
 
 def _validate_esmc_representation(value: object) -> None:
@@ -60,10 +59,8 @@ def _from_wire(value: object) -> object:
 _TYPE_ID = "esm3.esmc_sequence_representation"
 ESMC_SEQUENCE_REPRESENTATION_PORT_TYPE = PortTypeDefinition(
     type_id=_TYPE_ID,
-    version=_VERSION,
     validator=BehaviorReference(
         f"{_TYPE_ID}/validate",
-        _VERSION,
         {
             "accepted_value_kind": "esmc_sequence_representation",
             "finite_binary32_embedding": True,
@@ -75,7 +72,6 @@ ESMC_SEQUENCE_REPRESENTATION_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         f"{_TYPE_ID}/codec",
-        _VERSION,
         {
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
@@ -83,7 +79,6 @@ ESMC_SEQUENCE_REPRESENTATION_PORT_TYPE = PortTypeDefinition(
     ),
     content_identity=BehaviorReference(
         f"{_TYPE_ID}/content",
-        _VERSION,
         {"digest": "SHA-256"},
     ),
     runtime_validator=_validate_esmc_representation,

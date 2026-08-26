@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.structure_comparison_source
-version: "5.0.0"
 title: Candidate-associated structure comparison source
 summary: Supplies independently constructed Candidate collections and explicit pairing fixtures for downstream residue-axis resolution.
 category: contract_test
@@ -8,19 +6,16 @@ inputs: []
 outputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent subject structure Candidates.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent reference structure Candidates.
   - name: pairing
     port_type_id: candidate.pairing
-    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Explicit one-to-one counterpart identities for the counterpart scenario; absent for single and fixed-reference scenarios.

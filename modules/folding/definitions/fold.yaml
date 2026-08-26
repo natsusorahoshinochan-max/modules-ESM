@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: folding.fold
-version: "8.0.0"
 title: Fold protein sequences
 summary: Folds each complete sequence Candidate through one explicitly selected folding Binding and publishes complete structure Candidates with canonical confidence.
 category: folding
 inputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete protein sequence Candidates whose exact identities become parents of every folded sample.
 outputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete validated structure Candidates ordered by input parent then zero-based sample slot.
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
-    port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonical subjectless prediction-confidence facts keyed to each structure output slot, exact structure content digest, exact prediction-input residue axis, and producing folding Method; a later materializer joins them to admitted structure Candidate references.

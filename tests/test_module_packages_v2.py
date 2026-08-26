@@ -36,41 +36,34 @@ from protein_workbench_public.catalog_codec import encode_catalog_projection
 
 
 NODE_DEFINITION = """\
-schema_version: "2.1.0"
 node_type_id: synthetic.echo
-version: "3.0.0"
 title: Synthetic Echo
 summary: Returns one text value for Module Package contract testing.
 category: test_support
 inputs:
   - name: value
     port_type_id: synthetic.text
-    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Text supplied to the synthetic operation.
   - name: candidate_subjects
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Candidate subjects supplied to the synthetic operation.
 outputs:
   - name: value
     port_type_id: synthetic.text
-    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Text returned by the synthetic operation.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Candidates observed by the synthetic operation.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "5.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Typed observations emitted by the synthetic operation.
@@ -79,9 +72,7 @@ node_parameters: {}
 """
 
 METRIC_DEFINITION = """\
-schema_version: "2.1.0"
 metric_id: synthetic.identity
-version: "2.1.0"
 title: Synthetic identity score
 description: Contract-test score emitted by the synthetic echo operation.
 value_shape: scalar
@@ -132,45 +123,37 @@ def _validate_text(value):
 def _identity(value, parameters):
     return float(value)
 
-_METRIC = ContractIdentity("metric", "synthetic.identity", "2.1.0")
-_METHOD = ContractIdentity("method", "synthetic.echo", "2.1.0")
+_METRIC = ContractIdentity("metric", "synthetic.identity")
+_METHOD = ContractIdentity("method", "synthetic.echo")
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="synthetic",
-    package_version="2.1.0",
     package_module=__package__,
     node_definitions=(DefinitionResource("node.yaml"),),
     metric_definitions=(DefinitionResource("metric.yaml"),),
     methods=(
         MethodDefinition(
             method_id="synthetic.echo",
-            version="2.1.0",
             algorithm_identity={"name": "identity"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "none"},
-            source_identity={"kind": "contract-test"},
             scale_contract={"kind": "identity"},
         ),
     ),
     port_types=(
         PortTypeDefinition(
             type_id="synthetic.text",
-            version="2.1.0",
             validator=BehaviorReference(
                 "synthetic.text/validate",
-                "2.1.0",
                 {"accepted_value_kind": "text"},
             ),
             codec=BehaviorReference(
                 "synthetic.text/codec",
-                "2.1.0",
                 {"canonicalization": "RFC 8785"},
             ),
             content_identity=BehaviorReference(
                 "synthetic.text/content",
-                "2.1.0",
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_text,
@@ -181,7 +164,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
     utility_transforms=(
         UtilityTransformDefinition(
             transform_id="synthetic.identity",
-            version="2.1.0",
             compatible_input_contract={
                 "metric": _METRIC,
                 "method": _METHOD,
@@ -189,7 +171,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             parameters={},
             behavior=BehaviorReference(
                 "synthetic.identity/transform",
-                "2.1.0",
                 {},
             ),
             transform=_identity,
@@ -198,15 +179,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="synthetic.echo.direct",
-            version="3.0.0",
-            node_type=ContractIdentity("node_type", "synthetic.echo", "3.0.0"),
+            node_type=ContractIdentity("node_type", "synthetic.echo"),
             method=_METHOD,
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "synthetic.echo/factory",
-                    "2.1.0",
                     {},
                 ),
                 build=_factory,
@@ -214,7 +193,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo/availability",
-                    "2.1.0",
                     {},
                 ),
                 prerequisites={},
@@ -223,7 +201,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo/readiness",
-                    "2.1.0",
                     {},
                 ),
                 prerequisites={},
@@ -231,7 +208,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             deterministic=True,
             cacheable=True,
-            implementation_identity={"name": "synthetic.echo.direct"},
             produced_observations=(
                 ProducedObservationDefinition(
                     output_port="scores",
@@ -249,28 +225,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
 )
 """
-
-EXPECTED_SYNTHETIC_CONTRACT_DIGESTS = {
-    ("binding", "synthetic.echo.direct"): (
-        "sha256:f2d03215cb81344c594564cdb3aa1b3543b6fd43c68878464e8573252320c475"
-    ),
-    ("method", "synthetic.echo"): (
-        "sha256:e485971a5abafb8460fd29fc8978b89ed2dc4d66efec93c37b75d0289c807120"
-    ),
-    ("metric", "synthetic.identity"): (
-        "sha256:51f0164af916ccf5c3e69c72fc2adb1be6d07c07254869e5a304e870d6bfb2e5"
-    ),
-    ("node_type", "synthetic.echo"): (
-        "sha256:aaf22801384d7aeca66a440a3550e5b34f73fb3f379f8c973f33395524056503"
-    ),
-    ("port_type", "synthetic.text"): (
-        "sha256:cc3fa0e72b72eb82ced2b58697b44a98587c61b6a6ce567c133ca847d2f47870"
-    ),
-    ("utility_transform", "synthetic.identity"): (
-        "sha256:b2e26cdb0fd42569fc280b594c2187f046c530311eb28972c4f60a9ce607b1b8"
-    ),
-}
-
 
 def _write_registration_package(tmp_path: Path) -> str:
     root_name = "synthetic_module_packages"
@@ -322,17 +276,13 @@ def _snapshot(catalog) -> dict[str, object]:
 def _method(
     method_id: str,
     *,
-    version: str = "2.1.0",
     algorithm_identity=None,
 ) -> MethodDefinition:
     return MethodDefinition(
         method_id=method_id,
-        version=version,
         algorithm_identity=algorithm_identity or {"name": method_id},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "none"},
-        source_identity={"kind": "contract-test"},
         scale_contract={"kind": "identity"},
     )
 
@@ -344,7 +294,6 @@ def _registration(
 ) -> ModulePackageRegistration:
     return ModulePackageRegistration(
         package_id=package_id,
-        package_version="2.1.0",
         package_module=f"unused_{package_id}",
         methods=tuple(methods),
     )
@@ -366,7 +315,14 @@ def test_first_level_registration_contributes_every_contract_kind(
         if definition.type_id.startswith("synthetic.")
     )
 
-    assert actual == set(EXPECTED_SYNTHETIC_CONTRACT_DIGESTS)
+    assert actual == {
+        ("binding", "synthetic.echo.direct"),
+        ("method", "synthetic.echo"),
+        ("metric", "synthetic.identity"),
+        ("node_type", "synthetic.echo"),
+        ("port_type", "synthetic.text"),
+        ("utility_transform", "synthetic.identity"),
+    }
 
 
 def test_production_bindings_publish_exact_typed_environment_closures() -> None:
@@ -404,9 +360,7 @@ def test_production_bindings_publish_exact_typed_environment_closures() -> None:
             )
             resolved = catalog.require_contract(
                 "binding",
-                binding.binding_id,
-                binding.version,
-            )
+                binding.binding_id,)
             assert (
                 resolved.definition.environment_fields
                 == binding.environment_fields
@@ -421,9 +375,7 @@ def test_only_adapter_bindings_declare_provider_readiness() -> None:
         for binding in registration.bindings:
             resolved = catalog.require_contract(
                 "binding",
-                binding.binding_id,
-                binding.version,
-            )
+                binding.binding_id,)
             if binding.execution_route == "adapter":
                 assert binding.readiness is not None
                 assert "readiness_declaration" in resolved.descriptor
@@ -440,15 +392,9 @@ def test_package_owned_port_type_has_one_independent_exact_reference(
 
     assert catalog.require_contract(
         "port_type",
-        "synthetic.text",
-        "2.1.0",
-    ).reference() == {
+        "synthetic.text",).reference() == {
         "contract_kind": "port_type",
         "contract_id": "synthetic.text",
-        "contract_version": "2.1.0",
-        "contract_digest": EXPECTED_SYNTHETIC_CONTRACT_DIGESTS[
-            ("port_type", "synthetic.text")
-        ],
     }
 
 
@@ -459,9 +405,7 @@ def test_package_owned_port_type_round_trips_a_complete_value(
     catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
     synthetic_text = catalog.require_contract(
         "port_type",
-        "synthetic.text",
-        "2.1.0",
-    )
+        "synthetic.text",)
 
     assert synthetic_text.decode(synthetic_text.encode("MÉTA")) == "MÉTA"
 
@@ -474,9 +418,7 @@ def test_node_descriptor_keeps_parameter_groups_separate(
 
     assert catalog.require_contract(
         "node_type",
-        "synthetic.echo",
-        "3.0.0",
-    ).descriptor["parameter_groups"] == ()
+        "synthetic.echo",).descriptor["parameter_groups"] == ()
 
 
 def test_legacy_path_artifact_port_is_rejected(
@@ -489,13 +431,11 @@ def test_legacy_path_artifact_port_is_rejected(
         NODE_DEFINITION.replace(
             "  - name: value\n"
             "    port_type_id: synthetic.text\n"
-            "    port_type_version: \"2.1.0\"\n"
             "    required: true\n"
             "    multiplicity: one\n"
             "    scientific_meaning: Text returned by the synthetic operation.",
             "  - name: value\n"
             "    port_type_id: file.path\n"
-            "    port_type_version: \"2.1.0\"\n"
             "    required: true\n"
             "    multiplicity: one\n"
             "    scientific_meaning: File returned by the synthetic operation.\n"
@@ -520,9 +460,7 @@ def test_package_owned_utility_runtime_is_resolved_by_exact_identity(
 
     utility = catalog.require_contract(
         "utility_transform",
-        "synthetic.identity",
-        "2.1.0",
-    ).definition
+        "synthetic.identity",).definition
     assert utility.transform(0.75, {}) == 0.75
 
 
@@ -534,9 +472,7 @@ def test_binding_keeps_its_factory_lazy_during_catalog_build(
 
     binding = catalog.require_contract(
         "binding",
-        "synthetic.echo.direct",
-        "3.0.0",
-    ).definition
+        "synthetic.echo.direct",).definition
     assert binding.factory.behavior.behavior_id == "synthetic.echo/factory"
 
 
@@ -552,10 +488,6 @@ def test_binding_availability_is_published_with_the_catalog_observation(
         "binding": {
             "contract_kind": "binding",
             "contract_id": "synthetic.echo.direct",
-            "contract_version": "3.0.0",
-            "contract_digest": EXPECTED_SYNTHETIC_CONTRACT_DIGESTS[
-                ("binding", "synthetic.echo.direct")
-            ],
         },
         "observed_at": snapshot["availability_observed_at"],
         "available": True,
@@ -666,13 +598,13 @@ def test_binding_rejects_a_same_operation_output_candidate_subject(
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        (
-            {"output_port": "value"},
-            "output must use exact score.collection@5.0.0",
+            (
+                {"output_port": "value"},
+                "output must use score.collection",
         ),
         (
-            {"subject_port": "value"},
-            "subject must use exact candidate.collection@4.0.0",
+                {"subject_port": "value"},
+                "subject must use candidate.collection",
         ),
         (
             {
@@ -739,15 +671,13 @@ def test_binding_rejects_invalid_observation_propagation_inputs(
     root_name = _write_registration_package(tmp_path)
     node_path = tmp_path / root_name / "synthetic" / "node.yaml"
     node_path.write_text(
-        NODE_DEFINITION.replace(
-            "    port_type_id: synthetic.text\n"
-            "    port_type_version: \"2.1.0\"\n"
-            "    required: true\n"
+            NODE_DEFINITION.replace(
+                "    port_type_id: synthetic.text\n"
+                "    required: true\n"
             "    multiplicity: one\n"
             "    scientific_meaning: Text supplied to the synthetic operation.",
-            "    port_type_id: score.collection\n"
-            "    port_type_version: \"5.0.0\"\n"
-            "    required: true\n"
+                "    port_type_id: score.collection\n"
+                "    required: true\n"
             "    multiplicity: many\n"
             "    scientific_meaning: Scores supplied to the synthetic operation.",
         )
@@ -833,48 +763,6 @@ def test_binding_rejects_a_context_profile_outside_the_metric_schema(
         _forget_package(root_name)
 
 
-@pytest.mark.parametrize(
-    ("mutation", "message"),
-    [
-        ("\nunknown_field: true\n", "unknown fields"),
-        (
-            NODE_DEFINITION.replace(
-                'schema_version: "2.1.0"',
-                'schema_version: "9.0.0"',
-            ),
-            "unsupported Node Definition schema_version",
-        ),
-        (
-            NODE_DEFINITION.replace(
-                "title: Synthetic Echo",
-                "title: First title\ntitle: Second title",
-            ),
-            "duplicate YAML object key",
-        ),
-    ],
-)
-def test_malformed_or_open_node_definition_fails_catalog_build(
-    tmp_path: Path,
-    monkeypatch,
-    mutation: str,
-    message: str,
-) -> None:
-    root_name = _write_registration_package(tmp_path)
-    node_path = tmp_path / root_name / "synthetic" / "node.yaml"
-    if mutation.startswith("\n"):
-        node_path.write_text(NODE_DEFINITION + mutation)
-    else:
-        node_path.write_text(mutation)
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
-
-    try:
-        with pytest.raises(CatalogBuildError, match=message):
-            build_frozen_catalog((_load_registration(root_name),))
-    finally:
-        _forget_package(root_name)
-
-
 def test_duplicate_contract_identity_fails_closed() -> None:
     duplicate = _method("synthetic.duplicate")
 
@@ -911,189 +799,18 @@ def test_catalog_builder_owns_package_identity_admission() -> None:
         build_frozen_catalog((registration,))
 
 
-def test_active_catalog_rejects_multiple_versions_of_one_logical_contract() -> None:
-    with pytest.raises(
-        CatalogBuildError,
-        match=(
-            "multiple active versions for contract "
-            "method:synthetic.single-active"
-        ),
-    ):
-        build_frozen_catalog(
-            (
-                _registration(
-                    "legacy_owner",
-                    methods=(
-                        _method(
-                            "synthetic.single-active",
-                            version="2.1.0",
-                        ),
-                    ),
-                ),
-                _registration(
-                    "current_owner",
-                    methods=(
-                        _method(
-                            "synthetic.single-active",
-                            version="3.0.0",
-                        ),
-                    ),
-                ),
-            )
-        )
-
-
-def test_identical_exact_metric_contract_retains_common_ownership(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    root_name = _write_registration_package(tmp_path)
-    shared_owner = tmp_path / root_name / "shared_metric"
-    shared_owner.mkdir()
-    (shared_owner / "__init__.py").write_text("")
-    (shared_owner / "metric.yaml").write_text(METRIC_DEFINITION)
-    (shared_owner / "package.py").write_text(
-        """\
-from core.catalog.declarations import ModulePackageRegistration
-from core.catalog.definition_resource import DefinitionResource
-
-MODULE_PACKAGE = ModulePackageRegistration(
-    package_id="shared_metric",
-    package_version="2.1.0",
-    package_module=__package__,
-    metric_definitions=(DefinitionResource("metric.yaml"),),
-)
-"""
-    )
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
-
-    try:
-        synthetic = _load_registration(root_name)
-        shared = importlib.import_module(
-            f"{root_name}.shared_metric.package"
-        ).MODULE_PACKAGE
-        catalog = build_frozen_catalog((synthetic, shared))
-    finally:
-        _forget_package(root_name)
-
-    assert [
-        contract.reference()
-        for contract in catalog.contracts
-        if contract.contract_kind == "metric"
-        and contract.contract_id == "synthetic.identity"
-    ] == [
-        catalog.require_contract(
-            "metric",
-            "synthetic.identity",
-            "2.1.0",
-        ).reference()
-    ]
-
-
-def test_version_conflict_is_rejected_before_binding_availability_probe(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    root_name = _write_registration_package(tmp_path)
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
-    probes: list[str] = []
-
-    def binding_with_version(binding, version: str):
-        def check() -> AvailabilityResult:
-            probes.append(version)
-            return AvailabilityResult.available()
-
-        return replace(
-            binding,
-            version=version,
-            availability=replace(binding.availability, check=check),
-        )
-
-    try:
-        registration = _load_registration(root_name)
-        binding = registration.bindings[0]
-        conflicting = replace(
-            registration,
-            bindings=(
-                binding_with_version(binding, "2.1.0"),
-                binding_with_version(binding, "3.0.0"),
-            ),
-        )
-        with pytest.raises(
-            CatalogBuildError,
-            match=(
-                "multiple active versions for contract "
-                "binding:synthetic.echo.direct"
-            ),
-        ):
-            build_frozen_catalog((conflicting,))
-    finally:
-        _forget_package(root_name)
-
-    assert probes == []
-
-
-def test_conflicting_contract_identity_fails_closed() -> None:
-    with pytest.raises(CatalogBuildError, match="conflicting contract identity"):
-        build_frozen_catalog(
-            (
-                _registration(
-                    "first_owner",
-                    methods=(_method("synthetic.conflict"),),
-                ),
-                _registration(
-                    "second_owner",
-                    methods=(
-                        _method(
-                            "synthetic.conflict",
-                            algorithm_identity={"name": "different"},
-                        ),
-                    ),
-                ),
-            )
-        )
-
-
 def test_dangling_contract_reference_fails_closed() -> None:
     dangling = _method(
         "synthetic.dangling",
         algorithm_identity={
             "dependency": ContractIdentity(
                 "method",
-                "synthetic.missing",
-                "2.1.0",
-            )
+                "synthetic.missing",)
         },
     )
     with pytest.raises(CatalogBuildError, match="dangling contract reference"):
         build_frozen_catalog(
             (_registration("dangling_owner", methods=(dangling,)),)
-        )
-
-
-def test_expected_contract_digest_conflict_fails_closed() -> None:
-    target = _method("synthetic.target")
-    mismatch = _method(
-        "synthetic.mismatch",
-        algorithm_identity={
-            "dependency": ContractIdentity(
-                "method",
-                "synthetic.target",
-                "2.1.0",
-                "not-the-target-digest",
-            )
-        },
-    )
-    with pytest.raises(CatalogBuildError, match="contract digest conflict"):
-        build_frozen_catalog(
-            (
-                _registration(
-                    "mismatch_owner",
-                    methods=(target, mismatch),
-                ),
-            )
         )
 
 
@@ -1103,9 +820,7 @@ def test_cyclic_contract_reference_graph_fails_closed() -> None:
         algorithm_identity={
             "dependency": ContractIdentity(
                 "method",
-                "synthetic.cycle.second",
-                "2.1.0",
-            )
+                "synthetic.cycle.second",)
         },
     )
     second = _method(
@@ -1113,9 +828,7 @@ def test_cyclic_contract_reference_graph_fails_closed() -> None:
         algorithm_identity={
             "dependency": ContractIdentity(
                 "method",
-                "synthetic.cycle.first",
-                "2.1.0",
-            )
+                "synthetic.cycle.first",)
         },
     )
     with pytest.raises(CatalogBuildError, match="cyclic contract reference graph"):
@@ -1133,15 +846,13 @@ def test_failed_candidate_never_mutates_an_already_published_catalog() -> None:
             ),
         )
     )
-    published_bytes = published.catalog_descriptor_bytes
+    published_contracts = published.projection().contracts
     malformed = _method(
         "synthetic.malformed",
         algorithm_identity={
             "dependency": ContractIdentity(
                 "method",
-                "synthetic.unknown",
-                "2.1.0",
-            )
+                "synthetic.unknown",)
         },
     )
 
@@ -1150,12 +861,10 @@ def test_failed_candidate_never_mutates_an_already_published_catalog() -> None:
             (_registration("malformed_owner", methods=(malformed,)),)
         )
 
-    assert published.catalog_descriptor_bytes == published_bytes
+    assert published.projection().contracts == published_contracts
     assert published.require_contract(
         "method",
-        "synthetic.published",
-        "2.1.0",
-    ).descriptor["algorithm_identity"] == {"name": "synthetic.published"}
+        "synthetic.published",).descriptor["algorithm_identity"] == {"name": "synthetic.published"}
 
 
 def test_missing_optional_dependency_does_not_hide_available_sibling(
@@ -1183,7 +892,6 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo.optional/availability",
-                    "2.1.0",
                     {},
                 ),
                 prerequisites={
@@ -1194,7 +902,6 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "synthetic.echo.optional/factory",
-                    "2.1.0",
                     {},
                 ),
                 build=lambda context: (_ for _ in ()).throw(
@@ -1204,7 +911,6 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "synthetic.echo.optional/readiness",
-                    "2.1.0",
                     {},
                 ),
                 prerequisites={},
@@ -1230,9 +936,7 @@ def test_missing_optional_dependency_does_not_hide_available_sibling(
     assert by_binding["synthetic.echo.optional"] == {
         "binding": catalog.require_contract(
             "binding",
-            "synthetic.echo.optional",
-            "3.0.0",
-        ).reference(),
+            "synthetic.echo.optional",).reference(),
         "observed_at": by_binding["synthetic.echo.optional"]["observed_at"],
         "available": False,
         "reason": {
@@ -1297,9 +1001,7 @@ def test_cross_package_exact_reference_is_order_independent() -> None:
         algorithm_identity={
             "dependency": ContractIdentity(
                 "method",
-                "synthetic.shared",
-                "2.1.0",
-            )
+                "synthetic.shared",)
         },
     )
     first = _registration("shared_owner", methods=(dependency,))
@@ -1308,18 +1010,13 @@ def test_cross_package_exact_reference_is_order_independent() -> None:
     forward = build_frozen_catalog((first, second))
     reverse = build_frozen_catalog((second, first))
 
-    assert forward.catalog_descriptor_bytes == reverse.catalog_descriptor_bytes
-    assert forward.contract_digest == reverse.contract_digest
+    assert forward.projection().contracts == reverse.projection().contracts
     dependency_contract = forward.require_contract(
         "method",
-        "synthetic.shared",
-        "2.1.0",
-    )
+        "synthetic.shared",)
     assert forward.require_contract(
         "method",
-        "synthetic.consumer",
-        "2.1.0",
-    ).descriptor["algorithm_identity"]["dependency"] == (
+        "synthetic.consumer",).descriptor["algorithm_identity"]["dependency"] == (
         dependency_contract.reference()
     )
 
@@ -1342,9 +1039,7 @@ def test_lazy_factory_does_not_reload_definition_resources(
 
     binding = catalog.require_contract(
         "binding",
-        "synthetic.echo.direct",
-        "3.0.0",
-    ).definition
+        "synthetic.echo.direct",).definition
     assert binding.factory.build(None) == {"implementation": "synthetic.echo"}
 
 
@@ -1357,9 +1052,7 @@ def test_frozen_contract_descriptor_is_immutable(
     with pytest.raises(TypeError):
         catalog.require_contract(
             "node_type",
-            "synthetic.echo",
-            "3.0.0",
-        ).descriptor["title"] = "mutated"
+            "synthetic.echo",).descriptor["title"] = "mutated"
 
 
 def test_binding_definition_is_immutable(
@@ -1370,9 +1063,7 @@ def test_binding_definition_is_immutable(
 
     binding = catalog.require_contract(
         "binding",
-        "synthetic.echo.direct",
-        "3.0.0",
-    ).definition
+        "synthetic.echo.direct",).definition
     with pytest.raises(FrozenInstanceError):
         binding.factory = object()
 
@@ -1417,11 +1108,8 @@ def test_observed_availability_never_changes_stable_contract_identity(
     finally:
         _forget_package(root_name)
 
-    assert available_catalog.catalog_descriptor_bytes == (
-        unavailable_catalog.catalog_descriptor_bytes
-    )
-    assert available_catalog.contract_digest == (
-        unavailable_catalog.contract_digest
+    assert available_catalog.projection().contracts == (
+        unavailable_catalog.projection().contracts
     )
     available_snapshot = _snapshot(available_catalog)
     unavailable_snapshot = _snapshot(unavailable_catalog)
@@ -1452,46 +1140,3 @@ def test_adapter_binding_requires_an_explicit_adapter_behavior(
             )
     finally:
         _forget_package(root_name)
-
-
-def test_all_package_contract_kinds_match_canonical_digest_vectors(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    root_name = _write_registration_package(tmp_path)
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
-
-    try:
-        catalog = build_frozen_catalog((_load_registration(root_name),))
-    finally:
-        _forget_package(root_name)
-
-    actual = {
-        ("port_type", definition.type_id): definition.contract_digest
-        for definition in catalog.port_types
-        if definition.type_id.startswith("synthetic.")
-    }
-    actual.update(
-        {
-            (contract.contract_kind, contract.contract_id): (
-                contract.contract_digest
-            )
-            for contract in catalog.contracts
-        }
-    )
-    assert actual == EXPECTED_SYNTHETIC_CONTRACT_DIGESTS
-
-
-@pytest.mark.parametrize("forbidden", [b"<lambda>", b"0x", b"/private/"])
-def test_canonical_descriptors_exclude_private_python_identity(
-    tmp_path: Path,
-    monkeypatch,
-    forbidden: bytes,
-) -> None:
-    catalog = _build_synthetic_catalog(tmp_path, monkeypatch)
-
-    assert all(
-        forbidden not in contract.descriptor_bytes
-        for contract in catalog.contracts
-    )

@@ -24,7 +24,6 @@ import torch
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from tests.support.application import create_application
@@ -97,9 +96,7 @@ def _decode_values(
         if item["node_id"] == node_id and item["output_port"] == output_port
     )
     codec = catalog.require_port_type(
-        output["port_type"]["contract_id"],
-        output["port_type"]["contract_version"],
-    )
+        output["port_type"]["contract_id"])
     return tuple(
         codec.decode(
             retrieve_typed_output_canonical_bytes(
@@ -183,28 +180,20 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     catalog = build_frozen_catalog(module_registrations())
     catalog.require_contract(
         "node_type",
-        "structure_comparison.evaluate_inserted_loop",
-        "3.0.0",
-    )
+        "structure_comparison.evaluate_inserted_loop")
     remote_confidence_method = catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_remote",
-        "9.0.0",
-    ).descriptor["method"]
+        "folding.fold.esmfold2_remote").descriptor["method"]
     local_confidence_method = catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_local",
-        "11.0.0",
-    ).descriptor["method"]
+        "folding.fold.esmfold2_local").descriptor["method"]
     confidence_methods = (
         remote_confidence_method,
         local_confidence_method,
     )
     evaluation_method = catalog.require_contract(
         "method",
-        "structure_comparison.inserted_loop.exact_evidence_gate",
-        "3.0.0",
-    )
+        "structure_comparison.inserted_loop.exact_evidence_gate")
     assert (
         evaluation_method.descriptor["algorithm_identity"]["confidence_methods"]
         == confidence_methods
@@ -215,27 +204,16 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     )
     evidence_port = catalog.require_contract(
         "port_type",
-        "structure_comparison.inserted_loop_evaluation",
-        "3.0.0",
-    )
+        "structure_comparison.inserted_loop_evaluation")
     assert (
         evidence_port.descriptor()["validator"]["parameters"]["confidence_methods"]
         == [dict(method) for method in confidence_methods]
     )
     workflow = decode_workflow_document(_payload())
     assert workflow.workflow_id == "source-bound-5g53"
-    assert workflow.contract_lock
-    assert lock_workflow(
-        replace(workflow, contract_lock=()),
-        catalog,
-    ) == workflow
-    compile(
-        CompilationRequest(
-            workflow,
-            1,
-        ),
-        catalog,
-    )
+    assert replace(workflow) == workflow
+    compiled = compile(CompilationRequest(workflow), catalog)
+    assert compiled.workflow_id == workflow.workflow_id
 
     pdb_text = INPUT_PATH.read_text(encoding="ascii")
     assert sum(line.startswith("ATOM  ") for line in pdb_text.splitlines()) == 7247
@@ -295,15 +273,11 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
                 edge.source_node_id == "materialize-confidence-shorter-8"
                 and edge.target_node_id == "evaluate-shorter-8"
             )
-        ),
-        contract_lock=(),
-    )
+        ))
     with pytest.raises(ValueError):
         compile(
             CompilationRequest(
-                lock_workflow(broken, catalog),
-                2,
-            ),
+                broken),
             catalog,
         )
 
@@ -338,7 +312,6 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
         payload = _payload()
         payload["workflow_id"] = project_id
-        payload["contract_lock"] = []
         next(node for node in payload["nodes"] if node["node_id"] == "import-input")[
             "node_parameters"
         ] = {"project_input_ref": uploaded.json()["project_input_ref"]}
@@ -453,8 +426,8 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             == "A:224"
         )
 
-        sequence_port = catalog.require_port_type("protein.sequence", "3.0.0")
-        structure_port = catalog.require_port_type("protein.structure", "4.0.0")
+        sequence_port = catalog.require_port_type("protein.sequence")
+        structure_port = catalog.require_port_type("protein.structure")
 
         def exact_reference(
             candidate: Candidate,
@@ -544,9 +517,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         esm3_method = ExactContractReference(
             **catalog.require_contract(
                 "binding",
-                "esm3.generate_paired.biohub_medium",
-                "8.0.0",
-            ).descriptor["method"]
+                "esm3.generate_paired.biohub_medium").descriptor["method"]
         )
         expected_prompt_index = 0
         for branch, loop_length, _ in BRANCHES:

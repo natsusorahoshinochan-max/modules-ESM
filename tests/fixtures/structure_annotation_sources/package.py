@@ -42,7 +42,6 @@ from modules.structure_annotation.domain import (
 )
 
 
-_VERSION = "4.0.0"
 _OPERATIONS = ("candidate_source", "value_source")
 
 
@@ -180,23 +179,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     contract_id = f"contract_test.structure_annotation_{operation}"
     return ExecutionBindingDefinition(
         binding_id=f"{contract_id}.direct",
-        version=_VERSION,
         node_type=ContractIdentity(
             "node_type",
-            contract_id,
-            _VERSION,
-        ),
+            contract_id),
         method=ContractIdentity(
             "method",
-            f"{contract_id}.method",
-            _VERSION,
-        ),
+            f"{contract_id}.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{contract_id}/factory",
-                _VERSION,
                 {},
             ),
             build=_build(operation),
@@ -204,7 +197,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"{contract_id}/availability",
-                _VERSION,
                 {},
             ),
             prerequisites={},
@@ -213,24 +205,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"{contract_id}/readiness",
-                _VERSION,
                 {},
             ),
             prerequisites={},
             check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": f"{contract_id}.direct",
-            "source": "contract-test-fixture",
-        },
-    )
+        cacheable=True)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.structure_annotation_sources",
-    package_version=_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("candidate_source.yaml"),
@@ -241,12 +226,9 @@ MODULE_PACKAGE = ModulePackageRegistration(
             method_id=(
                 f"contract_test.structure_annotation_{operation}.method"
             ),
-            version=_VERSION,
             algorithm_identity={"name": "independent-deterministic-fixture"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "literal-values"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         )
         for operation in _OPERATIONS

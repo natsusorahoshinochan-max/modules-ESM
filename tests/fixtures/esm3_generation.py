@@ -138,9 +138,7 @@ def run_generation(
         WorkflowNodeInstance(
             node_id="layout",
             node_type_id="prompt_authoring.build_residue_layout",
-            node_type_version="3.0.0",
             binding_id="prompt_authoring.build_residue_layout.direct",
-            binding_version="3.0.0",
             node_parameters={
                 "chains": [
                     {
@@ -154,9 +152,7 @@ def run_generation(
         WorkflowNodeInstance(
             node_id="assemble",
             node_type_id="prompt_authoring.assemble_protein_prompt",
-            node_type_version="3.0.0",
             binding_id="prompt_authoring.assemble_protein_prompt.direct",
-            binding_version="3.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -173,18 +169,14 @@ def run_generation(
                 WorkflowNodeInstance(
                     node_id="import_sequence",
                     node_type_id="protein_io.import_sequence",
-                    node_type_version="6.0.0",
                     binding_id="protein_io.import_sequence.direct",
-                    binding_version="6.0.0",
                     node_parameters={"project_input_ref": "sequence-input"},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="update_sequence",
                     node_type_id="prompt_authoring.update_prompt_sequence",
-                    node_type_version="3.0.0",
                     binding_id="prompt_authoring.update_prompt_sequence.direct",
-                    binding_version="3.0.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -212,9 +204,7 @@ def run_generation(
                 WorkflowNodeInstance(
                     node_id="mask_sequence",
                     node_type_id="prompt_authoring.random_mask",
-                    node_type_version="3.0.0",
                     binding_id="prompt_authoring.random_mask.direct",
-                    binding_version="3.0.0",
                     node_parameters={
                         "effective_seed": 1603,
                         "count": len(sequence_mask_residue_ids),
@@ -244,11 +234,7 @@ def run_generation(
         WorkflowNodeInstance(
             node_id="generate",
             node_type_id=f"esm3.{operation}",
-            node_type_version="8.0.0",
             binding_id=f"esm3.{operation}.{binding_route}",
-            binding_version=(
-                "9.0.0" if binding_route == "local_open" else "8.0.0"
-            ),
             node_parameters=resolved_generation_parameters,
             binding_parameters={},
         )
@@ -272,11 +258,9 @@ def run_generation(
                 node_type_id=(
                     "structure_prediction.materialize_confidence"
                 ),
-                node_type_version="2.0.0",
                 binding_id=(
                     "structure_prediction.materialize_confidence.direct"
                 ),
-                binding_version="2.0.0",
                 node_parameters={},
                 binding_parameters={},
             )
@@ -319,9 +303,7 @@ def run_generation(
         schema_version="2.1.0",
         workflow_id=project.id,
         nodes=tuple(nodes),
-        edges=tuple(edges),
-        contract_lock=(),
-    )
+        edges=tuple(edges))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -330,7 +312,6 @@ def run_generation(
         {}
         if binding_route == "local_open"
         else {
-            "endpoint_id": "biohub",
             "credential_handle": "secret-must-never-publish",
         }
     )
@@ -338,12 +319,7 @@ def run_generation(
     environment = admit_environment_configuration(
         catalog,
         {
-            (
-                f"esm3.{operation}.{binding_route}",
-                "9.0.0" if binding_route == "local_open" else "8.0.0",
-            ): {
-                "values": environment_values,
-            }
+            f"esm3.{operation}.{binding_route}": environment_values
         }
     )
     service = V2RunService(
@@ -459,18 +435,14 @@ def run_generation_from_prompt_fixture(
             WorkflowNodeInstance(
                 node_id="source",
                 node_type_id="contract_test.esm3_prompt_source",
-                node_type_version="3.0.0",
                 binding_id="contract_test.esm3_prompt_source.direct",
-                binding_version="3.0.0",
                 node_parameters={"mode": mode},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="generate",
                 node_type_id=f"esm3.{operation}",
-                node_type_version="8.0.0",
                 binding_id=f"esm3.{operation}.{binding_route}",
-                binding_version="8.0.0",
                 node_parameters={
                     "effective_seed": 1603,
                     "num_samples": num_samples,
@@ -485,9 +457,7 @@ def run_generation_from_prompt_fixture(
                 "generate",
                 "protein_prompt",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -495,11 +465,8 @@ def run_generation_from_prompt_fixture(
     environment = admit_environment_configuration(
         catalog,
         {
-            (f"esm3.{operation}.{binding_route}", "8.0.0"): {
-                "values": {
-                    "endpoint_id": "biohub",
-                    "credential_handle": "fixture-secret-must-not-publish",
-                },
+            f"esm3.{operation}.{binding_route}": {
+                "credential_handle": "fixture-secret-must-not-publish",
             }
         }
     )

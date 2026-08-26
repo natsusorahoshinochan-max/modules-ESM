@@ -1,20 +1,16 @@
-schema_version: "2.1.0"
 node_type_id: esm3.represent_sequence
-version: "5.0.0"
 title: Represent a sequence
 summary: Computes a sequence-level mean embedding and records the exact sequence-logits shape on the encoded token axis, including CLS and EOS.
 category: representation
 inputs:
   - name: sequence
     port_type_id: protein.sequence
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One complete canonical protein sequence whose residue order is preserved exactly.
 outputs:
   - name: representation
     port_type_id: esm3.esmc_sequence_representation
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonical 1152-value sequence-level mean embedding tied to the input sequence and the exact (L + 2, 64) sequence-logits tensor shape on the CLS, residue-token, EOS axis.

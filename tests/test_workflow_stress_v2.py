@@ -9,7 +9,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
-from core.local_torch_device import expected_local_torch_device
 
 from core.catalog.builder import build_frozen_catalog
 from core.catalog.declarations import (
@@ -17,7 +16,7 @@ from core.catalog.declarations import (
     ModulePackageRegistration,
 )
 from core.operation import BindingEnvironment, ReadinessResult
-from core.workflow.compiler import lock_workflow
+from core.workflow.compiler import CompilationRequest, compile
 from datatypes.candidate import CandidateCollection
 from datatypes.observation import (
     PairwiseCandidateMapping,
@@ -101,18 +100,16 @@ def _stress_payload(name: str, project_id: str) -> dict[str, Any]:
     return payload
 
 
-def test_stress_workflows_are_repository_owned_and_exactly_locked() -> None:
+def test_stress_workflows_are_repository_owned_and_compilable() -> None:
     catalog = build_frozen_catalog(stress_registrations())
 
     for path in STRESS_WORKFLOWS.values():
         workflow = decode_workflow_document(
             json.loads(path.read_text(encoding="utf-8"))
         )
-        assert workflow.contract_lock
-        assert lock_workflow(
-            replace(workflow, contract_lock=()),
-            catalog,
-        ) == workflow
+        assert replace(workflow) == workflow
+        plan = compile(CompilationRequest(workflow), catalog)
+        assert plan.workflow_id == workflow.workflow_id
 
 
 def _selection_catalog() -> Any:
@@ -299,11 +296,8 @@ def test_user_can_condition_function_tracks_generate_and_replay(
     )
     catalog = _controlled_stress_catalog()
     environment = {
-        (binding_id, "8.0.0"): {
-            "values": {
-                "endpoint_id": "biohub",
-                "credential_handle": "controlled-esm3-credential",
-            }
+        binding_id: {
+            "credential_handle": "controlled-esm3-credential",
         }
         for binding_id in (
             "esm3.generate_paired.biohub_medium",
@@ -473,18 +467,12 @@ def test_user_can_design_two_by_two_by_two_with_exact_lineage(
     )
     catalog = _controlled_stress_catalog()
     environment = {
-        ("proteinmpnn.design.local", "12.0.0"): {
-            "values": {
-                "device": expected_local_torch_device(),
-                "provider_root": PROJECT_ROOT / "repositories" / "ProteinMPNN",
-            }
+        "proteinmpnn.design.local": {
+            "provider_root": PROJECT_ROOT / "repositories" / "ProteinMPNN",
         },
-        ("folding.fold.esmfold2_remote", "9.0.0"): {
-            "values": {
-                "endpoint_id": "biohub",
+        "folding.fold.esmfold2_remote": {
                 "credential_handle": "controlled-folding-credential",
-            }
-        },
+            },
     }
     app = create_application(
         frozen_catalog_override=catalog,
@@ -631,13 +619,10 @@ def test_downstream_commit_replays_cacheable_provider_without_invocation(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("proteinmpnn.design.local", "12.0.0"): {
-                "values": {
-                    "device": expected_local_torch_device(),
-                    "provider_root": (
-                        PROJECT_ROOT / "repositories" / "ProteinMPNN"
-                    ),
-                }
+            "proteinmpnn.design.local": {
+                "provider_root": (
+                    PROJECT_ROOT / "repositories" / "ProteinMPNN"
+                ),
             }
         },
     )

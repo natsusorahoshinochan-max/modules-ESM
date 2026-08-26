@@ -15,7 +15,6 @@ from datatypes.structure import ProteinStructure
 
 _STRUCTURE_TYPE = builtin_frozen_catalog().require_port_type(
     "protein.structure",
-    "4.0.0",
 )
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

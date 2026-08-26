@@ -143,7 +143,6 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
     store = _PublishConclusionThenLoseAcknowledgement(
         publish_final_name=publish_final_name,
     )
-    project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
     output_root = tmp_path / "outputs"
     cache_root = tmp_path / "cache"
@@ -151,9 +150,7 @@ def test_finished_worker_exposes_sticky_unavailable_evidence(
     app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
         ledger_transaction_store=store,
     )
@@ -244,9 +241,7 @@ def test_cancel_during_operation_is_idempotent_and_closes_active_evidence(
             execution_gate=(entered, release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -317,9 +312,7 @@ def test_cancel_before_schedule_disposes_every_node_without_attempts(
             execution_gate=(first_entered, first_release),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -363,9 +356,7 @@ def test_completion_race_is_decided_by_the_ledger_cursor(
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -425,9 +416,7 @@ def test_run_terminal_precedence_uses_durable_node_dispositions(
             execution_action=execute_by_node,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -482,9 +471,7 @@ def test_cancel_during_cache_lookup_closes_only_the_node_attempt(
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -533,9 +520,7 @@ def test_cancel_during_readiness_closes_only_the_node_attempt(
             readiness_checks={"test.direct.local": hold_readiness},
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -580,9 +565,7 @@ def test_retry_after_failure_creates_new_evidence_without_mutating_source(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -646,9 +629,7 @@ def test_force_recompute_executes_selected_node_and_reuses_only_typed_results(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -789,9 +770,7 @@ def test_cancel_terminates_registered_process_group_children_and_temp_work(
             execution_action=execute_in_process_group,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -880,9 +859,7 @@ def test_process_group_registered_after_cancel_uses_full_cleanup_protocol(
             execution_action=register_after_cancel,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -935,9 +912,7 @@ def test_successful_process_fallback_is_confirmed_when_context_exits(
             execution_action=execute_with_fallback,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -975,9 +950,7 @@ def test_cancel_during_factory_closes_started_node_before_operation_attempt(
             factory_action=hold_factory,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1031,9 +1004,7 @@ def test_cancel_factory_cleanup_failure_interrupts_started_node_attempt(
             factory_action=hold_factory,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1176,9 +1147,7 @@ def test_one_process_cleanup_failure_does_not_skip_other_process_groups(
             execution_action=execute_with_two_groups,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1215,9 +1184,7 @@ def test_cancel_and_derive_are_scoped_by_project_run_lookup(
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1304,9 +1271,7 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
@@ -1340,7 +1305,6 @@ def test_derived_run_reuses_the_source_execution_plan_without_recompiling(
             },
         )
         assert revised.status_code == 200
-        assert revised.json()["workflow_commit_revision"] == 2
         assert revised.json()["workflow_commit_id"] != (
             committed["workflow_commit_id"]
         )
@@ -1391,9 +1355,7 @@ def test_terminal_source_without_its_retained_plan_fails_closed_after_restart(
 ) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
     first_app = create_application(
         frozen_catalog_override=_direct_catalog([]),

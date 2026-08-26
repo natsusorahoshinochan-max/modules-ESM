@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
-from copy import deepcopy
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -127,18 +126,12 @@ def commit_and_run(
     request_id: str,
     timeout_seconds: float = 5.0,
 ) -> StressRun:
-    locked_workflow = decode_workflow_document(workflow)
-    assert locked_workflow.contract_lock
-    draft = deepcopy(workflow)
-    draft["contract_lock"] = []
+    decode_workflow_document(workflow)
     committed = client.post(
         f"/api/v2/projects/{project_id}/workflow:commit",
-        json={"workflow": draft},
+        json={"workflow": workflow},
     )
     assert committed.status_code == 200, committed.json()
-    assert committed.json()["contract_lock_digest"] == (
-        locked_workflow.contract_lock_digest
-    )
     return run_committed_workflow(
         client,
         project_id,
@@ -207,7 +200,6 @@ def decode_one(
     assert output["value_count"] == 1
     port_type = catalog.require_port_type(
         output["port_type"]["contract_id"],
-        output["port_type"]["contract_version"],
     )
     return port_type.decode(
         retrieve_typed_output_canonical_bytes(

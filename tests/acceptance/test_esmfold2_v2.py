@@ -1,4 +1,4 @@
-"""Source-bound acceptance for the shared v2 ESMFold2 folding Node."""
+"""Real-Provider acceptance for the shared v2 ESMFold2 folding Node."""
 
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ import numpy as np
 import pytest
 import torch
 
-from core.provider_support import validate_installed_provider_checkout
-from modules.folding.esmfold2_contract import ESM_SDK_REVISION
 from tests.acceptance.biohub_environment import read_biohub_token
 from tests.acceptance.conftest import (
     PROJECT_ROOT,
@@ -143,7 +141,6 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
         "provider",
         "model",
         "route",
-        "runtime_fingerprint",
         "checkpoint",
         "seed_control",
         "configured_base_seed",
@@ -194,15 +191,11 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     )
     binding = catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_remote",
-        "9.0.0",
-    )
+        "folding.fold.esmfold2_remote")
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
         "method",
-        method_ref["contract_id"],
-        method_ref["contract_version"],
-    )
+        method_ref["contract_id"])
     selected_invocations = [
         event["event"]
         for event in events
@@ -211,7 +204,7 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
     ]
     assert len(selected_invocations) == 1
     assert selected_invocations[0]["engine_identity"] == (
-        method.contract_digest
+        method.contract_id
     )
     assert selected_invocations[0]["invocation_provenance"] == {
         "effective_randomness": {
@@ -221,29 +214,18 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
 
 
 @pytest.mark.acceptance
-def test_local_esmfold2_v2_source_contract_and_native_result(
+def test_local_esmfold2_v2_native_result_translation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Prove the installed local sources and provider-native v2 boundary."""
+    """Prove the provider-native v2 translation boundary."""
     from esm.utils.structure.molecular_complex import (
         MolecularComplex,
         MolecularComplexMetadata,
         MolecularComplexResult,
     )
-    from modules.folding.esmfold2_contract import TRANSFORMERS_REVISION
-    from modules.folding.esmfold2_local import (
-        transformers_esmfold2_runtime_is_exact,
-    )
-
-    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    assert TRANSFORMERS_REVISION == (
-        "ef32577f55da19a4989cd7b22e004dc43a4998cb"
-    )
-    assert transformers_esmfold2_runtime_is_exact()
-
     native_complex = MolecularComplex(
-        id="source-bound-fixture",
+        id="native-result-fixture",
         sequence=["ALA", "GLY"],
         atom_positions=np.array(
             [[0.0, 0.0, 0.0], [3.8, 0.0, 0.0]],
@@ -302,7 +284,6 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         "provider",
         "model",
         "route",
-        "runtime_fingerprint",
         "checkpoint",
         "seed_control",
     }.isdisjoint(metadata)
@@ -325,20 +306,15 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "11.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_local",
-        "11.0.0",
-    )
+        "folding.fold.esmfold2_local")
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
         "method",
-        method_ref["contract_id"],
-        method_ref["contract_version"],
-    )
+        method_ref["contract_id"])
     started = [
         event["event"]
         for event in events
@@ -354,7 +330,7 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
     ]
     assert len(started) == len(terminals) == 1
     assert terminals[0]["status"] == "succeeded"
-    assert started[0]["engine_identity"] == method.contract_digest
+    assert started[0]["engine_identity"] == method.contract_id
     assert started[0]["invocation_provenance"] == {
         "effective_randomness": {
             "control": "exact_seed",
@@ -381,19 +357,12 @@ def test_local_esmfold2_v2_source_contract_and_native_result(
 @pytest.mark.acceptance
 @pytest.mark.local_provider
 @pytest.mark.slow
-def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
+def test_local_esmfold2_v2_invokes_configured_models(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from core.local_torch_device import expected_local_torch_device
     """Invoke the real local Engine; a fixture cannot satisfy this gate."""
     import esm.models.esmfold2 as esmfold2
-    from modules.folding.esmfold2_contract import (
-        LOCAL_ESMC_ARTIFACT_SHA256,
-        LOCAL_ESMC_REVISION,
-        LOCAL_ESMFOLD2_ARTIFACT_SHA256,
-        LOCAL_ESMFOLD2_REVISION,
-    )
 
     real_local_input_builder = esmfold2.ESMFold2InputBuilder
     provider_calls: list[dict[str, Any]] = []
@@ -443,21 +412,9 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     language_snapshot = Path(
         os.environ["PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT"]
     )
-    required = [
-        *(model_snapshot / name for name in LOCAL_ESMFOLD2_ARTIFACT_SHA256),
-        *(language_snapshot / name for name in LOCAL_ESMC_ARTIFACT_SHA256),
-    ]
-    missing = [str(path) for path in required if not path.exists()]
-    assert missing == [], (
-        "required locked local ESMFold2 assets are unavailable: "
-        + ", ".join(missing)
-    )
     environment = {
         "model_snapshot_path": model_snapshot,
-        "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
         "language_model_snapshot_path": language_snapshot,
-        "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
-        "device": expected_local_torch_device(),
     }
     service, catalog, projection, events = _run_fold(
         tmp_path,
@@ -478,7 +435,6 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         "provider",
         "model",
         "route",
-        "runtime_fingerprint",
         "checkpoint",
         "seed_control",
     }.isdisjoint(metadata)
@@ -520,20 +476,15 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.fold.esmfold2_local"
-        and event["event"]["binding"]["contract_version"] == "11.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     binding = catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_local",
-        "11.0.0",
-    )
+        "folding.fold.esmfold2_local")
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
         "method",
-        method_ref["contract_id"],
-        method_ref["contract_version"],
-    )
+        method_ref["contract_id"])
     started = [
         event["event"]
         for event in events
@@ -548,7 +499,7 @@ def test_local_esmfold2_v2_invokes_exact_source_bound_assets(
     ]
     assert len(started) == 1
     assert [event["status"] for event in terminal] == ["succeeded"]
-    assert started[0]["engine_identity"] == method.contract_digest
+    assert started[0]["engine_identity"] == method.contract_id
     assert started[0]["invocation_provenance"] == {
         "effective_randomness": {
             "control": "exact_seed",

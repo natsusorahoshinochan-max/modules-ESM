@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -38,6 +39,29 @@ def test_project_input_filename_survives_manager_restart(tmp_path: Path) -> None
         "input-1",
         b"ATOM\n",
         filename="来源结构 A.pdb",
+    )
+    project_meta_path = project_root / project.id / "project.json"
+    project_meta = json.loads(project_meta_path.read_text(encoding="utf-8"))
+    assert "schema_version" not in project_meta
+    project_meta["ignored_metadata"] = True
+    project_meta_path.write_text(
+        json.dumps(project_meta, indent=2),
+        encoding="utf-8",
+    )
+    descriptor_path = (
+        project_root
+        / project.id
+        / "inputs"
+        / "input-1"
+        / "descriptor.json"
+    )
+    descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+    assert "schema_version" not in descriptor
+    assert "artifact_kind" not in descriptor
+    descriptor["ignored_metadata"] = True
+    descriptor_path.write_text(
+        json.dumps(descriptor, indent=2),
+        encoding="utf-8",
     )
     restarted = ProjectManager(project_root)
     recovered, payload = restarted.read_input(project.id, "input-1")

@@ -1,32 +1,26 @@
-schema_version: "2.1.0"
 node_type_id: structure_comparison.tm_score_fixed_reference
-version: "6.0.0"
 title: Project fixed-reference normalized TM-score
 summary: Computes fixed-reference TM-score solely from immutable v4 alignment residuals and the exact reference axis length; no alignment or optimization is rerun.
 category: structure_comparison
 inputs:
   - name: alignments
     port_type_id: structure_comparison.alignment_evidence
-    port_type_version: "5.0.0"
     required: true
     multiplicity: many
     scientific_meaning: Nonempty fixed-reference alignment evidence whose residuals and reference axis counts determine every score.
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact subject Candidate scope used only to close Observation provenance; score values are not computed from Candidate data.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact single fixed-reference Candidate scope used only to close Observation provenance; score values are not computed from Candidate data.
 outputs:
   - name: scores
     port_type_id: score.collection
-    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Evidence-provenanced reference-axis-normalized TM-score Observations, one per subject.

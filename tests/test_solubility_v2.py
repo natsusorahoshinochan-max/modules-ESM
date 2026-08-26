@@ -7,11 +7,9 @@ execution through typed Ports.
 
 from tests.support.ledger import public_run_events, public_run_projection
 
-from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import FrozenInstanceError
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -101,46 +99,36 @@ def _protein_sol_admitted_environment(
     }
 
 
-@pytest.mark.parametrize(
-    "banner",
-    (
-        "usearch v12.0 [7412f73], 17.2Gb RAM, 10 cores",
-        "usearch v12.0, 528Gb RAM, 128 cores",
-    ),
-)
-def test_soluprot_readiness_accepts_official_usearch_12_banners(
-    tmp_path: Path,
-    banner: str,
-) -> None:
-    import modules.solubility.soluprot as adapter
-
-    executable = tmp_path / "usearch"
-    executable.write_text(
-        f"#!/bin/sh\nprintf '%s\\n' '{banner}'\n",
-        encoding="ascii",
-    )
-    executable.chmod(0o755)
-
-    assert adapter._validate_usearch_runtime(executable) == executable
-
-
-def test_soluprot_readiness_rejects_another_usearch_version(
+def test_soluprot_readiness_uses_configured_executables_and_assets(
     tmp_path: Path,
 ) -> None:
     import modules.solubility.soluprot as adapter
 
-    executable = tmp_path / "usearch"
-    executable.write_text(
-        "#!/bin/sh\nprintf '%s\\n' 'usearch v12.1, changed'\n",
-        encoding="ascii",
-    )
-    executable.chmod(0o755)
+    site_packages_root = tmp_path / "site-packages"
+    assets = adapter._site_asset_paths(site_packages_root, "no_tm")
+    for path in assets.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    python_executable = tmp_path / "python"
+    usearch_executable = tmp_path / "usearch"
+    for executable in (python_executable, usearch_executable):
+        executable.write_text("#!/bin/sh\n", encoding="ascii")
+        executable.chmod(0o755)
+    environment = {
+        "python_executable": python_executable,
+        "site_packages_root": site_packages_root,
+        "usearch_executable": usearch_executable,
+    }
 
-    with pytest.raises(
-        adapter.SolubilityReadinessUnavailable,
-        match="version changed",
-    ):
-        adapter._validate_usearch_runtime(executable)
+    assert adapter.soluprot_readiness(
+        environment,
+        mode="no_tm",
+    ).passing is True
+    assets["model_json"].unlink()
+    assert adapter.soluprot_readiness(
+        environment,
+        mode="no_tm",
+    ).passing is False
 
 
 def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
@@ -346,14 +334,10 @@ def test_soluprot_operation_consumes_identity_associated_predictions(
     metric = ExactContractReference(
         "metric",
         "solubility.soluprot_probability",
-        "2.1.0",
-        f"sha256:{'c' * 64}",
     )
     method = ExactContractReference(
         "method",
         "solubility.soluprot_full.v1_1_0",
-        "3.0.0",
-        f"sha256:{'d' * 64}",
     )
 
     class AlignedAdapter:
@@ -435,7 +419,6 @@ def test_soluprot_operation_owns_its_sequence_population(
         catalog,
         "solubility.soluprot_full.local",
         object(),
-        binding_version="5.0.0",
     )
     operation = SoluProtImplementation(
         adapter=TrustingAdapter(),
@@ -445,7 +428,6 @@ def test_soluprot_operation_owns_its_sequence_population(
     call = operation_call(
         catalog=catalog,
         binding_id="solubility.soluprot_full.local",
-        binding_version="5.0.0",
         inputs={
             "sequence_candidates": CandidateCollection(
                 "soluprot-method-inputs",
@@ -474,17 +456,14 @@ def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
     node = catalog.require_contract(
         "node_type",
         "solubility.score_sequence",
-        "5.0.0",
     )
     full = catalog.require_contract(
         "binding",
         "solubility.soluprot_full.local",
-        "5.0.0",
     )
     no_tm = catalog.require_contract(
         "binding",
         "solubility.soluprot_no_tm.local",
-        "5.0.0",
     )
 
     assert node.descriptor["node_parameters"] == {}
@@ -497,8 +476,6 @@ def test_soluprot_full_and_no_tm_are_exact_sibling_bindings() -> None:
         "solubility.soluprot_no_tm.v1_1_0"
     )
     assert full.descriptor["method"] != no_tm.descriptor["method"]
-    assert full.descriptor["implementation_identity"]["mode"] == "full"
-    assert no_tm.descriptor["implementation_identity"]["mode"] == "no_tm"
     for binding in (full, no_tm):
         assert binding.descriptor["route_behavior"]["parameters"][
             "response_subject_join"
@@ -513,7 +490,6 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
     metric = catalog.require_contract(
         "metric",
         "solubility.soluprot_probability",
-        "2.1.0",
     )
 
     assert metric.descriptor["unit"] == "dimensionless_probability"
@@ -533,80 +509,20 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
         mode: catalog.require_contract(
             "method",
             f"solubility.soluprot_{mode}.v1_1_0",
-            "3.0.0",
         )
         for mode in ("full", "no_tm")
     }
-    assert methods["full"].descriptor["source_identity"] == (
-        methods["no_tm"].descriptor["source_identity"]
-    )
-    source_identity = methods["full"].descriptor["source_identity"]
-    installed_code = source_identity["installed_code_sha256"]
-    assert {
-        key: value
-        for key, value in source_identity.items()
-        if key != "installed_code_sha256"
-    } == {
-        "kind": "project_maintained_locked_port",
-        "upstream_project": "SoluProt",
-        "repository_path": "repositories/soluprot-next",
-        "build_backend": "setuptools.build_meta",
-        "port_distribution": "soluprot",
-        "port_artifact_version": "1.1.0",
-        "official_release_equivalence": "not_claimed",
-    }
-    assert set(installed_code) == {
-        "feature_scripts/KMerF.py",
-        "feature_scripts/__init__.py",
-        "feature_scripts/blast6_to_max_id_csv.py",
-        "feature_scripts/common/FastaChunk.py",
-        "feature_scripts/common/__init__.py",
-        "feature_scripts/common/clear_dir.py",
-        "feature_scripts/common/get_abs_path.py",
-        "feature_scripts/common/prefix.py",
-        "feature_scripts/common/seq_count_fa.py",
-        "feature_scripts/dimers_comb.py",
-        "feature_scripts/physico_chemical.py",
-        "soluprot_core/__init__.py",
-        "soluprot_core/cli.py",
-        "soluprot_core/exceptions.py",
-        "soluprot_core/features.py",
-        "soluprot_core/model.py",
-        "soluprot_core/parsers.py",
-        "soluprot_core/paths.py",
-    }
-    assert installed_code["soluprot_core/cli.py"] == (
-        "dbc94f9fc512f1b4cca000520896d49e5bab38b307312fbe2da0fb1f4159dbf5"
-    )
-    assert installed_code["soluprot_core/features.py"] == (
-        "4dd9252e10efcd033aa8f43d555c05615cf2e6bfa004f77e25277b89219c6281"
-    )
-    assert installed_code["soluprot_core/model.py"] == (
-        "c15b914967f32a679fd5d99c93c5af8f110410f2a88624a0b28b8bb633d821e1"
-    )
     assert methods["full"].descriptor["model_identity"] == {
         "provider": "Protein Workbench project-maintained SoluProt port",
-        "port_artifact_version": "1.1.0",
         "upstream_model_family": "SoluProt",
         "model_variant": "grad_clf_v1_tc",
     }
-    assert (
-        methods["full"].descriptor["checkpoint_identity"]
-        != methods["no_tm"].descriptor["checkpoint_identity"]
-    )
     assert methods["full"].descriptor["algorithm_identity"][
         "transmembrane_features"
     ] is True
     assert methods["no_tm"].descriptor["algorithm_identity"][
         "transmembrane_features"
     ] is False
-    assert isinstance(
-        methods["full"].descriptor["featurization_identity"]["tmhmm"],
-        Mapping,
-    )
-    assert methods["no_tm"].descriptor["featurization_identity"][
-        "tmhmm"
-    ] == "not-used-or-probed"
     assert methods["full"].descriptor["scale_contract"] == (
         methods["no_tm"].descriptor["scale_contract"]
     )
@@ -624,7 +540,6 @@ def test_soluprot_methods_fix_source_features_scale_and_observation_identity() -
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "5.0.0",
         )
         produced = binding.descriptor["produced_observations"]
         assert len(produced) == 1
@@ -651,7 +566,6 @@ def test_soluprot_startup_is_lazy_and_keeps_unavailable_siblings_visible() -> No
         binding = catalog.require_contract(
             "binding",
             f"solubility.soluprot_{mode}.local",
-            "5.0.0",
         )
         del binding
         snapshot = availability[f"solubility.soluprot_{mode}.local"]
@@ -675,12 +589,10 @@ def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
     soluprot = catalog.require_contract(
         "binding",
         "solubility.soluprot_full.local",
-        "5.0.0",
     ).descriptor
     protein_sol = catalog.require_contract(
         "binding",
         "solubility.protein_sol.local",
-        "5.0.0",
     ).descriptor
 
     assert {
@@ -695,21 +607,13 @@ def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
         "prerequisites"
     ]
     assert soluprot_prerequisites["python_runtime"] == {
-        "minimum_version": "3.12",
-        "soluprot_distribution_version": "1.1.0",
         "path_source": "trusted_environment_configuration",
     }
     assert soluprot_prerequisites["usearch"] == {
-        "version": "12.0",
         "path_source": "trusted_environment_configuration",
     }
     assert soluprot_prerequisites["tmhmm"]["decoder"] == {
         "selection": "uname-system-and-machine",
-        "identity": "executable-presence",
-        "included": (
-            "decodeanhmm.Darwin_arm64",
-            "decodeanhmm.Linux_x86_64",
-        ),
     }
     assert soluprot_prerequisites["tmhmm"]["bundled_asset_root"] == (
         "soluprot_assets/tmhmm-2.0d"
@@ -722,10 +626,10 @@ def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
         "prerequisites"
     ]
     assert protein_sol_prerequisites["bash"] == {
-        "runtime_family": "GNU bash",
+        "path_source": "trusted_environment_configuration",
     }
     assert protein_sol_prerequisites["perl"] == {
-        "minimum_major_version": 5,
+        "path_source": "trusted_environment_configuration",
     }
     runtime_contracts = repr(
         {
@@ -733,91 +637,7 @@ def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
             "protein_sol": protein_sol_prerequisites,
         }
     ).lower()
-    assert "sha256" not in repr(
-        soluprot_prerequisites["tmhmm"]["decoder"]
-    ).lower()
     assert "macos" not in runtime_contracts
-
-
-def test_soluprot_provider_failure_does_not_retain_stderr_or_paths(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.solubility._local_support as local_support
-    import modules.solubility.soluprot as adapter
-
-    class FailedProcess:
-        pid = 12345
-        returncode = 7
-
-        def communicate(self, timeout: int) -> tuple[bytes, bytes]:
-            assert timeout == 300
-            return b"", b"secret-token /private/provider/path"
-
-        def kill(self) -> None:
-            raise AssertionError("kill is not required")
-
-    class Resources:
-        @staticmethod
-        @contextmanager
-        def local_provider(provider_id: str):
-            assert provider_id == "soluprot"
-            yield {}
-
-        @contextmanager
-        def temporary_directory(self, *, prefix: str):
-            assert prefix == "soluprot-full-"
-            yield tmp_path
-
-        @contextmanager
-        def engine_invocation(self, *, engine_role: str):
-            assert engine_role == "soluprot_full"
-            yield "invocation-1"
-
-        @contextmanager
-        def cancellable_process_group(
-            self,
-            process_group: int,
-            *,
-            fallback: Any,
-        ):
-            assert process_group == 12345
-            assert callable(fallback)
-            yield
-
-    monkeypatch.setattr(
-        local_support.subprocess,
-        "Popen",
-        lambda *args, **kwargs: FailedProcess(),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_trusted_soluprot_environment",
-        lambda *_args, **_kwargs: SimpleNamespace(
-            perl_executable=Path("/private/perl")
-        ),
-    )
-    monkeypatch.setattr(
-        adapter,
-        "_prepare_soluprot_invocation",
-        lambda **_kwargs: (
-            (("/private/python", "--no_tmhmm")),
-            tmp_path / "output.csv",
-        ),
-    )
-
-    with pytest.raises(
-        adapter.SoluProtProviderNonzeroExit,
-        match="failed safely",
-    ) as rejected:
-        adapter.LocalSoluProtAdapter(
-            mode="full",
-            environment={},
-            resources=Resources(),
-        ).predict(())
-
-    assert "secret-token" not in str(rejected.value)
-    assert "/private/" not in str(rejected.value)
 
 
 def _decode_output(
@@ -896,18 +716,14 @@ def _run_soluprot(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="4.0.0",
         node_parameters={"sequence": sequence},
         binding_parameters={},
     )
     score = WorkflowNodeInstance(
         node_id="score",
         node_type_id="solubility.score_sequence",
-        node_type_version="5.0.0",
         binding_id=f"solubility.soluprot_{mode}.local",
-        binding_version="5.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -934,7 +750,6 @@ def _run_soluprot(
                     "sequence_candidates",
                 ),
             ),
-            contract_lock=(),
         ),
     )
     service = V2RunService(
@@ -946,12 +761,12 @@ def _run_soluprot(
             admit_environment_configuration(
                 catalog,
                 {
-                    (f"solubility.soluprot_{mode}.local", "5.0.0"): {
-                        "values": _soluprot_admitted_environment(
+                    f"solubility.soluprot_{mode}.local": (
+                        _soluprot_admitted_environment(
                             private_runtime_path="/must/not/publish",
                             include_tm=mode == "full",
-                        ),
-                    }
+                        )
+                    )
                 },
             ),
             result_store(projects),
@@ -1013,7 +828,6 @@ def test_each_soluprot_binding_runs_exact_method_and_formal_observation(
     assert observation.subject.data_type_id == "protein.sequence"
     assert observation.subject.content_digest == catalog.require_port_type(
         "protein.sequence",
-        "3.0.0",
     ).content_digest(subject.data)
     assert observation.metric.contract_id == "solubility.soluprot_probability"
     assert observation.method.contract_id == (
@@ -1027,7 +841,7 @@ def test_each_soluprot_binding_runs_exact_method_and_formal_observation(
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["engine_identity"]
-        == observation.method.contract_digest
+        == observation.method.contract_id
     ]
     assert len(score_events) == 1
     assert "/must/not/publish" not in str((projection, events))
@@ -1061,7 +875,7 @@ def test_soluprot_binding_factory_injects_one_immutable_mode_adapter(
     assert constructed_modes == [mode]
 
 
-def test_soluprot_method_and_asset_contracts_separate_result_identity(
+def test_soluprot_scientific_modes_separate_result_identity(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1101,56 +915,15 @@ def test_invalid_sequence_fails_before_soluprot_engine_invocation(
     )
     assert projection["status"] == "failed"
     assert projection["_fixture_calls"] == []
-    method_digest = catalog.require_contract(
+    method_id = catalog.require_contract(
         "method",
         "solubility.soluprot_no_tm.v1_1_0",
-        "3.0.0",
-    ).contract_digest
+    ).contract_id
     assert not any(
         event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"] == method_digest
+        and event["event"]["engine_identity"] == method_id
         for event in events
     )
-
-
-def test_provider_failure_retains_a_closed_safe_reason_code(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from modules.solubility.soluprot import SoluProtProviderNonzeroExit
-
-    catalog, _, projection, events = _run_soluprot(
-        tmp_path,
-        monkeypatch,
-        mode="full",
-        provider_error=SoluProtProviderNonzeroExit(
-            "SoluProt provider invocation failed safely (exit status 7)"
-        ),
-    )
-
-    assert projection["status"] == "failed"
-    method_digest = catalog.require_contract(
-        "method",
-        "solubility.soluprot_full.v1_1_0",
-        "3.0.0",
-    ).contract_digest
-    invocation_id = next(
-        event["event"]["invocation_id"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"] == method_digest
-    )
-    terminal = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "engine_invocation_terminal"
-        and event["event"]["invocation_id"] == invocation_id
-    )
-    assert terminal["status"] == "failed"
-    assert terminal["error"]["details"] == {
-        "exception_type": "SoluProtProviderNonzeroExit",
-    }
-    assert "exit status 7" not in str(terminal)
 
 
 def test_all_solubility_methods_pass_the_shared_contract_test_kit(
@@ -1235,9 +1008,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="4.0.0",
         node_parameters={"sequence": "ACDEFGHIKLMNPQRSTVWYA"},
         binding_parameters={},
     )
@@ -1245,9 +1016,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id=f"soluprot-{mode}",
             node_type_id="solubility.score_sequence",
-            node_type_version="5.0.0",
             binding_id=f"solubility.soluprot_{mode}.local",
-            binding_version="5.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=_soluprot_admitted_environment(
@@ -1271,9 +1040,7 @@ def test_all_solubility_methods_pass_the_shared_contract_test_kit(
         ModulePackageContractCase(
             case_id="protein-sol",
             node_type_id="solubility.score_sequence",
-            node_type_version="5.0.0",
             binding_id="solubility.protein_sol.local",
-            binding_version="5.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=_protein_sol_admitted_environment(

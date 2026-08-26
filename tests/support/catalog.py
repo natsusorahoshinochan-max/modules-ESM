@@ -26,8 +26,6 @@ from datatypes.exact_reference import ExactContractReference
 _REFERENCE_FIELDS = {
     "contract_kind",
     "contract_id",
-    "contract_version",
-    "contract_digest",
 }
 _AVAILABLE = AvailabilityResult.available()
 
@@ -36,8 +34,6 @@ def _identity(value: Mapping[str, Any]) -> ContractIdentity:
     return ContractIdentity(
         value["contract_kind"],
         value["contract_id"],
-        value["contract_version"],
-        value.get("contract_digest"),
     )
 
 
@@ -56,14 +52,14 @@ def _factory(contract_id: str) -> ScientificOperationFactory:
         raise AssertionError(f"{contract_id} test runtime is not configured")
 
     return ScientificOperationFactory(
-        BehaviorReference(f"test/{contract_id}/factory", "1.0.0", {}),
+        BehaviorReference(f"test/{contract_id}/factory", {}),
         unconfigured,
     )
 
 
 def _readiness(contract_id: str) -> ReadinessDeclaration:
     return ReadinessDeclaration(
-        BehaviorReference(f"test/{contract_id}/readiness", "1.0.0", {}),
+        BehaviorReference(f"test/{contract_id}/readiness", {}),
         {},
         lambda _input: ReadinessResult(True),
     )
@@ -127,7 +123,6 @@ def _propagation(
 def catalog_contract(
     contract_kind: str,
     contract_id: str,
-    contract_version: str,
     descriptor: Mapping[str, Any],
     *,
     environment_fields: tuple[EnvironmentFieldDeclaration, ...] = (),
@@ -147,7 +142,6 @@ def catalog_contract(
             identity=ContractIdentity(
                 "node_type",
                 contract_id,
-                contract_version,
             ),
             inputs=tuple(_port(value) for value in descriptor.get("inputs", ())),
             outputs=tuple(_port(value) for value in descriptor.get("outputs", ())),
@@ -222,7 +216,6 @@ def catalog_contract(
     return CatalogContract(
         contract_kind=contract_kind,
         contract_id=contract_id,
-        contract_version=contract_version,
         descriptor=descriptor,
         dependencies=resolved_dependencies(descriptor),
         definition=definition,  # type: ignore[arg-type]
@@ -233,15 +226,15 @@ def install_runtime(
     contracts: tuple[CatalogContract, ...],
     *,
     factories: Mapping[
-        tuple[str, str], ScientificOperationFactory
+        str, ScientificOperationFactory
     ] | None = None,
     readiness: Mapping[
-        tuple[str, str], ReadinessDeclaration
+        str, ReadinessDeclaration
     ] | None = None,
     randomness: Mapping[
-        tuple[str, str], EffectiveRandomnessResolver
+        str, EffectiveRandomnessResolver
     ] | None = None,
-    utility_transforms: Mapping[tuple[str, str], Any] | None = None,
+    utility_transforms: Mapping[str, Any] | None = None,
 ) -> tuple[CatalogContract, ...]:
     """Install test runtime behavior into typed definitions before freezing."""
     factories = factories or {}
@@ -250,7 +243,7 @@ def install_runtime(
     utility_transforms = utility_transforms or {}
     installed = []
     for contract in contracts:
-        key = (contract.contract_id, contract.contract_version)
+        key = contract.contract_id
         definition = contract.definition
         if contract.contract_kind == "binding":
             definition = _updated(
@@ -284,7 +277,7 @@ def binding_availability(
 
 
 def resolved_dependencies(value: Any) -> tuple[ExactContractReference, ...]:
-    references: dict[tuple[str, str, str], ExactContractReference] = {}
+    references: dict[tuple[str, str], ExactContractReference] = {}
     pending = [value]
     while pending:
         current = pending.pop()

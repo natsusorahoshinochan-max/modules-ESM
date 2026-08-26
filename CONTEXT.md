@@ -27,8 +27,10 @@ and cannot be executed.
 _Avoid_: Workflow Commit, Execution Plan, runnable revision
 
 **Workflow Commit**:
-One immutable runnable publication of a Workflow Draft, with an exact Contract
-Lock and Execution Plan resolved against one FrozenCatalog generation.
+One immutable runnable publication of an admitted Workflow Draft. It stores the
+admitted Workflow and the minimum scientific definition snapshots required to
+interpret its results. The current Catalog recompiles its in-process Execution
+Plan when needed.
 _Avoid_: Workflow Draft, compile ID, mutable active Workflow
 
 **Run**:
@@ -37,8 +39,9 @@ outcome.
 _Avoid_: Job, session, Workflow
 
 **Execution Plan**:
-The immutable, fully resolved form of a validated Workflow, fixing the exact
-contracts that a Run will admit and execute.
+The immutable, fully resolved in-process form of a validated Workflow, fixing
+its stable contract IDs, implementations, codecs, parameters, and scientific
+relationships for execution.
 _Avoid_: Workflow document, scheduler state, Run
 
 **Port**:
@@ -47,8 +50,8 @@ Definition.
 _Avoid_: Slot, pin, socket
 
 **Port Type Definition**:
-The versioned nominal contract for values crossing a Port, including their
-canonical validation and content identity.
+The nominal scientific contract for values crossing a Port, including their
+scientific admission, canonical scientific representation, and content identity.
 _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 
 ## Extension Language
@@ -56,8 +59,8 @@ _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 **Module Package**:
 A cohesive repository-owned extension unit that provides one or more Node
 Types, their Node Definitions, Methods, Execution Bindings, and required
-implementations or Adapters. Its production registration is verified separately
-by the Contract Test Kit.
+implementations or Adapters. The Catalog builder admits its production
+registration; focused owner tests exercise its scientific behavior and codecs.
 _Avoid_: Plugin, single node, module directory
 
 **Node Definition**:
@@ -75,55 +78,62 @@ _Avoid_: Node Type, Execution Binding, provider name
 **Execution Binding**:
 The executable association of one Node Type with one Method and either a direct
 implementation or a required Adapter. It owns route-specific parameters and the
-Availability and Readiness contracts, while model identity remains fixed by the
-Binding.
+Availability and Readiness contracts, while scientific model or algorithm
+identity remains fixed by its stable Method ID.
 _Avoid_: Node Definition, Adapter, provider name
 
 **Provider Asset Closure**:
-The exact minimal set of result-affecting Provider source and artifact identities
-required by one Execution Binding before entry into its Provider seam. Environment
-Configuration locates that set; unrelated installed assets and temporary staged
-copies are not part of the closure.
-_Avoid_: Model directory, Provider inventory, staged assets
+The minimal operational set of Provider files and source locations required by
+one Execution Binding. It selects what is loaded or staged but does not make
+source bytes, checkpoints, Git metadata, or installation form part of scientific
+identity.
+_Avoid_: Content proof, installation identity, Provider inventory
 
 **Environment Configuration**:
-Credentials, device selection, deployment endpoints, and runtime filesystem
-locations that make an Execution Binding operable without becoming scientific
-Workflow parameters.
+Credentials, deployment endpoints, and runtime filesystem locations supplied by
+the composition root to make an Execution Binding operable without becoming
+scientific Workflow parameters. Adapter-owned device and performance policy do
+not round-trip through this configuration.
 _Avoid_: Node parameter, Binding parameter, scientific input
 
 **Module Package Registration**:
 The complete production contract through which a Module Package contributes
 Node Types, Execution Bindings, Methods, Metric Definitions, Port Type
 Definitions, Utility Transforms, and Availability and Readiness declarations.
+The Catalog builder admits its stable IDs, implementation references, and
+scientific relationships once when constructing the current Catalog.
 Contract-test cases and fixtures are separate from it.
 _Avoid_: Import side effect, per-node registration call, recursive discovery
 
 **FrozenCatalog**:
-The immutable startup result containing all validated exact contracts and
-Binding Availability snapshots used by compilation and execution.
+The immutable admitted startup result containing the current stable-ID
+registrations, scientific relationships, and diagnostic Binding Availability
+observations used by authoring and compilation.
 _Avoid_: Mutable Registry, discovery workspace, runtime plugin manager
 
 **Availability**:
 The startup-resolved snapshot of whether an Execution Binding's baseline
-prerequisites exist and, when they do not, the structured reason.
+prerequisites appear to exist and, when they do not, the structured diagnostic
+reason. It never authorizes or blocks execution.
 _Avoid_: Readiness Attestation, discovery failure, disabled node
 
 **Readiness Attestation**:
-A run-scoped, point-in-time conclusion about whether one exact Execution
+A run-scoped, point-in-time conclusion about whether one Adapter Execution
 Binding's declared prerequisites allow a Cache miss or bypass to enter its
 Provider seam. Cache replay does not require Readiness.
 _Avoid_: Availability, provider call, guarantee of invocation success
 
 **Binding Failure**:
-The failed Node Execution Attempt produced when Availability or Readiness stops
-a Cache miss or bypass before an Operation Attempt starts. It preserves the
-exact Binding error and never invents an Operation or Engine Invocation.
+The failed Node Execution Attempt produced when Run-scoped Readiness stops a
+Cache miss or bypass before an Operation Attempt starts. It preserves the
+Binding error and never invents an Operation or Engine Invocation. Availability
+alone cannot produce a Binding Failure.
 _Avoid_: Operation failure, admission failure, provider failure
 
 **Contract Test Kit**:
-The shared conformance suite used by maintainers to verify that a Module Package
-obeys the extension, execution, data, and provenance contracts.
+Shared focused conformance helpers used by maintainers to verify a Module
+Package's extension, execution, data, and provenance behavior. They do not
+require exact-set equality over every registered Node, Binding, or Port.
 _Avoid_: Package-specific smoke tests, manual checklist
 
 ## Scientific Data and Scoring
@@ -158,8 +168,9 @@ shape, unit, direction, range, granularity, and aggregation semantics.
 _Avoid_: Score ID, output field, display label
 
 **Method**:
-The exact algorithm or model variant used to perform a Node Type or observe a
-Metric, including the identity needed to interpret and reproduce its result.
+The stable-ID scientific definition of the algorithm or model variant used to
+perform a Node Type or observe a Metric, including the facts needed to interpret
+its result.
 _Avoid_: Metric, provider, arbitrary implementation
 
 **Observation Context**:
@@ -178,7 +189,7 @@ selection Node Types.
 _Avoid_: Score set, metric bundle, evaluation result
 
 **Utility Transform**:
-An explicit, versioned mapping from a selected Metric, Method, and Observation
+An explicit mapping from a selected Metric, Method, and Observation
 Context's canonical value to a dimensionless `[0, 1]` value configured by a
 Workflow's Selection Objective.
 _Avoid_: Implicit normalization, dataset-relative scaling, raw score weight
@@ -250,8 +261,9 @@ _Avoid_: Coordinate tensor, provider-native structure object
 
 **Result Identity**:
 The canonical identity of a reproducible Node result, derived from resolved
-contracts, result-affecting execution identity, normalized inputs, parameters,
-and effective randomness.
+stable scientific and execution IDs, normalized inputs, parameters, and
+effective randomness. CPU/GPU device choice and its accepted tiny numerical
+variation do not split Result Identity or Cache identity.
 _Avoid_: Cache path, Run ID, Node Instance ID, arbitrary hash
 
 **Typed Output**:
@@ -273,12 +285,14 @@ _Avoid_: Node Execution Attempt, composite provider call
 **Engine Invocation**:
 One actual entry into a declared scientific engine seam. Normal execution
 records exactly one terminal fact for every invocation that starts; an
-interrupted process is not reconstructed on restart.
+interrupted process is not reconstructed on restart. An already-known actual
+device may be retained as non-gating provenance.
 _Avoid_: Readiness check, Cache replay, outer operation summary
 
 **Run Evidence Ledger**:
 The ordered durable source of typed run facts from which the manifest and
-lifecycle event stream are projected.
+lifecycle event stream are projected. It is rooted by `workflow_commit_id` and
+stores minimum scientific and causal evidence without derived digest hierarchy.
 _Avoid_: Provider log, mutable details map, independent manifest writer
 
 **Node Outcome Publication**:

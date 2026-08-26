@@ -40,22 +40,17 @@ from datatypes.prediction import (
 )
 
 
-VERSION = "2.0.0"
 _BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
-_SEQUENCE_CODEC = _BUILTINS.require_port_type("protein.sequence", "3.0.0")
+_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
+_SEQUENCE_CODEC = _BUILTINS.require_port_type("protein.sequence")
 _STRUCTURE_IDENTITY_PORT_TYPE = _BUILTINS.require_port_type(
     "protein.structure",
-    "4.0.0",
 )
 _ALLOWED_SCALAR_SOURCES = {
     ExactContractReference(**_SEQUENCE_CODEC.reference()),
     ExactContractReference(
         "port_type",
         "protein.prompt",
-        "3.0.0",
-        "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc"
-        "72ef7b44",
     ),
 }
 
@@ -75,8 +70,6 @@ def _reference_to_wire(reference: ExactContractReference) -> dict[str, str]:
     return {
         "contract_kind": reference.contract_kind,
         "contract_id": reference.contract_id,
-        "contract_version": reference.contract_version,
-        "contract_digest": reference.contract_digest,
     }
 
 
@@ -90,8 +83,6 @@ def _reference_from_wire(
         {
             "contract_kind",
             "contract_id",
-            "contract_version",
-            "contract_digest",
         },
         subject="exact contract reference",
     )
@@ -192,10 +183,8 @@ def _prediction_axis_candidate_data_references(
 
 PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_prediction.prediction_residue_axis",
-    version=VERSION,
     validator=BehaviorReference(
         "structure_prediction.prediction_residue_axis/validate",
-        VERSION,
         {
             "accepted_value_kind": "prediction_residue_axis",
             "source": (
@@ -208,17 +197,15 @@ PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "structure_prediction.prediction_residue_axis/codec",
-        VERSION,
         {
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
-            "embedded_layout_contract": "residue.layout@3.0.0",
-            "embedded_sequence_contract": "protein.sequence@3.0.0",
+            "embedded_layout_contract": "residue.layout",
+            "embedded_sequence_contract": "protein.sequence",
         },
     ),
     content_identity=BehaviorReference(
         "structure_prediction.prediction_residue_axis/content",
-        VERSION,
         {"digest": "SHA-256", "digest_input": "canonical_codec_bytes"},
     ),
     runtime_validator=_validate_prediction_residue_axis,
@@ -227,7 +214,6 @@ PREDICTION_RESIDUE_AXIS_PORT_TYPE = PortTypeDefinition(
     candidate_data_projection=BehaviorReference(
         "structure_prediction.prediction_residue_axis/"
         "candidate_data_projection",
-        VERSION,
         {"fields": ["source-if-CandidateDataReference"]},
     ),
     runtime_candidate_data_projection=(
@@ -411,7 +397,6 @@ def _materialize_confidence_output_identity(
 
 _CONFIDENCE_OUTPUT_IDENTITY_MATERIALIZATION = BehaviorReference(
     "structure_prediction.confidence_facts/output_identity_materialization",
-    VERSION,
     {
         "relation": "pending-confidence-facts",
         "source_roles": {
@@ -424,17 +409,15 @@ _CONFIDENCE_OUTPUT_IDENTITY_MATERIALIZATION = BehaviorReference(
 
 CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_prediction.confidence_facts",
-    version=VERSION,
     validator=BehaviorReference(
         "structure_prediction.confidence_facts/validate",
-        VERSION,
         {
             "accepted_value_kind": "confidence_fact_collection",
             "entry_key": "prediction_key",
             "entry_order": "canonical-prediction-key",
             "observation_method": "one-exact-shared-Method",
             "axis_contract": (
-                "structure_prediction.prediction_residue_axis@2.0.0"
+                "structure_prediction.prediction_residue_axis"
             ),
             "output_identity_materialization": (
                 _CONFIDENCE_OUTPUT_IDENTITY_MATERIALIZATION.descriptor()
@@ -443,19 +426,17 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "structure_prediction.confidence_facts/codec",
-        VERSION,
         {
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
             "collection_order": "prediction_key",
             "nested_axis_codec": (
-                "structure_prediction.prediction_residue_axis@2.0.0"
+                "structure_prediction.prediction_residue_axis"
             ),
         },
     ),
     content_identity=BehaviorReference(
         "structure_prediction.confidence_facts/content",
-        VERSION,
         {"digest": "SHA-256", "digest_input": "canonical_codec_bytes"},
     ),
     runtime_validator=_validate_confidence_facts,
@@ -463,7 +444,6 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
     runtime_from_wire=_confidence_facts_from_wire,
     scientific_axis_projection=BehaviorReference(
         "structure_prediction.confidence_facts/scientific_axis_projection",
-        VERSION,
         {
             "axis_kind": "prediction_input",
             "nested_axis_identity": "independent-scalar-codec-digest",
@@ -473,7 +453,6 @@ CONFIDENCE_FACTS_PORT_TYPE = PortTypeDefinition(
     runtime_scientific_axis_projection=_confidence_axis_references,
     observation_method_projection=BehaviorReference(
         "structure_prediction.confidence_facts/observation_method_projection",
-        VERSION,
         {
             "source": "collection-level-observation_method",
             "cardinality": "exactly-one",

@@ -1,43 +1,35 @@
-schema_version: "2.1.0"
 node_type_id: prompt_authoring.override_residue_track
-version: "3.0.0"
 title: Override residue track
 summary: Clears, preserves, or replaces identity-addressed values without shifting residue indices.
 category: prompt_authoring
 inputs:
   - name: target_layout
     port_type_id: residue.layout
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact residue identities and chain boundaries required to equal the track's carried layout.
   - name: sequence_track
     port_type_id: prompt_authoring.track.sequence
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable amino-acid values aligned to target_layout.
   - name: structure_track
     port_type_id: prompt_authoring.track.structure
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable named-atom coordinates aligned to target_layout.
   - name: visibility_track
     port_type_id: prompt_authoring.track.visibility
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable boolean visibility values aligned to target_layout.
   - name: secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable SS8 values aligned to target_layout.
   - name: sasa_track
     port_type_id: prompt_authoring.track.sasa
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Nullable absolute per-residue solvent-accessible surface areas in square angstroms, without normalization, aligned to target_layout.
@@ -52,31 +44,26 @@ input_constraints:
 outputs:
   - name: sequence_track
     port_type_id: prompt_authoring.track.sequence
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Identity-aligned amino-acid values after explicit overrides.
   - name: structure_track
     port_type_id: prompt_authoring.track.structure
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Identity-aligned named-atom coordinates after explicit overrides.
   - name: visibility_track
     port_type_id: prompt_authoring.track.visibility
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Identity-aligned visibility values after explicit overrides.
   - name: secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Identity-aligned SS8 values after explicit overrides.
   - name: sasa_track
     port_type_id: prompt_authoring.track.sasa
-    port_type_version: "3.0.0"
     required: false
     multiplicity: one
     scientific_meaning: Identity-aligned absolute square-angstrom solvent-accessible surface areas after explicit overrides, without normalization.

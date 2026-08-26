@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.synthetic_candidate_source
-version: "1.0.0"
 title: Synthetic Candidate source
 summary: Emits one deterministic Candidate for Module Package conformance.
 category: contract_test
@@ -8,19 +6,16 @@ inputs: []
 outputs:
   - name: text
     port_type_id: contract_test.synthetic_text
-    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Deterministically repeated contract-test text.
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One deterministic protein Candidate.
   - name: artifact
     port_type_id: contract_test.synthetic_artifact
-    port_type_version: "2.1.0"
     required: true
     multiplicity: one
     scientific_meaning: Standalone text artifact with the echoed bytes.

@@ -1,20 +1,16 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.proteinmpnn_sequence_source
-version: "4.0.0"
 title: ProteinMPNN sequence Candidate source
 summary: Emits one deterministic sequence child Candidate per exact structure parent.
 category: contract_test
 inputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact parent structure Candidates for the emitted sequence Candidates.
 outputs:
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact sequence Candidate per structure parent with formal lineage.

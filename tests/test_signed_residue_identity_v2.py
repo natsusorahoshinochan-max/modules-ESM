@@ -50,8 +50,8 @@ def test_signed_pdb_residue_identity_form_is_closed(residue_id: str) -> None:
 
 def test_signed_residue_id_round_trips_layout_and_map_codecs() -> None:
     catalog = builtin_frozen_catalog()
-    layout_type = catalog.require_port_type("residue.layout", "3.0.0")
-    map_type = catalog.require_port_type("residue.map", "3.0.0")
+    layout_type = catalog.require_port_type("residue.layout")
+    map_type = catalog.require_port_type("residue.map")
     source = ResidueLayout("A", 2, ("A:-3", "A:-3A"))
     residue_map = ResidueMap(
         source,

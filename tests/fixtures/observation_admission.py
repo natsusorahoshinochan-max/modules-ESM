@@ -105,12 +105,7 @@ def compiled_observation_plan_for_test(
         metric = catalog.require_contract(
             observation.metric.contract_kind,
             observation.metric.contract_id,
-            observation.metric.contract_version,
         )
-        if metric.contract_digest != observation.metric.contract_digest:
-            raise ObservationAdmissionError(
-                "Produced Observation Metric digest is not exact"
-            )
         metric_facts[observation.metric] = resolve_metric_facts(
             observation.metric,
             metric.definition,
@@ -146,7 +141,6 @@ def _admit_test_ports(
         reference = declaration["port_type"]
         port_type = catalog.require_port_type(
             reference["contract_id"],
-            reference["contract_version"],
         )
         if port_type.reference() != dict(reference):
             raise ObservationAdmissionError(
@@ -180,7 +174,6 @@ def admit_test_produced_score_collection(
     node_type = catalog.require_contract(
         node_reference["contract_kind"],
         node_reference["contract_id"],
-        node_reference["contract_version"],
     )
     admitted_inputs = _admit_test_ports(
         catalog=catalog,

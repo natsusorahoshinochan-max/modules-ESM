@@ -24,11 +24,11 @@ not impose a global invocation count. A scenario-specific scientific
 acceptance test may still require exact counts for its named Provider stages.
 
 The Run Evidence Ledger is the single writer and ordered durable source of
-typed run facts. The run manifest, JSONL lifecycle stream, and WebSocket stream
-are rebuildable projections of that ledger rather than independent writers or
+typed run facts. The public REST Run Projection and WebSocket stream are
+rebuildable projections of that Ledger rather than independent writers or
 competing sources of truth.
 
-Each proposed fact passes closed typed-domain schema and causal validation, then
+Each proposed fact passes typed-domain and causal validation, then
 durable persistence with a monotonic run sequence, before it may affect a domain
 projection. `protein_workbench_public` alone converts admitted domain projections
 to the redacted public REST and WebSocket contract. Public projection failure

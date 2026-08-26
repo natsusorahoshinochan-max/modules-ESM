@@ -66,46 +66,47 @@ flowchart TB
 
 深度来自这些 seam 的 locality：调用者不需要理解 Catalog 搜索、Provider payload、历史版本、wire codec 或证据拼装。
 
-## 3. 单一活动 Catalog generation
+## 3. 单一当前 Catalog
 
 ### 3.1 运行时规则
 
-每个 checkout 只发布一个 startup-frozen `FrozenCatalog` generation。对于每个 logical Contract，Catalog 中只有一个活动 exact version：
+每个 checkout 只发布一个 startup-frozen `FrozenCatalog`。每个 logical Contract 通过稳定 ID 唯一解析：
 
 - Node Type / Node Definition；
 - Port Type Definition；
 - Method；
 - Execution Binding；
 - Metric Definition；
-- Utility Transform。
+- Utility Transform；
+- Behavior。
 
-不兼容变化使用新的 exact semantic version。已经出现过的 exact identity 不得静默绑定到不同 descriptor bytes，但旧 identity 不与新 identity 一起进入当前 Catalog。
+内部 Contract 不使用 semantic version、inactive generation、version range、descriptor digest 或 compatibility alias。当前 definition 改变时，仓库拥有的 producers、consumers、tests、examples 和文档一起更新；科学含义不同的合同使用不同稳定 ID。
 
-公共协议 envelope 的 v2 schema version 与具体科学 Contract version 相互独立。修改 Node、Port、Binding 或 Method 不要求机械升级所有无关 Contract，也不要求把公共协议改名为 v3。
+公共协议 envelope 的 v2 schema discriminator 只属于公共 wire。它不是内部科学 Contract version，也不会向 Catalog、Workflow 或 Ledger 引入 semver 级联。
 
 ### 3.2 历史证据而非历史运行时
 
-历史由以下事实保留：
+结果解释由以下事实保留：
 
 - Git commit；
-- exact contract descriptor bytes、digest 和 Contract Lock；
-- Provider、model、checkpoint、source 和环境锁；
+- `workflow_commit_id` 及 Commit 内的 admitted Workflow；
+- 最小 Node/Method/Metric 科学定义快照；
 - Result Identity；
 - Run Evidence Ledger 和不可变 Artifact digest。
 
-这些事实可以解释历史结果，但当前运行时不注册旧 decoder、factory、Adapter 或 scientific implementation。旧 Workflow、Cache 和 Run record 加载时返回明确的 `unsupported_schema_version`、`unsupported_version` 或 `inactive_generation`，不得猜测、迁移或重解释。
+当前运行时不注册旧 decoder、factory、Adapter 或 scientific implementation。开发期旧 Workflow、Commit、Ledger 和 Cache 都是无兼容承诺的 Project state，可以随 checkout 变化失效并重新生成；不提供旧 reader、迁移器、alias、双路径、Cache generation cutover、自动清除或隔离协议。
 
-仓库拥有的 Workflow examples、fixtures 和测试随 active generation 原子更新。开发期 Project、Cache 和 Run 数据可以在明确的 cutover 操作中清理重建。
+仓库拥有的 Workflow examples、fixtures 和测试随当前 definition 原子更新。
 
 ### 3.3 `FrozenCatalog` 的深度
 
-`FrozenCatalog` 是 exact public contracts 的唯一解析 Module，而不是可变 Registry 或运行时插件管理器。它负责：
+`FrozenCatalog` 是当前 stable-ID registrations 的唯一解析 Module，而不是可变 Registry 或运行时插件管理器。启动与 build/tests 使用同一个直接 Catalog builder，该 builder：
 
-- 聚合并验证全部 Module Package Registration；
-- 检查 ID/version 唯一性、引用闭包和 contract digest；
-- 解析 Workflow 中固定的 Node Type、Binding、Method 和 Port contracts；
-- 发布 canonical descriptor、contract references 和 startup Availability；
-- 为 compiler 和 Contract Test Kit 提供同一个测试 surface。
+- 检查 stable ID 唯一、必需引用和 factory/Adapter 可解析；
+- 检查 Port compatibility、Candidate/Observation subject、Metric schema、residue-axis 和 dependency closure 等直接保护科学模块输入输出的关系；
+- 不计算 internal contract semver、descriptor digest 或 Contract Lock；
+- 发布 immutable current registrations 和 diagnostic startup Availability；
+- 为 compiler 提供 typed resolution surface。
 
 Package discovery、descriptor parsing、runtime codecs、implementation factories 和 readiness declarations 可以作为其 Implementation 内的私有索引，但不扩散给 scientific operation。
 
@@ -115,8 +116,8 @@ Package discovery、descriptor parsing、runtime codecs、implementation factori
 
 Workflow 是由 Node Instances 和 compatible Ports 组成的有向无环图。每个 Node Instance 显式固定：
 
-- 一个 exact Node Type；
-- 一个 exact Execution Binding；
+- 一个 stable Node Type ID；
+- 一个 stable Execution Binding ID；
 - Node 参数；
 - Binding 参数；
 - 输入连接或 Project Input；
@@ -127,26 +128,26 @@ Binding 不按当前机器、Provider 可用性或性能自动选择。环境变
 ### 4.2 Workflow Draft 与 Workflow Commit
 
 `Workflow Draft` 是 unlocked authoring revision，可以不完整或暂时无效，不能执行。
-`Workflow Commit` 是针对一个 active `FrozenCatalog` 解析完成的 immutable runnable
+`Workflow Commit` 是针对当前 `FrozenCatalog` 解析完成的 immutable runnable
 publication。UI 中一次“保存并准备运行”的操作由一个深的 commit interface 完成：
 
 1. 保存 Workflow draft；
-2. 针对当前 `FrozenCatalog` 产生 exact Contract Lock；
-3. 检查 DAG、Port exact nominal compatibility 和参数；
-4. 解析 immutable `Execution Plan`；
+2. 解析 stable Node Type 与 Binding IDs；
+3. 检查 DAG、Port nominal compatibility、参数和科学关系；
+4. 解析 immutable `Execution Plan`，并保存最小科学定义快照；
 5. 原子发布带 `workflow_commit_id` 的 Workflow Commit，或返回明确错误。
 
 失败的 commit 保留用户提交的 Draft，且不替换此前 active Commit。调用者不应自己串接
-save、snapshot、relock、validate 和 compile，也不应在 Run 开始后重新解释 Workflow。
+save、snapshot、validate 和 compile，也不应在 Run 开始后重新解释 Workflow。
 Run 只提交 active `workflow_commit_id`，不提交可独立组合的 revision 与 compile ID。
 
 ### 4.3 Execution Plan
 
 `Execution Plan` 是 admitted Workflow 的唯一执行形式。它已经解析：
 
-- 每个 Node Instance 的 exact contracts；
+- 每个 Node Instance 的 stable contract IDs；
 - 当前 Binding 和 Method；
-- 输入来源、Port identity、exact codec 和拓扑顺序；
+- 输入来源、Port identity、scientific codec 和拓扑顺序；
 - normalized parameters；
 - Scientific Operation factory、Readiness declaration 和 randomness resolver；
 - produced Observation、Selection Objective 和 Observation Selector facts；
@@ -156,7 +157,7 @@ Run 只提交 active `workflow_commit_id`，不提交可独立组合的 revision
 Run runtime 消费这些 resolved facts，不再次扫描整个 Catalog、不重新推断边连接，也不让 Implementation 根据版本字符串选择行为。
 实际 admitted inputs、Environment、RunResources、Availability observation 和 effective randomness 仍然是 run-scoped facts，不固化在 Plan 中。
 
-Derived Run 只能复用 source Run record 保留的同一个 in-memory `Execution Plan`。进程重启后若只剩 durable Ledger 而没有该 executable Plan，derive 必须 fail closed；`V2RunService` 不得重新读取并编译 Workflow，再把新的 callable handles 冒充为 source compile identity。
+Derived Run 以 source Run 的 `workflow_commit_id` 解析同一个 immutable Commit。进程重启后若 in-memory Plan 不存在，authoring owner 使用 Commit 内 admitted Workflow 和当前 stable-ID registrations 重新编译 Plan，并以 Commit 的科学定义快照接纳结果；不读取 source Draft、不生成 Contract Lock，也不把 Ledger 摘要当作第二执行身份。
 
 ### 4.4 Scientific operation call
 
@@ -178,8 +179,8 @@ Engine Invocation evidence recorder
 operation 信任 Plan-normalized 参数及 admitted input record，不重新检查 generic
 key/type/range、重新编码 value、重新计算 digest，或重新解析 Candidate Data Reference。
 Method implementation 仍拥有自己的科学前置与后置条件。operation call 不包含
-`FrozenCatalog`，也不要求 scientific operation 查询 Node、Port、Binding 或 public
-contract version。Node Instance ID、Run ID 和公共事件投影属于 runtime/evidence context，
+`FrozenCatalog`，也不要求 scientific operation 查询 Node、Port、Binding 或 Catalog
+metadata。Node Instance ID、Run ID 和公共事件投影属于 runtime/evidence context，
 不得影响科学随机抽样。
 
 ### 4.5 Run 因果顺序
@@ -189,14 +190,14 @@ contract version。Node Instance ID、Run ID 和公共事件投影属于 runtime
 1. 计算 Result Identity；
 2. 查询 Project-scoped Result Cache；
 3. Cache hit 时直接重放已经接纳的结果；
-4. Cache miss 或 bypass 时，Adapter route 为 exact Binding 做一次 Readiness 检查；direct
+4. Cache miss 或 bypass 时，Adapter route 为选定 Binding 做一次 Readiness 检查；direct
    route 不需要 Provider Readiness；随后进入 Operation Attempt；
 5. 记录零个、一个或多个 Engine Invocations；
 6. 接纳 immutable output values；
 7. 将 Typed Output 与 Artifact bytes 写入 Project-scoped immutable objects，并以一个
    Ledger transaction 原子发布 Node outcome；
 8. 从 Run Evidence Ledger 投影事件和 bounded output descriptors，再在成功后发布可选的
-   Cache entry v5 replay index。
+   Cache replay index。
 
 Run scheduling 只负责按 Execution Plan 串行调度、required-input blocking、调度前取消、
 已提交 Typed Outputs 的下游传播、Selection conclusion 与 Run Closure。一个
@@ -205,12 +206,12 @@ Attempt lifecycle。input admission、Project Input resolution 与 effective ran
 resolution 在 attempt evidence 开始前发生；本地 contract invariant 在这里 fail fast，
 不虚构 Node Execution Attempt、Operation Attempt 或 Engine Invocation。
 
-该 module 用一个 closed internal attempt state 承载 preparation、Cache、Readiness、
+该 module 用 typed internal attempt state 承载 preparation、Cache、Readiness、
 Operation、cleanup 与 Node Outcome Publication 所需事实。它取代跨 service/finalizer 传递的
 宽 finalization intents、内部 enum/type dispatch、production asserts，以及重复的取消与错误
 终结路径；外部只观察 committed disposition。
 
-该 deep module 在第一次 exact Adapter-route Binding 的 Cache miss 或 bypass 时检查一次
+该 deep module 在第一次 Adapter-route Binding 的 Cache miss 或 bypass 时检查一次
 Readiness，并在同一 Run 内复用结论。Node Execution Attempt 仅在 Node Outcome
 Publication 的 Ledger transaction 原子提交后结束；成功后写入的 Cache replay index
 不是 outcome authority。Run Evidence Ledger 仍是 typed domain fact schema、因果验证、
@@ -218,21 +219,22 @@ durable persistence、reduction 与 domain projection 的唯一 owner；
 `protein_workbench_public` 独占 public wire projection 与 redaction。详见 ADR-0041 与
 ADR-0042。
 
-Readiness 只把 closure admission 或明确 Environment/Provider prerequisite failure 映射为
+Readiness 只把明确 Environment/声明的轻量前置条件 failure 映射为
 failing conclusion。编程错误与本地 invariant violation 直接 fail fast；Readiness 不使用
 broad catch 把这些错误改写成 Provider 不可用。
 
-Availability 与 Readiness 只服务 Adapter route 的实际 Provider entry，不阻止 Workflow
-commit、direct operation 或 Cache replay。Cache replay 是 Node Execution Attempt，但不是
+Availability 只用于启动诊断，不能阻止 Workflow commit、Node Attempt、fresh Readiness、
+direct operation 或 Cache replay。Readiness 只服务 Adapter route 的实际 Provider entry。
+Cache replay 是 Node Execution Attempt，但不是
 Operation Attempt 或 Engine Invocation。
 
 ## 5. Canonical scientific operation
 
 ### 5.1 唯一科学真值
 
-一个科学含义只有一个 canonical operation implementation。公开 Contract 是该科学含义的投影，不是第二套 Implementation。改变 wire shape 或 Contract version 不得复制算法、lineage、mask、单位、seed 或 residue mapping 逻辑。
+一个科学含义只有一个 canonical operation implementation。公开 Contract 是该科学含义的投影，不是第二套 Implementation。改变 wire shape 不得复制算法、lineage、mask、单位、seed 或 residue mapping 逻辑。
 
-“一个 canonical implementation”不表示合并科学上不同的方法。ESMFold2、SimpleFold、不同模型变体或会改变解释的 checkpoint 是不同 Method；它们可以拥有不同的 Implementation 和 Binding。
+“一个 canonical implementation”不表示合并科学上不同的方法。ESMFold2、SimpleFold 和科学含义不同的模型变体使用不同 stable Method IDs；它们可以拥有不同的 Implementation 和 Binding。
 
 ### 5.2 责任
 
@@ -267,14 +269,14 @@ canonical scientific operation 负责：
 Adapter 独占真实外部 seam，并且只做四件事：
 
 1. 将 admitted Workbench values 精确翻译为官方或 pinned upstream 规定的请求表示；
-2. 调用 Execution Binding 已固定的 Provider/model/checkpoint/source；
+2. 调用 Execution Binding 选定的 Provider route；
 3. 将文档规定的响应精确翻译回 canonical values；
-4. 以 exact Method contract digest 记录 Engine Invocation，并记录该次调用特有的
+4. 以 stable Method ID 记录 Engine Invocation，并记录该次调用特有的
    provider translation 或 randomness provenance。
 
-Provider、model、checkpoint 与 source 是 exact Method / Execution Binding 的静态
-identity，只在 Catalog descriptor 中声明一次。Candidate metadata 不复制这些静态事实；
-Invocation provenance 也不把静态配置伪装成逐次观察。
+Provider route 和科学 model variant 由 stable Method / Execution Binding ID 表达。
+source bytes、checkpoint bytes、安装形式和 device 不进入科学身份。Candidate metadata
+不复制这些工程事实；actual device 已知时只作为非门禁 invocation provenance。
 
 Provider-native chain positions、tensor、token、payload、response object、临时 FASTA/PDB/JSONL 和工作目录不得越过 Adapter seam。
 
@@ -290,39 +292,32 @@ Biohub 的官方规范是权威。对符合请求的响应按规范翻译，不�
 ### 6.1 SimpleFold Provider Asset Closure
 
 `modules/folding` 内一个 package-private deep module 拥有两个 SimpleFold Adapter
-共享的 Provider Asset Closure grammar、exact file/source admission 与隔离暂存。每个
-Execution Binding 仍各自拥有一个 immutable closure declaration；module 只集中实现
-declaration，不合并 Folding 与 existing-structure confidence 的 Method、Operation 或
-Adapter。
+共享的 route-specific resource selection 与 direct root binding。每个 Execution Binding
+保留自己的 operational resource roles；module 不合并 Folding 与 existing-structure
+confidence 的 Method、Operation 或 Adapter。
 
-Folding closure 精确包含 `simplefold_100M.ckpt`、`simplefold_1.6B.ckpt`、
-`plddt.ckpt`、`ccd.pkl`、ESM2 主 checkpoint 与 contact-regression checkpoint，以及
-exact SimpleFold source revision、ESM2 revision 和 reviewed runtime source tree。
-Confidence closure 只包含 `simplefold_1.6B.ckpt`、`plddt.ckpt`、`ccd.pkl`、ESM2 主
-checkpoint 与相同的 exact source identities；它明确排除 100M、360M、ESM2 contact
-regression 和 `boltz1_conf.ckpt`。配置目录中的其他文件不是 closure，不被拒绝、接纳、
-hash 或 stage。
+Folding route 使用其实现实际加载的 SimpleFold checkpoints、`ccd.pkl`、ESM2 representation
+与 contact-regression objects 以及 ESM2 source layout。Confidence route 只使用其实现实际
+加载的 confidence checkpoints、`ccd.pkl`、ESM2 representation object 和 source layout；
+它不加载 folding-only 或 contact-regression resources。配置目录中的其他文件被忽略。
 
-closure file entry 固定角色、runtime filename 与 SHA-256；source entry 固定 revision 和
-必要的 reviewed source-tree digest。Environment Configuration 只提供路径。byte count 与
-CDN ETag 只保留为 installation/acquisition metadata，不进入 Method、Binding 或 Readiness
-content identity。Binding-owned declaration 同时投影到 Method/Binding descriptor、
-Readiness prerequisites、staging selection 与测试，不存在 Adapter-owned 的平行清单。
+Environment Configuration 只提供外部绝对路径。Provider source bytes、checkpoint bytes、
+Git revision、PEP 610 metadata、byte count、ETag 和 source-tree digest 都不进入 Method、
+Binding、Readiness、Result Identity 或 provenance。Readiness 只检查声明的配置、路径、
+package discoverability 和 selected device，不执行 Provider import 或 model load，也不建立
+manifest、stat fingerprint 或 content-proof cache。
 
-每个 exact Binding 在同一 Run 第一次 Cache miss 或 bypass 时独立 admission 一次，不跨
-Folding/Confidence Binding memoize。file SHA-256 与 ESM2 exact HEAD、declaration-owned
-reviewed file set/tree digest 只在这里证明一次；configured root 只是 closure location，不是
-identity。随后 staging 直接使用同一 declaration 和 Environment Configuration，不重新
-hash、执行 Git query 或搜索 source tree。每次 Adapter call 在 Engine Invocation 开始前把
-该 Binding 的 exact closure 复制到 fresh private staging root；不搜索其他目录、不下载、
-不联网、不使用 shared model cache 或 fallback。
+每个 Binding 在同一 Run 第一次 Cache miss 或 bypass 时独立检查 Readiness，不跨
+Folding/Confidence Binding 建立 proof cache。每次 Adapter call 直接绑定该 route 的可信配置
+roots；Provider source 和 checkpoints 不复制到隔离 asset root。RunResources 提供 private
+per-invocation work directory，仅承载 Provider 所需的工作文件和输出。不搜索其他目录、
+不下载、不联网、不检查 Git state，也不选择 alternate checkpoint 或 fallback。
 
-admission 失败是 Readiness failure，并产生没有 Operation Attempt 或 Engine Invocation 的
-Binding Failure。已接纳资产的 staging 失败发生在 Operation preparation，且不虚构 Provider
-entry；Provider import、model load 与 execution 才进入 Engine Invocation。Adapter 继续拥有
-不同的 loading、namespace、deserialization、provider-native translation 与 canonical output
-translation；closure module 不处理 Candidate、Prediction Key、Axis、Confidence Fact、Metric
-或 publication。详见 ADR-0045。
+Readiness failure 阻止 Operation Attempt 与 Engine Invocation。Readiness 成功后，direct
+binding 信任已接纳的配置 roots，不建立另一层验证 seam。Provider-module import、model load
+与 execution 在实际调用 seam 记录。Adapter 继续拥有不同的 loading、namespace、
+deserialization、provider-native translation 与 canonical output translation；closure module
+不处理 Candidate、Prediction Key、Axis、Confidence Fact、Metric 或 publication。详见 ADR-0045。
 
 ## 7. Scientific values 与信任模型
 
@@ -342,21 +337,21 @@ translation；closure module 不处理 Candidate、Prediction Key、Axis、Confi
 这些值在 contract-owning seam 接纳后不可变。in-process caller 直接传递 admitted values，不在每条 Port edge 上重复 encode/decode，也不重复验证同一 invariant。
 
 `ProteinStructure` 只表示 canonical PDB 科学内容。当前唯一的
-`protein.structure@4.0.0` wire 只有 `pdb_string`；Provider、模型、checkpoint、
+`protein.structure` value 只有 `pdb_string` 科学内容；Provider、模型、checkpoint、
 Project Input、文件或来源标签不是结构内容，不得参与 content digest。拥有这些事实的
 Method、Execution Binding、Candidate lineage 或 Run Evidence 负责记录 provenance。
 坐标记录遵守当前固定列 PDB contract；occupancy、temperature factor 与 element 等必需字段
 在该 Port seam 一次接纳，不由下游 parser 各自猜测。
 
-`structure_transform.backbone_structure@4.0.0` 同样只编码 canonical PDB
+`structure_transform.backbone_structure` 同样只编码 canonical PDB
 内容。其 nominal 科学含义由允许的 backbone atoms、每个残基的原子完整性与顺序、
 chain break、serial 和 PDB serialization invariants 决定，不由 producer/source
-字符串决定。两个结构 Port Type 都只有当前 closed wire 的单一 decoder；旧的
-source-bearing wire 不进入 active Catalog，也不保留兼容读取路径。
+字符串决定。两个结构 Port Type 都只有当前 scientific codec；旧的 source-bearing
+shape 不进入当前 Catalog，也不保留兼容读取路径。
 
-直接声明这两个 Port 的 Node Type 与 Execution Binding 在不兼容切换时原子升版；
-Method 只有在科学定义变化时才升版。Candidate Collection 的 `item_type` 由唯一
-active Catalog 解析，不形成第二个历史 codec registry。
+直接声明这两个 Port 的 Node Type、Binding、tests、examples 和文档在当前定义改变时
+原子更新；科学含义不同的 Method 使用不同稳定 ID。Candidate Collection 的 `item_type`
+由当前 Catalog 解析，不形成第二个历史 codec registry。
 
 ### 7.2 验证位置
 
@@ -366,16 +361,16 @@ record，不因为进入另一个内部函数而重复同一 predicate。
 
 | Owner seam | 一次性验证 | Proof lifetime |
 | --- | --- | --- |
-| Project Input / public protocol | wire schema、exact nominal Port identity、用户提供的科学字段 | 该 immutable Project Input 或 request admission |
+| Project Input / public request | wire schema、stable nominal Port ID、用户提供的科学字段 | 该 immutable Project Input 或 request admission |
 | Scientific value construction | residue identity、layout、shape、unit、mask、lineage 等 value-intrinsic invariants | 该 immutable value |
 | Port admission | canonical value/bytes、content digest、exact Candidate Data References、axis 与 Method projections，以及该 Port 声明的 cross-field closure | 该 complete admitted input record |
 | Execution Plan | Node/Binding 参数 schema、type、range、normalization 与 randomness resolution contract | 该 immutable Plan；run-scoped effective randomness 由 attempt resolution 固定 |
 | Scientific Operation | 该 Method 特有且只有在完整 admitted inputs 上才能判定的科学前置、后置与集合 closure | 该 Operation Attempt 的 admitted inputs/outputs |
 | Provider Adapter | 按权威规范翻译并接纳 provider-native observation，构造 canonical output 与 Invocation provenance | 该 Adapter result / Engine Invocation record |
-| Binding Readiness | exact route 的 Environment prerequisites 与 Provider Asset Closure | 该 Binding 在该 Run 的 Readiness conclusion |
-| Run Evidence Ledger durable write | closed typed domain fact schema、因果、transaction、顺序、size、durable acknowledgement 与 Invocation provenance semantics | committed durable transaction；restart 时重新接纳 durable prefix |
-| Public protocol projection | REST/WebSocket wire schema、redaction 与 public cursor translation | 该次 admitted public encoding |
-| Persistence read / restart | current schema、object digest、exact Contract references 与 durable prefix | 本次恢复得到的 admitted immutable state |
+| Binding Readiness | selected route 声明的外部配置、路径、package discoverability、executable presence 与 device availability | 该 Binding 在该 Run 的 Readiness conclusion |
+| Run Evidence Ledger durable write | 因果 transition、transaction completeness、顺序、durable acknowledgement 与科学 Invocation provenance | committed durable transaction |
+| Public protocol projection | typed REST/WebSocket/error shape、redaction 与 public cursor translation | 该次 typed public construction |
+| Persistence read / restart | 正常读取所需字段、科学 object content identity 与 durable causal prefix | 本次恢复得到的 typed state |
 | Durable object publication | 路径归属、原子发布、冲突和意外数据损失 | 已确认的 immutable object publication |
 
 Scientific value construction 只拥有 value-intrinsic predicates；它不复制 Port、Method 或
@@ -512,30 +507,27 @@ TM-score、RMSD、DSSP、confidence 和 solubility 不能退化为自由字符�
 
 ### 10.1 结构预测置信度的两阶段 seam
 
-`structure_prediction@2.0.0` Module Package 拥有共享的
-`structure_prediction.prediction_residue_axis@2.0.0`、
-`structure_prediction.confidence_facts@2.0.0` 与
-`structure_prediction.materialize_confidence@2.0.0`。materializer 的输入是
-`structure_candidates: candidate.collection@4.0.0` 和
-`confidence_facts: structure_prediction.confidence_facts@2.0.0`，输出是
-`observations: score.collection@5.0.0`。它通过
-`structure_prediction.materialize_confidence.direct@2.0.0` Binding 绑定
-`structure_prediction.materialize_confidence.exact_reference_join@2.0.0`
+`structure_prediction` Module Package 拥有共享的
+`structure_prediction.prediction_residue_axis`、
+`structure_prediction.confidence_facts` 与
+`structure_prediction.materialize_confidence`。materializer 的输入是
+`structure_candidates: candidate.collection` 和
+`confidence_facts: structure_prediction.confidence_facts`，输出是
+`observations: score.collection`。它通过
+`structure_prediction.materialize_confidence.direct` Binding 绑定
+`structure_prediction.materialize_confidence.exact_reference_join`
 Method，且没有科学或部署参数。
 
-`folding.fold@8.0.0`、`esm3.generate_sequence@8.0.0`、
-`esm3.generate_structure@8.0.0` 和 `esm3.generate_paired@8.0.0` 不在产生 Candidate
-的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `11.0.0`、
-remote ESMFold2 `9.0.0` 或 local ESMFold2 `11.0.0`；ESM3 generation Bindings 依 route
-固定为 remote `8.0.0` 或 local `9.0.0`。其 exact provider Methods 也依 route 固定：
-SimpleFold 为 `5.0.0`、remote ESMFold2 为 `4.0.0`、local ESMFold2 为 `6.0.0`、ESM3
-generation 为 `5.0.0`。每个
+`folding.fold`、`esm3.generate_sequence`、`esm3.generate_structure` 和
+`esm3.generate_paired` 不在产生 Candidate 的同一次操作中预造 Score subject。Folding 与
+ESM3 generation 通过不同 stable Binding 和 Method IDs 区分 SimpleFold、remote/local
+ESMFold2 以及 remote/local ESM3 routes。每个
 confidence-bearing structure 或 coordinate-conditioned reconstruction output 同时产生：
 
-1. `candidate.collection@4.0.0`，其中 Candidate metadata 携带 content-derived
+1. `candidate.collection`，其中 Candidate metadata 携带 content-derived
    Prediction Key；
-2. `structure_prediction.confidence_facts@2.0.0`，其中 subjectless fact 携带同一 key、
-   exact structure digest、`structure_prediction.prediction_residue_axis@2.0.0`、provider
+2. `structure_prediction.confidence_facts`，其中 subjectless fact 携带同一 key、
+   exact structure digest、`structure_prediction.prediction_residue_axis`、provider
    Method 与 canonical confidence values。
 
 纯 sequence output 没有 structure-confidence fact 或 Prediction Key。PAE 与 pTM 位于同一
@@ -546,9 +538,9 @@ flowchart LR
     GEN["Folding or ESM generation"] --> CAND["Unadmitted structure Candidates"]
     GEN --> FACTS["Subjectless confidence facts"]
     CAND --> ADMIT["Candidate output admission"]
-    ADMIT --> MAT["structure_prediction.materialize_confidence@2.0.0"]
+    ADMIT --> MAT["structure_prediction.materialize_confidence"]
     FACTS --> MAT
-    MAT --> SCORE["score.collection@5.0.0"]
+    MAT --> SCORE["score.collection"]
 ```
 
 producer 根据 exact output role/slot、structure content digest 和 prediction-axis digest
@@ -563,7 +555,7 @@ exact full-set closure，之后才创建 Candidate-associated Score Observations
 Confidence-facts Port 的 `scientific_axis_projection` 动态提供 prediction-axis references，
 `observation_method_projection` 动态提供 exact provider Method。materializer Binding 的
 Produced Observation Interface 将这两个 Port projection 声明为 axis 与 Method source；因此
-`structure_prediction.materialize_confidence.exact_reference_join@2.0.0` 只代表确定性的
+`structure_prediction.materialize_confidence.exact_reference_join` 只代表确定性的
 关联/物化算法，不能冒充 folding/ESM provider Method。
 
 per-residue pLDDT 的长度精确等于 prediction axis，null 位置显式保留；mean-residue pLDDT 是
@@ -588,8 +580,9 @@ sequence 构造，不解析 output PDB。
 
 Candidate metadata 使用 module-owned closed grammar：parent slot、sample slot、Prediction Key
 和实际 sampling facts。exact-seed route 可以记录 applied call seed，SimpleFold 可以记录实际
-`num_steps`；configured base seed 留在 Node parameters 与 Result Identity，Provider、model、
-checkpoint 等静态身份留在 Method、Binding 与 Run Evidence。Method implementation 与 Adapter
+`num_steps`；configured base seed 留在 Node parameters 与 Result Identity，科学 route 由
+stable Method/Binding IDs 表达。Provider source、checkpoint bytes、安装形式和 device 不作为
+静态科学身份写入 Run Evidence。Method implementation 与 Adapter
 不得构造 Candidate、Prediction Key 或 Confidence Fact，也不得传入任意 metadata dictionary。
 
 ESMFold2 与 SimpleFold 继续拥有各自的 parameters、call-seed derivation、batch shape、Adapter
@@ -645,11 +638,11 @@ modules/<package>/package.py:MODULE_PACKAGE
 
 不使用 import side effect、per-node registration call、recursive plugin discovery 或公共 dict-based `run()`。Module Package 的 public descriptors 和 runtime implementation index 在 Catalog build 时一次绑定；科学 operation 通过 resolved call 使用，不重新查询 package。
 
-`package_version` 仅能描述 package artifact identity，不能代替 Node Type、Method、Binding 或 Port Type 的科学 Contract version，也不能成为隐藏兼容开关。
+Module Package registration 没有内部 contract semver。Python distribution metadata 属于构建与安装，不参与 Catalog、Workflow、Result Identity 或 scientific operation，也不能成为隐藏兼容开关。
 
 ## 12. Port Types 与显式转换
 
-每个 Port 精确引用一个 `PortTypeDefinition(type_id, version)`。Direct Port compatibility 仅在 type ID 和 version 都相同时成立。
+每个 Port 引用一个 stable `PortTypeDefinition(type_id)`。Direct Port compatibility 仅在 type ID 相同时成立。
 
 结构相似、Python runtime type 相同、字段子集或旧 decoder 都不构成 compatibility。科学上有效但 nominal identity 不同的转换必须是显式 Node Type，并输出完整 provenance。
 
@@ -663,58 +656,61 @@ compiler 为每个 Node 生成唯一 immutable `ResultIdentityPlanFacts` project
 Identity 由该静态 projection 与以下 run-scoped admitted facts规范化派生：
 
 ```text
-only this Node's resolved exact result-affecting contracts
+only this Node's resolved stable result-affecting IDs and scientific definitions
 result-affecting implementation / Method identity
 canonical input identities
 normalized Node and Binding parameters
 declared randomness contract and any actually applied effective seed
-declared external resource identity
+resolved scientific resource content identity
 ```
 
 UI 位置、颜色、注释、Run ID、Node Instance ID、Workflow edge locator、Objective label、
-无关下游 Utility contract 和调度时序不进入 Result Identity。Execution Plan digest 仍对
-Workflow topology 敏感。Result Identity hash、Cache metadata 与 Ledger 中的 plan-facts
-digest 使用同一个 compiler-owned canonical projection。
+无关下游 Utility contract 和调度时序不进入 Result Identity。Workflow topology 由
+Execution Plan 自身拥有，不增加 execution-plan 或 plan-facts digest。Cache 使用同一个
+compiler-owned Result Identity projection；Ledger 保存 stable IDs 与最小科学定义快照。
 
 ### 13.2 Cache
 
 Result Identity 是 admitted scientific inputs 与 implementation identity 导出的 Cache key。
-每个 Node Result Manifest 固定 compiler-owned contract metadata，并按 Port 顺序引用
+每个 Node Result Manifest 按 Port 顺序引用
 ordinary 与 artifact-capable output 的 Port Value Manifest。内部信任 conforming
 deterministic Binding；不存在从 Ledger 重建的第二套 authority index 或跨 Run 冲突锁。
 
-Cache entry v5 是 Project-scoped、可重新生成的 replay index，不是科学证据源。entry 只引用
+Cache entry 是 Project-scoped、可重新生成的 replay index，不是科学证据源。entry 只引用
 committed Node Result Manifest 与 immutable value objects，记录 original producer，不复制
 canonical values 或 base64 payload。replay 另行记录 current Run materialization，不复制旧
 Availability、Readiness、Operation Attempt 或 Engine Invocation。Cache 不存在表示 miss；
 Cache miss 执行当前 Binding。Cache publication 发生在 Ledger success 之后，失败不会回滚
 或改写已提交的 Node success。
 
-旧 schema、旧 generation、pickle/path legacy entry 或 digest 不一致项不迁移、不猜测、不作为当前 evidence。用户可以清除单个结果或整个 Project Cache。
+旧开发期 entry 不迁移、不猜测、不作为当前 evidence。Cache 是普通 Project development
+state；runtime 不检测 definition 变化，不维护历史 generation，也不提供自动清除或隔离协议。
 
 ### 13.3 Run Evidence Ledger
 
-Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invocation、Cache replay、Artifact 和 terminal outcome 的唯一有序 durable source。公共 manifest 和 lifecycle event stream 只能由 Ledger 投影，不存在独立 provider-evidence writer。
+Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invocation、Cache replay、Artifact 和 terminal outcome 的唯一有序 durable source。公共 REST Run Projection 和 WebSocket stream 只能由 Ledger 投影，不存在独立 provider-evidence writer。
 
 Ledger 的 interface 接受完整的合法因果 transition。调用者决定实际发生的领域结论，但不
 提供 fact-type 字符串、任意 payload dictionary、logical-fact 顺序、sequence、cursor 或
-transaction grouping。Ledger 自己构造 exact logical facts，并集中拥有 closed typed domain
-schema、causal prerequisites、terminal rules、atomic transaction membership、reducer change
+transaction grouping。Ledger 自己构造 typed logical facts，并集中拥有 causal prerequisites、
+terminal rules、atomic transaction membership、reducer change
 与 domain projection。现有 16 类 logical facts 保持各自的科学含义，不压成 generic event；
 Typed Output 与 Artifact descriptors 是同一个 `OutputsPublished` fact 的两个 typed
 collections。
 
-Ledger 在 durable-write seam 一次性验证 typed domain fact schema、因果一致性、transaction
-完整性和顺序、monotonic identity、size bound 与 durable acknowledgement。Invocation
-provenance 的 closed grammar、chain/order 与 residue mapping semantics 也只在这里验证；
+Ledger 在 durable-write seam 一次性验证因果一致性、transaction 完整性和顺序、monotonic
+identity 与 durable acknowledgement。Invocation provenance 的 effective randomness、
+chain/order 与 residue mapping 科学语义也只在这里验证；
 Engine Invocation recorder 与 `RunResources` 只冻结和传递 typed
 provenance，不重复该 grammar。Ledger 不重新验证已 admitted 的科学值，也不处理
 adversarial caller、Provider payload repair、coercion、fallback 或 retry policy。
-caller-facing raw append/commit 不作为 escape hatch 保留。详见 ADR-0042。
+内部 fact records 不要求重复 namespace/kind、exact closed fields、canonical metadata text
+或 self-digest。caller-facing raw append/commit 不作为 escape hatch 保留。详见 ADR-0042。
 
 `protein_workbench_public` 消费 Ledger 的 typed domain projection 与 events，独占 REST、
-WebSocket wire encoding、redaction、public cursor translation 与 current public schema
-validation。public projection failure 不改变已经 durable-acknowledged 的 execution outcome。
+WebSocket wire encoding、redaction 与 public cursor translation。typed public constructors
+保证完整 response/event/error shape，随后直接序列化；生产 emission 不重复执行 Bundle
+Schema validation。public projection failure 不改变已经 durable-acknowledged 的 outcome。
 
 一次 Node outcome publication 使用一个物理 Ledger transaction，保留 Operation terminal、
 output descriptors、Artifact descriptors、Node terminal 与 disposition 等独立 logical facts。
@@ -722,10 +718,10 @@ immutable object bytes 必须先 durable；transaction 提交前没有任何 out
 
 Operation Attempt 覆盖 implementation、Engine Invocation、documented Provider translation、
 normalization、Candidate identity normalization、Port admission 与 Artifact contract
-processing。Adapter route 的 Cache miss 或 bypass 若 Binding Availability/Readiness 失败，
+processing。Adapter route 的 Cache miss 或 bypass 若 fresh Readiness 失败，
 只关闭已经开始的
-Node Attempt，使用 `failure_origin=binding` 和原始 `binding_unavailable` 或
-`readiness_rejected`；由于 implementation 尚未运行，它不创建 Operation Attempt。进入
+Node Attempt，使用 `failure_origin=binding` 和原始 `readiness_rejected`；startup
+Availability 不能产生该失败。由于 implementation 尚未运行，它不创建 Operation Attempt。进入
 Operation 边界后失败时 Operation 与 Node 同为 `failed`，Node 使用
 `failure_origin=operation` 与 `node_execution_failed`。Operation 成功后，object 或
 manifest persistence 失败只关闭 Node 为 `failed/publication`，并使用
@@ -746,9 +742,9 @@ fast；Node Attempt 开始后的任何异常都由 Attempt lifecycle cleanup 并
 evidence。
 
 正常执行过程中，每个开始的 Engine Invocation 恰有一个 terminal fact；进程退出后只将未完成
-Run 关闭为 `interrupted`，不重建缺失的内部 terminal。Invocation 的 `engine_identity` 必须是
-resolved exact Method contract digest，并由 Execution Plan 绑定；Operation 或 Adapter 不能
-提供或覆盖该身份。`effective_randomness` 内部是 closed union：实际应用 seed 时为 `exact_seed`，
+Run 关闭为 `interrupted`，不重建缺失的内部 terminal。Invocation 的 `engine_identity` 是
+Execution Plan 绑定的 stable Method ID；Operation 或 Adapter 不能提供或覆盖该身份。
+`effective_randomness` 是 typed scientific provenance：实际应用 seed 时为 `exact_seed`，
 provider 不受控时为 `provider_uncontrolled`。它可以与 residue-projection fact 同时存在。
 Artifact bytes 与 ordinary Typed Output values 由同一个 Project-scoped
 content-addressed object store 持有，但两者保持独立 nominal Port semantics。
@@ -777,10 +773,12 @@ Resolved Resource Identity 或 Result Identity。消费 Project Input 的 import
 既有 Engine Invocation provenance seam 投影该 label，使 Run Evidence 保留来源名称；相同
 bytes 仅重命名 filename 或 opaque reference 时，Result Identity 保持不变。
 
-Project metadata、Workflow Draft、Workflow Commit、Result Cache 和 Run Ledger 使用 closed
-current schemas。public/persistence seam 接纳 wire value 后立即转换为 immutable canonical
+Project metadata、Workflow Draft、Workflow Commit、Result Cache 和 Run Ledger 只保存正常
+读取、科学解释和因果状态所需字段。它们不要求重复 namespace/kind、exact closed fields、
+canonical metadata text 或 self-digest。public seam 接纳 wire value 后立即转换为 typed
 value；内部不反复通过 JSON roundtrip。authoring owner 信任自己写入的 Commit；需要恢复
-in-memory Plan 时正常解析并编译，解析或编译失败直接 fail fast，不建立损坏恢复协议。
+in-memory Plan 时使用 Commit 内 admitted Workflow 和当前 Catalog 正常编译，并比较 Commit
+保存的科学定义快照。
 
 推荐 Project 组织：
 
@@ -841,41 +839,41 @@ modules/<package>/
 modules/folding/
   distinct ESMFold2 and SimpleFold scientific operations and Adapters
   one shared provider-independent folding output-construction module
-  one shared SimpleFold Provider Asset Closure admission and staging module
+  one shared SimpleFold Provider resource-selection and root-binding module
 
 modules/structure_prediction/
   provider-independent prediction axis and confidence facts
   shared deterministic confidence materialization
 
 protein_workbench_public/
-  current versioned protocol bundle and wire validation
+  current public protocol bundle, typed wire constructors and request admission
 
 tests/
   tests through public or Module Package contract seams
 
 examples/v2/
-  maintained active-generation Workflows
+  maintained current Workflows
 ```
 
 退役的 `frontend/` 不拥有当前合同。替代客户端的代码所有权将在其技术栈和独立构建边界
 完成裁决后加入。
 
-所有 owner 都遵守 locality：ResidueLayout invariant 不在多个 caller 复制，Provider payload 不进入 core，public versions 不进入 scientific operation，Run Evidence 不在 Adapter 旁路写入。
+所有 owner 都遵守 locality：ResidueLayout invariant 不在多个 caller 复制，Provider payload 不进入 core，internal versions 不进入 scientific operation，Run Evidence 不在 Adapter 旁路写入。
 
 ## 17. Verification contract
 
 验证以 Interface 为测试 surface，而不是穿透 Implementation：
 
-1. Catalog tests 证明每个 logical Contract 只有一个 active exact version、引用闭包完整、descriptor digest 稳定。
-2. Port Type tests 证明 canonical wire roundtrip、content identity 和 golden bytes，防止 codec 在 descriptor 不变时漂移。
-3. Contract Test Kit 从一个 production `ModulePackageRegistration` 构建 Catalog、commit Workflow、执行 normal interface、解码 typed outputs，并检查 Result Identity、lineage、provenance、evidence 和 Artifact。
+1. 启动与 tests 共用的 Catalog builder 证明 stable IDs 唯一、科学引用闭包完整，并验证 Candidate/Observation、Metric schema、Port compatibility 和 residue-axis 关系。
+2. 每个科学 Port codec 有明确 owner 的 valid、invalid 和 roundtrip focused tests；scientific content identity 需要 canonical bytes 时继续验证这些 bytes。
+3. Node/Binding focused tests 从 production `ModulePackageRegistration` 构建 Catalog、commit Workflow、执行 normal interface、解码 typed outputs，并检查 Result Identity、lineage、provenance、evidence 和 Artifact；不要求 CTK exact-set equality。
 4. Scientific operation tests 直接使用 complete admitted fixtures，验证 units、shape、residue mapping、mask、seed 和 Method semantics。
-5. Adapter tests 只验证官方/pinned upstream 翻译、exact provider identity 和 Engine Invocation facts。
-6. SimpleFold Provider Asset Closure tests 通过共享 module interface 证明两个 exact closure、明确排除项、SHA/source-tree admission、acquisition metadata exclusion、staged layout、trust-after-admission 与正确的因果失败位置。
+5. Adapter tests 验证官方 Provider translation、stable Method evidence 和 Engine Invocation facts，不验证 source/checkpoint hash、PEP 610、Git state 或 device 数值等价。
+6. SimpleFold closure tests 通过共享 module interface 证明 route-specific required roles、明确排除项、direct root binding、work-directory lifetime 与正确的因果失败位置。
 7. deterministic acceptance 使用当前 canonical 3GB1 Workflow，通过真实 compiler、runtime、Cache、Ledger 和 public routes。
 8. real-provider acceptance 不能由 mock、readiness-only、historical manifest、skip 或 Cache replay 代替。
-9. installed-package parity 证明 source 与 installed artifact 的 current protocol bundle 和 active Catalog identity 完全一致。
-10. unsupported-generation tests 证明旧 Workflow、Cache 和 Run fail closed，且 runtime 不包含 migrator 或 legacy execution path。
+9. installed-package parity 证明 source 与 installed artifact 的 current public protocol 和 stable Catalog IDs 一致。
+10. 当前 producers、consumers、examples 和 fixtures 不包含 legacy version/lock path；旧开发数据可直接失效并重建。
 
 invalid-case test 只进入拥有该 invariant 的 public/module interface。下游 Operation、Adapter、
 Ledger 与 projection tests 使用 admitted fixtures，不保留 malformed private-call tests 来要求
@@ -886,16 +884,16 @@ Acceptance Campaign module 拥有唯一、不可变的 canonical tier plan。该
 receipt 与 Environment Configuration requirements；source-bound tier 还固定 exact input、
 input digest 与 Workflow path。Repository verification matrix 不属于该 plan。
 
-Campaign 以一个 clean revision 构建一次 wheel 与 sdist，并将 candidate、revision、plan 和
-一个 private Execution Profile 绑定到一次执行。它逐 tier 投影精确环境，严格串行且每个 tier
+Campaign 构建一次 wheel 与 sdist，并将 candidate、canonical tier plan 和一个 private
+Execution Profile 绑定到一次执行。它逐 tier 投影精确环境，严格串行且每个 tier
 恰好运行一次；不支持重排、并行、retry、resume 或局部补跑，首个失败立即终止。child
 execution 通过结构化 outcome 交付 retained location 和完成事实。retained result/JUnit
 format 只 admission 一次，summary 与 redacted diagnostics 从同一个 admitted outcome 投影。
-stdout、literal warning match 与 interpreter executable digest 只用于诊断，不能授权或否定
+stdout 与 literal warning match 只用于诊断，不能授权或否定
 Acceptance Result。
 
 Acceptance Result 只在 tier 自己的科学断言通过且 plan 声明的结构完成契约满足后成立。
-Campaign 集中验证 tier identity、source revision、required run labels、lifecycle receipt 与
+Campaign 集中验证 tier identity、required run labels、lifecycle receipt 与
 retained location，但不解释或重复科学断言。`passed` 当且仅当全部 19 个 tier 按顺序产生
 完整 Acceptance Result；失败或 interrupted diagnostic output 不计入完成度。详见 ADR-0043。
 
@@ -960,8 +958,8 @@ Workflow。它仍保留以下不可省略的科学关联：
 本项目拒绝：
 
 - 为 ProteinMPNN 或任何其他 Node Type 同时维护 positional 与 identity-based Implementation；
-- 在 scientific operation 中硬编码 public contract version 或查询 `FrozenCatalog`；
-- multi-generation Catalog、version switch、legacy decoder 和参数 migrator；
+- 在 scientific operation 中硬编码 internal contract version 或查询 `FrozenCatalog`；
+- internal contract semver、Contract Lock、multi-generation Catalog、version switch、legacy decoder 和参数 migrator；
 - mutable Registry、recursive plugin manager 和 import-time registration；
 - dict-based universal model runner 或万能输入对象；
 - 根据环境自动选择 Binding、fallback Provider 或隐式 retry；
@@ -973,9 +971,10 @@ Workflow。它仍保留以下不可省略的科学关联：
 - 从 output PDB 重建 Prediction Residue Axis，或把 materializer Method 冒充为 provider observation Method；
 - 让各 folding Method 分别构造 Candidate lineage、Prediction Key 与 Confidence Fact，或以任意 metadata dictionary 穿过共享 interface；
 - 用 generic folding runner 合并 ESMFold2、SimpleFold 与 ESM-3 不同的 Method、randomness、batch 和 output semantics；
-- 把 SimpleFold folding 与 confidence 的 Provider Asset Closure 取并集，或让两个 Adapter 分别维护 hash、source admission 与 staging grammar；
-- 把 byte count 或 ETag 提升为 SimpleFold Method/Binding identity 或 Readiness content proof；
-- 在 staging 时重复 Readiness proof、执行新的 Git/source-tree discovery、跨 Binding memoize closure、把静态 asset identity 写入 Invocation provenance，或把 staging failure 伪装成 Provider entry；
+- 把 SimpleFold folding 与 confidence 的 operational resource set 取并集，或让两个 Adapter 分别维护 resource-role grammar；
+- 把 source/checkpoint hash、PEP 610、Git state、byte count、ETag 或 stat fingerprint 提升为 Method/Binding identity 或 Readiness content proof；
+- 在 resource binding 时执行 Git/source-tree identity proof、跨 Binding 建立 proof cache、把静态 asset identity 写入 Invocation provenance，或把 binding failure 伪装成 Provider entry；
+- 因 CPU/GPU 极小数值差异拆分 Result Identity/Cache，或增加跨设备 tolerance/equivalence gate；
 - 用 broad Readiness catch 把 programming error 或 local invariant violation 改写成 Provider 不可用；
 - 让 stdout、warning literal 或 interpreter executable digest 决定 Acceptance Result；
 - 在下游 private call tests 注入 malformed values，以此要求重复 owner 已完成的验证；
@@ -987,7 +986,7 @@ Workflow。它仍保留以下不可省略的科学关联：
 Protein Workbench 的核心形状是：
 
 ```text
-one active FrozenCatalog generation
+one current stable-ID FrozenCatalog
 → immutable resolved Execution Plan
 → one canonical scientific operation per scientific meaning
 → direct implementation or one concrete Provider Adapter per real route

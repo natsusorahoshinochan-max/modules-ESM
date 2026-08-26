@@ -1,50 +1,41 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.structure_annotation_value_source
-version: "4.0.0"
 title: Candidate-associated structure annotation value source
 summary: Emits deterministic annotations and Prompt values associated with exact admitted subject and reference Candidates.
 category: contract_test
 inputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one admitted subject Candidate whose exact reference is attached to observed values.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one admitted reference Candidate whose exact reference is attached to expected values.
 outputs:
   - name: annotations
     port_type_id: structure_annotation.dssp_annotations
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent exact DSSP annotation associated with the admitted subject Candidate.
   - name: expected
     port_type_id: structure_annotation.secondary_structure_track
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent expected exact SS8 input associated with the admitted reference Candidate.
   - name: observed
     port_type_id: structure_annotation.secondary_structure_track
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent observed exact SS8 input associated with the admitted subject Candidate.
   - name: sasa_track
     port_type_id: structure_annotation.sasa_track
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent exact square-angstrom SASA input associated with the admitted subject Candidate.
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent ProteinPrompt on the exact annotation layout.

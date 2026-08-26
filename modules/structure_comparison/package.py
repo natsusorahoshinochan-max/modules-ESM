@@ -35,7 +35,6 @@ from .contracts import (
     INSERTED_LOOP_EVALUATION_METHOD,
     THREE_WAY_CONSISTENCY_METHOD,
     TM_SCORE_FROM_EVIDENCE_METHOD,
-    VERSION,
 )
 from .implementation import StructureComparisonImplementation
 from .metrics import tm_score_identity
@@ -46,11 +45,6 @@ from .three_way_port import THREE_WAY_CONSISTENCY_PORT_TYPE
 
 _RMSD_NORMALIZATION = "aligned-CA-mean-square-distance"
 _TM_NORMALIZATION = "reference-axis-residue-count"
-ALIGNMENT_NODE_VERSION = "5.0.0"
-SCORE_NODE_VERSION = "6.0.0"
-THREE_WAY_VERSION = "4.0.0"
-INSERTED_LOOP_VERSION = "3.0.0"
-TM_UTILITY_VERSION = "4.0.0"
 
 
 def _build(
@@ -84,11 +78,9 @@ def _build_inserted_loop(
 
 INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     binding_id="structure_comparison.evaluate_inserted_loop.direct",
-    version=INSERTED_LOOP_VERSION,
     node_type=ContractIdentity(
         "node_type",
         "structure_comparison.evaluate_inserted_loop",
-        INSERTED_LOOP_VERSION,
     ),
     method=INSERTED_LOOP_EVALUATION_METHOD.identity,
     binding_parameters={},
@@ -96,7 +88,6 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     factory=ScientificOperationFactory(
         behavior=BehaviorReference(
             "structure_comparison.evaluate_inserted_loop.direct/factory",
-            INSERTED_LOOP_VERSION,
             {"execution_route": "direct"},
         ),
         build=_build_inserted_loop,
@@ -104,7 +95,6 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     availability=AvailabilityDeclaration(
         behavior=BehaviorReference(
             "structure_comparison.evaluate_inserted_loop.direct/availability",
-            INSERTED_LOOP_VERSION,
             {"observation": "startup"},
         ),
         prerequisites={},
@@ -112,24 +102,14 @@ INSERTED_LOOP_BINDING = ExecutionBindingDefinition(
     ),
     deterministic=True,
     cacheable=True,
-    implementation_identity={
-        "name": "structure_comparison.evaluate_inserted_loop.direct",
-        "source": "repository-owned",
-        "candidate_association": "exact-CandidateDataReference",
-        "prediction_to_structure_mapping": "exact-residue-order",
-        "raw_structure_parsing": False,
-        "missing_scoped_evidence": "fail",
-    },
 )
 
 
 THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     binding_id="structure_comparison.classify_three_way_consistency.direct",
-    version=THREE_WAY_VERSION,
     node_type=ContractIdentity(
         "node_type",
         "structure_comparison.classify_three_way_consistency",
-        THREE_WAY_VERSION,
     ),
     method=THREE_WAY_CONSISTENCY_METHOD.identity,
     binding_parameters={},
@@ -137,7 +117,6 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     factory=ScientificOperationFactory(
         behavior=BehaviorReference(
             "structure_comparison.classify_three_way_consistency.direct/factory",
-            THREE_WAY_VERSION,
             {"execution_route": "direct"},
         ),
         build=_build_three_way,
@@ -145,7 +124,6 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     availability=AvailabilityDeclaration(
         behavior=BehaviorReference(
             "structure_comparison.classify_three_way_consistency.direct/availability",
-            THREE_WAY_VERSION,
             {"observation": "startup"},
         ),
         prerequisites={},
@@ -153,13 +131,6 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
     ),
     deterministic=True,
     cacheable=True,
-    implementation_identity={
-        "name": "structure_comparison.classify_three_way_consistency.direct",
-        "source": "repository-owned",
-        "candidate_association": "exact-CandidateDataReference",
-        "raw_structure_parsing": False,
-        "input_b_factor_interpretation": False,
-    },
 )
 
 
@@ -169,12 +140,10 @@ def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
             "structure_comparison.tm_score."
             f"{pairing_mode}.identity"
         ),
-        version=TM_UTILITY_VERSION,
         compatible_input_contract={
             "metric": ContractIdentity(
                 "metric",
                 "structure_comparison.tm_score",
-                VERSION,
             ),
             "method": TM_SCORE_FROM_EVIDENCE_METHOD.identity,
             "context_profile": {
@@ -188,7 +157,6 @@ def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
         parameters={},
         behavior=BehaviorReference(
             "structure_comparison.tm_score.identity/transform",
-            TM_UTILITY_VERSION,
             {"mapping": "identity"},
         ),
         transform=tm_score_identity,
@@ -205,11 +173,6 @@ def _binding(
 ) -> ExecutionBindingDefinition:
     node_id = f"structure_comparison.{node_name}"
     binding_id = f"{node_id}.{suffix}"
-    node_version = (
-        SCORE_NODE_VERSION
-        if operation in {"rmsd", "tm_score"}
-        else ALIGNMENT_NODE_VERSION
-    )
     produced: tuple[ProducedObservationDefinition, ...] = ()
     if operation in {"rmsd", "tm_score"}:
         normalization = (
@@ -226,7 +189,6 @@ def _binding(
                 metric=ContractIdentity(
                     "metric",
                     f"structure_comparison.{operation}",
-                    VERSION,
                 ),
                 context_profile={
                     "kind": "pairwise",
@@ -256,15 +218,13 @@ def _binding(
         )
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        version=node_version,
-        node_type=ContractIdentity("node_type", node_id, node_version),
+        node_type=ContractIdentity("node_type", node_id,),
         method=method.identity,
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{binding_id}/factory",
-                node_version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation, pairing_mode),
@@ -272,7 +232,6 @@ def _binding(
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"{binding_id}/availability",
-                node_version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -280,31 +239,12 @@ def _binding(
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": binding_id,
-            "source": "repository-owned",
-            "candidate_association": "exact-CandidateDataReference",
-            "raw_structure_parsing": False,
-            "pairing_input": (
-                "required"
-                if pairing_mode == "per_subject_counterpart"
-                else "forbidden"
-                if pairing_mode == "fixed_reference"
-                else "absent"
-            ),
-            "pairing_entry_identity": (
-                "complete-subject/reference-CandidateDataReference"
-                if pairing_mode == "per_subject_counterpart"
-                else "not-applicable"
-            ),
-        },
         produced_observations=produced,
     )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="structure_comparison",
-    package_version="8.0.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/align_single.yaml"),

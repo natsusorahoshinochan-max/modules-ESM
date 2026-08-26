@@ -1,20 +1,16 @@
-schema_version: "2.1.0"
 node_type_id: prompt_authoring.override_protein_prompt_track
-version: "3.0.0"
 title: Override one ProteinPrompt track
 summary: Clears, preserves, or replaces identity-addressed values on one declared ProteinPrompt track without changing its layout or other tracks.
 category: prompt_authoring
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Validated ProteinPrompt whose selected track will be changed.
 outputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: ProteinPrompt with only the exact selected identity-addressed track values changed.

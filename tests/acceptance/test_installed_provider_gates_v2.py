@@ -1,4 +1,4 @@
-"""Minimal positive real-Provider gates for exact installed Bindings."""
+"""Minimal positive real-Provider acceptance for configured Bindings."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ BIOHUB_ESM3_GATE_BINDINGS = (
     "esm3.generate_paired.biohub_open",
 )
 BIOHUB_ESM3_GATE_INVOCATIONS = 8
-BIOHUB_ESM3_GATE_VERSION = "8.0.0"
 
 _ESM3_GENERATION_PARAMETERS = {
     "num_steps": 2,
@@ -59,8 +58,7 @@ def _assert_exact_execution(
     events: tuple[dict[str, Any], ...],
     node_id: str,
     binding_id: str,
-    binding_version: str,
-    method_digest: str,
+    method_id: str,
     expected_roles: tuple[str, ...],
 ) -> tuple[dict[str, Any], ...]:
     dispositions = [
@@ -78,14 +76,13 @@ def _assert_exact_execution(
         for index, event in enumerate(payloads)
         if event["type"] == "readiness_attested"
         and event["binding"]["contract_id"] == binding_id
-        and event["binding"]["contract_version"] == binding_version
         and event["conclusion"] == "passing"
     )
     started = tuple(
         event
         for event in payloads
         if event["type"] == "engine_invocation_started"
-        and event["engine_identity"] == method_digest
+        and event["engine_identity"] == method_id
     )
     assert tuple(event["engine_role"] for event in started) == expected_roles
     operation_attempt_ids = {
@@ -139,19 +136,14 @@ def _assert_exact_execution(
 def _method_for_binding(
     catalog: Any,
     binding_id: str,
-    binding_version: str,
 ) -> Any:
     binding = catalog.require_contract(
         "binding",
-        binding_id,
-        binding_version,
-    )
+        binding_id)
     method = binding.descriptor["method"]
     return catalog.require_contract(
         "method",
-        method["contract_id"],
-        method["contract_version"],
-    )
+        method["contract_id"])
 
 
 def _run_rich_esm3_generation(
@@ -216,20 +208,16 @@ def _run_rich_esm3_generation(
                 WorkflowNodeInstance(
                     node_id="source",
                     node_type_id="contract_test.esm3_prompt_source",
-                    node_type_version="3.0.0",
                     binding_id=(
                         "contract_test.esm3_prompt_source.direct"
                     ),
-                    binding_version="3.0.0",
                     node_parameters={"mode": prompt_mode},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="generate",
                     node_type_id=f"esm3.{operation}",
-                    node_type_version=BIOHUB_ESM3_GATE_VERSION,
                     binding_id=binding_id,
-                    binding_version=BIOHUB_ESM3_GATE_VERSION,
                     node_parameters={
                         "effective_seed": 1603,
                         "num_samples": 1,
@@ -245,9 +233,7 @@ def _run_rich_esm3_generation(
                     "generate",
                     "protein_prompt",
                 ),
-            ),
-            contract_lock=(),
-        ),
+            )),
     )
     service = V2RunService(
         projects,
@@ -258,12 +244,9 @@ def _run_rich_esm3_generation(
             admit_environment_configuration(
                 catalog,
                 {
-                    (binding_id, BIOHUB_ESM3_GATE_VERSION): {
-                        "values": {
-                            "endpoint_id": "biohub",
+                    binding_id: {
                             "credential_handle": credential_handle,
-                        },
-                    }
+                        }
                 }
             ),
             result_store(projects),
@@ -334,7 +317,6 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
             method = _method_for_binding(
                 catalog,
                 binding_id,
-                BIOHUB_ESM3_GATE_VERSION,
             )
             assert method.descriptor["model_identity"]["model"] == (
                 expected_model
@@ -344,8 +326,7 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 events=events,
                 node_id="generate",
                 binding_id=binding_id,
-                binding_version=BIOHUB_ESM3_GATE_VERSION,
-                method_digest=method.contract_digest,
+                method_id=method.contract_id,
                 expected_roles=expected_roles[operation],
             )
             assert all(
@@ -404,8 +385,8 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 assert structures.items[0].metadata["prediction_key"] == (
                     facts.entries[0].prediction_key
                 )
-                assert facts.observation_method.contract_digest == (
-                    method.contract_digest
+                assert facts.observation_method.contract_id == (
+                    method.contract_id
                 )
                 assert structures.items[0].metadata[
                     "requested_generation_parameters"
@@ -446,8 +427,8 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 assert structures.items[0].metadata["prediction_key"] == (
                     facts.entries[0].prediction_key
                 )
-                assert facts.observation_method.contract_digest == (
-                    method.contract_digest
+                assert facts.observation_method.contract_id == (
+                    method.contract_id
                 )
                 assert pairing.entries[0].subject.candidate_id == (
                     sequences.items[0].candidate_id
@@ -486,7 +467,6 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
     for run_label, catalog, service, projection, events in retained_runs:
         retain_service_run(
             run_label,
-            catalog=catalog,
             service=service,
             projection=projection,
             events=events,
@@ -519,7 +499,6 @@ def test_biohub_esmfold2_executes_exact_method(
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_remote",
-        "9.0.0",
     )
     assert method.descriptor["model_identity"]["model"] == (
         REMOTE_ESMFOLD2_MODEL
@@ -529,8 +508,7 @@ def test_biohub_esmfold2_executes_exact_method(
         events=events,
         node_id="fold",
         binding_id="folding.fold.esmfold2_remote",
-        binding_version="9.0.0",
-        method_digest=method.contract_digest,
+        method_id=method.contract_id,
         expected_roles=("fold_parent_0_sample_0",),
     )
     assert started[0]["invocation_provenance"] == {
@@ -547,7 +525,6 @@ def test_biohub_esmfold2_executes_exact_method(
     assert len(facts.entries) == 1
     retain_service_run(
         "biohub-esmfold2",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,
@@ -558,11 +535,6 @@ def test_biohub_esmfold2_executes_exact_method(
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
-    from core.local_torch_device import expected_local_torch_device
-    from modules.folding.esmfold2_contract import (
-        LOCAL_ESMC_REVISION,
-        LOCAL_ESMFOLD2_REVISION,
-    )
     from tests.acceptance.test_esmfold2_v2 import _fold_outputs
     from tests.test_folding_v2 import _run_fold
 
@@ -578,10 +550,7 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
         client=None,
         environment_overrides={
             "model_snapshot_path": model_root,
-            "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
             "language_model_snapshot_path": esmc_model_root,
-            "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
-            "device": expected_local_torch_device(),
         },
         source_sequence="AG",
     )
@@ -590,15 +559,13 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_local",
-        "11.0.0",
     )
     started = _assert_exact_execution(
         projection=projection,
         events=events,
         node_id="fold",
         binding_id="folding.fold.esmfold2_local",
-        binding_version="11.0.0",
-        method_digest=method.contract_digest,
+        method_id=method.contract_id,
         expected_roles=("fold_parent_0_sample_0",),
     )
     structures, observations, facts = _fold_outputs(
@@ -620,7 +587,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     }
     retain_service_run(
         "local-esmfold2",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,
@@ -633,7 +599,6 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
 def test_proteinmpnn_design_and_score_execute_exact_methods(
     tmp_path: Path,
 ) -> None:
-    from core.local_torch_device import expected_local_torch_device
     from core.workflow.document import WorkflowEdge, WorkflowNodeInstance
     from datatypes.candidate import CandidateCollection
     from datatypes.observation import ScoreCollection
@@ -646,9 +611,7 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
     structure_source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.proteinmpnn_3gb1_structure",
-        node_type_version="4.0.0",
         binding_id="contract_test.proteinmpnn_3gb1_structure.direct",
-        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -658,9 +621,7 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="10.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="12.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -693,22 +654,18 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
                 "structure_residue_axes",
             ),
         ),
-        binding_id="proteinmpnn.design.local",
-        binding_version="12.0.0",
-    )
+        binding_id="proteinmpnn.design.local")
     assert design_projection["status"] == "succeeded", design_events
     design_method = _method_for_binding(
         design_catalog,
         "proteinmpnn.design.local",
-        "12.0.0",
     )
     design_started = _assert_exact_execution(
         projection=design_projection,
         events=design_events,
         node_id="design",
         binding_id="proteinmpnn.design.local",
-        binding_version="12.0.0",
-        method_digest=design_method.contract_digest,
+        method_id=design_method.contract_id,
         expected_roles=("design_parent_0",),
     )
     design_output = next(
@@ -735,18 +692,14 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
         WorkflowNodeInstance(
             node_id="sequence-source",
             node_type_id="contract_test.proteinmpnn_3gb1_sequence",
-            node_type_version="4.0.0",
             binding_id="contract_test.proteinmpnn_3gb1_sequence.direct",
-            binding_version="4.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="score",
             node_type_id="proteinmpnn.score",
-            node_type_version="7.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="9.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -786,22 +739,18 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
                 "sequence_candidates",
             ),
         ),
-        binding_id="proteinmpnn.score.local",
-        binding_version="9.0.0",
-    )
+        binding_id="proteinmpnn.score.local")
     assert score_projection["status"] == "succeeded", score_events
     score_method = _method_for_binding(
         score_catalog,
         "proteinmpnn.score.local",
-        "9.0.0",
     )
     score_started = _assert_exact_execution(
         projection=score_projection,
         events=score_events,
         node_id="score",
         binding_id="proteinmpnn.score.local",
-        binding_version="9.0.0",
-        method_digest=score_method.contract_digest,
+        method_id=score_method.contract_id,
         expected_roles=("score_subject",),
     )
     score_output = next(
@@ -817,19 +766,17 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
     )
     assert type(scores) is ScoreCollection
     assert len(scores.entries) == 1
-    assert scores.entries[0].method.contract_digest == (
-        score_method.contract_digest
+    assert scores.entries[0].method.contract_id == (
+        score_method.contract_id
     )
     retain_service_run(
         "proteinmpnn-design",
-        catalog=design_catalog,
         service=design_service,
         projection=design_projection,
         events=design_events,
     )
     retain_service_run(
         "proteinmpnn-score",
-        catalog=score_catalog,
         service=score_service,
         projection=score_projection,
         events=score_events,
@@ -898,9 +845,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
             WorkflowNodeInstance(
                 node_id="import",
                 node_type_id="protein_io.import_structure",
-                node_type_version="6.0.0",
                 binding_id="protein_io.import_structure.direct",
-                binding_version="6.0.0",
                 node_parameters={"project_input_ref": "structure-input"},
                 binding_parameters={},
             ),
@@ -909,23 +854,19 @@ def test_mkdssp_executes_exact_method_through_public_run(
                 node_type_id=(
                     "structure_transform.resolve_candidate_residue_axes"
                 ),
-                node_type_version="6.0.0",
                 binding_id=(
                     "structure_transform."
                     "resolve_candidate_residue_axes.direct"
                 ),
-                binding_version="6.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
             WorkflowNodeInstance(
                 node_id="annotate",
                 node_type_id="structure_annotation.dssp_compute",
-                node_type_version="7.0.0",
                 binding_id=(
                     "structure_annotation.dssp_compute.mkdssp_local"
                 ),
-                binding_version="7.0.0",
                 node_parameters={},
                 binding_parameters={},
             ),
@@ -949,9 +890,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
                 "annotate",
                 "residue_axes",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -966,9 +905,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
             admit_environment_configuration(
                 catalog,
                 {
-                    (binding_id, "7.0.0"): {
-                        "values": {"dssp_binary": str(binary)},
-                    }
+                    binding_id: {"dssp_binary": str(binary)},
                 }
             ),
             result_store(projects),
@@ -1082,19 +1019,17 @@ def test_mkdssp_executes_exact_method_through_public_run(
         87.8,
     )
 
-    method = _method_for_binding(catalog, binding_id, "7.0.0")
+    method = _method_for_binding(catalog, binding_id)
     _assert_exact_execution(
         projection=projection,
         events=events,
         node_id="annotate",
         binding_id=binding_id,
-        binding_version="7.0.0",
-        method_digest=method.contract_digest,
+        method_id=method.contract_id,
         expected_roles=("primary",),
     )
     retain_service_run(
         "mkdssp",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,

@@ -1,5 +1,4 @@
 - method_id: collection_ops.concat_candidates.method
-  version: 2.1.0
   algorithm_identity:
     name: concat_candidates
     input_partition_order:
@@ -10,16 +9,11 @@
     duplicate_policy: reject-candidate-partition-collision
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: collection_ops.merge_scores.method
-  version: 2.1.0
   algorithm_identity:
     name: merge_scores
     input_partition_order:
@@ -30,16 +24,11 @@
     duplicate_policy: deduplicate-identical-observation-only
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: collection_ops.concat_pairings.method
-  version: 3.0.0
   algorithm_identity:
     name: concat_pairings
     input_partition_order:
@@ -54,16 +43,11 @@
       cardinality: one-to-one
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: collection_ops.pair_siblings_by_parent.method
-  version: 3.0.0
   algorithm_identity:
     name: pair_siblings_by_parent
     input_partition_order:
@@ -77,16 +61,11 @@
       cardinality: one-to-one
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: collection_ops.rebind_candidate_pairing.method
-  version: 3.0.0
   algorithm_identity:
     name: rebind_candidate_pairing
     input_partition_order:
@@ -102,16 +81,11 @@
       cardinality: one-to-one
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: collection_ops.take_candidates.method
-  version: 2.1.0
   algorithm_identity:
     name: take_candidates
     input_partition_order:
@@ -120,16 +94,11 @@
     duplicate_policy: preserve-exact-ordered-prefix
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: collection_ops.select_children_by_parent.method
-  version: 2.1.0
   algorithm_identity:
     name: select_children_by_parent
     input_partition_order:
@@ -139,16 +108,11 @@
     duplicate_policy: exact-single-parent-membership
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: collection_ops.intersect_candidates.method
-  version: 2.1.0
   algorithm_identity:
     name: intersect_candidates
     input_partition_order:
@@ -160,11 +124,7 @@
     duplicate_policy: exact-candidate-equality
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     kind: identity
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity

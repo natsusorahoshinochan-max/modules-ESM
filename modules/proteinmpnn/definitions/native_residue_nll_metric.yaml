@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 metric_id: proteinmpnn.native_residue_nll
-version: "3.0.0"
 title: ProteinMPNN native residue negative log-likelihood
 description: ProteinMPNN provider-native negative log-likelihood on each position of the exact resolved-structure residue axis before the scoring mask is reduced.
 value_shape: per_residue

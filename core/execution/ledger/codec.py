@@ -8,13 +8,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 import json
-import re
 from typing import Any, cast
 
-from core.catalog.canonical import (
-    canonical_json_bytes,
-    canonical_sha256,
-)
 from core.execution.ledger.facts import (
     AvailabilityBound,
     CancellationRequested,
@@ -63,16 +58,6 @@ from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import freeze_i_json, thaw_i_json
 
 
-TRANSACTION_NAMESPACE = "protein-workbench-run-ledger-transaction/v5"
-TRANSACTION_SCHEMA_VERSION = "5.0.0"
-CURSOR_NAMESPACE = "protein-workbench-run-cursor/v2"
-RUN_SCOPE_NAMESPACE = "protein-workbench-run-scope/v2"
-CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
-READINESS_ATTESTATION_NAMESPACE = (
-    "protein-workbench-readiness-attestation/v2"
-)
-
-
 @dataclass(frozen=True, slots=True)
 class LedgerTransaction:
     project_id: str
@@ -86,9 +71,9 @@ class LedgerTransaction:
 
 @dataclass(frozen=True, slots=True)
 class DecodedCursor:
-    scope_digest: str
+    project_id: str
+    run_id: str
     sequence: int
-    fact_digest: str
 
 
 def is_timestamp(value: object) -> bool:
@@ -102,7 +87,7 @@ def is_timestamp(value: object) -> bool:
 
 
 def _mapping(value: object, fields: set[str]) -> Mapping[str, Any]:
-    if not isinstance(value, Mapping) or set(value) != fields:
+    if not isinstance(value, Mapping) or not fields <= set(value):
         raise ValueError("Run Ledger typed payload has invalid fields")
     return value
 
@@ -111,55 +96,14 @@ def _reference_to_canonical(value: ExactContractReference) -> dict[str, str]:
     return {
         "contract_kind": value.contract_kind,
         "contract_id": value.contract_id,
-        "contract_version": value.contract_version,
-        "contract_digest": value.contract_digest,
     }
 
 
 def _reference_from_canonical(value: object) -> ExactContractReference:
-    raw = _mapping(
-        value,
-        {"contract_kind", "contract_id", "contract_version", "contract_digest"},
-    )
+    raw = _mapping(value, {"contract_kind", "contract_id"})
     return ExactContractReference(
         contract_kind=cast(str, raw["contract_kind"]),
         contract_id=cast(str, raw["contract_id"]),
-        contract_version=cast(str, raw["contract_version"]),
-        contract_digest=cast(str, raw["contract_digest"]),
-    )
-
-
-def contract_lock_digest(
-    references: tuple[ExactContractReference, ...],
-) -> str:
-    return canonical_sha256(
-        {
-            "schema_namespace": CONTRACT_LOCK_NAMESPACE,
-            "entries": [
-                _reference_to_canonical(reference)
-                for reference in references
-            ],
-        }
-    )
-
-
-def readiness_attestation_digest(
-    *,
-    binding: ExactContractReference,
-    readiness_contract_digest: str,
-    observed_at: str,
-    conclusion: str,
-    proof_source: str,
-) -> str:
-    return canonical_sha256(
-        {
-            "schema_namespace": READINESS_ATTESTATION_NAMESPACE,
-            "binding": _reference_to_canonical(binding),
-            "readiness_contract_digest": readiness_contract_digest,
-            "observed_at": observed_at,
-            "conclusion": conclusion,
-            "proof_source": proof_source,
-        }
     )
 
 
@@ -244,14 +188,11 @@ def _plan_node_to_canonical(value: PlanNodeEvidence) -> dict[str, Any]:
             _required_input_to_canonical(item)
             for item in value.required_input_sources
         ],
-        "result_identity_plan_facts_digest": (
-            value.result_identity_plan_facts_digest
-        ),
+        "node_type": _reference_to_canonical(value.node_type),
         "binding": _reference_to_canonical(value.binding),
+        "method": _reference_to_canonical(value.method),
         "execution_route": value.execution_route,
     }
-    if value.node_type is not None:
-        result["node_type"] = _reference_to_canonical(value.node_type)
     if value.artifact_outputs:
         result["artifact_outputs"] = [
             _artifact_output_to_canonical(item)
@@ -269,15 +210,12 @@ def _plan_node_from_canonical(value: object) -> PlanNodeEvidence:
         "node_id",
         "dependencies",
         "required_input_sources",
-        "result_identity_plan_facts_digest",
+        "node_type",
         "binding",
+        "method",
         "execution_route",
     }
-    if not required <= set(value) or set(value) - required - {
-        "node_type",
-        "artifact_outputs",
-        "selection_consumer",
-    }:
+    if not required <= set(value):
         raise ValueError("Run plan node is invalid")
     dependencies = value["dependencies"]
     required_inputs = value["required_input_sources"]
@@ -289,11 +227,8 @@ def _plan_node_from_canonical(value: object) -> PlanNodeEvidence:
     ):
         raise ValueError("Run plan node is invalid")
     binding = _reference_from_canonical(value["binding"])
-    node_type = (
-        _reference_from_canonical(value["node_type"])
-        if "node_type" in value
-        else None
-    )
+    node_type = _reference_from_canonical(value["node_type"])
+    method = _reference_from_canonical(value["method"])
     parsed_required = tuple(
         _required_input_from_canonical(item) for item in required_inputs
     )
@@ -304,13 +239,10 @@ def _plan_node_from_canonical(value: object) -> PlanNodeEvidence:
         node_id=cast(str, value["node_id"]),
         dependencies=tuple(cast(list[str], dependencies)),
         required_input_sources=parsed_required,
-        result_identity_plan_facts_digest=cast(
-            str,
-            value["result_identity_plan_facts_digest"],
-        ),
-        binding=binding,
-        execution_route=cast(Any, value["execution_route"]),
         node_type=node_type,
+        binding=binding,
+        method=method,
+        execution_route=cast(Any, value["execution_route"]),
         artifact_outputs=parsed_artifacts,
         selection_consumer=value.get("selection_consumer", False),
     )
@@ -359,13 +291,11 @@ def _object_from_canonical(value: object) -> ImmutableObjectReference:
 
 def _output_to_canonical(value: PublishedOutput) -> dict[str, Any]:
     return {
-        "node_id": value.node_id,
         "output_port": value.output_port,
         "port_type": _reference_to_canonical(value.port_type),
         "content_digest": value.content_digest,
-        "result_identity": value.result_identity,
         "materialization": thaw_i_json(value.materialization),
-        "producer_provenance": thaw_i_json(value.producer_provenance),
+        "producer_run_id": value.producer_run_id,
         "value_count": value.value_count,
         "value_manifest_reference": value.value_manifest_reference,
     }
@@ -375,19 +305,17 @@ def _output_from_canonical(value: object) -> PublishedOutput:
     raw = _mapping(
         value,
         {
-            "node_id", "output_port", "port_type", "content_digest",
-            "result_identity", "materialization", "producer_provenance",
+            "output_port", "port_type", "content_digest",
+            "materialization", "producer_run_id",
             "value_count", "value_manifest_reference",
         },
     )
     return PublishedOutput(
-        node_id=cast(str, raw["node_id"]),
         output_port=cast(str, raw["output_port"]),
         port_type=_reference_from_canonical(raw["port_type"]),
         content_digest=cast(str, raw["content_digest"]),
-        result_identity=cast(str, raw["result_identity"]),
         materialization=raw["materialization"],
-        producer_provenance=raw["producer_provenance"],
+        producer_run_id=cast(str, raw["producer_run_id"]),
         value_count=cast(int, raw["value_count"]),
         value_manifest_reference=cast(str, raw["value_manifest_reference"]),
     )
@@ -397,7 +325,6 @@ def _artifact_to_canonical(value: PublishedArtifact) -> dict[str, Any]:
     result = {
         "artifact_reference": value.artifact_reference,
         "artifact_kind": value.artifact_kind,
-        "node_id": value.node_id,
         "output_port": value.output_port,
         "media_type": value.media_type,
         "filename": value.filename,
@@ -413,18 +340,14 @@ def _artifact_from_canonical(value: object) -> PublishedArtifact:
     if not isinstance(value, Mapping):
         raise ValueError("Run Ledger Artifact is invalid")
     required = {
-        "artifact_reference", "artifact_kind", "node_id", "output_port",
+        "artifact_reference", "artifact_kind", "output_port",
         "media_type", "filename", "size", "content_digest",
     }
-    if frozenset(value) not in {
-        frozenset(required),
-        frozenset(required | {"candidate_id"}),
-    }:
+    if not required <= value.keys():
         raise ValueError("Run Ledger Artifact is invalid")
     return PublishedArtifact(
         artifact_reference=cast(str, value["artifact_reference"]),
         artifact_kind=cast(Any, value["artifact_kind"]),
-        node_id=cast(str, value["node_id"]),
         output_port=cast(str, value["output_port"]),
         media_type=cast(str, value["media_type"]),
         filename=cast(str, value["filename"]),
@@ -477,9 +400,12 @@ def _context_from_canonical(value: object) -> ContextSelectorEvidence:
         },
     }
     kind = value["kind"]
-    if type(kind) is not str or set(value) != fields_by_kind.get(kind):
+    fields = fields_by_kind.get(kind)
+    if type(kind) is not str or fields is None or not fields <= value.keys():
         raise ValueError("Selection Context evidence is invalid")
-    return ContextSelectorEvidence(**dict(value))
+    return ContextSelectorEvidence(
+        **{name: value[name] for name in fields}
+    )
 
 
 def _objective_to_canonical(value: SelectionObjectiveEvidence) -> dict[str, Any]:
@@ -578,9 +504,14 @@ def _selection_to_canonical(value: SelectionResult) -> dict[str, Any]:
         "selected_candidate_ids": list(value.selected_candidate_ids),
     }
     if value.objectives:
-        result["objectives"] = [_objective_to_canonical(item) for item in value.objectives]
+        result["objectives"] = [
+            _objective_to_canonical(item) for item in value.objectives
+        ]
     if value.observation_selectors:
-        result["observation_selectors"] = [_selector_to_canonical(item) for item in value.observation_selectors]
+        result["observation_selectors"] = [
+            _selector_to_canonical(item)
+            for item in value.observation_selectors
+        ]
     return result
 
 
@@ -595,10 +526,16 @@ def _selection_from_canonical(value: object) -> SelectionResult:
         "selected_collection_id",
         "selected_candidate_ids",
     }
-    if set(value) not in {
-        frozenset(required | {"objectives"}),
-        frozenset(required | {"observation_selectors"}),
-    } or not isinstance(value["selected_candidate_ids"], list):
+    nested_fields = {
+        name
+        for name in ("objectives", "observation_selectors")
+        if name in value
+    }
+    if (
+        not required <= value.keys()
+        or len(nested_fields) != 1
+        or not isinstance(value["selected_candidate_ids"], list)
+    ):
         raise ValueError("Selection result is invalid")
     nested_key = (
         "objectives" if "objectives" in value else "observation_selectors"
@@ -608,11 +545,21 @@ def _selection_from_canonical(value: object) -> SelectionResult:
     return SelectionResult(
         selection_node_id=cast(str, value["selection_node_id"]),
         selection_method=_reference_from_canonical(value["selection_method"]),
-        candidate_input=_selection_input_from_canonical(value["candidate_input"]),
+        candidate_input=_selection_input_from_canonical(
+            value["candidate_input"]
+        ),
         selected_collection_id=cast(str, value["selected_collection_id"]),
-        selected_candidate_ids=tuple(cast(list[str], value["selected_candidate_ids"])),
-        objectives=tuple(_objective_from_canonical(item) for item in value.get("objectives", [])),
-        observation_selectors=tuple(_selector_from_canonical(item) for item in value.get("observation_selectors", [])),
+        selected_candidate_ids=tuple(
+            cast(list[str], value["selected_candidate_ids"])
+        ),
+        objectives=tuple(
+            _objective_from_canonical(item)
+            for item in value.get("objectives", [])
+        ),
+        observation_selectors=tuple(
+            _selector_from_canonical(item)
+            for item in value.get("observation_selectors", [])
+        ),
     )
 
 
@@ -658,17 +605,31 @@ def _provenance_from_canonical(value: object) -> EngineInvocationProvenance:
             InvocationRandomness(
                 control=randomness["control"],
                 effective_seed=randomness.get("effective_seed"),
-            ) if isinstance(randomness, Mapping) else None
+            )
+            if isinstance(randomness, Mapping)
+            else None
         ),
-        project_input_filename=cast(str | None, value.get("project_input_filename")),
+        project_input_filename=cast(
+            str | None,
+            value.get("project_input_filename"),
+        ),
         provider_residue_projection=(
             ProviderResidueProjection(
-                workbench_chain_order=tuple(projection["workbench_chain_order"]),
-                provider_structure_chain_order=tuple(projection["provider_structure_chain_order"]),
+                workbench_chain_order=tuple(
+                    projection["workbench_chain_order"]
+                ),
+                provider_structure_chain_order=tuple(
+                    projection["provider_structure_chain_order"]
+                ),
                 provider_chain_order=tuple(projection["provider_chain_order"]),
-                entries=tuple(ProviderResidueProjectionEntry(**entry) for entry in projection["entries"]),
+                entries=tuple(
+                    ProviderResidueProjectionEntry(**entry)
+                    for entry in projection["entries"]
+                ),
                 position_semantics=projection["position_semantics"],
-            ) if isinstance(projection, Mapping) else None
+            )
+            if isinstance(projection, Mapping)
+            else None
         ),
     )
 
@@ -703,13 +664,6 @@ def payload_to_canonical(payload: FactPayload) -> dict[str, Any]:
             "project_id": payload.project_id,
             "run_id": payload.run_id,
             "workflow_commit_id": payload.workflow_commit_id,
-            "workflow_commit_revision": payload.workflow_commit_revision,
-            "workflow_digest": payload.workflow_digest,
-            "contract_lock_digest": payload.contract_lock_digest,
-            "execution_plan_digest": payload.execution_plan_digest,
-            "catalog_contract_digest": payload.catalog_contract_digest,
-            "resolved_contracts": [_reference_to_canonical(item) for item in payload.resolved_contracts],
-            "resolved_contract_roots": [_reference_to_canonical(item) for item in payload.resolved_contract_roots],
             "plan_nodes": [
                 _plan_node_to_canonical(item) for item in payload.plan_nodes
             ],
@@ -719,121 +673,334 @@ def payload_to_canonical(payload: FactPayload) -> dict[str, Any]:
             result["derived_from"] = {
                 "source_run_id": payload.derived_from.source_run_id,
                 "policy": payload.derived_from.policy,
-                "selected_node_ids": list(payload.derived_from.selected_node_ids),
-                "forced_node_ids": list(payload.derived_from.forced_node_ids),
+                "selected_node_ids": list(
+                    payload.derived_from.selected_node_ids
+                ),
+                "forced_node_ids": list(
+                    payload.derived_from.forced_node_ids
+                ),
             }
         return result
     if isinstance(payload, AvailabilityBound):
-        return {"binding": _reference_to_canonical(payload.binding), "catalog_observed_at": payload.catalog_observed_at, "available": payload.available}
+        return {
+            "binding": _reference_to_canonical(payload.binding),
+            "catalog_observed_at": payload.catalog_observed_at,
+            "available": payload.available,
+        }
     if isinstance(payload, ReadinessAttested):
-        return {"binding": _reference_to_canonical(payload.binding), "readiness_contract_digest": payload.readiness_contract_digest, "observed_at": payload.observed_at, "conclusion": payload.conclusion, "proof_source": payload.proof_source, "attestation_digest": payload.attestation_digest}
+        return {
+            "binding": _reference_to_canonical(payload.binding),
+            "observed_at": payload.observed_at,
+            "conclusion": payload.conclusion,
+            "proof_source": payload.proof_source,
+        }
     if isinstance(payload, RunAdmitted):
-        return {"workflow_commit_id": payload.workflow_commit_id, "workflow_commit_revision": payload.workflow_commit_revision}
-    if isinstance(payload, RunStarted): return {"started_at": payload.started_at}
-    if isinstance(payload, CancellationRequested): return {"requested_at": payload.requested_at}
-    if isinstance(payload, NodeAttemptStarted): return {"node_id": payload.node_id, "node_attempt_id": payload.node_attempt_id}
-    if isinstance(payload, OperationAttemptStarted): return {"operation_attempt_id": payload.operation_attempt_id, "node_attempt_id": payload.node_attempt_id}
+        return {"workflow_commit_id": payload.workflow_commit_id}
+    if isinstance(payload, RunStarted):
+        return {"started_at": payload.started_at}
+    if isinstance(payload, CancellationRequested):
+        return {"requested_at": payload.requested_at}
+    if isinstance(payload, NodeAttemptStarted):
+        return {
+            "node_id": payload.node_id,
+            "node_attempt_id": payload.node_attempt_id,
+        }
+    if isinstance(payload, OperationAttemptStarted):
+        return {
+            "operation_attempt_id": payload.operation_attempt_id,
+            "node_attempt_id": payload.node_attempt_id,
+        }
     if isinstance(payload, EngineInvocationStarted):
-        result = {"invocation_id": payload.invocation_id, "operation_attempt_id": payload.operation_attempt_id, "engine_role": payload.engine_role, "engine_identity": payload.engine_identity}
-        if payload.parent_invocation_id is not None: result["parent_invocation_id"] = payload.parent_invocation_id
-        if payload.provenance is not None: result["invocation_provenance"] = _provenance_to_canonical(payload.provenance)
+        result = {
+            "invocation_id": payload.invocation_id,
+            "operation_attempt_id": payload.operation_attempt_id,
+            "engine_role": payload.engine_role,
+            "engine_identity": payload.engine_identity,
+        }
+        if payload.parent_invocation_id is not None:
+            result["parent_invocation_id"] = payload.parent_invocation_id
+        if payload.provenance is not None:
+            result["invocation_provenance"] = _provenance_to_canonical(
+                payload.provenance
+            )
         return result
     if isinstance(payload, EngineInvocationTerminal):
-        result = {"invocation_id": payload.invocation_id, "status": payload.status}
-        if payload.error is not None: result["error"] = _error_to_canonical(payload.error)
+        result = {
+            "invocation_id": payload.invocation_id,
+            "status": payload.status,
+        }
+        if payload.error is not None:
+            result["error"] = _error_to_canonical(payload.error)
         return result
     if isinstance(payload, OutputsPublished):
-        return {"node_id": payload.node_id, "result_identity": payload.result_identity, "node_result_manifest": _object_to_canonical(payload.node_result_manifest), "outputs": [_output_to_canonical(item) for item in payload.outputs], "artifacts": [_artifact_to_canonical(item) for item in payload.artifacts]}
+        return {
+            "node_id": payload.node_id,
+            "result_identity": payload.result_identity,
+            "node_result_manifest": _object_to_canonical(
+                payload.node_result_manifest
+            ),
+            "outputs": [
+                _output_to_canonical(item) for item in payload.outputs
+            ],
+            "artifacts": [
+                _artifact_to_canonical(item) for item in payload.artifacts
+            ],
+        }
     if isinstance(payload, OperationAttemptTerminal):
-        result = {"operation_attempt_id": payload.operation_attempt_id, "status": payload.status}
-        if payload.error is not None: result["error"] = _error_to_canonical(payload.error)
+        result = {
+            "operation_attempt_id": payload.operation_attempt_id,
+            "status": payload.status,
+        }
+        if payload.error is not None:
+            result["error"] = _error_to_canonical(payload.error)
         return result
     if isinstance(payload, NodeAttemptTerminal):
-        result = {"node_attempt_id": payload.node_attempt_id, "status": payload.status, "resolution": payload.resolution}
-        if payload.error is not None: result["error"] = _error_to_canonical(payload.error)
-        if payload.failure_origin is not None: result["failure_origin"] = payload.failure_origin
+        result = {
+            "node_attempt_id": payload.node_attempt_id,
+            "status": payload.status,
+            "resolution": payload.resolution,
+        }
+        if payload.error is not None:
+            result["error"] = _error_to_canonical(payload.error)
+        if payload.failure_origin is not None:
+            result["failure_origin"] = payload.failure_origin
         return result
     if isinstance(payload, NodeDisposition):
-        result = {"node_id": payload.node_id, "outcome": payload.outcome, "blocked_by": list(payload.blocked_by)}
-        if payload.resolution is not None: result["resolution"] = payload.resolution
+        result = {
+            "node_id": payload.node_id,
+            "outcome": payload.outcome,
+            "blocked_by": list(payload.blocked_by),
+        }
+        if payload.resolution is not None:
+            result["resolution"] = payload.resolution
         return result
     if isinstance(payload, SelectionTerminal):
         result = {"status": payload.status}
-        if payload.result is not None: result["result"] = _selection_to_canonical(payload.result)
-        if payload.error is not None: result["error"] = _error_to_canonical(payload.error)
+        if payload.result is not None:
+            result["result"] = _selection_to_canonical(payload.result)
+        if payload.error is not None:
+            result["error"] = _error_to_canonical(payload.error)
         return result
-    if isinstance(payload, RunTerminal): return {"status": payload.status}
+    if isinstance(payload, RunTerminal):
+        return {"status": payload.status}
     raise TypeError("Unknown typed Ledger fact")
 
 
 def _payload_from_canonical(kind: str, value: object) -> FactPayload:
-    if not isinstance(value, Mapping): raise ValueError("Ledger payload is invalid")
+    if not isinstance(value, Mapping):
+        raise ValueError("Ledger payload is invalid")
     v = value
     if kind == "run_scope_bound":
         derived = v.get("derived_from")
         return RunScopeBound(
-            project_id=v["project_id"], run_id=v["run_id"], workflow_commit_id=v["workflow_commit_id"], workflow_commit_revision=v["workflow_commit_revision"], workflow_digest=v["workflow_digest"], contract_lock_digest=v["contract_lock_digest"], execution_plan_digest=v["execution_plan_digest"], catalog_contract_digest=v["catalog_contract_digest"],
-            resolved_contracts=tuple(_reference_from_canonical(item) for item in v["resolved_contracts"]), resolved_contract_roots=tuple(_reference_from_canonical(item) for item in v["resolved_contract_roots"]), plan_nodes=_plan_evidence_from_canonical(v["plan_nodes"]), selection_terminal_keys=tuple(v["selection_terminal_keys"]),
-            derived_from=(DerivedRunReference(source_run_id=derived["source_run_id"], policy=derived["policy"], selected_node_ids=tuple(derived["selected_node_ids"]), forced_node_ids=tuple(derived["forced_node_ids"])) if isinstance(derived, Mapping) else None),
+            project_id=v["project_id"],
+            run_id=v["run_id"],
+            workflow_commit_id=v["workflow_commit_id"],
+            plan_nodes=_plan_evidence_from_canonical(v["plan_nodes"]),
+            selection_terminal_keys=tuple(v["selection_terminal_keys"]),
+            derived_from=(
+                DerivedRunReference(
+                    source_run_id=derived["source_run_id"],
+                    policy=derived["policy"],
+                    selected_node_ids=tuple(derived["selected_node_ids"]),
+                    forced_node_ids=tuple(derived["forced_node_ids"]),
+                )
+                if isinstance(derived, Mapping)
+                else None
+            ),
         )
-    if kind == "availability_bound": return AvailabilityBound(_reference_from_canonical(v["binding"]), v["catalog_observed_at"], v["available"])
-    if kind == "readiness_attested": return ReadinessAttested(_reference_from_canonical(v["binding"]), v["readiness_contract_digest"], v["observed_at"], v["conclusion"], v["proof_source"], v["attestation_digest"])
-    if kind == "run_admitted": return RunAdmitted(v["workflow_commit_id"], v["workflow_commit_revision"])
-    if kind == "run_started": return RunStarted(v["started_at"])
-    if kind == "cancellation_requested": return CancellationRequested(v["requested_at"])
-    if kind == "node_attempt_started": return NodeAttemptStarted(v["node_id"], v["node_attempt_id"])
-    if kind == "operation_attempt_started": return OperationAttemptStarted(v["operation_attempt_id"], v["node_attempt_id"])
-    if kind == "engine_invocation_started": return EngineInvocationStarted(v["invocation_id"], v["operation_attempt_id"], v["engine_role"], v["engine_identity"], v.get("parent_invocation_id"), _provenance_from_canonical(v["invocation_provenance"]) if "invocation_provenance" in v else None)
-    if kind == "engine_invocation_terminal": return EngineInvocationTerminal(v["invocation_id"], v["status"], _error_from_canonical(v["error"]) if "error" in v else None)
-    if kind == "outputs_published": return OutputsPublished(v["node_id"], v["result_identity"], _object_from_canonical(v["node_result_manifest"]), tuple(_output_from_canonical(item) for item in v["outputs"]), tuple(_artifact_from_canonical(item) for item in v["artifacts"]))
-    if kind == "operation_attempt_terminal": return OperationAttemptTerminal(v["operation_attempt_id"], v["status"], _error_from_canonical(v["error"]) if "error" in v else None)
-    if kind == "node_attempt_terminal": return NodeAttemptTerminal(v["node_attempt_id"], v["status"], v["resolution"], _error_from_canonical(v["error"]) if "error" in v else None, v.get("failure_origin"))
-    if kind == "node_disposition": return NodeDisposition(v["node_id"], v["outcome"], tuple(v["blocked_by"]), v.get("resolution"))
-    if kind == "selection_terminal": return SelectionTerminal(v["status"], _selection_from_canonical(v["result"]) if "result" in v else None, _error_from_canonical(v["error"]) if "error" in v else None)
-    if kind == "run_terminal": return RunTerminal(v["status"])
+    if kind == "availability_bound":
+        return AvailabilityBound(
+            _reference_from_canonical(v["binding"]),
+            v["catalog_observed_at"],
+            v["available"],
+        )
+    if kind == "readiness_attested":
+        return ReadinessAttested(
+            _reference_from_canonical(v["binding"]),
+            v["observed_at"],
+            v["conclusion"],
+            v["proof_source"],
+        )
+    if kind == "run_admitted":
+        return RunAdmitted(v["workflow_commit_id"])
+    if kind == "run_started":
+        return RunStarted(v["started_at"])
+    if kind == "cancellation_requested":
+        return CancellationRequested(v["requested_at"])
+    if kind == "node_attempt_started":
+        return NodeAttemptStarted(v["node_id"], v["node_attempt_id"])
+    if kind == "operation_attempt_started":
+        return OperationAttemptStarted(
+            v["operation_attempt_id"],
+            v["node_attempt_id"],
+        )
+    if kind == "engine_invocation_started":
+        return EngineInvocationStarted(
+            v["invocation_id"],
+            v["operation_attempt_id"],
+            v["engine_role"],
+            v["engine_identity"],
+            v.get("parent_invocation_id"),
+            (
+                _provenance_from_canonical(v["invocation_provenance"])
+                if "invocation_provenance" in v
+                else None
+            ),
+        )
+    if kind == "engine_invocation_terminal":
+        return EngineInvocationTerminal(
+            v["invocation_id"],
+            v["status"],
+            _error_from_canonical(v["error"]) if "error" in v else None,
+        )
+    if kind == "outputs_published":
+        return OutputsPublished(
+            v["node_id"],
+            v["result_identity"],
+            _object_from_canonical(v["node_result_manifest"]),
+            tuple(_output_from_canonical(item) for item in v["outputs"]),
+            tuple(_artifact_from_canonical(item) for item in v["artifacts"]),
+        )
+    if kind == "operation_attempt_terminal":
+        return OperationAttemptTerminal(
+            v["operation_attempt_id"],
+            v["status"],
+            _error_from_canonical(v["error"]) if "error" in v else None,
+        )
+    if kind == "node_attempt_terminal":
+        return NodeAttemptTerminal(
+            v["node_attempt_id"],
+            v["status"],
+            v["resolution"],
+            _error_from_canonical(v["error"]) if "error" in v else None,
+            v.get("failure_origin"),
+        )
+    if kind == "node_disposition":
+        return NodeDisposition(
+            v["node_id"],
+            v["outcome"],
+            tuple(v["blocked_by"]),
+            v.get("resolution"),
+        )
+    if kind == "selection_terminal":
+        return SelectionTerminal(
+            v["status"],
+            (
+                _selection_from_canonical(v["result"])
+                if "result" in v
+                else None
+            ),
+            _error_from_canonical(v["error"]) if "error" in v else None,
+        )
+    if kind == "run_terminal":
+        return RunTerminal(v["status"])
     raise ValueError("Unknown Ledger fact type")
 
 
 def payload_from_canonical(kind: str, value: object) -> FactPayload:
-    """Decode one exact canonical payload into the closed Fact union."""
+    """Decode the fields needed by one typed Ledger fact."""
     payload = _payload_from_canonical(kind, value)
-    if (
-        not isinstance(value, Mapping)
-        or canonical_json_bytes(payload_to_canonical(payload))
-        != canonical_json_bytes(dict(value))
-    ):
-        raise ValueError("Run Ledger fact payload is not canonical")
     validate_fact_payload(payload)
     return payload
 
 
 def fact_to_canonical(fact: Fact) -> dict[str, Any]:
-    return {"sequence": fact.sequence, "recorded_at": fact.recorded_at, "fact_type": fact_type(fact.payload), "payload": payload_to_canonical(fact.payload)}
+    return {
+        "sequence": fact.sequence,
+        "recorded_at": fact.recorded_at,
+        "fact_type": fact_type(fact.payload),
+        "payload": payload_to_canonical(fact.payload),
+    }
 
 
 def fact_from_canonical(value: object) -> Fact:
     raw = _mapping(value, {"sequence", "recorded_at", "fact_type", "payload"})
-    if type(raw["sequence"]) is not int or raw["sequence"] < 1 or not is_timestamp(raw["recorded_at"]) or not isinstance(raw["fact_type"], str):
+    if (
+        type(raw["sequence"]) is not int
+        or raw["sequence"] < 1
+        or not is_timestamp(raw["recorded_at"])
+        or not isinstance(raw["fact_type"], str)
+    ):
         raise ValueError("Run Ledger fact is invalid")
-    return Fact(raw["sequence"], raw["recorded_at"], payload_from_canonical(raw["fact_type"], raw["payload"]))
+    return Fact(
+        raw["sequence"],
+        raw["recorded_at"],
+        payload_from_canonical(raw["fact_type"], raw["payload"]),
+    )
 
 
 def transaction_to_canonical(transaction: LedgerTransaction) -> dict[str, Any]:
-    return {"schema_namespace": TRANSACTION_NAMESPACE, "schema_version": TRANSACTION_SCHEMA_VERSION, "project_id": transaction.project_id, "run_id": transaction.run_id, "transaction_sequence": transaction.transaction_sequence, "first_fact_sequence": transaction.first_fact_sequence, "last_fact_sequence": transaction.last_fact_sequence, "committed_at": transaction.committed_at, "facts": [fact_to_canonical(fact) for fact in transaction.facts]}
+    return {
+        "project_id": transaction.project_id,
+        "run_id": transaction.run_id,
+        "transaction_sequence": transaction.transaction_sequence,
+        "first_fact_sequence": transaction.first_fact_sequence,
+        "last_fact_sequence": transaction.last_fact_sequence,
+        "committed_at": transaction.committed_at,
+        "facts": [fact_to_canonical(fact) for fact in transaction.facts],
+    }
 
 
 def encode_transaction(transaction: LedgerTransaction) -> bytes:
-    return canonical_json_bytes(transaction_to_canonical(transaction))
+    return json.dumps(
+        transaction_to_canonical(transaction),
+        ensure_ascii=False,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
 
 
-def decode_transaction(encoded: bytes, *, expected_project_id: str, expected_run_id: str, expected_transaction_sequence: int, expected_first_fact_sequence: int) -> LedgerTransaction:
-    try: raw = json.loads(encoded)
-    except (UnicodeDecodeError, json.JSONDecodeError) as error: raise ValueError("Run Ledger transaction is invalid") from error
-    fields = {"schema_namespace", "schema_version", "project_id", "run_id", "transaction_sequence", "first_fact_sequence", "last_fact_sequence", "committed_at", "facts"}
-    if not isinstance(raw, Mapping) or set(raw) != fields or raw["schema_namespace"] != TRANSACTION_NAMESPACE or raw["schema_version"] != TRANSACTION_SCHEMA_VERSION or raw["project_id"] != expected_project_id or raw["run_id"] != expected_run_id or raw["transaction_sequence"] != expected_transaction_sequence or raw["first_fact_sequence"] != expected_first_fact_sequence or not is_timestamp(raw["committed_at"]) or not isinstance(raw["facts"], list) or not raw["facts"] or canonical_json_bytes(dict(raw)) != encoded: raise ValueError("Run Ledger transaction is invalid")
+def decode_transaction(
+    encoded: bytes,
+    *,
+    expected_project_id: str,
+    expected_run_id: str,
+    expected_transaction_sequence: int,
+    expected_first_fact_sequence: int,
+) -> LedgerTransaction:
+    try:
+        raw = json.loads(encoded)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("Run Ledger transaction is invalid") from error
+    fields = {
+        "project_id",
+        "run_id",
+        "transaction_sequence",
+        "first_fact_sequence",
+        "last_fact_sequence",
+        "committed_at",
+        "facts",
+    }
+    if (
+        not isinstance(raw, Mapping)
+        or not fields <= set(raw)
+        or raw["project_id"] != expected_project_id
+        or raw["run_id"] != expected_run_id
+        or raw["transaction_sequence"] != expected_transaction_sequence
+        or raw["first_fact_sequence"] != expected_first_fact_sequence
+        or not is_timestamp(raw["committed_at"])
+        or not isinstance(raw["facts"], list)
+        or not raw["facts"]
+    ):
+        raise ValueError("Run Ledger transaction is invalid")
     facts = tuple(fact_from_canonical(item) for item in raw["facts"])
-    if facts[0].sequence != raw["first_fact_sequence"] or facts[-1].sequence != raw["last_fact_sequence"] or tuple(f.sequence for f in facts) != tuple(range(facts[0].sequence, facts[-1].sequence + 1)): raise ValueError("Run Ledger fact sequence is invalid")
-    return LedgerTransaction(raw["project_id"], raw["run_id"], raw["transaction_sequence"], raw["first_fact_sequence"], raw["last_fact_sequence"], raw["committed_at"], facts)
+    if (
+        facts[0].sequence != raw["first_fact_sequence"]
+        or facts[-1].sequence != raw["last_fact_sequence"]
+        or tuple(fact.sequence for fact in facts)
+        != tuple(range(facts[0].sequence, facts[-1].sequence + 1))
+    ):
+        raise ValueError("Run Ledger fact sequence is invalid")
+    return LedgerTransaction(
+        raw["project_id"],
+        raw["run_id"],
+        raw["transaction_sequence"],
+        raw["first_fact_sequence"],
+        raw["last_fact_sequence"],
+        raw["committed_at"],
+        facts,
+    )
 
 
 def encode_cursor(
@@ -841,35 +1008,43 @@ def encode_cursor(
     *,
     project_id: str,
     run_id: str,
-    fact: Fact | None,
 ) -> RunCursor:
-    payload = canonical_json_bytes({"schema_namespace": CURSOR_NAMESPACE, "scope_digest": cursor_scope_digest(project_id, run_id), "sequence": sequence, "fact_digest": "origin" if fact is None else canonical_sha256(fact_to_canonical(fact))})
+    payload = json.dumps(
+        {"project_id": project_id, "run_id": run_id, "sequence": sequence},
+        separators=(",", ":"),
+    ).encode("utf-8")
     return RunCursor(
         "pw2."
         + base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
     )
 
-
-def cursor_scope_digest(project_id: str, run_id: str) -> str:
-    return canonical_sha256(
-        {
-            "schema_namespace": RUN_SCOPE_NAMESPACE,
-            "project_id": project_id,
-            "run_id": run_id,
-        }
-    )
-
-
 def decode_cursor(value: RunCursor) -> DecodedCursor:
     if type(value) is not RunCursor or not value.value.startswith("pw2."):
         raise ValueError("cursor prefix is invalid")
     encoded = value.value.removeprefix("pw2.")
-    if not encoded or re.fullmatch(r"[A-Za-z0-9_-]+", encoded) is None: raise ValueError("cursor encoding is invalid")
-    try: payload = json.loads(base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True))
-    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as error: raise ValueError("cursor encoding is invalid") from error
-    if not isinstance(payload, Mapping) or set(payload) != {"schema_namespace", "scope_digest", "sequence", "fact_digest"} or payload["schema_namespace"] != CURSOR_NAMESPACE or not isinstance(payload["scope_digest"], str) or type(payload["sequence"]) is not int or payload["sequence"] < 0 or not isinstance(payload["fact_digest"], str): raise ValueError("cursor payload is invalid")
+    if not encoded:
+        raise ValueError("cursor encoding is invalid")
+    try:
+        payload = json.loads(
+            base64.b64decode(
+                encoded + "=" * (-len(encoded) % 4),
+                altchars=b"-_",
+                validate=True,
+            )
+        )
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("cursor encoding is invalid") from error
+    if (
+        not isinstance(payload, Mapping)
+        or not {"project_id", "run_id", "sequence"} <= set(payload)
+        or not isinstance(payload["project_id"], str)
+        or not isinstance(payload["run_id"], str)
+        or type(payload["sequence"]) is not int
+        or payload["sequence"] < 0
+    ):
+        raise ValueError("cursor payload is invalid")
     return DecodedCursor(
-        scope_digest=payload["scope_digest"],
+        project_id=payload["project_id"],
+        run_id=payload["run_id"],
         sequence=payload["sequence"],
-        fact_digest=payload["fact_digest"],
     )

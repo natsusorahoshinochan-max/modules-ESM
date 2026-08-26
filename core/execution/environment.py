@@ -1,4 +1,4 @@
-"""One-time admission of exact Binding-scoped Environment Configuration."""
+"""One-time admission of Binding-scoped external configuration."""
 
 from __future__ import annotations
 
@@ -22,17 +22,16 @@ class EnvironmentConfigurationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentConfiguration:
-    """Admitted private values indexed by exact Binding identity."""
+    """Admitted private values indexed by stable Binding ID."""
 
-    _entries: Mapping[tuple[str, str], BindingEnvironment]
+    _entries: Mapping[str, BindingEnvironment]
 
     def for_binding(
         self,
         binding_id: str,
-        binding_version: str,
     ) -> BindingEnvironment:
         return self._entries.get(
-            (binding_id, binding_version),
+            binding_id,
             BindingEnvironment({}),
         )
 
@@ -68,40 +67,27 @@ def _admit_field_value(
 
 def admit_environment_configuration(
     catalog: FrozenCatalog,
-    raw_configuration: Mapping[
-        tuple[str, str],
-        Mapping[str, Any],
-    ],
+    raw_configuration: Mapping[str, Mapping[str, Any]],
 ) -> EnvironmentConfiguration:
-    """Admit raw configuration once against exact Catalog Binding fields."""
+    """Admit external fields once against stable Binding declarations."""
     if not isinstance(raw_configuration, Mapping):
         raise EnvironmentConfigurationError(
             "Environment Configuration must be an object"
         )
-    admitted: dict[tuple[str, str], BindingEnvironment] = {}
-    for identity, entry in raw_configuration.items():
-        if (
-            not isinstance(identity, tuple)
-            or len(identity) != 2
-            or any(type(part) is not str for part in identity)
-        ):
+    admitted: dict[str, BindingEnvironment] = {}
+    for binding_id, values in raw_configuration.items():
+        if type(binding_id) is not str:
             raise EnvironmentConfigurationError(
-                "Environment Configuration must use exact Binding identities"
+                "Environment Configuration must use stable Binding IDs"
             )
-        binding_id, binding_version = identity
-        contract = catalog.require_contract(
-            "binding",
-            binding_id,
-            binding_version,
-        )
-        if not isinstance(entry, Mapping) or set(entry) != {"values"}:
+        contract = catalog.get_contract("binding", binding_id)
+        if contract is None:
             raise EnvironmentConfigurationError(
-                "Each Environment Configuration entry must contain values"
+                f"Unknown Environment Configuration Binding {binding_id}"
             )
-        values = entry["values"]
         if not isinstance(values, Mapping):
             raise EnvironmentConfigurationError(
-                "Environment Configuration values must be an object"
+                "Environment Configuration entry must be an object"
             )
         binding = cast(ExecutionBindingDefinition, contract.definition)
         declarations = {
@@ -126,11 +112,9 @@ def admit_environment_configuration(
             name: _admit_field_value(
                 declarations[name],
                 value,
-                path=(
-                    f"environment:{binding_id}@{binding_version}.values.{name}"
-                ),
+                path=f"environment:{binding_id}.{name}",
             )
             for name, value in values.items()
         }
-        admitted[identity] = BindingEnvironment(admitted_values)
+        admitted[binding_id] = BindingEnvironment(admitted_values)
     return EnvironmentConfiguration(admitted)

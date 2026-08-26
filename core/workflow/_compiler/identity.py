@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any, cast
 
 from core.catalog.declarations import (
@@ -10,7 +9,6 @@ from core.catalog.declarations import (
     NodeTypeDefinition,
 )
 from core.catalog.model import FrozenCatalog, result_identity_contract
-from core.catalog.errors import ContractResolutionError
 from core.scoring.selection import (
     ObservationSelector,
     ResolvedObservationSelector,
@@ -21,7 +19,6 @@ from core.scoring.selection import (
     selection_objective_identity_canonical,
     selection_objective_identity_facts_from_facts,
 )
-from core.workflow.errors import WorkflowCompileError
 from core.workflow.plan import ResultIdentityPlanFacts
 
 
@@ -29,7 +26,6 @@ def _identity_without_digest(contract: Any) -> dict[str, str]:
     return {
         "contract_kind": contract.contract_kind,
         "contract_id": contract.contract_id,
-        "contract_version": contract.contract_version,
     }
 
 def _result_contracts_for_node(
@@ -39,27 +35,22 @@ def _result_contracts_for_node(
     selected_objectives: tuple[SelectionObjective, ...],
     selected_selectors: tuple[ObservationSelector, ...],
     catalog: FrozenCatalog,
-    resolved_by_key: Mapping[tuple[str, str, str], Any],
 ) -> tuple[Any, ...]:
+    binding_definition = cast(
+        ExecutionBindingDefinition,
+        binding_contract.definition,
+    )
     keys = {
-        (
-            node_contract.contract_kind,
-            node_contract.contract_id,
-            node_contract.contract_version,
-        ),
-        (
-            binding_contract.contract_kind,
-            binding_contract.contract_id,
-            binding_contract.contract_version,
-        ),
+        (node_contract.contract_kind, node_contract.contract_id),
+        binding_definition.method.key,
     }
+    keys.update(
+        observation.metric.key
+        for observation in binding_definition.produced_observations
+    )
     for objective in selected_objectives:
         keys.update(
-            (
-                reference.contract_kind,
-                reference.contract_id,
-                reference.contract_version,
-            )
+            reference.key
             for reference in (
                 objective.metric,
                 objective.method,
@@ -68,23 +59,10 @@ def _result_contracts_for_node(
         )
     for selector in selected_selectors:
         keys.update(
-            (
-                reference.contract_kind,
-                reference.contract_id,
-                reference.contract_version,
-            )
+            reference.key
             for reference in (selector.metric, selector.method)
         )
-    try:
-        references = catalog.resolve_contract_closure(
-            tuple(catalog.require_reference(*key) for key in sorted(keys))
-        )
-        return tuple(resolved_by_key[reference.key] for reference in references)
-    except (ContractResolutionError, KeyError) as error:
-        raise WorkflowCompileError(
-            "contract_lock_mismatch",
-            "Execution Plan result contract is outside the exact Lock",
-        ) from error
+    return tuple(catalog.require_contract(*key) for key in sorted(keys))
 
 def _result_identity_plan_facts(
     *,
@@ -119,7 +97,6 @@ def _result_identity_plan_facts(
                 "port_type": {
                     "contract_kind": port.port_type.contract_kind,
                     "contract_id": port.port_type.contract_id,
-                    "contract_version": port.port_type.contract_version,
                 },
                 "required": port.required,
                 "multiplicity": port.multiplicity,
@@ -133,7 +110,6 @@ def _result_identity_plan_facts(
                 "port_type": {
                     "contract_kind": port.port_type.contract_kind,
                     "contract_id": port.port_type.contract_id,
-                    "contract_version": port.port_type.contract_version,
                 },
                 "required": port.required,
                 "multiplicity": port.multiplicity,

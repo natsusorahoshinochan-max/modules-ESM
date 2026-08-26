@@ -28,10 +28,7 @@ from tests.fixtures.scientific_operation import (
 
 _METHOD = ExactContractReference(
     contract_kind="method",
-    contract_id="folding.fold.fixture",
-    contract_version="1.0.0",
-    contract_digest="sha256:" + ("f" * 64),
-)
+    contract_id="folding.fold.fixture")
 
 
 def _structure() -> ProteinStructure:
@@ -223,7 +220,6 @@ def test_shared_parent_intake_rejects_an_admitted_structure_collection(
     call = operation_call(
         catalog=catalog,
         binding_id="folding.fold.esmfold2_remote",
-        binding_version="9.0.0",
         inputs={
             "sequence_candidates": CandidateCollection(
                 "structure-parents",

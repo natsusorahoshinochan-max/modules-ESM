@@ -29,42 +29,17 @@ from core.operation import (
     ScientificOperation,
 )
 from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
-from modules.proteinmpnn.assets import (
-    PROTEINMPNN_REVISION,
-    PROTEINMPNN_V_48_020_SHA256,
-)
 
 from .adapter import (
     LocalProteinMPNNAdapter,
     PROTEINMPNN_CHECKPOINT,
     PROTEINMPNN_MODEL,
-    PROTEINMPNN_TORCH_VERSION,
     proteinmpnn_readiness,
 )
 from . import port_types as _port_types
 
 
-_PACKAGE_VERSION = "8.0.0"
-_SCORE_METRIC_VERSION = "3.0.0"
 _OPERATIONS = ("constraints", "random_fixed_positions", "design", "score")
-_NODE_VERSIONS = {
-    "constraints": "4.0.0",
-    "random_fixed_positions": "4.0.0",
-    "design": "10.0.0",
-    "score": "7.0.0",
-}
-_BINDING_VERSIONS = {
-    "constraints": "4.0.0",
-    "random_fixed_positions": "4.0.0",
-    "design": "12.0.0",
-    "score": "9.0.0",
-}
-_METHOD_VERSIONS = {
-    "constraints": "3.0.0",
-    "random_fixed_positions": "3.0.0",
-    "design": "6.0.0",
-    "score": "6.0.0",
-}
 
 
 def _model_available() -> AvailabilityResult:
@@ -113,11 +88,9 @@ def _build(
 
 
 def _method(operation: str) -> MethodDefinition:
-    version = _METHOD_VERSIONS[operation]
     if operation == "score":
         return MethodDefinition(
             method_id="proteinmpnn.score.v_48_020_8907e667",
-            version=version,
             algorithm_identity={
                 "name": "ProteinMPNN conditional sequence scoring",
                 "provider_operation": "score_sequence",
@@ -129,10 +102,6 @@ def _method(operation: str) -> MethodDefinition:
                 "model": PROTEINMPNN_MODEL,
                 "architecture": "ProteinMPNN",
                 "source": "dauparas/ProteinMPNN",
-            },
-            checkpoint_identity={
-                "relative_path": PROTEINMPNN_CHECKPOINT,
-                "sha256": PROTEINMPNN_V_48_020_SHA256,
             },
             featurization_identity={
                 "structure": (
@@ -157,10 +126,6 @@ def _method(operation: str) -> MethodDefinition:
                 "reduction": "provider _scores masked mean",
                 "decoding_order_seed": 42,
             },
-            source_identity={
-                "repository": "dauparas/ProteinMPNN",
-                "source_revision": PROTEINMPNN_REVISION,
-            },
             scale_contract={
                 "value": (
                     "provider-native-binary32-masked-mean-negative-"
@@ -174,7 +139,6 @@ def _method(operation: str) -> MethodDefinition:
     if operation == "design":
         return MethodDefinition(
             method_id="proteinmpnn.design.v_48_020_8907e667",
-            version=version,
             algorithm_identity={
                 "name": "ProteinMPNN conditional sequence design",
                 "sampling": "autoregressive decoding",
@@ -192,10 +156,6 @@ def _method(operation: str) -> MethodDefinition:
                 "model": PROTEINMPNN_MODEL,
                 "architecture": "ProteinMPNN",
                 "source": "dauparas/ProteinMPNN",
-            },
-            checkpoint_identity={
-                "relative_path": PROTEINMPNN_CHECKPOINT,
-                "sha256": PROTEINMPNN_V_48_020_SHA256,
             },
             featurization_identity={
                 "structure": (
@@ -215,10 +175,6 @@ def _method(operation: str) -> MethodDefinition:
                     "fixed-residue-preserved-designable-residue-rejected"
                 ),
             },
-            source_identity={
-                "repository": "dauparas/ProteinMPNN",
-                "source_revision": PROTEINMPNN_REVISION,
-            },
             scale_contract={
                 "sequence": "canonical_20_amino_acids",
                 "provider_score": (
@@ -228,7 +184,6 @@ def _method(operation: str) -> MethodDefinition:
         )
     return MethodDefinition(
         method_id=f"proteinmpnn.{operation}.repository_owned",
-        version=version,
         algorithm_identity={
             "name": (
                 "validated-constraint-authoring"
@@ -243,11 +198,9 @@ def _method(operation: str) -> MethodDefinition:
             ),
         },
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={
             "layout": "identity-complete-contiguous-chain-layout"
         },
-        source_identity={"kind": "repository-owned"},
         scale_contract={"kind": "identity"},
     )
 
@@ -284,7 +237,6 @@ def _resolve_design_randomness(
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    version = _BINDING_VERSIONS[operation]
     is_design = operation == "design"
     is_model = operation in {"design", "score"}
     randomness_parameters = (
@@ -314,7 +266,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     "proteinmpnn.native_sequence_nll",
-                    _SCORE_METRIC_VERSION,
                 ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
@@ -331,22 +282,18 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     )
     return ExecutionBindingDefinition(
         binding_id=f"proteinmpnn.{operation}.local",
-        version=version,
         node_type=ContractIdentity(
             "node_type",
             f"proteinmpnn.{operation}",
-            _NODE_VERSIONS[operation],
         ),
         method=ContractIdentity(
             "method",
             method_id,
-            _METHOD_VERSIONS[operation],
         ),
         binding_parameters={},
         environment_fields=(
             (
                 EnvironmentFieldDeclaration("provider_root", "filesystem_path"),
-                EnvironmentFieldDeclaration("device", "json_value"),
             )
             if is_model
             else ()
@@ -355,7 +302,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"proteinmpnn.{operation}/factory",
-                version,
                 {
                     "route": "local" if is_model else "repository-owned",
                     "model": PROTEINMPNN_MODEL if is_model else "none",
@@ -366,13 +312,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         adapter_behavior=(
             BehaviorReference(
                 "proteinmpnn.local/adapter",
-                version,
                 {
-                    "provider_contract": (
-                        f"dauparas/ProteinMPNN@{PROTEINMPNN_REVISION}"
-                    ),
+                    "provider_contract": "dauparas/ProteinMPNN",
                     "model": PROTEINMPNN_MODEL,
-                    "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
                     "device_policy": LOCAL_TORCH_DEVICE_POLICY,
                     "device_fallback": "forbidden",
                     "structure_projection": (
@@ -389,7 +331,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"proteinmpnn.{operation}/availability",
-                version,
                 {
                     "observation": "startup",
                     "model_load": "forbidden",
@@ -399,12 +340,8 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 {
                     "provider_checkout": {
                         "source": "dauparas/ProteinMPNN",
-                        "source_revision": PROTEINMPNN_REVISION,
                     },
-                    "runtime": {
-                        "name": "torch",
-                        "version": PROTEINMPNN_TORCH_VERSION,
-                    },
+                    "runtime": {"name": "torch"},
                 }
                 if is_model
                 else {}
@@ -419,7 +356,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ReadinessDeclaration(
                 behavior=BehaviorReference(
                     f"proteinmpnn.{operation}/readiness",
-                    version,
                     {
                         "observation": "cache-miss",
                         "cache_order": "before-provider-entry",
@@ -428,17 +364,15 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                     },
                 ),
                 prerequisites={
-                    "provider_checkout": {
-                        "source_revision": PROTEINMPNN_REVISION,
+                    "provider_root": {
                         "path_source": "trusted_environment_configuration",
                     },
                     "model_checkpoint": {
                         "relative_path": PROTEINMPNN_CHECKPOINT,
-                        "sha256": PROTEINMPNN_V_48_020_SHA256,
-                        "path_source": "trusted_environment_configuration",
+                        "path_source": "provider_root",
                     },
                     "device": {
-                        "source": "trusted_environment_configuration",
+                        "source": "adapter",
                         "policy": LOCAL_TORCH_DEVICE_POLICY,
                         "fallback": "forbidden",
                     },
@@ -450,49 +384,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity=(
-            {
-                "name": f"proteinmpnn.{operation}.local-adapter",
-                "model": PROTEINMPNN_MODEL,
-                "checkpoint": PROTEINMPNN_CHECKPOINT,
-                "checkpoint_sha256": PROTEINMPNN_V_48_020_SHA256,
-                "source_revision": PROTEINMPNN_REVISION,
-                "device_policy": LOCAL_TORCH_DEVICE_POLICY,
-                "device_fallback": "forbidden",
-                "torch_version": PROTEINMPNN_TORCH_VERSION,
-                "seed_control": (
-                    "torch_local"
-                    if is_design
-                    else "fixed_scoring_seed_42"
-                ),
-                "seed_application": "after-resident-model-resolution",
-                "scientific_call_seed": (
-                    "effective-seed-plus-structure-content-plus-parent-slot"
-                    if is_design
-                    else "fixed-scoring-seed"
-                ),
-                "runtime_directory_policy": (
-                    "private-per-parent-engine-invocation"
-                    if is_design
-                    else "private-per-score-engine-invocation"
-                ),
-                "structure_projection": (
-                    "resolved-axis-segment-provider-native-staging-v2"
-                ),
-            }
-            if is_model
-            else {
-                "name": f"proteinmpnn.{operation}.direct",
-                "source": "repository-owned",
-                "process_global_randomness": "forbidden",
-            }
-        ),
         effective_randomness_parameters=randomness_parameters,
         effective_randomness_resolver=(
             EffectiveRandomnessResolver(
                 behavior=BehaviorReference(
                     f"proteinmpnn.{operation}/effective-randomness",
-                    version,
                     {
                         "normalization": (
                             "resolved-values-and-explicit-layout-v1"
@@ -514,7 +410,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="proteinmpnn",
-    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     port_types=(_port_types.PROTEINMPNN_CONSTRAINTS_PORT_TYPE,),
     node_definitions=(

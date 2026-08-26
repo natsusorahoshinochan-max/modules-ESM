@@ -21,7 +21,7 @@ from .provider_request import (
 
 @lru_cache(maxsize=None)
 def _load_provider_module(provider_root: Path) -> ModuleType:
-    """Load the external provider from one already-validated checkout."""
+    """Load the external provider from its configured source root."""
     provider_file = provider_root / "protein_mpnn_utils.py"
     spec = importlib.util.spec_from_file_location(
         "_protein_workbench_protein_mpnn_utils",
@@ -41,7 +41,7 @@ def _provider_module(provider_root: Path) -> ModuleType:
 
 
 def load_proteinmpnn_checkpoint(path: str | Path) -> dict[str, Any]:
-    """Load a validated checkpoint through PyTorch's data-only loader."""
+    """Load the configured checkpoint through PyTorch's data-only loader."""
     import torch
 
     return torch.load(str(path), map_location="cpu", weights_only=True)

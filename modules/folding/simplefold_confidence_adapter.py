@@ -74,13 +74,13 @@ def simplefold_confidence_runtime_structurally_available() -> bool:
 def simplefold_confidence_readiness(
     environment: Mapping[str, Any],
 ) -> ReadinessResult:
-    expected_device = expected_local_torch_device()
-    if environment["device"] != expected_device:
+    if not simplefold_confidence_runtime_structurally_available():
         return ReadinessResult(
             False,
             proof_source="direct-observation",
             reason_code="simplefold_confidence_runtime_unavailable",
         )
+    expected_device = expected_local_torch_device()
     import torch
 
     if not local_torch_device_is_available(torch, expected_device):
@@ -431,7 +431,7 @@ class LocalSimpleFoldConfidenceAdapter:
                     residue_axis=residue_axis,
                     staging_directory=staging_directory,
                     bound_closure=bound_closure,
-                    device=cast(str, self._environment["device"]),
+                    device=expected_local_torch_device(),
                 )
             values, _, _ = normalize_residue_plddt(
                 native_plddt=raw_result["native_plddt"],

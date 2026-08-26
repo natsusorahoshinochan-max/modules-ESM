@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import math
-from typing import Any, cast
+from typing import cast
 
 from core.catalog.declarations import UtilityTransformDefinition
+from core.catalog.model import FrozenCatalog
 from core.parameters.model import AdmittedParameterValues
 from core.scoring.selection import (
     ObservationSelector,
@@ -18,41 +19,17 @@ from core.scoring.selection import (
     context_selector_canonical,
 )
 from core.workflow.errors import WorkflowCompileError
-from datatypes.exact_reference import ExactContractReference
 
-
-def _resolved_reference(contract: Any) -> ExactContractReference:
-    return ExactContractReference(**contract.reference())
 
 def _compile_selection_objective(
     objective: SelectionObjective,
     utility_parameters: AdmittedParameterValues,
     effective_weight: float,
     *,
-    resolved_by_key: Mapping[tuple[str, str, str], Any],
+    catalog: FrozenCatalog,
     objective_index: int,
 ) -> ResolvedSelectionObjective:
-    metric = resolved_by_key[
-        (
-            objective.metric.contract_kind,
-            objective.metric.contract_id,
-            objective.metric.contract_version,
-        )
-    ]
-    method = resolved_by_key[
-        (
-            objective.method.contract_kind,
-            objective.method.contract_id,
-            objective.method.contract_version,
-        )
-    ]
-    utility = resolved_by_key[
-        (
-            objective.utility_transform.contract_kind,
-            objective.utility_transform.contract_id,
-            objective.utility_transform.contract_version,
-        )
-    ]
+    utility = catalog.require_contract(*objective.utility_transform.key)
     utility_definition = cast(
         UtilityTransformDefinition,
         utility.definition,
@@ -75,11 +52,13 @@ def _compile_selection_objective(
         candidate_input=objective.candidate_input,
         score_collection_input=objective.score_collection_input,
         source_partition=objective.source_partition,
-        metric=_resolved_reference(metric),
-        method=_resolved_reference(method),
+        metric=catalog.require_reference(*objective.metric.key),
+        method=catalog.require_reference(*objective.method.key),
         context_selector=objective.context_selector,
         utility=ResolvedUtilityTransform(
-            reference=_resolved_reference(utility),
+            reference=catalog.require_reference(
+                *objective.utility_transform.key
+            ),
             parameters=UtilityParameterFacts(utility_parameters),
             apply=utility_definition.transform,
         ),
@@ -97,7 +76,7 @@ def _compile_selection_objectives(
         str,
         tuple[int, AdmittedParameterValues],
     ],
-    resolved_by_key: Mapping[tuple[str, str, str], Any],
+    catalog: FrozenCatalog,
 ) -> tuple[ResolvedSelectionObjective, ...]:
     if not objectives:
         return ()
@@ -117,38 +96,25 @@ def _compile_selection_objectives(
             objective,
             compilation_by_id[objective.objective_id][1],
             objective.weight / declared_total,
-            resolved_by_key=resolved_by_key,
+            catalog=catalog,
             objective_index=compilation_by_id[objective.objective_id][0],
         )
         for objective in objectives
     )
 
+
 def _compile_observation_selector(
     selector: ObservationSelector,
     *,
-    resolved_by_key: Mapping[tuple[str, str, str], Any],
+    catalog: FrozenCatalog,
 ) -> ResolvedObservationSelector:
-    metric = resolved_by_key[
-        (
-            selector.metric.contract_kind,
-            selector.metric.contract_id,
-            selector.metric.contract_version,
-        )
-    ]
-    method = resolved_by_key[
-        (
-            selector.method.contract_kind,
-            selector.method.contract_id,
-            selector.method.contract_version,
-        )
-    ]
     return ResolvedObservationSelector(
         selector_id=selector.selector_id,
         candidate_input=selector.candidate_input,
         score_collection_input=selector.score_collection_input,
         source_partition=selector.source_partition,
-        metric=_resolved_reference(metric),
-        method=_resolved_reference(method),
+        metric=catalog.require_reference(*selector.metric.key),
+        method=catalog.require_reference(*selector.method.key),
         context_selector=selector.context_selector,
         match_cardinality=selector.match_cardinality,
         missing_policy=selector.missing_policy,

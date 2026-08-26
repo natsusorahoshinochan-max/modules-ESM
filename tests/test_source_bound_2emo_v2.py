@@ -12,7 +12,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
-from core.local_torch_device import expected_local_torch_device
 import torch
 
 from core.catalog.builder import (
@@ -29,7 +28,6 @@ from core.operation import (
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from tests.support.application import create_application
@@ -248,9 +246,7 @@ def _decode_values(
         if item["node_id"] == node_id and item["output_port"] == output_port
     )
     codec = catalog.require_port_type(
-        output["port_type"]["contract_id"],
-        output["port_type"]["contract_version"],
-    )
+        output["port_type"]["contract_id"])
     return tuple(
         codec.decode(retrieve_typed_output_canonical_bytes(
             client,
@@ -278,10 +274,7 @@ def _decode(
 def _exact_reference(raw: dict[str, str]) -> ExactContractReference:
     return ExactContractReference(
         contract_kind=raw["contract_kind"],
-        contract_id=raw["contract_id"],
-        contract_version=raw["contract_version"],
-        contract_digest=raw["contract_digest"],
-    )
+        contract_id=raw["contract_id"])
 
 
 def _assert_closed_scientific_acceptance(
@@ -347,9 +340,7 @@ def _assert_closed_scientific_acceptance(
     }
     assert set(alignments_by_subject) == set(fold_ids)
     alignment_codec = catalog.require_port_type(
-        "structure_comparison.alignment_evidence",
-        "5.0.0",
-    )
+        "structure_comparison.alignment_evidence")
     for fold in folds.items:
         alignment = alignments_by_subject[fold.candidate_id]
         assert type(alignment) is StructureAlignmentEvidence
@@ -536,23 +527,14 @@ def _assert_closed_scientific_acceptance(
     assert len(passing.items) == expected_passing
 
 
-def test_source_bound_2emo_is_exact_locked_and_compilable() -> None:
+def test_source_bound_2emo_is_compilable() -> None:
     assert hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest() == INPUT_SHA256
     catalog = build_frozen_catalog(module_registrations())
     workflow = decode_workflow_document(_payload())
     assert workflow.workflow_id == "source-bound-2emo"
-    assert workflow.contract_lock
-    assert lock_workflow(
-        replace(workflow, contract_lock=()),
-        catalog,
-    ) == workflow
-    compile(
-        CompilationRequest(
-            workflow,
-            1,
-        ),
-        catalog,
-    )
+    assert replace(workflow) == workflow
+    compiled = compile(CompilationRequest(workflow), catalog)
+    assert compiled.workflow_id == workflow.workflow_id
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert nodes["design-sequences"].node_parameters == {
@@ -583,15 +565,11 @@ def test_source_bound_2emo_is_exact_locked_and_compilable() -> None:
         edges=tuple(edge for edge in workflow.edges if not (
             edge.source_node_id == "materialize-confidence"
             and edge.target_node_id == "filter-plddt"
-        )),
-        contract_lock=(),
-    )
+        )))
     with pytest.raises(ValueError):
         compile(
             CompilationRequest(
-                lock_workflow(broken, catalog),
-                2,
-            ),
+                broken),
             catalog,
         )
 
@@ -649,25 +627,17 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     )
 
     environment = {
-        ("proteinmpnn.design.local", "12.0.0"): {
-            "values": {
-                "device": expected_local_torch_device(),
-                "provider_root": ROOT / "repositories" / "ProteinMPNN",
-            },
+        "proteinmpnn.design.local": {
+            "provider_root": ROOT / "repositories" / "ProteinMPNN",
         },
-        ("folding.fold.esmfold2_remote", "9.0.0"): {
-            "values": {
-                "endpoint_id": "provider-free",
+        "folding.fold.esmfold2_remote": {
                 "credential_handle": "provider-free-folding-credential",
             },
-        },
-        ("solubility.protein_sol.local", "5.0.0"): {
-            "values": {
+        "solubility.protein_sol.local": {
                 "source_root": Path("/provider-free/protein-sol"),
                 "bash_executable": Path("/provider-free/bash"),
                 "perl_executable": Path("/provider-free/perl"),
             },
-        },
     }
     catalog = _provider_free_catalog()
     with TestClient(create_application(
@@ -688,7 +658,6 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
         payload = _payload()
         payload["workflow_id"] = project_id
-        payload["contract_lock"] = []
         next(node for node in payload["nodes"] if node["node_id"] == "import-input")["node_parameters"] = {
             "project_input_ref": uploaded.json()["project_input_ref"]
         }

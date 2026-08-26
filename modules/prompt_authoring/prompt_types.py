@@ -21,11 +21,9 @@ from .prompts import validate_protein_prompt
 from .track_types import ABSOLUTE_SASA_QUANTITY_CONTRACT
 
 
-_ANNOTATIONS_VERSION = "3.0.0"
-_PROMPT_VERSION = "3.0.0"
 _BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
-_TRACK_CODEC = _BUILTINS.require_port_type("residue.track", "2.1.0")
+_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
+_TRACK_CODEC = _BUILTINS.require_port_type("residue.track")
 _ANNOTATION_FIELDS = {
     "label",
     "start",
@@ -157,10 +155,8 @@ def _prompt_from_wire(value: object) -> object:
 
 FUNCTION_ANNOTATIONS_PORT_TYPE = PortTypeDefinition(
     type_id="function.annotations",
-    version=_ANNOTATIONS_VERSION,
     validator=BehaviorReference(
         "prompt_authoring.function.annotations/validate",
-        _ANNOTATIONS_VERSION,
         {
             "accepted_value_kind": "canonical_function_annotations",
             "canonical_interval_contract": {
@@ -170,14 +166,13 @@ FUNCTION_ANNOTATIONS_PORT_TYPE = PortTypeDefinition(
                     "start,end,label,chain-and-residue-provenance"
                 ),
                 "overlap_policy": ["allow", "reject"],
-                "residue_identity_contract": "residue.layout@3.0.0",
+                "residue_identity_contract": "residue.layout",
             },
             "complete_values_only": True,
         },
     ),
     codec=BehaviorReference(
         "prompt_authoring.function.annotations/canonical-json-codec",
-        _ANNOTATIONS_VERSION,
         {
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
@@ -187,7 +182,6 @@ FUNCTION_ANNOTATIONS_PORT_TYPE = PortTypeDefinition(
     ),
     content_identity=BehaviorReference(
         "prompt_authoring.function.annotations/content-sha256",
-        _ANNOTATIONS_VERSION,
         {
             "digest_algorithm": "SHA-256",
             "digest_input": "canonical_codec_bytes",
@@ -201,10 +195,8 @@ FUNCTION_ANNOTATIONS_PORT_TYPE = PortTypeDefinition(
 
 PROTEIN_PROMPT_PORT_TYPE = PortTypeDefinition(
     type_id="protein.prompt",
-    version=_PROMPT_VERSION,
     validator=BehaviorReference(
         "prompt_authoring.protein.prompt/validate",
-        _PROMPT_VERSION,
         {
             "accepted_value_kind": "canonical_protein_prompt",
             "complete_values_only": True,
@@ -217,22 +209,20 @@ PROTEIN_PROMPT_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "prompt_authoring.protein.prompt/canonical-json-codec",
-        _PROMPT_VERSION,
         {
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
             "envelope_namespace": "protein-workbench-port-value/v2",
             "embedded_contracts": {
-                "function_annotations": "function.annotations@3.0.0",
-                "target_layout": "residue.layout@3.0.0",
-                "tracks": "residue.track@2.1.0",
+                "function_annotations": "function.annotations",
+                "target_layout": "residue.layout",
+                "tracks": "residue.track",
             },
             "nullable_semantics": "JSON null means unspecified",
         },
     ),
     content_identity=BehaviorReference(
         "prompt_authoring.protein.prompt/content-sha256",
-        _PROMPT_VERSION,
         {
             "digest_algorithm": "SHA-256",
             "digest_input": "canonical_codec_bytes",

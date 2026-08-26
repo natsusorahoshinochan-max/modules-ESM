@@ -16,7 +16,6 @@ from modules.prompt_authoring.package import MODULE_PACKAGE
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
 )
-from tests.fixtures.prompt_authoring_v2 import VERSION
 
 
 def test_stochastic_prompt_authoring_registers_two_exact_nodes() -> None:
@@ -36,14 +35,10 @@ def test_stochastic_prompt_authoring_registers_two_exact_nodes() -> None:
     for operation in ("random_mask", "random_insert_masked"):
         node = catalog.require_contract(
             "node_type",
-            f"prompt_authoring.{operation}",
-            VERSION,
-        )
+            f"prompt_authoring.{operation}")
         binding = catalog.require_contract(
             "binding",
-            f"prompt_authoring.{operation}.direct",
-            VERSION,
-        )
+            f"prompt_authoring.{operation}.direct")
         assert node.descriptor["category"] == "prompt_authoring"
         assert binding.descriptor["deterministic"] is True
         assert binding.descriptor["cacheable"] is True

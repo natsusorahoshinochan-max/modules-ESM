@@ -21,9 +21,6 @@ The gap is closed when:
 - discovery scans only immediate package roots and never recursively searches for
   definitions;
 - each discovered package exports exactly one `MODULE_PACKAGE` registration;
-- malformed imports, registrations, or conflicting contracts fail startup
-  atomically; and
+- malformed imports, duplicate stable IDs, missing required references, or
+  unresolved factories fail startup atomically; and
 - optional Provider dependencies remain lazy and Binding-scoped.
-
-The current documentation cleanup records this divergence but does not change
-runtime discovery.

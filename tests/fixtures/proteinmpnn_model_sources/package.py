@@ -36,8 +36,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
 
-_VERSION = "3.0.0"
-_NODE_BINDING_VERSION = "4.0.0"
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _PDB_PATH = (
     _PROJECT_ROOT / "examples" / "v2" / "structures" / "3GB1.pdb"
@@ -138,23 +136,9 @@ def _build(operation: str):
 def _method(operation: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.proteinmpnn_3gb1_{operation}.method",
-        version=_VERSION,
         algorithm_identity={"name": f"source-bound-3gb1-{operation}"},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "exact-literal"},
-        source_identity={
-            "path": (
-                "examples/v2/structures/3GB1.pdb"
-                if operation == "structure"
-                else "examples/v2/structures/3GB1.pdb-derived-sequence"
-            ),
-            "sha256": (
-                _PDB_SHA256
-                if operation == "structure"
-                else _SEQUENCE_SHA256
-            ),
-        },
         scale_contract={"kind": "identity"},
     )
 
@@ -164,23 +148,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         binding_id=(
             f"contract_test.proteinmpnn_3gb1_{operation}.direct"
         ),
-        version=_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
-            f"contract_test.proteinmpnn_3gb1_{operation}",
-            _NODE_BINDING_VERSION,
-        ),
+            f"contract_test.proteinmpnn_3gb1_{operation}"),
         method=ContractIdentity(
             "method",
-            f"contract_test.proteinmpnn_3gb1_{operation}.method",
-            _VERSION,
-        ),
+            f"contract_test.proteinmpnn_3gb1_{operation}.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.proteinmpnn_3gb1_{operation}/factory",
-                _NODE_BINDING_VERSION,
                 {},
             ),
             build=_build(operation),
@@ -188,7 +166,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.proteinmpnn_3gb1_{operation}/availability",
-                _NODE_BINDING_VERSION,
                 {},
             ),
             prerequisites={},
@@ -197,24 +174,17 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.proteinmpnn_3gb1_{operation}/readiness",
-                _NODE_BINDING_VERSION,
                 {},
             ),
             prerequisites={},
             check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": f"contract_test.proteinmpnn_3gb1_{operation}.direct",
-            "source": "source-bound-contract-test-fixture",
-        },
-    )
+        cacheable=True)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.proteinmpnn_model_sources",
-    package_version=_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("structure.yaml"),

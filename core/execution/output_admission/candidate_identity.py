@@ -154,14 +154,10 @@ def _score_collection_id(
                     "metric": {
                         "contract_kind": score.metric.contract_kind,
                         "contract_id": score.metric.contract_id,
-                        "contract_version": score.metric.contract_version,
-                        "contract_digest": score.metric.contract_digest,
                     },
                     "method": {
                         "contract_kind": score.method.contract_kind,
                         "contract_id": score.method.contract_id,
-                        "contract_version": score.method.contract_version,
-                        "contract_digest": score.method.contract_digest,
                     },
                     "context": observation_context_canonical(score.context),
                     "residue_axis": (

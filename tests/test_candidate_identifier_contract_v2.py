@@ -10,7 +10,6 @@ from core.catalog.builtins import (
     builtin_frozen_catalog,
 )
 from core.catalog.errors import (
-    UnknownPortTypeError,
     PortValueError,
 )
 from datatypes.candidate import (
@@ -90,8 +89,6 @@ def test_canonical_identifier_requires_an_exact_string() -> None:
     (
         ("contract_kind", "unknown"),
         ("contract_id", "contract id"),
-        ("contract_version", "version"),
-        ("contract_digest", "digest"),
     ),
 )
 def test_exact_contract_reference_owns_its_intrinsic_identity(
@@ -100,40 +97,27 @@ def test_exact_contract_reference_owns_its_intrinsic_identity(
 ) -> None:
     values = {
         "contract_kind": "method",
-        "contract_id": "method/fixture",
-        "contract_version": "1.0.0",
-        "contract_digest": _DIGEST_1,
-    }
+        "contract_id": "method/fixture"}
     values[field_name] = invalid_value
 
     with pytest.raises(ValueError, match=field_name):
         ExactContractReference(**values)
 
 
-def test_candidate_ports_publish_only_the_active_identifier_generation() -> None:
+def test_candidate_ports_resolve_by_stable_identifier() -> None:
     catalog = builtin_frozen_catalog()
 
     for type_id in (
         "candidate.collection",
         "candidate.pairing",
+        "score.collection",
     ):
-        assert catalog.require_port_type(type_id, "4.0.0").version == "4.0.0"
-        for inactive_version in ("2.1.0", "3.0.0"):
-            with pytest.raises(UnknownPortTypeError):
-                catalog.require_port_type(type_id, inactive_version)
-    assert catalog.require_port_type(
-        "score.collection", "5.0.0"
-    ).version == "5.0.0"
-    for inactive_version in ("2.1.0", "3.0.0", "4.0.0"):
-        with pytest.raises(UnknownPortTypeError):
-            catalog.require_port_type("score.collection", inactive_version)
+        assert catalog.require_port_type(type_id).type_id == type_id
 
 
 def test_candidate_collection_v3_closes_all_candidate_identifiers() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "candidate.collection",
-        "4.0.0",
-    )
+        "candidate.collection")
     valid = CandidateCollection(
         "collection/a:b+c",
         "protein.sequence",
@@ -170,9 +154,7 @@ def test_candidate_collection_v3_closes_all_candidate_identifiers() -> None:
 
 def test_candidate_pairing_v3_closes_both_participant_identifiers() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "candidate.pairing",
-        "4.0.0",
-    )
+        "candidate.pairing")
     valid_match = PairwiseCandidateMatch(
         subject=CandidateDataReference(
             candidate_id="subject/a:b+c",
@@ -225,10 +207,7 @@ def test_candidate_pairing_v3_closes_both_participant_identifiers() -> None:
 def _reference(kind: str, contract_id: str) -> ExactContractReference:
     return ExactContractReference(
         contract_kind=kind,
-        contract_id=contract_id,
-        contract_version="3.0.0",
-        contract_digest=_DIGEST_3,
-    )
+        contract_id=contract_id)
 
 
 def _score(
@@ -261,9 +240,7 @@ def _score(
 
 def test_score_collection_v4_closes_every_public_generic_identifier() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "score.collection",
-        "5.0.0",
-    )
+        "score.collection")
     pairwise_context = PairwiseObservationContext(
         subject=PairwiseParticipant(
             "subject",

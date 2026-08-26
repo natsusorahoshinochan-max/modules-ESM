@@ -6,10 +6,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from typing import Literal, cast
 
-from core.execution.ledger.codec import (
-    contract_lock_digest,
-    readiness_attestation_digest,
-)
 from core.execution.ledger.facts import (
     AttemptStatus,
     AvailabilityBound,
@@ -43,12 +39,10 @@ def _causal_error() -> ValueError:
 
 def _typed_reference_key(
     reference: ExactContractReference,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str]:
     return (
         reference.contract_kind,
         reference.contract_id,
-        reference.contract_version,
-        reference.contract_digest,
     )
 
 
@@ -105,10 +99,10 @@ class InvocationState:
 class LedgerReducerState:
     facts: list[Fact]
     availability_by_binding: dict[
-        tuple[str, str, str, str], AvailabilityBound
+        tuple[str, str], AvailabilityBound
     ]
     readiness_by_binding: dict[
-        tuple[str, str, str, str], ReadinessAttested
+        tuple[str, str], ReadinessAttested
     ]
     node_attempts: dict[str, NodeAttemptState]
     node_attempt_by_node: dict[str, str]
@@ -242,67 +236,10 @@ class LedgerReducer:
         if state.run_terminal:
             raise _causal_error()
         if isinstance(payload, RunScopeBound):
-            minimum_contract_root_keys = {
-                _typed_reference_key(reference)
-                for node in self.plan_evidence
-                for reference in (
-                    node.binding,
-                    *((node.node_type,) if node.node_type is not None else ()),
-                )
-            }
-            minimum_resolved_contract_keys = minimum_contract_root_keys | {
-                _typed_reference_key(output.port_type)
-                for node in self.plan_evidence
-                for output in node.artifact_outputs
-            }
             if (
                 state.facts
                 or payload.project_id != self.project_id
                 or payload.run_id != self.run_id
-                or tuple(
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contracts
-                )
-                != tuple(
-                    sorted(
-                        {
-                            _typed_reference_key(reference)
-                            for reference in payload.resolved_contracts
-                        }
-                    )
-                )
-                or tuple(
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contract_roots
-                )
-                != tuple(
-                    sorted(
-                        {
-                            _typed_reference_key(reference)
-                            for reference in payload.resolved_contract_roots
-                        }
-                    )
-                )
-                or not minimum_contract_root_keys
-                <= {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contract_roots
-                }
-                or not minimum_resolved_contract_keys
-                <= {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contracts
-                }
-                or not {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contract_roots
-                }
-                <= {
-                    _typed_reference_key(reference)
-                    for reference in payload.resolved_contracts
-                }
-                or payload.contract_lock_digest
-                != contract_lock_digest(payload.resolved_contracts)
                 or payload.selection_terminal_keys
                 != self.selection_consumer_ids
             ):
@@ -325,10 +262,6 @@ class LedgerReducer:
                 state.run_admitted
                 or state.run_started
                 or payload.workflow_commit_id != scope.workflow_commit_id
-                or payload.workflow_commit_revision
-                != scope.workflow_commit_revision
-                or set(state.availability_by_binding)
-                != expected_binding_keys
             ):
                 raise _causal_error()
             return
@@ -338,7 +271,6 @@ class LedgerReducer:
             return
         if isinstance(payload, ReadinessAttested):
             binding_key = _typed_reference_key(payload.binding)
-            availability = state.availability_by_binding.get(binding_key)
             if (
                 not state.run_started
                 or binding_key not in {
@@ -346,19 +278,7 @@ class LedgerReducer:
                     for node in self.plan_evidence
                     if node.execution_route == "adapter"
                 }
-                or availability is None
-                or availability.available is not True
                 or binding_key in state.readiness_by_binding
-                or payload.attestation_digest
-                != readiness_attestation_digest(
-                    binding=payload.binding,
-                    readiness_contract_digest=(
-                        payload.readiness_contract_digest
-                    ),
-                    observed_at=payload.observed_at,
-                    conclusion=payload.conclusion,
-                    proof_source=payload.proof_source,
-                )
             ):
                 raise _causal_error()
             return
@@ -588,21 +508,11 @@ class LedgerReducer:
                 binding_key = _typed_reference_key(
                     plan_nodes[node_id].binding
                 )
-                availability = state.availability_by_binding.get(
-                    binding_key
-                )
                 readiness = state.readiness_by_binding.get(binding_key)
                 error = payload.error
                 if (
                     error is None
                     or plan_nodes[node_id].execution_route != "adapter"
-                    or (
-                        error.code == "binding_unavailable"
-                        and (
-                            availability is None
-                            or availability.available is not False
-                        )
-                    )
                     or (
                         error.code == "readiness_rejected"
                         and (
@@ -610,8 +520,7 @@ class LedgerReducer:
                             or readiness.conclusion != "failing"
                         )
                     )
-                    or error.code
-                    not in {"binding_unavailable", "readiness_rejected"}
+                    or error.code != "readiness_rejected"
                 ):
                     raise _causal_error()
             if failure_origin == "publication" and (

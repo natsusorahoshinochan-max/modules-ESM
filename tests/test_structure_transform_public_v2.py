@@ -21,9 +21,6 @@ from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 
 
 VERSION = "2.1.0"
-PROTEIN_IO_STRUCTURE_VERSION = "6.0.0"
-STRUCTURE_TRANSFORM_VERSION = "4.0.0"
-SEQUENCE_EXPORT_VERSION = "3.0.0"
 _MULTI_CHAIN_PDB = (
     b"REMARK uploaded-label\n"
     b"ATOM      1  N   ALA A   1       1.000   2.000   3.000"
@@ -106,9 +103,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             {
                 "node_id": "import",
                 "node_type_id": "protein_io.import_structure",
-                "node_type_version": PROTEIN_IO_STRUCTURE_VERSION,
                 "binding_id": "protein_io.import_structure.direct",
-                "binding_version": PROTEIN_IO_STRUCTURE_VERSION,
                 "node_parameters": {
                     "project_input_ref": project_input_ref,
                 },
@@ -117,29 +112,23 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             {
                 "node_id": "select",
                 "node_type_id": "structure_transform.select_chains",
-                "node_type_version": STRUCTURE_TRANSFORM_VERSION,
                 "binding_id": "structure_transform.select_chains.direct",
-                "binding_version": STRUCTURE_TRANSFORM_VERSION,
                 "node_parameters": {"chain_ids": ["A"]},
                 "binding_parameters": {},
             },
             {
                 "node_id": "extract-backbone",
                 "node_type_id": "structure_transform.extract_backbone",
-                "node_type_version": STRUCTURE_TRANSFORM_VERSION,
                 "binding_id": "structure_transform.extract_backbone.direct",
-                "binding_version": STRUCTURE_TRANSFORM_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "resolve-selected-axis",
                 "node_type_id": "structure_transform.resolve_residue_axis",
-                "node_type_version": STRUCTURE_TRANSFORM_VERSION,
                 "binding_id": (
                     "structure_transform.resolve_residue_axis.direct"
                 ),
-                "binding_version": STRUCTURE_TRANSFORM_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -148,47 +137,37 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
                 "node_type_id": (
                     "structure_transform.backbone_to_structure"
                 ),
-                "node_type_version": STRUCTURE_TRANSFORM_VERSION,
                 "binding_id": (
                     "structure_transform.backbone_to_structure.direct"
                 ),
-                "binding_version": STRUCTURE_TRANSFORM_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "extract-sequence",
                 "node_type_id": "structure_transform.extract_sequence",
-                "node_type_version": STRUCTURE_TRANSFORM_VERSION,
                 "binding_id": "structure_transform.extract_sequence.direct",
-                "binding_version": STRUCTURE_TRANSFORM_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "export-backbone",
                 "node_type_id": "protein_io.export_structure",
-                "node_type_version": PROTEIN_IO_STRUCTURE_VERSION,
                 "binding_id": "protein_io.export_structure.direct",
-                "binding_version": PROTEIN_IO_STRUCTURE_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "export-structure",
                 "node_type_id": "protein_io.export_structure",
-                "node_type_version": PROTEIN_IO_STRUCTURE_VERSION,
                 "binding_id": "protein_io.export_structure.direct",
-                "binding_version": PROTEIN_IO_STRUCTURE_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "export-sequence",
                 "node_type_id": "protein_io.export_sequence",
-                "node_type_version": SEQUENCE_EXPORT_VERSION,
                 "binding_id": "protein_io.export_sequence.direct",
-                "binding_version": SEQUENCE_EXPORT_VERSION,
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -247,9 +226,7 @@ def test_public_import_transform_export_keeps_artifacts_run_bound(
             "schema_version": VERSION,
             "workflow_id": project_id,
             "nodes": nodes,
-            "edges": edges,
-            "contract_lock": [],
-        }
+            "edges": edges}
         saved = public_request(
             "save_project_workflow_draft",
             {

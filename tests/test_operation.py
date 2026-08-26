@@ -67,10 +67,7 @@ def _method_reference(
 ) -> ExactContractReference:
     return ExactContractReference(
         "method",
-        contract_id,
-        "1.0.0",
-        "sha256:" + (digest_character * 64),
-    )
+        contract_id)
 
 
 def _intrinsic_score(
@@ -82,10 +79,7 @@ def _intrinsic_score(
         subject=subject,
         metric=ExactContractReference(
             "metric",
-            "fixture.quality",
-            "1.0.0",
-            "sha256:" + ("b" * 64),
-        ),
+            "fixture.quality"),
         method=_method_reference("fixture.measure", "c"),
         context=IntrinsicObservationContext(),
         source_partition="default",
@@ -102,23 +96,22 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
     )
     port_type = PortTypeDefinition(
         type_id="fixture.facts",
-        version="1.0.0",
-        validator=BehaviorReference("fixture.facts/validate", "1.0.0", {}),
-        codec=BehaviorReference("fixture.facts/codec", "1.0.0", {}),
+        validator=BehaviorReference("fixture.facts/validate", {}),
+        codec=BehaviorReference("fixture.facts/codec", {}),
         content_identity=BehaviorReference(
-            "fixture.facts/content", "1.0.0", {}
+            "fixture.facts/content", {}
         ),
         runtime_validator=lambda value: None,
         runtime_to_wire=lambda value: value,
         runtime_from_wire=lambda value: value,
         candidate_data_projection=BehaviorReference(
-            "fixture.facts/candidate_projection", "1.0.0", {}
+            "fixture.facts/candidate_projection", {}
         ),
         runtime_candidate_data_projection=lambda _value, _port_types: (
             candidate_reference,
         ),
         observation_method_projection=BehaviorReference(
-            "fixture.facts/method_projection", "1.0.0", {}
+            "fixture.facts/method_projection", {}
         ),
         runtime_observation_method_projection=lambda _: (method,),
     )
@@ -140,7 +133,7 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
     assert call.inputs["facts"] is admitted
     assert admitted.value is runtime_value
     assert admitted.values[0].canonical_bytes == (
-        b'{"port_type_id":"fixture.facts","port_type_version":"1.0.0",'
+        b'{"port_type_id":"fixture.facts",'
         b'"schema_namespace":"protein-workbench-port-value/v2",'
         b'"value":{"facts":[1,2]}}'
     )
@@ -154,19 +147,18 @@ def test_operation_call_carries_one_complete_admitted_port_record() -> None:
 
 def test_candidate_data_projection_declaration_and_runtime_are_atomic() -> None:
     behavior = BehaviorReference(
-        "fixture.candidates/project", "1.0.0", {}
+        "fixture.candidates/project", {}
     )
     definition_arguments = {
         "type_id": "fixture.candidates",
-        "version": "1.0.0",
         "validator": BehaviorReference(
-            "fixture.candidates/validate", "1.0.0", {}
+            "fixture.candidates/validate", {}
         ),
         "codec": BehaviorReference(
-            "fixture.candidates/codec", "1.0.0", {}
+            "fixture.candidates/codec", {}
         ),
         "content_identity": BehaviorReference(
-            "fixture.candidates/content", "1.0.0", {}
+            "fixture.candidates/content", {}
         ),
     }
     with pytest.raises(CatalogBuildError, match="provided together"):
@@ -185,28 +177,19 @@ def test_direct_operation_context_preserves_axis_and_method_sources() -> None:
     method = _method_reference("fixture.materializer", "a")
     metric = ExactContractReference(
         "metric",
-        "fixture.metric",
-        "1.0.0",
-        "sha256:" + ("b" * 64),
-    )
+        "fixture.metric")
     binding = SimpleNamespace(
         descriptor={
             "method": {
                 "contract_kind": method.contract_kind,
-                "contract_id": method.contract_id,
-                "contract_version": method.contract_version,
-                "contract_digest": method.contract_digest,
-            },
+                "contract_id": method.contract_id},
             "produced_observations": (
                 {
                     "output_port": "scores",
                     "output_partition": "default",
                     "metric": {
                         "contract_kind": metric.contract_kind,
-                        "contract_id": metric.contract_id,
-                        "contract_version": metric.contract_version,
-                        "contract_digest": metric.contract_digest,
-                    },
+                        "contract_id": metric.contract_id},
                     "context_profile": {"kind": "intrinsic"},
                     "subject_grain": "candidate",
                     "source_role": "subject",
@@ -244,20 +227,18 @@ def test_observation_method_projection_declaration_and_runtime_are_atomic(
 ) -> None:
     behavior = BehaviorReference(
         "fixture.confidence/method_projection",
-        "1.0.0",
         {"projection": "exact-provider-method"},
     )
     common = {
         "type_id": "fixture.confidence",
-        "version": "1.0.0",
         "validator": BehaviorReference(
-            "fixture.confidence/validate", "1.0.0", {}
+            "fixture.confidence/validate", {}
         ),
         "codec": BehaviorReference(
-            "fixture.confidence/codec", "1.0.0", {}
+            "fixture.confidence/codec", {}
         ),
         "content_identity": BehaviorReference(
-            "fixture.confidence/content", "1.0.0", {}
+            "fixture.confidence/content", {}
         ),
     }
 
@@ -269,10 +250,7 @@ def test_observation_method_projection_declaration_and_runtime_are_atomic(
 
     method = ExactContractReference(
         "method",
-        "provider.inference",
-        "1.0.0",
-        "sha256:" + ("e" * 64),
-    )
+        "provider.inference")
     definition = PortTypeDefinition(
         **common,
         observation_method_projection=behavior,
@@ -289,14 +267,11 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
         "candidate-1", "protein.sequence", digest
     )
     metric = ExactContractReference(
-        "metric", "quality", "1.0.0", "sha256:" + ("b" * 64)
-    )
+        "metric", "quality")
     binding_method = ExactContractReference(
-        "method", "materialize", "1.0.0", "sha256:" + ("c" * 64)
-    )
+        "method", "materialize")
     provider_method = ExactContractReference(
-        "method", "provider", "1.0.0", "sha256:" + ("d" * 64)
-    )
+        "method", "provider")
     candidate = Candidate("candidate-1", ProteinSequence("AA"))
     candidates = CandidateCollection(
         "candidates", "protein.sequence", [candidate]
@@ -381,12 +356,6 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
     with pytest.raises(ObservationAdmissionError, match="undeclared Method"):
         validate(provider_method, dynamic=True, projected=())
     with pytest.raises(ObservationAdmissionError, match="undeclared Method"):
-        validate(
-            replace(provider_method, contract_digest="sha256:" + ("e" * 64)),
-            dynamic=True,
-            projected=(provider_method,),
-        )
-    with pytest.raises(ObservationAdmissionError, match="undeclared Method"):
         validate(provider_method, dynamic=False, projected=(provider_method,))
 
 
@@ -411,16 +380,10 @@ def test_score_subject_cannot_project_a_same_operation_output_candidate(
     content_digest = "sha256:" + ("a" * 64)
     reference = ExactContractReference(
         "metric",
-        "quality",
-        "2.1.0",
-        "sha256:" + ("b" * 64),
-    )
+        "quality")
     method = ExactContractReference(
         "method",
-        "fixture",
-        "2.1.0",
-        "sha256:" + ("c" * 64),
-    )
+        "fixture")
     with pytest.raises(PortValueError, match="same-operation output"):
         normalize_fixture_outputs(
             node_id="source",
@@ -471,10 +434,7 @@ def test_score_axis_source_is_not_rebound_to_the_direct_candidate_input(
         axis_kind="prediction_input",
         axis_contract=ExactContractReference(
             "port_type",
-            "fixture.prediction_axis",
-            "1.0.0",
-            "sha256:" + ("3" * 64),
-        ),
+            "fixture.prediction_axis"),
         axis_content_digest="sha256:" + ("4" * 64),
         source=axis_source,
         layout=ResidueLayout("A", 1, ("A:1",)),

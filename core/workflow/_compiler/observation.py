@@ -10,6 +10,7 @@ from core.catalog.declarations import (
     MetricDefinition,
     ObservationPropagationDefinition,
 )
+from core.catalog.model import FrozenCatalog
 from core.scoring.observation_plan import (
     CalibrationContextProfile,
     IntrinsicContextProfile,
@@ -21,13 +22,6 @@ from core.scoring.observation_plan import (
     ResolvedProducedObservation,
     resolve_metric_facts,
 )
-from datatypes.exact_reference import ExactContractReference
-
-
-def _resolved_reference(contract: Any) -> ExactContractReference:
-    return ExactContractReference(**contract.reference())
-
-
 def _resolved_context_profile(
     profile: Mapping[str, Any],
 ) -> ObservationContextProfile:
@@ -51,15 +45,13 @@ def _resolved_context_profile(
 
 def _resolved_produced_observations(
     binding: ExecutionBindingDefinition,
-    resolved_by_key: Mapping[tuple[str, str, str], Any],
+    catalog: FrozenCatalog,
 ) -> tuple[ResolvedProducedObservation, ...]:
     return tuple(
         ResolvedProducedObservation(
             output_port=declaration.output_port,
             output_partition=declaration.output_partition,
-            metric=_resolved_reference(
-                resolved_by_key[declaration.metric.key]
-            ),
+            metric=catalog.require_reference(*declaration.metric.key),
             context_profile=_resolved_context_profile(
                 declaration.context_profile
             ),
@@ -82,7 +74,7 @@ def _resolved_produced_observations(
 
 def _resolved_observation_propagation(
     propagation: ObservationPropagationDefinition | None,
-    resolved_by_key: Mapping[tuple[str, str, str], Any],
+    catalog: FrozenCatalog,
 ) -> ObservationPropagationPlan | None:
     if propagation is None:
         return None
@@ -93,16 +85,12 @@ def _resolved_observation_propagation(
         else ObservationPropagationFilter(
             source_partition=filter_definition.get("source_partition"),
             metric=(
-                _resolved_reference(
-                    resolved_by_key[filter_definition["metric"].key]
-                )
+                catalog.require_reference(*filter_definition["metric"].key)
                 if filter_definition.get("metric") is not None
                 else None
             ),
             method=(
-                _resolved_reference(
-                    resolved_by_key[filter_definition["method"].key]
-                )
+                catalog.require_reference(*filter_definition["method"].key)
                 if filter_definition.get("method") is not None
                 else None
             ),
@@ -124,28 +112,26 @@ def _resolved_observation_propagation(
 def _resolved_produced_observation_plan(
     binding_contract: Any,
     *,
-    resolved_by_key: Mapping[tuple[str, str, str], Any],
+    catalog: FrozenCatalog,
 ) -> ProducedObservationPlan:
     binding = cast(ExecutionBindingDefinition, binding_contract.definition)
     observations = _resolved_produced_observations(
         binding,
-        resolved_by_key,
+        catalog,
     )
     metric_facts = {}
     for observation in observations:
-        metric = resolved_by_key[observation.metric.key]
+        metric = catalog.require_contract(*observation.metric.key)
         metric_facts[observation.metric] = resolve_metric_facts(
             observation.metric,
             cast(MetricDefinition, metric.definition),
         )
     return ProducedObservationPlan(
-        binding_method=_resolved_reference(
-            resolved_by_key[binding.method.key]
-        ),
+        binding_method=catalog.require_reference(*binding.method.key),
         observations=observations,
         metric_facts=metric_facts,
         propagation=_resolved_observation_propagation(
             binding.observation_propagation,
-            resolved_by_key,
+            catalog,
         ),
     )

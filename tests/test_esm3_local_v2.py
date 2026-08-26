@@ -45,10 +45,6 @@ def _plain_invocations(
 def _patch_local_runtime(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
-    *,
-    accepted_revision: str = (
-        "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
-    ),
 ) -> None:
     import modules.esm3.local_adapter as local_adapter
     import modules.esm3.package as package
@@ -59,16 +55,10 @@ def _patch_local_runtime(
     snapshot_path.mkdir(exist_ok=True)
 
     def resolve(environment: Any) -> local_adapter.LocalESM3Runtime:
-        if environment.get("model_snapshot_revision") != accepted_revision:
-            raise local_adapter.LocalESM3RuntimeUnavailable(
-                "fixture model identity changed"
-            )
         return local_adapter.LocalESM3Runtime(
             snapshot_path=snapshot_path,
             runtime_directory=runtime_directory,
             device="cpu",
-            performance_settings={},
-            artifact_sources={},
         )
 
     monkeypatch.setattr(
@@ -82,18 +72,11 @@ def _patch_local_runtime(
 def _local_environment(tmp_path: Path) -> dict[str, Any]:
     return {
         "model_snapshot_path": tmp_path / "local-snapshot",
-        "model_snapshot_revision": (
-            "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
-        ),
-        "device": expected_local_torch_device(),
         "runtime_directory": tmp_path / "local-runtime",
-        "performance_settings": {},
     }
 
 
 def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
-    from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
-
     registrations = {
         registration.package_id: registration
         for registration in module_registrations()
@@ -116,14 +99,10 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
     ):
         local = catalog.require_contract(
             "binding",
-            f"esm3.{operation}.local_open",
-            "9.0.0",
-        )
+            f"esm3.{operation}.local_open")
         remote = catalog.require_contract(
             "binding",
-            f"esm3.{operation}.biohub_open",
-            "8.0.0",
-        )
+            f"esm3.{operation}.biohub_open")
 
         assert local.descriptor["node_type"] == remote.descriptor["node_type"]
         assert local.descriptor["produced_observations"] == ()
@@ -135,31 +114,9 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         )
         assert local.descriptor["deterministic"] is False
         assert local.descriptor["cacheable"] is False
-        assert local.descriptor["implementation_identity"][
-            "model"
-        ] == "esm3_sm_open_v1"
-        assert local.descriptor["implementation_identity"][
-            "device_policy"
-        ] == LOCAL_TORCH_DEVICE_POLICY
-        assert local.descriptor["implementation_identity"][
-            "torch_version"
-        ] == "2.13.0"
-        assert local.descriptor["implementation_identity"][
-            "performance_settings"
-        ] == {}
-        assert set(local.descriptor["readiness_declaration"][
-            "prerequisites"
-        ]) == {
-            "model_snapshot",
-            "device",
-                "runtime_directory",
-                "performance_settings",
-                "provider_sdk",
-            }
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
-            "8.0.0",
         )
         forbidden = {
             "model",
@@ -192,7 +149,7 @@ def test_local_startup_failure_isolated_from_remote_bindings(
     assert local.is_available is False
     assert local.code == "local_esm3_runtime_unavailable"
     assert local.message == (
-        "The exact local ESM SDK and Torch runtime prerequisites are unavailable."
+        "The local ESM SDK and Torch runtime prerequisites are unavailable."
     )
     assert local.retryable is False
     assert availability[
@@ -200,7 +157,7 @@ def test_local_startup_failure_isolated_from_remote_bindings(
     ].result.is_available is True
 
 
-def test_local_runtime_admits_exact_model_and_runtime_configuration(
+def test_local_runtime_resolves_configured_model_and_runtime_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -214,68 +171,29 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
     artifact.write_bytes(b"locked fixture")
     monkeypatch.setattr(
         local_adapter,
-        "LOCAL_ESM3_WEIGHT_SHA256",
-        {
-            "data/weights/fixture.pth": hashlib.sha256(
-                b"locked fixture"
-            ).hexdigest()
-        },
+        "LOCAL_ESM3_WEIGHT_FILES",
+        ("data/weights/fixture.pth",),
     )
     environment = {
         "model_snapshot_path": snapshot,
-        "model_snapshot_revision": (
-            local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
-        ),
-        "device": expected_local_torch_device(),
         "runtime_directory": runtime_directory,
-        "performance_settings": {},
     }
-    import torch
-
-    monkeypatch.setattr(
-        torch,
-        "__version__",
-        f"{local_adapter.LOCAL_ESM3_TORCH_VERSION}+cu130",
-    )
 
     runtime = local_adapter.resolve_local_runtime(environment)
-    assert runtime.artifact_sources == {
-        "data/weights/fixture.pth": artifact,
-    }
+    assert runtime.snapshot_path == snapshot
 
     artifact.write_bytes(b"replaced fixture")
-    with pytest.raises(RuntimeError, match="identity mismatch"):
-        local_adapter.resolve_local_runtime(environment)
-
-    artifact.write_bytes(b"locked fixture")
-    changed_configuration = {
-        **environment,
-        "performance_settings": {"torch_num_threads": 1},
-    }
-    with pytest.raises(RuntimeError, match="performance settings"):
-        local_adapter.resolve_local_runtime(changed_configuration)
-
-    wrong_device = {**environment, "device": "mps"}
-    with pytest.raises(RuntimeError, match="device does not match"):
-        local_adapter.resolve_local_runtime(wrong_device)
-
-    monkeypatch.setattr(torch, "__version__", "2.12.0+cu130")
-    with pytest.raises(RuntimeError, match="Torch runtime does not match"):
-        local_adapter.resolve_local_runtime(environment)
+    assert local_adapter.resolve_local_runtime(environment).snapshot_path == snapshot
 
 
-def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
+def test_huggingface_blob_links_are_staged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.esm3.local_adapter as local_adapter
 
     repository = tmp_path / "models--biohub--esm3-sm-open-v1"
-    snapshot = (
-        repository
-        / "snapshots"
-        / local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
-    )
+    snapshot = repository / "snapshots" / "configured"
     runtime_directory = tmp_path / "runtime"
     weights = snapshot / "data" / "weights"
     blobs = repository / "blobs"
@@ -290,18 +208,13 @@ def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
     linked.symlink_to(Path("../../../../blobs") / digest)
     monkeypatch.setattr(
         local_adapter,
-        "LOCAL_ESM3_WEIGHT_SHA256",
-        {"data/weights/fixture.pth": digest},
+        "LOCAL_ESM3_WEIGHT_FILES",
+        ("data/weights/fixture.pth",),
     )
     runtime = local_adapter.resolve_local_runtime(
         {
             "model_snapshot_path": snapshot,
-            "model_snapshot_revision": (
-                local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
-            ),
-            "device": expected_local_torch_device(),
             "runtime_directory": runtime_directory,
-            "performance_settings": {},
         }
     )
 
@@ -327,13 +240,11 @@ def test_staging_failure_retains_staged_root_cleanup_type(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
         device=expected_local_torch_device(),
-        performance_settings={},
-        artifact_sources={"fixture.pth": source},
     )
     monkeypatch.setattr(
         local_adapter,
-        "LOCAL_ESM3_WEIGHT_SHA256",
-        {"fixture.pth": hashlib.sha256(b"fixture").hexdigest()},
+        "LOCAL_ESM3_WEIGHT_FILES",
+        ("fixture.pth",),
     )
 
     def fail_copy(_source: Path, _destination: Path) -> None:
@@ -394,7 +305,6 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
         return object()
 
     payload = b"staged fixture"
-    digest = hashlib.sha256(payload).hexdigest()
     artifact = tmp_path / "fixture.pth"
     artifact.write_bytes(payload)
     runtime_directory = tmp_path / "runtime"
@@ -403,8 +313,6 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
         device=expected_local_torch_device(),
-        performance_settings={},
-        artifact_sources={"fixture.pth": artifact},
     )
     monkeypatch.setattr(esm3_model, "ESM3", FakeESM3)
     monkeypatch.setattr(
@@ -419,8 +327,8 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
     )
     monkeypatch.setattr(
         local_adapter,
-        "LOCAL_ESM3_WEIGHT_SHA256",
-        {"fixture.pth": digest},
+        "LOCAL_ESM3_WEIGHT_FILES",
+        ("fixture.pth",),
     )
 
     client = local_adapter.load_local_esm3_client(
@@ -471,8 +379,6 @@ def test_local_client_load_failure_restores_sdk_data_root_and_staging(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
         device="cpu",
-        performance_settings={},
-        artifact_sources={"fixture.pth": artifact},
     )
     monkeypatch.setattr(
         esm_pretrained,
@@ -486,8 +392,8 @@ def test_local_client_load_failure_restores_sdk_data_root_and_staging(
     )
     monkeypatch.setattr(
         local_adapter,
-        "LOCAL_ESM3_WEIGHT_SHA256",
-        {"fixture.pth": hashlib.sha256(payload).hexdigest()},
+        "LOCAL_ESM3_WEIGHT_FILES",
+        ("fixture.pth",),
     )
 
     with pytest.raises(RuntimeError, match="fixture local ESM-3 load failed"):
@@ -558,12 +464,11 @@ def test_local_client_loads_serialize_sdk_snapshot_bindings(
         )
 
     payload = b"staged fixture"
-    artifact = tmp_path / "fixture.pth"
-    artifact.write_bytes(payload)
     runtimes = []
     for name in ("first", "second"):
         snapshot_path = tmp_path / f"{name}-snapshot"
         snapshot_path.mkdir()
+        (snapshot_path / "fixture.pth").write_bytes(payload)
         runtime_directory = tmp_path / f"{name}-runtime"
         runtime_directory.mkdir()
         runtimes.append(
@@ -571,8 +476,6 @@ def test_local_client_loads_serialize_sdk_snapshot_bindings(
                 snapshot_path=snapshot_path,
                 runtime_directory=runtime_directory,
                 device="cpu",
-                performance_settings={},
-                artifact_sources={"fixture.pth": artifact},
             )
         )
     first, second = runtimes
@@ -589,8 +492,8 @@ def test_local_client_loads_serialize_sdk_snapshot_bindings(
     )
     monkeypatch.setattr(
         local_adapter,
-        "LOCAL_ESM3_WEIGHT_SHA256",
-        {"fixture.pth": hashlib.sha256(payload).hexdigest()},
+        "LOCAL_ESM3_WEIGHT_FILES",
+        ("fixture.pth",),
     )
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -850,7 +753,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
         == f"esm3.{operation}.local_open"
     ]
     assert len(readiness) == 1
-    assert readiness[0]["attestation_digest"].startswith("sha256:")
+    assert readiness[0]["conclusion"] == "passing"
     generation_events = [
         event["event"]
         for event in events
@@ -867,16 +770,14 @@ def test_local_execution_preserves_remote_scientific_contracts(
     binding = catalog.require_contract(
         "binding",
         f"esm3.{operation}.local_open",
-        "9.0.0",
     )
     method = catalog.require_contract(
         "method",
         binding.descriptor["method"]["contract_id"],
-        binding.descriptor["method"]["contract_version"],
     )
     assert {
         event["engine_identity"] for event in generation_events
-    } == {method.contract_digest}
+    } == {method.contract_id}
     assert all(
         event["invocation_provenance"]["effective_randomness"]["control"]
         == "exact_seed"
@@ -1022,8 +923,6 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
         device="cpu",
-        performance_settings={},
-        artifact_sources={},
     )
     client = FailingClient()
     monkeypatch.setattr(
@@ -1079,13 +978,17 @@ def test_local_binding_never_falls_back_to_remote_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import modules.esm3.local_adapter as local_adapter
     from tests.fixtures.esm3_generation import ProviderClient, run_generation
 
-    _patch_local_runtime(
-        monkeypatch,
-        tmp_path,
-        accepted_revision="never-accepted",
-    )
+    _patch_local_runtime(monkeypatch, tmp_path)
+
+    def unavailable(_environment: Any) -> local_adapter.LocalESM3Runtime:
+        raise local_adapter.LocalESM3RuntimeUnavailable(
+            "fixture local runtime unavailable"
+        )
+
+    monkeypatch.setattr(local_adapter, "resolve_local_runtime", unavailable)
     remote_client = ProviderClient([])
 
     _service, _catalog, projection, _events = run_generation(

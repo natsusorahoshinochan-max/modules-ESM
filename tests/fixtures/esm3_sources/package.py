@@ -36,11 +36,6 @@ from datatypes.residue import (
 )
 
 
-_PACKAGE_VERSION = "2.1.0"
-_METHOD_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "3.0.0"
-
-
 class _Source:
     def __init__(self, run_resources: Any) -> None:
         self._run_resources = run_resources
@@ -138,41 +133,31 @@ def _build(context: OperationContext) -> object:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.esm3_sources",
-    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(DefinitionResource("definition.yaml"),),
     methods=(
         MethodDefinition(
             method_id="contract_test.esm3_prompt_source.method",
-            version=_METHOD_VERSION,
             algorithm_identity={"name": "independent-deterministic-fixture"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "literal-values"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         ),
     ),
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.esm3_prompt_source.direct",
-            version=_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
-                "contract_test.esm3_prompt_source",
-                _NODE_BINDING_VERSION,
-            ),
+                "contract_test.esm3_prompt_source"),
             method=ContractIdentity(
                 "method",
-                "contract_test.esm3_prompt_source.method",
-                _METHOD_VERSION,
-            ),
+                "contract_test.esm3_prompt_source.method"),
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.esm3_prompt_source/factory",
-                    _NODE_BINDING_VERSION,
                     {},
                 ),
                 build=_build,
@@ -180,7 +165,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.esm3_prompt_source/availability",
-                    _NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -189,18 +173,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.esm3_prompt_source/readiness",
-                    _NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
                 check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
-            cacheable=True,
-            implementation_identity={
-                "name": "contract_test.esm3_prompt_source.direct",
-                "source": "contract-test-fixture",
-            },
-        ),
+            cacheable=True),
     ),
 )

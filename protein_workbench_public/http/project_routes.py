@@ -10,8 +10,9 @@ import uuid
 from fastapi import FastAPI, Request
 
 from core.project.manager import (
-    PROJECT_SCHEMA_VERSION,
+    ProjectInputDescriptor,
     ProjectManager,
+    ProjectMeta,
     ProtectedProjectError,
 )
 from protein_workbench_public.http.errors import (
@@ -24,6 +25,31 @@ from protein_workbench_public.protocol import (
     ProtocolValidationError,
     decode_rest_request,
 )
+
+
+def _project_metadata_payload(meta: ProjectMeta) -> dict[str, Any]:
+    return {
+        "schema_namespace": "protein-workbench-public/v2",
+        "id": meta.id,
+        "name": meta.name,
+        "created_at": meta.created_at,
+        "modified_at": meta.modified_at,
+        "seed": meta.seed,
+    }
+
+
+def _project_input_payload(
+    project_id: str,
+    descriptor: ProjectInputDescriptor,
+) -> dict[str, Any]:
+    return {
+        "schema_namespace": "protein-workbench-public/v2",
+        "project_id": project_id,
+        "project_input_ref": descriptor.project_input_ref,
+        "filename": descriptor.filename,
+        "size": descriptor.size,
+        "content_digest": descriptor.content_digest,
+    }
 
 
 def register_project_routes(
@@ -47,14 +73,7 @@ def register_project_routes(
         except ProtocolValidationError as error:
             return protocol_error_response(error)
         meta = projects.create(admitted["name"])
-        payload = {
-            "schema_namespace": "protein-workbench-public/v2",
-            "id": meta.id,
-            "name": meta.name,
-            "created_at": meta.created_at,
-            "modified_at": meta.modified_at,
-            "seed": meta.seed,
-        }
+        payload = _project_metadata_payload(meta)
         return emit_rest_json_success("create_project", payload)
 
     publish_input_operation = rest_operations["publish_project_input"]
@@ -79,16 +98,6 @@ def register_project_routes(
             project = manager.load_meta(admitted["project_id"])
         except ProtocolValidationError as error:
             return protocol_error_response(error)
-        except ValueError:
-            return public_error_response(
-                "unsupported_schema_version",
-                "Project metadata is not a supported exact v2 artifact",
-                {
-                    "artifact_kind": "project",
-                    "expected_schema_version": PROJECT_SCHEMA_VERSION,
-                    "received_schema_version": "unknown",
-                },
-            )
         if project is None:
             return public_error_response(
                 "project_not_found",
@@ -111,14 +120,7 @@ def register_project_routes(
                 "Protected Project cannot be changed through this scope",
                 {"requested_project_id": admitted["project_id"]},
             )
-        payload = {
-            "schema_namespace": "protein-workbench-public/v2",
-            "project_id": admitted["project_id"],
-            "project_input_ref": published.project_input_ref,
-            "filename": published.filename,
-            "size": published.size,
-            "content_digest": published.content_digest,
-        }
+        payload = _project_input_payload(admitted["project_id"], published)
         return emit_rest_json_success("publish_project_input", payload)
 
     input_metadata_operation = rest_operations["project_input_metadata"]
@@ -146,16 +148,6 @@ def register_project_routes(
             project = manager.load_meta(admitted["project_id"])
         except ProtocolValidationError as error:
             return protocol_error_response(error)
-        except ValueError:
-            return public_error_response(
-                "unsupported_schema_version",
-                "Project metadata is not a supported exact v2 artifact",
-                {
-                    "artifact_kind": "project",
-                    "expected_schema_version": PROJECT_SCHEMA_VERSION,
-                    "received_schema_version": "unknown",
-                },
-            )
         if project is None:
             return public_error_response(
                 "project_not_found",
@@ -179,12 +171,5 @@ def register_project_routes(
                     "resource_id": admitted["project_input_ref"],
                 },
             )
-        payload = {
-            "schema_namespace": "protein-workbench-public/v2",
-            "project_id": admitted["project_id"],
-            "project_input_ref": descriptor.project_input_ref,
-            "filename": descriptor.filename,
-            "size": descriptor.size,
-            "content_digest": descriptor.content_digest,
-        }
+        payload = _project_input_payload(admitted["project_id"], descriptor)
         return emit_rest_json_success("project_input_metadata", payload)

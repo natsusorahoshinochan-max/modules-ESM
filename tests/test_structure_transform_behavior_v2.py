@@ -42,12 +42,6 @@ from tests.fixtures.structure_transform_sources.package import (
 
 
 VERSION = "2.1.0"
-CANDIDATE_SOURCE_VERSION = "4.0.0"
-CANDIDATE_NODE_VERSION = "4.0.0"
-STRUCTURE_VERSION = "4.0.0"
-CANDIDATE_AXIS_VERSION = "6.0.0"
-SOURCE_VERSION = "6.0.0"
-BACKBONE_PORT_VERSION = "4.0.0"
 
 
 def _run_transform(
@@ -66,16 +60,13 @@ def _run_transform(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"structure transform {operation}")
-    operation_version = STRUCTURE_VERSION
     authoring = WorkflowAuthoringService(projects, catalog)
     needs_resolved_axis = operation in {"extract_backbone", "extract_sequence"}
     nodes = [
         WorkflowNodeInstance(
             node_id="source",
             node_type_id="contract_test.structure_transform_source",
-            node_type_version=SOURCE_VERSION,
             binding_id="contract_test.structure_transform_source.direct",
-            binding_version=SOURCE_VERSION,
             node_parameters={"fixture": fixture},
             binding_parameters={},
         )
@@ -86,11 +77,9 @@ def _run_transform(
             WorkflowNodeInstance(
                 node_id="resolve-axis",
                 node_type_id="structure_transform.resolve_residue_axis",
-                node_type_version=STRUCTURE_VERSION,
                 binding_id=(
                     "structure_transform.resolve_residue_axis.direct"
                 ),
-                binding_version=STRUCTURE_VERSION,
                 node_parameters={},
                 binding_parameters={},
             )
@@ -119,9 +108,7 @@ def _run_transform(
         WorkflowNodeInstance(
             node_id="transform",
             node_type_id=f"structure_transform.{operation}",
-            node_type_version=operation_version,
             binding_id=f"structure_transform.{operation}.direct",
-            binding_version=operation_version,
             node_parameters=node_parameters or {},
             binding_parameters={},
         )
@@ -131,7 +118,6 @@ def _run_transform(
         workflow_id=project.id,
         nodes=tuple(nodes),
         edges=tuple(edges),
-        contract_lock=(),
     )
     committed = authoring.commit(
         project.id,
@@ -198,21 +184,14 @@ def _run_candidate_transform(
     )
     project = projects.create(f"candidate transform {operation}")
     authoring = WorkflowAuthoringService(projects, catalog)
-    operation_version = (
-        CANDIDATE_AXIS_VERSION
-        if operation == "resolve_candidate_residue_axes"
-        else CANDIDATE_NODE_VERSION
-    )
     needs_resolved_axes = operation == "extract_sequence_candidates"
     nodes = [
         WorkflowNodeInstance(
             node_id="source",
             node_type_id=("contract_test.proteinmpnn_3gb1_structure"),
-            node_type_version=CANDIDATE_SOURCE_VERSION,
             binding_id=(
                 "contract_test.proteinmpnn_3gb1_structure.direct"
             ),
-            binding_version=CANDIDATE_SOURCE_VERSION,
             node_parameters={},
             binding_parameters={},
         )
@@ -232,11 +211,9 @@ def _run_candidate_transform(
                 node_type_id=(
                     "structure_transform.resolve_candidate_residue_axes"
                 ),
-                node_type_version=CANDIDATE_AXIS_VERSION,
                 binding_id=(
                     "structure_transform.resolve_candidate_residue_axes.direct"
                 ),
-                binding_version=CANDIDATE_AXIS_VERSION,
                 node_parameters={},
                 binding_parameters={},
             )
@@ -261,9 +238,7 @@ def _run_candidate_transform(
         WorkflowNodeInstance(
             node_id="transform",
             node_type_id=f"structure_transform.{operation}",
-            node_type_version=operation_version,
             binding_id=f"structure_transform.{operation}.direct",
-            binding_version=operation_version,
             node_parameters=node_parameters or {},
             binding_parameters={},
         )
@@ -275,7 +250,6 @@ def _run_candidate_transform(
             workflow_id=project.id,
             nodes=tuple(nodes),
             edges=tuple(edges),
-            contract_lock=(),
         ),
     )
     service = V2RunService(
@@ -440,7 +414,6 @@ def test_backbone_retains_exact_atoms_chain_breaks_and_canonical_digest(
     assert backbone == ProteinStructure(backbone.pdb_string)
     port_type = catalog.require_port_type(
         "structure_transform.backbone_structure",
-        BACKBONE_PORT_VERSION,
     )
     assert output["content_digest"] == port_type.content_digest(backbone)
     assert output["result_identity"].startswith("sha256:")
@@ -726,7 +699,6 @@ def test_candidate_residue_axes_bind_exact_structure_candidate_reference(
     assert association.subject.data_type_id == "protein.structure"
     structure_type = catalog.require_port_type(
         "protein.structure",
-        STRUCTURE_VERSION,
     )
     assert association.subject.content_digest == structure_type.content_digest(
         source.items[0].data

@@ -1,31 +1,23 @@
 - method_id: structure_annotation.secondary_structure_extract.method
-  version: 3.0.0
   algorithm_identity: {absent: _, alphabet: GHITEBSC,
     coarse_conversion: none, name: exact-DSSP-SS8-track-extraction}
   model_identity: {kind: none}
-  checkpoint_identity: {kind: none}
   featurization_identity: {P_conversion: C,
     input: candidate-associated DSSP annotation, projection: secondary_structure,
     subject: preserve exact CandidateDataReference}
-  source_identity: {kind: repository-owned}
   scale_contract: {kind: identity}
 - method_id: structure_annotation.sasa_compute.method
-  version: 3.0.0
   algorithm_identity: {missing_value: 'null',
     name: exact-DSSP-solvent-accessibility-extraction, unit: angstrom_squared}
   model_identity: {kind: none}
-  checkpoint_identity: {kind: none}
   featurization_identity: {input: candidate-associated DSSP annotation,
     projection: sasa, subject: preserve exact CandidateDataReference,
     unit: angstrom_squared}
-  source_identity: {kind: repository-owned}
   scale_contract: {kind: identity}
 - method_id: structure_annotation.secondary_structure_agreement.method
-  version: 3.0.0
   algorithm_identity: {absent_policy: exclude, alphabet: GHITEBSC,
     coarse_conversion: none, name: exact-SS8-present-residue-agreement}
   model_identity: {kind: none}
-  checkpoint_identity: {kind: none}
   featurization_identity:
     inputs: expected and observed candidate-associated SS8 tracks
     layout: exact_identity
@@ -33,10 +25,8 @@
       expected: exact admitted reference Candidate reference
       observed: exact admitted subject Candidate reference
     presence_mask: both-values-not-underscore
-  source_identity: {kind: repository-owned}
   scale_contract: {kind: identity}
 - method_id: structure_annotation.apply_secondary_structure_to_prompt.method
-  version: 2.2.0
   algorithm_identity:
     layout: exact_identity
     name: exact-annotation-SS8-to-ProteinPrompt-conditioning
@@ -48,17 +38,14 @@
     target_missing_role: prompt_unspecified
     unaffected_prompt_fields: byte-equivalent-canonical-values
   model_identity: {kind: none}
-  checkpoint_identity: {kind: none}
   featurization_identity:
     candidate_attribution: not copied into ProteinPrompt
     inputs: [ProteinPrompt, candidate-associated secondary-structure track]
     layout: exact_identity
     output: ProteinPrompt
     track: secondary_structure
-  source_identity: {kind: repository-owned}
   scale_contract: {kind: identity}
 - method_id: structure_annotation.apply_sasa_to_prompt.method
-  version: 2.2.0
   algorithm_identity:
     layout: exact_identity
     name: exact-DSSP-SASA-to-ProteinPrompt-conditioning
@@ -69,7 +56,6 @@
     unaffected_prompt_fields: byte-equivalent-canonical-values
     unit: angstrom_squared
   model_identity: {kind: none}
-  checkpoint_identity: {kind: none}
   featurization_identity:
     candidate_attribution: not copied into ProteinPrompt
     inputs: [ProteinPrompt, candidate-associated SASA track]
@@ -77,10 +63,8 @@
     output: ProteinPrompt
     track: sasa
     unit: angstrom_squared
-  source_identity: {kind: repository-owned}
   scale_contract: {kind: identity}
 - method_id: structure_annotation.expected_secondary_structure_from_prompt.method
-  version: 3.0.0
   algorithm_identity:
     layout: exact_identity
     name: exact-ProteinPrompt-conditioning-to-expected-annotation-SS8
@@ -91,7 +75,6 @@
     target_alphabet: GHITEBSC_
     target_missing_role: expected_comparison_excluded
   model_identity: {kind: none}
-  checkpoint_identity: {kind: none}
   featurization_identity:
     inputs: [ProteinPrompt, singleton reference Candidate]
     layout: exact_identity
@@ -99,5 +82,4 @@
     output_role: expected_comparison
     participant_binding: exact admitted reference Candidate reference
     track: secondary_structure
-  source_identity: {kind: repository-owned}
   scale_contract: {kind: identity}

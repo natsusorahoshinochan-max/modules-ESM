@@ -51,4 +51,5 @@ provenance and cannot perturb a scientific random draw when the exact structure
 content and slot are unchanged.
 
 Changing any of these lineage, residue-identity, normalization, mapping,
-editing, or seed contracts requires new versioned public contracts.
+editing, or seed contracts requires a distinct stable scientific contract ID or
+an atomic replacement of the current repository-owned definition.

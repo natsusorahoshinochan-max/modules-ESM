@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.protein_structure
-version: "4.0.0"
 title: Protein structure source
 summary: Emits one deterministic ProteinStructure for contract tests.
 category: contract_test
@@ -8,7 +6,6 @@ inputs: []
 outputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One deterministic provider-native PDB structure.

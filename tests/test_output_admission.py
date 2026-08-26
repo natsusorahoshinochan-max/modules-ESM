@@ -61,8 +61,6 @@ from tests.fixtures.structure_transform_sources.package import _FIXTURES
 _METHOD = ExactContractReference(
     "method",
     "test.output-admission.method",
-    "1.0.0",
-    "sha256:" + "1" * 64,
 )
 
 
@@ -74,20 +72,16 @@ def _port_type(
 ) -> PortTypeDefinition:
     return PortTypeDefinition(
         type_id="test.output-admission.value",
-        version="1.0.0",
         validator=BehaviorReference(
             "test.output-admission/validate",
-            "1.0.0",
             {},
         ),
         codec=BehaviorReference(
             "test.output-admission/codec",
-            "1.0.0",
             {},
         ),
         content_identity=BehaviorReference(
             "test.output-admission/content",
-            "1.0.0",
             {},
         ),
         runtime_validator=validate,
@@ -246,7 +240,6 @@ def _candidate_output_plan(
                 multiplicity="one",
                 port_type=builtins.require_port_type(
                     "candidate.collection",
-                    "4.0.0",
                 ),
             ),
             (
@@ -262,7 +255,6 @@ def _candidate_output_plan(
         candidate_data_port_types={
             "protein.structure": builtins.require_port_type(
                 "protein.structure",
-                "4.0.0",
             )
         },
         produced_observations=ProducedObservationPlan(
@@ -277,8 +269,6 @@ def test_confidence_identity_sources_encode_once_and_preserve_canonical_fact(
     method = ExactContractReference(
         "method",
         "test.output-admission.folding",
-        "1.0.0",
-        "sha256:" + "4" * 64,
     )
     parent = Candidate("parent", ProteinSequence("A", ("A:1",)))
     parent_reference = CandidateDataReference(
@@ -316,7 +306,6 @@ def test_confidence_identity_sources_encode_once_and_preserve_canonical_fact(
     )
     structure_type = builtin_frozen_catalog().require_port_type(
         "protein.structure",
-        "4.0.0",
     )
     structure_bytes = structure_type.encode(structure)
     structure_digest = "sha256:" + hashlib.sha256(structure_bytes).hexdigest()
@@ -391,8 +380,6 @@ def test_normalization_identity_sources_encode_once_and_preserve_canonical_fact(
     method = ExactContractReference(
         "method",
         "test.output-admission.normalization",
-        "1.0.0",
-        "sha256:" + "8" * 64,
     )
     raw_structure = ProteinStructure(_FIXTURES["csh"]())
     normalized_structure, normalizations = normalize_csh_parent_span(
@@ -400,7 +387,6 @@ def test_normalization_identity_sources_encode_once_and_preserve_canonical_fact(
     )
     structure_type = builtin_frozen_catalog().require_port_type(
         "protein.structure",
-        "4.0.0",
     )
     structure_bytes = structure_type.encode(normalized_structure)
     structure_digest = "sha256:" + hashlib.sha256(structure_bytes).hexdigest()

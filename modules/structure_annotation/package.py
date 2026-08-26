@@ -25,12 +25,7 @@ from core.operation import (
 
 from .adapter import (
     MKDSSP_BINARY,
-    MKDSSP_SOURCE_ARCHIVE_SHA256,
-    MKDSSP_SOURCE_REPOSITORY,
-    MKDSSP_SOURCE_REVISION,
-    MKDSSP_VERSION,
     MkdsspAdapter,
-    mkdssp_provider_identity,
     mkdssp_readiness,
 )
 from .implementation import (
@@ -45,29 +40,6 @@ from .implementation import (
 from .port_types import STRUCTURE_ANNOTATION_PORT_TYPES
 
 
-_PACKAGE_VERSION = "3.0.0"
-_VERSION = "2.1.0"
-_METHOD_VERSION = "2.2.0"
-_METRIC_VERSION = "3.0.0"
-_NODE_BINDING_VERSIONS = {
-    "dssp_compute": "7.0.0",
-    "secondary_structure_extract": "4.0.0",
-    "sasa_compute": "4.0.0",
-    "secondary_structure_agreement": "6.0.0",
-    "apply_secondary_structure_to_prompt": "5.0.0",
-    "apply_sasa_to_prompt": "5.0.0",
-    "expected_secondary_structure_from_prompt": "6.0.0",
-}
-_METHOD_VERSIONS = {
-    "dssp_compute": "3.0.0",
-    "secondary_structure_extract": "3.0.0",
-    "sasa_compute": "3.0.0",
-    "secondary_structure_agreement": "3.0.0",
-    "apply_secondary_structure_to_prompt": _METHOD_VERSION,
-    "apply_sasa_to_prompt": _METHOD_VERSION,
-    "expected_secondary_structure_from_prompt": "3.0.0",
-}
-_DSSP_READINESS_BEHAVIOR_VERSION = "2.2.0"
 _OPERATIONS = (
     "dssp_compute",
     "secondary_structure_extract",
@@ -117,12 +89,10 @@ def _build(operation: str):
 def _dssp_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="structure_annotation.dssp_compute.method",
-        version=_METHOD_VERSIONS[_DSSP_OPERATION],
         algorithm_identity={
             "name": "mkdssp-residue-annotation",
             "binary": {
                 "name": MKDSSP_BINARY,
-                "version": MKDSSP_VERSION,
             },
             "residue_correspondence": (
                 "dssp-summary-label-pair-via-atom-site-authored-chain-"
@@ -134,7 +104,6 @@ def _dssp_method() -> MethodDefinition:
             "accessibility_absent_markers": [".", "?"],
         },
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={
             "input": (
                 "singleton ProteinStructure Candidate and authoritative "
@@ -142,14 +111,13 @@ def _dssp_method() -> MethodDefinition:
                 "CandidateDataReference"
             ),
             "structure_format": "PDB-v3.3-fixed-columns",
-            "provider_output_format": "mkdssp-4.6.1-mmCIF",
+            "provider_output_format": "mkdssp-mmCIF",
             "residue_mapping": (
                 "dssp_struct_summary-label-asym-and-seq-joined-through-"
                 "atom_site-auth-asym-auth-seq-and-PDB-ins-code-to-"
                 "exact-authoritative-axis-identity"
             ),
         },
-        source_identity=mkdssp_provider_identity(),
         scale_contract={"kind": "identity"},
     )
 
@@ -164,7 +132,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     method = ContractIdentity(
         "method",
         f"structure_annotation.{operation}.method",
-        _METHOD_VERSIONS[operation],
     )
     produced = ()
     if operation == "secondary_structure_agreement":
@@ -175,7 +142,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     "structure_annotation.secondary_structure_agreement",
-                    _METRIC_VERSION,
                 ),
                 context_profile={
                     "kind": "pairwise",
@@ -198,14 +164,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
     is_dssp = operation == _DSSP_OPERATION
     route = "mkdssp_local" if is_dssp else "direct"
     execution_route = "adapter" if is_dssp else "direct"
-    binding_version = _NODE_BINDING_VERSIONS[operation]
     return ExecutionBindingDefinition(
         binding_id=f"structure_annotation.{operation}.{route}",
-        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"structure_annotation.{operation}",
-            binding_version,
         ),
         method=method,
         binding_parameters={},
@@ -218,7 +181,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"structure_annotation.{operation}/factory",
-                binding_version,
                 {"execution_route": execution_route, "route": route},
             ),
             build=_build(operation),
@@ -226,17 +188,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         adapter_behavior=(
             BehaviorReference(
                 "structure_annotation.mkdssp_local/adapter",
-                binding_version,
                 {
-                    "provider_contract": (
-                        f"{MKDSSP_SOURCE_REPOSITORY}@"
-                        f"{MKDSSP_SOURCE_REVISION}"
-                    ),
-                    "source_archive_sha256": MKDSSP_SOURCE_ARCHIVE_SHA256,
+                    "provider_contract": "mkdssp",
                     "binary": MKDSSP_BINARY,
-                    "binary_version": MKDSSP_VERSION,
                     "request_format": "PDB-v3.3-fixed-columns",
-                    "response_format": "mkdssp-4.6.1-mmCIF",
+                    "response_format": "mkdssp-mmCIF",
                     "axis_source": (
                         "exact-candidate-associated-authoritative-"
                         "resolved-residue-axis"
@@ -253,7 +209,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"structure_annotation.{operation}/availability",
-                _VERSION,
                 {"observation": "startup"},
             ),
             prerequisites=(
@@ -272,7 +227,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
             ReadinessDeclaration(
                 behavior=BehaviorReference(
                     f"structure_annotation.{operation}/readiness",
-                    _DSSP_READINESS_BEHAVIOR_VERSION,
                     {
                         "observation": "per-run",
                         "path_source": "trusted_environment_configuration",
@@ -281,7 +235,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 prerequisites={
                     "binary": {
                         "name": MKDSSP_BINARY,
-                        "required_version": MKDSSP_VERSION,
                         "path_source": "trusted_environment_configuration",
                     }
                 },
@@ -292,31 +245,12 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity=(
-            {
-                "name": (
-                    "structure_annotation.dssp_compute."
-                    "mkdssp-local-adapter"
-                ),
-                "provider_identity": mkdssp_provider_identity(),
-                "runtime_directory_policy": (
-                    "private-per-engine-invocation"
-                ),
-                "subprocess_boundary": "mkdssp-binary",
-            }
-            if is_dssp
-            else {
-                "name": f"structure_annotation.{operation}.direct",
-                "source": "repository-owned",
-            }
-        ),
         produced_observations=produced,
     )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="structure_annotation",
-    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=tuple(
         DefinitionResource(f"definitions/{name}.yaml")
