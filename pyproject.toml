@@ -29,12 +29,14 @@ dev = [
     "httpx2==2.12.0",
     "pytest>=8,<10",
     "pytest-asyncio>=0.24,<2",
+    "pytest-xdist[psutil]>=3.8,<4",
     "setuptools==83.0.0",
     "torch>=2.2,<3",
     "transformers @ git+https://github.com/Biohub/transformers.git@ef32577f55da19a4989cd7b22e004dc43a4998cb",
 ]
 providers = [
     "esm @ git+https://github.com/Biohub/esm.git@917af90b624535eed1e072d343c717e3ec11fef4",
+    "httpx[socks]>=0.27,<1",
     "simplefold @ git+https://github.com/apple/ml-simplefold.git@c7a5570a6be9f5c695126e27c804e77567209934",
     "torch>=2.2,<3",
     "transformers @ git+https://github.com/Biohub/transformers.git@ef32577f55da19a4989cd7b22e004dc43a4998cb",

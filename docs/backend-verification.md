@@ -35,12 +35,12 @@ are ordinary local verification output.
 
 | Tier | Command | Contract |
 | --- | --- | --- |
-| Routine backend regression | `.venv/bin/python -m verification.backend routine` | Runs deterministic current backend tests and excludes acceptance, installed-package, Provider, slow-model, and scientific-reproduction markers. |
+| Routine backend regression | `.venv/bin/python -m verification.backend routine` | Runs deterministic current backend tests across the machine's physical CPU cores and excludes acceptance, installed-package, Provider, slow-model, and scientific-reproduction markers. |
 | Repository v2 examples | `.venv/bin/python -m verification.backend examples-v2` | Commits and compiles the maintained stable-ID Workflow suite and checks its representative scientific topology, Port compatibility, parameters, and references against the active source Catalog. |
 | Task-shaped Workflow stress | `.venv/bin/python -m verification.backend workflow-stress` | Executes seven task-shaped scenarios through the public v2 protocol: source-bound three-way comparison, fixed-backbone design, function-conditioned Prompt generation, loop insertion, 2×2×2 multi-parent design/folding, all six Selection operations with a legal zero-pass result, and Provider-backed downstream-only Commit invalidation. Every scenario performs a second Run according to each Binding's declared Cache policy and emits a compact cardinality, disposition, Engine Invocation, and oracle report. |
 | Deterministic backend acceptance | `.venv/bin/python -m verification.backend deterministic-acceptance` | Runs the current canonical v2 3GB1 public-protocol journey and its failure, readiness, cancellation, isolation, and replay variants. |
 | Scientific reproduction | `.venv/bin/python -m verification.backend scientific-repro` | Confirms that every Provider-representable amino-acid symbol crosses the ESM-3 Adapter seam unchanged and retains its declared scientific identity. |
-| Local ESMFold2 source contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks the exact source/native-result contract, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
+| Local ESMFold2 translation contract | `.venv/bin/python -m verification.backend local-esmfold2-v2-contract` | Checks native-result translation, static confidence normalization, no-fallback lineage, and shared folding CTK without claiming a real heavy-model invocation. |
 | Installed package | `.venv/bin/python -m verification.backend installed-package` | Reproducibly builds the wheel and sdist, installs the wheel outside the checkout, proves source/installed protocol and Catalog identity, and drives the installed server through the public v2 Workflow/Run journey. |
 | Installed Biohub ESMC | `.venv/bin/python -m verification.backend installed-biohub-esmc` | Launches only the installed artifact and invokes exact `esmc-600m-2024-12` encode plus logits through the public Workflow/Run protocol, proving Readiness, mean-embedding output, validated sequence-logits shape, and complete Engine Invocation evidence. |
 | Installed Biohub ESM-3 | `.venv/bin/python -m verification.backend installed-biohub-esm3` | Invokes all six exact medium/open sequence, structure, and paired Bindings through fresh Runs. It requires eight successful Engine Invocations and fixes SDK retries to one attempt per call. |
@@ -118,8 +118,8 @@ the required `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE`. They do not download or
 require local model shards. The direct ESMC Node, the six remote ESM-3 generation
 Bindings, and remote ESMFold2 are scientifically distinct and have separate
 installed gates. Local ESMFold2 also has a real zero-skip gate; the
-provider-free `local-esmfold2-v2-contract` remains a separate source and
-translation contract and cannot replace that invocation.
+provider-free `local-esmfold2-v2-contract` remains a separate translation
+contract and cannot replace that invocation.
 
 The verifier exposes no v1 provider-evidence, mocked-workflow,
 aggregate-provider, or generic live-provider tier. It exposes eight exact

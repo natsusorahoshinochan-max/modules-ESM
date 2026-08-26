@@ -69,6 +69,8 @@ TIERS = {
         "and not deterministic_acceptance "
         "and not live_provider and not local_provider "
         "and not slow and not scientific_repro",
+        "-n",
+        "auto",
     )),
     "examples-v2": Tier(("tests/test_repository_examples_v2.py",)),
     "deterministic-acceptance": Tier((
@@ -122,7 +124,7 @@ TIERS = {
     "local-esmfold2-v2-contract": Tier((
         (
             "tests/acceptance/test_esmfold2_v2.py::"
-            "test_local_esmfold2_v2_source_contract_and_native_result"
+            "test_local_esmfold2_v2_native_result_translation"
         ),
         (
             "tests/test_folding_v2.py::"

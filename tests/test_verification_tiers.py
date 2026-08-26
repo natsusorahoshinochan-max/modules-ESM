@@ -92,6 +92,11 @@ def test_every_public_tier_has_only_existing_v2_test_targets() -> None:
     assert not (PROJECT_ROOT / "modules" / "provider_evidence.py").exists()
 
 
+def test_routine_tier_uses_all_physical_cpu_cores() -> None:
+    arguments = TIERS["routine"].pytest_arguments
+    assert arguments[-2:] == ("-n", "auto")
+
+
 def test_repository_verification_uses_one_profile_backed_serial_matrix(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -230,16 +235,16 @@ def test_installed_provider_tiers_select_exact_outer_gates() -> None:
 
 
 def test_local_esmfold2_contract_tier_selects_current_translation_test() -> None:
-    from tests import test_folding_v2
+    from tests.acceptance import test_esmfold2_v2
 
     target = (
-        "tests/test_folding_v2.py::"
-        "test_native_plddt_is_statically_scaled_and_projects_protein_tokens"
+        "tests/acceptance/test_esmfold2_v2.py::"
+        "test_local_esmfold2_v2_native_result_translation"
     )
     assert target in TIERS["local-esmfold2-v2-contract"].pytest_arguments
     assert hasattr(
-        test_folding_v2,
-        "test_native_plddt_is_statically_scaled_and_projects_protein_tokens",
+        test_esmfold2_v2,
+        "test_local_esmfold2_v2_native_result_translation",
     )
 
 
