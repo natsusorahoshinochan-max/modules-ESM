@@ -16,8 +16,6 @@ from core.execution.ledger.facts import (
     OperationAttemptStarted,
     OperationAttemptTerminal,
     OutputsPublished,
-    PublishedArtifact,
-    PublishedOutput,
     ReadinessAttested,
     RunAdmitted,
     RunScopeBound,
@@ -72,8 +70,6 @@ class RunProjection:
     project_id: str
     run_id: str
     workflow_commit_id: str
-    workflow_commit_revision: int
-    workflow_digest: str
     status: Literal[
         "admitted",
         "running",
@@ -84,8 +80,7 @@ class RunProjection:
     ]
     ledger_cursor: RunCursor
     node_dispositions: tuple[NodeDispositionProjection, ...]
-    outputs: tuple[PublishedOutput, ...]
-    artifacts: tuple[PublishedArtifact, ...]
+    publications: tuple[OutputsPublished, ...]
     selection_results: tuple[SelectionResult, ...] | None = None
     selection_error: StructuredError | None = None
     terminal_sequence: int | None = None
@@ -142,10 +137,7 @@ def project_run(
 ) -> RunProjection:
     scope = cast(RunScopeBound, facts[0].payload)
     dispositions: list[NodeDispositionProjection] = []
-    published_by_node: dict[
-        str,
-        tuple[tuple[PublishedOutput, ...], tuple[PublishedArtifact, ...]],
-    ] = {}
+    published_by_node: dict[str, OutputsPublished] = {}
     status: Literal[
         "admitted",
         "running",
@@ -172,10 +164,7 @@ def project_run(
                 )
             )
         elif isinstance(payload, OutputsPublished):
-            published_by_node[payload.node_id] = (
-                payload.outputs,
-                payload.artifacts,
-            )
+            published_by_node[payload.node_id] = payload
         elif isinstance(payload, SelectionTerminal):
             if payload.result is not None:
                 selection_results.append(payload.result)
@@ -189,29 +178,19 @@ def project_run(
         for disposition in dispositions
         if disposition.outcome == "succeeded"
     }
-    outputs = tuple(
-        output
+    publications = tuple(
+        published_by_node[node_id]
         for node_id in plan_node_order
-        if node_id in successful_nodes
-        for output in published_by_node.get(node_id, ((), ()))[0]
-    )
-    artifacts = tuple(
-        artifact
-        for node_id in plan_node_order
-        if node_id in successful_nodes
-        for artifact in published_by_node.get(node_id, ((), ()))[1]
+        if node_id in successful_nodes and node_id in published_by_node
     )
     return RunProjection(
         project_id=project_id,
         run_id=run_id,
         workflow_commit_id=scope.workflow_commit_id,
-        workflow_commit_revision=scope.workflow_commit_revision,
-        workflow_digest=scope.workflow_digest,
         status=status,
         ledger_cursor=cursor,
         node_dispositions=tuple(dispositions),
-        outputs=outputs,
-        artifacts=artifacts,
+        publications=publications,
         selection_results=(
             tuple(selection_results) if scope.selection_terminal_keys else None
         ),

@@ -10,10 +10,6 @@ from typing import Literal, cast
 
 import pytest
 
-from core.catalog.canonical import (
-    canonical_json_bytes,
-    canonical_sha256,
-)
 from core.execution.ledger import (
     ArtifactOutputEvidence,
     AvailabilityBound,
@@ -33,9 +29,12 @@ from core.execution.ledger import (
     NodeTerminationPublication,
     ObservationSelectorEvidence,
     OperationAttemptStarted,
+    OutputsPublished,
     PlanNodeEvidence,
     PlanRequiredInputEvidence,
     PlanValueSourceEvidence,
+    PublishedArtifact,
+    PublishedOutput,
     ReadinessAttestation,
     ReadinessAttested,
     RunAdmitted,
@@ -66,7 +65,6 @@ from core.scoring.selection import SelectionInput
 from datatypes.exact_reference import ExactContractReference
 
 
-_CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
 _OBSERVED_AT = "2026-08-21T00:00:00+00:00"
 _STARTED_AT = "2026-08-21T00:00:01+00:00"
 
@@ -74,44 +72,19 @@ _STARTED_AT = "2026-08-21T00:00:01+00:00"
 def _reference(
     contract_kind: str = "binding",
     contract_id: str = "fixture.binding",
-    marker: str = "8",
 ) -> ExactContractReference:
     return ExactContractReference(
         contract_kind=contract_kind,
         contract_id=contract_id,
-        contract_version="1.0.0",
-        contract_digest="sha256:" + marker * 64,
     )
 
 
 def _reference_key(
     reference: ExactContractReference,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str]:
     return (
         reference.contract_kind,
         reference.contract_id,
-        reference.contract_version,
-        reference.contract_digest,
-    )
-
-
-def _reference_json(reference: ExactContractReference) -> dict[str, str]:
-    return {
-        "contract_kind": reference.contract_kind,
-        "contract_id": reference.contract_id,
-        "contract_version": reference.contract_version,
-        "contract_digest": reference.contract_digest,
-    }
-
-
-def _contract_lock_digest(
-    references: tuple[ExactContractReference, ...],
-) -> str:
-    return canonical_sha256(
-        {
-            "schema_namespace": _CONTRACT_LOCK_NAMESPACE,
-            "entries": [_reference_json(reference) for reference in references],
-        }
     )
 
 
@@ -127,8 +100,9 @@ def _plan_node(
         node_id=node_id,
         dependencies=dependencies,
         required_input_sources=(),
-        result_identity_plan_facts_digest="sha256:" + "1" * 64,
+        node_type=_reference("node_type", "fixture.node"),
         binding=binding or _reference(),
+        method=_reference("method", "fixture.method"),
         execution_route=execution_route,
         selection_consumer=selection_consumer,
     )
@@ -139,13 +113,6 @@ def _scope_bound(node: PlanNodeEvidence) -> RunScopeBound:
         project_id="project-1",
         run_id="run-1",
         workflow_commit_id="workflow-commit-" + "0" * 64,
-        workflow_commit_revision=1,
-        workflow_digest="sha256:" + "3" * 64,
-        contract_lock_digest="sha256:" + "4" * 64,
-        execution_plan_digest="sha256:" + "5" * 64,
-        catalog_contract_digest="sha256:" + "6" * 64,
-        resolved_contracts=(node.binding,),
-        resolved_contract_roots=(node.binding,),
         plan_nodes=(node,),
         selection_terminal_keys=(),
     )
@@ -161,6 +128,48 @@ def test_run_scope_codec_accepts_semantic_node_identifiers() -> None:
     ) == scope
 
 
+def test_output_publication_persists_shared_context_once() -> None:
+    result_identity = "sha256:" + "6" * 64
+    publication = OutputsPublished(
+        node_id="node-1",
+        result_identity=result_identity,
+        node_result_manifest=ImmutableObjectReference(
+            "sha256:" + "7" * 64,
+            32,
+        ),
+        outputs=(
+            PublishedOutput(
+                output_port="scores",
+                port_type=_reference("port_type", "score.collection"),
+                content_digest="sha256:" + "8" * 64,
+                materialization={"run_id": "run-1", "resolution": "executed"},
+                producer_run_id="run-1",
+                value_count=1,
+                value_manifest_reference="sha256:" + "9" * 64,
+            ),
+        ),
+        artifacts=(
+            PublishedArtifact(
+                artifact_reference="artifact-1",
+                artifact_kind="standalone",
+                output_port="report",
+                media_type="text/plain",
+                filename="report.txt",
+                size=4,
+                content_digest="sha256:" + "a" * 64,
+            ),
+        ),
+    )
+
+    encoded = payload_to_canonical(publication)
+
+    assert "node_id" not in encoded["outputs"][0]
+    assert "result_identity" not in encoded["outputs"][0]
+    assert "node_id" not in encoded["artifacts"][0]
+    assert encoded["outputs"][0]["producer_run_id"] == "run-1"
+    assert payload_from_canonical("outputs_published", encoded) == publication
+
+
 def test_artifact_media_grammar_has_one_typed_fact_owner() -> None:
     invalid_media_type = "not a media type"
     node = replace(
@@ -173,7 +182,6 @@ def test_artifact_media_grammar_has_one_typed_fact_owner() -> None:
                 port_type=_reference(
                     "port_type",
                     "fixture.artifact",
-                    "7",
                 ),
                 accepted_media_types=(invalid_media_type,),
             ),
@@ -207,7 +215,6 @@ def _scoped_ledger(
     plan_nodes: tuple[PlanNodeEvidence, ...] | None = None,
 ) -> tuple[Ledger, ProjectManager]:
     retained_nodes = plan_nodes or (_plan_node(),)
-    references = _scope_references(retained_nodes)
     projects = ProjectManager(tmp_path / "projects")
     ledger = Ledger(
         projects,
@@ -219,13 +226,6 @@ def _scoped_ledger(
     ledger.record(
         RunScopeBinding(
             workflow_commit_id="workflow-commit-" + "0" * 64,
-            workflow_commit_revision=1,
-            workflow_digest="sha256:" + "2" * 64,
-            contract_lock_digest=_contract_lock_digest(references),
-            execution_plan_digest="sha256:" + "4" * 64,
-            catalog_contract_digest="sha256:" + "5" * 64,
-            resolved_contracts=references,
-            resolved_contract_roots=references,
         )
     )
     return ledger, projects
@@ -257,7 +257,6 @@ def _admitted_ledger(
     ledger.record(
         RunAdmitted(
             workflow_commit_id="workflow-commit-" + "0" * 64,
-            workflow_commit_revision=1,
         )
     )
     ledger.record(RunStarted(started_at=_STARTED_AT))
@@ -328,13 +327,12 @@ def _selection_result(
         candidate_input=candidate_input,
         score_collection_input=score_input,
         source_partition="scores.default",
-        metric=_reference("metric", "fixture.metric", "a"),
-        method=_reference("method", "fixture.score-method", "b"),
+        metric=_reference("metric", "fixture.metric"),
+        method=_reference("method", "fixture.score-method"),
         context_selector=context,
         utility_transform=_reference(
             "utility_transform",
             "fixture.utility",
-            "c",
         ),
         utility_parameters={},
         declared_weight=1.0,
@@ -347,8 +345,8 @@ def _selection_result(
         candidate_input=candidate_input,
         score_collection_input=score_input,
         source_partition="scores.default",
-        metric=_reference("metric", "fixture.metric", "a"),
-        method=_reference("method", "fixture.score-method", "b"),
+        metric=_reference("metric", "fixture.metric"),
+        method=_reference("method", "fixture.score-method"),
         context_selector=context,
         match_cardinality="exactly_one",
         missing_policy="error",
@@ -358,7 +356,6 @@ def _selection_result(
         selection_method=_reference(
             "method",
             "fixture.selection-method",
-            "d",
         ),
         candidate_input=candidate_input,
         selected_collection_id="selected.collection",
@@ -368,7 +365,7 @@ def _selection_result(
     )
 
 
-def test_ledger_retains_closed_typed_facts_and_projection(tmp_path: Path) -> None:
+def test_ledger_retains_typed_facts_and_projection(tmp_path: Path) -> None:
     ledger, projects, store = _admitted_ledger(tmp_path)
     facts = _durable_facts(store, projects)
 
@@ -576,7 +573,7 @@ def test_engine_invocation_cancellation_is_durable(
             invocation_id="invocation-1",
             operation_attempt_id="operation-1",
             engine_role="predictor",
-            engine_identity="sha256:" + "d" * 64,
+            engine_identity="fixture.method",
         )
     )
     cancellation = cancelled.request_cancellation(None)
@@ -625,7 +622,6 @@ def test_provider_readiness_is_recorded(
     passing.record(
         ReadinessAttestation(
             binding=provider_node.binding,
-            readiness_contract_digest="sha256:" + "c" * 64,
             observed_at="2026-08-21T00:00:02+00:00",
             conclusion="passing",
             proof_source="direct-observation",
@@ -640,7 +636,8 @@ def test_provider_readiness_is_recorded(
         if isinstance(fact.payload, ReadinessAttested)
     )
     assert readiness.binding is provider_node.binding
-    assert readiness.attestation_digest.startswith("sha256:")
+    assert readiness.conclusion == "passing"
+    assert readiness.proof_source == "direct-observation"
 
 
 def test_engine_invocation_keeps_typed_scientific_provenance(
@@ -690,7 +687,7 @@ def test_engine_invocation_keeps_typed_scientific_provenance(
             invocation_id="invocation-1",
             operation_attempt_id="operation-1",
             engine_role="predictor",
-            engine_identity="sha256:" + "d" * 64,
+            engine_identity="fixture.method",
             provenance=provenance,
         )
     )
@@ -722,8 +719,9 @@ def test_required_input_evidence_produces_exact_blocker(tmp_path: Path) -> None:
                 ),
             ),
         ),
-        result_identity_plan_facts_digest="sha256:" + "1" * 64,
-        binding=_reference(contract_id="fixture.downstream", marker="9"),
+        node_type=_reference("node_type", "fixture.downstream"),
+        binding=_reference(contract_id="fixture.downstream"),
+        method=_reference("method", "fixture.downstream-method"),
         execution_route="direct",
     )
     ledger, _, _ = _admitted_ledger(
@@ -811,7 +809,7 @@ def test_failed_durable_ack_does_not_install_staged_facts(tmp_path: Path) -> Non
         ("selector", "selector_context_unit"),
     ),
 )
-def test_selection_canonical_decode_rejects_open_nested_grammar(
+def test_selection_decode_rejects_invalid_scientific_evidence(
     mode: str,
     invalid_field: str,
 ) -> None:
@@ -958,7 +956,7 @@ def test_restart_rejects_invalid_persisted_selection_grammar(
             selection["payload"]["result"]["objectives"][0][
                 "missing_policy"
             ] = "skip"
-            retained[-1] = (name, canonical_json_bytes(raw))
+            retained[-1] = (name, json.dumps(raw).encode("utf-8"))
             return tuple(retained)
 
         def publish(

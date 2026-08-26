@@ -110,42 +110,27 @@ def _build(kind: str):
 def _method(kind: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.{kind}.method",
-        version="2.1.0",
         algorithm_identity={"name": "deterministic-fixture"},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "provider-native"},
-        source_identity={"kind": "contract-test-fixture"},
         scale_contract={"kind": "identity"},
     )
 
 
 def _binding(kind: str) -> ExecutionBindingDefinition:
-    binding_versions = {
-        "structure_candidates": "3.0.0",
-        "protein_sequence": "3.0.0",
-        "protein_structure": "4.0.0",
-    }
-    binding_version = binding_versions[kind]
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.{kind}.direct",
-        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
-            f"contract_test.{kind}",
-            binding_version,
-        ),
+            f"contract_test.{kind}"),
         method=ContractIdentity(
             "method",
-            f"contract_test.{kind}.method",
-            "2.1.0",
-        ),
+            f"contract_test.{kind}.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.{kind}/factory",
-                "2.1.0",
                 {},
             ),
             build=_build(kind),
@@ -153,7 +138,6 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.{kind}/availability",
-                "2.1.0",
                 {},
             ),
             prerequisites={},
@@ -162,24 +146,17 @@ def _binding(kind: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.{kind}/readiness",
-                "2.1.0",
                 {},
             ),
             prerequisites={},
             check=lambda environment: ReadinessResult(True),
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": f"contract_test.{kind}.direct",
-            "source": "contract-test-fixture",
-        },
-    )
+        cacheable=True)
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.protein_io_sources",
-    package_version="2.1.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),

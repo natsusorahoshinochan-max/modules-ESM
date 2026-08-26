@@ -81,13 +81,12 @@ def _environment() -> dict[str, Any]:
         provider_environment_configuration,
     )
 
-    identity = ("solubility.protein_sol.local", "5.0.0")
     return provider_environment_configuration(
         {
             "PATH": os.environ.get("PATH", ""),
             "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT": str(_trusted_source_root()),
         }
-    )[identity]["values"]
+    )["solubility.protein_sol.local"]
 
 
 def _decode_output(
@@ -156,20 +155,16 @@ def test_local_protein_sol_golden_multiple_metrics(
                     node_type_id=(
                         "contract_test.folding_sequence_batch_source"
                     ),
-                    node_type_version="4.0.0",
                     binding_id=(
                         "contract_test.folding_sequence_batch_source.direct"
                     ),
-                    binding_version="4.0.0",
                     node_parameters={"sequences": list(SEQUENCES)},
                     binding_parameters={},
                 ),
                 WorkflowNodeInstance(
                     node_id="score",
                     node_type_id="solubility.score_sequence",
-                    node_type_version="5.0.0",
                     binding_id="solubility.protein_sol.local",
-                    binding_version="5.0.0",
                     node_parameters={},
                     binding_parameters={},
                 ),
@@ -181,9 +176,7 @@ def test_local_protein_sol_golden_multiple_metrics(
                     "score",
                     "sequence_candidates",
                 ),
-            ),
-            contract_lock=(),
-        ),
+            )),
     )
     service = V2RunService(
         projects,
@@ -194,9 +187,7 @@ def test_local_protein_sol_golden_multiple_metrics(
             admit_environment_configuration(
                 catalog,
                 {
-                    ("solubility.protein_sol.local", "5.0.0"): {
-                        "values": _environment(),
-                    }
+                    "solubility.protein_sol.local": _environment()
                 },
             ),
             result_store(projects),
@@ -329,27 +320,18 @@ def test_local_protein_sol_golden_multiple_metrics(
     } == {"solubility.protein_sol.sequence_prediction_2017"}
     binding = catalog.require_contract(
         "binding",
-        "solubility.protein_sol.local",
-        "5.0.0",
-    )
+        "solubility.protein_sol.local")
     assert binding.descriptor["method"]["contract_id"] == (
         "solubility.protein_sol.sequence_prediction_2017"
     )
-    assert binding.descriptor["implementation_identity"][
-        "source_files_sha256"
-    ] == binding.descriptor["readiness_declaration"]["prerequisites"][
-        "source_files_sha256"
-    ]
     method = catalog.require_contract(
         "method",
-        "solubility.protein_sol.sequence_prediction_2017",
-        "3.0.0",
-    )
+        "solubility.protein_sol.sequence_prediction_2017")
     started = [
         event["event"]
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
-        and event["event"]["engine_identity"] == method.contract_digest
+        and event["event"]["engine_identity"] == method.contract_id
     ]
     assert len(started) == 1
     terminal = [
@@ -365,7 +347,6 @@ def test_local_protein_sol_golden_multiple_metrics(
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "solubility.protein_sol.local"
-        and event["event"]["binding"]["contract_version"] == "5.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(
@@ -381,7 +362,6 @@ def test_local_protein_sol_golden_multiple_metrics(
     ] == ["succeeded"]
     retain_service_run(
         "protein-sol",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,

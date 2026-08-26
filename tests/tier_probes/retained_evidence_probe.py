@@ -19,7 +19,6 @@ def test_retained_evidence_probe() -> None:
     root = Path(
         os.environ["PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"]
     )
-    _write_json(root / "catalog-snapshot.json", {"catalog": "probe"})
     _write_json(root / "public-protocol.json", {"protocol": "probe"})
     run_root = root / "runs" / "probe-run"
     _write_json(

@@ -18,20 +18,17 @@ from datatypes.structure import (
 )
 
 from ._normalization_codec import (
-    NORMALIZATION_VERSION,
     normalizations_from_wire,
     normalizations_to_wire,
     validate_normalizations,
 )
 
 
-RESOLVED_AXIS_VERSION = "4.0.0"
 _BUILTINS = builtin_frozen_catalog()
 _STRUCTURE_CODEC = _BUILTINS.require_port_type(
     "protein.structure",
-    "4.0.0",
 )
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
+_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
 _SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYX")
 _BACKBONE_ATOMS = frozenset({"N", "CA", "C", "O"})
 _RESIDUE_LETTERS = {
@@ -444,10 +441,8 @@ def _axis_from_wire(value: object) -> ResolvedStructureResidueAxis:
 
 RESOLVED_AXIS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_transform.resolved_residue_axis",
-    version=RESOLVED_AXIS_VERSION,
     validator=BehaviorReference(
         "structure_transform.resolved_residue_axis/validate",
-        RESOLVED_AXIS_VERSION,
         {
             "accepted_value_kind": "resolved_structure_residue_axis",
             "layout": "identity-complete-admitted-polymer-residues",
@@ -460,21 +455,18 @@ RESOLVED_AXIS_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "structure_transform.resolved_residue_axis/codec",
-        RESOLVED_AXIS_VERSION,
         {
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
-            "embedded_structure_contract": "protein.structure@4.0.0",
-            "embedded_layout_contract": "residue.layout@3.0.0",
+            "embedded_structure_contract": "protein.structure",
+            "embedded_layout_contract": "residue.layout",
             "embedded_normalization_contract": (
-                "structure_transform.modified_residue_normalizations@"
-                f"{NORMALIZATION_VERSION}"
+                "structure_transform.modified_residue_normalizations"
             ),
         },
     ),
     content_identity=BehaviorReference(
         "structure_transform.resolved_residue_axis/content",
-        RESOLVED_AXIS_VERSION,
         {
             "digest": "SHA-256",
             "digest_input": "canonical_codec_bytes",

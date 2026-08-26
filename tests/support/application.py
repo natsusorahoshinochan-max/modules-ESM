@@ -27,7 +27,7 @@ def create_application(
     *,
     frozen_catalog_override: FrozenCatalog,
     v2_environment_configuration: (
-        Mapping[tuple[str, str], Mapping[str, Any]] | None
+        Mapping[str, Mapping[str, Any]] | None
     ) = None,
     ledger_transaction_store: LedgerStore | None = None,
 ) -> FastAPI:

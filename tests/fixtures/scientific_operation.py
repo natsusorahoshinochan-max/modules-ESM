@@ -54,7 +54,6 @@ def _resolved_objective(
     utility_contract = catalog.require_contract(
         "utility_transform",
         objective.utility_transform.contract_id,
-        objective.utility_transform.contract_version,
     )
     return ResolvedSelectionObjective(
         objective_id=objective.objective_id,
@@ -126,7 +125,6 @@ def select_admitted_candidates(
     }
     candidate_port_type = catalog.require_port_type(
         "candidate.collection",
-        "4.0.0",
     )
     admitted_candidates = {
         reference: admit_fixture_port(
@@ -137,7 +135,7 @@ def select_admitted_candidates(
         )
         for reference, collection in candidate_inputs.items()
     }
-    score_port_type = catalog.require_port_type("score.collection", "5.0.0")
+    score_port_type = catalog.require_port_type("score.collection")
     admitted_scores = {
         reference: admit_fixture_port(
             port_type=score_port_type,
@@ -177,8 +175,6 @@ def _reference(value: Mapping[str, Any]) -> ExactContractReference:
     return ExactContractReference(
         contract_kind=value["contract_kind"],
         contract_id=value["contract_id"],
-        contract_version=value["contract_version"],
-        contract_digest=value["contract_digest"],
     )
 
 
@@ -187,7 +183,6 @@ def operation_context(
     binding_id: str,
     resources: Any,
     *,
-    binding_version: str = "2.1.0",
     environment: Mapping[str, Any] | None = None,
     selection_objectives: Sequence[SelectionObjective] = (),
     observation_selectors: Sequence[ObservationSelector] = (),
@@ -196,7 +191,6 @@ def operation_context(
     binding = catalog.require_contract(
         "binding",
         binding_id,
-        binding_version,
     )
     descriptor = binding.descriptor
     produced_observations = tuple(
@@ -246,7 +240,6 @@ def operation_call(
     *,
     catalog: FrozenCatalog | None = None,
     binding_id: str | None = None,
-    binding_version: str = "2.1.0",
     inputs: Mapping[str, Any] | None = None,
     node_parameters: Mapping[str, Any] | None = None,
     binding_parameters: Mapping[str, Any] | None = None,
@@ -263,13 +256,11 @@ def operation_call(
         binding = catalog.require_contract(
             "binding",
             binding_id,
-            binding_version,
         )
         node_reference = binding.descriptor["node_type"]
         node_type = catalog.require_contract(
             node_reference["contract_kind"],
             node_reference["contract_id"],
-            node_reference["contract_version"],
         )
         declarations = {
             declaration["name"]: declaration
@@ -284,7 +275,6 @@ def operation_call(
             port_reference = declaration["port_type"]
             port_type = catalog.require_port_type(
                 port_reference["contract_id"],
-                port_reference["contract_version"],
             )
             values = (
                 tuple(supplied)
@@ -345,8 +335,6 @@ def admitted_port_fixture(
         port_type=ExactContractReference(
             "port_type",
             port_type_id,
-            "1.0.0",
-            "sha256:" + ("0" * 64),
         ),
         multiplicity=multiplicity,
         values=admitted_values,
@@ -363,7 +351,6 @@ def build_operation(
     binding_id: str,
     resources: Any,
     *,
-    binding_version: str = "2.1.0",
     environment: Mapping[str, Any] | None = None,
     selection_objectives: Sequence[SelectionObjective] = (),
     observation_selectors: Sequence[ObservationSelector] = (),
@@ -373,7 +360,6 @@ def build_operation(
         catalog,
         binding_id,
         resources,
-        binding_version=binding_version,
         environment=environment,
         selection_objectives=selection_objectives,
         observation_selectors=observation_selectors,
@@ -381,7 +367,6 @@ def build_operation(
     binding = catalog.require_contract(
         "binding",
         binding_id,
-        binding_version,
     )
     definition = cast(ExecutionBindingDefinition, binding.definition)
     return definition.factory.build(context)

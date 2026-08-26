@@ -1,11 +1,10 @@
-"""Exact local-open ESM-3 runtime validation, loading, and evidence."""
+"""Local-open ESM-3 runtime loading and evidence."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
-import hashlib
 import importlib.util
 from pathlib import Path
 import shutil
@@ -24,14 +23,8 @@ from core.local_torch_device import (
     expected_local_torch_device,
     local_torch_device_is_available,
 )
-from core.provider_support import (
-    ProviderInstallationUnavailable,
-    validate_installed_provider_checkout,
-)
-
 from .adapter import (
     ESM3Confidence,
-    ESM_SDK_REVISION,
     _BaseESM3Adapter,
     require_provider_protein,
 )
@@ -39,28 +32,17 @@ from .adapter import (
 
 LOCAL_ESM3_MODEL = "esm3_sm_open_v1"
 LOCAL_ESM3_SNAPSHOT_SOURCE = "biohub/esm3-sm-open-v1"
-LOCAL_ESM3_SNAPSHOT_REVISION = "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
-LOCAL_ESM3_WEIGHT_SHA256 = {
-    "data/weights/esm3_sm_open_v1.pth": (
-        "5ead5a135c658068db6a4f1b933e72d6110992c4668822e1c0e2dcc53e38acd9"
-    ),
-    "data/weights/esm3_structure_encoder_v0.pth": (
-        "467acbaee703ba3ccde6e75241a912a316952e5ff071355f85c1d33c68704f40"
-    ),
-    "data/weights/esm3_structure_decoder_v0.pth": (
-        "3b726258a44274792b40ce7ea307e10c5da09936368a4ffa2970264d909da65b"
-    ),
-    "data/weights/esm3_function_decoder_v0.pth": (
-        "f76d074efcaccfe21365a4fa96f212dadd66798e1e49d809ab7ffbe025d227c9"
-    ),
-}
-LOCAL_ESM3_TORCH_VERSION = "2.13.0"
-LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
+LOCAL_ESM3_WEIGHT_FILES = (
+    "data/weights/esm3_sm_open_v1.pth",
+    "data/weights/esm3_structure_encoder_v0.pth",
+    "data/weights/esm3_structure_decoder_v0.pth",
+    "data/weights/esm3_function_decoder_v0.pth",
+)
 _LOCAL_ESM3_SDK_ROOT_LOCK = RLock()
 
 
 class LocalESM3RuntimeUnavailable(RuntimeError):
-    """The exact local ESM-3 runtime cannot be admitted."""
+    """The local ESM-3 runtime is unavailable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,39 +52,17 @@ class LocalESM3Runtime:
     snapshot_path: Path
     runtime_directory: Path
     device: str
-    performance_settings: Mapping[str, Any]
-    artifact_sources: Mapping[str, Path]
 
 
 def local_runtime_structurally_available() -> bool:
     """Check import prerequisites without loading model weights."""
     return not (
         importlib.util.find_spec("esm") is None
+        or importlib.util.find_spec("esm.pretrained") is None
+        or importlib.util.find_spec("esm.models.esm3") is None
+        or importlib.util.find_spec("esm.sdk.api") is None
         or importlib.util.find_spec("torch") is None
     )
-
-
-def _regular_file_sha256(path: Path) -> str:
-    try:
-        with path.open("rb") as artifact:
-            return hashlib.file_digest(artifact, "sha256").hexdigest()
-    except OSError as error:
-        raise LocalESM3RuntimeUnavailable(
-            "local ESM-3 model artifact could not be validated"
-        ) from error
-
-
-def _snapshot_artifact_source(
-    snapshot_path: Path,
-    relative_path: str,
-    expected_digest: str,
-) -> Path:
-    target = snapshot_path / relative_path
-    if _regular_file_sha256(target) != expected_digest:
-        raise LocalESM3RuntimeUnavailable(
-            "local ESM-3 model artifact identity mismatch"
-        )
-    return target
 
 
 def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
@@ -119,36 +79,14 @@ def _configured_path(environment: Mapping[str, Any], key: str) -> Path:
     return path
 
 
-def _validated_performance_settings(
-    environment: Mapping[str, Any],
-) -> dict[str, Any]:
-    if dict(environment["performance_settings"]) != dict(
-        LOCAL_ESM3_PERFORMANCE_SETTINGS
-    ):
-        raise LocalESM3RuntimeUnavailable(
-            "local ESM-3 performance settings do not match the Binding"
-        )
-    return dict(LOCAL_ESM3_PERFORMANCE_SETTINGS)
-
-
-def _validate_device(device: object) -> str:
+def _validate_device() -> str:
     expected_device = expected_local_torch_device()
-    if device != expected_device:
-        raise LocalESM3RuntimeUnavailable(
-            "local ESM-3 device does not match the Binding"
-        )
     try:
         import torch
     except ImportError as error:
         raise LocalESM3RuntimeUnavailable(
-            "exact local ESM-3 runtime is unavailable"
+            "local ESM-3 runtime is unavailable"
         ) from error
-
-    torch_public_version = str(torch.__version__).partition("+")[0]
-    if torch_public_version != LOCAL_ESM3_TORCH_VERSION:
-        raise LocalESM3RuntimeUnavailable(
-            "local ESM-3 Torch runtime does not match the Binding"
-        )
     if not local_torch_device_is_available(torch, expected_device):
         raise LocalESM3RuntimeUnavailable(
             "local ESM-3 policy-selected Torch device is unavailable"
@@ -159,32 +97,21 @@ def _validate_device(device: object) -> str:
 def resolve_local_runtime(
     environment: Mapping[str, Any],
 ) -> LocalESM3Runtime:
-    """Validate exact artifacts before entering the local Provider."""
-    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    if (
-        environment["model_snapshot_revision"]
-        != LOCAL_ESM3_SNAPSHOT_REVISION
-    ):
-        raise LocalESM3RuntimeUnavailable(
-            "local ESM-3 snapshot revision is not exact"
-        )
+    """Resolve configured paths before entering the local Provider."""
     snapshot_path = _configured_path(environment, "model_snapshot_path")
     runtime_directory = _configured_path(environment, "runtime_directory")
-    device = _validate_device(environment["device"])
-    performance_settings = _validated_performance_settings(environment)
-    artifact_sources: dict[str, Path] = {}
-    for relative_path, expected_digest in LOCAL_ESM3_WEIGHT_SHA256.items():
-        artifact_sources[relative_path] = _snapshot_artifact_source(
-            snapshot_path,
-            relative_path,
-            expected_digest,
+    device = _validate_device()
+    if any(
+        not (snapshot_path / relative_path).is_file()
+        for relative_path in LOCAL_ESM3_WEIGHT_FILES
+    ):
+        raise LocalESM3RuntimeUnavailable(
+            "local ESM-3 model files are unavailable"
         )
     return LocalESM3Runtime(
         snapshot_path=snapshot_path,
         runtime_directory=runtime_directory,
         device=device,
-        performance_settings=performance_settings,
-        artifact_sources=artifact_sources,
     )
 
 
@@ -196,12 +123,7 @@ def _trusted_local_runtime(
     return LocalESM3Runtime(
         snapshot_path=snapshot_path,
         runtime_directory=Path(environment["runtime_directory"]),
-        device=cast(str, environment["device"]),
-        performance_settings=dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
-        artifact_sources={
-            relative_path: snapshot_path / relative_path
-            for relative_path in LOCAL_ESM3_WEIGHT_SHA256
-        },
+        device=expected_local_torch_device(),
     )
 
 
@@ -209,10 +131,7 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Return one bounded, redacted conclusion for the selected local Binding."""
     try:
         resolve_local_runtime(environment)
-    except (
-        LocalESM3RuntimeUnavailable,
-        ProviderInstallationUnavailable,
-    ):
+    except LocalESM3RuntimeUnavailable:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -222,7 +141,7 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
 
 
 def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
-    """Stage the model artifacts already admitted by Binding readiness."""
+    """Stage the configured model files for the SDK loader."""
     staged_root = Path(
         tempfile.mkdtemp(
             prefix="esm3-sm-open-v1-",
@@ -231,8 +150,8 @@ def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
     )
     staged_root.chmod(0o700)
     try:
-        for relative_path in LOCAL_ESM3_WEIGHT_SHA256:
-            source = runtime.artifact_sources[relative_path]
+        for relative_path in LOCAL_ESM3_WEIGHT_FILES:
+            source = runtime.snapshot_path / relative_path
             destination = staged_root / relative_path
             destination.parent.mkdir(
                 mode=0o700,
@@ -312,7 +231,7 @@ def load_local_esm3_client(
     *,
     model_name: str,
 ) -> Any:
-    """Load only the exact readiness-validated local model on explicit demand."""
+    """Load the configured local model on explicit demand."""
     import torch
     import esm.pretrained as esm_pretrained
     import esm.utils.constants.esm3 as esm3_constants
@@ -448,7 +367,7 @@ class LocalESM3Adapter(_BaseESM3Adapter):
             config,
             provider_operation,
             effective_seed=cast(int, effective_call_seed),
-            device=cast(str, self._environment["device"]),
+            device=expected_local_torch_device(),
         )
 
     def _admit_confidence(self, result: Any) -> ESM3Confidence:

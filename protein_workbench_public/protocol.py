@@ -326,21 +326,84 @@ def _rest_operation(operation_id: str) -> dict[str, Any]:
     return operation
 
 
-def admit_rest_success_payload(
-    operation_id: str,
-    payload: Any,
-) -> tuple[int, Any]:
-    """Admit one declared REST JSON success payload immediately before use."""
-    response = _rest_operation(operation_id)["response"]
-    validate_schema(response["schema"], payload)
-    return response["success_status"], payload
+def rest_success_status(operation_id: str) -> int:
+    """Return the declared status for one constructed REST response."""
+    return _rest_operation(operation_id)["response"]["success_status"]
 
 
-def admit_run_event_stream_message(payload: Any) -> Any:
-    """Admit one complete Run Event Stream frame immediately before use."""
-    stream = _source_bundle()["run_event_stream"]
-    validate_schema(stream["message_schema"], payload)
-    return payload
+_STRUCTURED_ERROR_DETAILS_FIELDS = {
+    "artifact_integrity_mismatch": (
+        ("artifact_reference",),
+        ("expected_digest", "limit", "observed_digest", "observed_size"),
+    ),
+    "artifact_limit_exceeded": (
+        ("artifact_reference",),
+        ("expected_digest", "limit", "observed_digest", "observed_size"),
+    ),
+    "artifact_not_found": (("resource_kind", "resource_id"), ()),
+    "cancellation_conflict": (("run_status", "decision_sequence"), ()),
+    "compile_rejected": (("issues",), ()),
+    "cross_scope_access_denied": (
+        ("requested_project_id",),
+        ("requested_run_id",),
+    ),
+    "evidence_unavailable": (("last_durable_cursor",), ()),
+    "internal_error": (("incident_id",), ()),
+    "invalid_cursor": (("after_sequence",), ()),
+    "malformed_request": (("field_path",), ()),
+    "node_execution_failed": (
+        ("exception_type",),
+        ("cleanup_exception_types",),
+    ),
+    "node_publication_failed": (("node_id", "publication_stage"), ()),
+    "project_not_found": (("resource_kind", "resource_id"), ()),
+    "project_input_not_found": (("resource_kind", "resource_id"), ()),
+    "protocol_mismatch": (
+        ("expected_schema_namespace", "expected_protocol_digest"),
+        ("received_schema_namespace",),
+    ),
+    "readiness_rejected": (("binding", "reason_code"), ()),
+    "run_not_found": (("resource_kind", "resource_id"), ()),
+    "typed_output_not_found": (
+        ("node_id", "output_port", "value_index"),
+        ("expected_digest", "expected_size"),
+    ),
+    "typed_value_integrity_mismatch": (
+        ("node_id", "output_port", "value_index"),
+        ("expected_digest", "expected_size"),
+    ),
+    "unsupported_schema_version": (
+        (
+            "artifact_kind",
+            "expected_schema_version",
+            "received_schema_version",
+        ),
+        (),
+    ),
+    "workflow_commit_identity_mismatch": (("workflow_commit_id",), ()),
+    "workflow_commit_not_found": (("resource_kind", "resource_id"), ()),
+    "workflow_draft_not_found": (("resource_kind", "resource_id"), ()),
+}
+
+
+def _project_structured_error_details(
+    code: str,
+    details: Mapping[str, Any],
+) -> dict[str, Any]:
+    if code == "selection_failed":
+        fields = (
+            (("reason",), ())
+            if "reason" in details
+            else (("exception_type",), ("cleanup_exception_types",))
+        )
+    else:
+        fields = _STRUCTURED_ERROR_DETAILS_FIELDS[code]
+    required, optional = fields
+    projected = {name: details[name] for name in required}
+    projected.update(
+        {name: details[name] for name in optional if name in details}
+    )
+    return projected
 
 
 def project_structured_error(
@@ -352,8 +415,12 @@ def project_structured_error(
     """Project one public Structured Error through its vocabulary entry."""
     errors = _source_bundle()["structured_errors"]
     definition = errors["vocabulary"][code]
-    projected_details = dict(details)
-    validate_schema(definition["details_schema"], projected_details)
+    projected_details = _project_structured_error_details(code, details)
+    if not 1 <= len(message) <= 2048:
+        raise ProtocolValidationError(
+            "$.message",
+            "must contain between 1 and 2048 characters",
+        )
     details_size = len(rfc8785.dumps(projected_details))
     if details_size > errors["details_max_bytes"]:
         raise ProtocolValidationError(
@@ -372,21 +439,9 @@ def project_structured_error(
     }
 
 
-def admit_structured_error_envelope(payload: Any) -> Any:
-    """Admit one standalone REST Structured Error envelope."""
-    errors = _source_bundle()["structured_errors"]
-    validate_schema(errors["envelope_schema"], payload)
-    return payload
-
-
-def admit_binary_response_metadata(
-    operation_id: str,
-    metadata: Any,
-) -> tuple[int, Any]:
-    """Admit one declared binary response metadata value."""
-    response = _rest_operation(operation_id)["response"]
-    validate_schema(response["metadata_schema"], metadata)
-    return response["success_status"], metadata
+def binary_success_status(operation_id: str) -> int:
+    """Return the declared status for one constructed binary response."""
+    return _rest_operation(operation_id)["response"]["success_status"]
 
 
 def decode_rest_request(

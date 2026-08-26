@@ -11,10 +11,6 @@ from core.operation import (
     InvocationRandomness,
     OperationResources,
 )
-from core.provider_support import (
-    ProviderInstallationUnavailable,
-    validate_installed_provider_checkout,
-)
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
@@ -27,7 +23,6 @@ from .domain import (
     normalize_native_confidence,
 )
 from .esmfold2_contract import (
-    ESM_SDK_REVISION,
     REMOTE_ESMFOLD2_MODEL,
 )
 
@@ -46,23 +41,13 @@ class _RemoteFoldResult(Protocol):
 def remote_runtime_structurally_available() -> bool:
     return not (
         importlib.util.find_spec("esm") is None
+        or importlib.util.find_spec("esm.sdk") is None
         or importlib.util.find_spec("torch") is None
     )
 
 
-def remote_readiness(environment: Mapping[str, Any]) -> bool:
-    return (
-        environment["endpoint_id"] == "biohub"
-        and _remote_provider_installation_is_exact()
-    )
-
-
-def _remote_provider_installation_is_exact() -> bool:
-    try:
-        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except ProviderInstallationUnavailable:
-        return False
-    return True
+def remote_readiness() -> bool:
+    return remote_runtime_structurally_available()
 
 
 def decode_remote_fold_result(
@@ -111,7 +96,7 @@ def build_remote_engine(environment: Mapping[str, Any]) -> Any:
 
     return esmfold2_client(
         model=REMOTE_ESMFOLD2_MODEL,
-        url={"biohub": "https://biohub.ai"}[environment["endpoint_id"]],
+        url="https://biohub.ai",
         token=environment["credential_handle"],
     )
 

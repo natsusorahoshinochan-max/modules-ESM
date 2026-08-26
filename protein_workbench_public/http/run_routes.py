@@ -35,11 +35,79 @@ from protein_workbench_public.http.emission import (
 )
 from protein_workbench_public.protocol import (
     ProtocolValidationError,
-    admit_binary_response_metadata,
     artifact_content_disposition,
+    binary_success_status,
     decode_rest_request,
     decode_run_event_stream_request,
 )
+
+
+def _run_receipt_payload(
+    *,
+    project_id: str,
+    run_id: str,
+    workflow_commit_id: str,
+    admitted_sequence: int,
+    event_cursor: str,
+) -> dict[str, Any]:
+    return {
+        "project_id": project_id,
+        "run_id": run_id,
+        "workflow_commit_id": workflow_commit_id,
+        "admitted_sequence": admitted_sequence,
+        "event_cursor": event_cursor,
+    }
+
+
+def _replay_started_payload(
+    *,
+    project_id: str,
+    run_id: str,
+    sequence: int,
+    cursor: str,
+    emitted_at: str,
+    replay_through_cursor: str,
+    after_sequence: str | None,
+) -> dict[str, Any]:
+    return {
+        "schema_namespace": "protein-workbench-public/v2",
+        "project_id": project_id,
+        "run_id": run_id,
+        "sequence": sequence,
+        "cursor": cursor,
+        "emitted_at": emitted_at,
+        "event": {
+            "type": "replay_started",
+            "replay_through_cursor": replay_through_cursor,
+            **(
+                {"after_sequence": after_sequence}
+                if after_sequence is not None
+                else {}
+            ),
+        },
+    }
+
+
+def _replay_complete_payload(
+    *,
+    project_id: str,
+    run_id: str,
+    sequence: int,
+    cursor: str,
+    emitted_at: str,
+) -> dict[str, Any]:
+    return {
+        "schema_namespace": "protein-workbench-public/v2",
+        "project_id": project_id,
+        "run_id": run_id,
+        "sequence": sequence,
+        "cursor": cursor,
+        "emitted_at": emitted_at,
+        "event": {
+            "type": "replay_complete",
+            "live_from_cursor": cursor,
+        },
+    }
 
 
 def register_run_routes(
@@ -82,7 +150,10 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        return emit_rest_json_success("start_run", receipt)
+        return emit_rest_json_success(
+            "start_run",
+            _run_receipt_payload(**receipt),
+        )
 
     @app.post(
         rest_operations["cancel_run"]["route"],
@@ -165,7 +236,10 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        return emit_rest_json_success("start_derived_run", receipt)
+        return emit_rest_json_success(
+            "start_derived_run",
+            _run_receipt_payload(**receipt),
+        )
 
     @app.get(
         rest_operations["run_projection"]["route"],
@@ -247,10 +321,7 @@ def register_run_routes(
                 str(error),
                 error.details,
             )
-        status, metadata = admit_binary_response_metadata(
-            "typed_value_retrieval",
-            metadata,
-        )
+        status = binary_success_status("typed_value_retrieval")
         typed_value = metadata["typed_value"]
         headers = {
             "Content-Length": str(typed_value["size"]),
@@ -264,12 +335,6 @@ def register_run_routes(
                 "contract_kind"
             ],
             "X-Port-Type-Id": typed_value["port_type"]["contract_id"],
-            "X-Port-Type-Version": typed_value["port_type"][
-                "contract_version"
-            ],
-            "X-Port-Type-Digest": typed_value["port_type"][
-                "contract_digest"
-            ],
             "X-Value-Count": str(typed_value["value_count"]),
             "X-Value-Index": str(typed_value["value_index"]),
             "X-Value-Manifest-Reference": typed_value[
@@ -326,10 +391,7 @@ def register_run_routes(
                 artifact["filename"]
             ),
         }
-        status, metadata = admit_binary_response_metadata(
-            "artifact_retrieval",
-            metadata,
-        )
+        status = binary_success_status("artifact_retrieval")
         artifact = metadata["artifact"]
         headers = {
             "Content-Disposition": metadata["content_disposition"],
@@ -387,23 +449,15 @@ def register_run_routes(
             replay_through_sequence = replay.through_sequence
             replay_through_cursor = replay.through_cursor.value
             terminal = replay.terminal
-            replay_started = {
-                "schema_namespace": "protein-workbench-public/v2",
-                "project_id": project_id,
-                "run_id": run_id,
-                "sequence": replay_after_sequence,
-                "cursor": replay_after_cursor,
-                "emitted_at": public_timestamp(),
-                "event": {
-                    "type": "replay_started",
-                    "replay_through_cursor": replay_through_cursor,
-                    **(
-                        {"after_sequence": after_sequence}
-                        if after_sequence is not None
-                        else {}
-                    ),
-                },
-            }
+            replay_started = _replay_started_payload(
+                project_id=project_id,
+                run_id=run_id,
+                sequence=replay_after_sequence,
+                cursor=replay_after_cursor,
+                emitted_at=public_timestamp(),
+                replay_through_cursor=replay_through_cursor,
+                after_sequence=after_sequence,
+            )
             await emit_run_event_stream_message(websocket, replay_started)
             for fact in replay.events:
                 event = encode_event(
@@ -412,18 +466,13 @@ def register_run_routes(
                     fact=fact,
                 )
                 await emit_run_event_stream_message(websocket, event)
-            replay_complete = {
-                "schema_namespace": "protein-workbench-public/v2",
-                "project_id": project_id,
-                "run_id": run_id,
-                "sequence": replay_through_sequence,
-                "cursor": replay_through_cursor,
-                "emitted_at": public_timestamp(),
-                "event": {
-                    "type": "replay_complete",
-                    "live_from_cursor": replay_through_cursor,
-                },
-            }
+            replay_complete = _replay_complete_payload(
+                project_id=project_id,
+                run_id=run_id,
+                sequence=replay_through_sequence,
+                cursor=replay_through_cursor,
+                emitted_at=public_timestamp(),
+            )
             await emit_run_event_stream_message(websocket, replay_complete)
             live_after_sequence = replay_through_sequence
             while not terminal:

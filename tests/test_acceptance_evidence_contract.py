@@ -6,7 +6,6 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -128,8 +127,6 @@ def _projection() -> dict[str, Any]:
         "project_id": "project-fixture",
         "run_id": "run-fixture",
         "workflow_commit_id": "workflow-commit-" + "5" * 64,
-        "workflow_commit_revision": 1,
-        "workflow_digest": "sha256:" + "6" * 64,
         "status": "succeeded",
         "ledger_cursor": "cursor-1",
         "terminal_sequence": 1,
@@ -148,10 +145,7 @@ def _projection() -> dict[str, Any]:
                 "output_port": "scores",
                 "port_type": {
                     "contract_kind": "port_type",
-                    "contract_id": "fixture.score",
-                    "contract_version": "1.0.0",
-                    "contract_digest": "sha256:" + "1" * 64,
-                },
+                    "contract_id": "fixture.score"},
                 "content_digest": "sha256:" + "2" * 64,
                 "result_identity": result_identity,
                 "materialization": {
@@ -202,9 +196,6 @@ def _write_complete(root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
     retain_service_run(
         RUN_LABEL,
-        catalog=SimpleNamespace(
-            catalog_descriptor_bytes=b'{"catalog":"fixture"}\n'
-        ),
         service=_Service(),
         projection=_projection(),
         events=_events(),
@@ -304,9 +295,6 @@ def test_service_run_writes_complete_minimal_bundle(
 
     retain_service_run(
         RUN_LABEL,
-        catalog=SimpleNamespace(
-            catalog_descriptor_bytes=b'{"catalog":"fixture"}\n'
-        ),
         service=_Service(),
         projection=projection,
         events=_events(),
@@ -322,24 +310,6 @@ def test_service_run_writes_complete_minimal_bundle(
     assert (run_root / "artifacts" / "000000.bin").read_bytes() == ARTIFACT
 
 
-def test_service_runs_reject_different_tier_catalogs(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _write_complete(tmp_path, monkeypatch)
-
-    with pytest.raises(AssertionError):
-        retain_service_run(
-            "second-run",
-            catalog=SimpleNamespace(
-                catalog_descriptor_bytes=b'{"catalog":"different"}\n'
-            ),
-            service=_Service(),
-            projection=_projection(),
-            events=_events(),
-        )
-
-
 def test_rest_run_uses_the_same_minimal_bundle_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -349,14 +319,8 @@ def test_rest_run_uses_the_same_minimal_bundle_contract(
         str(tmp_path),
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_VERIFICATION_TIER", TIER)
-    catalog_snapshot = {
-        "catalog_contract_digest": "sha256:" + "7" * 64,
-        "contracts": [],
-    }
-
     retain_rest_run(
         RUN_LABEL,
-        catalog_snapshot=catalog_snapshot,
         client=_RestClient(),
         projection=_projection(),
         events=_events(),
@@ -373,9 +337,6 @@ def test_rest_run_uses_the_same_minimal_bundle_contract(
         "descriptor": _typed_value_metadata()["typed_value"],
         "payload": "values/000000.bin",
     }]
-    assert json.loads(
-        (tmp_path / "catalog-snapshot.json").read_bytes()
-    ) == catalog_snapshot
 
 
 def test_generic_pytest_only_bundle_is_not_installed_evidence(
@@ -427,16 +388,10 @@ def test_provider_transition_receipt_contains_public_binding_order(
     binding_sequence = (
         {
             "contract_kind": "binding",
-            "contract_id": "proteinmpnn.design.local",
-            "contract_version": "12.0.0",
-            "contract_digest": "sha256:" + "1" * 64,
-        },
+            "contract_id": "proteinmpnn.design.local"},
         {
             "contract_kind": "binding",
-            "contract_id": "solubility.protein_sol.local",
-            "contract_version": "5.0.0",
-            "contract_digest": "sha256:" + "2" * 64,
-        },
+            "contract_id": "solubility.protein_sol.local"},
     )
 
     retain_provider_binding_transition(binding_sequence=binding_sequence)

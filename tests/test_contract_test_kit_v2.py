@@ -72,8 +72,6 @@ def test_contract_test_kit_executes_the_explicit_fixture_registration(
     tmp_path: Path,
 ) -> None:
     registration = FIXTURE_PACKAGE
-    fixture_catalog = build_frozen_catalog((FIXTURE_PACKAGE,))
-
     report = verify_module_package_contract(
         registration,
         execution_cases=EXECUTION_CASES,
@@ -81,7 +79,6 @@ def test_contract_test_kit_executes_the_explicit_fixture_registration(
         work_root=tmp_path,
     )
 
-    assert report.catalog_contract_digest == fixture_catalog.contract_digest
     assert report.package_id == registration.package_id
     case_reports = {
         case_report.case_id: case_report
@@ -103,9 +100,6 @@ def test_contract_test_kit_executes_the_explicit_fixture_registration(
     assert len(scorer_report.event_sequences) == len(
         set(scorer_report.event_sequences)
     )
-    assert build_frozen_catalog((registration,)).contract_digest == (
-        report.catalog_contract_digest
-    )
     published = json.dumps(report.to_public(), sort_keys=True)
     assert "contract-test-secret-must-not-publish" not in published
     assert "/private/contract-test-runtime" not in published
@@ -119,21 +113,22 @@ def test_contract_test_case_rejects_a_path_like_case_identity() -> None:
         replace(EXECUTION_CASE, case_id="../escaped-case")
 
 
-def test_contract_test_kit_requires_cases_for_every_owned_port_type(
+def test_contract_test_kit_runs_only_explicitly_supplied_cases(
     tmp_path: Path,
 ) -> None:
-    registration = FIXTURE_PACKAGE
+    report = verify_module_package_contract(
+        FIXTURE_PACKAGE,
+        execution_cases=(EXECUTION_CASE,),
+        port_cases=(PORT_CASE,),
+        work_root=tmp_path,
+    )
 
-    with pytest.raises(
-        ModulePackageConformanceError,
-        match="Port cases must cover every package-owned Port Type",
-    ):
-        verify_module_package_contract(
-            registration,
-            execution_cases=EXECUTION_CASES,
-            port_cases=(),
-            work_root=tmp_path,
-        )
+    assert [case.case_id for case in report.case_reports] == [
+        EXECUTION_CASE.case_id
+    ]
+    assert report.verified_port_types == (
+        "contract_test.synthetic_text",
+    )
 
 
 def test_cases_and_fixtures_are_not_part_of_production_registration() -> None:
@@ -170,24 +165,16 @@ def test_source_and_scorer_publish_distinct_exact_contracts() -> None:
     catalog = build_frozen_catalog((FIXTURE_PACKAGE,))
     source_node = catalog.require_contract(
         "node_type",
-        SOURCE_EXECUTION_CASE.node_type_id,
-        SOURCE_EXECUTION_CASE.node_type_version,
-    )
+        SOURCE_EXECUTION_CASE.node_type_id)
     scorer_node = catalog.require_contract(
         "node_type",
-        EXECUTION_CASE.node_type_id,
-        EXECUTION_CASE.node_type_version,
-    )
+        EXECUTION_CASE.node_type_id)
     source_binding = catalog.require_contract(
         "binding",
-        SOURCE_EXECUTION_CASE.binding_id,
-        SOURCE_EXECUTION_CASE.binding_version,
-    )
+        SOURCE_EXECUTION_CASE.binding_id)
     scorer_binding = catalog.require_contract(
         "binding",
-        EXECUTION_CASE.binding_id,
-        EXECUTION_CASE.binding_version,
-    )
+        EXECUTION_CASE.binding_id)
 
     assert source_node.descriptor["inputs"] == ()
     assert scorer_node.descriptor["inputs"] == (
@@ -195,9 +182,7 @@ def test_source_and_scorer_publish_distinct_exact_contracts() -> None:
             "name": "candidate_input",
             "port_type": catalog.require_contract(
                 "port_type",
-                "candidate.collection",
-                "4.0.0",
-            ).reference(),
+                "candidate.collection").reference(),
             "required": True,
             "multiplicity": "one",
             "scientific_meaning": (
@@ -209,14 +194,7 @@ def test_source_and_scorer_publish_distinct_exact_contracts() -> None:
     assert scorer_binding.descriptor["node_type"] == scorer_node.reference()
     assert catalog.get_contract(
         "binding",
-        "contract_test.synthetic_echo.source",
-        "3.0.0",
-    ) is None
-    assert catalog.get_contract(
-        "node_type",
-        "contract_test.synthetic_echo",
-        "3.0.0",
-    ) is None
+        "contract_test.synthetic_echo.source") is None
 
 
 def test_source_public_journey_compiles_executes_replays_and_retrieves(
@@ -227,9 +205,7 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
     app = create_application(
         frozen_catalog_override=build_frozen_catalog((FIXTURE_PACKAGE,)),
         v2_environment_configuration={
-            (case.binding_id, case.binding_version): {
-                "values": dict(case.environment_values),
-            }
+            case.binding_id: dict(case.environment_values)
             for case in EXECUTION_CASES
         },
     )
@@ -256,9 +232,7 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
             {},
             expected_status=200,
         )
-        assert catalog.json()["catalog_contract_digest"] == (
-            build_frozen_catalog((FIXTURE_PACKAGE,)).contract_digest
-        )
+        assert catalog.json()["contracts"]
         project = client.post(
             "/api/v2/projects",
             json={"name": "source zero-Core extension"},
@@ -271,18 +245,14 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
                 {
                     "node_id": "candidate-source",
                     "node_type_id": SOURCE_EXECUTION_CASE.node_type_id,
-                    "node_type_version": SOURCE_EXECUTION_CASE.node_type_version,
                     "binding_id": SOURCE_EXECUTION_CASE.binding_id,
-                    "binding_version": SOURCE_EXECUTION_CASE.binding_version,
                     "node_parameters": {"message": "SOURCE"},
                     "binding_parameters": {"repeat_count": 1},
                 },
                 {
                     "node_id": "synthetic-echo",
                     "node_type_id": EXECUTION_CASE.node_type_id,
-                    "node_type_version": EXECUTION_CASE.node_type_version,
                     "binding_id": EXECUTION_CASE.binding_id,
-                    "binding_version": EXECUTION_CASE.binding_version,
                     "node_parameters": dict(EXECUTION_CASE.node_parameters),
                     "binding_parameters": dict(
                         EXECUTION_CASE.binding_parameters
@@ -296,9 +266,7 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
                     "target_node_id": "synthetic-echo",
                     "target_port": "candidate_input",
                 }
-            ],
-            "contract_lock": [],
-        }
+            ]}
         committed = public_request(
             "commit_project_workflow",
             {
@@ -441,7 +409,6 @@ def test_contract_test_kit_rejects_an_invalid_package_codec(
     port_type = registration.port_types[0]
     invalid_port_type = PortTypeDefinition(
         type_id=port_type.type_id,
-        version=port_type.version,
         validator=port_type.validator,
         codec=port_type.codec,
         content_identity=port_type.content_identity,
@@ -483,21 +450,9 @@ def test_contract_test_kit_rejects_incomplete_observation_provenance(
         )
 
 
-@pytest.mark.parametrize(
-    ("replacement", "message"),
-    [
-        (
-            'schema_version: "2.1.0"\nunknown_field: true\n',
-            "unknown fields",
-        ),
-        ("schema_version: [", "malformed YAML"),
-    ],
-)
-def test_malformed_or_unknown_definition_fails_before_catalog_publication(
+def test_malformed_definition_fails_before_catalog_publication(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    replacement: str,
-    message: str,
 ) -> None:
     root_name = "negative_zero_core_packages"
     source = FIXTURE_ROOT
@@ -508,14 +463,14 @@ def test_malformed_or_unknown_definition_fails_before_catalog_publication(
         / "synthetic_echo"
         / "definitions"
         / "echo.yaml"
-    ).write_text(replacement, encoding="utf-8")
+    ).write_text("schema_version: [", encoding="utf-8")
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
     try:
         registration = importlib.import_module(
             f"{root_name}.synthetic_echo.package"
         ).MODULE_PACKAGE
-        with pytest.raises(CatalogBuildError, match=message):
+        with pytest.raises(CatalogBuildError, match="malformed YAML"):
             build_frozen_catalog((registration,))
     finally:
         _forget_packages(root_name)

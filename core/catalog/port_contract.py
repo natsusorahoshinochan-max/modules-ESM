@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import hashlib
 import re
@@ -77,8 +77,6 @@ def _exact_contract_reference_to_canonical(
     return {
         "contract_kind": value.contract_kind,
         "contract_id": value.contract_id,
-        "contract_version": value.contract_version,
-        "contract_digest": value.contract_digest,
     }
 
 
@@ -173,44 +171,7 @@ def observation_context_canonical(
 
 
 CONTRACT_NAMESPACE = "protein-workbench-contract/v2"
-CATALOG_NAMESPACE = "protein-workbench-catalog/v2"
 PORT_VALUE_NAMESPACE = "protein-workbench-port-value/v2"
-PORT_TYPE_VERSION = "2.1.0"
-CANDIDATE_COLLECTION_PORT_TYPE_VERSION = "4.0.0"
-CANDIDATE_PAIRING_PORT_TYPE_VERSION = "4.0.0"
-SCORE_COLLECTION_PORT_TYPE_VERSION = "5.0.0"
-PROTEIN_SEQUENCE_PORT_TYPE_VERSION = "3.0.0"
-PROTEIN_STRUCTURE_PORT_TYPE_VERSION = "4.0.0"
-RESIDUE_LAYOUT_PORT_TYPE_VERSION = "3.0.0"
-RESIDUE_MAP_PORT_TYPE_VERSION = "3.0.0"
-_BUILTIN_PORT_TYPE_VERSIONS = {
-    "candidate.collection": CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
-    "candidate.pairing": CANDIDATE_PAIRING_PORT_TYPE_VERSION,
-    "protein.sequence": PROTEIN_SEQUENCE_PORT_TYPE_VERSION,
-    "protein.structure": PROTEIN_STRUCTURE_PORT_TYPE_VERSION,
-    "residue.layout": RESIDUE_LAYOUT_PORT_TYPE_VERSION,
-    "residue.map": RESIDUE_MAP_PORT_TYPE_VERSION,
-    "score.collection": SCORE_COLLECTION_PORT_TYPE_VERSION,
-}
-_SEMANTIC_VERSION = re.compile(
-    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
-)
-
-
-def _require_single_active_contract_version(
-    identities: Iterable[tuple[str, str, str]],
-) -> None:
-    active_versions: dict[tuple[str, str], str] = {}
-    for contract_kind, contract_id, contract_version in identities:
-        logical_identity = (contract_kind, contract_id)
-        active_version = active_versions.get(logical_identity)
-        if active_version is not None and active_version != contract_version:
-            raise _errors.CatalogBuildError(
-                "multiple active versions for contract "
-                f"{contract_kind}:{contract_id}: "
-                f"{active_version} and {contract_version}"
-            )
-        active_versions[logical_identity] = contract_version
 
 
 def _validate_identifier(value: str, field_name: str) -> None:
@@ -218,19 +179,8 @@ def _validate_identifier(value: str, field_name: str) -> None:
         validate_canonical_identifier(value, field_name)
     except ValueError as error:
         raise _errors.CatalogBuildError(
-            f"{field_name} must be a versioned identifier"
+            f"{field_name} must be a canonical identifier"
         ) from error
-
-
-def _validate_version(value: str, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or not 5 <= len(value) <= 64
-        or _SEMANTIC_VERSION.fullmatch(value) is None
-    ):
-        raise _errors.CatalogBuildError(
-            f"{field_name} must be an exact semantic version"
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,12 +188,10 @@ class BehaviorReference:
     """Stable public identity for one private runtime behavior."""
 
     behavior_id: str
-    behavior_version: str
     parameters: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _validate_identifier(self.behavior_id, "behavior_id")
-        _validate_version(self.behavior_version, "behavior_version")
         parameters = dict(self.parameters)
         _canonical.canonical_json_bytes(parameters)
         object.__setattr__(self, "parameters", _canonical._freeze(parameters))
@@ -252,17 +200,15 @@ class BehaviorReference:
         """Return the closed public declaration without a Python callable."""
         return {
             "behavior_id": self.behavior_id,
-            "behavior_version": self.behavior_version,
             "parameters": thaw_i_json(self.parameters),
         }
 
 
 @dataclass(frozen=True, slots=True)
 class PortTypeDefinition:
-    """One exact nominal Port Type and its stable behavior declarations."""
+    """One nominal Port Type and its stable behavior declarations."""
 
     type_id: str
-    version: str
     validator: BehaviorReference
     codec: BehaviorReference
     content_identity: BehaviorReference
@@ -331,7 +277,6 @@ class PortTypeDefinition:
 
     def __post_init__(self) -> None:
         _validate_identifier(self.type_id, "type_id")
-        _validate_version(self.version, "version")
         source_port_types = dict(self.output_identity_source_port_types)
         for source_role, source_port_type in source_port_types.items():
             _validate_identifier(source_role, "output identity source role")
@@ -416,7 +361,6 @@ class PortTypeDefinition:
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "port_type",
             "contract_id": self.type_id,
-            "contract_version": self.version,
             "validator": self.validator.descriptor(),
             "codec": self.codec.descriptor(),
             "content_identity": self.content_identity.descriptor(),
@@ -452,23 +396,11 @@ class PortTypeDefinition:
             return None
         return cast(tuple[str, ...], declaration["media_types"])
 
-    @property
-    def descriptor_bytes(self) -> bytes:
-        """RFC 8785 canonical UTF-8 descriptor bytes."""
-        return _canonical.canonical_json_bytes(self._canonical_descriptor)
-
-    @property
-    def contract_digest(self) -> str:
-        """SHA-256 identity of this exact canonical descriptor."""
-        return f"sha256:{hashlib.sha256(self.descriptor_bytes).hexdigest()}"
-
     def reference(self) -> dict[str, Any]:
-        """Return the exact reference shape shared by every Catalog contract."""
+        """Return the stable reference shape shared by every Catalog contract."""
         return {
             "contract_kind": "port_type",
             "contract_id": self.type_id,
-            "contract_version": self.version,
-            "contract_digest": self.contract_digest,
         }
 
     def scientific_axis_references(
@@ -514,7 +446,7 @@ class PortTypeDefinition:
         materializer = self.runtime_output_identity_materializer
         if materializer is None:
             raise _errors.PortValueError(
-                f"Port Type {self.type_id}@{self.version} does not own output "
+                f"Port Type {self.type_id} does not own output "
                 "identity materialization"
             )
         return materializer(relation, identities)
@@ -529,7 +461,7 @@ class PortTypeDefinition:
         if any(behavior is not None for behavior in custom_behaviors):
             if not all(behavior is not None for behavior in custom_behaviors):
                 raise _errors.CatalogBuildError(
-                    f"{self.type_id}@{self.version} has an incomplete runtime "
+                    f"{self.type_id} has an incomplete runtime "
                     "validator/codec declaration"
                 )
         else:
@@ -541,7 +473,7 @@ class PortTypeDefinition:
                 or value_kind not in _value_codec._VALUE_TYPE_BY_KIND
             ):
                 raise _errors.CatalogBuildError(
-                    f"{self.type_id}@{self.version} has no installed "
+                    f"{self.type_id} has no installed "
                     "validator behavior"
                 )
 
@@ -554,7 +486,7 @@ class PortTypeDefinition:
                 raise
             except (TypeError, ValueError) as error:
                 raise _errors.PortValueError(
-                    f"{self.type_id}@{self.version} rejected its runtime value: "
+                    f"{self.type_id} rejected its runtime value: "
                     f"{error}"
                 ) from error
             return
@@ -565,7 +497,7 @@ class PortTypeDefinition:
         expected_type = _value_codec._VALUE_TYPE_BY_KIND[value_kind]
         if type(value) is not expected_type:
             raise _errors.PortValueError(
-                f"{self.type_id}@{self.version} requires {expected_type.__name__}, "
+                f"{self.type_id} requires {expected_type.__name__}, "
                 f"got {type(value).__name__}"
             )
         _value_codec._validate_builtin_semantics(value_kind, value)
@@ -585,7 +517,6 @@ class PortTypeDefinition:
                 {
                     "schema_namespace": PORT_VALUE_NAMESPACE,
                     "port_type_id": self.type_id,
-                    "port_type_version": self.version,
                     "value": wire_value,
                 }
             )
@@ -601,7 +532,7 @@ class PortTypeDefinition:
                 raise
             except (KeyError, TypeError, ValueError) as error:
                 raise _errors.PortValueError(
-                    f"{self.type_id}@{self.version} could not decode its value: "
+                    f"{self.type_id} could not decode its value: "
                     f"{error}"
                 ) from error
         else:
@@ -615,7 +546,6 @@ class PortTypeDefinition:
         if not isinstance(payload, dict) or set(payload) != {
             "schema_namespace",
             "port_type_id",
-            "port_type_version",
             "value",
         }:
             raise _errors.PortValueError("canonical Port value envelope is not closed")
@@ -623,10 +553,7 @@ class PortTypeDefinition:
             raise _errors.PortValueError(
                 "canonical Port value namespace does not match"
             )
-        if (
-            payload["port_type_id"],
-            payload["port_type_version"],
-        ) != (self.type_id, self.version):
+        if payload["port_type_id"] != self.type_id:
             raise _errors.PortValueError(
                 "canonical Port value nominal identity does not match"
             )

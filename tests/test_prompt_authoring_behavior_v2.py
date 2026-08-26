@@ -25,7 +25,6 @@ from tests.support.public_request import prepare_rest_request
 from tests.support.protocol import validate_response
 from tests.fixtures.prompt_authoring_v2 import (
     TARGET_LAYOUT,
-    VERSION,
     WORKFLOW_SCHEMA_VERSION,
     decoded_output,
     run_operation,
@@ -544,11 +543,9 @@ def test_prompt_authoring_executes_through_the_public_protocol(
             "nodes": [{
                 "node_id": "layout",
                 "node_type_id": "prompt_authoring.build_residue_layout",
-                "node_type_version": VERSION,
                 "binding_id": (
                     "prompt_authoring.build_residue_layout.direct"
                 ),
-                "binding_version": VERSION,
                 "node_parameters": {
                     "chains": [
                         {"chain_id": "A", "length": 2},
@@ -557,9 +554,7 @@ def test_prompt_authoring_executes_through_the_public_protocol(
                 },
                 "binding_parameters": {},
             }],
-            "edges": [],
-            "contract_lock": [],
-        }
+            "edges": []}
         committed = public_request(
             "commit_project_workflow",
             {

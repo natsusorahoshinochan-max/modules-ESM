@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-import re
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -30,16 +29,12 @@ from datatypes.identifier import validate_canonical_identifier
 from core.catalog.errors import CatalogBuildError
 from core.catalog.canonical import canonical_json_bytes
 from .port_contract import (
-    CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
-    CANDIDATE_PAIRING_PORT_TYPE_VERSION,
     CONTRACT_NAMESPACE,
-    SCORE_COLLECTION_PORT_TYPE_VERSION,
     BehaviorReference,
     PortTypeDefinition,
 )
 
 
-DEFINITION_RESOURCE_SCHEMA_VERSION = "2.1.0"
 ContractKind = Literal[
     "binding",
     "method",
@@ -48,39 +43,13 @@ ContractKind = Literal[
     "port_type",
     "utility_transform",
 ]
-_SEMANTIC_VERSION = re.compile(
-    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
-)
-_SCIENTIFIC_COLLECTION_PORT_TYPE_VERSIONS = {
-    "candidate.collection": CANDIDATE_COLLECTION_PORT_TYPE_VERSION,
-    "score.collection": SCORE_COLLECTION_PORT_TYPE_VERSION,
-}
-
-
 def _require_identifier(value: str, field_name: str) -> None:
     try:
         validate_canonical_identifier(value, field_name)
     except ValueError as error:
         raise CatalogBuildError(
-            f"{field_name} must be a versioned identifier"
+            f"{field_name} must be a canonical identifier"
         ) from error
-
-
-def _require_version(value: str, field_name: str) -> None:
-    if (
-        not isinstance(value, str)
-        or len(value) > 64
-        or _SEMANTIC_VERSION.fullmatch(value) is None
-    ):
-        raise CatalogBuildError(f"{field_name} must be an exact semantic version")
-
-
-def _require_schema_version(value: str, resource_kind: str) -> None:
-    if value != DEFINITION_RESOURCE_SCHEMA_VERSION:
-        raise CatalogBuildError(
-            f"unsupported {resource_kind} schema_version {value!r}; "
-            f"expected {DEFINITION_RESOURCE_SCHEMA_VERSION!r}"
-        )
 
 
 def _freeze_declaration(value: Any, *, path: str = "$") -> Any:
@@ -123,20 +92,14 @@ def _admit_parameter_declarations(
 
 @dataclass(frozen=True, slots=True)
 class ContractIdentity:
-    """An exact unresolved reference to one Catalog contract."""
+    """A stable unresolved reference to one Catalog contract."""
 
     contract_kind: ContractKind
     contract_id: str
-    contract_version: str
-    expected_digest: str | None = None
 
     @property
-    def key(self) -> tuple[str, str, str]:
-        return (
-            self.contract_kind,
-            self.contract_id,
-            self.contract_version,
-        )
+    def key(self) -> tuple[str, str]:
+        return (self.contract_kind, self.contract_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,7 +134,6 @@ class NodeTypeDefinition:
     """One admitted Node Type definition resource."""
 
     node_type_id: str
-    version: str
     title: str
     summary: str
     category: str
@@ -184,14 +146,13 @@ class NodeTypeDefinition:
 
     @property
     def identity(self) -> ContractIdentity:
-        return ContractIdentity("node_type", self.node_type_id, self.version)
+        return ContractIdentity("node_type", self.node_type_id)
 
     def descriptor_template(self) -> dict[str, Any]:
         descriptor = {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "node_type",
             "contract_id": self.node_type_id,
-            "contract_version": self.version,
             "title": self.title,
             "summary": self.summary,
             "category": self.category,
@@ -213,7 +174,6 @@ class MetricDefinition:
     """One admitted Metric definition resource."""
 
     metric_id: str
-    version: str
     title: str
     description: str
     value_shape: str
@@ -227,14 +187,13 @@ class MetricDefinition:
 
     @property
     def identity(self) -> ContractIdentity:
-        return ContractIdentity("metric", self.metric_id, self.version)
+        return ContractIdentity("metric", self.metric_id)
 
     def descriptor_template(self) -> dict[str, Any]:
         return {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "metric",
             "contract_id": self.metric_id,
-            "contract_version": self.version,
             "title": self.title,
             "description": self.description,
             "value_shape": self.value_shape,
@@ -268,21 +227,16 @@ class MethodDefinition:
     """Stable scientific Method declaration supplied by one package."""
 
     method_id: str
-    version: str
     algorithm_identity: Mapping[str, Any]
     model_identity: Mapping[str, Any]
-    checkpoint_identity: Mapping[str, Any]
     featurization_identity: Mapping[str, Any]
-    source_identity: Mapping[str, Any]
     scale_contract: Mapping[str, Any]
 
     def __post_init__(self) -> None:
         for field_name in (
             "algorithm_identity",
             "model_identity",
-            "checkpoint_identity",
             "featurization_identity",
-            "source_identity",
             "scale_contract",
         ):
             value = getattr(self, field_name)
@@ -294,29 +248,25 @@ class MethodDefinition:
 
     @property
     def identity(self) -> ContractIdentity:
-        return ContractIdentity("method", self.method_id, self.version)
+        return ContractIdentity("method", self.method_id)
 
     def descriptor_template(self) -> dict[str, Any]:
         return {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "method",
             "contract_id": self.method_id,
-            "contract_version": self.version,
             "algorithm_identity": self.algorithm_identity,
             "model_identity": self.model_identity,
-            "checkpoint_identity": self.checkpoint_identity,
             "featurization_identity": self.featurization_identity,
-            "source_identity": self.source_identity,
             "scale_contract": self.scale_contract,
         }
 
 
 @dataclass(frozen=True, slots=True)
 class UtilityTransformDefinition:
-    """Controlled versioned mapping to a dimensionless unit interval."""
+    """Controlled mapping to a dimensionless unit interval."""
 
     transform_id: str
-    version: str
     compatible_input_contract: Mapping[str, Any]
     parameters: Mapping[str, Any]
     parameter_contract: ParameterContract = field(init=False, repr=False)
@@ -341,7 +291,7 @@ class UtilityTransformDefinition:
             "parameter_contract",
             _admit_parameter_declarations(
                 self.parameters,
-                path=f"utility_transform:{self.transform_id}@{self.version}.parameters",
+                path=f"utility_transform:{self.transform_id}.parameters",
             ),
         )
 
@@ -350,7 +300,6 @@ class UtilityTransformDefinition:
         return ContractIdentity(
             "utility_transform",
             self.transform_id,
-            self.version,
         )
 
     def descriptor_template(self) -> dict[str, Any]:
@@ -358,7 +307,6 @@ class UtilityTransformDefinition:
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "utility_transform",
             "contract_id": self.transform_id,
-            "contract_version": self.version,
             "compatible_input_contract": self.compatible_input_contract,
             "parameters": self.parameters,
             "behavior": self.behavior.descriptor(),
@@ -491,7 +439,6 @@ class ObservationPropagationDefinition:
     input_ports: tuple[str, ...]
     filter: Mapping[str, Any] | None = None
     absent_input_policy: Literal["reject", "ignore"] = "reject"
-    schema_version: str = "2.1.0"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "input_ports", tuple(self.input_ports))
@@ -504,7 +451,6 @@ class ObservationPropagationDefinition:
 
     def descriptor_template(self) -> dict[str, Any]:
         descriptor = {
-            "schema_version": self.schema_version,
             "mode": self.mode,
             "output_port": self.output_port,
             "input_ports": self.input_ports,
@@ -524,11 +470,9 @@ class SelectionObjectiveConsumptionDefinition:
     candidate_output_port: str
     objective_id_parameter: str | None = None
     objective_ids_parameter: str | None = None
-    schema_version: str = "2.1.0"
 
     def descriptor_template(self) -> dict[str, str]:
         descriptor = {
-            "schema_version": self.schema_version,
             "candidate_input_port": self.candidate_input_port,
             "score_collection_input_port": self.score_collection_input_port,
             "candidate_output_port": self.candidate_output_port,
@@ -548,11 +492,9 @@ class ObservationSelectorConsumptionDefinition:
     score_collection_input_port: str
     candidate_output_port: str
     selector_id_parameter: str
-    schema_version: str = "2.1.0"
 
     def descriptor_template(self) -> dict[str, str]:
         return {
-            "schema_version": self.schema_version,
             "candidate_input_port": self.candidate_input_port,
             "score_collection_input_port": self.score_collection_input_port,
             "candidate_output_port": self.candidate_output_port,
@@ -620,7 +562,6 @@ class ExecutionBindingDefinition:
     """Executable association between one Node Type and one Method."""
 
     binding_id: str
-    version: str
     node_type: ContractIdentity
     method: ContractIdentity
     binding_parameters: Mapping[str, Any]
@@ -630,7 +571,6 @@ class ExecutionBindingDefinition:
     availability: AvailabilityDeclaration
     deterministic: bool
     cacheable: bool
-    implementation_identity: Mapping[str, Any]
     readiness: ReadinessDeclaration | None = None
     produced_observations: tuple[ProducedObservationDefinition, ...] = ()
     adapter_behavior: BehaviorReference | None = None
@@ -670,13 +610,8 @@ class ExecutionBindingDefinition:
             "parameter_contract",
             _admit_parameter_declarations(
                 self.binding_parameters,
-                path=f"binding:{self.binding_id}@{self.version}.binding_parameters",
+                path=f"binding:{self.binding_id}.binding_parameters",
             ),
-        )
-        object.__setattr__(
-            self,
-            "implementation_identity",
-            _freeze_declaration(self.implementation_identity),
         )
         object.__setattr__(
             self,
@@ -686,27 +621,13 @@ class ExecutionBindingDefinition:
 
     @property
     def identity(self) -> ContractIdentity:
-        return ContractIdentity("binding", self.binding_id, self.version)
+        return ContractIdentity("binding", self.binding_id)
 
     def descriptor_template(self) -> dict[str, Any]:
-        implementation_identity = {
-            key: value
-            for key, value in self.implementation_identity.items()
-        }
-        implementation_identity["factory"] = self.factory.behavior.descriptor()
-        if self.adapter_behavior is not None:
-            implementation_identity["adapter"] = (
-                self.adapter_behavior.descriptor()
-            )
-        if self.effective_randomness_resolver is not None:
-            implementation_identity["effective_randomness_resolver"] = (
-                self.effective_randomness_resolver.behavior.descriptor()
-            )
         descriptor = {
             "schema_namespace": CONTRACT_NAMESPACE,
             "contract_kind": "binding",
             "contract_id": self.binding_id,
-            "contract_version": self.version,
             "node_type": self.node_type,
             "method": self.method,
             "binding_parameters": self.binding_parameters,
@@ -719,7 +640,6 @@ class ExecutionBindingDefinition:
             "availability_declaration": self.availability.descriptor(),
             "deterministic": self.deterministic,
             "cacheable": self.cacheable,
-            "implementation_identity": implementation_identity,
             "produced_observations": [
                 observation.descriptor_template()
                 for observation in self.produced_observations
@@ -766,7 +686,6 @@ class ModulePackageRegistration:
     """The one immutable production registration exported by a package."""
 
     package_id: str
-    package_version: str
     package_module: str
     node_definitions: tuple[DefinitionResource, ...] = ()
     metric_definitions: tuple[DefinitionResource, ...] = ()

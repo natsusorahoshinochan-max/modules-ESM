@@ -15,8 +15,6 @@ def _encode_reference(
     return {
         "contract_kind": reference.contract_kind,
         "contract_id": reference.contract_id,
-        "contract_version": reference.contract_version,
-        "contract_digest": reference.contract_digest,
     }
 
 
@@ -42,7 +40,6 @@ def encode_catalog_projection(
     return {
         "schema_namespace": "protein-workbench-public/v2",
         "protocol_digest": protocol_digest,
-        "catalog_contract_digest": projection.catalog_contract_digest,
         "contracts": [
             _encode_contract(contract)
             for contract in projection.contracts

@@ -30,16 +30,14 @@ from datatypes.sequence import ProteinSequence
 _RESULT_IDENTITY = "sha256:" + ("c" * 64)
 _BUILTINS = builtin_frozen_catalog()
 _SEQUENCE_PORT_TYPE = _BUILTINS.require_port_type(
-    "protein.sequence", "3.0.0"
+    "protein.sequence"
 )
 _CANDIDATE_COLLECTION_PORT_TYPE = _BUILTINS.require_port_type(
-    "candidate.collection", "4.0.0"
+    "candidate.collection"
 )
 _METHOD = ExactContractReference(
     "method",
     "test.candidate-lineage.method",
-    "1.0.0",
-    "sha256:" + ("1" * 64),
 )
 _PARENT_DIGEST = _SEQUENCE_PORT_TYPE.content_digest(ProteinSequence("AA"))
 
@@ -86,7 +84,6 @@ def test_candidate_collection_rejects_noncanonical_or_duplicate_parent_ids(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "4.0.0",
     )
     value = CandidateCollection(
         "collection",
@@ -116,7 +113,6 @@ def test_candidate_collection_codec_rejects_invalid_parent_ids(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "4.0.0",
     )
     canonical = port_type.encode(
         CandidateCollection(
@@ -168,7 +164,6 @@ def test_candidate_collection_rejects_internal_lineage_cycles_on_encode(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "4.0.0",
     )
 
     with pytest.raises(PortValueError, match="self-parent|contains a cycle"):
@@ -192,7 +187,6 @@ def test_candidate_collection_codec_rejects_internal_lineage_cycles(
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
         "candidate.collection",
-        "4.0.0",
     )
     canonical = port_type.encode(
         CandidateCollection(
@@ -262,7 +256,7 @@ def test_output_admission_rejects_parent_ids_that_converge() -> None:
             inputs={
                 "admitted_parents": admit_fixture_port(
                     port_type=_BUILTINS.require_port_type(
-                        "candidate.collection", "4.0.0"
+                        "candidate.collection"
                     ),
                     multiplicity="one",
                     values=(

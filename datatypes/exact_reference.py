@@ -10,10 +10,6 @@ from datatypes.identifier import validate_canonical_identifier
 from datatypes.residue import ResidueLayout
 
 
-_SEMANTIC_VERSION = re.compile(
-    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
-)
-_CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONTRACT_KINDS = frozenset(
     {
         "binding",
@@ -26,12 +22,10 @@ _CONTRACT_KINDS = frozenset(
 )
 @dataclass(frozen=True, slots=True)
 class ExactContractReference:
-    """Exact versioned scientific contract identity carried by typed values."""
+    """Stable scientific contract identity carried by typed values."""
 
     contract_kind: str
     contract_id: str
-    contract_version: str
-    contract_digest: str
 
     def __post_init__(self) -> None:
         if (
@@ -40,26 +34,10 @@ class ExactContractReference:
         ):
             raise ValueError("contract_kind is not a contract kind")
         validate_canonical_identifier(self.contract_id, "contract_id")
-        if (
-            type(self.contract_version) is not str
-            or _SEMANTIC_VERSION.fullmatch(self.contract_version) is None
-        ):
-            raise ValueError("contract_version must be semantic")
-        if (
-            type(self.contract_digest) is not str
-            or _CONTENT_DIGEST.fullmatch(self.contract_digest) is None
-        ):
-            raise ValueError(
-                "contract_digest must be a canonical sha256 digest"
-            )
 
     @property
-    def key(self) -> tuple[str, str, str]:
-        return (
-            self.contract_kind,
-            self.contract_id,
-            self.contract_version,
-        )
+    def key(self) -> tuple[str, str]:
+        return (self.contract_kind, self.contract_id)
 
 
 @dataclass(frozen=True, slots=True)

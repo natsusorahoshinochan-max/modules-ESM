@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: prompt_authoring.random_insert_masked
-version: "3.0.0"
 title: Randomly insert masked residues
 summary: Inserts reproducibly selected chain-local masked residues across every present ProteinPrompt track.
 category: prompt_authoring
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Validated residue-aligned ProteinPrompt whose layout and present tracks will be extended.
 outputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: ProteinPrompt with identity-complete inserted residues masked in every present track.
   - name: residue_map
     port_type_id: residue.map
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete source-to-target map identifying every preserved and inserted residue.

@@ -48,7 +48,7 @@ from tests.public_protocol_acceptance_client import (
 )
 
 
-_WORKFLOW_COMMIT_ID = f"workflow-commit-{'7' * 64}"
+_WORKFLOW_COMMIT_ID = f"workflow-commit-{'7' * 32}"
 
 
 def test_public_protocol_bundle_has_stable_canonical_identity() -> None:
@@ -172,7 +172,7 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
 
 def test_typed_value_binary_metadata_closes_exact_headers_and_bytes() -> None:
     body = (
-        b'{"port_type_id":"test.value","port_type_version":"1.0.0",'
+        b'{"port_type_id":"test.value",'
         b'"schema_namespace":"protein-workbench-port-value/v2",'
         b'"value":"exact"}'
     )
@@ -183,10 +183,7 @@ def test_typed_value_binary_metadata_closes_exact_headers_and_bytes() -> None:
             "output_port": "result",
             "port_type": {
                 "contract_kind": "port_type",
-                "contract_id": "test.value",
-                "contract_version": "1.0.0",
-                "contract_digest": f"sha256:{'3' * 64}",
-            },
+                "contract_id": "test.value"},
             "port_content_digest": f"sha256:{'1' * 64}",
             "value_manifest_reference": f"sha256:{'2' * 64}",
             "value_index": 0,
@@ -203,18 +200,16 @@ def test_typed_value_binary_metadata_closes_exact_headers_and_bytes() -> None:
         "X-Port-Content-Digest": f"sha256:{'1' * 64}",
         "X-Port-Type-Kind": "port_type",
         "X-Port-Type-Id": "test.value",
-        "X-Port-Type-Version": "1.0.0",
-        "X-Port-Type-Digest": f"sha256:{'3' * 64}",
         "X-Value-Count": "1",
         "X-Value-Index": "0",
         "X-Value-Manifest-Reference": f"sha256:{'2' * 64}",
     }
 
     validate_typed_value_response(metadata, headers, body)
-    missing_port_digest = dict(headers)
-    missing_port_digest.pop("X-Port-Type-Digest")
+    missing_port_id = dict(headers)
+    missing_port_id.pop("X-Port-Type-Id")
     with pytest.raises(ProtocolValidationError):
-        validate_typed_value_response(metadata, missing_port_digest, body)
+        validate_typed_value_response(metadata, missing_port_id, body)
     with pytest.raises(ProtocolValidationError):
         validate_typed_value_response(metadata, headers, body + b"\n")
 
@@ -227,10 +222,7 @@ def test_acceptance_client_returns_validated_typed_value_metadata() -> None:
         "output_port": "result",
         "port_type": {
             "contract_kind": "port_type",
-            "contract_id": "test.value",
-            "contract_version": "1.0.0",
-            "contract_digest": f"sha256:{'3' * 64}",
-        },
+            "contract_id": "test.value"},
         "content_digest": f"sha256:{'1' * 64}",
         "value_manifest_reference": f"sha256:{'2' * 64}",
         "value_count": 1,
@@ -264,10 +256,6 @@ def test_acceptance_client_returns_validated_typed_value_metadata() -> None:
                 "X-Port-Content-Digest": output["content_digest"],
                 "X-Port-Type-Kind": "port_type",
                 "X-Port-Type-Id": "test.value",
-                "X-Port-Type-Version": "1.0.0",
-                "X-Port-Type-Digest": output["port_type"][
-                    "contract_digest"
-                ],
                 "X-Value-Count": "1",
                 "X-Value-Index": "0",
                 "X-Value-Manifest-Reference": output[
@@ -392,13 +380,10 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
         "artifact_integrity_mismatch",
         "artifact_limit_exceeded",
         "artifact_not_found",
-        "binding_unavailable",
         "cancellation_conflict",
         "compile_rejected",
-        "contract_digest_mismatch",
         "cross_scope_access_denied",
         "evidence_unavailable",
-        "inactive_generation",
         "internal_error",
         "invalid_cursor",
         "malformed_request",
@@ -502,10 +487,7 @@ def test_failed_node_attempt_event_requires_exact_failure_origin() -> None:
                 "details": {
                     "binding": {
                         "contract_kind": "binding",
-                        "contract_id": "test.binding.local",
-                        "contract_version": "2.1.0",
-                        "contract_digest": "sha256:" + "1" * 64,
-                    },
+                        "contract_id": "test.binding.local"},
                     "reason_code": "model_unavailable",
                 },
             },
@@ -589,7 +571,7 @@ def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:
         "invocation_id": "invocation-1",
         "operation_attempt_id": "operation-1",
         "engine_role": "design_parent_0",
-        "engine_identity": "sha256:" + "1" * 64,
+        "engine_identity": "proteinmpnn.design.v_48_020",
     }
     projection = {
         "position_semantics": "one_based_chain_local",
@@ -679,11 +661,6 @@ def test_engine_invocation_provenance_is_closed_and_residue_typed() -> None:
                 "#/$defs/EngineInvocationStartedEvent",
                 {**event, "invocation_provenance": invalid_provenance},
             )
-    with pytest.raises(ProtocolValidationError):
-        validate_schema(
-            "#/$defs/EngineInvocationStartedEvent",
-            {**event, "engine_identity": "method-digest-1"},
-        )
 
 
 def test_project_input_filename_is_invocation_provenance_only() -> None:
@@ -830,10 +807,7 @@ def test_engine_invocation_randomness_provenance_is_a_closed_union() -> None:
 def test_availability_and_schema_version_fail_closed() -> None:
     binding = {
         "contract_kind": "binding",
-        "contract_id": "folding.simplefold",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:" + "1" * 64,
-    }
+        "contract_id": "folding.simplefold"}
     validate_schema(
         "#/$defs/AvailabilitySnapshot",
         {
@@ -891,83 +865,26 @@ def test_availability_and_schema_version_fail_closed() -> None:
         },
         status=422,
     )
-    validate_error(
-        {
-            "schema_namespace": "protein-workbench-public/v2",
-            "error": {
-                "code": "inactive_generation",
-                "message": "Workflow uses an inactive exact contract",
-                "retryable": False,
-                "correlation_id": "incident-workflow-generation",
-                "details": {
-                    "issues": [
-                        {
-                            "code": "inactive_generation",
-                            "severity": "error",
-                            "message": "Requested 2.0.0; active is 2.1.0",
-                            "field_path": [
-                                "nodes",
-                                0,
-                                "node_type_version",
-                            ],
-                            "node_id": "source",
-                        }
-                    ]
-                },
-            },
-        },
-        status=409,
-    )
-    validate_error(
-        {
-            "schema_namespace": "protein-workbench-public/v2",
-            "error": {
-                "code": "inactive_generation",
-                "message": "Run evidence belongs to an inactive Catalog",
-                "retryable": False,
-                "correlation_id": "incident-run-generation",
-                "details": {
-                    "artifact_kind": "run_evidence",
-                    "expected_catalog_contract_digest": (
-                        "sha256:" + "1" * 64
-                    ),
-                    "received_catalog_contract_digest": (
-                        "sha256:" + "2" * 64
-                    ),
-                },
-            },
-        },
-        status=409,
-    )
-
-
 def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
     port_type = {
         "contract_kind": "port_type",
-        "contract_id": "protein.pdb_string",
-        "contract_version": "2.1.0",
-        "contract_digest": "sha256:" + "2" * 64,
-    }
+        "contract_id": "protein.pdb_string"}
     public_contract = {
         "reference": port_type,
         "descriptor": {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": "port_type",
             "contract_id": "protein.pdb_string",
-            "contract_version": "2.1.0",
             "validator": {
                 "behavior_id": "pdb.validate",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "codec": {
                 "behavior_id": "pdb.utf8",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "content_identity": {
                 "behavior_id": "pdb.sha256",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
         },
@@ -975,7 +892,6 @@ def test_catalog_descriptor_and_node_disposition_are_closed() -> None:
     validate_schema("#/$defs/PublicContract", public_contract)
     projection_behavior = {
         "behavior_id": "confidence.project",
-        "behavior_version": "1.0.0",
         "parameters": {},
     }
     validate_schema(
@@ -1071,7 +987,6 @@ def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
         "project_id": "project-1",
         "run_id": "run-7",
         "workflow_commit_id": _WORKFLOW_COMMIT_ID,
-        "workflow_commit_revision": 7,
         "admitted_sequence": 1,
         "event_cursor": "cursor-1",
     }
@@ -1081,17 +996,17 @@ def test_rest_payloads_are_validated_from_bundle_schemas() -> None:
 
 
 def test_workflow_commit_receipt_can_represent_only_a_successful_commit() -> None:
-    digest = f"sha256:{'a' * 64}"
     receipt = {
         "accepted": True,
-        "workflow_commit_id": f"workflow-commit-{'b' * 64}",
-        "workflow_commit_revision": 1,
+        "workflow_commit_id": f"workflow-commit-{'b' * 32}",
         "source_draft_revision": 1,
-        "source_draft_digest": digest,
-        "workflow_digest": digest,
-        "catalog_contract_digest": digest,
-        "contract_lock_digest": digest,
-        "execution_plan_digest": digest,
+        "workflow": {
+            "schema_version": "2.1.0",
+            "workflow_id": "project-1",
+            "nodes": [],
+            "edges": [],
+        },
+        "scientific_definitions": [],
         "issues": [],
     }
 
@@ -1134,9 +1049,9 @@ def test_public_identifiers_use_nominal_bundle_schemas() -> None:
             if schema_name != "WorkflowCommitId"
             else (
                 "workflow-commit-7",
-                f"workflow-commit-{'A' * 64}",
-                f"workflow-commit-{'7' * 63}",
-                f"workflow-commit-{'7' * 65}",
+                f"workflow-commit-{'A' * 32}",
+                f"workflow-commit-{'7' * 31}",
+                f"workflow-commit-{'7' * 33}",
             )
         )
         for invalid in invalid_values:
@@ -1631,9 +1546,7 @@ def test_backend_rejects_route_owned_fields_in_every_json_body(
         "schema_version": "2.1.0",
         "workflow_id": "project-2",
         "nodes": [],
-        "edges": [],
-        "contract_lock": [],
-    }
+        "edges": []}
     cases = {
         "save_project_workflow_draft": (
             "PUT",
@@ -1760,9 +1673,7 @@ def test_backend_classifies_nested_workflow_version_before_authoring(
         "nodes": [],
         "edges": [],
         "observation_selectors": [],
-        "selection_objectives": [],
-        "contract_lock": [],
-    }
+        "selection_objectives": []}
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())
@@ -1908,9 +1819,7 @@ def test_public_deep_commit_creates_draft_active_commit_and_runnable_plan(
             "nodes": [],
             "edges": [],
             "observation_selectors": [],
-            "selection_objectives": [],
-            "contract_lock": [],
-        }
+            "selection_objectives": []}
         committed_response = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
@@ -1951,7 +1860,6 @@ def test_public_deep_commit_creates_draft_active_commit_and_runnable_plan(
     started = started_response.json()
     validate_response("start_run", 202, started)
     assert started["workflow_commit_id"] == committed["workflow_commit_id"]
-    assert started["workflow_commit_revision"] == 1
     with pytest.raises(ProtocolValidationError, match="project_id"):
         prepare_run_event_stream_request(
             {"project_id": "project/1", "run_id": "run-7"}
@@ -1979,7 +1887,6 @@ def test_acceptance_client_validates_response_without_backend_imports() -> None:
         "project_id": "project-1",
         "run_id": "run-7",
         "workflow_commit_id": _WORKFLOW_COMMIT_ID,
-        "workflow_commit_revision": 7,
         "admitted_sequence": 1,
         "event_cursor": "cursor-1",
     }

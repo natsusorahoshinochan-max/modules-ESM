@@ -292,8 +292,6 @@ def _exact_reference_canonical(
     return {
         "contract_kind": reference.contract_kind,
         "contract_id": reference.contract_id,
-        "contract_version": reference.contract_version,
-        "contract_digest": reference.contract_digest,
     }
 
 
@@ -303,7 +301,6 @@ def _identity_reference_canonical(
     return {
         "contract_kind": reference.contract_kind,
         "contract_id": reference.contract_id,
-        "contract_version": reference.contract_version,
     }
 
 

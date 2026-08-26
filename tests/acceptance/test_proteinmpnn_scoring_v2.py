@@ -39,11 +39,9 @@ def _source_node() -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.proteinmpnn_3gb1_structure",
-        node_type_version="4.0.0",
         binding_id=(
             "contract_test.proteinmpnn_3gb1_structure.direct"
         ),
-        binding_version="4.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -51,16 +49,12 @@ def _source_node() -> WorkflowNodeInstance:
 
 def _environment(
     binding_id: str,
-    binding_version: str,
-) -> dict[tuple[str, str], dict[str, dict[str, object]]]:
+) -> dict[str, dict[str, object]]:
     return {
-        (binding_id, binding_version): {
-            "values": {
-                "device": expected_local_torch_device(),
-                "provider_root": Path(
-                    os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
-                ).resolve(),
-            },
+        binding_id: {
+            "provider_root": Path(
+                os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
+            ).resolve(),
         }
     }
 
@@ -71,7 +65,6 @@ def _run(
     nodes: tuple[WorkflowNodeInstance, ...],
     edges: tuple[WorkflowEdge, ...],
     binding_id: str,
-    binding_version: str,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.proteinmpnn.package import (
         MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
@@ -104,9 +97,7 @@ def _run(
             schema_version="2.1.0",
             workflow_id=project.id,
             nodes=nodes,
-            edges=edges,
-            contract_lock=(),
-        ),
+            edges=edges),
     )
     service = V2RunService(
         projects,
@@ -116,7 +107,7 @@ def _run(
             projects,
             admit_environment_configuration(
                 catalog,
-                _environment(binding_id, binding_version),
+                _environment(binding_id),
             ),
             result_store(projects),
         ),
@@ -178,11 +169,9 @@ def _axis_resolver() -> WorkflowNodeInstance:
         node_type_id=(
             "structure_transform.resolve_candidate_residue_axes"
         ),
-        node_type_version="6.0.0",
         binding_id=(
             "structure_transform.resolve_candidate_residue_axes.direct"
         ),
-        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -200,20 +189,16 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         WorkflowNodeInstance(
             node_id="sequence-source",
             node_type_id="contract_test.proteinmpnn_3gb1_sequence",
-            node_type_version="4.0.0",
             binding_id=(
                 "contract_test.proteinmpnn_3gb1_sequence.direct"
             ),
-            binding_version="4.0.0",
             node_parameters={},
             binding_parameters={},
         ),
         WorkflowNodeInstance(
             node_id="score",
             node_type_id="proteinmpnn.score",
-            node_type_version="7.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="9.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -254,9 +239,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         tmp_path,
         nodes=nodes,
         edges=edges,
-        binding_id="proteinmpnn.score.local",
-        binding_version="9.0.0",
-    )
+        binding_id="proteinmpnn.score.local")
 
     assert projection["status"] == "succeeded", events
     output = next(
@@ -291,7 +274,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         for item in events
         if item["event"]["type"] == "engine_invocation_started"
         and item["event"]["engine_identity"]
-        == observation.method.contract_digest
+        == observation.method.contract_id
     )
     assert invocation["engine_role"] == "score_subject"
     assert invocation["invocation_provenance"] == {
@@ -309,7 +292,6 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
     )
     retain_service_run(
         "proteinmpnn-native-score",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,
@@ -328,9 +310,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         WorkflowNodeInstance(
             node_id="design",
             node_type_id="proteinmpnn.design",
-            node_type_version="10.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="12.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -364,9 +344,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         tmp_path,
         nodes=nodes,
         edges=edges,
-        binding_id="proteinmpnn.design.local",
-        binding_version="12.0.0",
-    )
+        binding_id="proteinmpnn.design.local")
 
     assert projection["status"] == "succeeded", events
     output = next(
@@ -430,7 +408,6 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     )
     retain_service_run(
         "proteinmpnn-sibling-design",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,

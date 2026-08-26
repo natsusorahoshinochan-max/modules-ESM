@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -33,17 +34,8 @@ from datatypes.exact_reference import ExactContractReference
 
 _METHOD = ExactContractReference(
     "method",
-    "test.result-store.method",
-    "1.0.0",
-    "sha256:" + "1" * 64,
-)
+    "test.result-store.method")
 _RESULT_IDENTITY = "sha256:" + "2" * 64
-_METADATA = {
-    "result_identity_plan_facts": {
-        "digest": "exact-fixture",
-        "integral_weight": 1.0,
-    }
-}
 
 
 def _artifact_port_type() -> PortTypeDefinition:
@@ -53,20 +45,16 @@ def _artifact_port_type() -> PortTypeDefinition:
 
     return PortTypeDefinition(
         type_id="test.result-store.artifact",
-        version="1.0.0",
         validator=BehaviorReference(
             "test.result-store.artifact/validate",
-            "1.0.0",
             {},
         ),
         codec=BehaviorReference(
             "test.result-store.artifact/codec",
-            "1.0.0",
             {},
         ),
         content_identity=BehaviorReference(
             "test.result-store.artifact/content",
-            "1.0.0",
             {},
         ),
         runtime_validator=validate,
@@ -84,7 +72,7 @@ def _artifact_port_type() -> PortTypeDefinition:
 
 
 def _output_plan() -> NodeOutputPlan:
-    text = builtin_frozen_catalog().require_port_type("text", "2.1.0")
+    text = builtin_frozen_catalog().require_port_type("text")
     artifact = _artifact_port_type()
     return NodeOutputPlan(
         node_id="producer",
@@ -146,46 +134,9 @@ def test_store_stages_without_publishing_a_replay_entry(
         project_id=project_id,
         materialization_run_id="run-source",
         admitted_output=admitted,
-        result_contract_metadata=_METADATA,
     )
 
     assert replay_index.lookup(project_id, _RESULT_IDENTITY) is None
-
-
-def test_manifest_metadata_divergence_fails_fast_instead_of_becoming_a_miss(
-    tmp_path: Path,
-) -> None:
-    _projects, project_id, replay_index, store = _result_store(tmp_path)
-    plan = _output_plan()
-    admitted = admit_node_output(
-        node_plan=plan,
-        admitted_inputs={},
-        raw_outputs={
-            "summary": "ready",
-            "structure": ArtifactPayload(
-                body=b"MODEL        1\nEND\n",
-                media_type="chemical/x-pdb",
-                filename="result.pdb",
-            ),
-        },
-        result_identity=_RESULT_IDENTITY,
-    )
-    stored = store.store(
-        project_id=project_id,
-        materialization_run_id="run-source",
-        admitted_output=admitted,
-        result_contract_metadata=_METADATA,
-    )
-    store.index_committed_result(stored)
-
-    with pytest.raises(ResultIntegrityError):
-        store.lookup_replay(
-            project_id=project_id,
-            materialization_run_id="run-replay",
-            node_plan=plan,
-            result_identity=_RESULT_IDENTITY,
-            result_contract_metadata={"different": True},
-        )
 
 
 def test_restore_rejects_an_invalid_persisted_manifest_through_the_store(
@@ -201,7 +152,6 @@ def test_restore_rejects_an_invalid_persisted_manifest_through_the_store(
             producer_run_id="run-source",
             node_plan=_output_plan(),
             result_identity=_RESULT_IDENTITY,
-            result_contract_metadata=_METADATA,
             node_result_manifest=invalid_manifest,
         )
 
@@ -209,7 +159,7 @@ def test_restore_rejects_an_invalid_persisted_manifest_through_the_store(
 def test_replay_index_retains_only_the_manifest_locator(
     tmp_path: Path,
 ) -> None:
-    _projects, project_id, replay_index, _store = _result_store(tmp_path)
+    projects, project_id, replay_index, _store = _result_store(tmp_path)
     reference = StoredObject("sha256:" + "3" * 64, 17)
     entry = ReplayIndexEntry(
         result_identity=_RESULT_IDENTITY,
@@ -219,13 +169,28 @@ def test_replay_index_retains_only_the_manifest_locator(
 
     replay_index.index(project_id, entry)
 
+    path = (
+        projects.result_cache_storage_root(project_id)
+        / "results"
+        / f"{_RESULT_IDENTITY.removeprefix('sha256:')}.json"
+    )
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload == {
+        "producer_run_id": "run-source",
+        "node_result_manifest": {
+            "content_digest": reference.content_digest,
+            "size": reference.size,
+        },
+    }
+    payload["ignored_metadata"] = True
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     assert replay_index.lookup(project_id, _RESULT_IDENTITY) == entry
 
 
 def test_restore_and_reads_use_the_result_store_interface(
     tmp_path: Path,
 ) -> None:
-    _projects, project_id, _replay_index, store = _result_store(tmp_path)
+    projects, project_id, _replay_index, store = _result_store(tmp_path)
     plan = _output_plan()
     admitted = admit_node_output(
         node_plan=plan,
@@ -244,7 +209,39 @@ def test_restore_and_reads_use_the_result_store_interface(
         project_id=project_id,
         materialization_run_id="run-source",
         admitted_output=admitted,
-        result_contract_metadata=_METADATA,
+    )
+    objects = ProjectObjectStore(projects)
+    node_manifest = json.loads(
+        objects.read(
+            project_id,
+            stored.node_result_manifest.content_digest,
+        )
+    )
+    assert set(node_manifest) == {"outputs", "artifacts"}
+    summary_manifest = next(
+        output["value_manifest"]
+        for output in node_manifest["outputs"]
+        if output["output_port"] == "summary"
+    )
+    port_manifest = json.loads(
+        objects.read(project_id, summary_manifest["content_digest"])
+    )
+    assert set(port_manifest) == {"values"}
+    port_manifest["ignored_metadata"] = True
+    replacement_port = objects.store(
+        project_id,
+        json.dumps(port_manifest, indent=2).encode("utf-8"),
+    )
+    summary_manifest.update(
+        {
+            "content_digest": replacement_port.content_digest,
+            "size": replacement_port.size,
+        }
+    )
+    node_manifest["ignored_metadata"] = True
+    replacement_node = objects.store(
+        project_id,
+        json.dumps(node_manifest, indent=2).encode("utf-8"),
     )
 
     restored = store.restore(
@@ -253,8 +250,7 @@ def test_restore_and_reads_use_the_result_store_interface(
         producer_run_id="run-source",
         node_plan=plan,
         result_identity=_RESULT_IDENTITY,
-        result_contract_metadata=_METADATA,
-        node_result_manifest=stored.node_result_manifest,
+        node_result_manifest=replacement_node,
     )
 
     assert restored.outputs[0].materialization == {

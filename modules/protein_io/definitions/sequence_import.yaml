@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: protein_io.import_sequence
-version: "6.0.0"
 title: Import protein sequence
 summary: Parses one trusted Project-scoped sequence input.
 category: protein_io
@@ -8,13 +6,11 @@ inputs: []
 outputs:
   - name: sequence
     port_type_id: protein.sequence
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonically validated imported protein sequence.
   - name: sequence_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One imported sequence Candidate with no upstream Candidate parent and exact Project Input provenance through the producing result.

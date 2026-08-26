@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 metric_id: structure_comparison.rmsd
-version: "3.0.0"
 title: Root mean square deviation
 description: Root mean square CA residual distance carried by one exact v4 subject-to-reference alignment evidence value.
 value_shape: scalar

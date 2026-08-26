@@ -20,7 +20,6 @@ from core.workflow.authoring import WorkflowCommit
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from core.workflow.document import (
     WorkflowDocument,
@@ -58,9 +57,6 @@ from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 VERSION = "2.1.0"
-NODE_BINDING_VERSION = "5.0.0"
-SOURCE_NODE_VERSION = "4.0.0"
-SCORER_NODE_VERSION = "5.0.0"
 SOURCE_PARTITION = "contract_test.partition.a"
 
 
@@ -86,7 +82,6 @@ def _assert_workflow_commit_owner(
     project_id: str,
     *,
     source_draft_revision: int,
-    workflow_commit_revision: int,
 ) -> WorkflowCommit:
     owner = app.state.workflow_authoring
     commit = owner.load_active_commit(project_id)
@@ -99,17 +94,9 @@ def _assert_workflow_commit_owner(
 
     assert commit.source_draft_revision == source_draft_revision
     assert commit.source_draft_revision == draft.draft_revision
-    assert commit.source_draft_digest == draft.draft_digest
-    assert commit.workflow_commit_revision == workflow_commit_revision
-    assert plan.workflow_commit_revision == commit.workflow_commit_revision
-    assert plan.workflow_digest == commit.workflow_digest
-    assert plan.catalog_contract_digest == commit.catalog_contract_digest
-    assert plan.contract_lock_digest == commit.contract_lock_digest
-    assert plan.execution_plan_digest == commit.execution_plan_digest
-    assert commit.workflow_commit_id == plan.execution_plan_digest.replace(
-        "sha256:",
-        "workflow-commit-",
-    )
+    assert commit.workflow == draft.workflow
+    assert plan.workflow_id == commit.workflow.workflow_id
+    assert commit.scientific_definitions == plan.scientific_definitions
     return commit
 
 
@@ -127,7 +114,7 @@ def _catalog():
 
 def _reference(catalog, kind: str, contract_id: str) -> ExactContractReference:
     return ExactContractReference(
-        **catalog.require_contract(kind, contract_id, VERSION).reference()
+        **catalog.require_contract(kind, contract_id).reference()
     )
 
 
@@ -135,9 +122,7 @@ def _source(*, candidate_count: int = 3) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.collection_ops_source",
-        node_type_version=SOURCE_NODE_VERSION,
         binding_id="contract_test.collection_ops_source.a",
-        binding_version=SOURCE_NODE_VERSION,
         node_parameters={"candidate_count": candidate_count},
         binding_parameters={},
     )
@@ -147,9 +132,7 @@ def _scorer() -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="scorer",
         node_type_id="contract_test.collection_ops_scorer",
-        node_type_version=SCORER_NODE_VERSION,
         binding_id="contract_test.collection_ops_scorer.a",
-        binding_version=SCORER_NODE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -184,9 +167,7 @@ def _selection_node(
     return WorkflowNodeInstance(
         node_id="select",
         node_type_id=f"selection.{operation}",
-        node_type_version=NODE_BINDING_VERSION,
         binding_id=f"selection.{operation}.direct",
-        binding_version=NODE_BINDING_VERSION,
         node_parameters=defaults,
         binding_parameters={},
     )
@@ -275,7 +256,6 @@ def _workflow(
             WorkflowEdge("source", "candidates", "select", "candidates"),
             WorkflowEdge("scorer", "scores", "select", "scores"),
         ),
-        contract_lock=(),
         observation_selectors=(
             (_selector(catalog),)
             if operation == "filter"
@@ -320,23 +300,19 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
     }
     for operation in operations:
         node = contracts[("node_type", f"selection.{operation}")]
-        assert node.contract_version == NODE_BINDING_VERSION
         assert [
             (
                 port["name"],
                 port["port_type"]["contract_id"],
-                port["port_type"]["contract_version"],
             )
             for port in node.descriptor["inputs"]
         ] == [
-            ("candidates", "candidate.collection", "4.0.0"),
-            ("scores", "score.collection", "5.0.0"),
+            ("candidates", "candidate.collection"),
+            ("scores", "score.collection"),
         ]
         binding = contracts[("binding", f"selection.{operation}.direct")]
         method = contracts[("method", f"selection.{operation}.method")]
-        assert binding.contract_version == NODE_BINDING_VERSION
-        assert binding.descriptor["method"]["contract_version"] == "4.0.0"
-        assert method.contract_version == "4.0.0"
+        assert binding.descriptor["method"]["contract_id"] == method.contract_id
         assert method.descriptor["algorithm_identity"][
             "candidate_score_join"
         ] == "exact-candidate-data-reference"
@@ -349,7 +325,6 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             assert binding.descriptor[
                 "observation_selector_consumption"
             ] == {
-                "schema_version": VERSION,
                 "candidate_input_port": "candidates",
                 "score_collection_input_port": "scores",
                 "candidate_output_port": "candidates",
@@ -358,7 +333,6 @@ def test_public_catalog_has_three_selection_nodes_in_one_package() -> None:
             assert "selection_objective_consumption" not in binding.descriptor
         else:
             assert binding.descriptor["selection_objective_consumption"] == {
-                "schema_version": VERSION,
                 "candidate_input_port": "candidates",
                 "score_collection_input_port": "scores",
                 "candidate_output_port": "candidates",
@@ -373,13 +347,10 @@ def test_compiler_resolves_exact_selector_sources(operation: str) -> None:
 
     compiled = compile(
                    CompilationRequest(
-                       lock_workflow(workflow, catalog),
-                       1,
-                   ),
+                       workflow),
                    catalog,
                )
 
-    assert compiled.workflow_commit_revision == 1
 
     if operation == "filter":
         assert compiled.observation_selectors == (
@@ -405,9 +376,7 @@ def test_compiler_rejects_unknown_or_mismatched_selector_before_execution() -> N
     ):
         compile(
             CompilationRequest(
-                lock_workflow(unknown, catalog),
-                1,
-            ),
+                unknown),
             catalog,
         )
 
@@ -436,9 +405,7 @@ def test_compiler_rejects_unknown_or_mismatched_selector_before_execution() -> N
     ):
         compile(
             CompilationRequest(
-                lock_workflow(mismatched, catalog),
-                1,
-            ),
+                mismatched),
             catalog,
         )
 
@@ -447,9 +414,7 @@ def _direct_implementation(operation: str):
     catalog = _catalog()
     plan = compile(
                CompilationRequest(
-                   lock_workflow(_workflow(catalog, operation), catalog),
-                   1,
-               ),
+                   _workflow(catalog, operation)),
                catalog,
            )
     binding_id = f"selection.{operation}.direct"
@@ -457,7 +422,6 @@ def _direct_implementation(operation: str):
         catalog,
         binding_id,
         None,
-        binding_version=NODE_BINDING_VERSION,
         selection_objectives=plan.selection_objectives,
         observation_selectors=plan.observation_selectors,
     )
@@ -495,9 +459,7 @@ def _runtime_values(catalog):
         ],
     )
     sequence_port = catalog.require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence")
     subjects = {
         candidate.candidate_id: CandidateDataReference(
             candidate_id=candidate.candidate_id,
@@ -554,7 +516,6 @@ def test_utility_selection_joins_by_complete_admitted_cdr(
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id=f"selection.{operation}.direct",
-            binding_version=NODE_BINDING_VERSION,
             inputs={"candidates": candidates, "scores": mismatched},
             node_parameters=_selection_node(operation).node_parameters,
             binding_parameters={},
@@ -568,7 +529,6 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
     call = operation_call(
         catalog=catalog,
         binding_id="selection.filter.direct",
-        binding_version=NODE_BINDING_VERSION,
         inputs={"candidates": candidates, "scores": scores},
         node_parameters={
             "selector_id": "quality",
@@ -589,7 +549,6 @@ def test_filter_preserves_exact_candidate_objects_and_fails_closed() -> None:
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id="selection.filter.direct",
-            binding_version=NODE_BINDING_VERSION,
             inputs={"candidates": candidates, "scores": incomplete},
             node_parameters={
                 "selector_id": "quality",
@@ -614,7 +573,6 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
     sort_call = operation_call(
         catalog=catalog,
         binding_id="selection.sort.direct",
-        binding_version=NODE_BINDING_VERSION,
         inputs={"candidates": candidates, "scores": scores},
         node_parameters=common,
         binding_parameters={},
@@ -634,7 +592,6 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
     selected = top_k.execute(operation_call(
         catalog=catalog,
         binding_id="selection.top_k.direct",
-        binding_version=NODE_BINDING_VERSION,
         inputs={"candidates": candidates, "scores": scores},
         node_parameters={**common, "k": 2},
         binding_parameters={},
@@ -647,7 +604,6 @@ def test_sort_and_top_k_use_utility_and_candidate_identity_ties() -> None:
         top_k.execute(operation_call(
             catalog=catalog,
             binding_id="selection.top_k.direct",
-            binding_version=NODE_BINDING_VERSION,
             inputs={"candidates": candidates, "scores": scores},
             node_parameters={**common, "k": 4},
             binding_parameters={},
@@ -685,7 +641,6 @@ def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id="selection.sort.direct",
-            binding_version=NODE_BINDING_VERSION,
             inputs={"candidates": candidates, "scores": out_of_scope},
             node_parameters=parameters,
             binding_parameters={},
@@ -706,7 +661,6 @@ def test_conflicting_and_out_of_scope_observations_fail_closed() -> None:
     ignored = implementation.execute(operation_call(
         catalog=catalog,
         binding_id="selection.sort.direct",
-        binding_version=NODE_BINDING_VERSION,
         inputs={"candidates": candidates, "scores": ignored_out_of_scope},
         node_parameters={**parameters, "out_of_scope_policy": "ignore"},
         binding_parameters={},
@@ -726,9 +680,7 @@ def test_all_three_nodes_pass_the_contract_test_kit(tmp_path: Path) -> None:
         ModulePackageContractCase(
             case_id=f"selection-{operation}",
             node_type_id=f"selection.{operation}",
-            node_type_version=NODE_BINDING_VERSION,
             binding_id=f"selection.{operation}.direct",
-            binding_version=NODE_BINDING_VERSION,
             node_parameters=_selection_node(operation).node_parameters,
             binding_parameters={},
             environment_values={},
@@ -812,9 +764,7 @@ def test_public_execution_is_cache_replay_stable(
         _assert_workflow_commit_owner(
             app,
             project_id,
-            source_draft_revision=1,
-            workflow_commit_revision=1,
-        )
+            source_draft_revision=1)
 
         projections = []
         for request_id in ("selection-first", "selection-second"):
@@ -913,9 +863,7 @@ def test_changing_resolved_objective_invalidates_selection_cache(
         commit = _assert_workflow_commit_owner(
             app,
             project_id,
-            source_draft_revision=expected_commit_revision,
-            workflow_commit_revision=expected_commit_revision,
-        )
+            source_draft_revision=expected_commit_revision)
         started = client.post(
             f"/api/v2/projects/{project_id}/runs",
             json={
@@ -945,9 +893,7 @@ def test_changing_resolved_objective_invalidates_selection_cache(
             workflow,
             selection_objectives=(
                 replace(workflow.selection_objectives[0], weight=2),
-            ),
-            contract_lock=(),
-        )
+            ))
         _, second = commit_run(
             client,
             changed,

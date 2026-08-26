@@ -45,19 +45,12 @@ from datatypes.sequence import ProteinSequence
 from tests.fixtures.exact_content_identity import exact_content_identity
 
 
-VERSION = "2.1.0"
-CANDIDATE_NODE_VERSION = "4.0.0"
-SCORE_NODE_VERSION = "5.0.0"
-PACKAGE_VERSION = "3.0.0"
 METRIC = ContractIdentity(
     "metric",
-    "contract_test.collection_ops_value",
-    VERSION,
-)
+    "contract_test.collection_ops_value")
 _SEQUENCE_CONTENT_IDENTITY = exact_content_identity(
     "protein.sequence",
     "protein_sequence",
-    version="3.0.0",
 )
 
 
@@ -256,15 +249,12 @@ def _ready(check_input: BindingEnvironment) -> ReadinessResult:
 def _source_method(partition: str) -> MethodDefinition:
     return MethodDefinition(
         method_id=f"contract_test.collection_ops_source.{partition}.method",
-        version=VERSION,
         algorithm_identity={
             "name": "deterministic-partition-source",
             "partition": partition,
         },
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "identity"},
-        source_identity={"kind": "contract-test"},
         scale_contract={"kind": "identity"},
     )
 
@@ -272,9 +262,7 @@ def _source_method(partition: str) -> MethodDefinition:
 def _source_binding(partition: str) -> ExecutionBindingDefinition:
     method = ContractIdentity(
         "method",
-        f"contract_test.collection_ops_source.{partition}.method",
-        VERSION,
-    )
+        f"contract_test.collection_ops_source.{partition}.method")
 
     def build(context: OperationContext) -> _Source:
         return _Source(
@@ -284,19 +272,15 @@ def _source_binding(partition: str) -> ExecutionBindingDefinition:
 
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.collection_ops_source.{partition}",
-        version=CANDIDATE_NODE_VERSION,
         node_type=ContractIdentity(
             "node_type",
-            "contract_test.collection_ops_source",
-            CANDIDATE_NODE_VERSION,
-        ),
+            "contract_test.collection_ops_source"),
         method=method,
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_source/{partition}/factory",
-                CANDIDATE_NODE_VERSION,
                 {"execution_route": "direct"},
             ),
             build=build,
@@ -304,7 +288,6 @@ def _source_binding(partition: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_source/{partition}/availability",
-                CANDIDATE_NODE_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -313,30 +296,21 @@ def _source_binding(partition: str) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_source/{partition}/readiness",
-                CANDIDATE_NODE_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
             check=_ready,
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": f"contract_test.collection_ops_source.{partition}",
-            "source": "contract-test",
-        },
-    )
+        cacheable=True)
 
 
 def _lineage_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="contract_test.collection_ops_lineage_source.method",
-        version=VERSION,
         algorithm_identity={"name": "closed-lineage-source"},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "identity"},
-        source_identity={"kind": "contract-test"},
         scale_contract={"kind": "identity"},
     )
 
@@ -348,23 +322,17 @@ def _lineage_binding() -> ExecutionBindingDefinition:
     behavior_prefix = "contract_test.collection_ops_lineage_source"
     return ExecutionBindingDefinition(
         binding_id=f"{behavior_prefix}.direct",
-        version=CANDIDATE_NODE_VERSION,
         node_type=ContractIdentity(
             "node_type",
-            behavior_prefix,
-            CANDIDATE_NODE_VERSION,
-        ),
+            behavior_prefix),
         method=ContractIdentity(
             "method",
-            f"{behavior_prefix}.method",
-            VERSION,
-        ),
+            f"{behavior_prefix}.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{behavior_prefix}/factory",
-                CANDIDATE_NODE_VERSION,
                 {"execution_route": "direct"},
             ),
             build=build,
@@ -372,7 +340,6 @@ def _lineage_binding() -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"{behavior_prefix}/availability",
-                CANDIDATE_NODE_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -381,30 +348,21 @@ def _lineage_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"{behavior_prefix}/readiness",
-                CANDIDATE_NODE_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
             check=_ready,
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": f"{behavior_prefix}.direct",
-            "source": "contract-test",
-        },
-    )
+        cacheable=True)
 
 
 def _scorer_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="contract_test.collection_ops_scorer.method",
-        version=VERSION,
         algorithm_identity={"name": "controlled-fixture-observation"},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "identity"},
-        source_identity={"kind": "contract-test"},
         scale_contract={"kind": "identity"},
     )
 
@@ -412,12 +370,9 @@ def _scorer_method() -> MethodDefinition:
 def _legacy_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="contract_test.collection_ops_legacy_scores.method",
-        version=VERSION,
         algorithm_identity={"name": "legacy-subject-free-fixture"},
         model_identity={"kind": "none"},
-        checkpoint_identity={"kind": "none"},
         featurization_identity={"kind": "identity"},
-        source_identity={"kind": "contract-test"},
         scale_contract={"kind": "identity"},
     )
 
@@ -438,23 +393,17 @@ def _scorer_binding(
 
     return ExecutionBindingDefinition(
         binding_id=f"contract_test.collection_ops_scorer.{binding_name}",
-        version=SCORE_NODE_VERSION,
         node_type=ContractIdentity(
             "node_type",
-            "contract_test.collection_ops_scorer",
-            SCORE_NODE_VERSION,
-        ),
+            "contract_test.collection_ops_scorer"),
         method=ContractIdentity(
             "method",
-            "contract_test.collection_ops_scorer.method",
-            VERSION,
-        ),
+            "contract_test.collection_ops_scorer.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_scorer/{binding_name}",
-                SCORE_NODE_VERSION,
                 {
                     "value": value,
                     "source_partition": source_partition,
@@ -465,7 +414,6 @@ def _scorer_binding(
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_scorer/{binding_name}/availability",
-                SCORE_NODE_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -474,7 +422,6 @@ def _scorer_binding(
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"contract_test.collection_ops_scorer/{binding_name}/readiness",
-                SCORE_NODE_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
@@ -482,10 +429,6 @@ def _scorer_binding(
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": f"contract_test.collection_ops_scorer.{binding_name}",
-            "source": "contract-test",
-        },
         produced_observations=(
             ProducedObservationDefinition(
                 output_port="scores",
@@ -509,23 +452,17 @@ def _legacy_binding() -> ExecutionBindingDefinition:
 
     return ExecutionBindingDefinition(
         binding_id="contract_test.collection_ops_legacy_scores.direct",
-        version=SCORE_NODE_VERSION,
         node_type=ContractIdentity(
             "node_type",
-            "contract_test.collection_ops_legacy_scores",
-            SCORE_NODE_VERSION,
-        ),
+            "contract_test.collection_ops_legacy_scores"),
         method=ContractIdentity(
             "method",
-            "contract_test.collection_ops_legacy_scores.method",
-            VERSION,
-        ),
+            "contract_test.collection_ops_legacy_scores.method"),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "contract_test.collection_ops_legacy_scores/factory",
-                SCORE_NODE_VERSION,
                 {"execution_route": "direct"},
             ),
             build=build,
@@ -533,7 +470,6 @@ def _legacy_binding() -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "contract_test.collection_ops_legacy_scores/availability",
-                SCORE_NODE_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -542,19 +478,13 @@ def _legacy_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "contract_test.collection_ops_legacy_scores/readiness",
-                SCORE_NODE_VERSION,
                 {"observation": "per-run"},
             ),
             prerequisites={},
             check=_ready,
         ),
         deterministic=True,
-        cacheable=True,
-        implementation_identity={
-            "name": "contract_test.collection_ops_legacy_scores.direct",
-            "source": "contract-test",
-        },
-    )
+        cacheable=True)
 
 
 def _identity(value: object, parameters: Mapping[str, Any]) -> float:
@@ -566,20 +496,16 @@ def _identity(value: object, parameters: Mapping[str, Any]) -> float:
 def _utility(partition: str) -> UtilityTransformDefinition:
     return UtilityTransformDefinition(
         transform_id=f"contract_test.collection_ops_identity.{partition}",
-        version=VERSION,
         compatible_input_contract={
             "metric": METRIC,
             "method": ContractIdentity(
                 "method",
-                "contract_test.collection_ops_scorer.method",
-                VERSION,
-            ),
+                "contract_test.collection_ops_scorer.method"),
             "context_profile": {"kind": "intrinsic"},
         },
         parameters={},
         behavior=BehaviorReference(
             f"contract_test.collection_ops_identity/{partition}",
-            VERSION,
             {},
         ),
         transform=_identity,
@@ -588,7 +514,6 @@ def _utility(partition: str) -> UtilityTransformDefinition:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.collection_ops_sources",
-    package_version=PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("source.yaml"),

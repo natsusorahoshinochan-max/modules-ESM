@@ -79,16 +79,13 @@ class _IncompleteProvenanceImplementation:
 
 def _build_incomplete_provenance(context: OperationContext):
     metric = context.produced_observations[0].metric
-    method_reference = {
-        "contract_kind": context.method.contract_kind,
-        "contract_id": context.method.contract_id,
-        "contract_version": context.method.contract_version,
-        "contract_digest": "sha256:" + ("0" * 64),
-    }
     return _IncompleteProvenanceImplementation(
         run_resources=context.resources,
         metric=metric,
-        method=ExactContractReference(**method_reference),
+        method=ExactContractReference(
+            "method",
+            "contract_test.synthetic_candidate_source.method",
+        ),
     )
 
 
@@ -113,7 +110,6 @@ FALSE_READINESS_PACKAGE = replace(
             execution_route="adapter",
             adapter_behavior=BehaviorReference(
                 f"{binding.binding_id}/fixture-adapter",
-                binding.version,
                 {"provider_contract": "contract-test"},
             ),
             readiness=ReadinessDeclaration(
@@ -133,7 +129,6 @@ INCOMPLETE_PROVENANCE_PACKAGE = replace(
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.incomplete_provenance/factory",
-                    _SCORER_BINDING.version,
                     {},
                 ),
                 build=_build_incomplete_provenance,

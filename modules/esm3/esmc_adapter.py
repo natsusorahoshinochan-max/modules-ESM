@@ -17,15 +17,14 @@ BIOHUB_ESMC_MODEL = "esmc-600m-2024-12"
 def build_biohub_esmc_client(
     *,
     model_name: str,
-    endpoint_id: str,
     credential_handle: object,
 ) -> Any:
-    """Construct the exact locked SDK client from trusted deployment values."""
+    """Construct the configured SDK client from trusted deployment values."""
     from esm.sdk import esmc_client
 
     return esmc_client(
         model=model_name,
-        url={"biohub": "https://biohub.ai"}[endpoint_id],
+        url="https://biohub.ai",
         token=credential_handle,
     )
 
@@ -60,7 +59,7 @@ def normalize_representation(
     sequence: ProteinSequence,
     result: Any,
 ) -> ESMCSequenceRepresentation:
-    """Translate locked-SDK tensors into the canonical value once."""
+    """Translate Provider tensors into the canonical value once."""
     logits_shape = tuple(result.logits.sequence.shape)
     mean_embedding = tuple(
         0.0 if float(value) == 0.0 else float(value)
@@ -95,7 +94,6 @@ class BiohubESMCAdapter:
     def _client(self) -> Any:
         return build_biohub_esmc_client(
             model_name=self._model_name,
-            endpoint_id=self._environment["endpoint_id"],
             credential_handle=self._environment["credential_handle"],
         )
 

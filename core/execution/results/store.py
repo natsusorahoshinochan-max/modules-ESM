@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
 import uuid
@@ -29,7 +28,6 @@ from core.execution.results.manifests import (
     _PortValueManifest,
     _decode_node_manifest,
     _decode_port_manifest,
-    _exact_reference,
 )
 from core.operation import AdmittedPort
 from core.project.objects import (
@@ -125,7 +123,7 @@ class ResultStore:
         project_id: str,
         output_port: str,
         admitted: AdmittedPort,
-    ) -> tuple[_NodeOutput, _PortValueManifest]:
+    ) -> _NodeOutput:
         values: list[StoredObject] = []
         for value in admitted.values:
             stored = self._store_bytes(
@@ -135,9 +133,6 @@ class ResultStore:
             )
             values.append(stored)
         manifest = _PortValueManifest(
-            port_type=admitted.port_type,
-            multiplicity=admitted.multiplicity,
-            content_digest=admitted.content_digest,
             values=tuple(values),
         )
         encoded = canonical_json_bytes(manifest.canonical_projection())
@@ -146,10 +141,7 @@ class ResultStore:
             encoded,
             stage="manifest",
         )
-        return (
-            _NodeOutput(output_port, manifest_object),
-            manifest,
-        )
+        return _NodeOutput(output_port, manifest_object)
 
     def store(
         self,
@@ -157,7 +149,6 @@ class ResultStore:
         project_id: str,
         materialization_run_id: str,
         admitted_output: AdmittedNodeOutput,
-        result_contract_metadata: Mapping[str, Any],
     ) -> StoredNodeResult:
         """Stage one admitted result without creating visibility or an index."""
         node_outputs: list[_NodeOutput] = []
@@ -170,7 +161,7 @@ class ResultStore:
             for descriptor in admitted_output.evidence_descriptors
         }
         for output_port, admitted in admitted_output.ports.items():
-            node_output, port_manifest = self._store_port(
+            node_output = self._store_port(
                 project_id,
                 output_port,
                 admitted,
@@ -180,23 +171,15 @@ class ResultStore:
             if output_port not in artifact_ports:
                 published_outputs.append(
                     PublishedOutput(
-                        node_id=admitted_output.node_id,
                         output_port=output_port,
-                        port_type=port_manifest.port_type,
+                        port_type=admitted.port_type,
                         content_digest=descriptor.content_digest,
-                        result_identity=admitted_output.result_identity,
                         materialization={
                             "run_id": materialization_run_id,
                             "resolution": "executed",
                         },
-                        producer_provenance={
-                            "producer_run_id": materialization_run_id,
-                            "producer_result_identity": (
-                                admitted_output.result_identity
-                            ),
-                            "output_port": output_port,
-                        },
-                        value_count=len(port_manifest.values),
+                        producer_run_id=materialization_run_id,
+                        value_count=len(admitted.values),
                         value_manifest_reference=(
                             node_output.value_manifest.content_digest
                         ),
@@ -222,11 +205,9 @@ class ResultStore:
             )
             node_artifacts.append(node_artifact)
             published_artifacts.append(
-                self._published_artifact(admitted_output.node_id, node_artifact)
+                self._published_artifact(node_artifact)
             )
         manifest = _NodeResultManifest(
-            result_identity=admitted_output.result_identity,
-            result_contract_metadata=result_contract_metadata,
             outputs=tuple(node_outputs),
             artifacts=tuple(node_artifacts),
         )
@@ -248,13 +229,11 @@ class ResultStore:
 
     @staticmethod
     def _published_artifact(
-        node_id: str,
         artifact: _NodeArtifact,
     ) -> PublishedArtifact:
         return PublishedArtifact(
             artifact_reference=f"artifact-{uuid.uuid4().hex}",
             artifact_kind=artifact.artifact_kind,
-            node_id=node_id,
             output_port=artifact.output_port,
             media_type=artifact.media_type,
             filename=artifact.filename,
@@ -283,7 +262,7 @@ class ResultStore:
         project_id: str,
         node_plan: NodeOutputPlan,
         output: _NodeOutput,
-    ) -> tuple[AdmittedPort, _PortValueManifest]:
+    ) -> AdmittedPort:
         declaration = node_plan.output_ports[output.output_port]
         encoded = self._read_reference(project_id, output.value_manifest)
         try:
@@ -293,12 +272,6 @@ class ResultStore:
                 output.value_manifest.content_digest,
                 expected_size=output.value_manifest.size,
             ) from error
-        expected_reference = _exact_reference(declaration.port_type.reference())
-        if (
-            manifest.port_type != expected_reference
-            or manifest.multiplicity != declaration.multiplicity
-        ):
-            raise ResultIntegrityError(output.value_manifest.content_digest)
         canonical_values = tuple(
             self._read_reference(project_id, value)
             for value in manifest.values
@@ -312,9 +285,7 @@ class ResultStore:
             )
         except (TypeError, ValueError) as error:
             raise ResultIntegrityError(output.value_manifest.content_digest) from error
-        if admitted.content_digest != manifest.content_digest:
-            raise ResultIntegrityError(output.value_manifest.content_digest)
-        return admitted, manifest
+        return admitted
 
     def restore(
         self,
@@ -324,17 +295,10 @@ class ResultStore:
         producer_run_id: str,
         node_plan: NodeOutputPlan,
         result_identity: str,
-        result_contract_metadata: Mapping[str, Any],
         node_result_manifest: StoredObject,
     ) -> StoredNodeResult:
         """Restore one persisted result through the current exact Port codecs."""
         manifest = self._load_node_manifest(project_id, node_result_manifest)
-        if (
-            manifest.result_identity != result_identity
-            or canonical_json_bytes(manifest.result_contract_metadata)
-            != canonical_json_bytes(result_contract_metadata)
-        ):
-            raise ResultIntegrityError(node_result_manifest.content_digest)
         declared_ports = node_plan.output_ports
         produced_ports = tuple(output.output_port for output in manifest.outputs)
         if (
@@ -357,7 +321,7 @@ class ResultStore:
             declaration.output_port for declaration in node_plan.artifact_outputs
         }
         for output in manifest.outputs:
-            admitted, port_manifest = self._restore_port(
+            admitted = self._restore_port(
                 project_id=project_id,
                 node_plan=node_plan,
                 output=output,
@@ -366,21 +330,15 @@ class ResultStore:
             if output.output_port not in artifact_ports:
                 published_outputs.append(
                     PublishedOutput(
-                        node_id=node_plan.node_id,
                         output_port=output.output_port,
-                        port_type=port_manifest.port_type,
-                        content_digest=port_manifest.content_digest,
-                        result_identity=result_identity,
+                        port_type=admitted.port_type,
+                        content_digest=admitted.content_digest,
                         materialization={
                             "run_id": materialization_run_id,
                             "resolution": "cache_replayed",
                         },
-                        producer_provenance={
-                            "producer_run_id": producer_run_id,
-                            "producer_result_identity": result_identity,
-                            "output_port": output.output_port,
-                        },
-                        value_count=len(port_manifest.values),
+                        producer_run_id=producer_run_id,
+                        value_count=len(admitted.values),
                         value_manifest_reference=(
                             output.value_manifest.content_digest
                         ),
@@ -411,7 +369,7 @@ class ResultStore:
             ):
                 raise ResultIntegrityError(node_result_manifest.content_digest)
             published_artifacts.append(
-                self._published_artifact(node_plan.node_id, artifact)
+                self._published_artifact(artifact)
             )
         return StoredNodeResult(
             project_id=project_id,
@@ -430,7 +388,6 @@ class ResultStore:
         materialization_run_id: str,
         node_plan: NodeOutputPlan,
         result_identity: str,
-        result_contract_metadata: Mapping[str, Any],
     ) -> StoredNodeResult | None:
         entry = self._index.lookup(project_id, result_identity)
         if entry is None:
@@ -441,7 +398,6 @@ class ResultStore:
             producer_run_id=entry.producer_run_id,
             node_plan=node_plan,
             result_identity=result_identity,
-            result_contract_metadata=result_contract_metadata,
             node_result_manifest=entry.node_result_manifest,
         )
 
@@ -472,12 +428,6 @@ class ResultStore:
                 output.value_manifest_reference,
             )
             manifest = _decode_port_manifest(encoded)
-            if (
-                manifest.port_type != output.port_type
-                or manifest.content_digest != output.content_digest
-                or len(manifest.values) != output.value_count
-            ):
-                raise ValueError("Published Port Value Manifest diverged")
             value = manifest.values[value_index]
             payload = self._read_reference(project_id, value)
         except (

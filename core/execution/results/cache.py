@@ -16,8 +16,6 @@ from core.project.storage import (
 )
 
 
-RESULT_CACHE_ENTRY_NAMESPACE = "protein-workbench-cache-entry/v5"
-
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _I_JSON_INTEGER_LIMIT = 9_007_199_254_740_991
 
@@ -46,7 +44,10 @@ def _stored_object_from_canonical(
     value: object,
     field: str,
 ) -> StoredObject:
-    if type(value) is not dict or set(value) != {"content_digest", "size"}:
+    if not isinstance(value, dict) or not {
+        "content_digest",
+        "size",
+    } <= value.keys():
         raise ResultIndexError(f"Replay index {field} is invalid")
     content_digest = value["content_digest"]
     size = value["size"]
@@ -62,8 +63,6 @@ def _stored_object_from_canonical(
 
 def _entry_to_canonical(entry: ReplayIndexEntry) -> dict[str, object]:
     return {
-        "schema_namespace": RESULT_CACHE_ENTRY_NAMESPACE,
-        "result_identity": entry.result_identity,
         "producer_run_id": entry.producer_run_id,
         "node_result_manifest": _stored_object_to_canonical(
             entry.node_result_manifest
@@ -76,17 +75,9 @@ def _entry_from_canonical(
     *,
     requested_result_identity: str,
 ) -> ReplayIndexEntry:
-    fields = {
-        "schema_namespace",
-        "result_identity",
-        "producer_run_id",
-        "node_result_manifest",
-    }
     if (
-        type(value) is not dict
-        or set(value) != fields
-        or value["schema_namespace"] != RESULT_CACHE_ENTRY_NAMESPACE
-        or value["result_identity"] != requested_result_identity
+        not isinstance(value, dict)
+        or not {"producer_run_id", "node_result_manifest"} <= value.keys()
     ):
         raise ResultIndexError("Replay index entry is invalid")
 
@@ -114,8 +105,6 @@ def _decode_entry(
 ) -> ReplayIndexEntry:
     try:
         raw = json.loads(encoded)
-        if canonical_json_bytes(raw) != encoded:
-            raise ResultIndexError("Replay index entry is not canonical JSON")
         entry = _entry_from_canonical(
             raw,
             requested_result_identity=requested_result_identity,
@@ -136,7 +125,6 @@ class ProjectReplayIndex:
     @staticmethod
     def _relative_parts(result_identity: str) -> tuple[str, ...]:
         return (
-            "v5",
             "results",
             f"{result_identity.removeprefix('sha256:')}.json",
         )
@@ -177,7 +165,6 @@ class ProjectReplayIndex:
 
 __all__ = [
     "ProjectReplayIndex",
-    "RESULT_CACHE_ENTRY_NAMESPACE",
     "ReplayIndexEntry",
     "ResultIndexError",
 ]

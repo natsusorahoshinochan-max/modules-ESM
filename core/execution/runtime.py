@@ -7,13 +7,9 @@ import threading
 from typing import Any, Literal, cast
 import uuid
 
-from core.catalog.model import CatalogAvailabilityProjection, FrozenCatalog
+from core.catalog.model import FrozenCatalog
 from core.execution._run_runtime_derived import _DerivedRunStarter
-from core.execution._run_runtime_evidence import (
-    _exact_contract_reference,
-    _execution_plan_contract_roots,
-    plan_evidence,
-)
+from core.execution._run_runtime_evidence import plan_evidence
 from core.execution._run_runtime_models import _RunRecord
 from core.execution._run_runtime_queries import _RunQueries
 from core.execution._run_runtime_registry import _RunRegistry
@@ -73,7 +69,6 @@ class V2RunService:
         self._ledger_transaction_store = ledger_transaction_store
         self._registry = _RunRegistry(
             projects=projects,
-            catalog=catalog,
             ledger_store=ledger_transaction_store,
         )
         self._queries = _RunQueries(
@@ -191,14 +186,8 @@ class V2RunService:
         else:
             compiled = _retained_compiled
         plan = compiled.execution_plan
-        workflow_commit_revision = plan.workflow_commit_revision
         run_id = f"run-{uuid.uuid4().hex}"
         admitted_plan_evidence = plan_evidence(plan)
-        resolved_contracts = tuple(
-            _exact_contract_reference(entry)
-            for entry in plan.resolved_contracts
-        )
-        resolved_contract_roots = _execution_plan_contract_roots(plan)
         try:
             ledger = Ledger(
                 self._projects,
@@ -222,34 +211,16 @@ class V2RunService:
         ledger.record(
             RunScopeBinding(
                 workflow_commit_id=workflow_commit_id,
-                workflow_commit_revision=workflow_commit_revision,
-                workflow_digest=plan.workflow_digest,
-                contract_lock_digest=plan.contract_lock_digest,
-                execution_plan_digest=plan.execution_plan_digest,
-                catalog_contract_digest=plan.catalog_contract_digest,
-                resolved_contract_roots=resolved_contract_roots,
-                resolved_contracts=resolved_contracts,
                 derived_from=_derived_from,
             )
         )
-        distinct: dict[tuple[str, str], ExecutionPlanNode] = {}
+        distinct: dict[str, ExecutionPlanNode] = {}
         for node in plan.nodes:
-            distinct.setdefault(
-                (
-                    node.binding.contract_id,
-                    node.binding.contract_version,
-                ),
-                node,
-            )
-        availability_by_binding: dict[
-            tuple[str, str],
-            CatalogAvailabilityProjection,
-        ] = {}
-        for binding_key, node in distinct.items():
+            distinct.setdefault(node.binding.contract_id, node)
+        for node in distinct.values():
             availability = self._catalog.require_availability(
-                _exact_contract_reference(node.binding)
+                node.binding
             )
-            availability_by_binding[binding_key] = availability
             ledger.record(
                 AvailabilityBound(
                     binding=availability.binding,
@@ -260,10 +231,7 @@ class V2RunService:
                 )
             )
         admitted = ledger.record(
-            RunAdmitted(
-                workflow_commit_id=workflow_commit_id,
-                workflow_commit_revision=workflow_commit_revision,
-            )
+            RunAdmitted(workflow_commit_id=workflow_commit_id)
         )
         ledger.record(RunStarted(started_at=run_timestamp()))
 
@@ -273,7 +241,6 @@ class V2RunService:
         )
         attempts = self._node_attempt_factory.create(
             ledger=ledger,
-            availability_by_binding=availability_by_binding,
         )
 
         self._registry.register(project_id, run_id, record)
@@ -281,7 +248,6 @@ class V2RunService:
             "project_id": project_id,
             "run_id": run_id,
             "workflow_commit_id": workflow_commit_id,
-            "workflow_commit_revision": workflow_commit_revision,
             "admitted_sequence": admitted.last_sequence,
             "event_cursor": admitted.cursor.value,
         }

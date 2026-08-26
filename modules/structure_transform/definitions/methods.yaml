@@ -1,5 +1,4 @@
 - method_id: structure_transform.select_chains.method
-  version: 3.0.0
   algorithm_identity:
     name: ordered-exact-pdb-chain-selection
     chain_identity: one-alphanumeric-PDB-chain-ID
@@ -15,17 +14,12 @@
     chain_breaks: canonical-TER-per-retained-segment
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.select_candidate_chains.method
-  version: 3.0.0
   algorithm_identity:
     name: candidate-aware-ordered-pdb-chain-selection
     selection: ordered-exact-pdb-chain-selection
@@ -34,17 +28,12 @@
     ordering: input-candidate-order
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.extract_backbone.method
-  version: 3.0.0
   algorithm_identity:
     name: resolved-axis-canonical-backbone-projection
     input_population: resolved-structure-residue-axis
@@ -61,17 +50,12 @@
     serialization: PDB-v3.3-ATOM-occupancy-1-temperature-0
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.extract_sequence.method
-  version: 3.0.0
   algorithm_identity:
     name: resolved-axis-parent-sequence-projection
     input_population: resolved-structure-residue-axis
@@ -80,17 +64,12 @@
     raw_PDB_reparse: forbidden
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.extract_sequence_candidates.method
-  version: 3.0.0
   algorithm_identity:
     name: exact-reference-associated-axis-sequence-projection
     extraction: resolved-axis-parent-sequence-projection
@@ -101,17 +80,12 @@
     collection_position: not-scientific-correspondence
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.normalize_csh_parent_span.method
-  version: 4.0.0
   algorithm_identity:
     name: explicit-CSH-to-SHG-parent-span-normalization
     component: CSH
@@ -135,37 +109,27 @@
     rewritten_SEQRES: PDB-v3.3-80-column-13-components-per-record
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.normalize_csh_parent_span_candidates.method
-  version: 1.0.0
   algorithm_identity:
     name: candidate-aware-explicit-CSH-parent-span-normalization
-    scalar_normalization: normalize_csh_parent_span.method@4.0.0
+    scalar_normalization: normalize_csh_parent_span.method
     cardinality: one-normalized-child-per-input-Candidate
     lineage: exact-input-structure-parent
     normalization_evidence: subjectless-output-slot-keyed-facts
     collection_position: not-scientific-correspondence
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.materialize_candidate_normalizations.method
-  version: 1.0.0
   algorithm_identity:
     name: exact-normalization-fact-Candidate-materialization
     join: normalization-key-and-admitted-content-digest
@@ -173,34 +137,24 @@
     association: exact-CandidateDataReference
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.project_single_residue_axis.method
-  version: 1.0.0
   algorithm_identity:
     name: singleton-exact-reference-residue-axis-projection
     cardinality: exactly-one-Candidate-and-one-association
     join: exact-CandidateDataReference
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.resolve_residue_axis.method
-  version: 3.0.0
   algorithm_identity:
     name: resolved-protein-residue-axis
     source_structure: preserve-exact-PDB-content
@@ -220,17 +174,12 @@
     normalization_provenance: embedded-typed-records
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.resolve_candidate_residue_axes.method
-  version: 3.0.0
   algorithm_identity:
     name: exact-reference-associated-resolved-residue-axes
     scalar_resolution: resolved-protein-residue-axis
@@ -241,31 +190,22 @@
     structure_binding: candidate-content-digest
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity
 - method_id: structure_transform.backbone_to_structure.method
-  version: 4.0.0
   algorithm_identity:
     name: explicit-backbone-to-generic-structure-conversion
-    input_contract: structure_transform.backbone_structure@4.0.0
-    output_contract: protein.structure@4.0.0
+    input_contract: structure_transform.backbone_structure
+    output_contract: protein.structure
     pdb_bytes: preserved
     atom_generation: none
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     format: PDB-v3.3-fixed-columns
     coordinates: provider-native-decimal-text
-  source_identity:
-    kind: repository-owned
   scale_contract:
     kind: identity

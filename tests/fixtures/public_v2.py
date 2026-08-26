@@ -117,7 +117,6 @@ def decode_service_typed_output_value(
     reference = output["port_type"]
     port_type = catalog.require_port_type(
         reference["contract_id"],
-        reference["contract_version"],
     )
     return port_type.decode(
         retrieve_service_typed_output_canonical_bytes(

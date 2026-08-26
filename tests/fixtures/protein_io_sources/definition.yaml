@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.structure_candidates
-version: "3.0.0"
 title: Fifteen structure Candidate source
 summary: Emits fifteen deterministic provider-native PDB Candidates.
 category: contract_test
@@ -8,7 +6,6 @@ inputs: []
 outputs:
   - name: structures
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Fifteen deterministic structure Candidates.

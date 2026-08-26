@@ -26,14 +26,12 @@ from datatypes.exact_reference import (
 )
 from ._normalization_codec import (
     MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
-    NORMALIZATION_VERSION,
     normalizations_from_wire,
     normalizations_to_wire,
     validate_normalizations,
 )
 from ._resolved_axis_codec import (
     RESOLVED_AXIS_PORT_TYPE,
-    RESOLVED_AXIS_VERSION,
     _STRUCTURE_CODEC,
     _axis_from_wire,
     _axis_to_wire,
@@ -52,8 +50,6 @@ from .domain import (
 )
 
 
-CANDIDATE_ASSOCIATION_VERSION = "6.0.0"
-NORMALIZATION_FACTS_VERSION = "1.0.0"
 _NORMALIZATION_KEY = re.compile(r"^normalization-[0-9a-f]{64}$")
 _CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
@@ -208,8 +204,6 @@ def _candidate_axis_references(
     axis_contract = ExactContractReference(
         contract_kind=reference["contract_kind"],
         contract_id=reference["contract_id"],
-        contract_version=reference["contract_version"],
-        contract_digest=reference["contract_digest"],
     )
     return tuple(
         ResidueAxisReference(
@@ -348,7 +342,6 @@ _NORMALIZATION_OUTPUT_IDENTITY_MATERIALIZATION = BehaviorReference(
         "structure_transform.candidate_normalization_facts/"
         "output_identity_materialization"
     ),
-    NORMALIZATION_FACTS_VERSION,
     {
         "relation": "pending-candidate-normalization-facts",
         "source_roles": {
@@ -363,10 +356,8 @@ _NORMALIZATION_OUTPUT_IDENTITY_MATERIALIZATION = BehaviorReference(
 
 CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_transform.candidate_normalization_facts",
-    version=NORMALIZATION_FACTS_VERSION,
     validator=BehaviorReference(
         "structure_transform.candidate_normalization_facts/validate",
-        NORMALIZATION_FACTS_VERSION,
         {
             "accepted_value_kind": "candidate_normalization_fact_collection",
             "candidate_identity": "materialized-only-after-admission",
@@ -378,12 +369,10 @@ CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "structure_transform.candidate_normalization_facts/codec",
-        NORMALIZATION_FACTS_VERSION,
         {"canonicalization": "RFC 8785", "entry_order": "normalization_key"},
     ),
     content_identity=BehaviorReference(
         "structure_transform.candidate_normalization_facts/content",
-        NORMALIZATION_FACTS_VERSION,
         {"digest": "SHA-256", "digest_input": "canonical_codec_bytes"},
     ),
     runtime_validator=_validate_normalization_facts,
@@ -407,13 +396,11 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
         "structure_transform."
         "candidate_modified_residue_normalization_associations"
     ),
-    version=CANDIDATE_ASSOCIATION_VERSION,
     validator=BehaviorReference(
         (
             "structure_transform."
             "candidate_modified_residue_normalization_associations/validate"
         ),
-        CANDIDATE_ASSOCIATION_VERSION,
         {
             "accepted_value_kind": (
                 "candidate_modified_residue_normalization_associations"
@@ -422,8 +409,7 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
             "entry_order": "canonical-only-not-correspondence",
             "candidate_coverage": "closed-by-consuming-Node",
             "embedded_normalization_contract": (
-                "structure_transform.modified_residue_normalizations@"
-                f"{NORMALIZATION_VERSION}"
+                "structure_transform.modified_residue_normalizations"
             ),
         },
     ),
@@ -432,7 +418,6 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
             "structure_transform."
             "candidate_modified_residue_normalization_associations/codec"
         ),
-        CANDIDATE_ASSOCIATION_VERSION,
         {
             "canonicalization": "RFC 8785",
             "association_order": (
@@ -445,7 +430,6 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
             "structure_transform."
             "candidate_modified_residue_normalization_associations/content"
         ),
-        CANDIDATE_ASSOCIATION_VERSION,
         {"digest": "SHA-256", "digest_input": "canonical_codec_bytes"},
     ),
     runtime_validator=validate_candidate_normalization_associations,
@@ -454,7 +438,6 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
     candidate_data_projection=BehaviorReference(
         "structure_transform.candidate_modified_residue_normalization_"
         "associations/candidate_data_projection",
-        CANDIDATE_ASSOCIATION_VERSION,
         {"fields": ["entries[].subject"]},
     ),
     runtime_candidate_data_projection=(
@@ -465,27 +448,23 @@ CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
 
 CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
     type_id="structure_transform.candidate_resolved_residue_axis_associations",
-    version=CANDIDATE_ASSOCIATION_VERSION,
     validator=BehaviorReference(
         (
             "structure_transform."
             "candidate_resolved_residue_axis_associations/validate"
         ),
-        CANDIDATE_ASSOCIATION_VERSION,
         {
             "accepted_value_kind": "candidate_resolved_residue_axis_associations",
             "association_key": "exact-CandidateDataReference",
             "entry_order": "canonical-only-not-correspondence",
             "structure_binding": "subject-content-digest-equals-embedded-structure",
             "embedded_axis_contract": (
-                "structure_transform.resolved_residue_axis@"
-                f"{RESOLVED_AXIS_VERSION}"
+                "structure_transform.resolved_residue_axis"
             ),
         },
     ),
     codec=BehaviorReference(
         "structure_transform.candidate_resolved_residue_axis_associations/codec",
-        CANDIDATE_ASSOCIATION_VERSION,
         {
             "canonicalization": "RFC 8785",
             "association_order": (
@@ -498,7 +477,6 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
             "structure_transform."
             "candidate_resolved_residue_axis_associations/content"
         ),
-        CANDIDATE_ASSOCIATION_VERSION,
         {"digest": "SHA-256", "digest_input": "canonical_codec_bytes"},
     ),
     runtime_validator=validate_candidate_resolved_axis_associations,
@@ -507,7 +485,6 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
     candidate_data_projection=BehaviorReference(
         "structure_transform.candidate_resolved_residue_axis_associations/"
         "candidate_data_projection",
-        CANDIDATE_ASSOCIATION_VERSION,
         {"fields": ["entries[].subject"]},
     ),
     runtime_candidate_data_projection=(
@@ -519,12 +496,10 @@ CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE = PortTypeDefinition(
             "candidate_resolved_residue_axis_associations/"
             "scientific_axis_projection"
         ),
-        CANDIDATE_ASSOCIATION_VERSION,
         {
             "association_key": "exact-CandidateDataReference",
             "projected_axis_contract": (
-                "structure_transform.resolved_residue_axis@"
-                f"{RESOLVED_AXIS_VERSION}"
+                "structure_transform.resolved_residue_axis"
             ),
             "projected_axis_identity": "independent-scalar-codec-digest",
         },

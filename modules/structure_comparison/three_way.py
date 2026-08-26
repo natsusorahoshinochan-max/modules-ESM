@@ -53,9 +53,9 @@ class _ResolvedAxisAssociations(Protocol):
     entries: tuple[_ResolvedAxisAssociation, ...]
 
 
-_MEAN_PLDDT = ("structure.plddt.mean_residue", "3.0.0")
-_TM_SCORE = ("structure_comparison.tm_score", "3.0.0")
-_RMSD = ("structure_comparison.rmsd", "3.0.0")
+_MEAN_PLDDT = "structure.plddt.mean_residue"
+_TM_SCORE = "structure_comparison.tm_score"
+_RMSD = "structure_comparison.rmsd"
 
 
 def _candidate_scope(
@@ -99,7 +99,7 @@ def _observation(
     call: OperationCall,
     port: str,
     *,
-    metric: tuple[str, str],
+    metric: str,
     subject: CandidateDataReference,
 ) -> ScoreObservation:
     collection = cast(ScoreCollection, call.inputs[port].value)
@@ -107,7 +107,7 @@ def _observation(
         item
         for item in collection.entries
         if item.subject == subject
-        and (item.metric.contract_id, item.metric.contract_version) == metric
+        and item.metric.contract_id == metric
     )
     if len(matches) != 1:
         raise ValueError(f"{port} must contain one exact required Observation")

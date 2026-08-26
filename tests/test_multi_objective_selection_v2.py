@@ -27,7 +27,6 @@ from tests.support.contract_test_kit import (
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from core.workflow.document import (
     WorkflowDocument,
@@ -77,12 +76,6 @@ from tests.fixtures.scientific_operation import build_operation, operation_call
 
 
 WORKFLOW_SCHEMA_VERSION = "2.1.0"
-SOURCE_METHOD_VERSION = "2.1.0"
-SELECTION_METHOD_VERSION = "4.0.0"
-NODE_BINDING_VERSION = "5.0.0"
-SOURCE_NODE_BINDING_VERSION = "4.0.0"
-SCORER_NODE_BINDING_VERSION = "5.0.0"
-METRIC_UTILITY_VERSION = "3.0.0"
 OPERATIONS = ("weighted_rank", "pareto", "diversity")
 
 
@@ -124,9 +117,7 @@ def _catalog_with_default_selection_parameter(
     binding_id = f"selection.{operation}.direct"
     original_node = base.require_contract(
         "node_type",
-        node_id,
-        NODE_BINDING_VERSION,
-    )
+        node_id)
     node_descriptor = json.loads(canonical_json_bytes(original_node.descriptor))
     parameter = node_descriptor["node_parameters"][parameter_name]
     parameter.pop("required", None)
@@ -134,14 +125,11 @@ def _catalog_with_default_selection_parameter(
     node = catalog_contract(
         "node_type",
         node_id,
-        NODE_BINDING_VERSION,
         node_descriptor,
     )
     original_binding = base.require_contract(
         "binding",
-        binding_id,
-        NODE_BINDING_VERSION,
-    )
+        binding_id)
     binding_descriptor = json.loads(
         canonical_json_bytes(original_binding.descriptor)
     )
@@ -149,7 +137,6 @@ def _catalog_with_default_selection_parameter(
     binding = catalog_contract(
         "binding",
         binding_id,
-        NODE_BINDING_VERSION,
         binding_descriptor,
     )
     contracts = tuple(
@@ -180,18 +167,18 @@ def _catalog_with_default_selection_parameter(
         contracts=install_runtime(
             contracts,
             factories={
-                (binding_id, NODE_BINDING_VERSION): (
+                binding_id: (
                     original_binding.definition.factory
                 )
             },
             readiness={
-                (binding_id, NODE_BINDING_VERSION): (
+                binding_id: (
                     original_binding.definition.readiness
                 )
             },
             randomness=(
                 {
-                    (binding_id, NODE_BINDING_VERSION): (
+                    binding_id: (
                         original_binding.definition.effective_randomness_resolver
                     )
                 }
@@ -206,13 +193,8 @@ def _catalog_with_default_selection_parameter(
 
 
 def _reference(catalog, kind: str, contract_id: str) -> ExactContractReference:
-    version = (
-        SOURCE_METHOD_VERSION
-        if kind == "method"
-        else METRIC_UTILITY_VERSION
-    )
     return ExactContractReference(
-        **catalog.require_contract(kind, contract_id, version).reference()
+        **catalog.require_contract(kind, contract_id).reference()
     )
 
 
@@ -220,9 +202,7 @@ def _source() -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="canonical-source",
         node_type_id="contract_test.multi_objective_selection_source",
-        node_type_version=SOURCE_NODE_BINDING_VERSION,
         binding_id="contract_test.multi_objective_selection_source.direct",
-        binding_version=SOURCE_NODE_BINDING_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -232,9 +212,7 @@ def _scorer() -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="canonical-scores",
         node_type_id="contract_test.multi_objective_selection_scores",
-        node_type_version=SCORER_NODE_BINDING_VERSION,
         binding_id="contract_test.multi_objective_selection_scores.direct",
-        binding_version=SCORER_NODE_BINDING_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -279,9 +257,7 @@ def _selection(operation: str) -> WorkflowNodeInstance:
     return WorkflowNodeInstance(
         node_id="select",
         node_type_id=f"selection.{operation}",
-        node_type_version=NODE_BINDING_VERSION,
         binding_id=f"selection.{operation}.direct",
-        binding_version=NODE_BINDING_VERSION,
         node_parameters=parameters,
         binding_parameters={},
     )
@@ -364,7 +340,6 @@ def _workflow(catalog, operation: str) -> WorkflowDocument:
         workflow_id=f"multi-objective-{operation}",
         nodes=(_source(), _scorer(), _selection(operation)),
         edges=(*_scorer_edges(), *_selection_edges()),
-        contract_lock=(),
         selection_objectives=_objectives(catalog),
     )
 
@@ -373,14 +348,10 @@ def _direct_fixture_values(catalog) -> dict[str, Any]:
     source = build_operation(
         catalog,
         "contract_test.multi_objective_selection_source.direct",
-        None,
-        binding_version=SOURCE_NODE_BINDING_VERSION,
-    )
+        None)
     source_values = source.execute(operation_call())
     structure_port = catalog.require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure")
     candidates_by_id = {
         candidate.candidate_id: candidate
         for candidate in source_values["candidates"].items
@@ -413,13 +384,10 @@ def _direct_fixture_values(catalog) -> dict[str, Any]:
     scorer = build_operation(
         catalog,
         "contract_test.multi_objective_selection_scores.direct",
-        None,
-        binding_version=SCORER_NODE_BINDING_VERSION,
-    )
+        None)
     scorer_values = scorer.execute(operation_call(
         catalog=catalog,
         binding_id="contract_test.multi_objective_selection_scores.direct",
-        binding_version=SCORER_NODE_BINDING_VERSION,
         inputs={
             "candidates": source_values["candidates"],
             "references": source_values["references"],
@@ -440,26 +408,19 @@ def test_catalog_declares_three_multi_objective_nodes_in_selection_package() -> 
     for operation in OPERATIONS:
         node = catalog.require_contract(
             "node_type",
-            f"selection.{operation}",
-            NODE_BINDING_VERSION,
-        )
+            f"selection.{operation}")
         binding = catalog.require_contract(
             "binding",
-            f"selection.{operation}.direct",
-            NODE_BINDING_VERSION,
-        )
+            f"selection.{operation}.direct")
         method = catalog.require_contract(
             "method",
-            f"selection.{operation}.method",
-            SELECTION_METHOD_VERSION,
-        )
+            f"selection.{operation}.method")
         assert set(node.descriptor["node_parameters"]) <= {
             "objective_ids",
             "tie_policy",
             "k",
         }
         assert binding.descriptor["selection_objective_consumption"] == {
-            "schema_version": WORKFLOW_SCHEMA_VERSION,
             "objective_ids_parameter": "objective_ids",
             "candidate_input_port": "candidates",
             "score_collection_input_port": "scores",
@@ -474,19 +435,13 @@ def test_fixture_scores_only_already_admitted_candidate_data_references() -> Non
     catalog = _catalog()
     source = catalog.require_contract(
         "node_type",
-        "contract_test.multi_objective_selection_source",
-        SOURCE_NODE_BINDING_VERSION,
-    )
+        "contract_test.multi_objective_selection_source")
     scorer = catalog.require_contract(
         "node_type",
-        "contract_test.multi_objective_selection_scores",
-        SCORER_NODE_BINDING_VERSION,
-    )
+        "contract_test.multi_objective_selection_scores")
     binding = catalog.require_contract(
         "binding",
-        "contract_test.multi_objective_selection_scores.direct",
-        SCORER_NODE_BINDING_VERSION,
-    )
+        "contract_test.multi_objective_selection_scores.direct")
 
     assert {
         output["name"] for output in source.descriptor["outputs"]
@@ -495,22 +450,20 @@ def test_fixture_scores_only_already_admitted_candidate_data_references() -> Non
         (
             port["name"],
             port["port_type"]["contract_id"],
-            port["port_type"]["contract_version"],
         )
         for port in scorer.descriptor["inputs"]
     ] == [
-        ("candidates", "candidate.collection", "4.0.0"),
-        ("references", "candidate.collection", "4.0.0"),
-        ("pairing", "candidate.pairing", "4.0.0"),
+        ("candidates", "candidate.collection"),
+        ("references", "candidate.collection"),
+        ("pairing", "candidate.pairing"),
     ]
     assert [
         (
             output["name"],
             output["port_type"]["contract_id"],
-            output["port_type"]["contract_version"],
         )
         for output in scorer.descriptor["outputs"]
-    ] == [("scores", "score.collection", "5.0.0")]
+    ] == [("scores", "score.collection")]
     assert all(
         declaration["subject_direction"] == "input"
         and declaration["reference_direction"] == "input"
@@ -527,9 +480,7 @@ def test_compiler_binds_every_explicit_objective_to_exact_node_inputs(
 
     compiled = compile(
                    CompilationRequest(
-                       lock_workflow(workflow, catalog),
-                       1,
-                   ),
+                       workflow),
                    catalog,
                )
 
@@ -565,9 +516,7 @@ def test_compiler_binds_every_explicit_objective_to_exact_node_inputs(
     ):
         compile(
             CompilationRequest(
-                lock_workflow(contaminated, catalog),
-                1,
-            ),
+                contaminated),
             catalog,
         )
 
@@ -580,16 +529,13 @@ def test_compiler_rejects_selection_objective_without_explicit_consumer(
         workflow_id="unconsumed-objective",
         nodes=(_source(), _scorer()),
         edges=_scorer_edges(),
-        contract_lock=(),
         selection_objectives=(_objectives(catalog)[0],),
     )
 
     with pytest.raises(WorkflowCompileError) as raised:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 
@@ -605,16 +551,13 @@ def test_compiler_rejects_observation_selector_without_explicit_consumer(
         workflow_id="unconsumed-selector",
         nodes=(_source(), _scorer()),
         edges=_scorer_edges(),
-        contract_lock=(),
         observation_selectors=_selectors(catalog),
     )
 
     with pytest.raises(WorkflowCompileError) as raised:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 
@@ -629,9 +572,7 @@ def test_compiler_rejects_observation_selector_with_multiple_consumers(
         WorkflowNodeInstance(
             node_id=node_id,
             node_type_id="selection.filter",
-            node_type_version=NODE_BINDING_VERSION,
             binding_id="selection.filter.direct",
-            binding_version=NODE_BINDING_VERSION,
             node_parameters={
                 "selector_id": "fixed-3gb1-raw",
                 "operator": ">=",
@@ -655,16 +596,13 @@ def test_compiler_rejects_observation_selector_with_multiple_consumers(
             *_selection_edges("filter-low"),
             *_selection_edges("filter-high"),
         ),
-        contract_lock=(),
         observation_selectors=_selectors(catalog),
     )
 
     with pytest.raises(WorkflowCompileError) as raised:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 
@@ -678,9 +616,7 @@ def test_compiler_rejects_each_unconsumed_objective_in_mixed_workflow(
     selection = WorkflowNodeInstance(
         node_id="select",
         node_type_id="selection.sort",
-        node_type_version=NODE_BINDING_VERSION,
         binding_id="selection.sort.direct",
-        binding_version=NODE_BINDING_VERSION,
         node_parameters={
             "objective_id": "fixed-3gb1",
             "tie_policy": "candidate_id_ascending",
@@ -693,16 +629,13 @@ def test_compiler_rejects_each_unconsumed_objective_in_mixed_workflow(
         workflow_id="partially-consumed-objectives",
         nodes=(_source(), _scorer(), selection),
         edges=(*_scorer_edges(), *_selection_edges()),
-        contract_lock=(),
         selection_objectives=_objectives(catalog),
     )
 
     with pytest.raises(WorkflowCompileError) as raised:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 
@@ -743,9 +676,7 @@ def test_compiler_resolves_selection_consumers_from_normalized_defaults(
     selection_node = WorkflowNodeInstance(
         node_id="select",
         node_type_id=f"selection.{operation}",
-        node_type_version=NODE_BINDING_VERSION,
         binding_id=f"selection.{operation}.direct",
-        binding_version=NODE_BINDING_VERSION,
         node_parameters=node_parameters,
         binding_parameters={},
     )
@@ -754,7 +685,6 @@ def test_compiler_resolves_selection_consumers_from_normalized_defaults(
         workflow_id=f"defaulted-{operation}",
         nodes=(_source(), _scorer(), selection_node),
         edges=(*_scorer_edges(), *_selection_edges()),
-        contract_lock=(),
         observation_selectors=(
             _selectors(catalog) if operation == "filter" else ()
         ),
@@ -769,9 +699,7 @@ def test_compiler_resolves_selection_consumers_from_normalized_defaults(
 
     compiled = compile(
                    CompilationRequest(
-                       lock_workflow(workflow, catalog),
-                       1,
-                   ),
+                       workflow),
                    catalog,
                )
 
@@ -802,9 +730,7 @@ def test_canonical_scopes_yield_accepted_weighted_top_three() -> None:
     workflow = _workflow(catalog, "weighted_rank")
     plan = compile(
                CompilationRequest(
-                   lock_workflow(workflow, catalog),
-                   1,
-               ),
+                   workflow),
                catalog,
            )
     values = _direct_fixture_values(catalog)
@@ -812,7 +738,6 @@ def test_canonical_scopes_yield_accepted_weighted_top_three() -> None:
         catalog,
         "selection.weighted_rank.direct",
         None,
-        binding_version=NODE_BINDING_VERSION,
         selection_objectives=plan.selection_objectives,
         observation_selectors=plan.observation_selectors,
     )
@@ -820,7 +745,6 @@ def test_canonical_scopes_yield_accepted_weighted_top_three() -> None:
     call = operation_call(
         catalog=catalog,
         binding_id="selection.weighted_rank.direct",
-        binding_version=NODE_BINDING_VERSION,
         inputs={
             "candidates": values["candidates"],
             "scores": values["scores"],
@@ -845,23 +769,19 @@ def test_pareto_and_exact_diversity_method_are_deterministic() -> None:
     def execute(operation: str):
         plan = compile(
                    CompilationRequest(
-                       lock_workflow(_workflow(catalog, operation), catalog),
-                       1,
-                   ),
+                       _workflow(catalog, operation)),
                    catalog,
                )
         implementation = build_operation(
             catalog,
             f"selection.{operation}.direct",
             None,
-            binding_version=NODE_BINDING_VERSION,
             selection_objectives=plan.selection_objectives,
             observation_selectors=plan.observation_selectors,
         )
         return implementation.execute(operation_call(
             catalog=catalog,
             binding_id=f"selection.{operation}.direct",
-            binding_version=NODE_BINDING_VERSION,
             inputs={
                 "candidates": values["candidates"],
                 "scores": values["scores"],
@@ -911,9 +831,7 @@ def test_multi_objective_nodes_reject_implicit_or_incomplete_selection() -> None
     ) as captured:
         compile(
             CompilationRequest(
-                lock_workflow(missing, catalog),
-                1,
-            ),
+                missing),
             catalog,
         )
     assert captured.value.field_path == (
@@ -940,9 +858,7 @@ def test_multi_objective_nodes_reject_implicit_or_incomplete_selection() -> None
     with pytest.raises(WorkflowCompileError, match="objective_ids"):
         compile(
             CompilationRequest(
-                lock_workflow(duplicate, catalog),
-                1,
-            ),
+                duplicate),
             catalog,
         )
 
@@ -974,9 +890,7 @@ def test_scalar_selection_consumer_error_uses_the_node_parameter_path(
     selection = WorkflowNodeInstance(
         node_id="selection-node-with-text-id",
         node_type_id=f"selection.{operation}",
-        node_type_version=NODE_BINDING_VERSION,
         binding_id=f"selection.{operation}.direct",
-        binding_version=NODE_BINDING_VERSION,
         node_parameters=selection_parameters,
         binding_parameters={},
     )
@@ -988,7 +902,6 @@ def test_scalar_selection_consumer_error_uses_the_node_parameter_path(
             *_scorer_edges(),
             *_selection_edges("selection-node-with-text-id"),
         ),
-        contract_lock=(),
         selection_objectives=(
             _objectives(catalog) if operation == "sort" else ()
         ),
@@ -1000,9 +913,7 @@ def test_scalar_selection_consumer_error_uses_the_node_parameter_path(
     with pytest.raises(WorkflowCompileError) as captured:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 
@@ -1033,9 +944,7 @@ def test_selection_source_mismatch_points_to_the_implicated_edge(
         selection = WorkflowNodeInstance(
             node_id=selection_node_id,
             node_type_id="selection.sort",
-            node_type_version=NODE_BINDING_VERSION,
             binding_id="selection.sort.direct",
-            binding_version=NODE_BINDING_VERSION,
             node_parameters={
                 "objective_id": "fixed-3gb1",
                 "out_of_scope_policy": "error",
@@ -1047,9 +956,7 @@ def test_selection_source_mismatch_points_to_the_implicated_edge(
         selection = WorkflowNodeInstance(
             node_id=selection_node_id,
             node_type_id="selection.filter",
-            node_type_version=NODE_BINDING_VERSION,
             binding_id="selection.filter.direct",
-            binding_version=NODE_BINDING_VERSION,
             node_parameters={
                 "selector_id": "fixed-3gb1-raw",
                 "operator": ">=",
@@ -1113,7 +1020,6 @@ def test_selection_source_mismatch_points_to_the_implicated_edge(
                 "scores",
             ),
         ),
-        contract_lock=(),
         selection_objectives=(
             (objective,) if selection_kind == "objective" else ()
         ),
@@ -1125,9 +1031,7 @@ def test_selection_source_mismatch_points_to_the_implicated_edge(
     with pytest.raises(WorkflowCompileError) as captured:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 
@@ -1144,9 +1048,7 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
     catalog = _catalog()
     plan = compile(
                CompilationRequest(
-                   lock_workflow(_workflow(catalog, 'weighted_rank'), catalog),
-                   1,
-               ),
+                   _workflow(catalog, 'weighted_rank')),
                catalog,
            )
     values = _direct_fixture_values(catalog)
@@ -1154,7 +1056,6 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         catalog,
         "selection.weighted_rank.direct",
         None,
-        binding_version=NODE_BINDING_VERSION,
         selection_objectives=plan.selection_objectives,
         observation_selectors=plan.observation_selectors,
     )
@@ -1171,7 +1072,6 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id="selection.weighted_rank.direct",
-            binding_version=NODE_BINDING_VERSION,
             inputs={**common, "scores": missing},
             node_parameters=_selection("weighted_rank").node_parameters,
             binding_parameters={},
@@ -1201,7 +1101,6 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id="selection.weighted_rank.direct",
-            binding_version=NODE_BINDING_VERSION,
             inputs={**common, "scores": cross_scope},
             node_parameters=_selection("weighted_rank").node_parameters,
             binding_parameters={},
@@ -1234,9 +1133,7 @@ def test_all_three_nodes_pass_contract_test_kit(tmp_path: Path) -> None:
         ModulePackageContractCase(
             case_id=f"multi-objective-{operation}",
             node_type_id=f"selection.{operation}",
-            node_type_version=NODE_BINDING_VERSION,
             binding_id=f"selection.{operation}.direct",
-            binding_version=NODE_BINDING_VERSION,
             node_parameters=(
                 _selection(operation).node_parameters
                 if operation in OPERATIONS
@@ -1368,7 +1265,7 @@ class _FailRunClosureStore:
         )
 
 
-def test_result_identity_ignores_node_renames_while_plan_digest_tracks_topology(
+def test_result_identity_ignores_node_renames(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1442,10 +1339,6 @@ def test_result_identity_ignores_node_renames_while_plan_digest_tracks_topology(
             request_id="identity-after-rename",
         )
 
-    assert (
-        first_committed["execution_plan_digest"]
-        != second_committed["execution_plan_digest"]
-    )
     first_identities = {
         output["node_id"]: output["result_identity"]
         for output in first["outputs"]
@@ -1533,10 +1426,6 @@ def test_selection_result_identity_ignores_objective_label_renames(
             request_id="objective-label-after-rename",
         )
 
-    assert (
-        first_committed["execution_plan_digest"]
-        != second_committed["execution_plan_digest"]
-    )
     first_selection_output = next(
         output
         for output in first["outputs"]
@@ -1652,9 +1541,7 @@ def test_upstream_result_identity_ignores_unrelated_downstream_utility(
         schema_version=WORKFLOW_SCHEMA_VERSION,
         workflow_id=project_id,
         nodes=(_source(),),
-        edges=(),
-        contract_lock=(),
-    )
+        edges=())
     with_selection = replace(
         _workflow(catalog, "weighted_rank"),
         workflow_id=project_id,
@@ -1717,9 +1604,7 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
     filter_node = WorkflowNodeInstance(
         node_id="filter",
         node_type_id="selection.filter",
-        node_type_version=NODE_BINDING_VERSION,
         binding_id="selection.filter.direct",
-        binding_version=NODE_BINDING_VERSION,
         node_parameters={
             "selector_id": "fixed-3gb1-raw",
             "operator": ">=",
@@ -1739,7 +1624,6 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
             *_selection_edges("filter"),
             *_selection_edges("select"),
         ),
-        contract_lock=(),
         observation_selectors=_selectors(catalog),
         selection_objectives=_objectives(catalog),
     )
@@ -2102,16 +1986,13 @@ def test_compiler_rejects_selection_objective_with_multiple_consumers(
             *_selection_edges("select-weighted"),
             *_selection_edges("select-pareto"),
         ),
-        contract_lock=(),
         selection_objectives=_objectives(catalog),
     )
 
     with pytest.raises(WorkflowCompileError) as raised:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 

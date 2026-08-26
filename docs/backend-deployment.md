@@ -84,7 +84,7 @@ export PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE="$HOME/protein-workbench-private/bioh
 ```
 
 Every configured root is expanded once and must be absolute. Local ESM-3 reads
-the locked snapshot directly from `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`; it does
+the configured snapshot directly from `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT`; it does
 not inspect `HF_HUB_CACHE`, `HF_HOME`, or their internal cache layout. The
 Biohub credential file must be owned by the current user and readable only by
 that user.

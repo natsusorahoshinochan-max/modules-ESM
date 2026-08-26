@@ -21,12 +21,11 @@ from datatypes.residue import (
 from .domain import DSSPAnnotation, StructureAnnotationTrack
 
 
-_VERSION = "4.0.0"
 _ANNOTATION_SECONDARY_SYMBOLS = frozenset("GHITEBSPC_")
 _SECONDARY_SYMBOLS = frozenset("GHITEBSC_")
 _BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", "3.0.0")
-_TRACK_CODEC = _BUILTINS.require_port_type("residue.track", "2.1.0")
+_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
+_TRACK_CODEC = _BUILTINS.require_port_type("residue.track")
 _ABSOLUTE_SASA_QUANTITY_CONTRACT = {
     "quantity": "solvent_accessible_surface_area",
     "measure": "absolute",
@@ -189,10 +188,8 @@ def _port_type(
 
     return PortTypeDefinition(
         type_id=type_id,
-        version=_VERSION,
         validator=BehaviorReference(
             f"{type_id}/validate",
-            _VERSION,
             {
                 "accepted_value_kind": kind,
                 "subject_reference_required": True,
@@ -211,10 +208,9 @@ def _port_type(
         ),
         codec=BehaviorReference(
             f"{type_id}/codec",
-            _VERSION,
             {
                 "canonicalization": "RFC 8785",
-                "embedded_layout_contract": "residue.layout@3.0.0",
+                "embedded_layout_contract": "residue.layout",
                 "subject_wire": (
                     "exact CandidateDataReference candidate_id, "
                     "data_type_id, content_digest"
@@ -223,7 +219,6 @@ def _port_type(
         ),
         content_identity=BehaviorReference(
             f"{type_id}/content",
-            _VERSION,
             {
                 "digest": "SHA-256",
                 "includes_subject_reference": True,
@@ -234,7 +229,6 @@ def _port_type(
         runtime_from_wire=from_wire,
         candidate_data_projection=BehaviorReference(
             f"{type_id}/candidate_data_projection",
-            _VERSION,
             {"fields": ["subject"]},
         ),
         runtime_candidate_data_projection=candidate_data_references,

@@ -1,4 +1,4 @@
-"""Required source-bound heavy acceptance for SimpleFold confidence."""
+"""Required real-Provider acceptance for SimpleFold confidence."""
 
 from __future__ import annotations
 
@@ -59,9 +59,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="4.0.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="4.0.0",
         node_parameters={"pdb_string": pdb_3gb1.pdb_string},
         binding_parameters={},
     )
@@ -70,21 +68,17 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         node_type_id=(
             "structure_transform.resolve_candidate_residue_axes"
         ),
-        node_type_version="6.0.0",
         binding_id=(
             "structure_transform."
             "resolve_candidate_residue_axes.direct"
         ),
-        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
     confidence = WorkflowNodeInstance(
         node_id="confidence",
         node_type_id="folding.simplefold_confidence",
-        node_type_version="5.0.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="7.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -127,9 +121,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
                 "confidence",
                 "structure_residue_axes",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -244,16 +236,13 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     monkeypatch.setattr(os, "lstat", guarded_os_lstat)
     monkeypatch.setattr(os, "access", guarded_os_access)
     environment = admit_environment_configuration(catalog, {
-        ("folding.simplefold_confidence.simplefold_local", "7.0.0"): {
-            "values": {
+        "folding.simplefold_confidence.simplefold_local": {
                 "model_root": model_root,
                 "esm2_source_root": Path(
                     os.environ["PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT"]
                 ),
                 "esm2_model_root": esm2_model_root,
-                "device": expected_local_torch_device(),
-            },
-        }
+            }
     })
     service = V2RunService(
         projects,
@@ -373,23 +362,18 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
     assert terminal[0]["status"] == "succeeded"
     binding = catalog.require_contract(
         "binding",
-        "folding.simplefold_confidence.simplefold_local",
-        "7.0.0",
-    )
+        "folding.simplefold_confidence.simplefold_local")
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
         "method",
-        method_ref["contract_id"],
-        method_ref["contract_version"],
-    )
-    assert started[0]["engine_identity"] == method.contract_digest
+        method_ref["contract_id"])
+    assert started[0]["engine_identity"] == method.contract_id
     readiness_index = next(
         index
         for index, event in enumerate(events)
         if event["event"]["type"] == "readiness_attested"
         and event["event"]["binding"]["contract_id"]
         == "folding.simplefold_confidence.simplefold_local"
-        and event["event"]["binding"]["contract_version"] == "7.0.0"
         and event["event"]["conclusion"] == "passing"
     )
     invocation_index = next(
@@ -403,15 +387,6 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         for event in events
         if event["event"]["type"] == "run_terminal"
     ] == ["succeeded"]
-    identity = SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
-    assert set(identity["artifact_sha256"]) == {
-        "ccd.pkl",
-        "plddt.ckpt",
-        "simplefold_1.6B.ckpt",
-    }
-    assert set(identity["esm2_artifact_sha256"]) == {
-        "esm2_t36_3B_UR50D.pt"
-    }
     public = json.dumps({"projection": projection, "events": events})
     for forbidden in (
         "contact-regression",
@@ -425,7 +400,6 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         assert forbidden not in public
     retain_service_run(
         "simplefold-confidence",
-        catalog=catalog,
         service=service,
         projection=projection,
         events=events,

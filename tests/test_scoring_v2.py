@@ -35,7 +35,6 @@ from core.parameters.contract import admit_declarations
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from core.scoring.observation_admission import (
     ObservationAdmissionError,
@@ -114,12 +113,10 @@ def _contract(
     return catalog_contract(
         kind,
         contract_id,
-        "2.1.0",
         {
             "schema_namespace": "protein-workbench-contract/v2",
             "contract_kind": kind,
             "contract_id": contract_id,
-            "contract_version": "2.1.0",
             **descriptor,
         },
     )
@@ -128,8 +125,8 @@ def _contract(
 def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     builtin = builtin_frozen_catalog()
     selection_catalog = build_frozen_catalog((SELECTION_PACKAGE,))
-    candidates_type = builtin.require_port_type("candidate.collection", "4.0.0")
-    scores_type = builtin.require_port_type("score.collection", "5.0.0")
+    candidates_type = builtin.require_port_type("candidate.collection")
+    scores_type = builtin.require_port_type("score.collection")
     metric_quality = _contract(
         "metric",
         "quality",
@@ -157,7 +154,6 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 not in {
                     "contract_id",
                     "contract_kind",
-                    "contract_version",
                     "schema_namespace",
                 }
             },
@@ -171,9 +167,7 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
         {
             "algorithm_identity": {"name": "algorithm-a"},
             "model_identity": {"name": "model-a"},
-            "checkpoint_identity": {"kind": "none"},
             "featurization_identity": {"name": "features-a"},
-            "source_identity": {"name": "fixture"},
             "scale_contract": {"kind": "canonical"},
         },
     )
@@ -188,7 +182,6 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 not in {
                     "contract_id",
                     "contract_kind",
-                    "contract_version",
                     "schema_namespace",
                 }
             },
@@ -221,7 +214,6 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             },
             "behavior": {
                 "behavior_id": "quality.linear/transform",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "output_contract": {"minimum": 0, "maximum": 1},
@@ -252,7 +244,6 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             },
             "behavior": {
                 "behavior_id": "novelty.linear/transform",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "output_contract": {"minimum": 0, "maximum": 1},
@@ -289,13 +280,11 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "execution_route": "direct",
             "route_behavior": {
                 "behavior_id": "candidate.source/execute",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "candidate.source/availability",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -303,14 +292,12 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "readiness_declaration": {
                 "behavior": {
                     "behavior_id": "candidate.source/readiness",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
             },
             "deterministic": True,
             "cacheable": True,
-            "implementation_identity": {"name": "candidate.source.direct"},
             "produced_observations": [],
         },
     )
@@ -353,13 +340,11 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "execution_route": "direct",
             "route_behavior": {
                 "behavior_id": "score.intrinsic/execute",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "score.intrinsic/availability",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -367,14 +352,12 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
             "readiness_declaration": {
                 "behavior": {
                     "behavior_id": "score.intrinsic/readiness",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
             },
             "deterministic": True,
             "cacheable": True,
-            "implementation_identity": {"name": "score.intrinsic.direct"},
             "produced_observations": [
                 {
                     "output_port": "scores",
@@ -425,22 +408,18 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
 
     factory_behavior = BehaviorReference(
         "score.intrinsic/execute",
-        "2.1.0",
         {},
     )
     readiness_behavior = BehaviorReference(
         "score.intrinsic/readiness",
-        "2.1.0",
         {},
     )
     source_factory_behavior = BehaviorReference(
         "candidate.source/execute",
-        "2.1.0",
         {},
     )
     source_readiness_behavior = BehaviorReference(
         "candidate.source/readiness",
-        "2.1.0",
         {},
     )
 
@@ -516,17 +495,17 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 *selection_catalog.contracts,
             ),
             utility_transforms={
-                ("quality.linear", "2.1.0"): linear,
-                ("novelty.linear", "2.1.0"): linear,
+                "quality.linear": linear,
+                "novelty.linear": linear,
             },
             factories={
-                ("candidate.source.direct", "2.1.0"): (
+                "candidate.source.direct": (
                     ScientificOperationFactory(
                         behavior=source_factory_behavior,
                         build=lambda _: CandidateSourceImplementation(),
                     )
                 ),
-                ("score.intrinsic.direct", "2.1.0"): (
+                "score.intrinsic.direct": (
                     ScientificOperationFactory(
                         behavior=factory_behavior,
                         build=lambda _: ScoringImplementation(),
@@ -534,12 +513,12 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 ),
             },
             readiness={
-                ("candidate.source.direct", "2.1.0"): ReadinessDeclaration(
+                "candidate.source.direct": ReadinessDeclaration(
                     behavior=source_readiness_behavior,
                     prerequisites={},
                     check=lambda _: ReadinessResult(True),
                 ),
-                ("score.intrinsic.direct", "2.1.0"): ReadinessDeclaration(
+                "score.intrinsic.direct": ReadinessDeclaration(
                     behavior=readiness_behavior,
                     prerequisites={},
                     check=lambda _: ReadinessResult(True),
@@ -559,8 +538,8 @@ def _scoring_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
 def _dynamic_observation_method_catalog(
 ) -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     catalog, contracts = _scoring_catalog()
-    candidates_type = catalog.require_port_type("candidate.collection", "4.0.0")
-    scores_type = catalog.require_port_type("score.collection", "5.0.0")
+    candidates_type = catalog.require_port_type("candidate.collection")
+    scores_type = catalog.require_port_type("score.collection")
     facts_type = CONFIDENCE_FACTS_PORT_TYPE
     generation_node = _contract(
         "node_type",
@@ -603,13 +582,11 @@ def _dynamic_observation_method_catalog(
             "execution_route": "direct",
             "route_behavior": {
                 "behavior_id": "generation.confidence_facts/execute",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "generation.confidence_facts/availability",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -617,16 +594,12 @@ def _dynamic_observation_method_catalog(
             "readiness_declaration": {
                 "behavior": {
                     "behavior_id": "generation.confidence_facts/readiness",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
             },
             "deterministic": True,
             "cacheable": True,
-            "implementation_identity": {
-                "name": "generation.confidence_facts.method_a"
-            },
             "produced_observations": [],
         },
     )
@@ -676,13 +649,11 @@ def _dynamic_observation_method_catalog(
             "execution_route": "direct",
             "route_behavior": {
                 "behavior_id": "score.materialize_confidence/execute",
-                "behavior_version": "2.1.0",
                 "parameters": {},
             },
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "score.materialize_confidence/availability",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -690,16 +661,12 @@ def _dynamic_observation_method_catalog(
             "readiness_declaration": {
                 "behavior": {
                     "behavior_id": "score.materialize_confidence/readiness",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
             },
             "deterministic": True,
             "cacheable": True,
-            "implementation_identity": {
-                "name": "score.materialize_confidence.method_b"
-            },
             "produced_observations": [
                 {
                     "output_port": "scores",
@@ -737,7 +704,6 @@ def _dynamic_observation_method_catalog(
         return ScientificOperationFactory(
             behavior=BehaviorReference(
                 behavior["behavior_id"],
-                behavior["behavior_version"],
                 behavior["parameters"],
             ),
             build=lambda _: CompileOnlyImplementation(),
@@ -748,7 +714,6 @@ def _dynamic_observation_method_catalog(
         return ReadinessDeclaration(
             behavior=BehaviorReference(
                 behavior["behavior_id"],
-                behavior["behavior_version"],
                 behavior["parameters"],
             ),
             prerequisites={},
@@ -765,18 +730,18 @@ def _dynamic_observation_method_catalog(
         contracts=install_runtime(
             (*catalog.contracts, *added_contracts),
             factories={
-                (generation_binding.contract_id, "2.1.0"): (
+                generation_binding.contract_id: (
                     compile_only_factory(generation_binding)
                 ),
-                (materializer_binding.contract_id, "2.1.0"): (
+                materializer_binding.contract_id: (
                     compile_only_factory(materializer_binding)
                 ),
             },
             readiness={
-                (generation_binding.contract_id, "2.1.0"): (
+                generation_binding.contract_id: (
                     compile_only_readiness(generation_binding)
                 ),
-                (materializer_binding.contract_id, "2.1.0"): (
+                materializer_binding.contract_id: (
                     compile_only_readiness(materializer_binding)
                 ),
             },
@@ -799,10 +764,7 @@ def _reference(contract: CatalogContract) -> ExactContractReference:
     reference = contract.reference()
     return ExactContractReference(
         contract_kind=reference["contract_kind"],
-        contract_id=reference["contract_id"],
-        contract_version=reference["contract_version"],
-        contract_digest=reference["contract_digest"],
-    )
+        contract_id=reference["contract_id"])
 
 
 def _observation(
@@ -817,9 +779,7 @@ def _observation(
         "GG" if candidate_id in {"raw-2", "candidate-2"} else "AA"
     )
     sequence_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence")
     return ScoreObservation(
         subject=CandidateDataReference(
             candidate_id,
@@ -861,7 +821,7 @@ def test_observation_identity_excludes_value_and_distinguishes_metric_and_method
 
 def test_score_collection_canonicalizes_equal_observations_and_fails_closed() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "5.0.0")
+    score_type = catalog.require_port_type("score.collection")
     observation = _observation(contracts, "candidate-1", 90)
 
     collection = ScoreCollection(
@@ -904,7 +864,7 @@ def test_score_collection_canonicalizes_equal_observations_and_fails_closed() ->
 
 def test_score_collection_codec_enforces_metric_and_method_reference_roles() -> None:
     catalog, contracts = _scoring_catalog()
-    score_type = catalog.require_port_type("score.collection", "5.0.0")
+    score_type = catalog.require_port_type("score.collection")
     malformed = replace(
         _observation(contracts, "candidate-1", 90),
         metric=_reference(contracts["method.a"]),
@@ -1053,25 +1013,20 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
     axis_holder: dict[str, ResidueAxisReference] = {}
     axis_type = PortTypeDefinition(
         type_id="fixture.prediction_residue_axis",
-        version="1.0.0",
         validator=BehaviorReference(
             "fixture.prediction_residue_axis/validate",
-            "1.0.0",
             {"accepted_value_kind": "prediction_residue_axis"},
         ),
         codec=BehaviorReference(
             "fixture.prediction_residue_axis/codec",
-            "1.0.0",
             {"canonicalization": "RFC 8785"},
         ),
         content_identity=BehaviorReference(
             "fixture.prediction_residue_axis/content",
-            "1.0.0",
             {"digest": "SHA-256"},
         ),
         scientific_axis_projection=BehaviorReference(
             "fixture.prediction_residue_axis/project",
-            "1.0.0",
             {"projection": "one-exact-axis"},
         ),
         runtime_scientific_axis_projection=lambda _: (
@@ -1092,7 +1047,6 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             not in {
                 "contract_kind",
                 "contract_id",
-                "contract_version",
                 "schema_namespace",
                 "inputs",
             }
@@ -1123,7 +1077,6 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
             not in {
                 "contract_kind",
                 "contract_id",
-                "contract_version",
                 "schema_namespace",
                 "produced_observations",
                 "node_type",
@@ -1164,8 +1117,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         [Candidate("candidate-1", ProteinSequence("AAA"))],
     )
     sequence_type = residue_catalog.require_port_type(
-        "protein.sequence", "3.0.0"
-    )
+        "protein.sequence")
     subject = CandidateDataReference(
         "candidate-1",
         "protein.sequence",
@@ -1278,11 +1230,9 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
 
 def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> None:
     metric = ExactContractReference(
-        "metric", "residue.quality", "1.0.0", "sha256:" + ("1" * 64)
-    )
+        "metric", "residue.quality")
     method = ExactContractReference(
-        "method", "fixture", "1.0.0", "sha256:" + ("2" * 64)
-    )
+        "method", "fixture")
     subject = CandidateDataReference(
         "structure-1", "protein.structure", "sha256:" + ("3" * 64)
     )
@@ -1298,10 +1248,7 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
         axis_kind="resolved_structure",
         axis_contract=ExactContractReference(
             "port_type",
-            "structure_transform.resolved_residue_axis",
-            "4.0.0",
-            "sha256:" + ("4" * 64),
-        ),
+            "structure_transform.resolved_residue_axis"),
         axis_content_digest="sha256:" + ("5" * 64),
         source=subject,
         layout=ResidueLayout("A", 3, ("A:1", "A:2", "A:3")),
@@ -1511,7 +1458,7 @@ def test_unselected_collection_cannot_override_pairwise_subject_digest() -> None
     selected = Candidate("subject", ProteinSequence("AA"))
     conflicting = Candidate("subject", ProteinSequence("GG"))
     reference = Candidate("reference", ProteinSequence("AG"))
-    sequence_type = catalog.require_port_type("protein.sequence", "3.0.0")
+    sequence_type = catalog.require_port_type("protein.sequence")
     scores = ScoreCollection(
         "scores",
         [
@@ -1673,7 +1620,7 @@ def test_selection_rejects_zero_total_weight_missing_and_out_of_range_utility() 
         contracts=install_runtime(
             catalog.contracts,
             utility_transforms={
-                ("quality.linear", "2.1.0"): (
+                "quality.linear": (
                     lambda value, parameters: 1.01
                 ),
             },
@@ -1708,27 +1655,21 @@ def _workflow_payload(
             {
                 "node_id": "source",
                 "node_type_id": "candidate.source",
-                "node_type_version": "2.1.0",
                 "binding_id": "candidate.source.direct",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "producer",
                 "node_type_id": "score.intrinsic",
-                "node_type_version": "2.1.0",
                 "binding_id": "score.intrinsic.direct",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "select",
                 "node_type_id": "selection.weighted_rank",
-                "node_type_version": "5.0.0",
                 "binding_id": "selection.weighted_rank.direct",
-                "binding_version": "5.0.0",
                 "node_parameters": {
                     "objective_ids": ["quality-objective"],
                     "tie_policy": "candidate_id_ascending",
@@ -1777,9 +1718,7 @@ def _workflow_payload(
                 "match_cardinality": "exactly_one",
                 "missing_policy": "error",
             }
-        ],
-        "contract_lock": [],
-    }
+        ]}
 
 
 def test_utility_parameter_error_uses_the_objective_path_without_a_node_owner(
@@ -1794,9 +1733,7 @@ def test_utility_parameter_error_uses_the_objective_path_without_a_node_owner(
     with pytest.raises(WorkflowCompileError) as captured:
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 
@@ -1823,9 +1760,7 @@ def _dynamic_observation_method_payload(
         selection_node = {
             "node_id": selection_node_id,
             "node_type_id": "selection.weighted_rank",
-            "node_type_version": "5.0.0",
             "binding_id": "selection.weighted_rank.direct",
-            "binding_version": "5.0.0",
             "node_parameters": {
                 "objective_ids": ["quality-objective"],
                 "tie_policy": "candidate_id_ascending",
@@ -1837,9 +1772,7 @@ def _dynamic_observation_method_payload(
         selection_node = {
             "node_id": selection_node_id,
             "node_type_id": "selection.filter",
-            "node_type_version": "5.0.0",
             "binding_id": "selection.filter.direct",
-            "binding_version": "5.0.0",
             "node_parameters": {
                 "selector_id": "quality-selector",
                 "operator": ">=",
@@ -1872,27 +1805,21 @@ def _dynamic_observation_method_payload(
             {
                 "node_id": "source",
                 "node_type_id": "candidate.source",
-                "node_type_version": "2.1.0",
                 "binding_id": "candidate.source.direct",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": generation_node_id,
                 "node_type_id": "generation.confidence_facts",
-                "node_type_version": "2.1.0",
                 "binding_id": "generation.confidence_facts.method_a",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": materializer_node_id,
                 "node_type_id": "score.materialize_confidence",
-                "node_type_version": "2.1.0",
                 "binding_id": "score.materialize_confidence.method_b",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
@@ -1954,9 +1881,7 @@ def _dynamic_observation_method_payload(
             ]
             if selection_kind == "objective"
             else []
-        ),
-        "contract_lock": [],
-    }
+        )}
 
 
 def _compile_dynamic_observation_method(
@@ -1980,9 +1905,7 @@ def _compile_dynamic_observation_method(
     )
     return compile(
                CompilationRequest(
-                   lock_workflow(workflow, catalog),
-                   1,
-               ),
+                   workflow),
                catalog,
            )
 
@@ -2058,24 +1981,17 @@ def test_dynamic_observation_method_capability_is_independent_of_node_ids(
 def test_compiler_resolves_exact_intrinsic_objective_before_runtime() -> None:
     catalog, contracts = _scoring_catalog()
     workflow = decode_workflow_document(_workflow_payload(contracts))
-    locked = lock_workflow(workflow, catalog)
+    locked = workflow
 
     compiled = compile(
                    CompilationRequest(
-                       locked,
-                       1,
-                   ),
+                       locked),
                    catalog,
                )
 
     assert compiled.selection_objectives[0].metric == (
         _reference(contracts["quality"])
     )
-    assert {
-        item.contract_id
-        for item in compiled.resolved_contracts
-    } >= {"quality", "method.a", "quality.linear"}
-
     novelty = decode_workflow_document(
         _workflow_payload(
             contracts,
@@ -2085,9 +2001,7 @@ def test_compiler_resolves_exact_intrinsic_objective_before_runtime() -> None:
     )
     compile(
         CompilationRequest(
-            lock_workflow(novelty, catalog),
-            1,
-        ),
+            novelty),
         catalog,
     )
 
@@ -2107,9 +2021,7 @@ def test_compiler_binds_65_declared_objectives_to_explicit_selection() -> None:
     workflow = decode_workflow_document(payload)
     compiled = compile(
                    CompilationRequest(
-                       lock_workflow(workflow, catalog),
-                       1,
-                   ),
+                       workflow),
                    catalog,
                )
     selection_node = next(
@@ -2135,12 +2047,8 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("candidate.source.direct", "2.1.0"): {
-                "values": {},
-            },
-            ("score.intrinsic.direct", "2.1.0"): {
-                "values": {},
-            }
+            "candidate.source.direct": {},
+            "score.intrinsic.direct": {}
         },
     )
 
@@ -2226,12 +2134,8 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     reloaded_app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
-            ("candidate.source.direct", "2.1.0"): {
-                "values": {},
-            },
-            ("score.intrinsic.direct", "2.1.0"): {
-                "values": {},
-            }
+            "candidate.source.direct": {},
+            "score.intrinsic.direct": {}
         },
     )
     with TestClient(reloaded_app) as client:
@@ -2255,7 +2159,7 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
         contracts=install_runtime(
             catalog.contracts,
             utility_transforms={
-                ("quality.linear", "2.1.0"): (
+                "quality.linear": (
                     lambda value, parameters: 1.01
                 ),
             },
@@ -2263,12 +2167,8 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
     )
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
-        ("candidate.source.direct", "2.1.0"): {
-            "values": {},
-        },
-        ("score.intrinsic.direct", "2.1.0"): {
-            "values": {},
-        }
+        "candidate.source.direct": {},
+        "score.intrinsic.direct": {}
     }
     app = create_application(
         frozen_catalog_override=unsafe_catalog,
@@ -2372,14 +2272,12 @@ def test_compiler_rejects_unsatisfied_objective_before_provider(
     workflow = decode_workflow_document(
         _workflow_payload(contracts, **arguments)
     )
-    locked = lock_workflow(workflow, catalog)
+    locked = workflow
 
     with pytest.raises(WorkflowCompileError, match=message):
         compile(
             CompilationRequest(
-                locked,
-                1,
-            ),
+                locked),
             catalog,
         )
 
@@ -2398,7 +2296,6 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
             not in {
                 "contract_kind",
                 "contract_id",
-                "contract_version",
                 "schema_namespace",
                 "produced_observations",
             }
@@ -2432,14 +2329,12 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
             utility="novelty.linear",
         )
     )
-    locked = lock_workflow(workflow, limited_catalog)
+    locked = workflow
 
     with pytest.raises(WorkflowCompileError, match="cannot guarantee"):
         compile(
             CompilationRequest(
-                locked,
-                1,
-            ),
+                locked),
             limited_catalog,
         )
 
@@ -2473,9 +2368,7 @@ def test_compiler_rejects_weighting_across_different_candidate_inputs() -> None:
     ):
         compile(
             CompilationRequest(
-                lock_workflow(workflow, catalog),
-                1,
-            ),
+                workflow),
             catalog,
         )
 

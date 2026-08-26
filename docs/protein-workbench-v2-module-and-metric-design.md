@@ -1,11 +1,15 @@
 # Protein Workbench v2 后端模块、执行与指标合同
 
 日期：2026-07-27
-最后同步：2026-07-28
+最后同步：2026-08-26
 
 状态：历史蓝图，已实现并由
 [`protein_workbench_architecture.md`](protein_workbench_architecture.md) 与
 [`codebase-redesign.md`](codebase-redesign.md) 取代；非当前规范。
+文中保留的 internal version、descriptor digest 和 Contract Lock 形状均是历史设计；
+当前 stable-ID Catalog 与 Workflow Commit 决定分别见
+[ADR-0034](./adr/0034-single-active-catalog-and-scientific-operation.md) 和
+[ADR-0037](./adr/0037-workflow-drafts-and-immutable-workflow-commits.md)。
 
 前提：把 `.scratch/protein-workbench-backend-repair/spec.md` 完成后的后端视为 v1
 基线。本文只记录当时的目标设计，不要求兼容 v1，也不得据此恢复

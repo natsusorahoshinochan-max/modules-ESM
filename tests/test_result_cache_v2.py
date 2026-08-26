@@ -23,7 +23,6 @@ from core.catalog.declarations import (
 from core.catalog.model import (
     FrozenCatalog,
 )
-from core.catalog.canonical import canonical_sha256
 from core.catalog.port_contract import BehaviorReference
 from core.operation import (
     OperationCall,
@@ -32,7 +31,6 @@ from core.operation import (
 )
 from core.execution._node_attempt_identity import (
     _resolve_effective_randomness,
-    _result_contract_metadata,
     _result_identity_descriptor,
 )
 from core.execution.node_attempt import ExecutionTermination
@@ -58,7 +56,6 @@ from tests.test_run_runtime import (
     _direct_catalog,
     _pipeline_catalog,
 )
-from core.execution._run_runtime_evidence import plan_evidence
 
 
 def _start_run(
@@ -85,7 +82,7 @@ def _start_run(
     return projection, events
 
 
-def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
+def test_one_plan_facts_projection_drives_result_identity(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -129,17 +126,9 @@ def test_one_plan_facts_projection_drives_identity_cache_and_ledger(
                 {},
             ),
         )
-        cache_metadata = _result_contract_metadata(node)
-        ledger_plan_facts = plan_evidence(plan)[0]
 
     assert descriptor["result_identity_plan_facts"] == expected_projection
-    assert cache_metadata == {
-        "result_identity_plan_facts": expected_projection,
-    }
-    assert ledger_plan_facts.result_identity_plan_facts_digest == (
-        canonical_sha256(expected_projection)
-    )
-    assert observed_calls == [plan_facts, plan_facts, plan_facts]
+    assert observed_calls == [plan_facts]
 
 
 @pytest.mark.parametrize(
@@ -192,16 +181,14 @@ def _candidate_catalog(
     declare_root_node_as_parent: bool = False,
 ) -> FrozenCatalog:
     builtin = builtin_frozen_catalog()
-    candidates = builtin.require_port_type("candidate.collection", "4.0.0")
+    candidates = builtin.require_port_type("candidate.collection")
     method = _contract(
         "method",
         "test.candidate.method",
         {
             "algorithm_identity": {"name": "stable-candidate"},
             "model_identity": {"kind": "none"},
-            "checkpoint_identity": {"kind": "none"},
             "featurization_identity": {"kind": "none"},
-            "source_identity": {"kind": "contract-test"},
             "scale_contract": {"kind": "identity"},
         },
     )
@@ -228,12 +215,10 @@ def _candidate_catalog(
     )
     factory_behavior = BehaviorReference(
         "test.candidate/factory",
-        "2.1.0",
         {},
     )
     readiness_behavior = BehaviorReference(
         "test.candidate/readiness",
-        "2.1.0",
         {},
     )
     binding = _contract(
@@ -248,7 +233,6 @@ def _candidate_catalog(
             "availability_declaration": {
                 "behavior": {
                     "behavior_id": "test.candidate/availability",
-                    "behavior_version": "2.1.0",
                     "parameters": {},
                 },
                 "prerequisites": {},
@@ -259,10 +243,6 @@ def _candidate_catalog(
             },
             "deterministic": True,
             "cacheable": True,
-            "implementation_identity": {
-                "name": "test.candidate.direct",
-                "factory": factory_behavior.descriptor(),
-            },
             "produced_observations": [],
         },
     )
@@ -319,13 +299,13 @@ def _candidate_catalog(
         contracts=install_runtime(
             (method, node, binding),
             factories={
-                ("test.candidate.direct", "2.1.0"): ScientificOperationFactory(
+                "test.candidate.direct": ScientificOperationFactory(
                     behavior=factory_behavior,
                     build=factory,
                 )
             },
             readiness={
-                ("test.candidate.direct", "2.1.0"): ReadinessDeclaration(
+                "test.candidate.direct": ReadinessDeclaration(
                     behavior=readiness_behavior,
                     prerequisites={},
                     check=lambda environment: ReadinessResult(True),
@@ -351,16 +331,12 @@ def _commit_candidate_node(
             {
                 "node_id": "candidate-producer",
                 "node_type_id": "test.candidate",
-                "node_type_version": "2.1.0",
                 "binding_id": "test.candidate.direct",
-                "binding_version": "2.1.0",
                 "node_parameters": {},
                 "binding_parameters": {},
             }
         ],
-        "edges": [],
-        "contract_lock": [],
-    }
+        "edges": []}
     return project_id, _commit_public_workflow(client, project_id, workflow)
 
 
@@ -387,9 +363,7 @@ def test_deterministic_result_replays_without_rechecking_provider_readiness(
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -438,9 +412,7 @@ def test_node_instance_rename_reuses_the_same_scientific_result(
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -475,7 +447,7 @@ def test_node_instance_rename_reuses_the_same_scientific_result(
     ]
 
 
-def test_cache_v5_is_manifest_only_and_ledger_commits_node_result_manifest(
+def test_cache_entry_is_manifest_only_and_ledger_commits_node_result_manifest(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -486,9 +458,7 @@ def test_cache_v5_is_manifest_only_and_ledger_commits_node_result_manifest(
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -499,12 +469,10 @@ def test_cache_v5_is_manifest_only_and_ledger_commits_node_result_manifest(
     result_identity = first["outputs"][0]["result_identity"]
     digest = result_identity.removeprefix("sha256:")
     cache_path = (
-        cache_root / project_id / "v5" / "results" / f"{digest}.json"
+        cache_root / project_id / "results" / f"{digest}.json"
     )
     entry = json.loads(cache_path.read_bytes())
     assert entry == {
-        "schema_namespace": "protein-workbench-cache-entry/v5",
-        "result_identity": result_identity,
         "producer_run_id": first["run_id"],
         "node_result_manifest": entry["node_result_manifest"],
     }
@@ -528,7 +496,6 @@ def test_cached_manifest_restores_ordinary_and_artifact_output_ports(
     tmp_path,
     monkeypatch,
 ) -> None:
-    cache_root = tmp_path / "cache"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_artifact_catalog(
@@ -600,9 +567,7 @@ def test_cache_publication_failure_does_not_change_node_or_run_success(
     app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -765,7 +730,6 @@ def test_same_result_identity_is_physically_isolated_between_projects(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    project_root = tmp_path / "projects"
     cache_root = tmp_path / "cache"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
@@ -780,12 +744,10 @@ def test_same_result_identity_is_physically_isolated_between_projects(
             ),
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {
+            "test.direct.local": {
                     "credential": "credential-value",
                     "runtime_path": str(tmp_path / "private-runtime"),
-                },
-            }
+                }
         },
     )
 
@@ -819,21 +781,19 @@ def test_same_result_identity_is_physically_isolated_between_projects(
         "execute:test.direct.local",
     ]
     assert (
-        len(list((cache_root / first_project / "v5").rglob("*.json")))
+        len(list((cache_root / first_project).rglob("*.json")))
         == 1
     )
     assert (
-        len(list((cache_root / second_project / "v5").rglob("*.json")))
+        len(list((cache_root / second_project).rglob("*.json")))
         == 1
     )
 
 
-def test_runtime_credentials_paths_and_performance_choices_do_not_change_identity(
+def test_runtime_credentials_and_paths_do_not_change_identity(
     tmp_path,
     monkeypatch,
 ) -> None:
-    project_root = tmp_path / "projects"
-    cache_root = tmp_path / "cache"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     readiness = {
         "test.direct.local": lambda check_input: ReadinessResult(
@@ -852,17 +812,13 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                         "runtime_path",
                         "filesystem_path",
                     ),
-                    EnvironmentFieldDeclaration("device", "json_value"),
                 ),
             ),
             v2_environment_configuration={
-                ("test.direct.local", "2.1.0"): {
-                    "values": {
+                "test.direct.local": {
                         "credential": "secret-a",
                         "runtime_path": str(tmp_path / "private-a"),
-                        "device": "cpu",
-                    },
-                }
+                    }
             },
         )
     ) as first_client:
@@ -886,17 +842,13 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
                         "runtime_path",
                         "filesystem_path",
                     ),
-                    EnvironmentFieldDeclaration("device", "json_value"),
                 ),
             ),
             v2_environment_configuration={
-                ("test.direct.local", "2.1.0"): {
-                    "values": {
+                "test.direct.local": {
                         "credential": "secret-b",
                         "runtime_path": str(tmp_path / "private-b"),
-                        "device": "accelerator-7",
-                    },
-                }
+                    }
             },
         )
     ) as second_client:
@@ -921,18 +873,13 @@ def test_runtime_credentials_paths_and_performance_choices_do_not_change_identit
     assert "execute:test.direct.local" not in second_calls
 
 
-def test_presentation_only_contract_change_runs_in_the_current_generation(
+def test_presentation_only_catalog_change_preserves_result_identity(
     tmp_path,
     monkeypatch,
 ) -> None:
-    project_root = tmp_path / "projects"
-    cache_root = tmp_path / "cache"
-    run_root = tmp_path / "runs"
     monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
+        "test.direct.local": {"credential": "credential-value"}
     }
     first_calls: list[str] = []
     producer_catalog = _direct_catalog(
@@ -953,18 +900,6 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
             compiled,
             "presentation-a",
         )
-        producer_run_id = first["run_id"]
-
-    producer_ledger = run_root / project_id / producer_run_id / "ledger"
-    before = {
-        path.name: path.read_bytes()
-        for path in sorted(producer_ledger.glob("*.json"))
-    }
-    cache_entry = next((cache_root / project_id / "v5").rglob("*.json"))
-    cache_entry.unlink()
-    cache_entry.parent.rmdir()
-    cache_entry.parent.parent.rmdir()
-    cache_entry.parent.parent.parent.rmdir()
 
     second_calls: list[str] = []
     active_catalog = _direct_catalog(
@@ -973,133 +908,26 @@ def test_presentation_only_contract_change_runs_in_the_current_generation(
         node_title="Renamed UI label",
         execution_output="READY",
     )
-    assert producer_catalog.contract_digest != active_catalog.contract_digest
     with TestClient(
         create_application(
             frozen_catalog_override=active_catalog,
             v2_environment_configuration=environment,
         )
     ) as second_client:
-        rejected = second_client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "presentation-contract-change",
-            },
-        )
-        current_workflow = {
-            "schema_version": "2.1.0",
-            "workflow_id": project_id,
-            "nodes": [
-                {
-                    "node_id": "direct",
-                    "node_type_id": "test.direct",
-                    "node_type_version": "2.1.0",
-                    "binding_id": "test.direct.local",
-                    "binding_version": "2.1.0",
-                    "node_parameters": {},
-                    "binding_parameters": {},
-                }
-            ],
-            "edges": [],
-            "contract_lock": [],
-        }
-        current = _commit_public_workflow(
+        second, _events = _start_run(
             second_client,
-            project_id,
-            current_workflow,
-        )
-        current_run, _events = _start_run(
-            second_client,
-            project_id,
-            current,
-            "presentation-current",
-        )
-
-    assert rejected.status_code == 409
-    assert rejected.json()["error"]["code"] == "contract_digest_mismatch"
-    assert rejected.json()["error"]["details"]["issues"][0][
-        "field_path"
-    ] == ["contract_lock"]
-
-    after = {
-        path.name: path.read_bytes()
-        for path in sorted(producer_ledger.glob("*.json"))
-    }
-    assert first["node_dispositions"][0]["resolution"] == "executed"
-    assert "execute:test.direct.local" in first_calls
-    assert current_run["status"] == "succeeded"
-    assert current_run["node_dispositions"][0]["resolution"] == "executed"
-    assert "execute:test.direct.local" in second_calls
-    assert (cache_root / project_id).exists()
-    assert before == after
-
-
-def test_changed_implementation_identity_rejects_the_old_workflow_generation(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    project_root = tmp_path / "projects"
-    cache_root = tmp_path / "cache"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    environment = {
-        ("test.direct.local", "2.1.0"): {
-            "values": {"credential": "credential-value"},
-        }
-    }
-    first_calls: list[str] = []
-    with TestClient(
-        create_application(
-            frozen_catalog_override=_direct_catalog(
-                first_calls,
-                cacheable=True,
-                implementation_variant="algorithm",
-                implementation_label="algorithm-a",
-            ),
-            v2_environment_configuration=environment,
-        )
-    ) as first_client:
-        project_id, compiled = _commit_one_node(first_client)
-        first, _ = _start_run(
-            first_client,
             project_id,
             compiled,
-            "algorithm-a",
-        )
-        first_values = retrieve_typed_output_values(
-            first_client,
-            project_id,
-            first["run_id"],
-            first["outputs"][0],
+            "presentation-b",
         )
 
-    second_calls: list[str] = []
-    with TestClient(
-        create_application(
-            frozen_catalog_override=_direct_catalog(
-                second_calls,
-                cacheable=True,
-                execution_output="READY-B",
-                implementation_variant="algorithm",
-                implementation_label="algorithm-b",
-            ),
-            v2_environment_configuration=environment,
-        )
-    ) as second_client:
-        rejected = second_client.post(
-            f"/api/v2/projects/{project_id}/runs",
-            json={
-                "workflow_commit_id": compiled["workflow_commit_id"],
-                "client_request_id": "implementation-identity-change",
-            },
-        )
-
-    assert first_values == ["READY"]
-    assert rejected.status_code == 409
-    assert rejected.json()["error"]["code"] == "contract_digest_mismatch"
-    assert rejected.json()["error"]["details"]["issues"][0][
-        "field_path"
-    ] == ["contract_lock"]
+    assert first["node_dispositions"][0]["resolution"] == "executed"
+    assert "execute:test.direct.local" in first_calls
+    assert second["status"] == "succeeded"
+    assert second["node_dispositions"][0]["resolution"] == "cache_replayed"
+    assert second["outputs"][0]["result_identity"] == (
+        first["outputs"][0]["result_identity"]
+    )
     assert second_calls == []
 
 
@@ -1126,9 +954,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
             },
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1162,7 +988,7 @@ def test_changed_scientific_parameter_changes_result_identity_and_misses(
     assert second["node_dispositions"][0]["resolution"] == "executed"
     assert "parameters:{'scientific_label': 'alpha'}" in calls
     assert "parameters:{'scientific_label': 'beta'}" in calls
-    assert len(list((cache_root / project_id / "v5").rglob("*.json"))) == 2
+    assert len(list((cache_root / project_id).rglob("*.json"))) == 2
 
 
 @pytest.mark.parametrize(
@@ -1197,9 +1023,7 @@ def test_unsuccessful_or_unknown_outcomes_never_populate_cache(
             execution_action=terminate,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1239,9 +1063,7 @@ def test_uncontrolled_stochastic_binding_never_looks_up_or_publishes(
             deterministic=False,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 
@@ -1283,7 +1105,6 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
     resolver = EffectiveRandomnessResolver(
         behavior=BehaviorReference(
             "test.direct/effective-randomness",
-            "2.1.0",
             {"normalization": "increment-fixture"},
         ),
         resolve=resolve_randomness,
@@ -1304,9 +1125,7 @@ def test_effective_randomness_is_resolved_once_and_drives_execution(
             effective_randomness_resolver=resolver,
         ),
         v2_environment_configuration={
-            ("test.direct.local", "2.1.0"): {
-                "values": {"credential": "credential-value"},
-            }
+            "test.direct.local": {"credential": "credential-value"}
         },
     )
 

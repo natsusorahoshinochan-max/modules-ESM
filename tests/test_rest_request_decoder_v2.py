@@ -40,7 +40,7 @@ def _schema_example(schema: dict[str, Any]) -> Any:
             "ProjectInputReference": "input-1",
             "RunId": "run-1",
             "SemanticVersion": "2.1.0",
-            "WorkflowCommitId": "workflow-commit-" + "1" * 64,
+            "WorkflowCommitId": "workflow-commit-" + "1" * 32,
         }
         if name in named_examples:
             return named_examples[name]

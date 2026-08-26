@@ -108,13 +108,11 @@ class StructuredError:
 
 @dataclass(frozen=True, slots=True)
 class PublishedOutput:
-    node_id: str
     output_port: str
     port_type: ExactContractReference
     content_digest: str
-    result_identity: str
     materialization: object
-    producer_provenance: object
+    producer_run_id: str
     value_count: int
     value_manifest_reference: str
 
@@ -124,18 +122,12 @@ class PublishedOutput:
             "materialization",
             freeze_i_json(self.materialization),
         )
-        object.__setattr__(
-            self,
-            "producer_provenance",
-            freeze_i_json(self.producer_provenance),
-        )
 
 
 @dataclass(frozen=True, slots=True)
 class PublishedArtifact:
     artifact_reference: str
     artifact_kind: Literal["candidate", "standalone"]
-    node_id: str
     output_port: str
     media_type: str
     filename: str
@@ -210,13 +202,6 @@ class RunScopeBound:
     project_id: str
     run_id: str
     workflow_commit_id: str
-    workflow_commit_revision: int
-    workflow_digest: str
-    contract_lock_digest: str
-    execution_plan_digest: str
-    catalog_contract_digest: str
-    resolved_contracts: tuple[ExactContractReference, ...]
-    resolved_contract_roots: tuple[ExactContractReference, ...]
     plan_nodes: tuple[PlanNodeEvidence, ...]
     selection_terminal_keys: tuple[str, ...]
     derived_from: DerivedRunReference | None = None
@@ -232,17 +217,14 @@ class AvailabilityBound:
 @dataclass(frozen=True, slots=True)
 class ReadinessAttested:
     binding: ExactContractReference
-    readiness_contract_digest: str
     observed_at: str
     conclusion: Literal["passing", "failing"]
     proof_source: str
-    attestation_digest: str
 
 
 @dataclass(frozen=True, slots=True)
 class RunAdmitted:
     workflow_commit_id: str
-    workflow_commit_revision: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,17 +368,13 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
             not _valid_identifier(node.node_id)
             or node.dependencies != tuple(sorted(set(node.dependencies)))
             or any(dependency not in node_ids for dependency in node.dependencies)
-            or not _valid_digest(node.result_identity_plan_facts_digest)
             or node.execution_route not in {"direct", "adapter"}
             or type(node.selection_consumer) is not bool
         ):
             raise ValueError("Run plan evidence is invalid")
+        _require_reference_kind(node.node_type, expected_kind="node_type")
         _require_reference_kind(node.binding, expected_kind="binding")
-        if node.node_type is not None:
-            _require_reference_kind(
-                node.node_type,
-                expected_kind="node_type",
-            )
+        _require_reference_kind(node.method, expected_kind="method")
         if (
             node.required_input_sources != tuple(
                 sorted(
@@ -455,10 +433,8 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
 
 def _validate_published_output(output: PublishedOutput) -> None:
     if (
-        not _valid_identifier(output.node_id)
-        or not _valid_identifier(output.output_port)
+        not _valid_identifier(output.output_port)
         or not _valid_digest(output.content_digest)
-        or not _valid_digest(output.result_identity)
         or type(output.value_count) is not int
         or not 0 <= output.value_count <= 65_536
         or not _valid_digest(output.value_manifest_reference)
@@ -472,7 +448,6 @@ def _validate_artifact(artifact: PublishedArtifact) -> None:
         artifact.artifact_kind not in {"candidate", "standalone"}
         or type(artifact.artifact_reference) is not str
         or not artifact.artifact_reference
-        or not _valid_identifier(artifact.node_id)
         or not _valid_identifier(artifact.output_port)
         or type(artifact.media_type) is not str
         or not artifact.media_type
@@ -673,17 +648,6 @@ def validate_fact_payload(payload: FactPayload) -> None:
             not _valid_identifier(payload.project_id)
             or not _valid_identifier(payload.run_id)
             or not _valid_identifier(payload.workflow_commit_id)
-            or type(payload.workflow_commit_revision) is not int
-            or payload.workflow_commit_revision < 1
-            or not all(
-                _valid_digest(value)
-                for value in (
-                    payload.workflow_digest,
-                    payload.contract_lock_digest,
-                    payload.execution_plan_digest,
-                    payload.catalog_contract_digest,
-                )
-            )
             or payload.selection_terminal_keys
             != tuple(dict.fromkeys(payload.selection_terminal_keys))
         ):
@@ -718,20 +682,14 @@ def validate_fact_payload(payload: FactPayload) -> None:
     if isinstance(payload, ReadinessAttested):
         _require_reference_kind(payload.binding, expected_kind="binding")
         if (
-            not _valid_digest(payload.readiness_contract_digest)
-            or not _valid_timestamp(payload.observed_at)
+            not _valid_timestamp(payload.observed_at)
             or payload.conclusion not in {"passing", "failing"}
             or not _valid_identifier(payload.proof_source)
-            or not _valid_digest(payload.attestation_digest)
         ):
             raise ValueError("Readiness evidence is invalid")
         return
     if isinstance(payload, RunAdmitted):
-        if (
-            not _valid_identifier(payload.workflow_commit_id)
-            or type(payload.workflow_commit_revision) is not int
-            or payload.workflow_commit_revision < 1
-        ):
+        if not _valid_identifier(payload.workflow_commit_id):
             raise ValueError("Run admission evidence is invalid")
         return
     if isinstance(payload, (RunStarted, CancellationRequested)):
@@ -760,7 +718,7 @@ def validate_fact_payload(payload: FactPayload) -> None:
             not _valid_identifier(payload.invocation_id)
             or not _valid_identifier(payload.operation_attempt_id)
             or not _valid_identifier(payload.engine_role)
-            or not _valid_digest(payload.engine_identity)
+            or not _valid_identifier(payload.engine_identity)
             or (
                 payload.parent_invocation_id is not None
                 and not _valid_identifier(payload.parent_invocation_id)
@@ -795,15 +753,8 @@ def validate_fact_payload(payload: FactPayload) -> None:
             raise ValueError("Typed Output publication is invalid")
         for output in payload.outputs:
             _validate_published_output(output)
-            if (
-                output.node_id != payload.node_id
-                or output.result_identity != payload.result_identity
-            ):
-                raise ValueError("Typed Output publication is inconsistent")
         for artifact in payload.artifacts:
             _validate_artifact(artifact)
-            if artifact.node_id != payload.node_id:
-                raise ValueError("Artifact publication is inconsistent")
         return
     if isinstance(payload, OperationAttemptTerminal):
         if (

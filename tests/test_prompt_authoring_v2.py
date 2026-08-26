@@ -36,9 +36,7 @@ from tests.fixtures.prompt_authoring_sources.package import (
 )
 from tests.fixtures.prompt_authoring_v2 import (
     SOURCE_LAYOUT,
-    SOURCE_VERSION,
     TARGET_LAYOUT,
-    VERSION,
     wire_value,
 )
 
@@ -69,36 +67,34 @@ def test_prompt_authoring_is_one_package_with_twelve_independent_nodes() -> None
 
     catalog = build_frozen_catalog(module_registrations())
     assert {
-        (contract.contract_id, contract.contract_version)
+        contract.contract_id
         for contract in catalog.contracts
         if contract.contract_kind == "node_type"
         and contract.contract_id.startswith("prompt_authoring.")
     } == {
-        ("prompt_authoring.add_function_annotation", VERSION),
-        ("prompt_authoring.assemble_protein_prompt", VERSION),
-        ("prompt_authoring.build_residue_layout", VERSION),
-        ("prompt_authoring.edit_residue_layout", VERSION),
-        ("prompt_authoring.insert_masked_residues", VERSION),
-        ("prompt_authoring.map_residue_track", VERSION),
-        ("prompt_authoring.override_residue_track", VERSION),
-        ("prompt_authoring.override_protein_prompt_track", VERSION),
-        ("prompt_authoring.prompt_from_structure", "5.0.0"),
-        ("prompt_authoring.random_insert_masked", VERSION),
-        ("prompt_authoring.random_mask", VERSION),
-        ("prompt_authoring.update_prompt_sequence", VERSION),
+        "prompt_authoring.add_function_annotation",
+        "prompt_authoring.assemble_protein_prompt",
+        "prompt_authoring.build_residue_layout",
+        "prompt_authoring.edit_residue_layout",
+        "prompt_authoring.insert_masked_residues",
+        "prompt_authoring.map_residue_track",
+        "prompt_authoring.override_residue_track",
+        "prompt_authoring.override_protein_prompt_track",
+        "prompt_authoring.prompt_from_structure",
+        "prompt_authoring.random_insert_masked",
+        "prompt_authoring.random_mask",
+        "prompt_authoring.update_prompt_sequence",
     }
 
 
-def test_prompt_from_structure_uses_a_fresh_exact_method_identity() -> None:
+def test_prompt_from_structure_declares_its_scientific_method() -> None:
     catalog = build_frozen_catalog(
         (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
     )
 
     method = catalog.require_contract(
         "method",
-        "prompt_authoring.prompt_from_structure.method",
-        "3.0.0",
-    )
+        "prompt_authoring.prompt_from_structure.method")
     assert method.descriptor["algorithm_identity"] == {
         "name": "canonical-resolved-axis-to-protein-prompt",
         "residue_identity": "resolved-axis-layout-order",
@@ -109,26 +105,11 @@ def test_prompt_from_structure_uses_a_fresh_exact_method_identity() -> None:
 
     binding = catalog.require_contract(
         "binding",
-        "prompt_authoring.prompt_from_structure.direct",
-        "5.0.0",
-    )
-    assert binding.descriptor["method"]["contract_version"] == "3.0.0"
-
-    assert catalog.get_contract(
-        "method",
-        "prompt_authoring.prompt_from_structure.method",
-        "2.1.0",
-    ) is None
-    assert catalog.get_contract(
-        "node_type",
-        "prompt_authoring.prompt_from_structure",
-        "4.0.0",
-    ) is None
-    assert catalog.get_contract(
-        "binding",
-        "prompt_authoring.prompt_from_structure.direct",
-        "4.0.0",
-    ) is None
+        "prompt_authoring.prompt_from_structure.direct")
+    assert binding.descriptor["method"] == {
+        "contract_kind": "method",
+        "contract_id": "prompt_authoring.prompt_from_structure.method",
+    }
 
 
 def test_prompt_sasa_nominal_ports_fix_absolute_square_angstrom_semantics() -> None:
@@ -142,22 +123,18 @@ def test_prompt_sasa_nominal_ports_fix_absolute_square_angstrom_semantics() -> N
     }
 
     sasa_track = catalog.require_port_type(
-        "prompt_authoring.track.sasa",
-        VERSION,
-    )
+        "prompt_authoring.track.sasa")
     assert sasa_track.validator.parameters["quantity_contract"] == (
         quantity_contract
     )
 
-    protein_prompt = catalog.require_port_type("protein.prompt", VERSION)
+    protein_prompt = catalog.require_port_type("protein.prompt")
     assert protein_prompt.validator.parameters["track_contracts"] == {
         "sasa_track": quantity_contract,
     }
     assemble = catalog.require_contract(
         "node_type",
-        "prompt_authoring.assemble_protein_prompt",
-        VERSION,
-    )
+        "prompt_authoring.assemble_protein_prompt")
     assemble_sasa_input = next(
         port
         for port in assemble.descriptor["inputs"]
@@ -169,9 +146,7 @@ def test_prompt_sasa_nominal_ports_fix_absolute_square_angstrom_semantics() -> N
 _SOURCE = WorkflowNodeInstance(
     node_id="source",
     node_type_id="contract_test.prompt_authoring_values",
-    node_type_version=SOURCE_VERSION,
     binding_id="contract_test.prompt_authoring_values.direct",
-    binding_version=SOURCE_VERSION,
     node_parameters={},
     binding_parameters={},
 )
@@ -204,7 +179,6 @@ _PROTEIN_PROMPT = ProteinPrompt(
 _TRACK_PORT_CASES = (
     ModulePackagePortCase(
         "prompt_authoring.track.sequence",
-        VERSION,
         AlignedResidueTrack(SOURCE_LAYOUT, ("A", None, "S")),
         (
             AlignedResidueTrack(SOURCE_LAYOUT, ("A", "?", "S")),
@@ -213,7 +187,6 @@ _TRACK_PORT_CASES = (
     ),
     ModulePackagePortCase(
         "prompt_authoring.track.structure",
-        VERSION,
         AlignedResidueTrack(
             SOURCE_LAYOUT,
             (
@@ -235,25 +208,21 @@ _TRACK_PORT_CASES = (
     ),
     ModulePackagePortCase(
         "prompt_authoring.track.visibility",
-        VERSION,
         AlignedResidueTrack(SOURCE_LAYOUT, (True, None, False)),
         (AlignedResidueTrack(SOURCE_LAYOUT, (True, "visible", False)),),
     ),
     ModulePackagePortCase(
         "prompt_authoring.track.secondary_structure",
-        VERSION,
         AlignedResidueTrack(SOURCE_LAYOUT, ("H", None, "-")),
         (AlignedResidueTrack(SOURCE_LAYOUT, ("helix", None, "-")),),
     ),
     ModulePackagePortCase(
         "prompt_authoring.track.sasa",
-        VERSION,
         AlignedResidueTrack(SOURCE_LAYOUT, (0.0, None, 42.5)),
         (AlignedResidueTrack(SOURCE_LAYOUT, (0.0, None, -1.0)),),
     ),
     ModulePackagePortCase(
         "function.annotations",
-        "3.0.0",
         _ANNOTATIONS,
         (
             FunctionAnnotations([
@@ -271,7 +240,6 @@ _TRACK_PORT_CASES = (
     ),
     ModulePackagePortCase(
         "protein.prompt",
-        VERSION,
         _PROTEIN_PROMPT,
         (
             ProteinPrompt(
@@ -292,11 +260,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-add-function",
                 node_type_id="prompt_authoring.add_function_annotation",
-                node_type_version=VERSION,
                 binding_id=(
                     "prompt_authoring.add_function_annotation.direct"
                 ),
-                binding_version=VERSION,
                 node_parameters={
                     "annotation": {
                         "label": "active_site",
@@ -321,11 +287,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-assemble",
                 node_type_id="prompt_authoring.assemble_protein_prompt",
-                node_type_version=VERSION,
                 binding_id=(
                     "prompt_authoring.assemble_protein_prompt.direct"
                 ),
-                binding_version=VERSION,
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
@@ -354,9 +318,7 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-build-layout",
                 node_type_id="prompt_authoring.build_residue_layout",
-                node_type_version=VERSION,
                 binding_id="prompt_authoring.build_residue_layout.direct",
-                binding_version=VERSION,
                 node_parameters={
                     "chains": [
                         {"chain_id": "A", "length": 2},
@@ -372,9 +334,7 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-edit-layout",
                 node_type_id="prompt_authoring.edit_residue_layout",
-                node_type_version=VERSION,
                 binding_id="prompt_authoring.edit_residue_layout.direct",
-                binding_version=VERSION,
                 node_parameters={
                     "edits": [
                         {
@@ -416,9 +376,7 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-map-track",
                 node_type_id="prompt_authoring.map_residue_track",
-                node_type_version=VERSION,
                 binding_id="prompt_authoring.map_residue_track.direct",
-                binding_version=VERSION,
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
@@ -450,9 +408,7 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-override-track",
                 node_type_id="prompt_authoring.override_residue_track",
-                node_type_version=VERSION,
                 binding_id="prompt_authoring.override_residue_track.direct",
-                binding_version=VERSION,
                 node_parameters={
                     "overrides": [
                         {
@@ -500,11 +456,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-update-sequence",
                 node_type_id="prompt_authoring.update_prompt_sequence",
-                node_type_version=VERSION,
                 binding_id=(
                     "prompt_authoring.update_prompt_sequence.direct"
                 ),
-                binding_version=VERSION,
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
@@ -527,9 +481,7 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-random-mask",
                 node_type_id="prompt_authoring.random_mask",
-                node_type_version=VERSION,
                 binding_id="prompt_authoring.random_mask.direct",
-                binding_version=VERSION,
                 node_parameters={
                     "effective_seed": 73,
                     "count": 1,
@@ -551,11 +503,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-prompt-from-structure",
                 node_type_id="prompt_authoring.prompt_from_structure",
-                node_type_version="5.0.0",
                 binding_id=(
                     "prompt_authoring.prompt_from_structure.direct"
                 ),
-                binding_version="5.0.0",
                 node_parameters={},
                 binding_parameters={},
                 environment_values={},
@@ -574,11 +524,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
                 node_type_id=(
                     "prompt_authoring.override_protein_prompt_track"
                 ),
-                node_type_version=VERSION,
                 binding_id=(
                     "prompt_authoring.override_protein_prompt_track.direct"
                 ),
-                binding_version=VERSION,
                 node_parameters={
                     "track": "secondary_structure",
                     "overrides": [
@@ -604,11 +552,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-random-insert",
                 node_type_id="prompt_authoring.random_insert_masked",
-                node_type_version=VERSION,
                 binding_id=(
                     "prompt_authoring.random_insert_masked.direct"
                 ),
-                binding_version=VERSION,
                 node_parameters={
                     "effective_seed": 73,
                     "count": 1,
@@ -629,11 +575,9 @@ def test_all_twelve_nodes_execute_through_shared_contract_kit(
             ModulePackageContractCase(
                 case_id="prompt-authoring-deterministic-insert",
                 node_type_id="prompt_authoring.insert_masked_residues",
-                node_type_version=VERSION,
                 binding_id=(
                     "prompt_authoring.insert_masked_residues.direct"
                 ),
-                binding_version=VERSION,
                 node_parameters={
                     "insertions": [{
                         "after_residue_id": "A:1",
@@ -686,18 +630,12 @@ def test_prompt_from_structure_consumes_only_the_resolved_residue_axis() -> None
     )
     definition = catalog.require_contract(
         "node_type",
-        "prompt_authoring.prompt_from_structure",
-        "5.0.0",
-    )
+        "prompt_authoring.prompt_from_structure")
 
     inputs = definition.descriptor["inputs"]
     assert len(inputs) == 1
     assert inputs[0]["name"] == "residue_axis"
-    assert {
-        key: inputs[0]["port_type"][key]
-        for key in ("contract_kind", "contract_id", "contract_version")
-    } == {
+    assert inputs[0]["port_type"] == {
         "contract_kind": "port_type",
         "contract_id": "structure_transform.resolved_residue_axis",
-        "contract_version": "4.0.0",
     }

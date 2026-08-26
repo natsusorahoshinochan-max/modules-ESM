@@ -19,8 +19,6 @@ from .declarations import (
     _admit_parameter_declarations,
     _freeze_declaration,
     _require_identifier,
-    _require_schema_version,
-    _require_version,
 )
 from core.catalog.errors import CatalogBuildError
 from .port_contract import is_valid_artifact_media_type
@@ -49,30 +47,6 @@ class DefinitionResource:
     resource: str
 
 
-class _UniqueKeySafeLoader(yaml.SafeLoader):
-    pass
-
-
-def _construct_unique_mapping(
-    loader: _UniqueKeySafeLoader,
-    node: yaml.MappingNode,
-    deep: bool = False,
-) -> dict[Any, Any]:
-    pairs = loader.construct_pairs(node, deep=deep)
-    result: dict[Any, Any] = {}
-    for key, value in pairs:
-        if key in result:
-            raise CatalogBuildError(f"duplicate YAML object key {key!r}")
-        result[key] = value
-    return result
-
-
-_UniqueKeySafeLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
-    _construct_unique_mapping,
-)
-
-
 def load_method_definitions(
     package_module: str,
     resource: str,
@@ -83,25 +57,19 @@ def load_method_definitions(
     )
     return tuple(
         MethodDefinition(**item)
-        for item in yaml.load(content, Loader=_UniqueKeySafeLoader)
+        for item in yaml.safe_load(content)
     )
 
 
-def _closed_object(
+def _required_object(
     raw: Any,
     *,
     resource_name: str,
     required: set[str],
-    allowed: set[str],
 ) -> dict[str, Any]:
     if not isinstance(raw, dict):
         raise CatalogBuildError(f"{resource_name} must contain one YAML object")
-    unknown = set(raw) - allowed
     missing = required - set(raw)
-    if unknown:
-        raise CatalogBuildError(
-            f"{resource_name} contains unknown fields: {sorted(unknown)}"
-        )
     if missing:
         raise CatalogBuildError(
             f"{resource_name} is missing required fields: {sorted(missing)}"
@@ -115,35 +83,21 @@ def _parse_port(
     resource_name: str,
     allow_artifact_publication: bool = False,
 ) -> NodePortDefinition:
-    port = _closed_object(
+    port = _required_object(
         raw,
         resource_name=resource_name,
         required={
             "name",
             "port_type_id",
-            "port_type_version",
             "required",
             "multiplicity",
             "scientific_meaning",
-        },
-        allowed={
-            "name",
-            "port_type_id",
-            "port_type_version",
-            "port_type_digest",
-            "required",
-            "multiplicity",
-            "scientific_meaning",
-            "artifact_kind",
-            "artifact_media_type",
         },
     )
     _require_identifier(port["name"], f"{resource_name}.name")
     reference = ContractIdentity(
         "port_type",
         port["port_type_id"],
-        port["port_type_version"],
-        port.get("port_type_digest"),
     )
     if type(port["required"]) is not bool:
         raise CatalogBuildError(f"{resource_name}.required must be boolean")
@@ -180,9 +134,7 @@ def _parse_port(
 
 def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
     required = {
-        "schema_version",
         "node_type_id",
-        "version",
         "title",
         "summary",
         "category",
@@ -191,15 +143,12 @@ def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
         "parameter_groups",
         "node_parameters",
     }
-    node = _closed_object(
+    node = _required_object(
         raw,
         resource_name=resource_name,
         required=required,
-        allowed={*required, "input_constraints"},
     )
-    _require_schema_version(node["schema_version"], "Node Definition")
     _require_identifier(node["node_type_id"], "node_type_id")
-    _require_version(node["version"], "Node Type version")
     if not isinstance(node["inputs"], list) or not isinstance(
         node["outputs"],
         list,
@@ -228,11 +177,10 @@ def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
     input_constraints: list[tuple[str, ...]] = []
     constrained_ports: set[str] = set()
     for index, raw_constraint in enumerate(raw_input_constraints):
-        constraint = _closed_object(
+        constraint = _required_object(
             raw_constraint,
             resource_name=f"{resource_name}.input_constraints[{index}]",
             required={"kind", "ports"},
-            allowed={"kind", "ports"},
         )
         ports = constraint["ports"]
         if (
@@ -252,11 +200,10 @@ def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
         input_constraints.append(tuple(ports))
     parameter_contract = _admit_parameter_declarations(
         node["node_parameters"],
-        path=f"node_type:{node['node_type_id']}@{node['version']}.node_parameters",
+        path=f"node_type:{node['node_type_id']}.node_parameters",
     )
     return NodeTypeDefinition(
         node_type_id=node["node_type_id"],
-        version=node["version"],
         title=node["title"],
         summary=node["summary"],
         category=node["category"],
@@ -271,9 +218,7 @@ def _parse_node_definition(raw: Any, resource_name: str) -> NodeTypeDefinition:
 
 def _parse_metric_definition(raw: Any, resource_name: str) -> MetricDefinition:
     required = {
-        "schema_version",
         "metric_id",
-        "version",
         "title",
         "description",
         "value_shape",
@@ -285,15 +230,12 @@ def _parse_metric_definition(raw: Any, resource_name: str) -> MetricDefinition:
         "observation_context_schema",
         "validation_contract",
     }
-    metric = _closed_object(
+    metric = _required_object(
         raw,
         resource_name=resource_name,
         required=required,
-        allowed=required,
     )
-    _require_schema_version(metric["schema_version"], "Metric Definition")
     _require_identifier(metric["metric_id"], "metric_id")
-    _require_version(metric["version"], "Metric version")
     if not isinstance(metric["unit"], str) or not metric["unit"]:
         raise CatalogBuildError("Metric Definition unit must be non-empty")
     _require_identifier(metric["value_shape"], "value_shape")
@@ -357,7 +299,6 @@ def _parse_metric_definition(raw: Any, resource_name: str) -> MetricDefinition:
         raise CatalogBuildError("Metric masking contract must be an object")
     return MetricDefinition(
         metric_id=metric["metric_id"],
-        version=metric["version"],
         title=metric["title"],
         description=metric["description"],
         value_shape=metric["value_shape"],
@@ -389,7 +330,7 @@ def _load_definition_resource(
         .read_text(encoding="utf-8")
     )
     try:
-        raw = yaml.load(content, Loader=_UniqueKeySafeLoader)
+        raw = yaml.safe_load(content)
     except yaml.YAMLError as error:
         raise CatalogBuildError(
             f"{registration.package_id}:{resource_reference.resource} "

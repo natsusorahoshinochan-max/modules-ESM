@@ -17,6 +17,7 @@ import pytest
 
 import verification.backend as verify_backend
 from protein_workbench_public.workflow_codec import decode_workflow_document
+from core.workflow.compiler import CompilationRequest, compile
 from verification.acceptance_campaign import (
     CAMPAIGN_SCHEMA_NAMESPACE,
     CAMPAIGN_DEFINITION_SCHEMA_NAMESPACE,
@@ -66,20 +67,9 @@ def _prepared_campaign(
     (root / "artifacts" / "protein_workbench.tar.gz").write_bytes(b"sdist")
     manifest: dict[str, object] = {
         "schema_namespace": CAMPAIGN_SCHEMA_NAMESPACE,
-        "source_revision": "a" * 40,
         "candidate": {
-            "wheel": {
-                "path": "artifacts/protein_workbench.whl",
-                "sha256": (
-                    "ba59926159d2aa256eb8739b8da7e2b574b960e1202c6d624cbe981cef996c91"
-                ),
-            },
-            "sdist": {
-                "path": "artifacts/protein_workbench.tar.gz",
-                "sha256": (
-                    "714772a9f82b2aeb4fa5f7092d00fe4ac4c9cdeb6800840b6ed39ea64c4d785a"
-                ),
-            },
+            "wheel": {"path": "artifacts/protein_workbench.whl"},
+            "sdist": {"path": "artifacts/protein_workbench.tar.gz"},
         },
         "definition": acceptance_definition(),
         "execution_profile": profile.public_definition(),
@@ -111,7 +101,6 @@ def _outcome(
         (retained_root / diagnostic).write_text("diagnostic\n")
     return TierExecutionOutcome(
         tier=tier_name,
-        source_revision="a" * 40,
         retained_location=retained_relative.as_posix(),
         conclusion=conclusion,
         tests=1,
@@ -204,16 +193,7 @@ def test_source_bound_tiers_fix_current_exact_inputs_and_workflows() -> None:
         workflow = decode_workflow_document(
             json.loads(workflow_path.read_text(encoding="utf-8"))
         )
-        assert workflow.contract_lock
-        assert all(
-            catalog.require_contract(
-                reference.contract_kind,
-                reference.contract_id,
-                reference.contract_version,
-            ).contract_digest
-            == reference.contract_digest
-            for reference in workflow.contract_lock
-        )
+        compile(CompilationRequest(workflow), catalog)
 
 
 def test_campaign_definition_projects_every_execution_fact_from_that_sequence() -> None:
@@ -280,11 +260,7 @@ def test_execution_profile_projects_only_one_tiers_declared_configuration(
     }
     assert "PYTHONPATH" not in environment
     assert "HTTPS_PROXY" not in environment
-    public_definition = profile.public_definition()
-    assert public_definition["content_digest"].startswith("sha256:")
-    assert len(public_definition["content_digest"]) == 71
-    assert public_definition == {
-        "content_digest": public_definition["content_digest"],
+    assert profile.public_definition() == {
         "provider_configuration_names": sorted(
             profile.provider_configuration
         ),
@@ -348,7 +324,7 @@ def test_execution_profile_preserves_credential_path_no_follow_semantics(
     ] == str(link_path)
 
 
-def test_prepare_binds_candidate_plan_revision_and_redacted_profile(
+def test_prepare_binds_candidate_plan_and_redacted_profile(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -356,7 +332,6 @@ def test_prepare_binds_candidate_plan_revision_and_redacted_profile(
 
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
 
     def build(command: list[str], **_kwargs: object) -> None:
         artifact_root = Path(command[-1])
@@ -370,20 +345,9 @@ def test_prepare_binds_candidate_plan_revision_and_redacted_profile(
 
     assert manifest == {
         "schema_namespace": CAMPAIGN_SCHEMA_NAMESPACE,
-        "source_revision": "a" * 40,
         "candidate": {
-            "wheel": {
-                "path": "artifacts/protein_workbench.whl",
-                "sha256": (
-                    "ba59926159d2aa256eb8739b8da7e2b574b960e1202c6d624cbe981cef996c91"
-                ),
-            },
-            "sdist": {
-                "path": "artifacts/protein_workbench.tar.gz",
-                "sha256": (
-                    "714772a9f82b2aeb4fa5f7092d00fe4ac4c9cdeb6800840b6ed39ea64c4d785a"
-                ),
-            },
+            "wheel": {"path": "artifacts/protein_workbench.whl"},
+            "sdist": {"path": "artifacts/protein_workbench.tar.gz"},
         },
         "definition": acceptance_definition(),
         "execution_profile": profile.public_definition(),
@@ -405,7 +369,6 @@ def test_campaign_admits_structured_outcomes_once_in_exact_serial_order(
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
     observed: list[tuple[str, set[str]]] = []
 
     def run_tier(
@@ -454,7 +417,6 @@ def test_campaign_admits_structured_outcomes_once_in_exact_serial_order(
     )
     assert campaign_status(root) == {
         "state": "passed",
-        "source_revision": "a" * 40,
         "passed_tiers": len(CANONICAL_ACCEPTANCE_TIERS),
         "total_tiers": len(CANONICAL_ACCEPTANCE_TIERS),
         "outcomes": {
@@ -474,62 +436,12 @@ def test_campaign_requires_the_candidate_bound_during_prepare(
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
     (root / "artifacts" / "protein_workbench.whl").unlink()
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
-
     with pytest.raises(RuntimeError, match="candidate is missing"):
         run_campaign(root, profile)
 
     assert json.loads((root / "campaign.json").read_text())["state"] == (
         "prepared"
     )
-
-
-def test_campaign_rejects_candidate_content_changed_after_prepare(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import verification.acceptance_campaign as campaign
-
-    profile = ExecutionProfile.load(_write_profile(tmp_path))
-    root = tmp_path / "campaign"
-    _prepared_campaign(root, profile)
-    (root / "artifacts" / "protein_workbench.whl").write_bytes(
-        b"different-wheel"
-    )
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
-    monkeypatch.setattr(
-        campaign,
-        "_run_tier",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("changed candidate must not execute")
-        ),
-    )
-
-    with pytest.raises(RuntimeError, match="candidate changed"):
-        run_campaign(root, profile)
-
-
-def test_campaign_rejects_private_profile_changed_after_prepare(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import verification.acceptance_campaign as campaign
-
-    prepared_profile = ExecutionProfile.load(_write_profile(tmp_path / "first"))
-    replacement_profile = ExecutionProfile.load(_write_profile(tmp_path / "second"))
-    root = tmp_path / "campaign"
-    _prepared_campaign(root, prepared_profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
-    monkeypatch.setattr(
-        campaign,
-        "_run_tier",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            AssertionError("changed profile must not execute")
-        ),
-    )
-
-    with pytest.raises(RuntimeError, match="execution profile changed"):
-        run_campaign(root, replacement_profile)
 
 
 def test_campaign_stops_at_first_failed_outcome_without_making_it_a_result(
@@ -541,7 +453,6 @@ def test_campaign_stops_at_first_failed_outcome_without_making_it_a_result(
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
     observed: list[str] = []
 
     def run_tier(
@@ -580,8 +491,6 @@ def test_passed_child_conclusion_cannot_authorize_incomplete_acceptance_result(
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
-
     def run_tier(
         campaign_root: Path,
         tier: object,
@@ -612,7 +521,6 @@ def test_campaign_interruption_closes_only_finished_tier_executions(
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
     attempts = 0
 
     def run_tier(
@@ -723,26 +631,6 @@ def test_verifier_admits_junit_once_before_projecting_diagnostics(
     assert junit_reads == 1
 
 
-def test_interpreter_digest_failure_remains_diagnostic(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    executable = Path(sys.executable).resolve()
-    path_open = Path.open
-
-    def fail_for_interpreter(
-        path: Path,
-        *args: object,
-        **kwargs: object,
-    ) -> object:
-        if path == executable:
-            raise OSError("diagnostic unavailable")
-        return path_open(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "open", fail_for_interpreter)
-
-    assert verify_backend._interpreter_digest() is None
-
-
 def test_child_return_code_and_stdout_cannot_override_structured_outcome(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -752,8 +640,6 @@ def test_child_return_code_and_stdout_cannot_override_structured_outcome(
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
-
     def run_child(
         command: list[str],
         **_kwargs: object,
@@ -793,7 +679,6 @@ def test_completed_child_without_structured_outcome_fails_campaign(
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
     monkeypatch.setattr(
         campaign.subprocess,
         "run",
@@ -821,8 +706,6 @@ def test_structured_outcome_rejects_noncanonical_retained_locations(
     profile = ExecutionProfile.load(_write_profile(tmp_path))
     root = tmp_path / "campaign"
     _prepared_campaign(root, profile)
-    monkeypatch.setattr(campaign, "_git_authority", lambda: ("a" * 40, False))
-
     def run_tier(
         campaign_root: Path,
         tier: object,

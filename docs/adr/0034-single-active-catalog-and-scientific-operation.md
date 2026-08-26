@@ -22,13 +22,13 @@ definition. The current runtime must never replay such an entry. The application
 does not preserve an old reader, migration, parallel generation, or alternate
 decoder for superseded internal contracts.
 
-The complete Catalog scientific relationship gate belongs to build and test. It
-validates Node/Binding ownership, Port compatibility, Candidate and Observation
-subjects, Metric schemas, residue-axis requirements, dependency closure, and
-other relations that protect scientific module inputs and outputs. Runtime
-startup consumes the admitted typed registrations and checks only the minimum
-invariants required to start: stable-ID uniqueness, required references, and
-implementation or Adapter resolvability.
+The Catalog builder validates stable-ID uniqueness, required references,
+implementation or Adapter resolvability, Node/Binding ownership, Port
+compatibility, Candidate and Observation subjects, Metric schemas, residue-axis
+requirements, dependency closure, and the other relations that protect
+scientific module inputs and outputs. The same direct builder is used for startup
+and build/test verification; there is no generated registration layer or second
+validation architecture.
 
 Workflow admission resolves stable IDs into an immutable in-process Execution
 Plan. Before execution crosses the scientific-operation seam, the plan has

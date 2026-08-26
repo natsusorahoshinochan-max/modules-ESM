@@ -1,20 +1,16 @@
-schema_version: "2.1.0"
 node_type_id: structure_transform.extract_sequence
-version: "4.0.0"
 title: Extract structure sequence
 summary: Projects the exact parent sequence and residue identities from one resolved structure residue axis.
 category: structure_transform
 inputs:
   - name: residue_axis
     port_type_id: structure_transform.resolved_residue_axis
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: The sole admitted parent residue population and identities for the structure.
 outputs:
   - name: sequence
     port_type_id: protein.sequence
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact axis parent sequence with unchanged chain-qualified residue correspondence.

@@ -1,20 +1,16 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.proteinmpnn_structure_candidateize
-version: "2.0.0"
 title: Candidateize one ProteinMPNN structure fixture
 summary: Wraps one independently supplied structure in exactly one Candidate for collection-only ProteinMPNN contract tests.
 category: contract_test
 inputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact fixture structure to identify as one parent Candidate.
 outputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one structure Candidate preserving the supplied structure bytes.

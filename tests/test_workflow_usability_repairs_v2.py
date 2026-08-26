@@ -38,11 +38,6 @@ from tests.fixtures.structure_transform_sources.package import (
 
 
 VERSION = "2.1.0"
-STRUCTURE_VERSION = "4.0.0"
-NORMALIZE_CSH_VERSION = "5.0.0"
-SOURCE_VERSION = "6.0.0"
-PROMPT_EDIT_VERSION = "3.0.0"
-PROMPT_FROM_STRUCTURE_VERSION = "5.0.0"
 
 
 def _run(
@@ -67,9 +62,7 @@ def _run(
             schema_version=VERSION,
             workflow_id=project.id,
             nodes=nodes,
-            edges=edges,
-            contract_lock=(),
-        ),
+            edges=edges),
     )
     service = V2RunService(
         projects,
@@ -118,38 +111,30 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_transform_source",
-        node_type_version=SOURCE_VERSION,
         binding_id="contract_test.structure_transform_source.direct",
-        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": "2emo"},
         binding_parameters={},
     )
     normalize = WorkflowNodeInstance(
         node_id="normalize",
         node_type_id="structure_transform.normalize_csh_parent_span",
-        node_type_version=NORMALIZE_CSH_VERSION,
         binding_id=(
             "structure_transform.normalize_csh_parent_span.direct"
         ),
-        binding_version=NORMALIZE_CSH_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
         node_type_id="prompt_authoring.prompt_from_structure",
-        node_type_version=PROMPT_FROM_STRUCTURE_VERSION,
         binding_id="prompt_authoring.prompt_from_structure.direct",
-        binding_version=PROMPT_FROM_STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     resolve_axis = WorkflowNodeInstance(
         node_id="resolve-axis",
         node_type_id="structure_transform.resolve_residue_axis",
-        node_type_version=STRUCTURE_VERSION,
         binding_id="structure_transform.resolve_residue_axis.direct",
-        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -266,18 +251,14 @@ def test_2emo_raw_modified_polymer_is_rejected_at_residue_axis_seam(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_transform_source",
-        node_type_version=SOURCE_VERSION,
         binding_id="contract_test.structure_transform_source.direct",
-        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": "2emo"},
         binding_parameters={},
     )
     resolve_axis = WorkflowNodeInstance(
         node_id="resolve-axis",
         node_type_id="structure_transform.resolve_residue_axis",
-        node_type_version=STRUCTURE_VERSION,
         binding_id="structure_transform.resolve_residue_axis.direct",
-        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -308,36 +289,28 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.structure_transform_source",
-        node_type_version=SOURCE_VERSION,
         binding_id="contract_test.structure_transform_source.direct",
-        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": "5g53"},
         binding_parameters={},
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
         node_type_id="prompt_authoring.prompt_from_structure",
-        node_type_version=PROMPT_FROM_STRUCTURE_VERSION,
         binding_id="prompt_authoring.prompt_from_structure.direct",
-        binding_version=PROMPT_FROM_STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
     select_chain_a = WorkflowNodeInstance(
         node_id="select-chain-a",
         node_type_id="structure_transform.select_chains",
-        node_type_version=STRUCTURE_VERSION,
         binding_id="structure_transform.select_chains.direct",
-        binding_version=STRUCTURE_VERSION,
         node_parameters={"chain_ids": ["A"]},
         binding_parameters={},
     )
     resolve_axis = WorkflowNodeInstance(
         node_id="resolve-axis",
         node_type_id="structure_transform.resolve_residue_axis",
-        node_type_version=STRUCTURE_VERSION,
         binding_id="structure_transform.resolve_residue_axis.direct",
-        binding_version=STRUCTURE_VERSION,
         node_parameters={},
         binding_parameters={},
     )
@@ -354,9 +327,7 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         WorkflowNodeInstance(
             node_id=f"edit-{branch}",
             node_type_id="prompt_authoring.insert_masked_residues",
-            node_type_version=PROMPT_EDIT_VERSION,
             binding_id="prompt_authoring.insert_masked_residues.direct",
-            binding_version=PROMPT_EDIT_VERSION,
             node_parameters={
                 "insertions": [{
                     "after_residue_id": "A:211",

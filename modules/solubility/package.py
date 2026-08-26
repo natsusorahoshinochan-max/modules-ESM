@@ -26,39 +26,19 @@ from core.operation import (
 )
 
 from .protein_sol import (
-    PROTEIN_SOL_ARCHIVE_SHA256,
-    PROTEIN_SOL_BASH_RUNTIME_FAMILY,
     PROTEIN_SOL_CALIBRATION_CONTEXT,
-    PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
-    PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION,
     PROTEIN_SOL_RELEASE,
-    PROTEIN_SOL_SOURCE_SHA256,
     LocalProteinSolAdapter,
     protein_sol_readiness,
 )
 from .soluprot import (
-    SOLUPROT_DATABASE_SHA256,
-    SOLUPROT_CODE_SHA256,
-    SOLUPROT_FEATURES_SHA256,
-    SOLUPROT_MODEL_SHA256,
-    SOLUPROT_MODEL_TREES_SHA256,
-    SOLUPROT_MINIMUM_PYTHON_VERSION,
-    SOLUPROT_PERL_MINIMUM_MAJOR_VERSION,
-    SOLUPROT_TMHMM_INCLUDED_DECODERS,
     SOLUPROT_TMHMM_RELATIVE_ROOT,
-    SOLUPROT_TMHMM_SHA256,
-    SOLUPROT_USEARCH_VERSION,
-    SOLUPROT_PORT_VERSION,
     LocalSoluProtAdapter,
     SoluProtMode,
     soluprot_readiness,
 )
 
 
-_PACKAGE_VERSION = "4.0.0"
-_METHOD_VERSION = "3.0.0"
-_METRIC_VERSION = "2.1.0"
-_NODE_BINDING_VERSION = "5.0.0"
 _MODES: tuple[SoluProtMode, ...] = ("full", "no_tm")
 _SOLUPROT_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("python_executable", "filesystem_path"),
@@ -114,7 +94,6 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
     model_variant = "grad_clf_v1_tc" if tm_feature else "grad_clf_v1_tc_notmhmm"
     return MethodDefinition(
         method_id=f"solubility.soluprot_{mode}.v1_1_0",
-        version=_METHOD_VERSION,
         algorithm_identity={
             "name": (
                 "Protein Workbench project-maintained SoluProt "
@@ -129,40 +108,13 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
         },
         model_identity={
             "provider": "Protein Workbench project-maintained SoluProt port",
-            "port_artifact_version": SOLUPROT_PORT_VERSION,
             "upstream_model_family": "SoluProt",
             "model_variant": model_variant,
-        },
-        checkpoint_identity={
-            "model_json_sha256": SOLUPROT_MODEL_SHA256[mode],
-            "model_arrays_sha256": SOLUPROT_MODEL_TREES_SHA256[mode],
         },
         featurization_identity={
             "sequence_alphabet": "ACDEFGHIKLMNPQRSTVWY",
             "minimum_sequence_length": 20,
-            "provider_features_sha256": SOLUPROT_FEATURES_SHA256,
-            "reference_database_sha256": SOLUPROT_DATABASE_SHA256,
-            "usearch_version": SOLUPROT_USEARCH_VERSION,
-            "tmhmm": (
-                {
-                    "bundled_asset_root": str(SOLUPROT_TMHMM_RELATIVE_ROOT),
-                    "portable_asset_sha256": dict(SOLUPROT_TMHMM_SHA256),
-                    "decoder_selection": "uname-system-and-machine",
-                    "included_decoders": SOLUPROT_TMHMM_INCLUDED_DECODERS,
-                }
-                if tm_feature
-                else "not-used-or-probed"
-            ),
-        },
-        source_identity={
-            "kind": "project_maintained_locked_port",
-            "upstream_project": "SoluProt",
-            "repository_path": "repositories/soluprot-next",
-            "build_backend": "setuptools.build_meta",
-            "port_distribution": "soluprot",
-            "port_artifact_version": SOLUPROT_PORT_VERSION,
-            "installed_code_sha256": SOLUPROT_CODE_SHA256,
-            "official_release_equivalence": "not_claimed",
+            "tmhmm_features": tm_feature,
         },
         scale_contract={
             "quantity": "soluble_expression_probability",
@@ -183,16 +135,13 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
     tm_feature = mode == "full"
     return ExecutionBindingDefinition(
         binding_id=f"solubility.soluprot_{mode}.local",
-        version=_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "solubility.score_sequence",
-            _NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
             method_id,
-            _METHOD_VERSION,
         ),
         binding_parameters={},
         environment_fields=(
@@ -210,17 +159,14 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"solubility.soluprot_{mode}/factory",
-                _NODE_BINDING_VERSION,
                 {"mode": mode, "provider_import": "lazy"},
             ),
             build=_build(mode),
         ),
         adapter_behavior=BehaviorReference(
             f"solubility.soluprot_{mode}/adapter",
-            _NODE_BINDING_VERSION,
             {
                 "provider": "protein-workbench-soluprot-port",
-                "port_artifact_version": SOLUPROT_PORT_VERSION,
                 "official_release_equivalence": "not_claimed",
                 "mode": mode,
                 "request_subject_identity": "candidate_{zero_based_index}",
@@ -231,7 +177,6 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"solubility.soluprot_{mode}/availability",
-                _NODE_BINDING_VERSION,
                 {
                     "observation": "startup",
                     "provider_import": "forbidden",
@@ -244,7 +189,6 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"solubility.soluprot_{mode}/readiness",
-                _NODE_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "mode": mode,
@@ -254,21 +198,15 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
             ),
             prerequisites={
                 "python_runtime": {
-                    "minimum_version": SOLUPROT_MINIMUM_PYTHON_VERSION,
-                    "soluprot_distribution_version": SOLUPROT_PORT_VERSION,
                     "path_source": "trusted_environment_configuration",
                 },
                 "model": {
-                    "json_sha256": SOLUPROT_MODEL_SHA256[mode],
-                    "arrays_sha256": SOLUPROT_MODEL_TREES_SHA256[mode],
                     "path_source": "trusted_environment_configuration",
                 },
                 "reference_database": {
-                    "sha256": SOLUPROT_DATABASE_SHA256,
                     "path_source": "trusted_environment_configuration",
                 },
                 "usearch": {
-                    "version": SOLUPROT_USEARCH_VERSION,
                     "path_source": "trusted_environment_configuration",
                 },
                 "tmhmm": (
@@ -277,17 +215,9 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                         "bundled_asset_root": str(
                             SOLUPROT_TMHMM_RELATIVE_ROOT
                         ),
-                        "portable_asset_sha256": dict(
-                            SOLUPROT_TMHMM_SHA256
-                        ),
                         "decoder": {
                             "selection": "uname-system-and-machine",
-                            "identity": "executable-presence",
-                            "included": SOLUPROT_TMHMM_INCLUDED_DECODERS,
                         },
-                        "perl_minimum_major_version": (
-                            SOLUPROT_PERL_MINIMUM_MAJOR_VERSION
-                        ),
                         "path_source": "installed_distribution",
                     }
                     if tm_feature
@@ -301,50 +231,6 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": f"solubility.soluprot_{mode}.local-adapter",
-            "provider": "protein-workbench-soluprot-port",
-            "port_artifact_version": SOLUPROT_PORT_VERSION,
-            "repository_path": "repositories/soluprot-next",
-            "build_backend": "setuptools.build_meta",
-            "installed_code_sha256": SOLUPROT_CODE_SHA256,
-            "official_release_equivalence": "not_claimed",
-            "mode": mode,
-            "model_json_sha256": SOLUPROT_MODEL_SHA256[mode],
-            "model_arrays_sha256": SOLUPROT_MODEL_TREES_SHA256[mode],
-            "reference_database_sha256": SOLUPROT_DATABASE_SHA256,
-            "usearch_version": SOLUPROT_USEARCH_VERSION,
-            "transmembrane_features": tm_feature,
-            "tmhmm_sha256": (
-                dict(SOLUPROT_TMHMM_SHA256)
-                if tm_feature
-                else {}
-            ),
-            **(
-                {
-                    "tmhmm_bundled_asset_root": str(
-                        SOLUPROT_TMHMM_RELATIVE_ROOT
-                    ),
-                    "tmhmm_included_decoders": (
-                        SOLUPROT_TMHMM_INCLUDED_DECODERS
-                    ),
-                }
-                if tm_feature
-                else {}
-            ),
-            "python_minimum_version": SOLUPROT_MINIMUM_PYTHON_VERSION,
-            "soluprot_distribution_version": SOLUPROT_PORT_VERSION,
-            "perl": (
-                {
-                    "minimum_major_version": (
-                        SOLUPROT_PERL_MINIMUM_MAJOR_VERSION
-                    ),
-                }
-                if tm_feature
-                else "not-used-or-probed"
-            ),
-            "runtime_directory_policy": "private-per-run-invocation",
-        },
         produced_observations=(
             ProducedObservationDefinition(
                 output_port="scores",
@@ -352,7 +238,6 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     "solubility.soluprot_probability",
-                    _METRIC_VERSION,
                 ),
                 context_profile={"kind": "intrinsic"},
                 subject_grain="candidate",
@@ -368,7 +253,6 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
 def _protein_sol_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="solubility.protein_sol.sequence_prediction_2017",
-        version=_METHOD_VERSION,
         algorithm_identity={
             "name": "Protein-Sol sequence-based soluble-fraction predictor",
             "training_population": "niwa_non_membrane_2396",
@@ -391,46 +275,12 @@ def _protein_sol_method() -> MethodDefinition:
             "top_percent_solubility": 113.241,
             "population_scaled_solubility": 0.446,
         },
-        checkpoint_identity={
-            "seq_reference_data_sha256": PROTEIN_SOL_SOURCE_SHA256[
-                "seq_reference_data.txt"
-            ],
-            "ss_propensities_sha256": PROTEIN_SOL_SOURCE_SHA256[
-                "ss_propensities.txt"
-            ],
-        },
         featurization_identity={
             "sequence_alphabet": "ACDEFGHIKLMNPQRSTVWY",
             "minimum_sequence_length": 21,
             "whole_sequence_features": True,
             "profile_windows": [21, 51],
             "isoelectric_point_range": [1, 14],
-            "preprocessing": {
-                "fasta_reformat_sha256": PROTEIN_SOL_SOURCE_SHA256[
-                    "fasta_seq_reformat_export.pl"
-                ],
-                "composition_sha256": PROTEIN_SOL_SOURCE_SHA256[
-                    "seq_compositions_perc_pipeline_export.pl"
-                ],
-                "prediction_sha256": PROTEIN_SOL_SOURCE_SHA256[
-                    "server_prediction_seq_export.pl"
-                ],
-                "properties_sha256": PROTEIN_SOL_SOURCE_SHA256[
-                    "seq_props_ALL_export.pl"
-                ],
-                "profiles_sha256": PROTEIN_SOL_SOURCE_SHA256[
-                    "profiles_gather_export.pl"
-                ],
-            },
-        },
-        source_identity={
-            "kind": "official_release_archive",
-            "provider": "Protein-Sol",
-            "release": PROTEIN_SOL_RELEASE,
-            "official_download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
-            "download_url_role": "locator_only",
-            "archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
-            "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
         },
         scale_contract={
             "percent_sol": {
@@ -460,16 +310,13 @@ def _protein_sol_method() -> MethodDefinition:
 def _protein_sol_binding() -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id="solubility.protein_sol.local",
-        version=_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "solubility.score_sequence",
-            _NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
             "solubility.protein_sol.sequence_prediction_2017",
-            _METHOD_VERSION,
         ),
         binding_parameters={},
         environment_fields=_PROTEIN_SOL_ENVIRONMENT_FIELDS,
@@ -477,7 +324,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "solubility.protein_sol/factory",
-                _NODE_BINDING_VERSION,
                 {
                     "provider_import": "not-applicable",
                     "source_copy": "after-readiness-attestation",
@@ -487,11 +333,9 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         ),
         adapter_behavior=BehaviorReference(
             "solubility.protein_sol/adapter",
-            _NODE_BINDING_VERSION,
             {
                 "provider": "protein-sol",
                 "release": PROTEIN_SOL_RELEASE,
-                "official_archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
                 "request_subject_identity": "candidate_{zero_based_index}",
                 "parser": "documented-predictions-provider-order",
                 "response_subject_join": "staged-fasta-identity",
@@ -500,7 +344,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "solubility.protein_sol/availability",
-                _NODE_BINDING_VERSION,
                 {
                     "observation": "startup",
                     "source_probe": "forbidden",
@@ -512,7 +355,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "solubility.protein_sol/readiness",
-                _NODE_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "cache_order": "before-provider-entry",
@@ -520,19 +362,14 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 },
             ),
             prerequisites={
-                "official_archive": {
-                    "download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
-                    "download_url_role": "locator_only",
-                    "sha256": PROTEIN_SOL_ARCHIVE_SHA256,
+                "source_root": {
+                    "path_source": "trusted_environment_configuration",
                 },
-                "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
                 "bash": {
-                    "runtime_family": PROTEIN_SOL_BASH_RUNTIME_FAMILY,
+                    "path_source": "trusted_environment_configuration",
                 },
                 "perl": {
-                    "minimum_major_version": (
-                        PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION
-                    ),
+                    "path_source": "trusted_environment_configuration",
                 },
                 "path_source": "trusted_environment_configuration",
             },
@@ -542,19 +379,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": "solubility.protein_sol.local-adapter",
-            "provider": "protein-sol",
-            "release": PROTEIN_SOL_RELEASE,
-            "official_download_url": PROTEIN_SOL_OFFICIAL_DOWNLOAD_URL,
-            "official_archive_sha256": PROTEIN_SOL_ARCHIVE_SHA256,
-            "source_files_sha256": PROTEIN_SOL_SOURCE_SHA256,
-            "bash_runtime_family": PROTEIN_SOL_BASH_RUNTIME_FAMILY,
-            "perl_minimum_major_version": (
-                PROTEIN_SOL_PERL_MINIMUM_MAJOR_VERSION
-            ),
-            "runtime_directory_policy": "private-per-run-invocation",
-        },
         produced_observations=tuple(
             ProducedObservationDefinition(
                 output_port="scores",
@@ -562,7 +386,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 metric=ContractIdentity(
                     "metric",
                     metric_id,
-                    _METRIC_VERSION,
                 ),
                 context_profile=context_profile,
                 subject_grain="candidate",
@@ -594,7 +417,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="solubility",
-    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/score_sequence.yaml"),

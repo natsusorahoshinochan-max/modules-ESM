@@ -25,27 +25,25 @@ Helpers may construct an explicitly named resource reference but may not decide
 which production resources are registered. Internal implementation and test
 layout do not change this entry contract.
 
-Repository-owned registrations pass their complete scientific relationship gate
-during build and test. That gate validates Port compatibility, Candidate and
-Observation subjects, Metric schemas, residue-axis relationships, dependency
-closure, and other rules that directly protect scientific module inputs and
-outputs. It produces or admits the typed registrations consumed at runtime.
+The Catalog builder admits repository-owned registrations once while constructing
+the startup `FrozenCatalog`. It validates stable-ID uniqueness, required
+references, implementation or Adapter resolvability, Port compatibility,
+Candidate and Observation subjects, Metric schemas, residue-axis relationships,
+dependency closure, and the other relationships that directly protect scientific
+module inputs and outputs. Build and focused tests exercise this same builder.
 
-Discovery occurs only at startup; one `FrozenCatalog` is published and remains
-immutable. Runtime discovery checks only the minimum invariants needed to start:
-stable IDs are unique, required registrations are present, and implementation or
-Adapter factories resolve. It does not recompute repository-owned descriptor
-digests, Contract Locks, semantic versions, or the complete scientific
-relationship gate on every startup. A package entry point must not eagerly
-import optional provider dependencies; their absence is reported by diagnostic
-Availability observations.
+Discovery occurs only at startup; one admitted `FrozenCatalog` is published and
+remains immutable. Catalog construction does not compute repository-owned
+descriptor digests, Contract Locks, semantic versions, or installation identity.
+A package entry point must not eagerly import optional provider dependencies;
+their absence is reported by diagnostic Availability observations.
 
-Package import failures and violations of the minimum runtime registration shape
-fail startup. A diagnostic `unavailable` Binding remains registered and can
-still proceed to fresh Run-scoped Readiness; Availability never rejects
-execution. ADR-0025 assigns that diagnostic to the Execution Binding, ADR-0028
-defines Port Type scientific contracts, and ADR-0029 defines Readiness before
-actual Provider entry.
+Package import, stable-ID/reference/factory, or scientific-relationship failures
+fail startup. A diagnostic `unavailable` Binding remains registered and can still
+proceed to fresh Run-scoped Readiness; Availability never rejects execution.
+ADR-0025 assigns that diagnostic to the Execution Binding, ADR-0028 defines Port
+Type scientific contracts, and ADR-0029 defines Readiness before actual Provider
+entry.
 
 The extension boundary supports repository-owned developer extensions,
 not third-party `pip install`, plugin management, runtime hot loading, or

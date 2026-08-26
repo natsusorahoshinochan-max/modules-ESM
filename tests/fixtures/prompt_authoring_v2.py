@@ -38,8 +38,6 @@ from tests.fixtures.prompt_authoring_sources.package import (
 
 
 WORKFLOW_SCHEMA_VERSION = "2.1.0"
-VERSION = "3.0.0"
-SOURCE_VERSION = "4.0.0"
 SOURCE_LAYOUT = ResidueLayout(
     chain_id="A,B",
     length=3,
@@ -54,17 +52,10 @@ TARGET_LAYOUT = ResidueLayout(
 
 def wire_value(type_id: str, value: object) -> object:
     """Encode one expected value through its exact public Port codec."""
-    port_version = {
-        "function.annotations": "3.0.0",
-        "protein.structure": "4.0.0",
-        "structure_transform.resolved_residue_axis": "4.0.0",
-    }.get(type_id, VERSION)
     encoded = build_frozen_catalog(
         (MODULE_PACKAGE, STRUCTURE_TRANSFORM_PACKAGE)
     ).require_port_type(
-        type_id,
-        port_version,
-    ).encode(value)
+        type_id).encode(value)
     return json.loads(encoded)["value"]
 
 
@@ -142,14 +133,11 @@ def prepare_operation(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.prompt_authoring_values",
-        node_type_version=SOURCE_VERSION,
         binding_id="contract_test.prompt_authoring_values.direct",
-        binding_version=SOURCE_VERSION,
         node_parameters={"fixture": source_fixture},
         binding_parameters={},
     )
     binding_id = f"prompt_authoring.{operation}.direct"
-    operation_version = "5.0.0" if operation == "prompt_from_structure" else VERSION
     workflow = WorkflowDocument(
         schema_version=WORKFLOW_SCHEMA_VERSION,
         workflow_id=project.id,
@@ -158,16 +146,12 @@ def prepare_operation(
             WorkflowNodeInstance(
                 node_id="author",
                 node_type_id=f"prompt_authoring.{operation}",
-                node_type_version=operation_version,
                 binding_id=binding_id,
-                binding_version=operation_version,
                 node_parameters=node_parameters,
                 binding_parameters={},
             ),
         ),
-        edges=source_edges,
-        contract_lock=(),
-    )
+        edges=source_edges)
     authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,

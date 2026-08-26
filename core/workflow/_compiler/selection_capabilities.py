@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from core.catalog.canonical import canonical_json_bytes
+from core.catalog.model import FrozenCatalog
 from core.scoring.selection import (
     SelectionInput,
     context_selector_canonical,
@@ -15,10 +16,7 @@ from core.workflow._compiler.graph import (
     _PlanNodes,
     _connected_source,
 )
-from core.workflow.document import (
-    ContractLockEntry,
-    WorkflowDocument,
-)
+from core.workflow.document import WorkflowDocument
 from core.workflow.errors import WorkflowCompileError
 from datatypes.exact_reference import ExactContractReference
 
@@ -26,8 +24,8 @@ from datatypes.exact_reference import ExactContractReference
 @dataclass(frozen=True, slots=True)
 class _ObservationCapability:
     source_partition: str
-    metric: ContractLockEntry
-    method: ContractLockEntry | None
+    metric: ExactContractReference
+    method: ExactContractReference | None
     context_profile: Mapping[str, Any]
     subject_grain: str
     source_role: str
@@ -37,19 +35,11 @@ class _ObservationCapability:
     pairing_source: SelectionInput | None
 
 
-type _LockedContracts = Mapping[tuple[str, str, str], ContractLockEntry]
-
-
-def _same_exact_contract(
-    locked: ContractLockEntry | None,
+def _same_contract(
+    resolved: ExactContractReference | None,
     reference: ExactContractReference | None,
 ) -> bool:
-    if locked is None or reference is None:
-        return locked is None and reference is None
-    return (
-        locked.key == reference.key
-        and locked.contract_digest == reference.contract_digest
-    )
+    return resolved == reference
 
 
 def _validate_selection_inputs(
@@ -91,11 +81,11 @@ def _validate_selection_capabilities(
     *,
     graph: _AdmittedWorkflowGraph,
     plan_nodes: _PlanNodes,
-    lock_by_key: _LockedContracts,
+    catalog: FrozenCatalog,
 ) -> None:
     capabilities = _derive_observation_capabilities(
         graph,
-        lock_by_key=lock_by_key,
+        catalog=catalog,
         plan_nodes=plan_nodes,
     )
     _validate_selection_objectives(
@@ -159,8 +149,8 @@ def _validate_selection_objectives(
             capability
             for capability in output_capabilities
             if capability.source_partition == objective.source_partition
-            and _same_exact_contract(capability.metric, objective.metric)
-            and _same_exact_contract(capability.method, objective.method)
+            and _same_contract(capability.metric, objective.metric)
+            and _same_contract(capability.method, objective.method)
             and capability.context_profile == requested_context
             and capability.subject_grain == "candidate"
             and capability.source_role == "subject"
@@ -179,10 +169,10 @@ def _validate_selection_objectives(
         if len(produced) != 1:
             if any(
                 capability.source_partition == objective.source_partition
-                and _same_exact_contract(capability.metric, objective.metric)
+                and _same_contract(capability.metric, objective.metric)
                 and capability.context_profile == requested_context
                 and capability.subject_source == objective.candidate_input
-                and not _same_exact_contract(
+                and not _same_contract(
                     capability.method,
                     objective.method,
                 )
@@ -244,8 +234,8 @@ def _validate_observation_selectors(
             capability
             for capability in output_capabilities
             if capability.source_partition == selector.source_partition
-            and _same_exact_contract(capability.metric, selector.metric)
-            and _same_exact_contract(capability.method, selector.method)
+            and _same_contract(capability.metric, selector.metric)
+            and _same_contract(capability.method, selector.method)
             and capability.context_profile == requested_context
             and capability.subject_grain == "candidate"
             and capability.source_role == "subject"
@@ -255,13 +245,13 @@ def _validate_observation_selectors(
         if len(produced) != 1:
             if any(
                 capability.source_partition == selector.source_partition
-                and _same_exact_contract(capability.metric, selector.metric)
+                and _same_contract(capability.metric, selector.metric)
                 and capability.context_profile == requested_context
                 and capability.subject_grain == "candidate"
                 and capability.source_role == "subject"
                 and capability.guaranteed_multiplicity == "one"
                 and capability.subject_source == selector.candidate_input
-                and not _same_exact_contract(
+                and not _same_contract(
                     capability.method,
                     selector.method,
                 )
@@ -303,7 +293,7 @@ def _capability_source(
 def _capability_matches_filter(
     capability: _ObservationCapability,
     filter_descriptor: Mapping[str, Any],
-    lock_by_key: _LockedContracts,
+    catalog: FrozenCatalog,
 ) -> bool:
     source_partition = filter_descriptor.get("source_partition")
     metric = filter_descriptor.get("metric")
@@ -313,11 +303,11 @@ def _capability_matches_filter(
         (source_partition is None or capability.source_partition == source_partition)
         and (
             metric is None
-            or capability.metric == lock_by_key[metric.key]
+            or capability.metric == catalog.require_reference(*metric.key)
         )
         and (
             method is None
-            or capability.method == lock_by_key[method.key]
+            or capability.method == catalog.require_reference(*method.key)
         )
         and (
             context_profile is None
@@ -329,8 +319,15 @@ def _capability_matches_filter(
 def _capability_canonical(
     capability: _ObservationCapability,
 ) -> dict[str, Any]:
-    def reference(value: ContractLockEntry | None) -> Any:
-        return None if value is None else value.canonical_projection()
+    def reference(value: ExactContractReference | None) -> Any:
+        return (
+            None
+            if value is None
+            else {
+                "contract_kind": value.contract_kind,
+                "contract_id": value.contract_id,
+            }
+        )
 
     def source(value: SelectionInput | None) -> Any:
         return None if value is None else selection_input_canonical(value)
@@ -352,7 +349,7 @@ def _capability_canonical(
 def _derive_observation_capabilities(
     graph: _AdmittedWorkflowGraph,
     *,
-    lock_by_key: _LockedContracts,
+    catalog: FrozenCatalog,
     plan_nodes: _PlanNodes,
 ) -> dict[tuple[str, str], tuple[_ObservationCapability, ...]]:
     """Derive exact output capabilities from closed fixed/propagation contracts."""
@@ -381,9 +378,9 @@ def _derive_observation_capabilities(
             )
             capability = _ObservationCapability(
                 source_partition=declaration.output_partition,
-                metric=lock_by_key[declaration.metric.key],
+                metric=catalog.require_reference(*declaration.metric.key),
                 method=(
-                    lock_by_key[observation_method.key]
+                    catalog.require_reference(*observation_method.key)
                     if observation_method is not None
                     else None
                 ),
@@ -432,7 +429,7 @@ def _derive_observation_capabilities(
                 if _capability_matches_filter(
                     capability,
                     propagation.filter,
-                    lock_by_key,
+                    catalog,
                 )
             ]
         unique: dict[bytes, _ObservationCapability] = {}

@@ -87,10 +87,7 @@ class _RunResources:
 
 _NORMALIZATION_METHOD = ExactContractReference(
     "method",
-    "structure-transform.normalize-csh.fixture",
-    "1.0.0",
-    "sha256:" + "d" * 64,
-)
+    "structure-transform.normalize-csh.fixture")
 
 
 def _admit_normalization_outputs(
@@ -101,7 +98,7 @@ def _admit_normalization_outputs(
     from core.catalog.builtins import builtin_frozen_catalog
 
     builtins = builtin_frozen_catalog()
-    structure_type = builtins.require_port_type("protein.structure", "4.0.0")
+    structure_type = builtins.require_port_type("protein.structure")
     return admit_node_output(
         node_plan=NodeOutputPlan(
             node_id="normalize-csh",
@@ -111,9 +108,7 @@ def _admit_normalization_outputs(
                     required=True,
                     multiplicity="one",
                     port_type=builtins.require_port_type(
-                        "candidate.collection",
-                        "4.0.0",
-                    ),
+                        "candidate.collection"),
                 ),
                 "normalization_facts": OutputPortPlan(
                     required=True,
@@ -141,9 +136,7 @@ def _structure_reference(
     )
 
     structure_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure")
     return CandidateDataReference(
         candidate_id=candidate_id,
         data_type_id="protein.structure",

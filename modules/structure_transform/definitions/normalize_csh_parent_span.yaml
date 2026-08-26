@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: structure_transform.normalize_csh_parent_span
-version: "5.0.0"
 title: Normalize CSH parent residue span
 summary: Expands exact CSH components into explicit SER-HIS-GLY parent residues while reconciling only their polymer declarations and preserving all other polymer declarations exactly.
 category: structure_transform
 inputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Single-model structure containing at least one exact CSH HETATM component.
 outputs:
   - name: structure
     port_type_id: protein.structure
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Structure whose CSH components and exact CSH polymer declarations are expanded into numbered SER-HIS-GLY parent residues while unrelated MODRES and SEQRES records remain exact.
   - name: modified_residue_normalizations
     port_type_id: structure_transform.modified_residue_normalizations
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact component, parent-residue, and source-to-parent atom correspondence used by normalization.

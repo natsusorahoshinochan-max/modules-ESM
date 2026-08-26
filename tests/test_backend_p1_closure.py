@@ -11,12 +11,20 @@ from typing import Any
 import pytest
 
 from core.parameters.model import AdmittedParameterValues
+from core.project.manager import ProjectInputDescriptor, ProjectMeta
 from core.scoring.selection import UtilityParameterFacts
 from protein_workbench_public.http import emission
-import protein_workbench_public.http.errors as http_errors
 from protein_workbench_public.http.errors import (
     public_error_response,
-    websocket_internal_error_boundary,
+)
+from protein_workbench_public.http.project_routes import (
+    _project_input_payload,
+    _project_metadata_payload,
+)
+from protein_workbench_public.http.run_routes import (
+    _replay_complete_payload,
+    _replay_started_payload,
+    _run_receipt_payload,
 )
 import protein_workbench_public.protocol as protocol
 
@@ -165,27 +173,25 @@ def test_all_json_routes_and_websocket_sends_use_the_single_emitters() -> None:
 
 
 @pytest.mark.parametrize(
-    ("operation_id", "schema", "success_status"),
+    ("operation_id", "_schema", "success_status"),
     _JSON_SUCCESS_CASES,
 )
-def test_each_json_success_operation_uses_one_emitter_validation(
+def test_each_json_success_operation_serializes_without_bundle_validation(
     monkeypatch: pytest.MonkeyPatch,
     operation_id: str,
-    schema: str,
+    _schema: str,
     success_status: int,
 ) -> None:
-    validations: list[tuple[str, Any]] = []
     payload = {"operation_id": operation_id}
 
-    def record_validation(reference: str, value: Any) -> None:
-        validations.append((reference, value))
+    def reject_validation(_reference: str, _value: Any) -> None:
+        raise AssertionError("production emission must not validate the Bundle")
 
-    monkeypatch.setattr(protocol, "validate_schema", record_validation)
+    monkeypatch.setattr(protocol, "validate_schema", reject_validation)
     response = emission.emit_rest_json_success(operation_id, payload)
 
     assert response.status_code == success_status
     assert json.loads(response.body) == payload
-    assert validations == [(schema, payload)]
 
 
 def test_utility_parameter_facts_are_one_shallow_immutable_snapshot() -> None:
@@ -202,17 +208,13 @@ def test_utility_parameter_facts_are_one_shallow_immutable_snapshot() -> None:
         facts._values["additional"] = 4  # type: ignore[index]
 
 
-def test_rest_and_stream_emitters_validate_once_before_emission(
+def test_rest_and_stream_emitters_do_not_revalidate_constructed_payloads(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    references: list[str] = []
-    original = protocol.validate_schema
+    def reject_validation(_reference: str, _payload: Any) -> None:
+        raise AssertionError("production emission must not validate the Bundle")
 
-    def counting_validate(reference: str, payload: Any) -> None:
-        references.append(reference)
-        original(reference, payload)
-
-    monkeypatch.setattr(protocol, "validate_schema", counting_validate)
+    monkeypatch.setattr(protocol, "validate_schema", reject_validation)
     project = {
         "schema_namespace": "protein-workbench-public/v2",
         "id": "project-1",
@@ -223,9 +225,6 @@ def test_rest_and_stream_emitters_validate_once_before_emission(
     }
     response = emission.emit_rest_json_success("create_project", project)
     assert response.status_code == 201
-    assert references == ["#/$defs/ProjectMetadata"]
-
-    references.clear()
 
     class Socket:
         def __init__(self) -> None:
@@ -247,75 +246,37 @@ def test_rest_and_stream_emitters_validate_once_before_emission(
     socket = Socket()
     asyncio.run(emission.emit_run_event_stream_message(socket, message))  # type: ignore[arg-type]
     assert socket.sent == [message]
-    assert references == ["#/$defs/RunEventStreamMessage"]
 
 
-def test_invalid_success_projection_is_rejected_before_serialization() -> None:
-    with pytest.raises(protocol.ProtocolValidationError):
-        emission.emit_rest_json_success(
-            "create_project",
-            {"schema_namespace": "protein-workbench-public/v2"},
-        )
-
-
-def test_invalid_stream_projection_reaches_the_outer_internal_boundary(
+def test_structured_error_constructor_matches_bundle_without_emission_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class Socket:
-        def __init__(self) -> None:
-            self.sent: list[Any] = []
-            self.closed: list[int] = []
-
-        async def send_json(self, payload: Any) -> None:
-            self.sent.append(payload)
-
-        async def close(self, *, code: int) -> None:
-            self.closed.append(code)
-
-    monkeypatch.setattr(
-        http_errors,
-        "report_public_internal_error",
-        lambda _error, *, transport: f"incident-{transport.lower()}",
-    )
-
-    @websocket_internal_error_boundary
-    async def emit_invalid(socket: Any) -> None:
-        await emission.emit_run_event_stream_message(
-            socket,
-            {"schema_namespace": "protein-workbench-public/v2"},
-        )
-
-    socket = Socket()
-    asyncio.run(emit_invalid(socket))
-
-    assert socket.closed == [1011]
-    assert len(socket.sent) == 1
-    assert socket.sent[0]["error"]["code"] == "internal_error"
-
-
-def test_structured_errors_use_one_details_and_one_enclosing_validation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    references: list[str] = []
     original = protocol.validate_schema
+    assert set(protocol._STRUCTURED_ERROR_DETAILS_FIELDS) | {
+        "selection_failed",
+    } == set(protocol.load_bundle()["structured_errors"]["vocabulary"])
 
-    def counting_validate(reference: str, payload: Any) -> None:
-        references.append(reference)
-        original(reference, payload)
+    def reject_validation(_reference: str, _payload: Any) -> None:
+        raise AssertionError("production emission must not validate the Bundle")
 
-    monkeypatch.setattr(protocol, "validate_schema", counting_validate)
+    monkeypatch.setattr(protocol, "validate_schema", reject_validation)
     response = public_error_response(
         "run_not_found",
         "Run was not found",
-        {"resource_kind": "run", "resource_id": "run-1"},
+        {
+            "resource_kind": "run",
+            "resource_id": "run-1",
+            "ignored_internal_detail": True,
+        },
     )
     assert response.status_code == 404
-    assert references == [
-        "#/$defs/ResourceNotFoundDetails",
-        "#/$defs/StructuredErrorEnvelope",
-    ]
+    response_payload = json.loads(response.body)
+    assert response_payload["error"]["details"] == {
+        "resource_kind": "run",
+        "resource_id": "run-1",
+    }
+    original("#/$defs/StructuredErrorEnvelope", response_payload)
 
-    references.clear()
     _, error = protocol.project_structured_error(
         "node_execution_failed",
         "Node execution failed safely",
@@ -325,16 +286,63 @@ def test_structured_errors_use_one_details_and_one_enclosing_validation(
         },
         "incident-1",
     )
-    protocol.admit_run_event_stream_message(
-        {
-            "schema_namespace": "protein-workbench-public/v2",
-            "error": error,
-        }
-    )
-    assert references == [
-        "#/$defs/ExceptionErrorDetails",
+    original(
         "#/$defs/RunEventStreamMessage",
-    ]
+        {"schema_namespace": "protein-workbench-public/v2", "error": error},
+    )
+
+
+def test_inline_public_response_constructors_match_bundle() -> None:
+    timestamp = "2026-08-26T00:00:00+00:00"
+    project = _project_metadata_payload(
+        ProjectMeta(
+            id="project-1",
+            name="Project",
+            created_at=timestamp,
+            modified_at=timestamp,
+        )
+    )
+    protocol.validate_schema("#/$defs/ProjectMetadata", project)
+
+    project_input = _project_input_payload(
+        "project-1",
+        ProjectInputDescriptor(
+            project_input_ref="input-1",
+            filename="input.pdb",
+            size=4,
+            content_digest="sha256:" + "1" * 64,
+        ),
+    )
+    protocol.validate_schema("#/$defs/ProjectInputPublication", project_input)
+
+    receipt = _run_receipt_payload(
+        project_id="project-1",
+        run_id="run-1",
+        workflow_commit_id="workflow-commit-" + "2" * 32,
+        admitted_sequence=1,
+        event_cursor="cursor-1",
+    )
+    protocol.validate_schema("#/$defs/RunReceipt", receipt)
+
+    for event in (
+        _replay_started_payload(
+            project_id="project-1",
+            run_id="run-1",
+            sequence=0,
+            cursor="cursor-0",
+            emitted_at=timestamp,
+            replay_through_cursor="cursor-1",
+            after_sequence=None,
+        ),
+        _replay_complete_payload(
+            project_id="project-1",
+            run_id="run-1",
+            sequence=1,
+            cursor="cursor-1",
+            emitted_at=timestamp,
+        ),
+    ):
+        protocol.validate_schema("#/$defs/RunEventStreamMessage", event)
 
 
 @pytest.mark.parametrize(
@@ -348,10 +356,7 @@ def test_structured_errors_use_one_details_and_one_enclosing_validation(
                     "output_port": "output",
                     "port_type": {
                         "contract_kind": "port_type",
-                        "contract_id": "protein.sequence",
-                        "contract_version": "1.0.0",
-                        "contract_digest": "sha256:" + "1" * 64,
-                    },
+                        "contract_id": "protein.sequence"},
                     "port_content_digest": "sha256:" + "2" * 64,
                     "value_manifest_reference": "sha256:" + "3" * 64,
                     "value_index": 0,
@@ -383,27 +388,21 @@ def test_structured_errors_use_one_details_and_one_enclosing_validation(
         ),
     ),
 )
-def test_binary_metadata_has_one_validation(
+def test_binary_metadata_status_lookup_does_not_validate_bundle(
     monkeypatch: pytest.MonkeyPatch,
     operation_id: str,
     metadata: dict[str, Any],
     schema: str,
 ) -> None:
-    references: list[str] = []
     original = protocol.validate_schema
 
-    def counting_validate(reference: str, payload: Any) -> None:
-        references.append(reference)
-        original(reference, payload)
+    def reject_validation(_reference: str, _payload: Any) -> None:
+        raise AssertionError("production emission must not validate the Bundle")
 
-    monkeypatch.setattr(protocol, "validate_schema", counting_validate)
-    status, admitted = protocol.admit_binary_response_metadata(
-        operation_id,
-        metadata,
-    )
+    monkeypatch.setattr(protocol, "validate_schema", reject_validation)
+    status = protocol.binary_success_status(operation_id)
     assert status == 200
-    assert admitted is metadata
-    assert references == [schema]
+    original(schema, metadata)
 
 
 @pytest.mark.parametrize(
@@ -426,7 +425,7 @@ def test_binary_routes_do_not_revalidate_body_or_headers(
     ]
     assert sum(
         isinstance(node.func, ast.Name)
-        and node.func.id == "admit_binary_response_metadata"
+        and node.func.id == "binary_success_status"
         for node in calls
     ) == 1
     for call in calls:

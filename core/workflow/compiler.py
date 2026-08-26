@@ -1,9 +1,9 @@
-"""Exact contract locking and Workflow compilation."""
+"""Stable-ID Workflow compilation."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, cast
 
 from core.catalog.declarations import (
@@ -21,27 +21,12 @@ from core.parameters.model import (
     AdmittedParameterValues,
     ParameterContract,
 )
-from core.catalog.model import FrozenCatalog
-from core.catalog.errors import (
-    CatalogBuildError,
-    ContractResolutionError,
-)
-from core.catalog.canonical import canonical_sha256
-from core.scoring.selection import (
-    observation_selector_canonical,
-    selection_objective_canonical,
-)
+from core.catalog.model import FrozenCatalog, result_identity_contract
 from core.workflow._compiler.identity import (
     _result_contracts_for_node,
     _result_identity_plan_facts,
 )
 from core.workflow._compiler.graph import _admit_workflow_graph
-from core.workflow._compiler.locking import (
-    _reachable_contract_lock,
-    _require_matching_lock,
-    _require_workflow_contract,
-    _workflow_contract_references,
-)
 from core.workflow._compiler.observation import (
     _resolved_produced_observation_plan,
 )
@@ -56,15 +41,9 @@ from core.workflow._compiler.selection_consumers import (
     _compile_selection_consumers,
 )
 from core.workflow import errors as _errors
-from datatypes.exact_reference import ExactContractReference
-from core.workflow.document import (
-    ContractLockEntry,
-    WorkflowDocument,
-    _thaw_json,
-)
+from core.workflow.document import WorkflowDocument, _thaw_json
 from core.workflow.plan import (
     ArtifactOutputPlan,
-    EXECUTION_PLAN_NAMESPACE,
     ExecutionPlan,
     ExecutionPlanNode,
     _ExecutionPlanNodeRuntime,
@@ -76,110 +55,9 @@ from core.workflow.plan import (
 
 @dataclass(frozen=True, slots=True)
 class CompilationRequest:
-    """One locked Workflow and Authoring-assigned Commit revision."""
+    """One admitted Workflow."""
 
-    locked_workflow: WorkflowDocument
-    workflow_commit_revision: int
-
-
-def lock_workflow(
-    workflow: WorkflowDocument,
-    catalog: FrozenCatalog,
-) -> WorkflowDocument:
-    """Lock an unlocked Draft to the current reachable Catalog closure."""
-    if workflow.contract_lock:
-        raise _errors.WorkflowCompileError(
-            "contract_digest_mismatch",
-            "Workflow Draft must be unlocked before Contract locking",
-            field_path=("contract_lock",),
-        )
-    _workflow_contract_references(workflow)
-
-    def current_reference(
-        reference: ExactContractReference,
-        *,
-        contract_kind: str,
-        collection_name: str,
-        index: int,
-        field_name: str,
-    ) -> ExactContractReference:
-        field_path = (collection_name, index, field_name)
-        contract = _require_workflow_contract(
-            catalog,
-            contract_kind,
-            reference.contract_id,
-            reference.contract_version,
-            identity_path=(*field_path, "contract_id"),
-            version_path=(*field_path, "contract_version"),
-        )
-        return ExactContractReference(**contract.reference())
-
-    try:
-        workflow = replace(
-            workflow,
-            observation_selectors=tuple(
-                replace(
-                    selector,
-                    metric=current_reference(
-                        selector.metric,
-                        contract_kind="metric",
-                        collection_name="observation_selectors",
-                        index=index,
-                        field_name="metric",
-                    ),
-                    method=current_reference(
-                        selector.method,
-                        contract_kind="method",
-                        collection_name="observation_selectors",
-                        index=index,
-                        field_name="method",
-                    ),
-                )
-                for index, selector in enumerate(
-                    workflow.observation_selectors
-                )
-            ),
-            selection_objectives=tuple(
-                replace(
-                    objective,
-                    metric=current_reference(
-                        objective.metric,
-                        contract_kind="metric",
-                        collection_name="selection_objectives",
-                        index=index,
-                        field_name="metric",
-                    ),
-                    method=current_reference(
-                        objective.method,
-                        contract_kind="method",
-                        collection_name="selection_objectives",
-                        index=index,
-                        field_name="method",
-                    ),
-                    utility_transform=current_reference(
-                        objective.utility_transform,
-                        contract_kind="utility_transform",
-                        collection_name="selection_objectives",
-                        index=index,
-                        field_name="utility_transform",
-                    ),
-                )
-                for index, objective in enumerate(
-                    workflow.selection_objectives
-                )
-            ),
-        )
-        contract_lock = _reachable_contract_lock(workflow, catalog)
-    except (CatalogBuildError, ContractResolutionError) as error:
-        raise _errors.WorkflowCompileError(
-            "contract_digest_mismatch",
-            "Workflow references a contract absent from the current Catalog",
-            field_path=("contract_lock",),
-        ) from error
-    return replace(
-        workflow,
-        contract_lock=contract_lock,
-    )
+    workflow: WorkflowDocument
 
 
 def _admit_parameter_values(
@@ -208,15 +86,24 @@ def compile(
     request: CompilationRequest,
     catalog: FrozenCatalog,
 ) -> ExecutionPlan:
-    """Compile one exact Lock before consulting runtime Availability."""
-    workflow = request.locked_workflow
-    workflow_commit_revision = request.workflow_commit_revision
-    resolved_contracts = _require_matching_lock(workflow, catalog)
-    lock_by_key = {entry.key: entry for entry in resolved_contracts}
-    resolved_by_key = {
-        entry.key: catalog.require_contract(*entry.key)
-        for entry in resolved_contracts
-    }
+    """Compile one stable-ID Workflow before consulting runtime state."""
+    workflow = request.workflow
+    def resolved_contract(
+        contract_kind: str,
+        contract_id: str,
+        *,
+        node_id: str | None = None,
+        field_path: tuple[str | int, ...],
+    ) -> Any:
+        contract = catalog.get_contract(contract_kind, contract_id)
+        if contract is None:
+            raise _errors.WorkflowCompileError(
+                "unknown_contract",
+                f"Unknown {contract_kind} {contract_id}",
+                node_id=node_id,
+                field_path=field_path,
+            )
+        return contract
     admitted_parameters: dict[
         str,
         tuple[AdmittedParameterValues, AdmittedParameterValues],
@@ -226,12 +113,18 @@ def compile(
         tuple[NodeTypeDefinition, ExecutionBindingDefinition],
     ] = {}
     for index, node in enumerate(workflow.nodes):
-        node_type_contract = resolved_by_key[
-            ("node_type", node.node_type_id, node.node_type_version)
-        ]
-        binding_contract = resolved_by_key[
-            ("binding", node.binding_id, node.binding_version)
-        ]
+        node_type_contract = resolved_contract(
+            "node_type",
+            node.node_type_id,
+            node_id=node.node_id,
+            field_path=("nodes", index, "node_type_id"),
+        )
+        binding_contract = resolved_contract(
+            "binding",
+            node.binding_id,
+            node_id=node.node_id,
+            field_path=("nodes", index, "binding_id"),
+        )
         node_definition = cast(
             NodeTypeDefinition,
             node_type_contract.definition,
@@ -257,6 +150,63 @@ def compile(
                 field_path=("nodes", index, "binding_parameters"),
             ),
         )
+    for index, selector in enumerate(workflow.observation_selectors):
+        for field_name, reference, expected_kind in (
+            ("metric", selector.metric, "metric"),
+            ("method", selector.method, "method"),
+        ):
+            if reference.contract_kind != expected_kind:
+                raise _errors.WorkflowCompileError(
+                    "contract_kind_mismatch",
+                    f"{field_name} must reference a {expected_kind}",
+                    field_path=(
+                        "observation_selectors",
+                        index,
+                        field_name,
+                        "contract_kind",
+                    ),
+                )
+            resolved_contract(
+                expected_kind,
+                reference.contract_id,
+                field_path=(
+                    "observation_selectors",
+                    index,
+                    field_name,
+                    "contract_id",
+                ),
+            )
+    for index, objective in enumerate(workflow.selection_objectives):
+        for field_name, reference, expected_kind in (
+            ("metric", objective.metric, "metric"),
+            ("method", objective.method, "method"),
+            (
+                "utility_transform",
+                objective.utility_transform,
+                "utility_transform",
+            ),
+        ):
+            if reference.contract_kind != expected_kind:
+                raise _errors.WorkflowCompileError(
+                    "contract_kind_mismatch",
+                    f"{field_name} must reference a {expected_kind}",
+                    field_path=(
+                        "selection_objectives",
+                        index,
+                        field_name,
+                        "contract_kind",
+                    ),
+                )
+            resolved_contract(
+                expected_kind,
+                reference.contract_id,
+                field_path=(
+                    "selection_objectives",
+                    index,
+                    field_name,
+                    "contract_id",
+                ),
+            )
     objective_compilation_by_id = {
         objective.objective_id: (
             index,
@@ -264,9 +214,9 @@ def compile(
                 objective.utility_parameters,
                 cast(
                     UtilityTransformDefinition,
-                    resolved_by_key[
-                        objective.utility_transform.key
-                    ].definition,
+                    catalog.require_contract(
+                        *objective.utility_transform.key
+                    ).definition,
                 ).parameter_contract,
                 field_name="utility_parameters",
                 field_path=(
@@ -283,7 +233,7 @@ def compile(
         workflow,
         graph=graph,
         plan_nodes=plan_nodes,
-        lock_by_key=lock_by_key,
+        catalog=catalog,
     )
     selection_consumers = _compile_selection_consumers(
         workflow,
@@ -306,7 +256,7 @@ def compile(
     resolved_workflow_selectors = tuple(
         _compile_observation_selector(
             selector,
-            resolved_by_key=resolved_by_key,
+            catalog=catalog,
         )
         for selector in workflow.observation_selectors
     )
@@ -315,17 +265,16 @@ def compile(
         for item in resolved_workflow_selectors
     }
     nodes: list[ExecutionPlanNode] = []
+    scientific_definitions: dict[tuple[str, str], Mapping[str, Any]] = {}
     for node_id in graph.node_order:
         node = graph.nodes_by_id[node_id]
-        node_type_contract = resolved_by_key[
-            ("node_type", node.node_type_id, node.node_type_version)
-        ]
-        binding = resolved_by_key[
-            ("binding", node.binding_id, node.binding_version)
-        ]
+        node_type_contract = catalog.require_contract(
+            "node_type", node.node_type_id
+        )
+        binding = catalog.require_contract("binding", node.binding_id)
         node_definition, binding_definition = plan_nodes[node_id]
         method_key = binding_definition.method.key
-        method_contract = resolved_by_key[method_key]
+        method_contract = catalog.require_contract(*method_key)
         normalized_node_parameters, normalized_binding_parameters = (
             admitted_parameters[node.node_id]
         )
@@ -334,7 +283,7 @@ def compile(
         resolved_selected_objectives = _compile_selection_objectives(
             selected_objectives,
             compilation_by_id=objective_compilation_by_id,
-            resolved_by_key=resolved_by_key,
+            catalog=catalog,
         )
         resolved_selected_selectors = tuple(
             resolved_selectors_by_id[item.selector_id]
@@ -347,9 +296,9 @@ def compile(
             ports: dict[str, _ExecutionPlanPort] = {}
             for declaration in declarations:
                 key = declaration.port_type.key
-                port_type = resolved_by_key[key]
+                port_type = catalog.require_port_type(key[1])
                 ports[declaration.name] = _ExecutionPlanPort(
-                    reference=lock_by_key[key],
+                    reference=catalog.require_reference(*key),
                     multiplicity=declaration.multiplicity,
                     required=declaration.required,
                     artifact_kind=declaration.artifact_kind,
@@ -388,7 +337,7 @@ def compile(
         }
         produced_observation_plan = _resolved_produced_observation_plan(
             binding,
-            resolved_by_key=resolved_by_key,
+            catalog=catalog,
         )
         artifact_outputs: list[ArtifactOutputPlan] = []
         for port_name, port in output_ports.items():
@@ -421,8 +370,11 @@ def compile(
             selected_objectives=selected_objectives,
             selected_selectors=selected_selectors,
             catalog=catalog,
-            resolved_by_key=resolved_by_key,
         )
+        for contract in result_contracts:
+            scientific_definitions[
+                (contract.contract_kind, contract.contract_id)
+            ] = _thaw_json(result_identity_contract(contract))
         result_identity_plan_facts = _result_identity_plan_facts(
             node_contract=node_type_contract,
             binding_contract=binding,
@@ -474,68 +426,26 @@ def compile(
         nodes.append(
             ExecutionPlanNode(
                 node_id=node.node_id,
-                node_type=lock_by_key[
-                    ("node_type", node.node_type_id, node.node_type_version)
-                ],
-                binding=lock_by_key[
-                    ("binding", node.binding_id, node.binding_version)
-                ],
-                method=lock_by_key[method_key],
+                node_type=catalog.require_reference(
+                    "node_type", node.node_type_id
+                ),
+                binding=catalog.require_reference("binding", node.binding_id),
+                method=catalog.require_reference(*method_key),
                 node_parameters=normalized_node_parameters,
                 binding_parameters=normalized_binding_parameters,
                 result_identity_plan_facts=result_identity_plan_facts,
                 _runtime=runtime,
             )
         )
-    plan_descriptor = {
-        "schema_namespace": EXECUTION_PLAN_NAMESPACE,
-        "workflow_id": workflow.workflow_id,
-        "workflow_commit_revision": workflow_commit_revision,
-        "workflow_digest": workflow.digest,
-        "catalog_contract_digest": catalog.contract_digest,
-        "contract_lock_digest": workflow.contract_lock_digest,
-        "node_order": list(graph.node_order),
-        "nodes": [
-            {
-                "node_id": node.node_id,
-                "node_type": node.node_type.canonical_projection(),
-                "binding": node.binding.canonical_projection(),
-                "method": node.method.canonical_projection(),
-                "node_parameters": _thaw_json(node.node_parameters),
-                "binding_parameters": _thaw_json(node.binding_parameters),
-                "result_identity_plan_facts_digest": (
-                    node.result_identity_plan_facts.digest
-                ),
-            }
-            for node in nodes
-        ],
-        "edges": [
-            edge.canonical_projection() for edge in workflow.edges
-        ],
-        "observation_selectors": [
-            observation_selector_canonical(selector)
-            for selector in workflow.observation_selectors
-        ],
-        "selection_objectives": [
-            selection_objective_canonical(objective)
-            for objective in workflow.selection_objectives
-        ],
-        "resolved_contracts": [
-            entry.canonical_projection() for entry in resolved_contracts
-        ],
-    }
-    execution_plan_digest = canonical_sha256(plan_descriptor)
     plan = ExecutionPlan(
         workflow_id=workflow.workflow_id,
-        workflow_commit_revision=workflow_commit_revision,
-        workflow_digest=workflow.digest,
-        catalog_contract_digest=catalog.contract_digest,
-        contract_lock_digest=workflow.contract_lock_digest,
-        execution_plan_digest=execution_plan_digest,
         nodes=tuple(nodes),
         edges=workflow.edges,
         node_order=graph.node_order,
-        resolved_contracts=resolved_contracts,
+        scientific_definitions=tuple(
+            scientific_definitions[key]
+            for key in sorted(scientific_definitions)
+        ),
         _runtime=_ExecutionPlanRuntime(
             candidate_data_port_types=candidate_data_port_types,
         ),

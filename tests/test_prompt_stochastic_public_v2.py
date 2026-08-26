@@ -20,10 +20,7 @@ from tests.fixtures.public_v2 import wait_for_testclient_run_terminal
 from tests.fixtures.prompt_authoring_sources.package import (
     MODULE_PACKAGE as SOURCE_PACKAGE,
 )
-from tests.fixtures.prompt_authoring_v2 import VERSION, WORKFLOW_SCHEMA_VERSION
-
-
-STRUCTURE_SOURCE_VERSION = "4.0.0"
+from tests.fixtures.prompt_authoring_v2 import WORKFLOW_SCHEMA_VERSION
 
 
 def test_stochastic_prompt_authoring_executes_through_public_rest(
@@ -47,20 +44,16 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
                 {
                     "node_id": "source",
                     "node_type_id": "contract_test.prompt_authoring_values",
-                    "node_type_version": STRUCTURE_SOURCE_VERSION,
                     "binding_id": (
                         "contract_test.prompt_authoring_values.direct"
                     ),
-                    "binding_version": STRUCTURE_SOURCE_VERSION,
                     "node_parameters": {"fixture": "canonical"},
                     "binding_parameters": {},
                 },
                 {
                     "node_id": "mask",
                     "node_type_id": "prompt_authoring.random_mask",
-                    "node_type_version": VERSION,
                     "binding_id": "prompt_authoring.random_mask.direct",
-                    "binding_version": VERSION,
                     "node_parameters": {
                         "effective_seed": 73,
                         "count": 1,
@@ -77,9 +70,7 @@ def test_stochastic_prompt_authoring_executes_through_public_rest(
                     "target_node_id": "mask",
                     "target_port": "protein_prompt",
                 },
-            ],
-            "contract_lock": [],
-        }
+            ]}
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={

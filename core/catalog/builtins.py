@@ -14,11 +14,9 @@ from datatypes.observation import (
 from .model import FrozenCatalog
 from core.catalog.errors import PortValueError
 from .port_contract import (
-    PORT_TYPE_VERSION,
     PORT_VALUE_NAMESPACE,
     BehaviorReference,
     PortTypeDefinition,
-    _BUILTIN_PORT_TYPE_VERSIONS,
 )
 
 
@@ -97,8 +95,6 @@ def _score_collection_data_references(
 def _builtin_port_type(
     type_id: str,
     value_kind: str,
-    *,
-    version: str = PORT_TYPE_VERSION,
 ) -> PortTypeDefinition:
     behavior_prefix = f"protein-workbench.port-type/{type_id}"
     validator_parameters: dict[str, Any] = {
@@ -159,20 +155,16 @@ def _builtin_port_type(
     }.get(type_id)
     return PortTypeDefinition(
         type_id=type_id,
-        version=version,
         validator=BehaviorReference(
             behavior_id=f"{behavior_prefix}/validate",
-            behavior_version=version,
             parameters=validator_parameters,
         ),
         codec=BehaviorReference(
             behavior_id=f"{behavior_prefix}/canonical-json-codec",
-            behavior_version=version,
             parameters=codec_parameters,
         ),
         content_identity=BehaviorReference(
             behavior_id=f"{behavior_prefix}/content-sha256",
-            behavior_version=version,
             parameters={
                 "digest_algorithm": "SHA-256",
                 "digest_input": "canonical_codec_bytes",
@@ -184,7 +176,6 @@ def _builtin_port_type(
         candidate_data_projection=(
             BehaviorReference(
                 behavior_id=f"{behavior_prefix}/candidate-data-projection",
-                behavior_version=version,
                 parameters={
                     "projection": "all-exact-Candidate-Data-References",
                 },
@@ -203,10 +194,6 @@ def builtin_port_types() -> tuple[PortTypeDefinition, ...]:
         _builtin_port_type(
             type_id,
             value_kind,
-            version=_BUILTIN_PORT_TYPE_VERSIONS.get(
-                type_id,
-                PORT_TYPE_VERSION,
-            ),
         )
         for type_id, value_kind in _BUILTIN_VALUE_KINDS
     )

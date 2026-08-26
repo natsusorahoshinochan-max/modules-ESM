@@ -45,10 +45,10 @@ class PlanNodeEvidence:
     node_id: str
     dependencies: tuple[str, ...]
     required_input_sources: tuple[PlanRequiredInputEvidence, ...]
-    result_identity_plan_facts_digest: str
+    node_type: ExactContractReference
     binding: ExactContractReference
+    method: ExactContractReference
     execution_route: Literal["direct", "adapter"]
-    node_type: ExactContractReference | None = None
     artifact_outputs: tuple[ArtifactOutputEvidence, ...] = ()
     selection_consumer: bool = False
 
@@ -58,22 +58,14 @@ class RunScopeBinding:
     """Complete immutable Run scope selected before Ledger admission."""
 
     workflow_commit_id: str
-    workflow_commit_revision: int
-    workflow_digest: str
-    contract_lock_digest: str
-    execution_plan_digest: str
-    catalog_contract_digest: str
-    resolved_contracts: tuple[ExactContractReference, ...]
-    resolved_contract_roots: tuple[ExactContractReference, ...]
     derived_from: DerivedRunReference | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ReadinessAttestation:
-    """One complete run-scoped Readiness conclusion for an exact Binding."""
+    """One complete run-scoped Readiness conclusion for a Binding."""
 
     binding: ExactContractReference
-    readiness_contract_digest: str
     observed_at: str
     conclusion: Literal["passing", "failing"]
     proof_source: str

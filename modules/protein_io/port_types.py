@@ -7,7 +7,6 @@ from core.catalog.port_contract import BehaviorReference, PortTypeDefinition
 from core.operation import ArtifactPayload
 
 
-_VERSION = "2.1.0"
 _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
@@ -53,10 +52,8 @@ def _from_wire(value: object) -> object:
 
 ARTIFACT_PAYLOAD_PORT_TYPE = PortTypeDefinition(
     type_id="protein_io.artifact_payload",
-    version=_VERSION,
     validator=BehaviorReference(
         "protein_io.artifact_payload/validate",
-        _VERSION,
         {
             "accepted_value_kind": "artifact_payload",
             "artifact_publication": {
@@ -69,7 +66,6 @@ ARTIFACT_PAYLOAD_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         "protein_io.artifact_payload/codec",
-        _VERSION,
         {
             "canonicalization": "RFC 8785",
             "binary_encoding": "base64",
@@ -77,7 +73,6 @@ ARTIFACT_PAYLOAD_PORT_TYPE = PortTypeDefinition(
     ),
     content_identity=BehaviorReference(
         "protein_io.artifact_payload/content",
-        _VERSION,
         {"digest": "SHA-256"},
     ),
     runtime_validator=_validate_artifact_payload,

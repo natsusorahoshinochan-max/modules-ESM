@@ -7,16 +7,12 @@ from datetime import datetime, timezone
 import threading
 from typing import Any, TypeAlias, cast
 
-from core.catalog.canonical import canonical_sha256
 from core.execution.ledger.codec import (
     LedgerTransaction,
-    contract_lock_digest,
-    cursor_scope_digest,
     decode_cursor,
     decode_transaction,
     encode_cursor,
     encode_transaction,
-    readiness_attestation_digest,
 )
 from core.execution.ledger.facts import (
     AvailabilityBound,
@@ -110,13 +106,11 @@ def run_cursor(
     *,
     project_id: str,
     run_id: str,
-    fact: Fact | None = None,
 ) -> RunCursor:
     return encode_cursor(
         sequence,
         project_id=project_id,
         run_id=run_id,
-        fact=fact,
     )
 
 class Ledger:
@@ -251,13 +245,6 @@ class Ledger:
             payload = cast(RunScopeBound, self._state.facts[0].payload)
             return RunScopeBinding(
                 workflow_commit_id=payload.workflow_commit_id,
-                workflow_commit_revision=payload.workflow_commit_revision,
-                workflow_digest=payload.workflow_digest,
-                contract_lock_digest=payload.contract_lock_digest,
-                execution_plan_digest=payload.execution_plan_digest,
-                catalog_contract_digest=payload.catalog_contract_digest,
-                resolved_contracts=payload.resolved_contracts,
-                resolved_contract_roots=payload.resolved_contract_roots,
                 derived_from=payload.derived_from,
             )
 
@@ -284,12 +271,10 @@ class Ledger:
         return self._reducer.selection_consumer_ids
 
     def _cursor_at(self, sequence: int) -> RunCursor:
-        fact = self._state.facts[sequence - 1] if sequence else None
         return run_cursor(
             sequence,
             project_id=self._project_id,
             run_id=self._run_id,
-            fact=fact,
         )
 
     def sequence_for_cursor(self, cursor: RunCursor | None) -> int:
@@ -311,8 +296,8 @@ class Ledger:
                 else None
             )
         if (
-            payload.scope_digest
-            != cursor_scope_digest(self._project_id, self._run_id)
+            payload.project_id != self._project_id
+            or payload.run_id != self._run_id
             or expected != cursor
         ):
             raise V2RunError(
@@ -375,13 +360,6 @@ class Ledger:
                     project_id=self._project_id,
                     run_id=self._run_id,
                     workflow_commit_id=scope.workflow_commit_id,
-                    workflow_commit_revision=scope.workflow_commit_revision,
-                    workflow_digest=scope.workflow_digest,
-                    contract_lock_digest=scope.contract_lock_digest,
-                    execution_plan_digest=scope.execution_plan_digest,
-                    catalog_contract_digest=scope.catalog_contract_digest,
-                    resolved_contracts=scope.resolved_contracts,
-                    resolved_contract_roots=scope.resolved_contract_roots,
                     plan_nodes=self._reducer.plan_evidence,
                     selection_terminal_keys=self._reducer.selection_consumer_ids,
                     derived_from=scope.derived_from,
@@ -397,21 +375,9 @@ class Ledger:
             (
                 ReadinessAttested(
                     binding=attestation.binding,
-                    readiness_contract_digest=(
-                        attestation.readiness_contract_digest
-                    ),
                     observed_at=attestation.observed_at,
                     conclusion=attestation.conclusion,
                     proof_source=attestation.proof_source,
-                    attestation_digest=readiness_attestation_digest(
-                        binding=attestation.binding,
-                        readiness_contract_digest=(
-                            attestation.readiness_contract_digest
-                        ),
-                        observed_at=attestation.observed_at,
-                        conclusion=attestation.conclusion,
-                        proof_source=attestation.proof_source,
-                    ),
                 ),
             )
         )

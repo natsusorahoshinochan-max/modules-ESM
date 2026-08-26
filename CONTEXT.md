@@ -58,8 +58,8 @@ _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 **Module Package**:
 A cohesive repository-owned extension unit that provides one or more Node
 Types, their Node Definitions, Methods, Execution Bindings, and required
-implementations or Adapters. Its production registration is verified separately
-by the Contract Test Kit.
+implementations or Adapters. The Catalog builder admits its production
+registration; focused owner tests exercise its scientific behavior and codecs.
 _Avoid_: Plugin, single node, module directory
 
 **Node Definition**:
@@ -77,8 +77,8 @@ _Avoid_: Node Type, Execution Binding, provider name
 **Execution Binding**:
 The executable association of one Node Type with one Method and either a direct
 implementation or a required Adapter. It owns route-specific parameters and the
-Availability and Readiness contracts, while model identity remains fixed by the
-Binding.
+Availability and Readiness contracts, while scientific model or algorithm
+identity remains fixed by its stable Method ID.
 _Avoid_: Node Definition, Adapter, provider name
 
 **Provider Asset Closure**:
@@ -99,12 +99,15 @@ _Avoid_: Node parameter, Binding parameter, scientific input
 The complete production contract through which a Module Package contributes
 Node Types, Execution Bindings, Methods, Metric Definitions, Port Type
 Definitions, Utility Transforms, and Availability and Readiness declarations.
+The Catalog builder admits its stable IDs, implementation references, and
+scientific relationships once when constructing the current Catalog.
 Contract-test cases and fixtures are separate from it.
 _Avoid_: Import side effect, per-node registration call, recursive discovery
 
 **FrozenCatalog**:
-The immutable startup result containing the current stable-ID registrations and
-diagnostic Binding Availability observations used by authoring and compilation.
+The immutable admitted startup result containing the current stable-ID
+registrations, scientific relationships, and diagnostic Binding Availability
+observations used by authoring and compilation.
 _Avoid_: Mutable Registry, discovery workspace, runtime plugin manager
 
 **Availability**:

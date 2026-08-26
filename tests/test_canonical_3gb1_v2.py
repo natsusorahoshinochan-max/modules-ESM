@@ -27,7 +27,6 @@ from core.workflow.authoring import WorkflowCommit
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from protein_workbench_public.bootstrap import create_application
@@ -44,7 +43,6 @@ from modules.structure_transform.domain import (
 )
 from protein_workbench_public.protocol import artifact_content_disposition
 from tests.fixtures.canonical_3gb1_v2 import (
-    CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
     ControlledESM3Client,
     ControlledFoldingClient,
     ControlledProteinMPNNProvider,
@@ -62,11 +60,6 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW_PATH = (
     PROJECT_ROOT / "examples" / "v2" / "canonical-3gb1.workflow.json"
 )
-EXPECTED_TOP_THREE = [
-    "candidate-50c2b9947296a048c75cad2d9cc0220a3ae99ad38d6023b47c47bfd5e626cfd7",
-    "candidate-7bbce318c17419b22c47b6f5dada2b99279db0e089571373c14da0636dbdb80f",
-    "candidate-ce6705b0f150a1e7e66bf7f5bed22706c647b07d3ac34d7831d1040fd9fb2fd7",
-]
 EXPECTED_TOP_PARENT_INDICES = [2, 0, 3]
 pytestmark = pytest.mark.deterministic_acceptance
 
@@ -91,85 +84,27 @@ def _assert_workflow_commit_owner(
 
     assert commit.workflow_commit_id == workflow_commit_id
     assert commit.source_draft_revision == draft.draft_revision == 1
-    assert commit.source_draft_digest == draft.draft_digest
-    assert commit.workflow_commit_revision == 1
-    assert plan.workflow_commit_revision == commit.workflow_commit_revision
-    assert plan.workflow_digest == commit.workflow_digest
-    assert plan.catalog_contract_digest == commit.catalog_contract_digest
-    assert plan.contract_lock_digest == commit.contract_lock_digest
-    assert plan.execution_plan_digest == commit.execution_plan_digest
-    assert commit.workflow_commit_id == plan.execution_plan_digest.replace(
-        "sha256:",
-        "workflow-commit-",
-    )
+    assert commit.workflow == draft.workflow
+    assert plan.workflow_id == commit.workflow.workflow_id
+    assert commit.scientific_definitions == plan.scientific_definitions
     return commit
 
 
-def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
+def test_canonical_seed_is_compilable_v2() -> None:
     catalog = build_frozen_catalog(module_registrations())
     workflow = decode_workflow_document(_workflow_payload())
 
     assert workflow.workflow_id == "canonical-3gb1"
     assert workflow.schema_version == "2.1.0"
-    assert workflow.contract_lock
-    assert lock_workflow(replace(workflow, contract_lock=()), catalog) == workflow
-    compiled = compile(
-                   CompilationRequest(
-                       workflow,
-                       1,
-                   ),
-                   catalog,
-               )
-    assert compiled.resolved_contracts == workflow.contract_lock
+    assert replace(workflow) == workflow
+    compiled = compile(CompilationRequest(workflow), catalog)
+    assert compiled.workflow_id == workflow.workflow_id
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert all(not node.binding_parameters for node in nodes.values())
-    expected_node_versions = {
-        "import-3gb1": "6.0.0",
-        "resolve-source-residue-axis": "4.0.0",
-        "extract-imported-backbone": "4.0.0",
-        "prompt-backbone-to-structure": "4.0.0",
-        "resolve-imported-residue-axis": "4.0.0",
-        "build-prompt": "5.0.0",
-        "mask-sequence": "3.0.0",
-        "mask-structure": "3.0.0",
-        "insert-masked": "3.0.0",
-        "override-secondary-structure": "3.0.0",
-        "generate-paired": "8.0.0",
-        "materialize-generated-confidence": "2.0.0",
-        "fold-sequences": "8.0.0",
-        "materialize-folded-confidence": "2.0.0",
-        "rebind-counterparts": "4.0.0",
-        "resolve-folded-residue-axes": "6.0.0",
-        "resolve-generated-residue-axes": "6.0.0",
-        "resolve-canonical-residue-axes": "6.0.0",
-        "align-fixed": "5.0.0",
-        "score-fixed": "6.0.0",
-        "align-paired": "5.0.0",
-        "score-paired": "6.0.0",
-        "merge-scores": "5.0.0",
-        "rank-candidates": "5.0.0",
-        "take-top-three": "4.0.0",
-        "resolve-selected-residue-axes": "6.0.0",
-        "build-final-layout": "3.0.0",
-        "fixed-positions": "4.0.0",
-        "design-children": "10.0.0",
-        "fold-final": "8.0.0",
-        "materialize-final-confidence": "2.0.0",
-        "export-final": "6.0.0",
+    assert set(nodes) == {
+        node["node_id"] for node in _workflow_payload()["nodes"]
     }
-    assert {
-        node.node_id: node.node_type_version for node in nodes.values()
-    } == expected_node_versions
-    expected_binding_versions = dict(expected_node_versions)
-    expected_binding_versions.update({
-        "design-children": "12.0.0",
-        "fold-sequences": "9.0.0",
-        "fold-final": "9.0.0",
-    })
-    assert {
-        node.node_id: node.binding_version for node in nodes.values()
-    } == expected_binding_versions
     assert nodes["mask-sequence"].node_parameters["effective_seed"] == 1603
     assert nodes["mask-structure"].node_parameters["effective_seed"] == 1603
     assert nodes["insert-masked"].node_parameters["effective_seed"] == 1603
@@ -239,7 +174,6 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
             json={"name": "invalid canonical workflow"},
         ).json()["id"]
         workflow["workflow_id"] = project_id
-        workflow["contract_lock"] = []
         rejected = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={
@@ -287,9 +221,7 @@ def _decoded_outputs(
     )
     reference = output["port_type"]
     codec = catalog.require_port_type(
-        reference["contract_id"],
-        reference["contract_version"],
-    )
+        reference["contract_id"])
     return tuple(
         codec.decode(
             retrieve_typed_output_canonical_bytes(
@@ -309,9 +241,7 @@ def _exact_structure_references(
     candidates: CandidateCollection,
 ) -> set[CandidateDataReference]:
     structure_codec = catalog.require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure")
     return {
         CandidateDataReference(
             candidate_id=candidate.candidate_id,
@@ -352,28 +282,27 @@ def _assert_prediction_confidence(
     candidates: CandidateCollection,
     *,
     expected_method_id: str,
-    expected_method_version: str,
 ) -> None:
     assert type(observations) is ScoreCollection
     expected_references = _exact_structure_references(catalog, candidates)
     expected_metrics = {
-        ("structure.ptm", "2.1.0"),
-        ("structure.plddt.per_residue", "3.0.0"),
-        ("structure.plddt.mean_residue", "3.0.0"),
-        ("structure.pae", "3.0.0"),
+        "structure.ptm",
+        "structure.plddt.per_residue",
+        "structure.plddt.mean_residue",
+        "structure.pae",
     }
     assert len(observations.entries) == 4 * len(candidates.items)
     assert {entry.subject for entry in observations.entries} == (
         expected_references
     )
     assert {
-        (entry.metric.contract_id, entry.metric.contract_version)
+        entry.metric.contract_id
         for entry in observations.entries
     } == expected_metrics
     assert {
-        (entry.method.contract_id, entry.method.contract_version)
+        entry.method.contract_id
         for entry in observations.entries
-    } == {(expected_method_id, expected_method_version)}
+    } == {expected_method_id}
     assert {
         entry.source_partition for entry in observations.entries
     } == {"prediction_confidence"}
@@ -385,7 +314,7 @@ def _assert_prediction_confidence(
             if entry.subject == subject
         )
         assert {
-            (entry.metric.contract_id, entry.metric.contract_version)
+            entry.metric.contract_id
             for entry in subject_entries
         } == expected_metrics
         for entry in subject_entries:
@@ -401,7 +330,6 @@ def _assert_prediction_confidence(
             assert axis.axis_contract.contract_id == (
                 "structure_prediction.prediction_residue_axis"
             )
-            assert axis.axis_contract.contract_version == "2.0.0"
             assert axis.layout.length == 71
             assert len(axis.layout.residue_ids or ()) == 71
             if metric_id == "structure.plddt.per_residue":
@@ -451,9 +379,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         lambda **_kwargs: proteinmpnn,
     )
     catalog = controlled_catalog()
-    assert catalog.contract_digest == (
-        build_frozen_catalog(module_registrations()).contract_digest
-    )
     controlled_configuration = controlled_environment(
         monkeypatch,
         esm3,
@@ -471,15 +396,12 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
     with TestClient(app) as client:
         catalog_snapshot = client.get("/api/v2/catalog")
         assert catalog_snapshot.status_code == 200
-        assert catalog_snapshot.json()["catalog_contract_digest"] == (
-            catalog.contract_digest
-        )
+        assert catalog_snapshot.json()["contracts"]
         draft = client.get(
             "/api/v2/projects/canonical-3gb1/workflow/draft"
         )
         assert draft.status_code == 200
         expected_draft = _workflow_payload()
-        expected_draft["contract_lock"] = []
         assert draft.json()["workflow"] == expected_draft
         active = client.get(
             "/api/v2/projects/canonical-3gb1/workflow/active-commit"
@@ -490,9 +412,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             app,
             workflow_commit_id=workflow_commit_id,
         )
-        assert commit.contract_lock_digest == decode_workflow_document(
-            _workflow_payload()
-        ).contract_lock_digest
 
         def run(request_id: str) -> tuple[dict[str, Any], tuple[dict, ...]]:
             started = client.post(
@@ -599,15 +518,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ]
 
         first_prompt = esm3.sequence_prompts[0]
-        prompt_output = next(
-            item
-            for item in first["outputs"]
-            if item["node_id"] == "override-secondary-structure"
-            and item["output_port"] == "protein_prompt"
-        )
-        assert prompt_output["content_digest"] == (
-            CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST
-        )
         assert len(esm3.sequence_prompts) == len(esm3.structure_prompts) == 10
         assert len(first_prompt.sequence) == 71
         assert first_prompt.sequence.count("_") == 35
@@ -718,7 +628,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             expected_method_id=(
                 "esm3.generate_paired.esm3_medium_2024_08"
             ),
-            expected_method_version="5.0.0",
         )
         _assert_prediction_confidence(
             catalog,
@@ -727,7 +636,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             expected_method_id=(
                 "folding.fold.esmfold2_fast_biohub_2026_05"
             ),
-            expected_method_version="4.0.0",
         )
         assert len(initial_folds.items) == len(rebound.entries) == 10
         assert len({
@@ -785,9 +693,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         )
         assert len(ranked.items) == 10
         assert selected.items == ranked.items[:3]
-        assert [
-            candidate.candidate_id for candidate in selected.items
-        ] == EXPECTED_TOP_THREE
         assert [
             candidate.metadata["parent_index"] for candidate in selected.items
         ] == EXPECTED_TOP_PARENT_INDICES
@@ -898,7 +803,6 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             expected_method_id=(
                 "folding.fold.esmfold2_fast_biohub_2026_05"
             ),
-            expected_method_version="4.0.0",
         )
         assert len(first["artifact_index"]) == 15
         assert [
@@ -990,14 +894,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             bound_nodes = [
                 node_id
                 for node_id, node in workflow_nodes.items()
-                if (
-                    node["binding_id"],
-                    node["binding_version"],
-                )
-                == (
-                    binding["contract_id"],
-                    binding["contract_version"],
-                )
+                if node["binding_id"] == binding["contract_id"]
             ]
             assert bound_nodes
             assert min(
@@ -1010,9 +907,10 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             and message["event"]["binding"]["contract_id"]
             == "proteinmpnn.design.local"
         )
-        assert proteinmpnn_readiness["binding"]["contract_version"] == (
-            "12.0.0"
-        )
+        assert proteinmpnn_readiness["binding"] == {
+            "contract_kind": "binding",
+            "contract_id": "proteinmpnn.design.local",
+        }
 
         esm_calls_before = len(esm3.sequence_prompts)
         fold_calls_before = len(folding.calls)

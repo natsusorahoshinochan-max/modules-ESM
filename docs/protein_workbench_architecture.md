@@ -100,12 +100,12 @@ flowchart TB
 
 ### 3.3 `FrozenCatalog` 的深度
 
-`FrozenCatalog` 是当前 stable-ID registrations 的唯一解析 Module，而不是可变 Registry 或运行时插件管理器。完整科学关系 gate 位于 build/test；运行时负责：
+`FrozenCatalog` 是当前 stable-ID registrations 的唯一解析 Module，而不是可变 Registry 或运行时插件管理器。启动与 build/tests 使用同一个直接 Catalog builder，该 builder：
 
-- 加载通过 gate 的 typed Module Package Registration；
 - 检查 stable ID 唯一、必需引用和 factory/Adapter 可解析；
-- 解析 Workflow 中固定的 Node Type、Binding、Method 和 Port contracts；
-- 发布当前 registrations 和 diagnostic startup Availability；
+- 检查 Port compatibility、Candidate/Observation subject、Metric schema、residue-axis 和 dependency closure 等直接保护科学模块输入输出的关系；
+- 不计算 internal contract semver、descriptor digest 或 Contract Lock；
+- 发布 immutable current registrations 和 diagnostic startup Availability；
 - 为 compiler 提供 typed resolution surface。
 
 Package discovery、descriptor parsing、runtime codecs、implementation factories 和 readiness declarations 可以作为其 Implementation 内的私有索引，但不扩散给 scientific operation。
@@ -859,7 +859,7 @@ examples/v2/
 
 验证以 Interface 为测试 surface，而不是穿透 Implementation：
 
-1. Catalog build/test gate 证明 stable IDs 唯一、科学引用闭包完整，并验证 Candidate/Observation、Metric schema、Port compatibility 和 residue-axis 关系。
+1. 启动与 tests 共用的 Catalog builder 证明 stable IDs 唯一、科学引用闭包完整，并验证 Candidate/Observation、Metric schema、Port compatibility 和 residue-axis 关系。
 2. 每个科学 Port codec 有明确 owner 的 valid、invalid 和 roundtrip focused tests；scientific content identity 需要 canonical bytes 时继续验证这些 bytes。
 3. Node/Binding focused tests 从 production `ModulePackageRegistration` 构建 Catalog、commit Workflow、执行 normal interface、解码 typed outputs，并检查 Result Identity、lineage、provenance、evidence 和 Artifact；不要求 CTK exact-set equality。
 4. Scientific operation tests 直接使用 complete admitted fixtures，验证 units、shape、residue mapping、mask、seed 和 Method semantics。
@@ -879,16 +879,16 @@ Acceptance Campaign module 拥有唯一、不可变的 canonical tier plan。该
 receipt 与 Environment Configuration requirements；source-bound tier 还固定 exact input、
 input digest 与 Workflow path。Repository verification matrix 不属于该 plan。
 
-Campaign 以一个 clean revision 构建一次 wheel 与 sdist，并将 candidate、revision、plan 和
-一个 private Execution Profile 绑定到一次执行。它逐 tier 投影精确环境，严格串行且每个 tier
+Campaign 构建一次 wheel 与 sdist，并将 candidate、canonical tier plan 和一个 private
+Execution Profile 绑定到一次执行。它逐 tier 投影精确环境，严格串行且每个 tier
 恰好运行一次；不支持重排、并行、retry、resume 或局部补跑，首个失败立即终止。child
 execution 通过结构化 outcome 交付 retained location 和完成事实。retained result/JUnit
 format 只 admission 一次，summary 与 redacted diagnostics 从同一个 admitted outcome 投影。
-stdout、literal warning match 与 interpreter executable digest 只用于诊断，不能授权或否定
+stdout 与 literal warning match 只用于诊断，不能授权或否定
 Acceptance Result。
 
 Acceptance Result 只在 tier 自己的科学断言通过且 plan 声明的结构完成契约满足后成立。
-Campaign 集中验证 tier identity、source revision、required run labels、lifecycle receipt 与
+Campaign 集中验证 tier identity、required run labels、lifecycle receipt 与
 retained location，但不解释或重复科学断言。`passed` 当且仅当全部 19 个 tier 按顺序产生
 完整 Acceptance Result；失败或 interrupted diagnostic output 不计入完成度。详见 ADR-0043。
 

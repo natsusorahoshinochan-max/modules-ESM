@@ -6,7 +6,6 @@ from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
 
-import hashlib
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -16,7 +15,6 @@ from typing import Any
 
 import pytest
 from core.local_torch_device import (
-    LOCAL_TORCH_DEVICE_POLICY,
     expected_local_torch_device,
 )
 from tests.support.local_torch_device import provider_free_cpu_device_policy
@@ -54,11 +52,7 @@ from tests.fixtures.scientific_operation import (
 )
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
-    install_fixture_source_runtime_group,
 )
-
-
-_SIMPLEFOLD_BINDING_VERSION = "11.0.0"
 
 
 def test_simplefold_runtime_applies_the_exact_normalized_step_count(
@@ -380,14 +374,10 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     catalog = build_frozen_catalog(module_registrations())
     simplefold = catalog.require_contract(
         "binding",
-        "folding.fold.simplefold_local",
-        _SIMPLEFOLD_BINDING_VERSION,
-    )
+        "folding.fold.simplefold_local")
     esmfold2 = catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_local",
-        "11.0.0",
-    )
+        "folding.fold.esmfold2_local")
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
     assert simplefold.descriptor["binding_parameters"] == {
@@ -406,23 +396,12 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
     }
     assert simplefold.descriptor["deterministic"] is False
     assert simplefold.descriptor["cacheable"] is False
-    assert simplefold.descriptor["implementation_identity"]["model"] == (
-        "simplefold_100M"
-    )
-    assert simplefold.descriptor["implementation_identity"][
-        "device_policy"
-    ] == (
-        LOCAL_TORCH_DEVICE_POLICY
-    )
     assert simplefold.descriptor["produced_observations"] == ()
 
     method_reference = simplefold.descriptor["method"]
     method = catalog.require_contract(
         method_reference["contract_kind"],
-        method_reference["contract_id"],
-        method_reference["contract_version"],
-    )
-    assert method_reference["contract_version"] == "5.0.0"
+        method_reference["contract_id"])
     assert method.descriptor["model_identity"]["folding_model"] == (
         "simplefold_100M"
     )
@@ -436,16 +415,6 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         "device",
         "staging_directory",
     }.isdisjoint(simplefold.descriptor["binding_parameters"])
-    assert set(
-        method.descriptor["checkpoint_identity"][
-            "simplefold_artifact_sha256"
-        ]
-    ) == {
-        "ccd.pkl",
-        "plddt.ckpt",
-        "simplefold_1.6B.ckpt",
-        "simplefold_100M.ckpt",
-    }
 
 
 def test_simplefold_readiness_validates_assets_without_hiding_siblings(
@@ -470,19 +439,7 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
         True,
         proof_source="direct-observation",
     )
-    identity = (
-        adapter.simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
-        .provider_identity()
-    )
-    assert set(identity["artifact_sha256"]) == {
-        "ccd.pkl",
-        "plddt.ckpt",
-        "simplefold_1.6B.ckpt",
-        "simplefold_100M.ckpt",
-    }
-    (environment["model_root"] / "simplefold_100M.ckpt").write_bytes(
-        b"replacement"
-    )
+    (environment["model_root"] / "simplefold_100M.ckpt").unlink()
     assert adapter.simplefold_readiness(environment) == ReadinessResult(
         False,
         proof_source="direct-observation",
@@ -503,14 +460,10 @@ def test_simplefold_readiness_validates_assets_without_hiding_siblings(
     )
     assert catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_remote",
-        "9.0.0",
-    )
+        "folding.fold.esmfold2_remote")
     assert catalog.require_contract(
         "binding",
-        "folding.fold.esmfold2_local",
-        "11.0.0",
-    )
+        "folding.fold.esmfold2_local")
     snapshots = {
         item.binding.contract_id: item
         for item in catalog.availability
@@ -587,9 +540,7 @@ def _simplefold_environment(
     client: Any,
 ) -> dict[str, Any]:
     import modules.folding.simplefold_adapter as adapter
-    import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
-    from core.local_torch_device import expected_local_torch_device
     import modules.folding.simplefold_runtime as simplefold_runtime
 
     def fixture_fold_sequence(**kwargs: Any) -> Any:
@@ -607,14 +558,14 @@ def _simplefold_environment(
         "fold_sequence",
         fixture_fold_sequence,
     )
-    install_fixture_source_runtime_group(monkeypatch, adapter)
-
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
     esm2_source_root = tmp_path / "esm2-source"
     model_root.mkdir(parents=True)
     esm2_model_root.mkdir()
-    esm2_source_root.mkdir()
+    (esm2_source_root / "esm").mkdir(parents=True)
+    (esm2_source_root / "esm" / "__init__.py").write_bytes(b"fixture")
+    (esm2_source_root / "esm" / "pretrained.py").write_bytes(b"fixture")
     model_payloads = {
         entry.runtime_filename: f"fixture-{entry.runtime_filename}".encode()
         for entry in contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE.files
@@ -628,29 +579,18 @@ def _simplefold_environment(
         (model_root / name).write_bytes(payload)
     for name, payload in esm2_payloads.items():
         (esm2_model_root / name).write_bytes(payload)
-    fixture_digests = {
-        name: hashlib.sha256(payload).hexdigest()
-        for name, payload in (*model_payloads.items(), *esm2_payloads.items())
-    }
     fixture_closure = build_fixture_simplefold_closure(
         contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
-        fixture_digests,
     )
     monkeypatch.setattr(
         contract,
         "SIMPLEFOLD_FOLDING_ASSET_CLOSURE",
         fixture_closure,
     )
-    monkeypatch.setattr(
-        asset_closure,
-        "validate_installed_provider_checkout",
-        lambda *_args, **_kwargs: None,
-    )
     return {
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
-        "device": expected_local_torch_device(),
     }
 
 
@@ -677,18 +617,14 @@ def _run_simplefold(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_sequence_source",
-        node_type_version="4.0.0",
         binding_id="contract_test.folding_sequence_source.direct",
-        binding_version="4.0.0",
         node_parameters={"sequence": "AG"},
         binding_parameters={},
     )
     fold = WorkflowNodeInstance(
         node_id="fold",
         node_type_id="folding.fold",
-        node_type_version="8.0.0",
         binding_id="folding.fold.simplefold_local",
-        binding_version=_SIMPLEFOLD_BINDING_VERSION,
         node_parameters={
             "effective_seed": 1603,
             "num_samples": num_samples,
@@ -698,9 +634,7 @@ def _run_simplefold(
     materialize = WorkflowNodeInstance(
         node_id="materialize-confidence",
         node_type_id="structure_prediction.materialize_confidence",
-        node_type_version="2.0.0",
         binding_id="structure_prediction.materialize_confidence.direct",
-        binding_version="2.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -748,9 +682,7 @@ def _run_simplefold(
                 "materialize-confidence",
                 "confidence_facts",
             ),
-        ),
-        contract_lock=(),
-    )
+        ))
     committed = authoring.commit(
         project.id,
         workflow=workflow,
@@ -764,12 +696,7 @@ def _run_simplefold(
     environment = admit_environment_configuration(
         catalog,
         {
-            (
-                "folding.fold.simplefold_local",
-                _SIMPLEFOLD_BINDING_VERSION,
-            ): {
-                "values": environment_values,
-            }
+            "folding.fold.simplefold_local": environment_values
         },
     )
     service = V2RunService(
@@ -795,55 +722,6 @@ def _run_simplefold(
     finally:
         service.shutdown()
     return catalog, service, projection, events
-
-
-def test_closure_admission_failure_is_a_binding_failure_without_operation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class Client:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def fold(self, **_kwargs: Any) -> Any:
-            self.calls += 1
-            raise AssertionError("Provider entry must not start")
-
-    client = Client()
-    environment = _simplefold_environment(
-        tmp_path / "environment",
-        monkeypatch,
-        client,
-    )
-    (environment["model_root"] / "simplefold_100M.ckpt").write_bytes(
-        b"changed-before-admission"
-    )
-
-    _, _, projection, events = _run_simplefold(
-        tmp_path / "run",
-        monkeypatch,
-        client=client,
-        num_samples=1,
-        environment_values=environment,
-    )
-
-    event_types = [event["event"]["type"] for event in events]
-    assert projection["status"] == "failed"
-    assert event_types.count("operation_attempt_started") == 1
-    assert event_types.count("operation_attempt_terminal") == 1
-    assert all(
-        event["event"].get("engine_role") != "fold_parent_0"
-        for event in events
-        if event["event"]["type"] == "engine_invocation_started"
-    )
-    terminal = next(
-        event["event"]
-        for event in events
-        if event["event"]["type"] == "node_attempt_terminal"
-        and event["event"].get("failure_origin") == "binding"
-    )
-    assert terminal["error"]["code"] == "readiness_rejected"
-    assert client.calls == 0
 
 
 def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
@@ -974,14 +852,10 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     )
     binding = catalog.require_contract(
         "binding",
-        "folding.fold.simplefold_local",
-        _SIMPLEFOLD_BINDING_VERSION,
-    )
+        "folding.fold.simplefold_local")
     method = catalog.require_contract(
         "method",
-        binding.descriptor["method"]["contract_id"],
-        binding.descriptor["method"]["contract_version"],
-    )
+        binding.descriptor["method"]["contract_id"])
     started = [
         event["event"]
         for event in events
@@ -1003,7 +877,7 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     ]
     assert len(started) == len(terminal) == 1
     assert terminal[0]["status"] == "succeeded"
-    assert started[0]["engine_identity"] == method.contract_digest
+    assert started[0]["engine_identity"] == method.contract_id
     assert started[0]["invocation_provenance"] == {
         "effective_randomness": {
             "control": "exact_seed",
@@ -1016,7 +890,6 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
         "provider",
         "model",
         "route",
-        "runtime_fingerprint",
         "checkpoint",
         "seed_control",
     }.isdisjoint(structures.items[0].metadata)
@@ -1144,7 +1017,7 @@ def test_simplefold_admits_provider_pdb_without_rebuilding_sequence(
         )
         + "\n"
     )
-    assert client.devices == [environment["device"]]
+    assert client.devices == [expected_local_torch_device()]
 
 
 def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> None:
@@ -1195,7 +1068,6 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         catalog,
         "folding.fold.simplefold_local",
         object(),
-        binding_version=_SIMPLEFOLD_BINDING_VERSION,
         environment={"native_scores": object()},
     )
     adapter = Adapter()
@@ -1214,7 +1086,6 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         operation_call(
             catalog=catalog,
             binding_id="folding.fold.simplefold_local",
-            binding_version=_SIMPLEFOLD_BINDING_VERSION,
             inputs={
                 "sequence_candidates": CandidateCollection(
                     "parents",
@@ -1238,7 +1109,6 @@ def test_canonical_simplefold_operation_consumes_normalized_adapter_dto() -> Non
         "provider",
         "model",
         "route",
-        "runtime_fingerprint",
         "checkpoint",
         "seed_control",
     }.isdisjoint(structures.items[0].metadata)
@@ -1309,9 +1179,7 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
     context = operation_context(
         catalog,
         "folding.fold.simplefold_local",
-        object(),
-        binding_version=_SIMPLEFOLD_BINDING_VERSION,
-    )
+        object())
 
     def observed(candidate_id: str, sequence: str) -> int:
         adapter = Adapter()
@@ -1324,7 +1192,6 @@ def test_simplefold_call_seed_uses_candidate_content_not_candidate_identity(
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.simplefold_local",
-                binding_version=_SIMPLEFOLD_BINDING_VERSION,
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",

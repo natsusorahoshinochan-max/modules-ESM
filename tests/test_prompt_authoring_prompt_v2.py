@@ -33,11 +33,6 @@ from tests.fixtures.prompt_authoring_v2 import (
 )
 
 
-VERSION = "3.0.0"
-PROMPT_PORT_VERSION = "3.0.0"
-FUNCTION_ANNOTATION_PORT_VERSION = "3.0.0"
-
-
 def canonical_annotations(
     records: list[dict[str, object]] | None = None,
 ) -> FunctionAnnotations:
@@ -66,14 +61,14 @@ def test_prompt_authoring_registers_three_prompt_nodes_once() -> None:
 
     catalog = build_frozen_catalog(module_registrations())
     assert {
-        (contract.contract_id, contract.contract_version)
+        contract.contract_id
         for contract in catalog.contracts
         if contract.contract_kind == "node_type"
         and contract.contract_id.startswith("prompt_authoring.")
     } >= {
-        ("prompt_authoring.assemble_protein_prompt", VERSION),
-        ("prompt_authoring.add_function_annotation", VERSION),
-        ("prompt_authoring.update_prompt_sequence", VERSION),
+        "prompt_authoring.assemble_protein_prompt",
+        "prompt_authoring.add_function_annotation",
+        "prompt_authoring.update_prompt_sequence",
     }
 
 
@@ -635,9 +630,7 @@ def test_prompt_nodes_expose_only_scientific_authoring_parameters() -> None:
     for node_type_id, inputs in expected_inputs.items():
         contract = catalog.require_contract(
             "node_type",
-            node_type_id,
-            VERSION,
-        )
+            node_type_id)
         assert {
             port["name"] for port in contract.descriptor["inputs"]
         } == inputs
@@ -646,18 +639,14 @@ def test_prompt_nodes_expose_only_scientific_authoring_parameters() -> None:
         assert not forbidden.intersection(parameters)
         binding = catalog.require_contract(
             "binding",
-            f"{node_type_id}.direct",
-            VERSION,
-        )
+            f"{node_type_id}.direct")
         assert dict(binding.descriptor["binding_parameters"]) == {}
 
 
 def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
     catalog = build_frozen_catalog(module_registrations())
     definition = catalog.require_port_type(
-        "function.annotations",
-        FUNCTION_ANNOTATION_PORT_VERSION,
-    )
+        "function.annotations")
 
     assert definition.validator.parameters[
         "canonical_interval_contract"
@@ -674,15 +663,13 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
         "indexing": "one-based-inclusive",
         "ordering": "start,end,label,chain-and-residue-provenance",
         "overlap_policy": ("allow", "reject"),
-        "residue_identity_contract": "residue.layout@3.0.0",
+        "residue_identity_contract": "residue.layout",
     }
     prompt_definition = catalog.require_port_type(
-        "protein.prompt",
-        PROMPT_PORT_VERSION,
-    )
+        "protein.prompt")
     assert prompt_definition.codec.parameters["embedded_contracts"][
         "function_annotations"
-    ] == "function.annotations@3.0.0"
+    ] == "function.annotations"
 
 
 @pytest.mark.parametrize(
@@ -734,9 +721,7 @@ def test_function_annotation_port_rejects_noncanonical_collections(
     annotations: FunctionAnnotations,
 ) -> None:
     definition = build_frozen_catalog(module_registrations()).require_port_type(
-        "function.annotations",
-        FUNCTION_ANNOTATION_PORT_VERSION,
-    )
+        "function.annotations")
 
     with pytest.raises(PortValueError):
         definition.encode(annotations)
@@ -800,9 +785,7 @@ def test_multichain_prompt_round_trip_preserves_explicit_esm3_refusal(
     )
     prompt = decoded_output(catalog, service, projection, output)
     prompt_codec = catalog.require_port_type(
-        "protein.prompt",
-        PROMPT_PORT_VERSION,
-    )
+        "protein.prompt")
     round_tripped = prompt_codec.decode(prompt_codec.encode(prompt))
 
     assert round_tripped.target_layout.chain_id == "A,B"

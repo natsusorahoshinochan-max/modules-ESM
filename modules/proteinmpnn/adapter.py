@@ -1,11 +1,10 @@
-"""Concrete local Adapter for the pinned ProteinMPNN provider."""
+"""Concrete local Adapter for the ProteinMPNN provider."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-import importlib.metadata
 from pathlib import Path
 from typing import Any, cast, Protocol
 
@@ -36,7 +35,6 @@ from .provider_runtime import _LocalProteinMPNNProvider
 
 PROTEINMPNN_MODEL = "v_48_020"
 PROTEINMPNN_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
-PROTEINMPNN_TORCH_VERSION = "2.13.0"
 PROTEINMPNN_SCORING_SEED = 42
 _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -167,28 +165,14 @@ def proteinmpnn_readiness(
     """Validate prerequisites without constructing or loading the model."""
     environment = check_input.values
     try:
-        torch_version = importlib.metadata.version("torch").partition("+")[0]
-    except importlib.metadata.PackageNotFoundError:
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
-    if torch_version != PROTEINMPNN_TORCH_VERSION:
+        import torch
+    except ImportError:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
             reason_code="proteinmpnn_runtime_unavailable",
         )
     expected_device = expected_local_torch_device()
-    if environment["device"] != expected_device:
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="proteinmpnn_runtime_unavailable",
-        )
-    import torch
-
     if not local_torch_device_is_available(torch, expected_device):
         return ReadinessResult(
             False,
@@ -366,7 +350,7 @@ class LocalProteinMPNNAdapter:
         return _LocalProteinMPNNProvider(
             temp_dir=staging_directory,
             provider_root=cast(Path, self._environment["provider_root"]),
-            device=cast(str, self._environment["device"]),
+            device=expected_local_torch_device(),
             model_cache=cast(_ProteinMPNNModelCache, resident_models),
         )
 

@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: esm3.generate_structure
-version: "8.0.0"
 title: Generate structures with remote ESM-3
 summary: Samples the structure track for one sequence-complete ProteinPrompt and publishes complete structures and exact confidence.
 category: generation
 inputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete residue-aligned Prompt with an assigned sequence defining the generated structure residue axis.
 outputs:
   - name: structure_candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete sampled-structure Candidates.
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
-    port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Subjectless provider confidence facts keyed one-to-one to structure_candidates, carrying the exact prediction-input axis, pTM, per-residue pLDDT, and optional PAE for later admitted-Candidate materialization.

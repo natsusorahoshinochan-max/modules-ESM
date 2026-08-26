@@ -39,24 +39,16 @@ from .implementation import (
 
 
 _SOURCE_NODE_TYPE_ID = "contract_test.synthetic_candidate_source"
-_SOURCE_VERSION = "1.0.0"
 _SCORER_NODE_TYPE_ID = "contract_test.synthetic_echo"
-_SCORER_VERSION = "4.0.0"
 _SOURCE_METHOD = ContractIdentity(
     "method",
-    "contract_test.synthetic_candidate_source.method",
-    "1.0.0",
-)
+    "contract_test.synthetic_candidate_source.method")
 _METHOD = ContractIdentity(
     "method",
-    "contract_test.synthetic_echo.method",
-    "2.1.0",
-)
+    "contract_test.synthetic_echo.method")
 _METRIC = ContractIdentity(
     "metric",
-    "contract_test.synthetic_identity",
-    "2.1.0",
-)
+    "contract_test.synthetic_identity")
 
 
 def _validate_text(value: object) -> None:
@@ -147,7 +139,6 @@ def _build_scorer(
 def _binding(
     binding_id: str,
     *,
-    version: str,
     node_type_id: str,
     method: ContractIdentity,
     build: Callable[
@@ -161,12 +152,9 @@ def _binding(
     behavior_prefix = binding_id.replace(".", "/")
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        version=version,
         node_type=ContractIdentity(
             "node_type",
-            node_type_id,
-            version,
-        ),
+            node_type_id),
         method=method,
         binding_parameters={
             "repeat_count": {
@@ -196,7 +184,6 @@ def _binding(
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"{behavior_prefix}/factory",
-                version,
                 {"execution_route": "direct"},
             ),
             build=build,
@@ -204,7 +191,6 @@ def _binding(
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"{behavior_prefix}/availability",
-                version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -213,7 +199,6 @@ def _binding(
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 f"{behavior_prefix}/readiness",
-                version,
                 {"observation": "per-run"},
             ),
             prerequisites=(
@@ -225,17 +210,12 @@ def _binding(
         ),
         deterministic=True,
         cacheable=False,
-        implementation_identity={
-            "name": binding_id,
-            "source": "repository-contract-fixture",
-        },
         produced_observations=produced_observations,
     )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.synthetic_echo",
-    package_version="2.1.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/candidate_source.yaml"),
@@ -247,29 +227,22 @@ MODULE_PACKAGE = ModulePackageRegistration(
     methods=(
         MethodDefinition(
             method_id="contract_test.synthetic_candidate_source.method",
-            version="1.0.0",
             algorithm_identity={"name": "deterministic-candidate-source"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "identity"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "none"},
         ),
         MethodDefinition(
             method_id="contract_test.synthetic_echo.method",
-            version="2.1.0",
             algorithm_identity={"name": "deterministic-echo"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "identity"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         ),
     ),
     bindings=(
         _binding(
             "contract_test.synthetic_candidate_source.direct",
-            version=_SOURCE_VERSION,
             node_type_id=_SOURCE_NODE_TYPE_ID,
             method=_SOURCE_METHOD,
             build=_build_source,
@@ -278,7 +251,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
         ),
         _binding(
             "contract_test.synthetic_echo.direct",
-            version=_SCORER_VERSION,
             node_type_id=_SCORER_NODE_TYPE_ID,
             method=_METHOD,
             build=_build_scorer,
@@ -301,20 +273,16 @@ MODULE_PACKAGE = ModulePackageRegistration(
     port_types=(
         PortTypeDefinition(
             type_id="contract_test.synthetic_text",
-            version="2.1.0",
             validator=BehaviorReference(
                 "contract_test.synthetic_text/validate",
-                "2.1.0",
                 {"accepted_value_kind": "text"},
             ),
             codec=BehaviorReference(
                 "contract_test.synthetic_text/codec",
-                "2.1.0",
                 {"canonicalization": "RFC 8785"},
             ),
             content_identity=BehaviorReference(
                 "contract_test.synthetic_text/content",
-                "2.1.0",
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_text,
@@ -323,10 +291,8 @@ MODULE_PACKAGE = ModulePackageRegistration(
         ),
         PortTypeDefinition(
             type_id="contract_test.synthetic_artifact",
-            version="2.1.0",
             validator=BehaviorReference(
                 "contract_test.synthetic_artifact/validate",
-                "2.1.0",
                 {
                     "accepted_value_kind": "artifact_payload",
                     "artifact_publication": {
@@ -336,7 +302,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             codec=BehaviorReference(
                 "contract_test.synthetic_artifact/codec",
-                "2.1.0",
                 {
                     "canonicalization": "RFC 8785",
                     "binary_encoding": "base64",
@@ -344,7 +309,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             content_identity=BehaviorReference(
                 "contract_test.synthetic_artifact/content",
-                "2.1.0",
                 {"digest": "SHA-256"},
             ),
             runtime_validator=_validate_artifact,
@@ -355,7 +319,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
     utility_transforms=(
         UtilityTransformDefinition(
             transform_id="contract_test.synthetic_identity",
-            version="2.1.0",
             compatible_input_contract={
                 "metric": _METRIC,
                 "method": _METHOD,
@@ -363,7 +326,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             parameters={},
             behavior=BehaviorReference(
                 "contract_test.synthetic_identity/transform",
-                "2.1.0",
                 {},
             ),
             transform=_identity,

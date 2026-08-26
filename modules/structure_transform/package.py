@@ -43,21 +43,13 @@ from .residue_axis import ResolveResidueAxisImplementation
 from .port_types import (
     BACKBONE_STRUCTURE_PORT_TYPE,
     CANDIDATE_NORMALIZATION_FACTS_PORT_TYPE,
-    CANDIDATE_ASSOCIATION_VERSION,
     CANDIDATE_NORMALIZATION_ASSOCIATIONS_PORT_TYPE,
     CANDIDATE_RESOLVED_AXIS_ASSOCIATIONS_PORT_TYPE,
     MODIFIED_RESIDUE_NORMALIZATIONS_PORT_TYPE,
     RESOLVED_AXIS_PORT_TYPE,
-    RESOLVED_AXIS_VERSION,
 )
 
 
-_PACKAGE_VERSION = "3.0.0"
-_CANDIDATE_NODE_VERSION = "4.0.0"
-_STRUCTURE_NODE_VERSION = "4.0.0"
-_NORMALIZE_CSH_NODE_VERSION = "5.0.0"
-_NORMALIZE_CSH_METHOD_VERSION = "4.0.0"
-_RESOLVE_AXIS_METHOD_VERSION = "3.0.0"
 _OPERATIONS = (
     "select_chains",
     "select_candidate_chains",
@@ -72,34 +64,6 @@ _OPERATIONS = (
     "resolve_candidate_residue_axes",
     "backbone_to_structure",
 )
-_NODE_BINDING_VERSIONS = {
-    "select_chains": _STRUCTURE_NODE_VERSION,
-    "select_candidate_chains": _CANDIDATE_NODE_VERSION,
-    "extract_backbone": _STRUCTURE_NODE_VERSION,
-    "extract_sequence": _STRUCTURE_NODE_VERSION,
-    "extract_sequence_candidates": _CANDIDATE_NODE_VERSION,
-    "normalize_csh_parent_span": _NORMALIZE_CSH_NODE_VERSION,
-    "normalize_csh_parent_span_candidates": "2.0.0",
-    "materialize_candidate_normalizations": "2.0.0",
-    "project_single_residue_axis": "2.0.0",
-    "resolve_residue_axis": RESOLVED_AXIS_VERSION,
-    "resolve_candidate_residue_axes": CANDIDATE_ASSOCIATION_VERSION,
-    "backbone_to_structure": _STRUCTURE_NODE_VERSION,
-}
-_METHOD_VERSIONS = {
-    "backbone_to_structure": "4.0.0",
-    "select_chains": "3.0.0",
-    "select_candidate_chains": "3.0.0",
-    "extract_backbone": "3.0.0",
-    "extract_sequence": "3.0.0",
-    "extract_sequence_candidates": "3.0.0",
-    "normalize_csh_parent_span": _NORMALIZE_CSH_METHOD_VERSION,
-    "normalize_csh_parent_span_candidates": "1.0.0",
-    "materialize_candidate_normalizations": "1.0.0",
-    "project_single_residue_axis": "1.0.0",
-    "resolve_residue_axis": _RESOLVE_AXIS_METHOD_VERSION,
-    "resolve_candidate_residue_axes": _RESOLVE_AXIS_METHOD_VERSION,
-}
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 
@@ -141,26 +105,21 @@ def _build(
 
 
 def _binding(operation: str) -> ExecutionBindingDefinition:
-    binding_version = _NODE_BINDING_VERSIONS[operation]
     return ExecutionBindingDefinition(
         binding_id=f"structure_transform.{operation}.direct",
-        version=binding_version,
         node_type=ContractIdentity(
             "node_type",
             f"structure_transform.{operation}",
-            binding_version,
         ),
         method=ContractIdentity(
             "method",
             f"structure_transform.{operation}.method",
-            _METHOD_VERSIONS[operation],
         ),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"structure_transform.{operation}/factory",
-                binding_version,
                 {"execution_route": "direct"},
             ),
             build=_build(operation),
@@ -168,7 +127,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"structure_transform.{operation}/availability",
-                binding_version,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -176,16 +134,11 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": f"structure_transform.{operation}.direct",
-            "source": "repository-owned",
-        },
     )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="structure_transform",
-    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/select_chains.yaml"),

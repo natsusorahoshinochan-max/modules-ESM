@@ -1,13 +1,10 @@
-"""Pinned local ESMFold2 provider translation and lifecycle."""
+"""Local ESMFold2 provider translation and lifecycle."""
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-import hashlib
-import importlib.metadata
 import importlib.util
-import json
 from pathlib import Path
 from typing import Any, cast, Protocol, TYPE_CHECKING
 
@@ -21,10 +18,6 @@ from core.local_torch_device import (
     expected_local_torch_device,
     local_torch_device_is_available,
 )
-from core.provider_support import (
-    ProviderInstallationUnavailable,
-    validate_installed_provider_checkout,
-)
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
@@ -37,15 +30,7 @@ from .domain import (
     normalize_native_confidence,
 )
 from .esmfold2_contract import (
-    ESM_SDK_REVISION,
-    LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_PRECISION,
-    LOCAL_ESMC_REVISION,
-    LOCAL_ESMFOLD2_ARTIFACT_SHA256,
-    LOCAL_ESMFOLD2_REVISION,
-    LOCAL_TORCH_VERSION,
-    TRANSFORMERS_ESMFOLD2_SOURCE_SHA256,
-    TRANSFORMERS_REVISION,
 )
 
 if TYPE_CHECKING:
@@ -77,7 +62,7 @@ _PDB_RESIDUE_TO_ONE = {
 
 
 class LocalESMFold2RuntimeUnavailable(RuntimeError):
-    """The exact local ESMFold2 runtime cannot be admitted."""
+    """The local ESMFold2 runtime is unavailable."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,43 +118,10 @@ class _LocalEngine:
         )
 
 
-def transformers_esmfold2_runtime_is_exact() -> bool:
-    """Verify the installed ESMFold2 source files against one reviewed commit."""
-    try:
-        distribution = importlib.metadata.distribution("transformers")
-        direct_url_text = distribution.read_text("direct_url.json")
-        if not direct_url_text:
-            return False
-        direct_url = json.loads(direct_url_text)
-        vcs_info = direct_url.get("vcs_info")
-        if (
-            direct_url.get("url")
-            != "https://github.com/Biohub/transformers.git"
-            or not isinstance(vcs_info, dict)
-            or vcs_info.get("vcs") != "git"
-            or vcs_info.get("commit_id") != TRANSFORMERS_REVISION
-        ):
-            return False
-        package_root = Path(distribution.locate_file("transformers"))
-        for relative_path, expected_digest in (
-            TRANSFORMERS_ESMFOLD2_SOURCE_SHA256.items()
-        ):
-            source = package_root / relative_path
-            if _regular_file_sha256(source) != expected_digest:
-                return False
-    except (
-        importlib.metadata.PackageNotFoundError,
-        json.JSONDecodeError,
-        LocalESMFold2RuntimeUnavailable,
-        OSError,
-    ):
-        return False
-    return True
-
-
 def local_runtime_structurally_available() -> bool:
     return not (
         importlib.util.find_spec("esm") is None
+        or importlib.util.find_spec("esm.models.esmfold2") is None
         or importlib.util.find_spec("torch") is None
         or importlib.util.find_spec("transformers") is None
         or importlib.util.find_spec(
@@ -179,71 +131,44 @@ def local_runtime_structurally_available() -> bool:
     )
 
 
-def _regular_file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-    except OSError as error:
-        raise LocalESMFold2RuntimeUnavailable(
-            "local ESMFold2 artifact could not be validated"
-        ) from error
-    return digest.hexdigest()
-
-
-def _artifact_source(
-    snapshot_path: Path,
-    relative_path: str,
-    expected_digest: str,
-) -> None:
-    target = snapshot_path / relative_path
-    if _regular_file_sha256(target) != expected_digest:
-        raise LocalESMFold2RuntimeUnavailable(
-            "local ESMFold2 artifact identity mismatch"
-        )
-
-
 def resolve_local_runtime(
     environment: Mapping[str, object],
 ) -> LocalESMFold2Runtime:
-    """Resolve both immutable snapshots before any local model invocation."""
-    validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    if not transformers_esmfold2_runtime_is_exact():
+    """Resolve configured model roots before local model invocation."""
+    if not local_runtime_structurally_available():
         raise LocalESMFold2RuntimeUnavailable(
-            "exact local ESMFold2 runtime is unavailable"
+            "local ESMFold2 runtime is unavailable"
         )
     import torch
 
-    torch_public_version = str(torch.__version__).partition("+")[0]
-    if torch_public_version != LOCAL_TORCH_VERSION:
-        raise LocalESMFold2RuntimeUnavailable(
-            "local ESMFold2 Torch runtime is not exact"
-        )
-    if (
-        environment["model_snapshot_revision"]
-        != LOCAL_ESMFOLD2_REVISION
-        or environment["language_model_snapshot_revision"]
-        != LOCAL_ESMC_REVISION
-    ):
-        raise LocalESMFold2RuntimeUnavailable(
-            "local ESMFold2 snapshot revision is not exact"
-        )
     expected_device = expected_local_torch_device()
-    if environment["device"] != expected_device:
-        raise LocalESMFold2RuntimeUnavailable(
-            "local ESMFold2 device does not match the Binding"
-        )
     if not local_torch_device_is_available(torch, expected_device):
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 policy-selected Torch device is unavailable"
         )
     model_path = cast(Path, environment["model_snapshot_path"])
     language_path = cast(Path, environment["language_model_snapshot_path"])
-    for relative_path, digest in LOCAL_ESMFOLD2_ARTIFACT_SHA256.items():
-        _artifact_source(model_path, relative_path, digest)
-    for relative_path, digest in LOCAL_ESMC_ARTIFACT_SHA256.items():
-        _artifact_source(language_path, relative_path, digest)
+    required_files = (
+        model_path / "ccd.pkl",
+        model_path / "config.json",
+        model_path / "model.safetensors",
+        language_path / "config.json",
+        language_path / "model.safetensors.index.json",
+        language_path / "model-00001-of-00006.safetensors",
+        language_path / "model-00002-of-00006.safetensors",
+        language_path / "model-00003-of-00006.safetensors",
+        language_path / "model-00004-of-00006.safetensors",
+        language_path / "model-00005-of-00006.safetensors",
+        language_path / "model-00006-of-00006.safetensors",
+    )
+    if (
+        not model_path.is_dir()
+        or not language_path.is_dir()
+        or any(not path.is_file() for path in required_files)
+    ):
+        raise LocalESMFold2RuntimeUnavailable(
+            "local ESMFold2 model roots are unavailable"
+        )
     return LocalESMFold2Runtime(
         model_snapshot_path=model_path,
         language_model_snapshot_path=language_path,
@@ -261,7 +186,7 @@ def _trusted_local_runtime(
             Path,
             environment["language_model_snapshot_path"],
         ),
-        device=cast(str, environment["device"]),
+        device=expected_local_torch_device(),
     )
 
 
@@ -269,10 +194,7 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     """Return a bounded conclusion for exactly one selected local Binding."""
     try:
         resolve_local_runtime(environment)
-    except (
-        LocalESMFold2RuntimeUnavailable,
-        ProviderInstallationUnavailable,
-    ):
+    except LocalESMFold2RuntimeUnavailable:
         return ReadinessResult(
             False,
             proof_source="direct-observation",
@@ -306,7 +228,7 @@ def decode_local_fold_result(
 
 
 def load_local_engine(runtime: LocalESMFold2Runtime) -> _LocalEngine:
-    """Load the exact local snapshots already admitted by Readiness."""
+    """Load the configured local snapshots."""
     from esm.models.esmfold2 import (
         ESMFold2InputBuilder,
         ProteinInput,

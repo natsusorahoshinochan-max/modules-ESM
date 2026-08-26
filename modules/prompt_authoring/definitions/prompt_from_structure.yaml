@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: prompt_authoring.prompt_from_structure
-version: "5.0.0"
 title: Build a ProteinPrompt from a structure
 summary: Converts one admitted resolved residue axis into residue-identified sequence, coordinate, and visibility tracks without rebuilding structure semantics.
 category: prompt_authoring
 inputs:
   - name: residue_axis
     port_type_id: structure_transform.resolved_residue_axis
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Canonical resolver-owned protein axis, selected coordinates, topology, and component provenance.
 outputs:
   - name: layout
     port_type_id: residue.layout
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact ordered chain-qualified residue identities copied from the admitted axis.
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: ProteinPrompt carrying exact sequence, selected named-atom coordinates, and visibility from the admitted axis.

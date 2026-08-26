@@ -1,44 +1,36 @@
-schema_version: "2.1.0"
 node_type_id: structure_annotation.secondary_structure_agreement
-version: "6.0.0"
 title: Observe secondary-structure agreement
 summary: Observes exact SS8 agreement for one identified subject against one identified reference on one identical residue layout.
 category: structure_annotation
 inputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one Candidate whose annotation agreement is being observed.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one reference Candidate that supplied the expected annotation.
   - name: expected
     port_type_id: structure_annotation.secondary_structure_track
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Expected exact SS8 values explicitly associated with the admitted reference Candidate and carrying the comparison residue layout.
   - name: observed
     port_type_id: structure_annotation.secondary_structure_track
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Observed exact SS8 values explicitly associated with the admitted subject Candidate and carrying the same comparison residue layout.
   - name: subject_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one authoritative resolved residue axis associated by the complete admitted subject ProteinStructure Candidate reference; its exact scalar axis identity and layout are attached to the emitted Observation.
 outputs:
   - name: scores
     port_type_id: score.collection
-    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One typed pairwise secondary-structure agreement Observation for the exact subject and reference Candidates, carrying the exact residue layout on which agreement was computed.

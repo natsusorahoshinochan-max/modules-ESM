@@ -7,38 +7,23 @@ from core.catalog.declarations import (
 )
 
 from .esmfold2_contract import (
-    ESM_SDK_REVISION,
-    LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_MODEL,
     LOCAL_ESMC_PRECISION,
-    LOCAL_ESMC_REVISION,
-    LOCAL_ESMFOLD2_ARTIFACT_SHA256,
     LOCAL_ESMFOLD2_MODEL,
-    LOCAL_ESMFOLD2_REVISION,
     REMOTE_ESMFOLD2_MODEL,
-    TRANSFORMERS_REVISION,
 )
 from .simplefold_contract import (
     SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
     SIMPLEFOLD_MODEL,
 )
-from .simplefold_asset_closure import (
-    SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
-    SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
-)
 
 
-FOLD_METHOD_VERSION = "4.0.0"
-LOCAL_ESMFOLD2_METHOD_VERSION = "6.0.0"
-SIMPLEFOLD_FOLD_METHOD_VERSION = "5.0.0"
-CONFIDENCE_METHOD_VERSION = "4.0.0"
 
 
 def _method(route: str) -> MethodDefinition:
     if route == "remote":
         return MethodDefinition(
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
-            version=FOLD_METHOD_VERSION,
             algorithm_identity={
                 "name": "ESMFold2 sequence-to-structure diffusion",
                 "num_loops": 20,
@@ -58,10 +43,6 @@ def _method(route: str) -> MethodDefinition:
                 "source": "Biohub",
                 "release": "2026-05",
             },
-            checkpoint_identity={
-                "kind": "provider_managed_exact_model_id",
-                "model": REMOTE_ESMFOLD2_MODEL,
-            },
             featurization_identity={
                 "input": "single-chain canonical protein sequence",
                 "output": "provider atom37 PDB",
@@ -71,11 +52,6 @@ def _method(route: str) -> MethodDefinition:
                     "source": "admitted_input_ProteinSequence",
                 },
             },
-            source_identity={
-                "sdk": "esm",
-                "sdk_source_revision": ESM_SDK_REVISION,
-                "service": "Biohub",
-            },
             scale_contract={
                 "ptm": "provider_native_[0,1]",
                 "plddt": "provider_native_[0,1]_multiply_100",
@@ -84,7 +60,6 @@ def _method(route: str) -> MethodDefinition:
         )
     return MethodDefinition(
         method_id="folding.fold.esmfold2_hf_1ebf0e3",
-        version=LOCAL_ESMFOLD2_METHOD_VERSION,
         algorithm_identity={
             "name": "ESMFold2 sequence-to-structure diffusion",
             "num_loops": 20,
@@ -105,19 +80,8 @@ def _method(route: str) -> MethodDefinition:
         model_identity={
             "model": LOCAL_ESMFOLD2_MODEL,
             "source": "Hugging Face",
-            "snapshot_revision": LOCAL_ESMFOLD2_REVISION,
             "language_model": LOCAL_ESMC_MODEL,
-            "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
             "language_model_precision": LOCAL_ESMC_PRECISION,
-        },
-        checkpoint_identity={
-            "kind": "immutable_huggingface_snapshots",
-            "esmfold2_artifact_sha256": dict(
-                sorted(LOCAL_ESMFOLD2_ARTIFACT_SHA256.items())
-            ),
-            "esmc_artifact_sha256": dict(
-                sorted(LOCAL_ESMC_ARTIFACT_SHA256.items())
-            ),
         },
         featurization_identity={
             "input": "ESMFold2 StructurePredictionInput single protein",
@@ -128,12 +92,6 @@ def _method(route: str) -> MethodDefinition:
                 "source": "admitted_input_ProteinSequence",
             },
         },
-        source_identity={
-            "sdk": "esm",
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "transformers_source_revision": TRANSFORMERS_REVISION,
-            "service": "local_huggingface",
-        },
         scale_contract={
             "ptm": "provider_native_[0,1]",
             "plddt": "provider_native_[0,1]_multiply_100",
@@ -143,10 +101,8 @@ def _method(route: str) -> MethodDefinition:
 
 
 def _simplefold_method() -> MethodDefinition:
-    closure_identity = SIMPLEFOLD_FOLDING_ASSET_CLOSURE.provider_identity()
     return MethodDefinition(
         method_id="folding.fold.simplefold_100m_c7a5570",
-        version=SIMPLEFOLD_FOLD_METHOD_VERSION,
         algorithm_identity={
             "name": "SimpleFold Euler-Maruyama sequence folding",
             "sampler": "Euler-Maruyama",
@@ -167,20 +123,9 @@ def _simplefold_method() -> MethodDefinition:
             "confidence_output_head": "plddt_module_1.6B",
             "language_model": "esm2_t36_3B_UR50D",
         },
-        checkpoint_identity={
-            "simplefold_artifact_sha256": (
-                SIMPLEFOLD_FOLDING_ASSET_CLOSURE.file_sha256("model_root")
-            ),
-            "esm2_artifact_sha256": (
-                SIMPLEFOLD_FOLDING_ASSET_CLOSURE.file_sha256(
-                    "esm2_model_root"
-                )
-            ),
-        },
         featurization_identity={
             "input": "single-chain canonical protein sequence",
             "format": "SimpleFold FASTA A|Protein",
-            "ccd_sha256": closure_identity["artifact_sha256"]["ccd.pkl"],
             "processor_scale": 16.0,
             "processor_reference_scale": 5.0,
             "prediction_residue_axis": {
@@ -189,16 +134,6 @@ def _simplefold_method() -> MethodDefinition:
                 "source": "admitted_input_ProteinSequence",
             },
         },
-        source_identity={
-            "provider": closure_identity["source"],
-            "source_revision": closure_identity["source_revision"],
-            "esm2_source_revision": closure_identity[
-                "esm2_source_revision"
-            ],
-            "esm2_source_tree_sha256": closure_identity[
-                "esm2_source_tree_sha256"
-            ],
-        },
         scale_contract={
             "plddt": "provider_high_level_[0,100]_identity",
         },
@@ -206,15 +141,11 @@ def _simplefold_method() -> MethodDefinition:
 
 
 def _simplefold_confidence_method() -> MethodDefinition:
-    closure_identity = (
-        SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
-    )
     return MethodDefinition(
         method_id=(
             "folding.simplefold_confidence."
             "existing_structure_1_6b_c7a5570"
         ),
-        version=CONFIDENCE_METHOD_VERSION,
         algorithm_identity={
             "name": "SimpleFold direct existing-structure confidence",
             "operation": "confidence_only_no_coordinate_generation",
@@ -228,43 +159,20 @@ def _simplefold_confidence_method() -> MethodDefinition:
             "confidence_output_head": "plddt_module_1.6B.ckpt",
             "language_model": "esm2_t36_3B_UR50D.pt",
         },
-        checkpoint_identity={
-            "simplefold_artifact_sha256": (
-                SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.file_sha256(
-                    "model_root"
-                )
-            ),
-            "esm2_artifact_sha256": (
-                SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.file_sha256(
-                    "esm2_model_root"
-                )
-            ),
-        },
         featurization_identity={
             "contract": SIMPLEFOLD_CONFIDENCE_FEATURIZATION,
             "input": "resolved structure residue axis",
             "axis_contract": (
-                "structure_transform.resolved_residue_axis@4.0.0"
+                "structure_transform.resolved_residue_axis"
             ),
             "association_key": "exact-CandidateDataReference",
             "provider_features": (
                 "segments_sequence_named_coordinates_and_masks"
             ),
             "raw_pdb_reparse": "forbidden",
-            "ccd_sha256": closure_identity["artifact_sha256"]["ccd.pkl"],
             "processor_scale": 16.0,
             "processor_reference_scale": 5.0,
             "encoder_mode": "representation_only_no_contacts",
-        },
-        source_identity={
-            "provider": closure_identity["source"],
-            "source_revision": closure_identity["source_revision"],
-            "esm2_source_revision": closure_identity[
-                "esm2_source_revision"
-            ],
-            "esm2_source_tree_sha256": closure_identity[
-                "esm2_source_tree_sha256"
-            ],
         },
         scale_contract={
             "plddt": "direct_confidence_head_[0,1]_multiply_100",

@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.esm3_prompt_source
-version: "3.0.0"
 title: ESM-3 prompt source
 summary: Emits deterministic single-chain ProteinPrompt inputs for ESM-3 conformance.
 category: contract_test
@@ -8,7 +6,6 @@ inputs: []
 outputs:
   - name: protein_prompt
     port_type_id: protein.prompt
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Independent single-chain prompt with the requested conditioning mode.

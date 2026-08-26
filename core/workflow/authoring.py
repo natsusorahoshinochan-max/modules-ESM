@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import json
 from pathlib import Path
-import re
 from typing import Any
+import uuid
 
-from core.catalog.model import (
-    FrozenCatalog,
-)
+from core.catalog.model import FrozenCatalog
 from core.project.manager import (
     CANONICAL_3GB1_PROJECT_ID,
     ProjectManager,
@@ -19,24 +17,17 @@ from core.project.manager import (
     ProtectedProjectError,
 )
 from core.project.storage import write_new_file
-from core.workflow.compiler import (
-    CompilationRequest,
-    compile,
-    lock_workflow,
-)
-from core.workflow.errors import WorkflowCompileError
+from core.workflow.compiler import CompilationRequest, compile
 from core.workflow.document import (
     WorkflowDocument,
+    _thaw_json,
     workflow_document_from_canonical,
 )
+from core.workflow.errors import WorkflowCompileError
 from core.workflow.plan import ExecutionPlan
 
 
-_AUTHORING_RECORD_SCHEMA_VERSION = "2.1.0"
-_DRAFT_RECORD_KIND = "workflow_draft"
-_COMMIT_RECORD_KIND = "workflow_commit"
 _REVISION_FILENAME_WIDTH = 20
-_CANONICAL_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class WorkflowAuthoringError(RuntimeError):
@@ -56,69 +47,33 @@ class WorkflowAuthoringError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class WorkflowDraft:
-    """One immutable revision of an unlocked authoring Draft."""
+    """One immutable revision of an authoring Draft."""
 
     project_id: str
     draft_revision: int
-    draft_digest: str
     workflow: WorkflowDocument
+
 
 @dataclass(frozen=True, slots=True)
 class WorkflowCommit:
-    """One immutable active Workflow Commit and its exact identity."""
+    """One immutable Workflow Commit rooted by one stable ID."""
 
     project_id: str
     workflow_commit_id: str
-    workflow_commit_revision: int
     source_draft_revision: int
-    source_draft_digest: str
-    locked_workflow: WorkflowDocument
-    workflow_digest: str
-    catalog_contract_digest: str
-    contract_lock_digest: str
-    execution_plan_digest: str
+    workflow: WorkflowDocument
+    scientific_definitions: tuple[Mapping[str, Any], ...]
+
 
 @dataclass(frozen=True, slots=True)
 class VerifiedWorkflowCommit:
-    """One exact Commit paired with its verified Execution Plan."""
+    """One Commit paired with its current executable plan."""
 
     commit: WorkflowCommit
     execution_plan: ExecutionPlan
 
 
-def _commit_record_projection(commit: WorkflowCommit) -> dict[str, Any]:
-    """Encode the typed identity retained in a durable Commit record."""
-    return {
-        "workflow_commit_id": commit.workflow_commit_id,
-        "workflow_commit_revision": commit.workflow_commit_revision,
-        "source_draft_revision": commit.source_draft_revision,
-        "source_draft_digest": commit.source_draft_digest,
-        "workflow_digest": commit.workflow_digest,
-        "catalog_contract_digest": commit.catalog_contract_digest,
-        "contract_lock_digest": commit.contract_lock_digest,
-        "execution_plan_digest": commit.execution_plan_digest,
-    }
-
-
-def _generation_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
-    code = (
-        error.code
-        if error.code in {
-            "contract_digest_mismatch",
-            "inactive_generation",
-        }
-        else "compile_rejected"
-    )
-    return WorkflowAuthoringError(
-        code,
-        str(error),
-        details={"issues": [error.issue()]},
-    )
-
-
 def _commit_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
-    if error.code in {"contract_digest_mismatch", "inactive_generation"}:
-        return _generation_error(error)
     return WorkflowAuthoringError(
         "compile_rejected",
         str(error),
@@ -127,7 +82,7 @@ def _commit_error(error: WorkflowCompileError) -> WorkflowAuthoringError:
 
 
 class WorkflowAuthoringService:
-    """Persist exact revisions and retain immutable compiled plans privately."""
+    """Persist immutable Workflow revisions and retain executable plans."""
 
     def __init__(
         self,
@@ -143,18 +98,7 @@ class WorkflowAuthoringService:
         ] = {}
 
     def _require_project(self, project_id: str) -> ProjectMeta:
-        try:
-            project = self._projects.load_meta(project_id)
-        except ValueError as error:
-            raise WorkflowAuthoringError(
-                "unsupported_schema_version",
-                "Project metadata is not a supported exact v2 artifact",
-                details={
-                    "artifact_kind": "project",
-                    "expected_schema_version": "2.1.0",
-                    "received_schema_version": "unknown",
-                },
-            ) from error
+        project = self._projects.load_meta(project_id)
         if project is None:
             raise WorkflowAuthoringError(
                 "project_not_found",
@@ -225,10 +169,7 @@ class WorkflowAuthoringService:
         ).encode("utf-8")
         write_new_file(
             self._projects.workflow_storage_root(project_id),
-            (
-                collection,
-                self._record_name(revision),
-            ),
+            (collection, self._record_name(revision)),
             descriptor,
         )
 
@@ -238,19 +179,11 @@ class WorkflowAuthoringService:
         draft_revision: int,
         workflow: WorkflowDocument,
     ) -> WorkflowDraft:
-        return WorkflowDraft(
-            project_id=project_id,
-            draft_revision=draft_revision,
-            draft_digest=workflow.digest,
-            workflow=workflow,
-        )
+        return WorkflowDraft(project_id, draft_revision, workflow)
 
     def load_draft(self, project_id: str) -> WorkflowDraft:
-        """Load the latest exact unlocked Draft without compiling it."""
+        """Load the latest Draft without compiling it."""
         self._require_project(project_id)
-        return self._load_draft(project_id)
-
-    def _load_draft(self, project_id: str) -> WorkflowDraft:
         revision = self._latest_record_revision(project_id, "drafts")
         if revision == 0:
             raise WorkflowAuthoringError(
@@ -261,53 +194,11 @@ class WorkflowAuthoringService:
                     "resource_id": project_id,
                 },
             )
-        return self._load_draft_revision_record(project_id, revision)
-
-    def _load_draft_revision_record(
-        self,
-        project_id: str,
-        revision: int,
-    ) -> WorkflowDraft:
-        try:
-            payload = self._read_record(project_id, "drafts", revision)
-            if (
-                set(payload)
-                != {
-                    "schema_version",
-                    "artifact_kind",
-                    "draft_revision",
-                    "draft_digest",
-                    "workflow",
-                }
-                or payload.get("schema_version")
-                != _AUTHORING_RECORD_SCHEMA_VERSION
-                or payload.get("artifact_kind") != _DRAFT_RECORD_KIND
-                or type(payload.get("draft_revision")) is not int
-                or payload.get("draft_revision") != revision
-                or not isinstance(payload.get("draft_digest"), str)
-                or _CANONICAL_DIGEST.fullmatch(payload["draft_digest"])
-                is None
-                or not isinstance(payload.get("workflow"), dict)
-            ):
-                raise ValueError("closed Workflow Draft schema mismatch")
-            workflow = workflow_document_from_canonical(payload["workflow"])
-            if (
-                workflow.workflow_id != project_id
-                or workflow.contract_lock
-                or workflow.digest != payload["draft_digest"]
-            ):
-                raise ValueError("Workflow Draft identity mismatch")
-            return self._draft_value(project_id, revision, workflow)
-        except (OSError, ValueError) as error:
-            raise WorkflowAuthoringError(
-                "unsupported_schema_version",
-                "Persisted Workflow Draft is not a supported exact artifact",
-                details={
-                    "artifact_kind": "workflow_draft",
-                    "expected_schema_version": _AUTHORING_RECORD_SCHEMA_VERSION,
-                    "received_schema_version": "unknown",
-                },
-            ) from error
+        payload = self._read_record(project_id, "drafts", revision)
+        workflow = workflow_document_from_canonical(payload["workflow"])
+        if workflow.workflow_id != project_id:
+            raise ValueError("Workflow Draft belongs to another Project")
+        return self._draft_value(project_id, revision, workflow)
 
     def _require_writable_project(self, project_id: str) -> None:
         try:
@@ -330,12 +221,6 @@ class WorkflowAuthoringService:
                 "Workflow identity must equal its Project scope",
                 details={"field_path": ["workflow", "workflow_id"]},
             )
-        if workflow.contract_lock:
-            raise WorkflowAuthoringError(
-                "malformed_request",
-                "Workflow Draft must not contain a Contract Lock",
-                details={"field_path": ["workflow", "contract_lock"]},
-            )
 
     def save_draft(
         self,
@@ -343,7 +228,7 @@ class WorkflowAuthoringService:
         *,
         workflow: WorkflowDocument,
     ) -> WorkflowDraft:
-        """Persist an unlocked Draft without requiring it to compile."""
+        """Persist a Draft without requiring it to compile."""
         self._require_project(project_id)
         self._require_writable_project(project_id)
         self._validate_draft_submission(project_id, workflow)
@@ -356,22 +241,12 @@ class WorkflowAuthoringService:
         draft_revision: int,
         workflow: WorkflowDocument,
     ) -> WorkflowDraft:
-        draft = self._draft_value(
-            project_id,
-            draft_revision,
-            workflow,
-        )
+        draft = self._draft_value(project_id, draft_revision, workflow)
         self._write_record(
             project_id,
             "drafts",
             draft_revision,
-            {
-                "schema_version": _AUTHORING_RECORD_SCHEMA_VERSION,
-                "artifact_kind": _DRAFT_RECORD_KIND,
-                "draft_revision": draft_revision,
-                "draft_digest": draft.draft_digest,
-                "workflow": draft.workflow.canonical_projection(),
-            },
+            {"workflow": draft.workflow.canonical_projection()},
         )
         return draft
 
@@ -379,32 +254,50 @@ class WorkflowAuthoringService:
     def _commit_value(
         *,
         project_id: str,
-        locked_workflow: WorkflowDocument,
+        workflow: WorkflowDocument,
         plan: ExecutionPlan,
-        workflow_commit_revision: int,
         source_draft_revision: int,
-        source_draft_digest: str,
+        workflow_commit_id: str | None = None,
     ) -> WorkflowCommit:
         return WorkflowCommit(
             project_id=project_id,
-            workflow_commit_id=plan.execution_plan_digest.replace(
-                "sha256:",
-                "workflow-commit-",
+            workflow_commit_id=(
+                workflow_commit_id
+                if workflow_commit_id is not None
+                else f"workflow-commit-{uuid.uuid4().hex}"
             ),
-            workflow_commit_revision=workflow_commit_revision,
             source_draft_revision=source_draft_revision,
-            source_draft_digest=source_draft_digest,
-            locked_workflow=locked_workflow,
-            workflow_digest=plan.workflow_digest,
-            catalog_contract_digest=plan.catalog_contract_digest,
-            contract_lock_digest=plan.contract_lock_digest,
-            execution_plan_digest=plan.execution_plan_digest,
+            workflow=workflow,
+            scientific_definitions=plan.scientific_definitions,
         )
 
-    def _load_active_commit_record(
+    def _load_commit_revision_record(
         self,
         project_id: str,
+        revision: int,
     ) -> WorkflowCommit:
+        payload = self._read_record(project_id, "commits", revision)
+        workflow = workflow_document_from_canonical(payload["workflow"])
+        commit_projection = payload["commit"]
+        commit_id = commit_projection["workflow_commit_id"]
+        source_draft_revision = commit_projection["source_draft_revision"]
+        definitions = commit_projection["scientific_definitions"]
+        if (
+            type(commit_id) is not str
+            or type(source_draft_revision) is not int
+            or not isinstance(definitions, list)
+            or workflow.workflow_id != project_id
+        ):
+            raise ValueError("Workflow Commit record is invalid")
+        return WorkflowCommit(
+            project_id=project_id,
+            workflow_commit_id=commit_id,
+            source_draft_revision=source_draft_revision,
+            workflow=workflow,
+            scientific_definitions=tuple(definitions),
+        )
+
+    def _load_active_commit_record(self, project_id: str) -> WorkflowCommit:
         revision = self._latest_record_revision(project_id, "commits")
         if revision == 0:
             raise WorkflowAuthoringError(
@@ -416,113 +309,6 @@ class WorkflowAuthoringService:
                 },
             )
         return self._load_commit_revision_record(project_id, revision)
-
-    def _load_commit_revision_record(
-        self,
-        project_id: str,
-        revision: int,
-    ) -> WorkflowCommit:
-        """Load one exact immutable Workflow Commit revision."""
-        try:
-            payload = self._read_record(project_id, "commits", revision)
-            if (
-                set(payload)
-                != {
-                    "schema_version",
-                    "artifact_kind",
-                    "workflow",
-                    "commit",
-                }
-                or payload.get("schema_version")
-                != _AUTHORING_RECORD_SCHEMA_VERSION
-                or payload.get("artifact_kind") != _COMMIT_RECORD_KIND
-                or not isinstance(payload.get("workflow"), dict)
-                or not isinstance(payload.get("commit"), dict)
-            ):
-                raise ValueError("closed Workflow Commit schema mismatch")
-            workflow = workflow_document_from_canonical(payload["workflow"])
-            commit_projection = payload["commit"]
-            expected_commit_fields = {
-                "workflow_commit_id",
-                "workflow_commit_revision",
-                "source_draft_revision",
-                "source_draft_digest",
-                "workflow_digest",
-                "catalog_contract_digest",
-                "contract_lock_digest",
-                "execution_plan_digest",
-            }
-            if set(commit_projection) != expected_commit_fields:
-                raise ValueError("Workflow Commit identity schema mismatch")
-            digest_fields = (
-                "source_draft_digest",
-                "workflow_digest",
-                "catalog_contract_digest",
-                "contract_lock_digest",
-                "execution_plan_digest",
-            )
-            if (
-                type(commit_projection["workflow_commit_revision"])
-                is not int
-                or commit_projection["workflow_commit_revision"] != revision
-                or revision < 1
-                or type(commit_projection["source_draft_revision"])
-                is not int
-                or commit_projection["source_draft_revision"] < 1
-                or any(
-                    type(commit_projection[field_name]) is not str
-                    or _CANONICAL_DIGEST.fullmatch(
-                        commit_projection[field_name]
-                    )
-                    is None
-                    for field_name in digest_fields
-                )
-                or workflow.workflow_id != project_id
-                or workflow.digest != commit_projection["workflow_digest"]
-                or workflow.contract_lock_digest
-                != commit_projection["contract_lock_digest"]
-                or commit_projection["workflow_commit_id"]
-                != commit_projection["execution_plan_digest"].replace(
-                    "sha256:",
-                    "workflow-commit-",
-                )
-            ):
-                raise ValueError("Workflow Commit identity mismatch")
-            commit = WorkflowCommit(
-                project_id=project_id,
-                workflow_commit_id=commit_projection["workflow_commit_id"],
-                workflow_commit_revision=commit_projection[
-                    "workflow_commit_revision"
-                ],
-                source_draft_revision=commit_projection[
-                    "source_draft_revision"
-                ],
-                source_draft_digest=commit_projection[
-                    "source_draft_digest"
-                ],
-                locked_workflow=workflow,
-                workflow_digest=commit_projection["workflow_digest"],
-                catalog_contract_digest=commit_projection[
-                    "catalog_contract_digest"
-                ],
-                contract_lock_digest=commit_projection[
-                    "contract_lock_digest"
-                ],
-                execution_plan_digest=commit_projection[
-                    "execution_plan_digest"
-                ],
-            )
-        except (OSError, TypeError, ValueError) as error:
-            raise WorkflowAuthoringError(
-                "unsupported_schema_version",
-                "Persisted Workflow Commit is not a supported exact artifact",
-                details={
-                    "artifact_kind": "workflow_commit",
-                    "expected_schema_version": _AUTHORING_RECORD_SCHEMA_VERSION,
-                    "received_schema_version": "unknown",
-                },
-            ) from error
-        return commit
 
     def _active_commit(self, project_id: str) -> WorkflowCommit:
         commit = self._active_commits.get(project_id)
@@ -545,31 +331,17 @@ class WorkflowAuthoringService:
         if verified is not None:
             return verified
         try:
-            plan = compile(
-                CompilationRequest(
-                    commit.locked_workflow,
-                    commit.workflow_commit_revision,
-                ),
-                self._catalog,
-            )
+            plan = compile(CompilationRequest(commit.workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
-        expected_commit = self._commit_value(
-            project_id=commit.project_id,
-            locked_workflow=commit.locked_workflow,
-            plan=plan,
-            workflow_commit_revision=commit.workflow_commit_revision,
-            source_draft_revision=commit.source_draft_revision,
-            source_draft_digest=commit.source_draft_digest,
-        )
-        if expected_commit != commit:
+        if plan.scientific_definitions != commit.scientific_definitions:
             raise WorkflowAuthoringError(
                 "workflow_commit_identity_mismatch",
-                (
-                    "Persisted Workflow Commit does not match the exact "
-                    "Execution Plan resolved from its record"
-                ),
-                details={"workflow_commit_id": commit.workflow_commit_id},
+                "Workflow Commit scientific definitions do not match the "
+                "current Catalog",
+                details={
+                    "workflow_commit_id": commit.workflow_commit_id,
+                },
             )
         verified = VerifiedWorkflowCommit(commit, plan)
         self._verified_commits[key] = verified
@@ -581,95 +353,76 @@ class WorkflowAuthoringService:
         *,
         workflow: WorkflowDocument,
     ) -> WorkflowCommit:
-        """Save, lock, compile, and publish one runnable Workflow Commit."""
+        """Save, compile, and publish one runnable Workflow Commit."""
         self._require_project(project_id)
         self._require_writable_project(project_id)
         self._validate_draft_submission(project_id, workflow)
-        current_draft_revision = self._latest_record_revision(
-            project_id,
-            "drafts",
-        )
         draft = self._publish_draft(
             project_id,
-            current_draft_revision + 1,
+            self._latest_record_revision(project_id, "drafts") + 1,
             workflow,
         )
-        workflow_commit_revision = (
+        commit_record_revision = (
             self._latest_record_revision(project_id, "commits") + 1
         )
         try:
-            locked = lock_workflow(draft.workflow, self._catalog)
-            plan = compile(
-                CompilationRequest(locked, workflow_commit_revision),
-                self._catalog,
-            )
+            plan = compile(CompilationRequest(draft.workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
         commit = self._commit_value(
             project_id=project_id,
-            locked_workflow=locked,
+            workflow=workflow,
             plan=plan,
-            workflow_commit_revision=workflow_commit_revision,
             source_draft_revision=draft.draft_revision,
-            source_draft_digest=draft.draft_digest,
         )
-        self._publish_commit(commit, plan)
+        self._publish_commit(commit, plan, commit_record_revision)
         return commit
 
     def _publish_commit(
         self,
         commit: WorkflowCommit,
         plan: ExecutionPlan,
+        commit_record_revision: int,
     ) -> None:
         self._write_record(
             commit.project_id,
             "commits",
-            commit.workflow_commit_revision,
+            commit_record_revision,
             {
-                "schema_version": _AUTHORING_RECORD_SCHEMA_VERSION,
-                "artifact_kind": _COMMIT_RECORD_KIND,
-                "workflow": commit.locked_workflow.canonical_projection(),
-                "commit": _commit_record_projection(commit),
+                "workflow": commit.workflow.canonical_projection(),
+                "commit": {
+                    "workflow_commit_id": commit.workflow_commit_id,
+                    "source_draft_revision": commit.source_draft_revision,
+                    "scientific_definitions": [
+                        _thaw_json(definition)
+                        for definition in commit.scientific_definitions
+                    ],
+                },
             },
         )
+        verified = VerifiedWorkflowCommit(commit, plan)
         self._verified_commits[
             (commit.project_id, commit.workflow_commit_id)
-        ] = VerifiedWorkflowCommit(commit, plan)
+        ] = verified
         self._active_commits[commit.project_id] = commit
 
     def install_seed_commit(
         self,
         *,
-        locked_workflow: WorkflowDocument,
+        workflow: WorkflowDocument,
         input_sources: Mapping[str, str | Path],
     ) -> WorkflowCommit | None:
-        """Install or verify the exact immutable canonical seed Commit."""
+        """Install the canonical seed Workflow Commit."""
         project_id = CANONICAL_3GB1_PROJECT_ID
-        if locked_workflow.workflow_id != project_id:
+        if workflow.workflow_id != project_id:
             raise WorkflowAuthoringError(
                 "cross_scope_access_denied",
                 "Seed Commit installation requires the canonical Project identity",
-                details={
-                    "requested_project_id": locked_workflow.workflow_id,
-                },
+                details={"requested_project_id": workflow.workflow_id},
             )
-        unlocked_workflow = replace(locked_workflow, contract_lock=())
-        self._validate_draft_submission(project_id, unlocked_workflow)
+        self._validate_draft_submission(project_id, workflow)
         try:
-            current_lock = lock_workflow(unlocked_workflow, self._catalog)
-            if current_lock != locked_workflow:
-                raise WorkflowCompileError(
-                    "contract_digest_mismatch",
-                    (
-                        "Seed Workflow Contract Lock does not equal the "
-                        "current reachable Catalog closure"
-                    ),
-                    field_path=("contract_lock",),
-                )
-            plan = compile(
-                CompilationRequest(locked_workflow, 1),
-                self._catalog,
-            )
+            plan = compile(CompilationRequest(workflow), self._catalog)
         except WorkflowCompileError as error:
             raise _commit_error(error) from error
         project = self._projects.ensure_seed_project_v2(
@@ -683,37 +436,35 @@ class WorkflowAuthoringService:
                 "Seed Commit installation requires the protected seed Project",
                 details={"requested_project_id": project_id},
             )
-        expected_draft = self._draft_value(
-            project_id,
-            1,
-            unlocked_workflow,
-        )
-        expected_commit = self._commit_value(
-            project_id=project_id,
-            locked_workflow=locked_workflow,
-            plan=plan,
-            workflow_commit_revision=1,
-            source_draft_revision=1,
-            source_draft_digest=expected_draft.draft_digest,
-        )
-        draft_revision = self._latest_record_revision(project_id, "drafts")
         commit_revision = self._latest_record_revision(project_id, "commits")
-        if draft_revision == 0 and commit_revision == 0:
-            self._publish_draft(project_id, 1, unlocked_workflow)
-            self._publish_commit(expected_commit, plan)
-            return expected_commit
+        if commit_revision == 0:
+            draft = self._publish_draft(project_id, 1, workflow)
+            commit = self._commit_value(
+                project_id=project_id,
+                workflow=workflow,
+                plan=plan,
+                source_draft_revision=draft.draft_revision,
+            )
+            self._publish_commit(commit, plan, 1)
+            return commit
         persisted = self._active_commit(project_id)
-        if persisted != expected_commit:
+        if persisted.workflow != workflow:
             raise WorkflowAuthoringError(
                 "workflow_commit_identity_mismatch",
                 "Seed Workflow Commit does not match the shipped Workflow",
-                details={
-                    "workflow_commit_id": persisted.workflow_commit_id,
-                },
+                details={"workflow_commit_id": persisted.workflow_commit_id},
             )
+        if persisted.scientific_definitions != plan.scientific_definitions:
+            raise WorkflowAuthoringError(
+                "workflow_commit_identity_mismatch",
+                "Seed Workflow Commit scientific definitions do not match "
+                "the current Catalog",
+                details={"workflow_commit_id": persisted.workflow_commit_id},
+            )
+        verified = VerifiedWorkflowCommit(persisted, plan)
         self._verified_commits[
             (project_id, persisted.workflow_commit_id)
-        ] = VerifiedWorkflowCommit(persisted, plan)
+        ] = verified
         return persisted
 
     def require_verified_commit(
@@ -722,37 +473,24 @@ class WorkflowAuthoringService:
         *,
         workflow_commit_id: str,
     ) -> VerifiedWorkflowCommit:
-        """Resolve or exactly hydrate the active immutable Execution Plan."""
+        """Resolve the immutable Commit named by its sole execution ID."""
         self._require_project(project_id)
-        commit = self._active_commit(project_id)
-        if commit.workflow_commit_id != workflow_commit_id:
-            raise WorkflowAuthoringError(
-                "workflow_commit_not_found",
-                "The requested Workflow Commit is not active",
-                details={
-                    "resource_kind": "workflow_commit",
-                    "resource_id": workflow_commit_id,
-                },
-            )
-        return self._hydrate_verified_commit(commit)
-
-    def require_verified_commit_revision(
-        self,
-        project_id: str,
-        *,
-        workflow_commit_id: str,
-        workflow_commit_revision: int,
-    ) -> VerifiedWorkflowCommit:
-        """Hydrate the exact immutable Commit named by durable Run scope."""
-        self._require_project(project_id)
-        commit = self._load_commit_revision_record(
-            project_id,
-            workflow_commit_revision,
+        cached = self._verified_commits.get((project_id, workflow_commit_id))
+        if cached is not None:
+            return cached
+        for revision in range(
+            self._latest_record_revision(project_id, "commits"),
+            0,
+            -1,
+        ):
+            commit = self._load_commit_revision_record(project_id, revision)
+            if commit.workflow_commit_id == workflow_commit_id:
+                return self._hydrate_verified_commit(commit)
+        raise WorkflowAuthoringError(
+            "workflow_commit_not_found",
+            "Workflow Commit was not found",
+            details={
+                "resource_kind": "workflow_commit",
+                "resource_id": workflow_commit_id,
+            },
         )
-        if commit.workflow_commit_id != workflow_commit_id:
-            raise WorkflowAuthoringError(
-                "workflow_commit_identity_mismatch",
-                "Workflow Commit revision does not match Run evidence",
-                details={"workflow_commit_id": workflow_commit_id},
-            )
-        return self._hydrate_verified_commit(commit)

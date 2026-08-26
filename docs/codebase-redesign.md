@@ -24,10 +24,10 @@ contract:
 
 - `protein_workbench_public/` owns wire payloads and events;
 - `datatypes/` and Port Type admission own scientific values;
-- Catalog build/test admission owns Node, Method, Binding, unit, shape,
-  randomness, provenance, Port compatibility, Metric, Observation, and
-  residue-axis relationships; runtime startup consumes stable-ID typed
-  registrations;
+- Catalog construction owns stable-ID uniqueness, implementation resolvability,
+  and the Node, Method, Binding, unit, shape, randomness, provenance, Port,
+  Metric, Observation, and residue-axis relationships that protect scientific
+  module inputs and outputs; startup and tests use the same direct builder;
 - Provider Adapters own translation from official Provider responses;
 - acceptance tests own scenario-specific scientific conclusions.
 

@@ -25,8 +25,6 @@ def decode_workflow_document(payload: Mapping[str, Any]) -> WorkflowDocument:
     except ProtocolValidationError as error:
         if payload.get("schema_version") != WORKFLOW_SCHEMA_VERSION:
             code = "unsupported_schema_version"
-        elif error.path.startswith("$.contract_lock"):
-            code = "contract_digest_mismatch"
         else:
             code = "malformed_request"
         raise WorkflowDocumentError(
@@ -46,7 +44,6 @@ def encode_workflow_draft(draft: WorkflowDraft) -> dict[str, Any]:
     return {
         "project_id": draft.project_id,
         "draft_revision": draft.draft_revision,
-        "draft_digest": draft.draft_digest,
         "workflow": draft.workflow.canonical_projection(),
     }
 
@@ -58,12 +55,10 @@ def encode_workflow_commit_receipt(
     return {
         "accepted": True,
         "workflow_commit_id": commit.workflow_commit_id,
-        "workflow_commit_revision": commit.workflow_commit_revision,
         "source_draft_revision": commit.source_draft_revision,
-        "source_draft_digest": commit.source_draft_digest,
-        "workflow_digest": commit.workflow_digest,
-        "catalog_contract_digest": commit.catalog_contract_digest,
-        "contract_lock_digest": commit.contract_lock_digest,
-        "execution_plan_digest": commit.execution_plan_digest,
+        "workflow": commit.workflow.canonical_projection(),
+        "scientific_definitions": [
+            dict(definition) for definition in commit.scientific_definitions
+        ],
         "issues": [],
     }

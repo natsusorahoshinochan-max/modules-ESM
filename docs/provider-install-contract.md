@@ -1,9 +1,6 @@
 # Provider installation contract
 
-Status: accepted target operational contract. Runtime divergences are tracked in
-[`known-implementation-gaps.md`](known-implementation-gaps.md#provider-operability-instead-of-installation-identity);
-until those gaps close, this document states the contract being implemented, not
-the behavior of every current Readiness path.
+Status: current operational contract.
 
 Provider repositories, packages, models, and checkpoints remain external to the
 Protein Workbench wheel. Environment Configuration supplies their operator-owned
@@ -42,8 +39,8 @@ Remote Provider weights are service-managed. Current route labels are:
 | Biohub ESMFold2 | `esmfold2-fast-2026-05` | `folding` Method/Binding |
 
 These labels select the intended Provider route. They are not local asset
-digests. Credentials and endpoints make the selected route operable but cannot
-silently select another Method or fallback endpoint.
+digests. The credential handle makes the selected route operable; the Adapter
+owns the fixed Biohub endpoint and does not choose a fallback endpoint.
 
 ## Local Provider configuration
 
@@ -51,6 +48,7 @@ Environment Configuration uses the following external fields:
 
 | Binding family | Environment Configuration | Operational content |
 | --- | --- | --- |
+| Biohub remote routes | `PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE` | Credential handle read by the composition root |
 | Local ESM-3 | `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT` | Complete local ESM-3 snapshot used by the installed SDK |
 | Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` | Folding model files |
 | Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT` | ESMC language-model files |
@@ -70,9 +68,9 @@ Configuration mapping.
 ## Readiness contract
 
 On the first Cache miss or bypass for one Adapter Binding in a Run, Readiness
-checks only what is needed to enter the actual Provider route:
+uses the external fields already admitted by the composition root and checks
+only what is needed to enter the actual Provider route:
 
-- required external paths and credential handles are present;
 - required files are readable;
 - the configured package or source can be imported;
 - the selected model, checkpoint, binary, or service route can be minimally

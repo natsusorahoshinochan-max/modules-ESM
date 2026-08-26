@@ -39,11 +39,12 @@ class _RunQueries:
         descriptor: PublishedOutput,
         value_index: int,
         *,
+        node_id: str,
         expected_digest: str,
         expected_size: int | None = None,
     ) -> V2RunError:
         details: dict[str, Any] = {
-            "node_id": descriptor.node_id,
+            "node_id": node_id,
             "output_port": descriptor.output_port,
             "value_index": value_index,
             "expected_digest": expected_digest,
@@ -69,9 +70,10 @@ class _RunQueries:
         descriptor = next(
             (
                 output
-                for output in record.ledger.projection().outputs
-                if output.node_id == node_id
-                and output.output_port == output_port
+                for publication in record.ledger.projection().publications
+                if publication.node_id == node_id
+                for output in publication.outputs
+                if output.output_port == output_port
             ),
             None,
         )
@@ -98,6 +100,7 @@ class _RunQueries:
             raise self._typed_value_integrity_error(
                 descriptor,
                 value_index,
+                node_id=node_id,
                 expected_digest=error.content_digest,
                 expected_size=error.expected_size,
             ) from error
@@ -108,8 +111,6 @@ class _RunQueries:
                 "port_type": {
                     "contract_kind": descriptor.port_type.contract_kind,
                     "contract_id": descriptor.port_type.contract_id,
-                    "contract_version": descriptor.port_type.contract_version,
-                    "contract_digest": descriptor.port_type.contract_digest,
                 },
                 "port_content_digest": descriptor.content_digest,
                 "value_manifest_reference": (
@@ -130,15 +131,16 @@ class _RunQueries:
         artifact_reference: str,
     ) -> tuple[dict[str, Any], bytes]:
         record = self._registry.require_record(project_id, run_id)
-        descriptor = next(
+        resolved = next(
             (
-                artifact
-                for artifact in record.ledger.projection().artifacts
+                (publication.node_id, artifact)
+                for publication in record.ledger.projection().publications
+                for artifact in publication.artifacts
                 if artifact.artifact_reference == artifact_reference
             ),
             None,
         )
-        if descriptor is None:
+        if resolved is None:
             raise V2RunError(
                 "artifact_not_found",
                 "Artifact was not found",
@@ -147,6 +149,7 @@ class _RunQueries:
                     "resource_id": artifact_reference,
                 },
             )
+        node_id, descriptor = resolved
         try:
             payload = self._result_store.read_artifact(
                 project_id,
@@ -161,7 +164,7 @@ class _RunQueries:
         public_descriptor = {
             "artifact_reference": descriptor.artifact_reference,
             "artifact_kind": descriptor.artifact_kind,
-            "node_id": descriptor.node_id,
+            "node_id": node_id,
             "output_port": descriptor.output_port,
             "media_type": descriptor.media_type,
             "filename": descriptor.filename,

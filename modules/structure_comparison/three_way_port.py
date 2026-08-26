@@ -207,8 +207,6 @@ def _method_to_wire(value: ExactContractReference) -> dict[str, str]:
     return {
         "contract_kind": value.contract_kind,
         "contract_id": value.contract_id,
-        "contract_version": value.contract_version,
-        "contract_digest": value.contract_digest,
     }
 
 
@@ -374,10 +372,8 @@ def _candidate_data_references(
 
 THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
     type_id="structure_comparison.three_way_consistency",
-    version=THREE_WAY_CONSISTENCY_VERSION,
     validator=BehaviorReference(
         "structure_comparison.three_way_consistency/validate",
-        THREE_WAY_CONSISTENCY_VERSION,
         {
             "participants": ["input", "esmfold2", "simplefold"],
             "confidence_threshold": 70.0,
@@ -385,30 +381,29 @@ THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
                 "reference_normalized_tm_score_minimum": 0.8,
                 "ca_rmsd_angstrom_maximum": 2.5,
             },
-            "confidence_method_digests_by_role": {
-                role: [method.contract_digest for method in methods]
+            "confidence_methods_by_role": {
+                role: [method.contract_id for method in methods]
                 for role, methods in zip(
                     _CONFIDENCE_ROLES,
                     _CONFIDENCE_METHODS_BY_ROLE,
                     strict=True,
                 )
             },
-            "classification_method_digest": (
-                THREE_WAY_CONSISTENCY_METHOD_REFERENCE.contract_digest
+            "classification_method": (
+                THREE_WAY_CONSISTENCY_METHOD_REFERENCE.contract_id
             ),
-            "alignment_method_digest": (
-                SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE.contract_digest
+            "alignment_method": (
+                SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE.contract_id
             ),
-            "tm_score_method_digest": (
-                TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE.contract_digest
+            "tm_score_method": (
+                TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE.contract_id
             ),
-            "rmsd_method_digest": RMSD_FROM_EVIDENCE_METHOD_REFERENCE.contract_digest,
+            "rmsd_method": RMSD_FROM_EVIDENCE_METHOD_REFERENCE.contract_id,
             "input_b_factor": "uninterpreted-coordinate-field",
         },
     ),
     codec=BehaviorReference(
         "structure_comparison.three_way_consistency/codec",
-        THREE_WAY_CONSISTENCY_VERSION,
         {
             "canonicalization": "RFC 8785",
             "schema_version": THREE_WAY_CONSISTENCY_VERSION,
@@ -416,7 +411,6 @@ THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
     ),
     content_identity=BehaviorReference(
         "structure_comparison.three_way_consistency/content",
-        THREE_WAY_CONSISTENCY_VERSION,
         {"digest": "SHA-256"},
     ),
     runtime_validator=validate_three_way_consistency,
@@ -425,7 +419,6 @@ THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
     candidate_data_projection=BehaviorReference(
         "structure_comparison.three_way_consistency/"
         "candidate_data_projection",
-        THREE_WAY_CONSISTENCY_VERSION,
         {
             "fields": [
                 "input_structure",

@@ -1,38 +1,31 @@
-schema_version: "2.1.0"
 node_type_id: structure_comparison.align_single
-version: "5.0.0"
 title: Align one Candidate-associated structure pair
 summary: Aligns exactly one subject and reference through exact Candidate-associated resolved residue axes; raw structure text is never parsed here.
 category: structure_comparison
 inputs:
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one admitted subject structure Candidate whose full CandidateDataReference is the association key.
   - name: subject_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete exact-reference-associated subject axis bundle; entry position has no correspondence meaning.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exactly one admitted reference structure Candidate whose full CandidateDataReference is the association key.
   - name: reference_residue_axes
     port_type_id: structure_transform.candidate_resolved_residue_axis_associations
-    port_type_version: "6.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete exact-reference-associated reference axis bundle; entry position has no correspondence meaning.
 outputs:
   - name: alignments
     port_type_id: structure_comparison.alignment_evidence
-    port_type_version: "5.0.0"
     required: true
     multiplicity: many
     scientific_meaning: Exactly one v4 alignment evidence value carrying Candidate participants, axis digests, segment map, policy, correspondence, transform, and normalization counts.

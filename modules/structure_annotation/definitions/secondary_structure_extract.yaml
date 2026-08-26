@@ -1,20 +1,16 @@
-schema_version: "2.1.0"
 node_type_id: structure_annotation.secondary_structure_extract
-version: "4.0.0"
 title: Extract DSSP secondary structure
 summary: Extracts the exact identity-aligned SS8 track without coarse conversion.
 category: structure_annotation
 inputs:
   - name: annotations
     port_type_id: structure_annotation.dssp_annotations
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: DSSP annotations carrying the exact source Candidate reference and residue layout.
 outputs:
   - name: secondary_structure_track
     port_type_id: structure_annotation.secondary_structure_track
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact SS8 values GHITEBSC with underscore only for absent residues, preserving the source Candidate reference.

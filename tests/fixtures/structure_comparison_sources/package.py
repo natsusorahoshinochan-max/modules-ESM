@@ -54,7 +54,6 @@ from modules.structure_prediction.port_types import (
 )
 
 
-_VERSION = "5.0.0"
 _RESIDUE_NAMES = {
     "A": "ALA",
     "G": "GLY",
@@ -594,45 +593,38 @@ def _fixture_binding(
     binding_id: str,
     node_type_id: str,
     method_id: str,
-    method_version: str = _VERSION,
     factory_name: str,
     build,
     produced_observations: tuple[ProducedObservationDefinition, ...] = (),
 ) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=binding_id,
-        version=_VERSION,
-        node_type=ContractIdentity("node_type", node_type_id, _VERSION),
-        method=ContractIdentity("method", method_id, method_version),
+        node_type=ContractIdentity("node_type", node_type_id),
+        method=ContractIdentity("method", method_id),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
-            behavior=BehaviorReference(factory_name, _VERSION, {}),
+            behavior=BehaviorReference(factory_name, {}),
             build=build,
         ),
         availability=AvailabilityDeclaration(
-            behavior=BehaviorReference(f"{binding_id}/availability", _VERSION, {}),
+            behavior=BehaviorReference(f"{binding_id}/availability", {}),
             prerequisites={},
             check=AvailabilityResult.available,
         ),
         readiness=ReadinessDeclaration(
-            behavior=BehaviorReference(f"{binding_id}/readiness", _VERSION, {}),
+            behavior=BehaviorReference(f"{binding_id}/readiness", {}),
             prerequisites={},
             check=lambda check_input: ReadinessResult(True),
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": binding_id,
-            "source": "contract-test-fixture",
-        },
         produced_observations=produced_observations,
     )
 
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.structure_comparison_sources",
-    package_version=_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),
@@ -645,14 +637,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
     methods=(
         MethodDefinition(
             method_id="contract_test.structure_comparison_source.method",
-            version=_VERSION,
             algorithm_identity={
                 "name": "independent-structure-candidate-collections"
             },
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "canonical-PDB-v3.3"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"coordinate_unit": "angstrom"},
         ),
         *tuple(
@@ -669,23 +658,17 @@ MODULE_PACKAGE = ModulePackageRegistration(
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.structure_comparison_source.fixture",
-            version=_VERSION,
             node_type=ContractIdentity(
                 "node_type",
-                "contract_test.structure_comparison_source",
-                _VERSION,
-            ),
+                "contract_test.structure_comparison_source"),
             method=ContractIdentity(
                 "method",
-                "contract_test.structure_comparison_source.method",
-                _VERSION,
-            ),
+                "contract_test.structure_comparison_source.method"),
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.structure_comparison_source/factory",
-                    _VERSION,
                     {},
                 ),
                 build=_build,
@@ -693,7 +676,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.structure_comparison_source/availability",
-                    _VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -702,19 +684,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.structure_comparison_source/readiness",
-                    _VERSION,
                     {},
                 ),
                 prerequisites={},
                 check=lambda check_input: ReadinessResult(True),
             ),
             deterministic=True,
-            cacheable=True,
-            implementation_identity={
-                "name": "contract_test.structure_comparison_source.fixture",
-                "source": "contract-test-fixture",
-            },
-        ),
+            cacheable=True),
         _fixture_binding(
             binding_id="contract_test.inserted_loop_source.fixture",
             node_type_id="contract_test.inserted_loop_source",
@@ -740,7 +716,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.inserted_loop_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
-            method_version="4.0.0",
             factory_name="contract_test.inserted_loop_confidence_source/factory",
             build=_build_inserted_loop_confidence_source,
             produced_observations=(
@@ -748,8 +723,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     output_port="observations",
                     output_partition="prediction_confidence",
                     metric=ContractIdentity(
-                        "metric", "structure.plddt.per_residue", "3.0.0"
-                    ),
+                        "metric", "structure.plddt.per_residue"),
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
@@ -767,7 +741,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_hf_1ebf0e3",
-            method_version="6.0.0",
             factory_name=(
                 "contract_test.local_inserted_loop_confidence_source/factory"
             ),
@@ -777,8 +750,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     output_port="observations",
                     output_partition="prediction_confidence",
                     metric=ContractIdentity(
-                        "metric", "structure.plddt.per_residue", "3.0.0"
-                    ),
+                        "metric", "structure.plddt.per_residue"),
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
@@ -794,7 +766,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.esmfold2_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
-            method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_source/factory",
             build=_build_esmfold2_confidence_source,
             produced_observations=(
@@ -802,8 +773,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     output_port="observations",
                     output_partition="prediction_confidence",
                     metric=ContractIdentity(
-                        "metric", "structure.plddt.mean_residue", "3.0.0"
-                    ),
+                        "metric", "structure.plddt.mean_residue"),
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
@@ -819,7 +789,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.local_esmfold2_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.esmfold2_hf_1ebf0e3",
-            method_version="6.0.0",
             factory_name="contract_test.local_esmfold2_confidence_source/factory",
             build=_build_esmfold2_confidence_source,
             produced_observations=(
@@ -827,8 +796,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     output_port="observations",
                     output_partition="prediction_confidence",
                     metric=ContractIdentity(
-                        "metric", "structure.plddt.mean_residue", "3.0.0"
-                    ),
+                        "metric", "structure.plddt.mean_residue"),
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
@@ -844,7 +812,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.simplefold_confidence_source.fixture",
             node_type_id="contract_test.prediction_confidence_source",
             method_id="folding.fold.simplefold_100m_c7a5570",
-            method_version="5.0.0",
             factory_name="contract_test.simplefold_confidence_source/factory",
             build=_build_simplefold_confidence_source,
             produced_observations=(
@@ -852,8 +819,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
                     output_port="observations",
                     output_partition="prediction_confidence",
                     metric=ContractIdentity(
-                        "metric", "structure.plddt.mean_residue", "3.0.0"
-                    ),
+                        "metric", "structure.plddt.mean_residue"),
                     context_profile={"kind": "intrinsic"},
                     subject_grain="candidate",
                     source_role="subject",
@@ -869,7 +835,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.esmfold2_confidence_fact_source.fixture",
             node_type_id="contract_test.prediction_confidence_fact_source",
             method_id="folding.fold.esmfold2_fast_biohub_2026_05",
-            method_version="4.0.0",
             factory_name="contract_test.esmfold2_confidence_fact_source/factory",
             build=_build_confidence_fact_source,
         ),
@@ -879,7 +844,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             ),
             node_type_id="contract_test.prediction_confidence_fact_source",
             method_id="folding.fold.esmfold2_hf_1ebf0e3",
-            method_version="6.0.0",
             factory_name=(
                 "contract_test.local_esmfold2_confidence_fact_source/factory"
             ),
@@ -889,7 +853,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             binding_id="contract_test.simplefold_confidence_fact_source.fixture",
             node_type_id="contract_test.prediction_confidence_fact_source",
             method_id="folding.fold.simplefold_100m_c7a5570",
-            method_version="5.0.0",
             factory_name="contract_test.simplefold_confidence_fact_source/factory",
             build=_build_confidence_fact_source,
         ),

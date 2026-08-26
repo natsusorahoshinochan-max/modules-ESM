@@ -33,12 +33,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
 
-_VERSION = "3.0.0"
-_SOURCE_NODE_BINDING_VERSION = "5.0.0"
-_SEQUENCE_SOURCE_NODE_BINDING_VERSION = "4.0.0"
-_CANDIDATEIZE_NODE_BINDING_VERSION = "2.0.0"
-
-
 def _fixture_structure(parent_index: int) -> ProteinStructure:
     residues = (
         ("A", 1, "ALA"),
@@ -195,7 +189,6 @@ def _build(operation: str):
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="contract_test.proteinmpnn_sources",
-    package_version=_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definition.yaml"),
@@ -205,55 +198,40 @@ MODULE_PACKAGE = ModulePackageRegistration(
     methods=(
         MethodDefinition(
             method_id="contract_test.proteinmpnn_source.method",
-            version=_VERSION,
             algorithm_identity={"name": "independent-literal-source"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "literal"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         ),
         MethodDefinition(
             method_id="contract_test.proteinmpnn_candidateize.method",
-            version="1.0.0",
             algorithm_identity={"name": "exact-single-candidate-wrapper"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "identity"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         ),
         MethodDefinition(
             method_id="contract_test.proteinmpnn_sequence_source.method",
-            version=_VERSION,
             algorithm_identity={"name": "independent-literal-sequence-source"},
             model_identity={"kind": "none"},
-            checkpoint_identity={"kind": "none"},
             featurization_identity={"kind": "literal"},
-            source_identity={"kind": "contract-test-fixture"},
             scale_contract={"kind": "identity"},
         ),
     ),
     bindings=(
         ExecutionBindingDefinition(
             binding_id="contract_test.proteinmpnn_source.direct",
-            version=_SOURCE_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
-                "contract_test.proteinmpnn_source",
-                _SOURCE_NODE_BINDING_VERSION,
-            ),
+                "contract_test.proteinmpnn_source"),
             method=ContractIdentity(
                 "method",
-                "contract_test.proteinmpnn_source.method",
-                _VERSION,
-            ),
+                "contract_test.proteinmpnn_source.method"),
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_source/factory",
-                    _SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 build=_build("source"),
@@ -261,7 +239,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_source/availability",
-                    _SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -270,40 +247,28 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_source/readiness",
-                    _SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
                 check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
-            cacheable=True,
-            implementation_identity={
-                "name": "contract_test.proteinmpnn_source.direct",
-                "source": "contract-test-fixture",
-            },
-        ),
+            cacheable=True),
         ExecutionBindingDefinition(
             binding_id=(
                 "contract_test.proteinmpnn_structure_candidateize.direct"
             ),
-            version=_CANDIDATEIZE_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
-                "contract_test.proteinmpnn_structure_candidateize",
-                _CANDIDATEIZE_NODE_BINDING_VERSION,
-            ),
+                "contract_test.proteinmpnn_structure_candidateize"),
             method=ContractIdentity(
                 "method",
-                "contract_test.proteinmpnn_candidateize.method",
-                "1.0.0",
-            ),
+                "contract_test.proteinmpnn_candidateize.method"),
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_structure_candidateize/factory",
-                    _CANDIDATEIZE_NODE_BINDING_VERSION,
                     {},
                 ),
                 build=_build("candidateize"),
@@ -311,7 +276,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_structure_candidateize/availability",
-                    _CANDIDATEIZE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -320,40 +284,26 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_structure_candidateize/readiness",
-                    _CANDIDATEIZE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
                 check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
-            cacheable=True,
-            implementation_identity={
-                "name": (
-                    "contract_test.proteinmpnn_structure_candidateize.direct"
-                ),
-                "source": "contract-test-fixture",
-            },
-        ),
+            cacheable=True),
         ExecutionBindingDefinition(
             binding_id="contract_test.proteinmpnn_sequence_source.direct",
-            version=_SEQUENCE_SOURCE_NODE_BINDING_VERSION,
             node_type=ContractIdentity(
                 "node_type",
-                "contract_test.proteinmpnn_sequence_source",
-                _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
-            ),
+                "contract_test.proteinmpnn_sequence_source"),
             method=ContractIdentity(
                 "method",
-                "contract_test.proteinmpnn_sequence_source.method",
-                _VERSION,
-            ),
+                "contract_test.proteinmpnn_sequence_source.method"),
             binding_parameters={},
             execution_route="direct",
             factory=ScientificOperationFactory(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_sequence_source/factory",
-                    _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 build=_build("sequence_source"),
@@ -361,7 +311,6 @@ MODULE_PACKAGE = ModulePackageRegistration(
             availability=AvailabilityDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_sequence_source/availability",
-                    _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
@@ -370,20 +319,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
             readiness=ReadinessDeclaration(
                 behavior=BehaviorReference(
                     "contract_test.proteinmpnn_sequence_source/readiness",
-                    _SEQUENCE_SOURCE_NODE_BINDING_VERSION,
                     {},
                 ),
                 prerequisites={},
                 check=lambda environment: ReadinessResult(True),
             ),
             deterministic=True,
-            cacheable=True,
-            implementation_identity={
-                "name": (
-                    "contract_test.proteinmpnn_sequence_source.direct"
-                ),
-                "source": "contract-test-fixture",
-            },
-        ),
+            cacheable=True),
     ),
 )

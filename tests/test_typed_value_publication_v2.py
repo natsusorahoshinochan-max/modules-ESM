@@ -73,7 +73,6 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
             assert response.status_code == 200
             assert response.content == (
                 b'{"port_type_id":"test.canonical_text",'
-                b'"port_type_version":"2.1.0",'
                 b'"schema_namespace":"protein-workbench-port-value/v2",'
                 b'"value":"ready"}'
             )
@@ -94,12 +93,6 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
             assert response.headers["x-port-type-id"] == descriptor[
                 "port_type"
             ]["contract_id"]
-            assert response.headers["x-port-type-version"] == descriptor[
-                "port_type"
-            ]["contract_version"]
-            assert response.headers["x-port-type-digest"] == descriptor[
-                "port_type"
-            ]["contract_digest"]
             assert response.headers["x-value-manifest-reference"] == (
                 descriptor["value_manifest_reference"]
             )
@@ -313,9 +306,7 @@ def test_registered_esm3_large_paired_values_round_trip_exactly(
         )
         reference = output["port_type"]
         codec = catalog.require_port_type(
-            reference["contract_id"],
-            reference["contract_version"],
-        )
+            reference["contract_id"])
         value = codec.decode(payload)
         decoded[output_port] = value
         assert codec.encode(value) == payload

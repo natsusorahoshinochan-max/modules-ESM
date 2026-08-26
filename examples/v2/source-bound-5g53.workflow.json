@@ -5,9 +5,7 @@
     {
       "node_id": "import-input",
       "node_type_id": "protein_io.import_structure",
-      "node_type_version": "6.0.0",
       "binding_id": "protein_io.import_structure.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {
         "project_input_ref": "5G53.pdb"
       },
@@ -16,9 +14,7 @@
     {
       "node_id": "select-chain-a",
       "node_type_id": "structure_transform.select_candidate_chains",
-      "node_type_version": "4.0.0",
       "binding_id": "structure_transform.select_candidate_chains.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {
         "chain_ids": [
           "A"
@@ -29,36 +25,28 @@
     {
       "node_id": "resolve-reference",
       "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "project-reference-axis",
       "node_type_id": "structure_transform.project_single_residue_axis",
-      "node_type_version": "2.0.0",
       "binding_id": "structure_transform.project_single_residue_axis.direct",
-      "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "author-base-prompt",
       "node_type_id": "prompt_authoring.prompt_from_structure",
-      "node_type_version": "5.0.0",
       "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "insert-shorter-8",
       "node_type_id": "prompt_authoring.insert_masked_residues",
-      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.insert_masked_residues.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {
         "insertions": [
           {
@@ -82,9 +70,7 @@
     {
       "node_id": "generate-shorter-8",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "8.0.0",
       "binding_id": "esm3.generate_paired.biohub_medium",
-      "binding_version": "8.0.0",
       "node_parameters": {
         "effective_seed": 5353008,
         "num_samples": 2,
@@ -100,18 +86,14 @@
     {
       "node_id": "materialize-generation-confidence-shorter-8",
       "node_type_id": "structure_prediction.materialize_confidence",
-      "node_type_version": "2.0.0",
       "binding_id": "structure_prediction.materialize_confidence.direct",
-      "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "fold-shorter-8",
       "node_type_id": "folding.fold",
-      "node_type_version": "8.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "9.0.0",
       "node_parameters": {
         "effective_seed": 5353999,
         "num_samples": 1
@@ -121,99 +103,77 @@
     {
       "node_id": "materialize-confidence-shorter-8",
       "node_type_id": "structure_prediction.materialize_confidence",
-      "node_type_version": "2.0.0",
       "binding_id": "structure_prediction.materialize_confidence.direct",
-      "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "resolve-folds-shorter-8",
       "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "resolve-counterparts-shorter-8",
       "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-core-shorter-8",
       "node_type_id": "structure_comparison.align_fixed_reference",
-      "node_type_version": "5.0.0",
       "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-shorter-8",
       "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-shorter-8",
       "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-shorter-8",
       "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.rebind_candidate_pairing.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-shorter-8",
       "node_type_id": "structure_comparison.align_counterparts",
-      "node_type_version": "5.0.0",
       "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-shorter-8",
       "node_type_id": "structure_comparison.tm_score_counterparts",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-shorter-8",
       "node_type_id": "structure_comparison.rmsd_counterparts",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "evaluate-shorter-8",
       "node_type_id": "structure_comparison.evaluate_inserted_loop",
-      "node_type_version": "3.0.0",
       "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {
         "resolved_core_residue_ids": [
           "A:6",
@@ -526,9 +486,7 @@
     {
       "node_id": "insert-numbering-implied-12",
       "node_type_id": "prompt_authoring.insert_masked_residues",
-      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.insert_masked_residues.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {
         "insertions": [
           {
@@ -556,9 +514,7 @@
     {
       "node_id": "generate-numbering-implied-12",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "8.0.0",
       "binding_id": "esm3.generate_paired.biohub_medium",
-      "binding_version": "8.0.0",
       "node_parameters": {
         "effective_seed": 5353012,
         "num_samples": 2,
@@ -574,18 +530,14 @@
     {
       "node_id": "materialize-generation-confidence-numbering-implied-12",
       "node_type_id": "structure_prediction.materialize_confidence",
-      "node_type_version": "2.0.0",
       "binding_id": "structure_prediction.materialize_confidence.direct",
-      "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "fold-numbering-implied-12",
       "node_type_id": "folding.fold",
-      "node_type_version": "8.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "9.0.0",
       "node_parameters": {
         "effective_seed": 5353999,
         "num_samples": 1
@@ -595,99 +547,77 @@
     {
       "node_id": "materialize-confidence-numbering-implied-12",
       "node_type_id": "structure_prediction.materialize_confidence",
-      "node_type_version": "2.0.0",
       "binding_id": "structure_prediction.materialize_confidence.direct",
-      "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "resolve-folds-numbering-implied-12",
       "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "resolve-counterparts-numbering-implied-12",
       "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-core-numbering-implied-12",
       "node_type_id": "structure_comparison.align_fixed_reference",
-      "node_type_version": "5.0.0",
       "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-numbering-implied-12",
       "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-numbering-implied-12",
       "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-numbering-implied-12",
       "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.rebind_candidate_pairing.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-numbering-implied-12",
       "node_type_id": "structure_comparison.align_counterparts",
-      "node_type_version": "5.0.0",
       "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-numbering-implied-12",
       "node_type_id": "structure_comparison.tm_score_counterparts",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-numbering-implied-12",
       "node_type_id": "structure_comparison.rmsd_counterparts",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "evaluate-numbering-implied-12",
       "node_type_id": "structure_comparison.evaluate_inserted_loop",
-      "node_type_version": "3.0.0",
       "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {
         "resolved_core_residue_ids": [
           "A:6",
@@ -1004,9 +934,7 @@
     {
       "node_id": "insert-longer-16",
       "node_type_id": "prompt_authoring.insert_masked_residues",
-      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.insert_masked_residues.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {
         "insertions": [
           {
@@ -1038,9 +966,7 @@
     {
       "node_id": "generate-longer-16",
       "node_type_id": "esm3.generate_paired",
-      "node_type_version": "8.0.0",
       "binding_id": "esm3.generate_paired.biohub_medium",
-      "binding_version": "8.0.0",
       "node_parameters": {
         "effective_seed": 5353016,
         "num_samples": 2,
@@ -1056,18 +982,14 @@
     {
       "node_id": "materialize-generation-confidence-longer-16",
       "node_type_id": "structure_prediction.materialize_confidence",
-      "node_type_version": "2.0.0",
       "binding_id": "structure_prediction.materialize_confidence.direct",
-      "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "fold-longer-16",
       "node_type_id": "folding.fold",
-      "node_type_version": "8.0.0",
       "binding_id": "folding.fold.esmfold2_remote",
-      "binding_version": "9.0.0",
       "node_parameters": {
         "effective_seed": 5353999,
         "num_samples": 1
@@ -1077,99 +999,77 @@
     {
       "node_id": "materialize-confidence-longer-16",
       "node_type_id": "structure_prediction.materialize_confidence",
-      "node_type_version": "2.0.0",
       "binding_id": "structure_prediction.materialize_confidence.direct",
-      "binding_version": "2.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "resolve-folds-longer-16",
       "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "resolve-counterparts-longer-16",
       "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-core-longer-16",
       "node_type_id": "structure_comparison.align_fixed_reference",
-      "node_type_version": "5.0.0",
       "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-longer-16",
       "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-longer-16",
       "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-longer-16",
       "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.rebind_candidate_pairing.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-longer-16",
       "node_type_id": "structure_comparison.align_counterparts",
-      "node_type_version": "5.0.0",
       "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
-      "binding_version": "5.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-longer-16",
       "node_type_id": "structure_comparison.tm_score_counterparts",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-longer-16",
       "node_type_id": "structure_comparison.rmsd_counterparts",
-      "node_type_version": "6.0.0",
       "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "evaluate-longer-16",
       "node_type_id": "structure_comparison.evaluate_inserted_loop",
-      "node_type_version": "3.0.0",
       "binding_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {
         "resolved_core_residue_ids": [
           "A:6",
@@ -1490,72 +1390,56 @@
     {
       "node_id": "merge-sequences",
       "node_type_id": "collection_ops.concat_candidates",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.concat_candidates.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-counterparts",
       "node_type_id": "collection_ops.concat_candidates",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.concat_candidates.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-reconstructions",
       "node_type_id": "collection_ops.concat_candidates",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.concat_candidates.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-folds",
       "node_type_id": "collection_ops.concat_candidates",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.concat_candidates.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-passing",
       "node_type_id": "collection_ops.concat_candidates",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.concat_candidates.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-counterpart-pairings",
       "node_type_id": "collection_ops.concat_pairings",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.concat_pairings.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-fold-counterpart-pairings",
       "node_type_id": "collection_ops.concat_pairings",
-      "node_type_version": "4.0.0",
       "binding_id": "collection_ops.concat_pairings.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "export-folds",
       "node_type_id": "protein_io.export_structure",
-      "node_type_version": "6.0.0",
       "binding_id": "protein_io.export_structure.direct",
-      "binding_version": "6.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     }
@@ -2589,475 +2473,5 @@
     }
   ],
   "observation_selectors": [],
-  "selection_objectives": [],
-  "contract_lock": [
-    {
-      "contract_kind": "binding",
-      "contract_id": "collection_ops.concat_candidates.direct",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:e6bf03506a294c252b838410b90c83d691343f70670ef18247711f2a2b1d5aa8"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "collection_ops.concat_pairings.direct",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:fe42c565643add978789aaf57e02b1ffd5c86f95b5c3d96f5ecd5d4835e6e7e6"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "collection_ops.rebind_candidate_pairing.direct",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:1b9b4b95c3f71d78fda91178beef239e84a819e96d8e1af1bc2dce2b99cef3df"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "esm3.generate_paired.biohub_medium",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:bdaa5c1e89c2e8c182b11711675e892c3517215e08f837219a95a6752782aa2c"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "folding.fold.esmfold2_remote",
-      "contract_version": "9.0.0",
-      "contract_digest": "sha256:e4f9ff45d55ec7dad0d25317b8c7162b850374dafb56e1f43945f781ed2e363f"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "prompt_authoring.insert_masked_residues.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c7651ba937cf210643866f0f02bded19264716c69207304b9180962b1f5c46ed"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "prompt_authoring.prompt_from_structure.direct",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:534198fced3f083d5f7b2f2bbf44ce1867b49498ae0687eff308fc18096bada5"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "protein_io.export_structure.direct",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:476ebd35574084c41c24d0be7984aee1b75e43de753af13423cad4ca17938dd6"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "protein_io.import_structure.direct",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:3925dde9b3b35ca57eb39fc79f8342cb9aac186b68311337bdb0448176e4db62"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_comparison.align_counterparts.sequence_primary_affine",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:6f0978e894032a6eb22b5dfe106ab1355c5fff96547b89c2696c423ce1a34361"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:882b85eb397ed0b719dab6dea38d18f5ececc6b59988d1c104ada4ca75f9e1ac"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_comparison.evaluate_inserted_loop.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:d62afea30cd086f07b7874259a3629fafadcc6a2596954254d92f8aff97d3410"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:7896d7d6d897dabe4a2d52ae2a14da0dfefa5755ecacde0fa712dc4a078206ab"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:1264fb52bb309a7026f95b9be8ebe1ce3a6e1e99fd72d6df518bb2d377bc023e"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:1bfff6ab5719c19797aeb8dcf6a482df2fdca485eaf26c3b76ecebc2a988e1a5"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:4fe9c062ee710a52c584fc3c5d2d52bdb4158cc0d08ad01fd4c387a923ec662f"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_prediction.materialize_confidence.direct",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:d16942eba850745e40a12a1e06a85277a134208871c788110332fec4b4ab01a7"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_transform.project_single_residue_axis.direct",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:7ecb45281738e8972ac21dae9503d920b64821276b70105345be16ca2f034a9a"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:ca24cce70f54a61120069a6c45d8d338043556e398907b50e27fc017a66ccbe8"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "structure_transform.select_candidate_chains.direct",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:2f5aa4e3e23564160d6d00f745635f58ade62d76d3574be73dcdb503e19640a6"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "collection_ops.concat_candidates.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:476bdbaef3b6676e108cf4d56d566430b53e72a965234075451bb118be13ff02"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "collection_ops.concat_pairings.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:3c55f4f10eed2380496ddd11e30d1d1cdda2a1d3830c86276c475b6f0144518a"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "collection_ops.rebind_candidate_pairing.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6f8c1a32e81187a95a83e388cfe1c3b227680d3e7665a7f681162365dd3c3fb7"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "esm3.generate_paired.esm3_medium_2024_08",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:8fee8cf6dbaa98ccdf39ba1f2e2a7e8be1fa270856c043e19dbc9f5bf9a30607"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "folding.fold.esmfold2_fast_biohub_2026_05",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "prompt_authoring.insert_masked_residues.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:32ea05f518633fe2a1969c65eb9437372a6a19bff0825abc71084e42d88bf122"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "prompt_authoring.prompt_from_structure.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:819b14e1305fc52ed0e960dc23c34f14395ca3f63a7f542fb31ee505c1215fb1"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "protein_io.export_structure.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:22e482b413d06a2e1ac6c6ea1c4f42a4b8a564501b4b612c49e5e71b1549e950"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "protein_io.import_structure.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6c237f98e33b331a781ef348ac26d6955e12f9985d0b798805181bfdfd7f8b52"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_comparison.inserted_loop.exact_evidence_gate",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:a1342419b6660e337e02a735730998e5cea91b7224b3ffd376033c7378ec1f67"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_comparison.rmsd.from_alignment_evidence.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:c7679e82c5e3bb62fd113f5ddb288b328083edc18a386a5597d2b929a9b6e439"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_comparison.sequence_primary_affine_svd.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:863f98c327e008e9e5da820470a7c5a6ef72c5911e699cd06487f797e731bb53"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_comparison.tm_score.reference_axis_normalized.method",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:9d08538c9a8c5c55b0a9669f16082062464b401c4113db6d431a888b6d84eb24"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_prediction.materialize_confidence.exact_reference_join",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:ee5d690a05876da11d5eb83ba1674ab4bbe3bf1b195a0ec94a4e27d0e96fecac"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_transform.project_single_residue_axis.method",
-      "contract_version": "1.0.0",
-      "contract_digest": "sha256:3f29c6089d593012460a4d6a13c2854a2f35bb1f44149401b4e4877f007e8e17"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_transform.resolve_candidate_residue_axes.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:f898caefe627a24386bc573606c0a5cae766a30b11f6f78aa64e60cedb78ceff"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "structure_transform.select_candidate_chains.method",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:34682ee5c5dc30fd418526384fae8d308b89b3932d66a9fc557bf8f1ed290a4c"
-    },
-    {
-      "contract_kind": "metric",
-      "contract_id": "structure.pae",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:8b56f157ce05a2add518b1ab3d7f1860c4b861b98b36cac55db1ba215ff6b36c"
-    },
-    {
-      "contract_kind": "metric",
-      "contract_id": "structure.plddt.mean_residue",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:f51b9e5fbba31a1a9dbe6c5d724d9f500d1e2ce5d0889d812c82fe73b147399f"
-    },
-    {
-      "contract_kind": "metric",
-      "contract_id": "structure.plddt.per_residue",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:25f6cf829620778f7ac889cea552b64132b3123acaece94df03e0be9a679391c"
-    },
-    {
-      "contract_kind": "metric",
-      "contract_id": "structure.ptm",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:f58dc87c4199d10aaaa5c4babeba12147e51628475c0738290d63ee530a5f506"
-    },
-    {
-      "contract_kind": "metric",
-      "contract_id": "structure_comparison.rmsd",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:dcb428d5d2e9e9d91511004c539d281dd136a964edb7cc7c2a5d9dbda86d5f44"
-    },
-    {
-      "contract_kind": "metric",
-      "contract_id": "structure_comparison.tm_score",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6bbd756040cb0856c6a89d0953826a2cd09002766a5e8257ea24e0e8636b3cb8"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "collection_ops.concat_candidates",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:0a31b697e5e341b97f5c8ff3e0e2b52b83f7a5064f1ef0894c0cc43f25e46d11"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "collection_ops.concat_pairings",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:b647cc9c08678ba4128ddfdb7c676c4037d97de176a2808a49a105d4fc70f6c3"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "collection_ops.rebind_candidate_pairing",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:521a7c73d3aa62cb38ffe170fb2753672e55a46170c1df614bae3e0f2263bda0"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "esm3.generate_paired",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:c7c8248583423bee972dbc5c903ea873c51777cae6db5b762e673bfd3531ebbb"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "folding.fold",
-      "contract_version": "8.0.0",
-      "contract_digest": "sha256:f71d468bc68994fbd350f72bd11815257e5ce12df0de7ba9ac69faecd5564ae6"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "prompt_authoring.insert_masked_residues",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c50f91aeb56bdb7810897bbec5df0a1a1c8e2175d57f9d4d724a317389e4e109"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "prompt_authoring.prompt_from_structure",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:2cb1ff0946f4cf022e038e8230feed82198d78dbc706d35894c808f653ec67b5"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "protein_io.export_structure",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:1e27d0feb38c2fe815bbe32c182b345922943630f88291ee3df4aec1036f4b7f"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "protein_io.import_structure",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:960f0352ed7d3ee978f747a8972ee5fbb4ef8f3e101d0a6010953f791544c28e"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_comparison.align_counterparts",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:c7e95d6695fd0eebdf35b4645f92dec1ee38b92b48f7972d6d8a7b56324bca29"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_comparison.align_fixed_reference",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:1714e666a5f8f469df00c981ea786a1eac17e0fc0a1bd9b7d876493439e3a3b2"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_comparison.evaluate_inserted_loop",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:983bddc69f23c46cd2e30dccfb71624bdb238144f2b30d1bf2f2ac6fc9f8feaf"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_comparison.rmsd_counterparts",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:d51d999df282b61bfc824e63001ea03e916d4d98327ab766edba1d8309bfcd5e"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_comparison.rmsd_fixed_reference",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:eaf29d65be761b6848ecafc11eb936b844e7204301756276941df1a4c5cb39d5"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_comparison.tm_score_counterparts",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:e7badb546a460cebb494b1b428d89eb21761021520fe031e8d094e5c67323c9d"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_comparison.tm_score_fixed_reference",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:5842dfa976e003cb0f5fce0125cd5976d5fce8597c42e09db04140e2ee4940aa"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_prediction.materialize_confidence",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:c66270cd703812867eb96bdb63da6987125e0099c9acce2c6f8ac83cf7b24206"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_transform.project_single_residue_axis",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:8eaf3ee388734092197449c6f59d90b7da49e249054ea373610177db422aa846"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_transform.resolve_candidate_residue_axes",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:adf12cce27a41e17871a54e27ce9de4d93ee0537cbc4e9c1bf229dbf12277d93"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "structure_transform.select_candidate_chains",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:7d37b9f17e7004f58c6ccb74b1ae0f99c403903e712861d8a9c2fc404771215c"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "candidate.collection",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:6319f8276636afb85ef8986f12b60645ca38ff5d1fec72e037345832b62bfc1d"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "candidate.pairing",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:f70a7ebcfb4a57c29148461d2aa84538cd677b5d1cc79b791054187a491bb12a"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "protein.prompt",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc72ef7b44"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "protein.structure",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:329ebc4c4f2c3323afa7577999882ef51a7588e5803be4d2b0da5d6e07fe8e0b"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "protein_io.artifact_payload",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:6f24a7784a0ca0ee6a58e72c1ffadfa02e7ac7cde4abf87d08c3bb75a2f5b4a1"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "residue.layout",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c0b66618ee52d36bda8f857cb422f195152ecfebfc4ed48a45e3924edacb08fd"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "residue.map",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:49fb91759842c064b47b337dc1c6568b1e3035b6965286dcd29a95bcf6525b52"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "score.collection",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:0c8447a1a7d95e6bc56f2582eb961551fbb8413c9076a2bb0fb639be23d9a03d"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_comparison.alignment_evidence",
-      "contract_version": "5.0.0",
-      "contract_digest": "sha256:f3f237c73b7404ded506b6dae46581f850fa0f642ed0a9d78a7cce80544699f0"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_comparison.inserted_loop_evaluation",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:5d246693bf665b441eceb3703fa2dfe0d27b95b3a3e0031e9130a437112f146c"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_prediction.confidence_facts",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:8fc9d067c367cbd5a333049080d92e8ee31939db24ca0b9e39d67581c5771f43"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_prediction.prediction_residue_axis",
-      "contract_version": "2.0.0",
-      "contract_digest": "sha256:83586d14617bf4b9c05952a542a7f681a2d2533f011ce5ea33dab79deb7394c6"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_transform.candidate_modified_residue_normalization_associations",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:7963934f809a39e9a8092728aeb875227a73377e6356c84b8962e9d5928f9c61"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_transform.candidate_resolved_residue_axis_associations",
-      "contract_version": "6.0.0",
-      "contract_digest": "sha256:8a881d8d2907dd0663ba0410c54651766f12443745154dfe977b538bae689366"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_transform.resolved_residue_axis",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:0a91e67ef2c9bebfa9793dd10358a4bbe3ad187f9987159cd0f9a767233fc890"
-    }
-  ]
+  "selection_objectives": []
 }

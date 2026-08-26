@@ -407,8 +407,6 @@ def alignment_evidence_to_wire(value: StructureAlignmentEvidence) -> object:
         "method": {
             "contract_kind": value.method.contract_kind,
             "contract_id": value.method.contract_id,
-            "contract_version": value.method.contract_version,
-            "contract_digest": value.method.contract_digest,
         },
     }
 
@@ -493,10 +491,8 @@ def _candidate_data_references(
 
 ALIGNMENT_EVIDENCE_PORT_TYPE = PortTypeDefinition(
     type_id="structure_comparison.alignment_evidence",
-    version=EVIDENCE_VERSION,
     validator=BehaviorReference(
         "structure_comparison.alignment_evidence/validate",
-        EVIDENCE_VERSION,
         {
             "nominal_type": "StructureAlignmentEvidence",
             "candidate_association": "exact-CandidateDataReference",
@@ -508,15 +504,14 @@ ALIGNMENT_EVIDENCE_PORT_TYPE = PortTypeDefinition(
             ],
             "segment_paired_residue_count_minimum": 0,
             "global_aligned_atom_count_minimum": 1,
-            "accepted_method_digests": [
-                reference.contract_digest
+            "accepted_methods": [
+                reference.contract_id
                 for reference in _METHOD_BY_POLICY.values()
             ],
         },
     ),
     codec=BehaviorReference(
         "structure_comparison.alignment_evidence/codec",
-        EVIDENCE_VERSION,
         {
             "canonicalization": "RFC 8785",
             "schema_version": EVIDENCE_VERSION,
@@ -524,7 +519,6 @@ ALIGNMENT_EVIDENCE_PORT_TYPE = PortTypeDefinition(
     ),
     content_identity=BehaviorReference(
         "structure_comparison.alignment_evidence/content",
-        EVIDENCE_VERSION,
         {"digest": "SHA-256"},
     ),
     runtime_validator=validate_alignment_evidence,
@@ -532,7 +526,6 @@ ALIGNMENT_EVIDENCE_PORT_TYPE = PortTypeDefinition(
     runtime_from_wire=alignment_evidence_from_wire,
     candidate_data_projection=BehaviorReference(
         "structure_comparison.alignment_evidence/candidate_data_projection",
-        EVIDENCE_VERSION,
         {"fields": ["subject", "reference"]},
     ),
     runtime_candidate_data_projection=_candidate_data_references,

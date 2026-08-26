@@ -487,14 +487,7 @@ class ExecutionProfile:
 
     def public_definition(self) -> dict[str, Any]:
         """Describe the bound profile without persisting private paths."""
-        private_document = {
-            "schema_namespace": PROFILE_SCHEMA_NAMESPACE,
-            "provider_configuration": dict(self.provider_configuration),
-            "remote_transport": {"proxy_policy": self.proxy_policy},
-        }
         return {
-            "content_digest": "sha256:"
-            + hashlib.sha256(_canonical_bytes(private_document)).hexdigest(),
             "provider_configuration_names": sorted(
                 self.provider_configuration
             ),
@@ -507,7 +500,6 @@ class TierExecutionOutcome:
     """Structured child handoff admitted once by the Campaign."""
 
     tier: str
-    source_revision: str
     retained_location: str
     conclusion: Literal["passed", "failed", "interrupted"]
     tests: int
@@ -535,7 +527,6 @@ class TierExecutionOutcome:
             type(value) is str and value
             for value in (
                 self.tier,
-                self.source_revision,
                 self.retained_location,
             )
         ):
@@ -565,7 +556,6 @@ class TierExecutionOutcome:
         return {
             "schema_namespace": TIER_EXECUTION_OUTCOME_SCHEMA_NAMESPACE,
             "tier": self.tier,
-            "source_revision": self.source_revision,
             "retained_location": self.retained_location,
             "conclusion": self.conclusion,
             "tests": self.tests,
@@ -584,7 +574,6 @@ class TierExecutionOutcome:
         if not isinstance(document, dict) or set(document) != {
             "schema_namespace",
             "tier",
-            "source_revision",
             "retained_location",
             "conclusion",
             "tests",
@@ -609,7 +598,6 @@ class TierExecutionOutcome:
             raise RuntimeError("tier execution outcome container shape is invalid")
         return cls(
             tier=document["tier"],
-            source_revision=document["source_revision"],
             retained_location=document["retained_location"],
             conclusion=document["conclusion"],
             tests=document["tests"],
@@ -683,26 +671,6 @@ def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
     path.write_bytes(_canonical_bytes(manifest))
 
 
-def _git_authority() -> tuple[str, bool]:
-    revision = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=PROJECT_ROOT,
-        check=True,
-        text=True,
-        capture_output=True,
-    ).stdout.strip()
-    dirty = bool(
-        subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=PROJECT_ROOT,
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout
-    )
-    return revision, dirty
-
-
 def _validate_source_bound_assets() -> None:
     for tier in CANONICAL_ACCEPTANCE_TIERS:
         source_bound = tier.source_bound
@@ -733,7 +701,6 @@ def _candidate_definition(
     return {
         kind: {
             "path": (Path("artifacts") / artifact.name).as_posix(),
-            "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
         }
         for kind, artifact in (("wheel", wheels[0]), ("sdist", sdists[0]))
     }
@@ -743,10 +710,7 @@ def prepare_campaign(
     root: Path,
     profile: ExecutionProfile,
 ) -> dict[str, Any]:
-    """Build and bind the candidate for one clean Acceptance Campaign."""
-    revision, dirty = _git_authority()
-    if dirty:
-        raise RuntimeError("acceptance campaign requires a clean source revision")
+    """Build and bind the candidate for one Acceptance Campaign."""
     if root.exists():
         raise RuntimeError("acceptance campaign root already exists")
     _validate_source_bound_assets()
@@ -765,7 +729,6 @@ def prepare_campaign(
     )
     manifest = {
         "schema_namespace": CAMPAIGN_SCHEMA_NAMESPACE,
-        "source_revision": revision,
         "candidate": _candidate_definition(artifact_root),
         "definition": acceptance_definition(),
         "execution_profile": profile.public_definition(),
@@ -804,7 +767,6 @@ def _load_campaign(root: Path) -> dict[str, Any]:
     document = json.loads((root / "campaign.json").read_bytes())
     if not isinstance(document, dict) or set(document) != {
         "schema_namespace",
-        "source_revision",
         "candidate",
         "definition",
         "execution_profile",
@@ -820,9 +782,8 @@ def _load_campaign(root: Path) -> dict[str, Any]:
         or set(candidate) != {"wheel", "sdist"}
         or not all(
             isinstance(entry, dict)
-            and set(entry) == {"path", "sha256"}
+            and set(entry) == {"path"}
             and isinstance(entry["path"], str)
-            and isinstance(entry["sha256"], str)
             for entry in candidate.values()
         )
     ):
@@ -870,13 +831,12 @@ def _run_tier(
 def _admit_tier_outcome(
     root: Path,
     tier: AcceptanceTier,
-    source_revision: str,
     outcome: TierExecutionOutcome,
     *,
     started_at: str,
     ended_at: str,
 ) -> dict[str, Any]:
-    if outcome.tier != tier.name or outcome.source_revision != source_revision:
+    if outcome.tier != tier.name:
         raise _TierOutcomeAdmissionError(
             "tier execution outcome identity does not match the Campaign"
         )
@@ -973,7 +933,6 @@ def _admit_tier_outcome(
     acceptance_result = (
         {
             "tier": tier.name,
-            "source_revision": source_revision,
             "retained_location": retained_location,
             "required_run_labels": list(tier.required_run_labels),
             "lifecycle_receipt": (
@@ -1042,18 +1001,6 @@ def run_campaign(
         for kind, entry in manifest["candidate"].items()
     ):
         raise RuntimeError("acceptance campaign candidate is missing")
-    if any(
-        hashlib.sha256(candidate_paths[kind].read_bytes()).hexdigest()
-        != entry["sha256"]
-        for kind, entry in manifest["candidate"].items()
-    ):
-        raise RuntimeError("acceptance campaign candidate changed after prepare")
-    revision, dirty = _git_authority()
-    if dirty or revision != manifest["source_revision"]:
-        raise RuntimeError(
-            "acceptance campaign candidate revision changed after prepare"
-        )
-
     manifest["state"] = "running"
     _write_manifest(root / "campaign.json", manifest)
     try:
@@ -1068,7 +1015,6 @@ def run_campaign(
                 execution = _admit_tier_outcome(
                     root,
                     tier,
-                    manifest["source_revision"],
                     outcome,
                     started_at=started_at,
                     ended_at=_now(),
@@ -1114,7 +1060,6 @@ def campaign_status(root: Path) -> dict[str, Any]:
     }
     return {
         "state": manifest["state"],
-        "source_revision": manifest["source_revision"],
         "passed_tiers": sum(
             execution["acceptance_result"] is not None
             for execution in manifest["executions"]

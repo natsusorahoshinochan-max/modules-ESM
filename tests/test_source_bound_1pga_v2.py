@@ -17,7 +17,6 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
-from core.local_torch_device import expected_local_torch_device
 import torch
 
 from core.catalog.builder import (
@@ -34,7 +33,6 @@ from core.operation import (
 from core.workflow.compiler import (
     CompilationRequest,
     compile,
-    lock_workflow,
 )
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from tests.support.application import create_application
@@ -177,14 +175,11 @@ def _provider_free_simplefold_environment(
     for source in closure.sources:
         if source.environment_key is None:
             continue
-        for relative in source.reviewed_files:
+        for relative in ("esm/__init__.py", "esm/pretrained.py"):
             path = configured_roots[source.environment_key] / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(f"provider-free-{relative}".encode())
-    return {
-        **configured_roots,
-        "device": expected_local_torch_device(),
-    }
+    return configured_roots
 
 
 class _ControlledESMFold2:
@@ -257,9 +252,7 @@ def _decoded_outputs(
         and item["output_port"] == output_port
     )
     codec = catalog.require_port_type(
-        output["port_type"]["contract_id"],
-        output["port_type"]["contract_version"],
-    )
+        output["port_type"]["contract_id"])
     return tuple(
         codec.decode(
             retrieve_typed_output_canonical_bytes(
@@ -292,26 +285,16 @@ def _decoded_output(
     return values[0]
 
 
-def test_source_bound_1pga_is_exact_locked_and_compilable() -> None:
+def test_source_bound_1pga_is_compilable() -> None:
     assert hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest() == INPUT_SHA256
     catalog = build_frozen_catalog(module_registrations())
     workflow = decode_workflow_document(_workflow_payload())
 
     assert workflow.workflow_id == "source-bound-1pga"
     assert workflow.schema_version == "2.1.0"
-    assert workflow.contract_lock
-    assert lock_workflow(
-        replace(workflow, contract_lock=()),
-        catalog,
-    ) == workflow
-    compiled = compile(
-                   CompilationRequest(
-                       workflow,
-                       1,
-                   ),
-                   catalog,
-               )
-    assert compiled.resolved_contracts == workflow.contract_lock
+    assert replace(workflow) == workflow
+    compiled = compile(CompilationRequest(workflow), catalog)
+    assert compiled.workflow_id == workflow.workflow_id
 
     nodes = {node.node_id: node for node in workflow.nodes}
     assert nodes["import-input"].node_parameters == {
@@ -352,19 +335,14 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         lambda _environment: esmfold2,
     )
     environment = {
-        ("folding.fold.esmfold2_remote", "9.0.0"): {
-            "values": {
-                "endpoint_id": "provider-free",
+        "folding.fold.esmfold2_remote": {
                 "credential_handle": "provider-free-folding-credential",
             },
-        },
-        ("folding.fold.simplefold_local", "11.0.0"): {
-            "values": _provider_free_simplefold_environment(
+        "folding.fold.simplefold_local": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,
                 simplefold,
             ),
-        },
     }
     catalog = _provider_free_catalog()
     app = create_application(
@@ -375,7 +353,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     with TestClient(app) as client:
         snapshot = client.get("/api/v2/catalog")
         assert snapshot.status_code == 200
-        assert snapshot.json()["catalog_contract_digest"] == catalog.contract_digest
+        assert snapshot.json()["contracts"]
         project = client.post(
             "/api/v2/projects",
             json={"name": "source-bound 1PGA provider-free acceptance"},
@@ -394,7 +372,6 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
 
         workflow = _workflow_payload()
         workflow["workflow_id"] = project_id
-        workflow["contract_lock"] = []
         import_node = next(
             node
             for node in workflow["nodes"]
@@ -632,14 +609,12 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
             for edge in consistency.edges
         )
         alignment_codec = catalog.require_port_type(
-            "structure_comparison.alignment_evidence",
-            "5.0.0",
-        )
+            "structure_comparison.alignment_evidence")
         assert [
             edge.alignment_evidence_content_digest
             for edge in consistency.edges
         ] == [alignment_codec.content_digest(item) for item in alignments]
-        score_codec = catalog.require_port_type("score.collection", "5.0.0")
+        score_codec = catalog.require_port_type("score.collection")
         tm_scores = tuple(
             _decoded_output(client, catalog, projection, node_id, "scores")
             for node_id in (
@@ -766,19 +741,14 @@ def test_source_bound_1pga_public_classification_contract(
         lambda _environment: esmfold2,
     )
     environment = {
-        ("folding.fold.esmfold2_remote", "9.0.0"): {
-            "values": {
-                "endpoint_id": "provider-free",
+        "folding.fold.esmfold2_remote": {
                 "credential_handle": "provider-free-folding-credential",
             },
-        },
-        ("folding.fold.simplefold_local", "11.0.0"): {
-            "values": _provider_free_simplefold_environment(
+        "folding.fold.simplefold_local": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,
                 simplefold,
             ),
-        },
     }
     catalog = _provider_free_catalog()
     with TestClient(
@@ -802,7 +772,6 @@ def test_source_bound_1pga_public_classification_contract(
         ).json()
         workflow = _workflow_payload()
         workflow["workflow_id"] = project_id
-        workflow["contract_lock"] = []
         next(
             node
             for node in workflow["nodes"]

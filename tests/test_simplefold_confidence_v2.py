@@ -6,14 +6,12 @@ from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
 
-import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 import pytest
-from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
 from tests.support.local_torch_device import provider_free_cpu_device_policy
 
 pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
@@ -54,7 +52,6 @@ from tests.fixtures.scientific_operation import (
 )
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
-    install_fixture_source_runtime_group,
 )
 
 
@@ -155,19 +152,13 @@ def _confidence_environment(
     client: Any,
     asset_prefix: str = "fixture",
 ) -> dict[str, Any]:
-    from core.local_torch_device import expected_local_torch_device
     import modules.folding.simplefold_confidence_adapter as adapter
-    import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_contract as contract
 
     def fixture_native_confidence(**kwargs: Any) -> Any:
         return client.evaluate(
             residue_axis=kwargs["residue_axis"],
             staging_directory=kwargs["staging_directory"],
-            resolved_provider_identity=(
-                adapter.simplefold_contract
-                .SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.provider_identity()
-            ),
             device=kwargs["device"],
         )
 
@@ -176,14 +167,14 @@ def _confidence_environment(
         "_native_existing_structure_confidence",
         fixture_native_confidence,
     )
-    install_fixture_source_runtime_group(monkeypatch, adapter)
-
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
     esm2_source_root = tmp_path / "esm2-source"
     model_root.mkdir(parents=True)
     esm2_model_root.mkdir()
-    esm2_source_root.mkdir()
+    (esm2_source_root / "esm").mkdir(parents=True)
+    (esm2_source_root / "esm" / "__init__.py").write_bytes(b"fixture")
+    (esm2_source_root / "esm" / "pretrained.py").write_bytes(b"fixture")
     model_payloads = {
         entry.runtime_filename: (
             f"{asset_prefix}-{entry.runtime_filename}".encode()
@@ -202,29 +193,18 @@ def _confidence_environment(
         (model_root / name).write_bytes(payload)
     for name, payload in esm2_payloads.items():
         (esm2_model_root / name).write_bytes(payload)
-    fixture_digests = {
-        name: hashlib.sha256(payload).hexdigest()
-        for name, payload in (*model_payloads.items(), *esm2_payloads.items())
-    }
     fixture_closure = build_fixture_simplefold_closure(
         contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
-        fixture_digests,
     )
     monkeypatch.setattr(
         contract,
         "SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE",
         fixture_closure,
     )
-    monkeypatch.setattr(
-        asset_closure,
-        "validate_installed_provider_checkout",
-        lambda *_args, **_kwargs: None,
-    )
     return {
         "model_root": model_root,
         "esm2_model_root": esm2_model_root,
         "esm2_source_root": esm2_source_root,
-        "device": expected_local_torch_device(),
     }
 
 
@@ -263,9 +243,7 @@ def _run_confidence(
     source = WorkflowNodeInstance(
         node_id="source",
         node_type_id="contract_test.folding_structure_source",
-        node_type_version="4.0.0",
         binding_id="contract_test.folding_structure_source.direct",
-        binding_version="4.0.0",
         node_parameters={
             "pdb_string": _two_residue_pdb() if pdb_string is None else pdb_string
         },
@@ -274,18 +252,14 @@ def _run_confidence(
     confidence = WorkflowNodeInstance(
         node_id="confidence",
         node_type_id="folding.simplefold_confidence",
-        node_type_version="5.0.0",
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="7.0.0",
         node_parameters={},
         binding_parameters={},
     )
     axis = WorkflowNodeInstance(
         node_id="axis",
         node_type_id="structure_transform.resolve_candidate_residue_axes",
-        node_type_version="6.0.0",
         binding_id="structure_transform.resolve_candidate_residue_axes.direct",
-        binding_version="6.0.0",
         node_parameters={},
         binding_parameters={},
     )
@@ -334,7 +308,6 @@ def _run_confidence(
                 "structure_residue_axes",
             ),
         ),
-        contract_lock=(),
     )
     committed = authoring.commit(
         project.id,
@@ -349,9 +322,7 @@ def _run_confidence(
     environment = admit_environment_configuration(
         catalog,
         {
-            ("folding.simplefold_confidence.simplefold_local", "7.0.0"): {
-                "values": environment_values,
-            }
+            "folding.simplefold_confidence.simplefold_local": environment_values
         },
     )
     service = V2RunService(
@@ -396,12 +367,10 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "7.0.0",
     )
     node = catalog.require_contract(
         "node_type",
         "folding.simplefold_confidence",
-        "5.0.0",
     )
     assert [item["name"] for item in node.descriptor["inputs"]] == [
         "structure_candidates",
@@ -411,28 +380,24 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
         item["name"]: item["port_type"]
         for item in node.descriptor["inputs"]
     }
-    assert inputs["structure_candidates"]["contract_version"] == "4.0.0"
+    assert inputs["structure_candidates"] == {
+        "contract_kind": "port_type",
+        "contract_id": "candidate.collection",
+    }
     assert inputs["structure_residue_axes"] == {
         "contract_kind": "port_type",
         "contract_id": (
             "structure_transform."
             "candidate_resolved_residue_axis_associations"
-        ),
-        "contract_version": "6.0.0",
-        "contract_digest": inputs["structure_residue_axes"][
-            "contract_digest"
-        ],
+        )}
+    assert node.descriptor["outputs"][0]["port_type"] == {
+        "contract_kind": "port_type",
+        "contract_id": "score.collection",
     }
-    assert node.descriptor["outputs"][0]["port_type"][
-        "contract_version"
-    ] == "5.0.0"
     assert binding.descriptor["node_type"]["contract_id"] != "folding.fold"
     assert binding.descriptor["binding_parameters"] == {}
     assert binding.descriptor["deterministic"] is True
     assert binding.descriptor["cacheable"] is True
-    assert binding.descriptor["implementation_identity"][
-        "device_policy"
-    ] == LOCAL_TORCH_DEVICE_POLICY
     assert {
         item["metric"]["contract_id"]
         for item in binding.descriptor["produced_observations"]
@@ -440,10 +405,6 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
         "structure.plddt.per_residue",
         "structure.plddt.mean_residue",
     }
-    assert {
-        item["metric"]["contract_version"]
-        for item in binding.descriptor["produced_observations"]
-    } == {"3.0.0"}
     assert {
         (
             item["output_port"],
@@ -466,25 +427,15 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
     }
 
     method_reference = binding.descriptor["method"]
-    assert method_reference["contract_version"] == "4.0.0"
     method = catalog.require_contract(
         method_reference["contract_kind"],
         method_reference["contract_id"],
-        method_reference["contract_version"],
     )
     assert method.descriptor["model_identity"] == {
         "confidence_latent_model": "simplefold_1.6B.ckpt",
         "confidence_output_head": "plddt_module_1.6B.ckpt",
         "language_model": "esm2_t36_3B_UR50D.pt",
     }
-    assert set(
-        method.descriptor["checkpoint_identity"][
-            "simplefold_artifact_sha256"
-        ]
-    ) == {"ccd.pkl", "plddt.ckpt", "simplefold_1.6B.ckpt"}
-    assert set(
-        method.descriptor["checkpoint_identity"]["esm2_artifact_sha256"]
-    ) == {"esm2_t36_3B_UR50D.pt"}
     descriptor = repr(method.descriptor)
     for forbidden in (
         "contact-regression",
@@ -497,7 +448,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
         "plddt": "direct_confidence_head_[0,1]_multiply_100"
     }
     assert method.descriptor["featurization_identity"]["axis_contract"] == (
-        "structure_transform.resolved_residue_axis@4.0.0"
+        "structure_transform.resolved_residue_axis"
     )
     assert method.descriptor["featurization_identity"]["raw_pdb_reparse"] == (
         "forbidden"
@@ -513,7 +464,7 @@ def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> 
         ("esm2_model_root", "esm2_t36_3B_UR50D.pt"),
     ),
 )
-def test_confidence_readiness_admits_only_the_exact_asset_closure(
+def test_confidence_readiness_requires_declared_route_files(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     root_name: str,
@@ -529,24 +480,7 @@ def test_confidence_readiness_admits_only_the_exact_asset_closure(
     assert adapter.simplefold_confidence_readiness(
         environment
     ) == ReadinessResult(True, proof_source="direct-observation")
-    identity = (
-        adapter.simplefold_contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE
-        .provider_identity()
-    )
-    assert set(identity["artifact_sha256"]) == {
-        "ccd.pkl",
-        "plddt.ckpt",
-        "simplefold_1.6B.ckpt",
-    }
-    assert set(identity["esm2_artifact_sha256"]) == {
-        "esm2_t36_3B_UR50D.pt"
-    }
-    closure = json.dumps(identity, sort_keys=True)
-    assert "contact-regression" not in closure
-    assert "boltz1_conf" not in closure
-    (environment[root_name] / asset_name).write_bytes(
-        b"replacement"
-    )
+    (environment[root_name] / asset_name).unlink()
     assert adapter.simplefold_confidence_readiness(
         environment
     ) == ReadinessResult(
@@ -634,15 +568,13 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
     binding = catalog.require_contract(
         "binding",
         "folding.simplefold_confidence.simplefold_local",
-        "7.0.0",
     )
     method_ref = binding.descriptor["method"]
     method = catalog.require_contract(
         "method",
         method_ref["contract_id"],
-        method_ref["contract_version"],
     )
-    assert started[0]["engine_identity"] == method.contract_digest
+    assert started[0]["engine_identity"] == method.contract_id
     public = json.dumps({"projection": projection, "events": events})
     for forbidden in (
         "contact-regression",
@@ -740,7 +672,6 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="7.0.0",
         environment={"native_tensor": object()},
     )
     adapter = Adapter()
@@ -754,7 +685,6 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
     residue_axis = resolve_residue_axis(structure)
     structure_port = catalog.require_port_type(
         "protein.structure",
-        "4.0.0",
     )
     subject = CandidateDataReference(
         candidate_id=parent.candidate_id,
@@ -773,7 +703,6 @@ def test_canonical_confidence_operation_consumes_normalized_adapter_dto() -> Non
     call = operation_call(
         catalog=catalog,
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="7.0.0",
         inputs={
             "structure_candidates": CandidateCollection(
                 "structures",
@@ -872,7 +801,6 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="7.0.0",
     )
     adapter = Adapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -884,7 +812,7 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
     two_structure = ProteinStructure(_two_residue_pdb())
     mse_candidate = Candidate("z-mse", mse_structure, [], {})
     two_candidate = Candidate("a-two", two_structure, [], {})
-    structure_port = catalog.require_port_type("protein.structure", "4.0.0")
+    structure_port = catalog.require_port_type("protein.structure")
     mse_subject = CandidateDataReference(
         mse_candidate.candidate_id,
         "protein.structure",
@@ -920,7 +848,6 @@ def test_confidence_joins_exact_axes_before_provider_in_candidate_order() -> Non
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="7.0.0",
             inputs={
                 "structure_candidates": CandidateCollection(
                     "structures",
@@ -984,7 +911,6 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="7.0.0",
     )
     adapter = BombAdapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -996,7 +922,7 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
     second_structure = ProteinStructure(_two_chain_pdb())
     first = Candidate("first", first_structure, [], {})
     second = Candidate("second", second_structure, [], {})
-    structure_port = catalog.require_port_type("protein.structure", "4.0.0")
+    structure_port = catalog.require_port_type("protein.structure")
     first_subject = CandidateDataReference(
         first.candidate_id,
         "protein.structure",
@@ -1013,7 +939,6 @@ def test_confidence_validates_complete_axis_join_before_provider() -> None:
     call = operation_call(
         catalog=catalog,
         binding_id="folding.simplefold_confidence.simplefold_local",
-        binding_version="7.0.0",
         inputs={
             "structure_candidates": CandidateCollection(
                 "structures",
@@ -1065,7 +990,6 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
         catalog,
         "folding.simplefold_confidence.simplefold_local",
         object(),
-        binding_version="7.0.0",
     )
     adapter = BombAdapter()
     operation = SimpleFoldConfidenceImplementation(
@@ -1077,7 +1001,7 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
     no_ca_structure = ProteinStructure(_two_residue_no_ca_pdb())
     valid = Candidate("valid", valid_structure, [], {})
     no_ca = Candidate("no-ca", no_ca_structure, [], {})
-    structure_port = catalog.require_port_type("protein.structure", "4.0.0")
+    structure_port = catalog.require_port_type("protein.structure")
     valid_subject = CandidateDataReference(
         valid.candidate_id,
         "protein.structure",
@@ -1108,7 +1032,6 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
                 binding_id=(
                     "folding.simplefold_confidence.simplefold_local"
                 ),
-                binding_version="7.0.0",
                 inputs={
                     "structure_candidates": CandidateCollection(
                         "structures",
@@ -1120,59 +1043,3 @@ def test_confidence_preflights_resolved_ca_eligibility_before_provider() -> None
             )
         )
     assert adapter.calls == 0
-
-
-def test_resolved_asset_digests_are_bound_to_result_contract_identity(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.folding.simplefold_confidence_adapter as adapter
-    from modules.folding.package import _simplefold_confidence_binding
-
-    class Client:
-        def evaluate(self, **_kwargs: Any) -> dict[str, Any]:
-            return {
-                "native_plddt": [0.71, 0.83],
-                "valid_protein_residues": [True, True],
-            }
-
-    baseline_identity = dict(
-        _simplefold_confidence_binding().implementation_identity
-    )
-    environment = _confidence_environment(
-        tmp_path / "environment",
-        monkeypatch,
-        client=Client(),
-    )
-    _catalog, _, projection, _ = _run_confidence(
-        tmp_path / "run",
-        monkeypatch,
-        client=Client(),
-        environment_values=environment,
-    )
-    result_identity = next(
-        output["result_identity"]
-        for output in projection["outputs"]
-        if output["node_id"] == "confidence"
-    )
-    assert result_identity.startswith("sha256:")
-    import modules.folding.simplefold_contract as contract
-
-    replacement = replace(
-        contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
-        files=tuple(
-            replace(entry, sha256="0" * 64)
-            if entry.runtime_filename == "ccd.pkl"
-            else entry
-            for entry in contract.SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.files
-        ),
-    )
-    monkeypatch.setattr(
-        contract,
-        "SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE",
-        replacement,
-    )
-    changed_identity = dict(
-        _simplefold_confidence_binding().implementation_identity
-    )
-    assert changed_identity != baseline_identity

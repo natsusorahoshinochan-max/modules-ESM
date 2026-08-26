@@ -181,10 +181,7 @@ def test_confidence_fact_collection_has_one_method_and_canonical_unique_keys() -
     second = replace(first, prediction_key="prediction-" + "2" * 64)
     method = ExactContractReference(
         contract_kind="method",
-        contract_id="folding.example.method",
-        contract_version="1.0.0",
-        contract_digest="sha256:" + "8" * 64,
-    )
+        contract_id="folding.example.method")
 
     collection = ConfidenceFactCollection(
         observation_method=method,
@@ -199,7 +196,7 @@ def test_confidence_fact_collection_has_one_method_and_canonical_unique_keys() -
         )
 
 
-def test_prediction_residue_axis_port_has_exact_round_trip_and_content_identity() -> None:
+def test_prediction_residue_axis_port_round_trips() -> None:
     axis = PredictionResidueAxis(
         source=CandidateDataReference(
             "sequence-1",
@@ -215,11 +212,7 @@ def test_prediction_residue_axis_port_has_exact_round_trip_and_content_identity(
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.type_id == (
         "structure_prediction.prediction_residue_axis"
     )
-    assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.version == "2.0.0"
     assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.decode(encoded) == axis
-    assert PREDICTION_RESIDUE_AXIS_PORT_TYPE.content_digest(axis) == (
-        "sha256:c3527349512f8aab0b5264dbc7ea452b3a487f259dc5294f9e5eebd163c72263"
-    )
 
 
 def test_prediction_residue_axis_allows_exact_prompt_port_source() -> None:
@@ -238,27 +231,17 @@ def test_prediction_residue_axis_allows_exact_prompt_port_source() -> None:
     ) == axis
 
 
-@pytest.mark.parametrize(
-    ("field_name", "wrong_value"),
-    (
-        ("contract_version", "999.0.0"),
-        ("contract_digest", "sha256:" + "f" * 64),
-    ),
-)
-def test_prediction_residue_axis_rejects_wrong_exact_port_identity(
-    field_name: str,
-    wrong_value: str,
-) -> None:
-    wrong_generation = ExactPortValueReference(
-        port_type=replace(
-            ExactContractReference(**PROTEIN_PROMPT_PORT_TYPE.reference()),
-            **{field_name: wrong_value},
+def test_prediction_residue_axis_rejects_wrong_source_port() -> None:
+    wrong_source = ExactPortValueReference(
+        port_type=ExactContractReference(
+            "port_type",
+            "candidate.collection",
         ),
         content_digest="sha256:" + "a" * 64,
     )
 
     axis = PredictionResidueAxis(
-        source=wrong_generation,
+        source=wrong_source,
         layout=ResidueLayout("A", 2, ("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
@@ -287,10 +270,7 @@ def test_confidence_facts_port_round_trips_and_projects_unique_axis_and_method()
     )
     method = ExactContractReference(
         "method",
-        "folding.example.method",
-        "1.0.0",
-        "sha256:" + "8" * 64,
-    )
+        "folding.example.method")
     facts = ConfidenceFactCollection(
         observation_method=method,
         entries=(
@@ -320,7 +300,6 @@ def test_confidence_facts_port_round_trips_and_projects_unique_axis_and_method()
 
 def _produced_observation(
     metric_id: str,
-    version: str,
     *,
     has_axis: bool,
     multiplicity: str = "one",
@@ -330,10 +309,7 @@ def _produced_observation(
         output_partition="prediction_confidence",
         metric=ExactContractReference(
             "metric",
-            metric_id,
-            version,
-            "sha256:" + metric_id.encode().hex()[:1].ljust(64, "0"),
-        ),
+            metric_id),
         context_profile=IntrinsicContextProfile(),
         subject_grain="candidate",
         source_role="subject",
@@ -367,14 +343,9 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
     )
     embedded_method = ExactContractReference(
         "method",
-        "folding.example.method",
-        "1.0.0",
-        "sha256:" + "8" * 64,
-    )
+        "folding.example.method")
     trusted_method = replace(
-        embedded_method,
-        contract_digest="sha256:" + "9" * 64,
-    )
+        embedded_method)
     facts = ConfidenceFactCollection(
         observation_method=embedded_method,
         entries=(
@@ -392,9 +363,7 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         _prediction_axis_reference(axis),
         axis_content_digest=trusted_axis_digest,
         axis_contract=replace(
-            _prediction_axis_reference(axis).axis_contract,
-            contract_digest="sha256:" + "a" * 64,
-        ),
+            _prediction_axis_reference(axis).axis_contract),
     )
     subject = CandidateDataReference(
         "structure-1",
@@ -420,23 +389,19 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
         produced_observations=(
             _produced_observation(
                 "structure.plddt.per_residue",
-                "3.0.0",
                 has_axis=True,
             ),
             _produced_observation(
                 "structure.plddt.mean_residue",
-                "3.0.0",
                 has_axis=True,
             ),
             _produced_observation(
                 "structure.ptm",
-                "2.1.0",
                 has_axis=False,
                 multiplicity="zero_or_more",
             ),
             _produced_observation(
                 "structure.pae",
-                "3.0.0",
                 has_axis=True,
                 multiplicity="zero_or_more",
             ),
@@ -529,10 +494,7 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
     supplied_key = derived_key if key_override is None else key_override
     method = ExactContractReference(
         "method",
-        "folding.example.method",
-        "1.0.0",
-        "sha256:" + "8" * 64,
-    )
+        "folding.example.method")
     facts = ConfidenceFactCollection(
         observation_method=method,
         entries=(
@@ -555,23 +517,19 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
         produced_observations=(
             _produced_observation(
                 "structure.plddt.per_residue",
-                "3.0.0",
                 has_axis=True,
             ),
             _produced_observation(
                 "structure.plddt.mean_residue",
-                "3.0.0",
                 has_axis=True,
             ),
             _produced_observation(
                 "structure.ptm",
-                "2.1.0",
                 has_axis=False,
                 multiplicity="zero_or_more",
             ),
             _produced_observation(
                 "structure.pae",
-                "3.0.0",
                 has_axis=True,
                 multiplicity="zero_or_more",
             ),
@@ -621,32 +579,20 @@ def test_module_package_registers_the_exact_materializer_and_metric_contracts() 
     catalog = build_frozen_catalog((MODULE_PACKAGE,))
     node = catalog.require_contract(
         "node_type",
-        "structure_prediction.materialize_confidence",
-        "2.0.0",
-    )
+        "structure_prediction.materialize_confidence")
     binding = catalog.require_contract(
         "binding",
-        "structure_prediction.materialize_confidence.direct",
-        "2.0.0",
-    )
+        "structure_prediction.materialize_confidence.direct")
     method = catalog.require_contract(
         "method",
-        "structure_prediction.materialize_confidence.exact_reference_join",
-        "2.0.0",
-    )
+        "structure_prediction.materialize_confidence.exact_reference_join")
 
     assert {
-        item["name"]: (
-            item["port_type"]["contract_id"],
-            item["port_type"]["contract_version"],
-        )
+        item["name"]: item["port_type"]["contract_id"]
         for item in node.descriptor["inputs"]
     } == {
-        "structure_candidates": ("candidate.collection", "4.0.0"),
-        "confidence_facts": (
-            "structure_prediction.confidence_facts",
-            "2.0.0",
-        ),
+        "structure_candidates": "candidate.collection",
+        "confidence_facts": "structure_prediction.confidence_facts",
     }
     assert [item["name"] for item in node.descriptor["outputs"]] == [
         "observations"
@@ -685,9 +631,7 @@ def test_module_package_registers_the_exact_materializer_and_metric_contracts() 
     assert produced["structure.ptm"]["axis_port"] is None
     mean_metric = catalog.require_contract(
         "metric",
-        "structure.plddt.mean_residue",
-        "3.0.0",
-    )
+        "structure.plddt.mean_residue")
     assert mean_metric.descriptor["aggregation_semantics"][
         "included_values"
     ] == "non_null_per_residue_values_on_exact_axis"

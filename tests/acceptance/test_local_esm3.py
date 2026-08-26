@@ -14,13 +14,9 @@ def test_local_esm3_all_generation_modes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from core.local_torch_device import expected_local_torch_device
     import esm.pretrained as esm_pretrained
     import esm.utils.constants.esm3 as esm3_constants
 
-    from modules.esm3.local_adapter import (
-        LOCAL_ESM3_SNAPSHOT_REVISION,
-    )
     from protein_workbench_public.provider_environment import (
         provider_environment_configuration,
     )
@@ -46,14 +42,9 @@ def test_local_esm3_all_generation_modes(
     )
 
     process_configuration = provider_environment_configuration()
-    environment = process_configuration[
-        ("esm3.generate_sequence.local_open", "9.0.0")
-    ]["values"]
+    environment = process_configuration["esm3.generate_sequence.local_open"]
     assert all(
-        process_configuration[(f"esm3.{operation}.local_open", "9.0.0")][
-            "values"
-        ]
-        == environment
+        process_configuration[f"esm3.{operation}.local_open"] == environment
         for operation in (
             "generate_paired",
             "generate_sequence",
@@ -86,24 +77,15 @@ def test_local_esm3_all_generation_modes(
         binding_id = f"esm3.{operation}.local_open"
         binding = catalog.require_contract(
             "binding",
-            binding_id,
-            "9.0.0",
-        )
+            binding_id)
         assert binding.descriptor["method"]["contract_id"] == (
             f"esm3.{operation}.esm3_sm_open_v1_local"
         )
-        assert binding.descriptor["implementation_identity"][
-            "snapshot_revision"
-        ] == LOCAL_ESM3_SNAPSHOT_REVISION
-        assert binding.descriptor["implementation_identity"][
-            "weight_sha256"
-        ]
         readiness_index = next(
             index
             for index, event in enumerate(events)
             if event["event"]["type"] == "readiness_attested"
             and event["event"]["binding"]["contract_id"] == binding_id
-            and event["event"]["binding"]["contract_version"] == "9.0.0"
             and event["event"]["conclusion"] == "passing"
         )
         invocations = [
@@ -123,12 +105,10 @@ def test_local_esm3_all_generation_modes(
         )
         method = catalog.require_contract(
             "method",
-            binding.descriptor["method"]["contract_id"],
-            binding.descriptor["method"]["contract_version"],
-        )
+            binding.descriptor["method"]["contract_id"])
         assert {
             invocation["engine_identity"] for invocation in invocations
-        } == {method.contract_digest}
+        } == {method.contract_id}
         assert all(
             invocation["invocation_provenance"][
                 "effective_randomness"
@@ -210,7 +190,6 @@ def test_local_esm3_all_generation_modes(
         service, catalog, projection, events = results[operation]
         retain_service_run(
             f"local-esm3-{operation.replace('_', '-')}",
-            catalog=catalog,
             service=service,
             projection=projection,
             events=events,

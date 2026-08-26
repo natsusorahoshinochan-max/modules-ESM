@@ -1,4 +1,4 @@
-"""Exact local Adapter for the PDB-REDO mkdssp provider."""
+"""Local Adapter for the mkdssp provider."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from io import StringIO
 import os
 from pathlib import Path
-import re
 import subprocess
 from typing import Any, cast
 
@@ -24,28 +23,11 @@ from .domain import DSSPAnnotation
 
 
 MKDSSP_BINARY = "mkdssp"
-MKDSSP_VERSION = "4.6.1"
-MKDSSP_SOURCE_REPOSITORY = "PDB-REDO/dssp"
-MKDSSP_SOURCE_REVISION = "v4.6.1"
-MKDSSP_SOURCE_ARCHIVE_SHA256 = (
-    "5ddb8274f03ac0338adffcd661989f515fffb95d40afca404cf2677024256ae3"
-)
 _DSSP_SECONDARY = frozenset("GHITEBSP")
 
 
-def mkdssp_provider_identity() -> dict[str, str]:
-    """Return the exact source and binary identity declared by the Adapter."""
-    return {
-        "repository": MKDSSP_SOURCE_REPOSITORY,
-        "source_revision": MKDSSP_SOURCE_REVISION,
-        "source_archive_sha256": MKDSSP_SOURCE_ARCHIVE_SHA256,
-        "binary": MKDSSP_BINARY,
-        "binary_version": MKDSSP_VERSION,
-    }
-
-
 def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
-    """Attest the configured executable without performing annotation work."""
+    """Check the configured executable without performing annotation work."""
     path = cast(Path, environment["dssp_binary"])
     if (
         not os.path.isfile(path)
@@ -55,34 +37,6 @@ def mkdssp_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
             False,
             proof_source="direct-observation",
             reason_code="dssp_binary_unavailable",
-        )
-    try:
-        result = subprocess.run(
-            [path, "--version"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError:
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="dssp_binary_unavailable",
-        )
-    version_text = f"{result.stdout}\n{result.stderr}"
-    match = re.search(
-        r"(?m)^mkdssp version (?P<version>\S+)\s*$",
-        version_text,
-    )
-    if (
-        result.returncode != 0
-        or match is None
-        or match.group("version") != MKDSSP_VERSION
-    ):
-        return ReadinessResult(
-            False,
-            proof_source="direct-observation",
-            reason_code="dssp_version_mismatch",
         )
     return ReadinessResult(True, proof_source="direct-observation")
 

@@ -7,7 +7,6 @@ from protein_workbench_public.bootstrap import module_registrations
 from dataclasses import dataclass, replace
 import math
 from pathlib import Path
-from core.local_torch_device import expected_local_torch_device
 from typing import Any
 
 import torch
@@ -26,13 +25,6 @@ from core.operation import (
 from datatypes.sequence import ProteinSequence
 
 
-VERSION = "2.1.0"
-ESM3_REMOTE_BINDING_VERSION = "8.0.0"
-FOLDING_REMOTE_BINDING_VERSION = "9.0.0"
-PROTEINMPNN_BINDING_VERSION = "12.0.0"
-CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
-    "sha256:af6fb4017077a24d67882151d39beb7790b118b02c155a986a48907e1a569ab8"
-)
 PROVIDER_BINDINGS = frozenset({
     "esm3.generate_paired.biohub_medium",
     "folding.fold.esmfold2_remote",
@@ -315,7 +307,7 @@ def controlled_environment(
     monkeypatch: Any,
     esm3: ControlledESM3Client,
     folding: ControlledFoldingClient,
-) -> dict[tuple[str, str], dict[str, object]]:
+) -> dict[str, dict[str, object]]:
     """Build trusted run-scoped configuration without Workflow-owned values."""
     monkeypatch.setattr(
         "modules.esm3.adapter.build_biohub_esm3_client",
@@ -326,32 +318,17 @@ def controlled_environment(
         lambda _environment: folding,
     )
     return {
-        (
-            "esm3.generate_paired.biohub_medium",
-            ESM3_REMOTE_BINDING_VERSION,
-        ): {
-            "values": {
-                "endpoint_id": "biohub",
+        "esm3.generate_paired.biohub_medium": {
                 "credential_handle": "controlled-esm3-credential",
             },
-        },
-        (
-            "folding.fold.esmfold2_remote",
-            FOLDING_REMOTE_BINDING_VERSION,
-        ): {
-            "values": {
-                "endpoint_id": "biohub",
+        "folding.fold.esmfold2_remote": {
                 "credential_handle": "controlled-folding-credential",
             },
-        },
-        ("proteinmpnn.design.local", PROTEINMPNN_BINDING_VERSION): {
-            "values": {
-                "device": expected_local_torch_device(),
-                "provider_root": (
-                    Path(__file__).resolve().parents[2]
-                    / "repositories"
-                    / "ProteinMPNN"
-                ),
-            },
+        "proteinmpnn.design.local": {
+            "provider_root": (
+                Path(__file__).resolve().parents[2]
+                / "repositories"
+                / "ProteinMPNN"
+            ),
         },
     }

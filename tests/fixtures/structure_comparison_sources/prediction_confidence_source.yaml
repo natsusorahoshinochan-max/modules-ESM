@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.prediction_confidence_source
-version: "5.0.0"
 title: Exact prediction-confidence conformance source
 summary: Emits one mean-residue pLDDT Observation for an admitted structure and its exact sequence-parent prediction axis.
 category: contract_test
 inputs:
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
-    port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact Method-specific fact carrying the sequence-parent prediction axis.
   - name: structures
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact prediction structure Candidate descended from the sequence parent.
 outputs:
   - name: observations
     port_type_id: score.collection
-    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact Method-specific mean-residue pLDDT Observation.

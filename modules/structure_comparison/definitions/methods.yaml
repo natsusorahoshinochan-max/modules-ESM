@@ -1,5 +1,4 @@
 - method_id: structure_comparison.rmsd.from_alignment_evidence.method
-  version: 4.0.0
   algorithm_identity:
     name: alignment-evidence-rmsd-projection
     source: StructureAlignmentEvidence.rmsd
@@ -7,18 +6,13 @@
     recomputes_alignment: false
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
-    input: structure_comparison.alignment_evidence@5.0.0
+    input: structure_comparison.alignment_evidence
     atom_selection: evidence-correspondence-CA
-  source_identity:
-    kind: repository-owned
   scale_contract:
     unit: angstrom
     normalization: aligned-CA-mean-square-distance
 - method_id: structure_comparison.tm_score.reference_axis_normalized.method
-  version: 4.0.0
   algorithm_identity:
     name: alignment-evidence-reference-axis-normalized-tm-score
     source: StructureAlignmentEvidence.residual_distance
@@ -28,13 +22,9 @@
     optimization_engine: null
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
-    input: structure_comparison.alignment_evidence@5.0.0
+    input: structure_comparison.alignment_evidence
     atom_selection: evidence-correspondence-CA
-  source_identity:
-    kind: repository-owned
   scale_contract:
     unit: dimensionless
     canonical_range:
@@ -42,18 +32,17 @@
     - 1
     normalization: exact-reference-axis-residue-count
 - method_id: structure_comparison.three_way_consistency.threshold_graph
-  version: 3.0.0
   algorithm_identity:
     name: input-esmfold2-simplefold-threshold-graph
     confidence_eligibility:
-      metric: structure.plddt.mean_residue@3.0.0
+      metric: structure.plddt.mean_residue
       minimum: 70.0
       methods_by_role:
         esmfold2:
-        - folding.fold.esmfold2_fast_biohub_2026_05@4.0.0
-        - folding.fold.esmfold2_hf_1ebf0e3@6.0.0
+        - folding.fold.esmfold2_fast_biohub_2026_05
+        - folding.fold.esmfold2_hf_1ebf0e3
         simplefold:
-        - folding.fold.simplefold_100m_c7a5570@5.0.0
+        - folding.fold.simplefold_100m_c7a5570
     close:
       reference_normalized_tm_score_minimum: 0.8
       ca_rmsd_angstrom_maximum: 2.5
@@ -71,20 +60,15 @@
     input_b_factor: uninterpreted-coordinate-field
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     candidate_association: exact-CandidateDataReference
     pairing: explicit-common-parent-sibling-pairing
     comparison: exact-alignment-evidence-provenanced-scores
-  source_identity:
-    kind: repository-owned
   scale_contract:
     plddt: zero-to-100
     tm_score: dimensionless-reference-axis-normalized
     rmsd: angstrom
 - method_id: structure_comparison.inserted_loop.exact_evidence_gate
-  version: 3.0.0
   algorithm_identity:
     name: inserted-loop-exact-evidence-gate
     subject_mapping:
@@ -111,36 +95,24 @@
     confidence_methods:
     - contract_kind: method
       contract_id: folding.fold.esmfold2_fast_biohub_2026_05
-      contract_version: 4.0.0
-      contract_digest: sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8
     - contract_kind: method
       contract_id: folding.fold.esmfold2_hf_1ebf0e3
-      contract_version: 6.0.0
-      contract_digest: sha256:8073e63f0291d1af2bc644f50307b298a02a2cb73e2de4159582da2295daaa7a
     missing_scoped_evidence: fail
     acceptance: logical-and-of-five-declared-gates
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
     candidate_association: exact-CandidateDataReference
-    prediction_axis: structure_prediction.prediction_residue_axis@2.0.0
-    structure_axis: structure_transform.resolved_residue_axis@4.0.0
-    alignment_evidence: structure_comparison.alignment_evidence@5.0.0
+    prediction_axis: structure_prediction.prediction_residue_axis
+    structure_axis: structure_transform.resolved_residue_axis
+    alignment_evidence: structure_comparison.alignment_evidence
     confidence:
-      metric: structure.plddt.per_residue@3.0.0
+      metric: structure.plddt.per_residue
       methods:
       - contract_kind: method
         contract_id: folding.fold.esmfold2_fast_biohub_2026_05
-        contract_version: 4.0.0
-        contract_digest: sha256:96ba1f830ca71c844cc1ea506e6b60a327b5cf4c17bd0bfc2143b25bf669bee8
       - contract_kind: method
         contract_id: folding.fold.esmfold2_hf_1ebf0e3
-        contract_version: 6.0.0
-        contract_digest: sha256:8073e63f0291d1af2bc644f50307b298a02a2cb73e2de4159582da2295daaa7a
-  source_identity:
-    kind: repository-owned
   scale_contract:
     tm_score: dimensionless-reference-axis-normalized
     rmsd: angstrom

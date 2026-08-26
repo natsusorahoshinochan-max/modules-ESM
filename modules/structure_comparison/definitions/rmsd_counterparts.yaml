@@ -1,38 +1,31 @@
-schema_version: "2.1.0"
 node_type_id: structure_comparison.rmsd_counterparts
-version: "6.0.0"
 title: Project counterpart alignment-evidence RMSD
 summary: Emits paired-counterpart RMSD Observations solely from immutable v4 alignment evidence without structures, axes, or new superposition.
 category: structure_comparison
 inputs:
   - name: alignments
     port_type_id: structure_comparison.alignment_evidence
-    port_type_version: "5.0.0"
     required: true
     multiplicity: many
     scientific_meaning: Nonempty counterpart alignment evidence whose exact residuals and provenance determine every Observation.
   - name: subjects
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact subject Candidate scope used only to close Observation provenance; RMSD values are not computed from Candidate data.
   - name: references
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact reference Candidate scope used only to close Observation provenance; RMSD values are not computed from Candidate data.
   - name: pairing
     port_type_id: candidate.pairing
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete one-to-one mapping of exact protein.structure Candidate Data References that closes counterpart Observation provenance.
 outputs:
   - name: scores
     port_type_id: score.collection
-    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Evidence-provenanced counterpart RMSD Observations, one per subject.

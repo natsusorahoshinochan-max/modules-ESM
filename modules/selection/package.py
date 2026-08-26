@@ -24,9 +24,6 @@ from core.operation import OperationContext
 from .implementation import SelectionImplementation
 
 
-PACKAGE_VERSION = "3.0.0"
-METHOD_VERSION = "4.0.0"
-NODE_BINDING_VERSION = "5.0.0"
 OPERATIONS = (
     "filter",
     "sort",
@@ -58,23 +55,19 @@ def _factory(operation: str):
 def _binding(operation: str) -> ExecutionBindingDefinition:
     return ExecutionBindingDefinition(
         binding_id=f"selection.{operation}.direct",
-        version=NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"selection.{operation}",
-            NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
             f"selection.{operation}.method",
-            METHOD_VERSION,
         ),
         binding_parameters={},
         execution_route="direct",
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"selection.{operation}/factory",
-                NODE_BINDING_VERSION,
                 {"execution_route": "direct"},
             ),
             build=_factory(operation),
@@ -82,7 +75,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 f"selection.{operation}/availability",
-                NODE_BINDING_VERSION,
                 {"observation": "startup"},
             ),
             prerequisites={},
@@ -90,11 +82,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": f"selection.{operation}.direct",
-            "source": "repository-owned",
-            "identity_preservation": "exact-candidate-object",
-        },
         selection_objective_consumption=(
             None
             if operation == "filter"
@@ -124,7 +111,6 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="selection",
-    package_version=PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=tuple(
         DefinitionResource(f"definitions/{operation}.yaml")

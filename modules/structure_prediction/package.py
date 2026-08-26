@@ -29,13 +29,6 @@ from .port_types import (
 )
 
 
-VERSION = "2.0.0"
-_METRIC_VERSIONS = {
-    "structure.ptm": "2.1.0",
-    "structure.plddt.per_residue": "3.0.0",
-    "structure.plddt.mean_residue": "3.0.0",
-    "structure.pae": "3.0.0",
-}
 
 
 def _available() -> AvailabilityResult:
@@ -61,7 +54,6 @@ def _produced_observation(
         metric=ContractIdentity(
             "metric",
             metric_id,
-            _METRIC_VERSIONS[metric_id],
         ),
         context_profile={"kind": "intrinsic"},
         subject_grain="candidate",
@@ -78,23 +70,19 @@ def _produced_observation(
 
 MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
     binding_id="structure_prediction.materialize_confidence.direct",
-    version=VERSION,
     node_type=ContractIdentity(
         "node_type",
         "structure_prediction.materialize_confidence",
-        VERSION,
     ),
     method=ContractIdentity(
         "method",
         "structure_prediction.materialize_confidence.exact_reference_join",
-        VERSION,
     ),
     binding_parameters={},
     execution_route="direct",
     factory=ScientificOperationFactory(
         behavior=BehaviorReference(
             "structure_prediction.materialize_confidence.direct/factory",
-            VERSION,
             {"execution_route": "direct"},
         ),
         build=_build,
@@ -102,7 +90,6 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
     availability=AvailabilityDeclaration(
         behavior=BehaviorReference(
             "structure_prediction.materialize_confidence.direct/availability",
-            VERSION,
             {"observation": "startup"},
         ),
         prerequisites={},
@@ -110,12 +97,6 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
     ),
     deterministic=True,
     cacheable=True,
-    implementation_identity={
-        "name": "structure_prediction.materialize_confidence.direct",
-        "source": "repository-owned",
-        "join": "complete-exact-reference-bijection",
-        "value_transform": "identity-except-declared-mean-plddt",
-    },
     produced_observations=tuple(
         _produced_observation(metric_id)
         for metric_id in (
@@ -130,7 +111,6 @@ MATERIALIZE_CONFIDENCE_BINDING = ExecutionBindingDefinition(
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="structure_prediction",
-    package_version=VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/materialize_confidence.yaml"),

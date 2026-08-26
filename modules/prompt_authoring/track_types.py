@@ -14,7 +14,6 @@ from datatypes.residue import ResidueTrack
 from .domain import AlignedResidueTrack, TrackKind, validate_track
 
 
-_VERSION = "3.0.0"
 _TYPE_ID_BY_KIND = {
     TrackKind.SEQUENCE: "prompt_authoring.track.sequence",
     TrackKind.STRUCTURE: "prompt_authoring.track.structure",
@@ -25,8 +24,8 @@ _TYPE_ID_BY_KIND = {
     TrackKind.SASA: "prompt_authoring.track.sasa",
 }
 _BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout", _VERSION)
-_TRACK_CODEC = _BUILTINS.require_port_type("residue.track", "2.1.0")
+_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
+_TRACK_CODEC = _BUILTINS.require_port_type("residue.track")
 ABSOLUTE_SASA_QUANTITY_CONTRACT = {
     "quantity": "solvent_accessible_surface_area",
     "measure": "absolute",
@@ -70,10 +69,8 @@ def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
     behavior_prefix = f"{type_id}/v3"
     return PortTypeDefinition(
         type_id=type_id,
-        version=_VERSION,
         validator=BehaviorReference(
             f"{behavior_prefix}/validate",
-            _VERSION,
             {
                 "accepted_value_kind": "identity_aligned_residue_track",
                 "scientific_value_domain": kind.value,
@@ -92,16 +89,14 @@ def aligned_track_port_type(kind: TrackKind) -> PortTypeDefinition:
         ),
         codec=BehaviorReference(
             f"{behavior_prefix}/codec",
-            _VERSION,
             {
                 "canonicalization": "RFC 8785",
-                "embedded_layout_contract": "residue.layout@3.0.0",
-                "embedded_values_contract": "residue.track@2.1.0",
+                "embedded_layout_contract": "residue.layout",
+                "embedded_values_contract": "residue.track",
             },
         ),
         content_identity=BehaviorReference(
             f"{behavior_prefix}/content",
-            _VERSION,
             {
                 "digest": "SHA-256",
                 "digest_input": "canonical_codec_bytes",

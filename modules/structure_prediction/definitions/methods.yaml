@@ -1,5 +1,4 @@
 - method_id: structure_prediction.materialize_confidence.exact_reference_join
-  version: 2.0.0
   algorithm_identity:
     name: prediction-confidence-exact-reference-full-set-join
     subject_join:
@@ -16,14 +15,10 @@
     missing_ptm_or_pae: emit-no-Observation
   model_identity:
     kind: none
-  checkpoint_identity:
-    kind: none
   featurization_identity:
-    structure_candidates: candidate.collection@4.0.0
-    confidence_facts: structure_prediction.confidence_facts@2.0.0
+    structure_candidates: candidate.collection
+    confidence_facts: structure_prediction.confidence_facts
     reparsing: none
-  source_identity:
-    kind: repository-owned
   scale_contract:
     plddt_per_residue: identity-zero-to-100-with-null-mask
     plddt_mean_residue: equal-weight-non-null-arithmetic-mean

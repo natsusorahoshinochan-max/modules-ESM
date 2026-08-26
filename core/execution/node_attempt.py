@@ -7,8 +7,6 @@ from datetime import datetime, timezone
 from typing import Any, Literal, Protocol, cast
 import uuid
 
-from core.catalog.canonical import canonical_sha256
-from core.catalog.model import CatalogAvailabilityProjection
 from core.execution._node_attempt_errors import (
     _binding_error,
     _execution_error,
@@ -18,7 +16,6 @@ from core.execution._node_attempt_identity import (
     _exact_reference,
     _node_output_plan,
     _resolve_effective_randomness,
-    _result_contract_metadata,
     _result_identity,
 )
 from core.execution._node_attempt_invocation import (
@@ -55,7 +52,6 @@ from core.operation import (
 )
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 from core.workflow.plan import ExecutionPlanNode
-from datatypes.i_json import thaw_i_json
 
 
 def _utc_now() -> datetime:
@@ -81,17 +77,12 @@ class _NodeAttempt:
         result_store: ResultStore,
         ledger: Ledger,
         local_provider_memory: LocalProviderMemory,
-        availability_by_binding: Mapping[
-            tuple[str, str],
-            CatalogAvailabilityProjection,
-        ],
     ) -> None:
         self._projects = projects
         self._environment = environment
         self._ledger = ledger
-        self._availability_by_binding = availability_by_binding
         self._readiness_failures: dict[
-            tuple[str, str],
+            str,
             V2RunError | None,
         ] = {}
         self._result_store = result_store
@@ -134,25 +125,13 @@ class _NodeAttempt:
         ledger: Ledger,
     ) -> None:
         binding_id = node.binding.contract_id
-        binding_version = node.binding.contract_version
         declaration = node._runtime.readiness_declaration
-        environment = self._environment.for_binding(
-            binding_id,
-            binding_version,
-        )
+        environment = self._environment.for_binding(binding_id)
         observed_at = _utc_now()
         result = declaration.check(environment)
-        readiness_digest = canonical_sha256(
-            {
-                "schema_namespace": "protein-workbench-readiness/v2",
-                "binding": node.binding.canonical_projection(),
-                "declaration": thaw_i_json(declaration.descriptor()),
-            }
-        )
         ledger.record(
             ReadinessAttestation(
                 binding=_exact_reference(node.binding),
-                readiness_contract_digest=readiness_digest,
                 observed_at=run_timestamp(observed_at),
                 conclusion="passing" if result.passing else "failing",
                 proof_source=result.proof_source,
@@ -163,7 +142,10 @@ class _NodeAttempt:
                 "readiness_rejected",
                 "Selected Binding is not ready for this Run",
                 details={
-                    "binding": node.binding.canonical_projection(),
+                    "binding": {
+                        "contract_kind": node.binding.contract_kind,
+                        "contract_id": node.binding.contract_id,
+                    },
                     "reason_code": result.reason_code,
                 },
             )
@@ -296,9 +278,6 @@ class _NodeAttempt:
                 state.candidate_data_port_types,
             ),
             result_identity=result_identity,
-            result_contract_metadata=_result_contract_metadata(
-                state.node,
-            ),
         )
         if replayed is None:
             return None
@@ -316,32 +295,18 @@ class _NodeAttempt:
     ) -> V2RunError | None:
         if state.node._runtime.execution_route != "adapter":
             return None
-        binding_key = (
-            state.node.binding.contract_id,
-            state.node.binding.contract_version,
-        )
+        binding_key = state.node.binding.contract_id
         if binding_key not in self._readiness_failures:
-            availability = self._availability_by_binding[binding_key]
             readiness_error: V2RunError | None = None
-            if not availability.result.is_available:
-                readiness_error = V2RunError(
-                    "binding_unavailable",
-                    "Selected Binding is unavailable",
-                    details={
-                        "binding": state.node.binding.canonical_projection(),
-                        "reason_code": availability.result.code,
-                    },
+            try:
+                self._attest_readiness(
+                    node=state.node,
+                    ledger=self._ledger,
                 )
-            else:
-                try:
-                    self._attest_readiness(
-                        node=state.node,
-                        ledger=self._ledger,
-                    )
-                except V2RunError as error:
-                    if error.code != "readiness_rejected":
-                        raise
-                    readiness_error = error
+            except V2RunError as error:
+                if error.code != "readiness_rejected":
+                    raise
+                readiness_error = error
             self._readiness_failures[binding_key] = readiness_error
         return self._readiness_failures[binding_key]
 
@@ -357,7 +322,7 @@ class _NodeAttempt:
             _invocation_recorder=_OperationInvocationRecorder(
                 ledger=self._ledger,
                 operation_attempt_id=state.operation_attempt_id,
-                default_engine_identity=state.node.method.contract_digest,
+                default_engine_identity=state.node.method.contract_id,
             ),
             _cancellation_control=state.cancellation,
             _local_provider_memory=self._local_provider_memory,
@@ -419,7 +384,6 @@ class _NodeAttempt:
         )
         environment = self._environment.for_binding(
             state.node.binding.contract_id,
-            state.node.binding.contract_version,
         )
         implementation = state.node._runtime.factory.build(
             OperationContext(
@@ -696,10 +660,6 @@ class NodeAttemptFactory:
         self,
         *,
         ledger: Ledger,
-        availability_by_binding: Mapping[
-            tuple[str, str],
-            CatalogAvailabilityProjection,
-        ],
     ) -> NodeAttemptExecutor:
         return _NodeAttempt(
             projects=self._projects,
@@ -707,7 +667,6 @@ class NodeAttemptFactory:
             result_store=self._result_store,
             ledger=ledger,
             local_provider_memory=self._local_provider_memory,
-            availability_by_binding=availability_by_binding,
         )
 
     def shutdown(self) -> None:

@@ -7,8 +7,7 @@ from core.catalog.declarations import ModulePackageRegistration
 
 from protein_workbench_public.bootstrap import module_registrations
 
-from dataclasses import FrozenInstanceError, fields, replace
-import re
+from dataclasses import FrozenInstanceError, fields
 
 from fastapi.testclient import TestClient
 import pytest
@@ -78,78 +77,18 @@ EXPECTED_PORT_TYPE_IDS = {
     "score.collection",
     "text",
 }
-EXPECTED_PORT_TYPE_VERSIONS = {
-    type_id: {
-        "candidate.collection": "4.0.0",
-        "candidate.pairing": "4.0.0",
-        "function.annotations": "3.0.0",
-        "protein.prompt": "3.0.0",
-        "protein.sequence": "3.0.0",
-        "protein.structure": "4.0.0",
-        "residue.layout": "3.0.0",
-        "residue.map": "3.0.0",
-        "score.collection": "5.0.0",
-    }.get(type_id, "2.1.0")
-    for type_id in EXPECTED_PORT_TYPE_IDS
+EXPECTED_BUILTIN_PORT_TYPE_IDS = EXPECTED_PORT_TYPE_IDS - {
+    "function.annotations",
+    "protein.prompt",
 }
-
-
 def _port_type_package(
     *port_types: PortTypeDefinition,
 ) -> ModulePackageRegistration:
     return ModulePackageRegistration(
         package_id="test.port-types",
-        package_version="1.0.0",
         package_module=__name__,
         port_types=port_types,
     )
-
-
-EXPECTED_PORT_TYPE_DIGESTS = {
-    "candidate.collection": (
-        "sha256:6319f8276636afb85ef8986f12b60645ca38ff5d1fec72e037345832b62bfc1d"
-    ),
-    "candidate.pairing": (
-        "sha256:f70a7ebcfb4a57c29148461d2aa84538cd677b5d1cc79b791054187a491bb12a"
-    ),
-    "function.annotations": (
-        "sha256:588a10bc34079eb599d5dba191be126fa067675400427d6b9191d348c32d98a4"
-    ),
-    "protein.prompt": (
-        "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc72ef7b44"
-    ),
-    "protein.sequence": (
-        "sha256:914c2c5b605073080b29dbaf8c83decbd7f98cc2d2455311f5865f2fcee9c3a0"
-    ),
-    "protein.structure": (
-        "sha256:329ebc4c4f2c3323afa7577999882ef51a7588e5803be4d2b0da5d6e07fe8e0b"
-    ),
-    "residue.layout": (
-        "sha256:c0b66618ee52d36bda8f857cb422f195152ecfebfc4ed48a45e3924edacb08fd"
-    ),
-    "residue.map": (
-        "sha256:49fb91759842c064b47b337dc1c6568b1e3035b6965286dcd29a95bcf6525b52"
-    ),
-    "residue.track": (
-        "sha256:db5a52f8c6920365a31bacf221e5e9eb23c4b5aea4de696f69c01bd084738707"
-    ),
-    "residue.track.sasa": (
-        "sha256:3bb4d6175604f3bfe346cf078ea78014a5cf2a44196603ee7d28f6b4d299942f"
-    ),
-    "residue.track.secondary_structure": (
-        "sha256:9203923af8490d9f3947cdd3b0dd9fc48727aa3aaa61cfea8ede2087046c4890"
-    ),
-    "score.collection": (
-        "sha256:0c8447a1a7d95e6bc56f2582eb961551fbb8413c9076a2bb0fb639be23d9a03d"
-    ),
-    "text": (
-        "sha256:deccc91ef2b9b94ad5d14637690c6de2f7b8ea7ff75c401faca95510cf3381c3"
-    ),
-}
-EXPECTED_BUILTIN_PORT_TYPE_IDS = EXPECTED_PORT_TYPE_IDS - {
-    "function.annotations",
-    "protein.prompt",
-}
 
 
 def test_superseded_structure_alignment_port_type_is_not_active() -> None:
@@ -159,9 +98,7 @@ def test_superseded_structure_alignment_port_type_is_not_active() -> None:
     ):
         with pytest.raises(UnknownPortTypeError):
             catalog.require_port_type(
-                "structure.alignment",
-                "2.1.0",
-            )
+                "structure.alignment",)
 
 
 def _typed_observation(value: object) -> ScoreObservation:
@@ -173,16 +110,10 @@ def _typed_observation(value: object) -> ScoreObservation:
         ),
         metric=ExactContractReference(
             "metric",
-            "metric.plddt",
-            "2.1.0",
-            "sha256:" + ("1" * 64),
-        ),
+            "metric.plddt",),
         method=ExactContractReference(
             "method",
-            "method.fixture",
-            "2.1.0",
-            "sha256:" + ("2" * 64),
-        ),
+            "method.fixture",),
         context=IntrinsicObservationContext(),
         source_partition="default",
         value=value,
@@ -209,14 +140,9 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
     payload = response.json()
     validate_response("catalog_snapshot", 200, payload)
     assert payload["schema_namespace"] == "protein-workbench-public/v2"
-    assert re.fullmatch(
-        r"sha256:[0-9a-f]{64}",
-        payload["catalog_contract_digest"],
-    )
     observed_availability = {
         (
             snapshot["binding"]["contract_id"],
-            snapshot["binding"]["contract_version"],
             snapshot["available"],
         )
         for snapshot in payload["availability"]
@@ -224,7 +150,6 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
     expected_availability = {
         (
             snapshot.binding.contract_id,
-            snapshot.binding.contract_version,
             snapshot.result.is_available,
         )
         for snapshot in catalog.availability
@@ -246,24 +171,15 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         assert reference == {
             "contract_kind": "port_type",
             "contract_id": descriptor["contract_id"],
-            "contract_version": descriptor["contract_version"],
-            "contract_digest": EXPECTED_PORT_TYPE_DIGESTS[
-                descriptor["contract_id"]
-            ],
         }
-        assert reference["contract_digest"] == canonical_sha256(descriptor)
         assert descriptor["schema_namespace"] == (
             "protein-workbench-contract/v2"
         )
         assert descriptor["contract_kind"] == "port_type"
-        assert descriptor["contract_version"] == EXPECTED_PORT_TYPE_VERSIONS[
-            descriptor["contract_id"]
-        ]
         expected_descriptor_fields = {
             "schema_namespace",
             "contract_kind",
             "contract_id",
-            "contract_version",
             "validator",
             "codec",
             "content_identity",
@@ -275,10 +191,6 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         }:
             expected_descriptor_fields.add("candidate_data_projection")
         assert set(descriptor) == expected_descriptor_fields
-        assert re.fullmatch(
-            r"sha256:[0-9a-f]{64}",
-            reference["contract_digest"],
-        )
         for behavior_name in (
             "validator",
             "codec",
@@ -292,19 +204,13 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
             behavior = descriptor[behavior_name]
             assert set(behavior) == {
                 "behavior_id",
-                "behavior_version",
                 "parameters",
             }
-            assert behavior["behavior_version"] == (
-                EXPECTED_PORT_TYPE_VERSIONS[descriptor["contract_id"]]
-            )
 
 
 def test_port_type_codec_round_trips_a_complete_valid_value() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence",)
     value = ProteinSequence(
         sequence="META",
         residue_ids=["A:1", "A:2", "A:3", "A:4"],
@@ -313,14 +219,14 @@ def test_port_type_codec_round_trips_a_complete_valid_value() -> None:
     encoded = port_type.encode(value)
 
     assert encoded == (
-        b'{"port_type_id":"protein.sequence","port_type_version":"3.0.0",'
+        b'{"port_type_id":"protein.sequence",'
         b'"schema_namespace":"protein-workbench-port-value/v2","value":'
         b'{"$dataclass":"protein_sequence","fields":{"residue_ids":'
         b'["A:1","A:2","A:3","A:4"],"sequence":"META"}}}'
     )
     assert port_type.decode(encoded) == value
     assert port_type.content_digest(value) == (
-        "sha256:ddb925c1ae9cd8b03ff8803c5b578c2fdaa82bc5edb435fb5b8b25857f4497e3"
+        "sha256:e5641249514e5ff9993506a8fb9638a52465ded8fe49f002548859052db1e57d"
     )
 
 
@@ -334,9 +240,7 @@ def test_protein_sequence_cuts_caller_aliases_without_changing_wire_bytes() -> N
         value.sequence = "AA"
 
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence",)
     encoded = port_type.encode(value)
 
     assert b'"$tuple"' not in encoded
@@ -349,9 +253,7 @@ def test_protein_sequence_admission_requires_the_exact_uppercase_alphabet(
     sequence: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence",)
 
     with pytest.raises(PortValueError, match="uppercase amino-acid alphabet"):
         port_type.encode(ProteinSequence(sequence))
@@ -368,9 +270,7 @@ def test_protein_sequence_admission_requires_canonical_unique_residue_identities
     residue_ids: tuple[str, str],
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence",)
 
     with pytest.raises(PortValueError, match="residue identit"):
         port_type.encode(ProteinSequence("MA", residue_ids))
@@ -389,9 +289,7 @@ def test_protein_sequence_codec_rejects_noncanonical_residue_identities(
     message: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence",)
     canonical = port_type.encode(
         ProteinSequence("MA", ("A:1", "A:2"))
     )
@@ -402,9 +300,7 @@ def test_protein_sequence_codec_rejects_noncanonical_residue_identities(
 
 def test_protein_sequence_does_not_claim_residue_layout_chain_contiguity() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence",)
     sequence = ProteinSequence(
         "MAG",
         ("A:1", "B:1", "A:2"),
@@ -418,9 +314,7 @@ def test_builtin_sequence_and_candidate_descriptors_declare_identity_invariants(
     catalog = builtin_frozen_catalog()
 
     assert catalog.require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    ).validator.parameters["sequence_invariants"] == {
+        "protein.sequence",).validator.parameters["sequence_invariants"] == {
         "alphabet": "ACDEFGHIKLMNPQRSTVWYBXZJUO",
         "nonempty": True,
         "residue_ids": {
@@ -431,9 +325,7 @@ def test_builtin_sequence_and_candidate_descriptors_declare_identity_invariants(
         },
     }
     assert catalog.require_port_type(
-        "candidate.collection",
-        "4.0.0",
-    ).validator.parameters["candidate_invariants"] == {
+        "candidate.collection",).validator.parameters["candidate_invariants"] == {
         "candidate_id": "canonical-identifier",
         "internal_lineage": {
             "acyclic": True,
@@ -452,9 +344,7 @@ def test_immutable_residue_map_preserves_list_and_tuple_wire_semantics() -> None
     layout = ResidueLayout("A", 1, ["A:1"])
     value = ResidueMap(layout, layout, [(0, 0, "match")])
     port_type = builtin_frozen_catalog().require_port_type(
-        "residue.map",
-        "3.0.0",
-    )
+        "residue.map",)
 
     encoded = port_type.encode(value)
 
@@ -647,18 +537,14 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
     assert set(samples) == EXPECTED_BUILTIN_PORT_TYPE_IDS
     for type_id, value in samples.items():
         definition = catalog.require_port_type(
-            type_id,
-            EXPECTED_PORT_TYPE_VERSIONS[type_id],
-        )
+            type_id,)
         definition.validate(value)
         assert definition.decode(definition.encode(value)) == value
 
 
 def test_protein_structure_scientific_identity_excludes_source_provenance() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure",)
     pdb_string = (
         "ATOM      1  CA  ALA A   1       1.000   2.000   3.000"
         "  1.00 20.00           C  \nEND\n"
@@ -672,12 +558,11 @@ def test_protein_structure_scientific_identity_excludes_source_provenance() -> N
         ProteinStructure(pdb_string, source="provider")
     assert b'"source"' not in port_type.encode(structure)
     assert port_type.content_digest(structure) == (
-        "sha256:b59a5d5b5422e4473900b689291474ccfc9ec525b3663f4b5c35c53c8edcff0f"
+        "sha256:ae194f58596034c7222ab19926da34079f5b95b4e97e38605e1cab8cc63e33cf"
     )
     legacy_wire = canonical_json_bytes({
         "schema_namespace": "protein-workbench-port-value/v2",
         "port_type_id": "protein.structure",
-        "port_type_version": "4.0.0",
         "value": {
             "$dataclass": "protein_structure",
             "fields": {
@@ -717,9 +602,7 @@ def test_protein_structure_admission_rejects_noncanonical_pdb_text(
     pdb_string: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure",)
 
     with pytest.raises(PortValueError, match="canonical PDB"):
         port_type.encode(ProteinStructure(pdb_string))
@@ -727,9 +610,7 @@ def test_protein_structure_admission_rejects_noncanonical_pdb_text(
 
 def test_protein_structure_admission_does_not_impose_single_model_or_ca() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure",)
     structure = ProteinStructure(
         "MODEL        1\n"
         "ATOM      1  N   ALA A   1       0.000   0.000   0.000"
@@ -750,9 +631,7 @@ def test_protein_structure_accepts_supported_uninterpreted_metadata_record_names
     record_name: str,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure",)
     structure = ProteinStructure(
         f"{record_name:<6} canonical metadata\n"
         "ATOM      1  N   ALA A   1       0.000   0.000   0.000"
@@ -765,9 +644,7 @@ def test_protein_structure_accepts_supported_uninterpreted_metadata_record_names
 
 def test_protein_structure_admission_preserves_pdb_residue_number_zero() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure",)
     structure = ProteinStructure(
         "ATOM      1  N   ALA A   0       0.000   0.000   0.000"
         "  1.00 20.00           N  \nEND\n"
@@ -778,9 +655,7 @@ def test_protein_structure_admission_preserves_pdb_residue_number_zero() -> None
 
 def test_protein_structure_admission_accepts_standard_padded_end_record() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "protein.structure",
-        "4.0.0",
-    )
+        "protein.structure",)
     structure = ProteinStructure(
         "ATOM      1  N   ALA A   1       0.000   0.000   0.000"
         "  1.00 20.00           N  \nEND   \n"
@@ -802,9 +677,7 @@ def test_residue_layout_admission_requires_complete_unique_contiguous_identities
     layout: ResidueLayout,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "residue.layout",
-        "3.0.0",
-    )
+        "residue.layout",)
 
     with pytest.raises(PortValueError, match="identit|contiguous"):
         port_type.encode(layout)
@@ -839,9 +712,7 @@ def test_residue_map_admission_requires_complete_one_to_one_identity_mapping(
     residue_map: ResidueMap,
 ) -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "residue.map",
-        "3.0.0",
-    )
+        "residue.map",)
 
     with pytest.raises(
         PortValueError,
@@ -864,9 +735,7 @@ def test_canonical_residue_map_owner_rejects_boolean_indices() -> None:
 
 def test_codec_rejects_malformed_and_noncanonical_values() -> None:
     sequence_type = builtin_frozen_catalog().require_port_type(
-        "protein.sequence",
-        "3.0.0",
-    )
+        "protein.sequence",)
     canonical = sequence_type.encode(ProteinSequence("MA"))
 
     with pytest.raises(PortValueError, match="requires ProteinSequence"):
@@ -927,9 +796,7 @@ def test_runtime_validators_reject_malformed_complete_values(
     malformed: object,
 ) -> None:
     definition = builtin_frozen_catalog().require_port_type(
-        type_id,
-        EXPECTED_PORT_TYPE_VERSIONS[type_id],
-    )
+        type_id,)
 
     with pytest.raises(
         PortValueError,
@@ -982,9 +849,7 @@ def test_canonical_constructors_close_domain_invariants_before_encoding() -> Non
     for type_id, malformed in malformed_values:
         with pytest.raises(PortValueError):
             catalog.require_port_type(
-                type_id,
-                EXPECTED_PORT_TYPE_VERSIONS[type_id],
-            ).encode(malformed)
+                type_id,).encode(malformed)
 
 
 @pytest.mark.parametrize(
@@ -1014,9 +879,7 @@ def test_proteinmpnn_port_reuses_the_authoritative_constraint_contract(
 ) -> None:
 
     definition = build_frozen_catalog(module_registrations()).require_port_type(
-        "proteinmpnn.constraints",
-        "4.0.0",
-    )
+        "proteinmpnn.constraints",)
 
     with pytest.raises(PortValueError):
         definition.encode(constraints)
@@ -1047,9 +910,7 @@ def test_score_constructor_rejects_non_i_json_numbers(
 
 def test_i_json_array_admission_normalizes_list_and_tuple_wire_identity() -> None:
     score_type = builtin_frozen_catalog().require_port_type(
-        "score.collection",
-        "5.0.0",
-    )
+        "score.collection",)
     list_observation = _typed_observation({"samples": [1, 2]})
     tuple_observation = _typed_observation({"samples": (1, 2)})
     list_scores = ScoreCollection("scores", [list_observation])
@@ -1069,26 +930,22 @@ def test_i_json_array_admission_normalizes_list_and_tuple_wire_identity() -> Non
     assert b'"$tuple"' not in list_encoded
 
 
-def test_behavior_declarations_require_exact_versions_and_i_json() -> None:
-    with pytest.raises(CatalogBuildError, match="exact semantic version"):
-        BehaviorReference("example.validate", "", {})
+def test_behavior_declarations_require_stable_ids_and_i_json() -> None:
+    with pytest.raises(CatalogBuildError, match="canonical identifier"):
+        BehaviorReference("Example Validate", {})
     with pytest.raises(CatalogBuildError, match="negative zero"):
-        BehaviorReference("example.validate", "2.1.0", {"threshold": -0.0})
+        BehaviorReference("example.validate", {"threshold": -0.0})
     with pytest.raises(CatalogBuildError, match="NaN|Infinity"):
         BehaviorReference(
             "example.validate",
-            "2.1.0",
             {"threshold": float("nan")},
         )
-    with pytest.raises(CatalogBuildError, match="exact semantic version"):
-        BehaviorReference("example.validate", "2.1.0+local", {})
 
 
 def test_behavior_declaration_parameters_are_deeply_immutable() -> None:
     supplied = {"schema": {"required": ["sequence"]}}
     behavior = BehaviorReference(
         "example.validate",
-        "2.1.0",
         supplied,
     )
 
@@ -1118,152 +975,9 @@ def test_rfc8785_and_sha256_match_the_published_golden_vector() -> None:
     )
 
 
-def test_builtin_port_type_contract_digests_match_golden_vectors() -> None:
-    catalog = builtin_frozen_catalog()
-
-    assert {
-        definition.type_id: definition.contract_digest
-        for definition in catalog.port_types
-    } == {
-        type_id: EXPECTED_PORT_TYPE_DIGESTS[type_id]
-        for type_id in EXPECTED_BUILTIN_PORT_TYPE_IDS
-    }
-    assert catalog.contract_digest == (
-        "sha256:367c80428dda11fbf8cda31217b31bfc696a248d4a28297c81c599a94412b037"
-    )
-
-
-def _example_port_type(
-    *,
-    validator_parameters: dict[str, object] | None = None,
-    validator_version: str = "2.1.0",
-) -> PortTypeDefinition:
-    return PortTypeDefinition(
-        type_id="example.text",
-        version="2.1.0",
-        validator=BehaviorReference(
-            "example.text/validate",
-            validator_version,
-            (
-                {"accepted_value_kind": "text", "complete_values_only": True}
-                if validator_parameters is None
-                else validator_parameters
-            ),
-        ),
-        codec=BehaviorReference(
-            "example.text/codec",
-            "2.1.0",
-            {},
-        ),
-        content_identity=BehaviorReference(
-            "example.text/content",
-            "2.1.0",
-            {},
-        ),
-    )
-
-
-def test_port_type_descriptor_differentials_are_semantic_and_path_free() -> None:
-    first = _example_port_type(
-        validator_parameters={
-            "accepted_value_kind": "text",
-            "complete_values_only": True,
-            "label": "é",
-        }
-    )
-    reordered = _example_port_type(
-        validator_parameters={
-            "label": "é",
-            "complete_values_only": True,
-            "accepted_value_kind": "text",
-        }
-    )
-    decomposed_unicode = _example_port_type(
-        validator_parameters={
-            "accepted_value_kind": "text",
-            "complete_values_only": True,
-            "label": "e\u0301",
-        }
-    )
-    changed_behavior = _example_port_type(validator_version="2.0.1")
-    explicit_defaults = _example_port_type()
-
-    assert first.descriptor_bytes == reordered.descriptor_bytes
-    assert first.contract_digest == reordered.contract_digest
-    assert first.contract_digest != decomposed_unicode.contract_digest
-    assert explicit_defaults.descriptor()["codec"]["parameters"] == {}
-    assert explicit_defaults.contract_digest != changed_behavior.contract_digest
-    assert b"/Users/" not in first.descriptor_bytes
-    assert b"0x" not in first.descriptor_bytes
-
-    with pytest.raises(CatalogBuildError, match="cannot be represented"):
-        BehaviorReference(
-            "example.text/validate",
-            "2.1.0",
-            {"callable": object()},
-        )
-
-
-def test_runtime_callables_never_enter_stable_contract_identity() -> None:
-    declaration = {
-        "accepted_value_kind": "extension.sequence",
-        "complete_values_only": True,
-    }
-
-    def build_definition() -> PortTypeDefinition:
-        return PortTypeDefinition(
-            type_id="extension.sequence",
-            version="2.1.0",
-            validator=BehaviorReference(
-                "extension.sequence/validate",
-                "2.1.0",
-                declaration,
-            ),
-            codec=BehaviorReference(
-                "extension.sequence/codec",
-                "2.1.0",
-                {},
-            ),
-            content_identity=BehaviorReference(
-                "extension.sequence/content",
-                "2.1.0",
-                {},
-            ),
-            runtime_validator=lambda value: (
-                None
-                if isinstance(value, str) and value.isalpha()
-                else (_ for _ in ()).throw(ValueError("invalid sequence"))
-            ),
-            runtime_to_wire=lambda value: value,
-            runtime_from_wire=lambda value: value,
-        )
-
-    source_definition = build_definition()
-    installed_definition = build_definition()
-    source_catalog = build_frozen_catalog(
-        (_port_type_package(source_definition),)
-    )
-    installed_catalog = build_frozen_catalog(
-        (_port_type_package(installed_definition),)
-    )
-
-    assert source_definition.descriptor_bytes == (
-        installed_definition.descriptor_bytes
-    )
-    assert source_definition.contract_digest == (
-        installed_definition.contract_digest
-    )
-    assert source_catalog.catalog_descriptor_bytes == (
-        installed_catalog.catalog_descriptor_bytes
-    )
-    assert source_definition.decode(source_definition.encode("MÉTA")) == "MÉTA"
-    assert b"<lambda>" not in source_definition.descriptor_bytes
-    assert b"0x" not in source_definition.descriptor_bytes
-
-
 def test_codec_differentials_materialize_defaults_and_preserve_semantic_order() -> None:
     catalog = builtin_frozen_catalog()
-    sequence_type = catalog.require_port_type("protein.sequence", "3.0.0")
+    sequence_type = catalog.require_port_type("protein.sequence",)
     from modules.proteinmpnn.package import MODULE_PACKAGE as package
 
     constraints_type = package.port_types[0]
@@ -1297,26 +1011,11 @@ def test_codec_differentials_materialize_defaults_and_preserve_semantic_order() 
 
 def test_port_type_catalog_build_is_atomic_on_duplicate_identity() -> None:
     published = builtin_frozen_catalog()
-    original_digest = published.contract_digest
-    duplicate = published.require_port_type("text", "2.1.0")
+    duplicate = published.require_port_type("text",)
 
     with pytest.raises(CatalogBuildError, match="duplicate contract identity"):
         build_frozen_catalog(
             (_port_type_package(duplicate),)
         )
 
-    assert published.contract_digest == original_digest
-
-
-def test_direct_catalog_construction_rejects_multiple_active_port_versions() -> None:
-    published = builtin_frozen_catalog()
-    current = published.require_port_type("text", "2.1.0")
-    incompatible = replace(current, version="3.0.0")
-
-    with pytest.raises(
-        CatalogBuildError,
-        match="multiple active versions for contract port_type:text",
-    ):
-        build_frozen_catalog(
-            (_port_type_package(incompatible),)
-        )
+    assert published.require_port_type("text") is duplicate

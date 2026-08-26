@@ -12,7 +12,6 @@ from .domain import (
 )
 
 
-_VERSION = "4.0.0"
 _BEHAVIOR_PREFIX = "protein-workbench.port-type/proteinmpnn.constraints"
 
 
@@ -112,10 +111,8 @@ def _from_wire(value: object) -> ProteinMPNNConstraints:
 
 PROTEINMPNN_CONSTRAINTS_PORT_TYPE = PortTypeDefinition(
     type_id="proteinmpnn.constraints",
-    version=_VERSION,
     validator=BehaviorReference(
         behavior_id=f"{_BEHAVIOR_PREFIX}/validate",
-        behavior_version=_VERSION,
         parameters={
             "accepted_value_kind": "proteinmpnn_constraints",
             "complete_values_only": True,
@@ -123,18 +120,16 @@ PROTEINMPNN_CONSTRAINTS_PORT_TYPE = PortTypeDefinition(
     ),
     codec=BehaviorReference(
         behavior_id=f"{_BEHAVIOR_PREFIX}/canonical-json-codec",
-        behavior_version=_VERSION,
         parameters={
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
             "envelope_namespace": "protein-workbench-port-value/v2",
             "value_kind": "proteinmpnn_constraints",
-            "embedded_layout_contract": "residue.layout@3.0.0",
+            "embedded_layout_contract": "residue.layout",
         },
     ),
     content_identity=BehaviorReference(
         behavior_id=f"{_BEHAVIOR_PREFIX}/content-sha256",
-        behavior_version=_VERSION,
         parameters={
             "digest_algorithm": "SHA-256",
             "digest_input": "canonical_codec_bytes",

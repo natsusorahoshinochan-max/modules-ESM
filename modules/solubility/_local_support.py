@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-import hashlib
 import os
 from pathlib import Path
 import signal
@@ -14,52 +13,21 @@ from core.operation import OperationResources
 
 
 class SolubilityReadinessUnavailable(RuntimeError):
-    """An exact solubility Provider prerequisite cannot be admitted."""
+    """A solubility Provider prerequisite is unavailable."""
 
 
 class LocalProviderTimeout(RuntimeError):
     """One local provider exceeded its closed execution budget."""
 
 
-def _regular_file_sha256(
+def _require_file(
     path: Path,
     *,
-    executable: bool = False,
-    provider_name: str = "SoluProt",
-) -> str:
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as handle:
-            while chunk := handle.read(1024 * 1024):
-                digest.update(chunk)
-    except OSError as error:
-        raise SolubilityReadinessUnavailable(
-            f"configured {provider_name} asset is unavailable"
-        ) from error
-    if executable and not os.access(path, os.X_OK):
-        raise SolubilityReadinessUnavailable(
-            f"configured {provider_name} executable is unavailable"
-        )
-    return digest.hexdigest()
-
-
-def _require_digest(
-    path: Path,
-    expected: str,
-    *,
-    executable: bool = False,
     provider_name: str = "SoluProt",
 ) -> Path:
-    if (
-        _regular_file_sha256(
-            path,
-            executable=executable,
-            provider_name=provider_name,
-        )
-        != expected
-    ):
+    if not path.is_file():
         raise SolubilityReadinessUnavailable(
-            f"configured {provider_name} asset identity changed"
+            f"configured {provider_name} asset is unavailable"
         )
     return path
 

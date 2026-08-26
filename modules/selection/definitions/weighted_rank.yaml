@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: selection.weighted_rank
-version: "5.0.0"
 title: Rank Candidates by explicit weighted Utilities
 summary: Orders exact Candidates by normalized non-negative weights over registered dimensionless Utility Transforms.
 category: selection
 inputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact Candidate subjects shared by every selected Workflow objective.
   - name: scores
     port_type_id: score.collection
-    port_type_version: "5.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Exact Score Collection source shared by every selected Workflow objective, with scopes isolated by the objective contracts.
 outputs:
   - name: candidates
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Original Candidate identities ordered by descending normalized weighted Utility and deterministic identity ties.

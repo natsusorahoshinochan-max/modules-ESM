@@ -18,7 +18,7 @@ concurrent-retry, stale-revision, or idempotency state machines around it.
 
 A Workflow Commit records its Project, source Draft revision, admitted Workflow,
 the execution information needed to rebuild the current plan, minimum
-Node/Method/Metric scientific definition snapshots, commit revision, and
+Node/Method/Metric scientific definition snapshots, and
 `workflow_commit_id`. It does not store a Contract Lock, internal contract
 semver, Catalog descriptor digest, Workflow digest, Contract Lock digest, or
 Execution Plan digest. The authoring owner alone writes and loads Draft and
@@ -32,13 +32,15 @@ The public protocol exposes only the current authoring resources:
 - `GET /api/v2/projects/{project_id}/workflow/active-commit`.
 
 Save and commit submissions contain the unlocked Workflow, not a caller-owned
-expected revision. The authoring owner assigns the next Draft and Commit
-revisions in the normal sequential flow.
+expected revision. The authoring owner assigns the next Draft revision and
+stores each Commit in the normal sequential flow.
 
 Starting a Run supplies the active `workflow_commit_id`. The runtime loads that
 Commit and uses its admitted Workflow and execution information. When in-memory
 compilation state is absent, it rebuilds the current plan from the Commit rather
 than reloading the source Draft or re-resolving a historical Contract Lock. The
-Commit's embedded scientific definition snapshots remain the interpretation
-record for the completed Run. Parse or scientific admission failures fail fast;
-there is no compatibility reader, damage taxonomy, or recovery protocol.
+rebuilt plan must have the same scientific definition snapshots as the Commit;
+otherwise that development Commit is invalid under the current checkout and
+fails fast. The Commit's embedded snapshots remain the interpretation record
+for the completed Run. Parse or scientific admission failures fail fast; there
+is no compatibility reader, damage taxonomy, or recovery protocol.

@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: contract_test.prediction_confidence_fact_source
-version: "5.0.0"
 title: Exact prediction-confidence fact conformance source
 summary: Associates one exact prediction axis and admitted structure digest with Method-specific subjectless confidence.
 category: contract_test
 inputs:
   - name: prediction_axis
     port_type_id: structure_prediction.prediction_residue_axis
-    port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact sequence-parent prediction axis.
   - name: structures
     port_type_id: candidate.collection
-    port_type_version: "4.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact prediction structure Candidate.
 outputs:
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
-    port_type_version: "2.0.0"
     required: true
     multiplicity: one
     scientific_meaning: One exact Method-specific subjectless prediction-confidence fact.

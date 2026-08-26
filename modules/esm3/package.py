@@ -30,16 +30,10 @@ from core.operation import (
     ScientificOperation,
 )
 from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
-from core.provider_support import (
-    ProviderInstallationUnavailable,
-    validate_installed_provider_checkout,
-)
-
 from .adapter import (
     BIOHUB_ESM3_MEDIUM_MODEL,
     BIOHUB_ESM3_OPEN_MODEL,
     BiohubESM3Adapter,
-    ESM_SDK_REVISION,
 )
 from .implementation import ESM3GenerationOperation
 from .esmc_implementation import ESMCRepresentationOperation
@@ -54,24 +48,13 @@ from .esmc_adapter import (
 from . import port_types as _port_types
 from .local_adapter import (
     LOCAL_ESM3_MODEL,
-    LOCAL_ESM3_PERFORMANCE_SETTINGS,
-    LOCAL_ESM3_SNAPSHOT_REVISION,
     LOCAL_ESM3_SNAPSHOT_SOURCE,
-    LOCAL_ESM3_TORCH_VERSION,
-    LOCAL_ESM3_WEIGHT_SHA256,
     LocalESM3Adapter,
     local_readiness,
     local_runtime_structurally_available,
 )
 
 
-_PACKAGE_VERSION = "7.0.0"
-_GENERATION_METHOD_VERSION = "5.0.0"
-_GENERATION_NODE_TYPE_VERSION = "8.0.0"
-_GENERATION_REMOTE_BINDING_VERSION = "8.0.0"
-_GENERATION_LOCAL_BINDING_VERSION = "9.0.0"
-_ESMC_METHOD_VERSION = "3.0.0"
-_ESMC_NODE_BINDING_VERSION = "5.0.0"
 _OPERATIONS = (
     "generate_sequence",
     "generate_structure",
@@ -101,15 +84,11 @@ _LOCAL_MODEL = {
     "release": "esm3-sm-open-v1",
 }
 _BIOHUB_ENVIRONMENT_FIELDS = (
-    EnvironmentFieldDeclaration("endpoint_id", "json_value"),
     EnvironmentFieldDeclaration("credential_handle", "credential_handle"),
 )
 _LOCAL_ENVIRONMENT_FIELDS = (
-    EnvironmentFieldDeclaration("model_snapshot_revision", "json_value"),
     EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),
     EnvironmentFieldDeclaration("runtime_directory", "filesystem_path"),
-    EnvironmentFieldDeclaration("device", "json_value"),
-    EnvironmentFieldDeclaration("performance_settings", "json_value"),
 )
 
 
@@ -126,7 +105,6 @@ def _build_esmc(context: OperationContext) -> ESMCRepresentationOperation:
 def _esmc_method() -> MethodDefinition:
     return MethodDefinition(
         method_id="esm3.represent_sequence.esmc_600m_2024_12",
-        version=_ESMC_METHOD_VERSION,
         algorithm_identity={
             "name": "ESMC masked-language-model sequence representation",
             "provider_operations": ("encode", "logits"),
@@ -135,7 +113,7 @@ def _esmc_method() -> MethodDefinition:
                 "return_mean_embedding": True,
             },
             "published_value": (
-                "locked-SDK-normalized mean embedding and sequence-logits "
+                "Provider-normalized mean embedding and sequence-logits "
                 "shape on the CLS, residue-token, EOS axis"
             ),
         },
@@ -145,24 +123,14 @@ def _esmc_method() -> MethodDefinition:
             "scale": "600M",
             "release": "2024-12",
         },
-        checkpoint_identity={
-            "kind": "provider_managed_exact_model_id",
-            "model": BIOHUB_ESMC_MODEL,
-        },
         featurization_identity={
             "input": "ESMProtein complete sequence",
             "tokenization": "Biohub ESMC encode endpoint",
             "residue_axis": "input order preserved",
         },
-        source_identity={
-            "sdk": "esm",
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "service": "Biohub",
-            "api_contract": "encode+logits@2026-07-16",
-        },
         scale_contract={
             "mean_embedding": {
-                "storage": "locked_sdk_normalized_binary32",
+                "storage": "provider_normalized_binary32",
                 "dimension": ESMC_MEAN_EMBEDDING_DIMENSION,
             },
             "sequence_logits": {
@@ -180,16 +148,13 @@ def _esmc_binding() -> ExecutionBindingDefinition:
         binding_id=(
             "esm3.represent_sequence.biohub_esmc_600m_2024_12"
         ),
-        version=_ESMC_NODE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             "esm3.represent_sequence",
-            _ESMC_NODE_BINDING_VERSION,
         ),
         method=ContractIdentity(
             "method",
             "esm3.represent_sequence.esmc_600m_2024_12",
-            _ESMC_METHOD_VERSION,
         ),
         binding_parameters={},
         environment_fields=_BIOHUB_ENVIRONMENT_FIELDS,
@@ -197,42 +162,33 @@ def _esmc_binding() -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 "esm3.represent_sequence/factory",
-                _ESMC_NODE_BINDING_VERSION,
                 {
                     "route": "biohub",
                     "model": BIOHUB_ESMC_MODEL,
-                    "engine_identity": "exact_method_contract_digest",
+                    "engine_identity": "stable_method_id",
                 },
             ),
             build=_build_esmc,
         ),
         adapter_behavior=BehaviorReference(
             "esm3.biohub_esmc/adapter",
-            _ESMC_NODE_BINDING_VERSION,
             {
-                "provider_contract": "esm-sdk-encode+logits@917af90b",
+                "provider_contract": "esm-sdk-encode+logits",
                 "output_contract": "mean-embedding-1152+logits-L+2x64",
-                "engine_identity": "exact_method_contract_digest",
+                "engine_identity": "stable_method_id",
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub_esmc/availability",
-                _ESMC_NODE_BINDING_VERSION,
                 {"observation": "startup"},
             ),
-            prerequisites={
-                "provider_sdk": {
-                    "name": "esm",
-                    "source_revision": ESM_SDK_REVISION,
-                }
-            },
+            prerequisites={"provider_sdk": {"name": "esm"}},
             check=_available,
         ),
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub_esmc/readiness",
-                _ESMC_NODE_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "cache_order": "before-provider-entry",
@@ -243,35 +199,20 @@ def _esmc_binding() -> ExecutionBindingDefinition:
                 "credential": {
                     "source": "trusted_environment_configuration",
                 },
-                "endpoint": {
-                    "endpoint_id": "biohub",
-                    "source": "trusted_environment_configuration",
-                },
-                "provider_sdk": {
-                    "name": "esm",
-                    "source_revision": ESM_SDK_REVISION,
-                },
+                "provider_sdk": {"name": "esm"},
             },
             check=_ready,
         ),
         deterministic=True,
         cacheable=True,
-        implementation_identity={
-            "name": "esm3.represent_sequence.biohub-esmc-adapter",
-            "model": BIOHUB_ESMC_MODEL,
-            "source": "Biohub",
-            "provider_operations": ("encode", "logits"),
-            "output_contract": (
-                "locked-SDK-normalized mean embedding with 1152 values plus "
-                "exact (L + 2, 64) sequence-logits shape on the encoded "
-                "token axis"
-            ),
-        },
     )
 
 
 def _available() -> AvailabilityResult:
-    if importlib.util.find_spec("esm") is not None:
+    if (
+        importlib.util.find_spec("esm") is not None
+        and importlib.util.find_spec("esm.sdk") is not None
+    ):
         return AvailabilityResult.available()
     return AvailabilityResult.unavailable(
         code="esm_sdk_unavailable",
@@ -286,7 +227,7 @@ def _local_available() -> AvailabilityResult:
     return AvailabilityResult.unavailable(
         code="local_esm3_runtime_unavailable",
         message=(
-            "The exact local ESM SDK and Torch runtime prerequisites are "
+            "The local ESM SDK and Torch runtime prerequisites are "
             "unavailable."
         ),
         retryable=False,
@@ -294,17 +235,14 @@ def _local_available() -> AvailabilityResult:
 
 
 def _ready(check_input: BindingEnvironment) -> ReadinessResult:
-    if check_input.values["endpoint_id"] != "biohub":
+    del check_input
+    if (
+        importlib.util.find_spec("esm") is None
+        or importlib.util.find_spec("esm.sdk") is None
+    ):
         return ReadinessResult(
             False,
-            reason_code="biohub_endpoint_mismatch",
-        )
-    try:
-        validate_installed_provider_checkout("esm", ESM_SDK_REVISION)
-    except ProviderInstallationUnavailable:
-        return ReadinessResult(
-            False,
-            reason_code="esm_sdk_revision_unavailable",
+            reason_code="esm_sdk_unavailable",
         )
     return ReadinessResult(True)
 
@@ -377,7 +315,6 @@ def _method(
     method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return MethodDefinition(
         method_id=method_id,
-        version=_GENERATION_METHOD_VERSION,
         algorithm_identity={
             "name": "ESM-3 iterative masked-track generation",
             "operation": provider_operation,
@@ -409,10 +346,6 @@ def _method(
             "scale": model["scale"],
             "release": model["release"],
         },
-        checkpoint_identity={
-            "kind": "provider_managed_exact_model_id",
-            "model": model["model"],
-        },
         featurization_identity={
             "input": "ESMProtein",
             "sequence_masks": "_",
@@ -423,11 +356,6 @@ def _method(
                 "exact ProteinPrompt input reference, target layout, and "
                 "provider-returned complete sequence"
             ),
-        },
-        source_identity={
-            "sdk": "esm",
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "service": "Biohub",
         },
         scale_contract={
             "ptm": "provider_native_[0,1]",
@@ -454,7 +382,6 @@ def _local_method(
     }[operation]
     return MethodDefinition(
         method_id=f"esm3.{operation}.esm3_sm_open_v1_local",
-        version=_GENERATION_METHOD_VERSION,
         algorithm_identity={
             "name": "ESM-3 iterative masked-track generation",
             "operation": provider_operation,
@@ -487,12 +414,6 @@ def _local_method(
             "scale": _LOCAL_MODEL["scale"],
             "release": _LOCAL_MODEL["release"],
         },
-        checkpoint_identity={
-            "kind": "immutable_huggingface_snapshot",
-            "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
-            "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-            "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
-        },
         featurization_identity={
             "input": "ESMProtein",
             "sequence_masks": "_",
@@ -503,12 +424,6 @@ def _local_method(
                 "exact ProteinPrompt input reference, target layout, and "
                 "provider-returned complete sequence"
             ),
-        },
-        source_identity={
-            "sdk": "esm",
-            "sdk_source_revision": ESM_SDK_REVISION,
-            "service": "local_open",
-            "snapshot_source": LOCAL_ESM3_SNAPSHOT_SOURCE,
         },
         scale_contract={
             "ptm": "provider_native_[0,1]",
@@ -533,16 +448,13 @@ def _binding(
     method_id = f"esm3.{operation}.esm3_{model['suffix']}"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.{model['route']}",
-        version=_GENERATION_REMOTE_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"esm3.{operation}",
-            _GENERATION_NODE_TYPE_VERSION,
         ),
         method=ContractIdentity(
             "method",
             method_id,
-            _GENERATION_METHOD_VERSION,
         ),
         binding_parameters={},
         environment_fields=_BIOHUB_ENVIRONMENT_FIELDS,
@@ -550,7 +462,6 @@ def _binding(
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"esm3.{operation}/factory",
-                _GENERATION_REMOTE_BINDING_VERSION,
                 {
                     "route": "biohub",
                     "model": model["model"],
@@ -563,32 +474,24 @@ def _binding(
         ),
         adapter_behavior=BehaviorReference(
             "esm3.biohub/adapter",
-            _GENERATION_REMOTE_BINDING_VERSION,
             {
-                "provider_contract": "esm-sdk-generate@917af90b",
+                "provider_contract": "esm-sdk-generate",
                 "track_translation": "documented-provider-output",
-                "engine_identity": "exact_method_contract_digest",
+                "engine_identity": "stable_method_id",
                 "randomness_evidence": "provider_uncontrolled",
             },
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub/availability",
-                _GENERATION_REMOTE_BINDING_VERSION,
                 {"observation": "startup"},
             ),
-            prerequisites={
-                "provider_sdk": {
-                    "name": "esm",
-                    "source_revision": ESM_SDK_REVISION,
-                }
-            },
+            prerequisites={"provider_sdk": {"name": "esm"}},
             check=_available,
         ),
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.biohub/readiness",
-                _GENERATION_REMOTE_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "secret_retention": "none",
@@ -598,26 +501,12 @@ def _binding(
                 "credential": {
                     "source": "trusted_environment_configuration",
                 },
-                "endpoint": {
-                    "endpoint_id": "biohub",
-                    "source": "trusted_environment_configuration",
-                },
-                "provider_sdk": {
-                    "name": "esm",
-                    "source_revision": ESM_SDK_REVISION,
-                },
+                "provider_sdk": {"name": "esm"},
             },
             check=_ready,
         ),
         deterministic=False,
         cacheable=False,
-        implementation_identity={
-            "name": f"esm3.{operation}.biohub-adapter",
-            "model": model["model"],
-            "source": "Biohub",
-            "provider_seed_control": "unsupported_by_provider",
-            "cache_policy": "uncontrolled_remote_generation_is_not_cacheable",
-        },
     )
 
 
@@ -625,16 +514,13 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
     method_id = f"esm3.{operation}.esm3_sm_open_v1_local"
     return ExecutionBindingDefinition(
         binding_id=f"esm3.{operation}.local_open",
-        version=_GENERATION_LOCAL_BINDING_VERSION,
         node_type=ContractIdentity(
             "node_type",
             f"esm3.{operation}",
-            _GENERATION_NODE_TYPE_VERSION,
         ),
         method=ContractIdentity(
             "method",
             method_id,
-            _GENERATION_METHOD_VERSION,
         ),
         binding_parameters={},
         environment_fields=_LOCAL_ENVIRONMENT_FIELDS,
@@ -642,11 +528,9 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         factory=ScientificOperationFactory(
             behavior=BehaviorReference(
                 f"esm3.{operation}/factory",
-                _GENERATION_LOCAL_BINDING_VERSION,
                 {
                     "route": "local_open",
                     "model": LOCAL_ESM3_MODEL,
-                    "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
                 },
             ),
             build=_build_local(
@@ -656,13 +540,12 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         ),
         adapter_behavior=BehaviorReference(
             "esm3.local_open/adapter",
-            _GENERATION_LOCAL_BINDING_VERSION,
             {
                 "provider_contract": (
-                    "esm-sdk-local-generate@917af90b"
+                    "esm-sdk-local-generate"
                 ),
                 "track_translation": "documented-provider-output",
-                "engine_identity": "exact_method_contract_digest",
+                "engine_identity": "stable_method_id",
                 "seed_control": (
                     "exact-torch-seed-from-input-content-and-sample-track-slot"
                 ),
@@ -672,28 +555,20 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
                 "esm3.local_open/availability",
-                _GENERATION_LOCAL_BINDING_VERSION,
                 {
                     "observation": "startup",
                     "model_load": "forbidden",
                 },
             ),
             prerequisites={
-                "provider_sdk": {
-                    "name": "esm",
-                    "source_revision": ESM_SDK_REVISION,
-                },
-                "runtime": {
-                    "name": "torch",
-                    "version": LOCAL_ESM3_TORCH_VERSION,
-                },
+                "provider_sdk": {"name": "esm"},
+                "runtime": {"name": "torch"},
             },
             check=_local_available,
         ),
         readiness=ReadinessDeclaration(
             behavior=BehaviorReference(
                 "esm3.local_open/readiness",
-                _GENERATION_LOCAL_BINDING_VERSION,
                 {
                     "observation": "cache-miss",
                     "secret_retention": "none",
@@ -703,59 +578,26 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
             prerequisites={
                 "model_snapshot": {
                     "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
-                    "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-                    "weight_sha256": dict(
-                        sorted(LOCAL_ESM3_WEIGHT_SHA256.items())
-                    ),
                     "path_source": "trusted_environment_configuration",
                 },
                 "device": {
-                    "source": "trusted_environment_configuration",
+                    "source": "adapter",
                     "policy": LOCAL_TORCH_DEVICE_POLICY,
                     "fallback": "forbidden",
                 },
                 "runtime_directory": {
                     "source": "trusted_environment_configuration",
                 },
-                "performance_settings": {
-                    "source": "trusted_environment_configuration",
-                    "exact_value": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
-                },
-                "provider_sdk": {
-                    "name": "esm",
-                    "source_revision": ESM_SDK_REVISION,
-                },
+                "provider_sdk": {"name": "esm"},
             },
             check=_local_ready,
         ),
         deterministic=False,
         cacheable=False,
-        implementation_identity={
-            "name": f"esm3.{operation}.local-open-adapter",
-            "model": LOCAL_ESM3_MODEL,
-            "snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-            "weight_sha256": dict(sorted(LOCAL_ESM3_WEIGHT_SHA256.items())),
-            "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
-            "device_policy": LOCAL_TORCH_DEVICE_POLICY,
-            "device_fallback": "forbidden",
-            "torch_version": LOCAL_ESM3_TORCH_VERSION,
-            "performance_settings": dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
-            "runtime_directory_policy": (
-                "performance-only-binding-scoped-private"
-            ),
-            "seed_control": "torch_local",
-            "determinism_contract": (
-                "exact Torch seed derived from configured base seed, canonical "
-                "ProteinPrompt content digest, and zero-based sample-track "
-                "slot; no cross-device bitwise guarantee"
-            ),
-            "cache_policy": "runtime-device-specific_generation_not_cacheable",
-        },
         effective_randomness_parameters=("effective_seed",),
         effective_randomness_resolver=EffectiveRandomnessResolver(
             behavior=BehaviorReference(
                 "esm3.local/effective-randomness",
-                _GENERATION_LOCAL_BINDING_VERSION,
                 {
                     "provider_seed_control": "torch_local",
                     "sample_order": "zero-based",
@@ -771,7 +613,6 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="esm3",
-    package_version=_PACKAGE_VERSION,
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/generate_sequence.yaml"),

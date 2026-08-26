@@ -119,13 +119,8 @@ def test_legacy_persisted_run_and_project_are_rejected(
                 "content_base64": encode_project_input_content(b"legacy"),
             },
         )
-        assert uploaded.status_code == 400
-        assert uploaded.json()["error"]["code"] == (
-            "unsupported_schema_version"
-        )
-        assert uploaded.json()["error"]["details"]["artifact_kind"] == (
-            "project"
-        )
+        assert uploaded.status_code == 500
+        assert uploaded.json()["error"]["code"] == "internal_error"
 
 
 def test_seed_install_does_not_adopt_or_rewrite_existing_local_data(

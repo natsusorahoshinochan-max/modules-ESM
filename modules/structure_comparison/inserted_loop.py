@@ -125,7 +125,6 @@ def _score_by_subject(
         observation
         for observation in collection.entries
         if observation.metric.contract_id == metric_id
-        and observation.metric.contract_version == "3.0.0"
         and observation.method == method
     )
     result = {observation.subject: observation for observation in selected}
@@ -179,7 +178,6 @@ def _per_residue_confidence(
         observation
         for observation in collection.entries
         if observation.metric.contract_id == "structure.plddt.per_residue"
-        and observation.metric.contract_version == "3.0.0"
         and observation.method in ESMFOLD2_FOLD_METHOD_REFERENCES
         and type(observation.context) is IntrinsicObservationContext
         and observation.source_partition == "prediction_confidence"

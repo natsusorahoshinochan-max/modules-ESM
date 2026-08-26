@@ -16,7 +16,6 @@ from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
 
-ESM_SDK_REVISION = "917af90b624535eed1e072d343c717e3ec11fef4"
 BIOHUB_ESM3_MEDIUM_MODEL = "esm3-medium-2024-08"
 BIOHUB_ESM3_OPEN_MODEL = "esm3-open-2024-03"
 _ATOM37_INDEX = {
@@ -69,15 +68,14 @@ _PROVIDER_SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYXBZUO")
 def build_biohub_esm3_client(
     *,
     model_name: str,
-    endpoint_id: str,
     credential_handle: object,
 ) -> Any:
-    """Construct the exact locked SDK client from trusted deployment values."""
+    """Construct the configured SDK client from trusted deployment values."""
     from esm.sdk import client
 
     return client(
         model=model_name,
-        url={"biohub": "https://biohub.ai"}[endpoint_id],
+        url="https://biohub.ai",
         token=credential_handle,
     )
 
@@ -276,7 +274,7 @@ def protein_prompt_to_provider(prompt: ProteinPrompt) -> Any:
     """Translate one exact ProteinPrompt without silently mutating tracks."""
     if "," in prompt.target_layout.chain_id:
         raise ValueError(
-            "The locked ESM SDK cannot preserve multi-chain aligned tracks"
+            "The ESM SDK cannot preserve multi-chain aligned tracks"
         )
     from esm.sdk.api import ESMProtein
 
@@ -639,7 +637,6 @@ class BiohubESM3Adapter(_BaseESM3Adapter):
             return self._resolved_client
         client = build_biohub_esm3_client(
             model_name=self._model_name,
-            endpoint_id=self._environment["endpoint_id"],
             credential_handle=self._environment["credential_handle"],
         )
         self._resolved_client = client

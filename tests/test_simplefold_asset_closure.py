@@ -6,27 +6,15 @@ from core.catalog.builder import build_frozen_catalog
 
 from protein_workbench_public.bootstrap import module_registrations
 
-import json
-import subprocess
 from pathlib import Path
 
 import pytest
-from core.local_torch_device import expected_local_torch_device
 
 from modules.folding.simplefold_asset_closure import (
     SimpleFoldClosureFile,
     SimpleFoldClosureSource,
     SimpleFoldProviderAssetClosure,
 )
-
-
-def _git(root: Path, *args: str) -> str:
-    return subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
 
 
 def _fixture_closure(tmp_path: Path) -> tuple[
@@ -45,21 +33,8 @@ def _fixture_closure(tmp_path: Path) -> tuple[
     (esm2_model_root / "contact.pt").write_bytes(b"unrelated\n")
     (source_root / "hubconf.py").write_bytes(b"hub\n")
     (source_root / "esm" / "__init__.py").write_bytes(b"init\n")
+    (source_root / "esm" / "pretrained.py").write_bytes(b"pretrained\n")
     (source_root / "esm" / "unrelated.py").write_bytes(b"unrelated\n")
-    _git(source_root, "init", "--quiet")
-    _git(source_root, "add", "hubconf.py", "esm/__init__.py")
-    _git(
-        source_root,
-        "-c",
-        "user.name=Fixture",
-        "-c",
-        "user.email=fixture@example.invalid",
-        "commit",
-        "--quiet",
-        "-m",
-        "fixture",
-    )
-    revision = _git(source_root, "rev-parse", "HEAD")
     closure = SimpleFoldProviderAssetClosure(
         binding_id="fixture.simplefold",
         files=(
@@ -68,20 +43,12 @@ def _fixture_closure(tmp_path: Path) -> tuple[
                 environment_key="model_root",
                 runtime_group="simplefold_models",
                 runtime_filename="model.ckpt",
-                sha256=(
-                    "98ad61a25e3683b6adf2474b01bbe1c27de6aad2ce3a80ff"
-                    "4140fe473c14e691"
-                ),
             ),
             SimpleFoldClosureFile(
                 role="language_model",
                 environment_key="esm2_model_root",
                 runtime_group="esm2_models",
                 runtime_filename="esm2.pt",
-                sha256=(
-                    "facf4724c27c2071c26834ed10b5b81b045b42ea0d48ff73"
-                    "7b7a32b3d8d39294"
-                ),
             ),
         ),
         sources=(
@@ -89,12 +56,6 @@ def _fixture_closure(tmp_path: Path) -> tuple[
                 role="language_model_runtime_source",
                 environment_key="esm2_source_root",
                 runtime_group="esm2_source",
-                revision=revision,
-                reviewed_files=("esm/__init__.py", "hubconf.py"),
-                source_tree_sha256=(
-                    "f9348fda71bf91ee55355a6044f2fea9aa021e3a32ce25438"
-                    "1fae34974dca70b"
-                ),
             ),
         ),
     )
@@ -105,7 +66,7 @@ def _fixture_closure(tmp_path: Path) -> tuple[
     }
 
 
-def test_binding_declarations_fix_distinct_exact_asset_closures() -> None:
+def test_binding_declarations_select_distinct_route_files() -> None:
     from modules.folding.simplefold_asset_closure import (
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
@@ -141,45 +102,9 @@ def test_binding_declarations_fix_distinct_exact_asset_closures() -> None:
             "simplefold_360M.ckpt",
         }
     )
-    assert {
-        (source.role, source.revision)
-        for source in SIMPLEFOLD_FOLDING_ASSET_CLOSURE.sources
-    } == {
-        (
-            source.role,
-            source.revision,
-        )
-        for source in SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.sources
-    }
-    language_source = next(
-        source
-        for source in SIMPLEFOLD_FOLDING_ASSET_CLOSURE.sources
-        if source.role == "language_model_runtime_source"
+    assert SIMPLEFOLD_FOLDING_ASSET_CLOSURE.sources == (
+        SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE.sources
     )
-    assert language_source.reviewed_files == (
-        "esm/__init__.py",
-        "esm/axial_attention.py",
-        "esm/constants.py",
-        "esm/data.py",
-        "esm/model/__init__.py",
-        "esm/model/esm1.py",
-        "esm/model/esm2.py",
-        "esm/model/msa_transformer.py",
-        "esm/modules.py",
-        "esm/multihead_attention.py",
-        "esm/pretrained.py",
-        "esm/rotary_embedding.py",
-        "esm/version.py",
-    )
-
-
-def test_incomplete_source_declarations_fail_at_construction() -> None:
-    with pytest.raises(ValueError, match="source declaration is incomplete"):
-        SimpleFoldClosureSource(
-            role="language_model_runtime_source",
-            revision="fixture-revision",
-            environment_key="esm2_source_root",
-        )
 
 
 def test_readiness_does_not_rewrite_local_declaration_errors(
@@ -202,18 +127,24 @@ def test_readiness_does_not_rewrite_local_declaration_errors(
         "admit_simplefold_provider_asset_closure",
         raise_declaration_error,
     )
+    monkeypatch.setattr(
+        folding_adapter,
+        "simplefold_runtime_structurally_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        confidence_adapter,
+        "simplefold_confidence_runtime_structurally_available",
+        lambda: True,
+    )
 
     with pytest.raises(RuntimeError, match="fixture declaration error"):
-        folding_adapter.simplefold_readiness({
-            "device": expected_local_torch_device(),
-        })
+        folding_adapter.simplefold_readiness({})
     with pytest.raises(RuntimeError, match="fixture declaration error"):
-        confidence_adapter.simplefold_confidence_readiness({
-            "device": expected_local_torch_device(),
-        })
+        confidence_adapter.simplefold_confidence_readiness({})
 
 
-def test_admitted_closure_binds_verified_roots_without_copying(
+def test_admitted_closure_binds_configured_roots_without_copying(
     tmp_path: Path,
 ) -> None:
     from modules.folding.simplefold_asset_closure import (
@@ -230,10 +161,6 @@ def test_admitted_closure_binds_verified_roots_without_copying(
     (environment["esm2_source_root"] / "hubconf.py").write_bytes(
         b"trusted-source-after-admission\n"
     )
-    (environment["esm2_source_root"] / ".git").rename(
-        environment["esm2_source_root"] / ".git-after-admission"
-    )
-
     bound = bind_simplefold_provider_asset_closure(
         closure,
         environment,
@@ -250,7 +177,7 @@ def test_admitted_closure_binds_verified_roots_without_copying(
     )
 
 
-def test_declaration_projects_readiness_and_identity_without_acquisition_metadata(
+def test_declaration_projects_operational_readiness_without_content_identity(
 ) -> None:
     from modules.folding.simplefold_asset_closure import (
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
@@ -262,30 +189,24 @@ def test_declaration_projects_readiness_and_identity_without_acquisition_metadat
         SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
     ):
         readiness = closure.readiness_prerequisite()
-        identity = closure.provider_identity()
         assert {
-            (item["role"], item["runtime_filename"], item["sha256"])
+            (item["role"], item["runtime_filename"])
             for item in readiness["files"]
         } == {
-            (entry.role, entry.runtime_filename, entry.sha256)
+            (entry.role, entry.runtime_filename)
             for entry in closure.files
         }
         assert {
-            (item["role"], item["revision"])
+            item["role"]
             for item in readiness["sources"]
         } == {
-            (entry.role, entry.revision) for entry in closure.sources
+            entry.role for entry in closure.sources
         }
-        projected = json.dumps(
-            {"readiness": readiness, "identity": identity},
-            sort_keys=True,
-        )
-        assert '"bytes"' not in projected
-        assert '"etag"' not in projected
-        assert '"object"' not in projected
+        assert "sha256" not in repr(readiness)
+        assert "revision" not in repr(readiness)
 
 
-def test_admission_rejects_declared_file_and_reviewed_source_changes(
+def test_admission_rejects_missing_route_resource(
     tmp_path: Path,
 ) -> None:
     from modules.folding.simplefold_asset_closure import (
@@ -293,8 +214,8 @@ def test_admission_rejects_declared_file_and_reviewed_source_changes(
     )
 
     file_closure, file_environment = _fixture_closure(tmp_path / "file")
-    (file_environment["model_root"] / "model.ckpt").write_bytes(b"changed\n")
-    with pytest.raises(RuntimeError, match="closure file changed"):
+    (file_environment["model_root"] / "model.ckpt").unlink()
+    with pytest.raises(RuntimeError, match="closure file is unavailable"):
         admit_simplefold_provider_asset_closure(
             file_closure,
             file_environment,
@@ -303,10 +224,13 @@ def test_admission_rejects_declared_file_and_reviewed_source_changes(
     source_closure, source_environment = _fixture_closure(
         tmp_path / "source"
     )
-    (source_environment["esm2_source_root"] / "hubconf.py").write_bytes(
-        b"changed\n"
-    )
-    with pytest.raises(RuntimeError, match="reviewed source tree changed"):
+    (
+        source_environment["esm2_source_root"] / "esm" / "pretrained.py"
+    ).unlink()
+    with pytest.raises(
+        RuntimeError,
+        match="language-model source is unavailable",
+    ):
         admit_simplefold_provider_asset_closure(
             source_closure,
             source_environment,
@@ -321,19 +245,17 @@ def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
     )
 
     catalog = build_frozen_catalog(module_registrations())
-    for binding_id, version, closure in (
+    for binding_id, closure in (
         (
             "folding.fold.simplefold_local",
-            "11.0.0",
             SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
         ),
         (
             "folding.simplefold_confidence.simplefold_local",
-            "7.0.0",
             SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE,
         ),
     ):
-        binding = catalog.require_contract("binding", binding_id, version)
+        binding = catalog.require_contract("binding", binding_id)
         prerequisites = binding.descriptor["readiness_declaration"][
             "prerequisites"
         ]
@@ -343,37 +265,29 @@ def test_binding_readiness_descriptors_are_projected_from_owned_declarations(
 
     catalog.require_contract(
         "method",
-        "folding.fold.simplefold_100m_c7a5570",
-        "5.0.0",
-    )
+        "folding.fold.simplefold_100m_c7a5570")
     catalog.require_contract(
         "method",
         (
             "folding.simplefold_confidence."
             "existing_structure_1_6b_c7a5570"
-        ),
-        "4.0.0",
-    )
-    for contract_kind, contract_id, version in (
+        ))
+    for contract_kind, contract_id in (
         (
             "method",
             "structure_comparison.three_way_consistency.threshold_graph",
-            "3.0.0",
         ),
         (
             "port_type",
             "structure_comparison.three_way_consistency",
-            "4.0.0",
         ),
         (
             "node_type",
             "structure_comparison.classify_three_way_consistency",
-            "4.0.0",
         ),
         (
             "binding",
             "structure_comparison.classify_three_way_consistency.direct",
-            "4.0.0",
         ),
     ):
-        catalog.require_contract(contract_kind, contract_id, version)
+        catalog.require_contract(contract_kind, contract_id)

@@ -1,6 +1,4 @@
-schema_version: "2.1.0"
 metric_id: structure_comparison.tm_score
-version: "3.0.0"
 title: Template modelling score
 description: TM-score projected from exact v4 alignment residuals and normalized by the full reference resolved-axis residue count.
 value_shape: scalar

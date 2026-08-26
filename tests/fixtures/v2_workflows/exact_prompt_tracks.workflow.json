@@ -5,9 +5,7 @@
     {
       "node_id": "prompt-values",
       "node_type_id": "contract_test.prompt_authoring_values",
-      "node_type_version": "4.0.0",
       "binding_id": "contract_test.prompt_authoring_values.direct",
-      "binding_version": "4.0.0",
       "node_parameters": {
         "fixture": "canonical"
       },
@@ -16,18 +14,14 @@
     {
       "node_id": "map-sequence-track",
       "node_type_id": "prompt_authoring.map_residue_track",
-      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.map_residue_track.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "override-secondary-structure",
       "node_type_id": "prompt_authoring.override_residue_track",
-      "node_type_version": "3.0.0",
       "binding_id": "prompt_authoring.override_residue_track.direct",
-      "binding_version": "3.0.0",
       "node_parameters": {
         "overrides": [
           {
@@ -67,133 +61,5 @@
     }
   ],
   "observation_selectors": [],
-  "selection_objectives": [],
-  "contract_lock": [
-    {
-      "contract_kind": "binding",
-      "contract_id": "contract_test.prompt_authoring_values.direct",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:a12b97af3fbed67ed01a0fa8f40ca88f31eb781d68a54b75bcbd69e91bd58821"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "prompt_authoring.map_residue_track.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:194c777385749d609b3c604cc5f8a826275e7831b1ecf28bfd66e3be145c436a"
-    },
-    {
-      "contract_kind": "binding",
-      "contract_id": "prompt_authoring.override_residue_track.direct",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c4f803c6cd97421908f4bf8cbc78b7cb8e9d263ab304ca0b386a4c4514d4ae11"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "contract_test.prompt_authoring_values.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:b5baaa29dc18e15378a53fa0934517167213ff86094a8f26ff20ab40c7c6c495"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "prompt_authoring.map_residue_track.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:51fa3429fb46006eb4d4c679fb228187e3f2df0e7f1177f65b44d93fff88bb7a"
-    },
-    {
-      "contract_kind": "method",
-      "contract_id": "prompt_authoring.override_residue_track.method",
-      "contract_version": "2.1.0",
-      "contract_digest": "sha256:cb2bd7bbcb53913407b4f3c1b3c225dff71a905e3b02b7b3986c6db0cc6d933e"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "contract_test.prompt_authoring_values",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:7a271b21e92099a0ec6d9f4ffd04734db69fca2a03a4e7ae8953a1ebf3a57371"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "prompt_authoring.map_residue_track",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c7e859bba4799f92e9d1f9068e94ae1c9cd86f2c215a656c23d62ec5c8211e0c"
-    },
-    {
-      "contract_kind": "node_type",
-      "contract_id": "prompt_authoring.override_residue_track",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:61a53e1b2e5629d3bf8f2b6833aa369c6eaf574c7d49bff1742cb24be92dd880"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "function.annotations",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:588a10bc34079eb599d5dba191be126fa067675400427d6b9191d348c32d98a4"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "prompt_authoring.track.sasa",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:f44852095ba958fe59b5bce9cb8beae305a2b152f52c4a7d04b596ee2db2b7d4"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "prompt_authoring.track.secondary_structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:84ed841c480f9c0087f2030a999ac17b23963b8fee94bba9f0979238de52d9d9"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "prompt_authoring.track.sequence",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:52968fb80baa83bccb31c1ef27aa90a6142321747e095dc2ec06b9a3ee26f222"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "prompt_authoring.track.structure",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:b3558d8c8b1fa558e56e021bdcf7b1bc7554b3ef8fcadaf5213358fd9de3ed02"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "prompt_authoring.track.visibility",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:f8ee8fd28a4493d394cc91058d6edf5ae91bea91bede971fbfc65cfb5dc00cc4"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "protein.prompt",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:6e95a89810d7cba459009d6b798b9d9290180af0c020d868ad8bd3bc72ef7b44"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "protein.sequence",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:914c2c5b605073080b29dbaf8c83decbd7f98cc2d2455311f5865f2fcee9c3a0"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "protein.structure",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:329ebc4c4f2c3323afa7577999882ef51a7588e5803be4d2b0da5d6e07fe8e0b"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "residue.layout",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:c0b66618ee52d36bda8f857cb422f195152ecfebfc4ed48a45e3924edacb08fd"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "residue.map",
-      "contract_version": "3.0.0",
-      "contract_digest": "sha256:49fb91759842c064b47b337dc1c6568b1e3035b6965286dcd29a95bcf6525b52"
-    },
-    {
-      "contract_kind": "port_type",
-      "contract_id": "structure_transform.resolved_residue_axis",
-      "contract_version": "4.0.0",
-      "contract_digest": "sha256:0a91e67ef2c9bebfa9793dd10358a4bbe3ad187f9987159cd0f9a767233fc890"
-    }
-  ]
+  "selection_objectives": []
 }

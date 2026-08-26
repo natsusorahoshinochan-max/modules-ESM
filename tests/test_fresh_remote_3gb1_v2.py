@@ -8,7 +8,6 @@ from core.catalog.builder import build_frozen_catalog
 from core.workflow.compiler import (
     CompilationRequest,
     compile as compile_workflow,
-    lock_workflow,
 )
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -23,21 +22,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from core.local_torch_device import expected_local_torch_device
 
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from datatypes.candidate import CandidateCollection
 from datatypes.observation import PairwiseCandidateMapping
-from tests.support.protocol import validate_event
 from tests.acceptance.retained_evidence import (
     require_retained_evidence,
     retain_service_run,
 )
 from tests.acceptance.biohub_environment import (
     biohub_esm3_esmfold2_environment,
-)
-from tests.fixtures.canonical_3gb1_v2 import (
-    CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST,
 )
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 from tests.acceptance.installed_harness import (
@@ -57,58 +51,26 @@ INPUT_SHA256 = (
     "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
 )
 PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
-PROTEINMPNN_BINDING_VERSION = "12.0.0"
 PROTEINMPNN_METHOD_ID = "proteinmpnn.design.v_48_020_8907e667"
-PROTEINMPNN_METHOD_VERSION = "6.0.0"
 REMOTE_BINDINGS = {
     "esm3.generate_paired.biohub_medium": {
-        "binding_version": "8.0.0",
         "method_id": "esm3.generate_paired.esm3_medium_2024_08",
-        "method_version": "5.0.0",
-        "adapter_id": "esm3.biohub/adapter",
-        "adapter_version": "8.0.0",
-        "model": "esm3-medium-2024-08",
-        "source": "Biohub",
     },
     "folding.fold.esmfold2_remote": {
-        "binding_version": "9.0.0",
         "method_id": "folding.fold.esmfold2_fast_biohub_2026_05",
-        "method_version": "4.0.0",
-        "adapter_id": "folding.esmfold2_remote/adapter",
-        "adapter_version": "9.0.0",
-        "model": "esmfold2-fast-2026-05",
-        "source": "Biohub",
     },
 }
 LOCAL_BINDINGS = {
     "esm3.generate_paired.local_open": {
-        "binding_version": "9.0.0",
         "method_id": "esm3.generate_paired.esm3_sm_open_v1_local",
-        "method_version": "5.0.0",
-        "adapter_id": "esm3.local_open/adapter",
-        "adapter_version": "9.0.0",
-        "model": "esm3_sm_open_v1",
-        "source": "biohub/esm3-sm-open-v1",
     },
     "folding.fold.esmfold2_local": {
-        "binding_version": "11.0.0",
         "method_id": "folding.fold.esmfold2_hf_1ebf0e3",
-        "method_version": "6.0.0",
-        "adapter_id": "folding.esmfold2_local/adapter",
-        "adapter_version": "11.0.0",
-        "model": "biohub/ESMFold2",
-        "source": "Hugging Face",
     },
 }
 _LOCAL_BINDING_REPLACEMENTS = {
-    ("esm3.generate_paired.biohub_medium", "8.0.0"): (
-        "esm3.generate_paired.local_open",
-        "9.0.0",
-    ),
-    ("folding.fold.esmfold2_remote", "9.0.0"): (
-        "folding.fold.esmfold2_local",
-        "11.0.0",
-    ),
+    "esm3.generate_paired.biohub_medium": "esm3.generate_paired.local_open",
+    "folding.fold.esmfold2_remote": "folding.fold.esmfold2_local",
 }
 
 
@@ -119,12 +81,10 @@ def _route_bindings(route: str) -> dict[str, dict[str, str]]:
 def _select_local_model_bindings(workflow: dict[str, Any]) -> None:
     replaced = 0
     for node in workflow["nodes"]:
-        replacement = _LOCAL_BINDING_REPLACEMENTS.get(
-            (node["binding_id"], node["binding_version"])
-        )
+        replacement = _LOCAL_BINDING_REPLACEMENTS.get(node["binding_id"])
         if replacement is None:
             continue
-        node["binding_id"], node["binding_version"] = replacement
+        node["binding_id"] = replacement
         replaced += 1
     assert replaced == 3
 
@@ -137,7 +97,6 @@ def _author_local_workflow(
 ) -> None:
     _select_local_model_bindings(workflow)
     workflow["workflow_id"] = workflow_id
-    workflow["contract_lock"] = []
     input_nodes = [
         node
         for node in workflow["nodes"]
@@ -168,29 +127,24 @@ def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
 
     nodes = {node["node_id"]: node for node in workflow["nodes"]}
     assert {
-        node_id: (
-            nodes[node_id]["binding_id"],
-            nodes[node_id]["binding_version"],
-        )
+        node_id: nodes[node_id]["binding_id"]
         for node_id in ("generate-paired", "fold-sequences", "fold-final")
     } == {
-        "generate-paired": ("esm3.generate_paired.local_open", "9.0.0"),
-        "fold-sequences": ("folding.fold.esmfold2_local", "11.0.0"),
-        "fold-final": ("folding.fold.esmfold2_local", "11.0.0"),
+        "generate-paired": "esm3.generate_paired.local_open",
+        "fold-sequences": "folding.fold.esmfold2_local",
+        "fold-final": "folding.fold.esmfold2_local",
     }
     assert workflow["workflow_id"] == "fresh-local-canonical-3gb1"
-    assert workflow["contract_lock"] == []
     assert nodes["import-3gb1"]["node_parameters"] == {
         "project_input_ref": project_input_ref
     }
 
     decoded = decode_workflow_document(workflow)
-    locked = lock_workflow(decoded, catalog)
-    compiled = compile_workflow(CompilationRequest(locked, 1), catalog)
-    assert compiled.resolved_contracts == locked.contract_lock
+    compiled = compile_workflow(CompilationRequest(decoded), catalog)
+    assert compiled.workflow_id == decoded.workflow_id
 
 
-def _environment(route: str) -> dict[tuple[str, str], Any]:
+def _environment(route: str) -> dict[str, dict[str, Any]]:
     if route == "local":
         from protein_workbench_public.provider_environment import (
             provider_environment_configuration,
@@ -199,13 +153,10 @@ def _environment(route: str) -> dict[tuple[str, str], Any]:
         return provider_environment_configuration(os.environ)
 
     environment = biohub_esm3_esmfold2_environment()
-    environment[(PROTEINMPNN_BINDING_ID, PROTEINMPNN_BINDING_VERSION)] = {
-        "values": {
-            "device": expected_local_torch_device(),
-            "provider_root": Path(
-                os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
-            ).resolve(),
-        },
+    environment[PROTEINMPNN_BINDING_ID] = {
+        "provider_root": Path(
+            os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
+        ).resolve(),
     }
     return environment
 
@@ -224,9 +175,7 @@ def _values(
         and item["output_port"] == output_port
     )
     codec = catalog.require_port_type(
-        output["port_type"]["contract_id"],
-        output["port_type"]["contract_version"],
-    )
+        output["port_type"]["contract_id"])
     return tuple(
         codec.decode(
             service.typed_value(
@@ -312,24 +261,15 @@ def _assert_provider_invocations(
     }
     for node_id, (binding_id, count) in expected.items():
         node = nodes[node_id]
-        binding_version = (
-            PROTEINMPNN_BINDING_VERSION
-            if binding_id == PROTEINMPNN_BINDING_ID
-            else route_bindings[binding_id]["binding_version"]
-        )
-        assert (node["binding_id"], node["binding_version"]) == (
-            binding_id,
-            binding_version,
-        )
+        assert node["binding_id"] == binding_id
         assert dispositions[node_id]["outcome"] == "succeeded"
         assert dispositions[node_id]["resolution"] == "executed"
         binding = catalog.require_contract(
-            "binding", binding_id, binding_version
-        )
+            "binding", binding_id)
         assert len(invocations[node_id]) == count
         assert all(
             invocation["engine_identity"]
-            == binding.descriptor["method"]["contract_digest"]
+            == binding.descriptor["method"]["contract_id"]
             for invocation in invocations[node_id]
         )
         assert all(
@@ -429,363 +369,19 @@ def _assert_provider_invocations(
 
     for binding_id, expected_contract in route_bindings.items():
         binding = catalog.require_contract(
-            "binding", binding_id, expected_contract["binding_version"]
-        )
+            "binding", binding_id)
         method = catalog.require_contract(
             "method",
-            expected_contract["method_id"],
-            expected_contract["method_version"],
-        )
+            expected_contract["method_id"])
         assert binding.descriptor["method"] == method.reference()
-        assert (
-            binding.descriptor["route_behavior"]["behavior_id"],
-            binding.descriptor["route_behavior"]["behavior_version"],
-        ) == (
-            expected_contract["adapter_id"],
-            expected_contract["adapter_version"],
-        )
-        assert binding.descriptor["implementation_identity"]["model"] == (
-            expected_contract["model"]
-        )
-        assert method.descriptor["model_identity"]["source"] == (
-            expected_contract["source"]
-        )
 
     proteinmpnn_method = catalog.require_contract(
-        "method", PROTEINMPNN_METHOD_ID, PROTEINMPNN_METHOD_VERSION
-    )
+        "method", PROTEINMPNN_METHOD_ID)
     proteinmpnn_binding = catalog.require_contract(
-        "binding", PROTEINMPNN_BINDING_ID, PROTEINMPNN_BINDING_VERSION
-    )
+        "binding", PROTEINMPNN_BINDING_ID)
     assert proteinmpnn_binding.descriptor["method"] == (
         proteinmpnn_method.reference()
     )
-
-
-def _provider_invocation_contract_fixture(
-    route: str = "biohub",
-) -> tuple[Any, dict[str, Any], dict[str, Any], tuple[dict[str, Any], ...]]:
-    catalog = build_frozen_catalog(module_registrations())
-    route_bindings = _route_bindings(route)
-    esm3_binding_id = next(
-        binding_id
-        for binding_id in route_bindings
-        if binding_id.startswith("esm3.")
-    )
-    fold_binding_id = next(
-        binding_id
-        for binding_id in route_bindings
-        if binding_id.startswith("folding.")
-    )
-    workflow_nodes: list[dict[str, Any]] = []
-    dispositions: list[dict[str, Any]] = []
-    event_payloads: list[dict[str, Any]] = []
-
-    def add_node(
-        node_id: str,
-        binding_id: str,
-        binding_version: str,
-        calls: tuple[
-            tuple[
-                str,
-                str,
-                str | None,
-                dict[str, Any] | None,
-                str,
-            ],
-            ...,
-        ],
-    ) -> None:
-        workflow_nodes.append({
-            "node_id": node_id,
-            "binding_id": binding_id,
-            "binding_version": binding_version,
-        })
-        dispositions.append({
-            "node_id": node_id,
-            "outcome": "succeeded",
-            "resolution": "executed",
-        })
-        node_attempt_id = f"node-attempt-{node_id}"
-        operation_attempt_id = f"operation-attempt-{node_id}"
-        event_payloads.extend(
-            (
-                {
-                    "type": "node_attempt_started",
-                    "node_attempt_id": node_attempt_id,
-                    "node_id": node_id,
-                },
-                {
-                    "type": "operation_attempt_started",
-                    "operation_attempt_id": operation_attempt_id,
-                    "node_attempt_id": node_attempt_id,
-                },
-            )
-        )
-        engine_identity = catalog.require_contract(
-            "binding", binding_id, binding_version
-        ).descriptor["method"]["contract_digest"]
-        for (
-            invocation_id,
-            engine_role,
-            parent_invocation_id,
-            provenance,
-            terminal_status,
-        ) in calls:
-            started = {
-                "type": "engine_invocation_started",
-                "operation_attempt_id": operation_attempt_id,
-                "invocation_id": invocation_id,
-                "engine_identity": engine_identity,
-                "engine_role": engine_role,
-            }
-            if parent_invocation_id is not None:
-                started["parent_invocation_id"] = parent_invocation_id
-            if provenance is not None:
-                started["invocation_provenance"] = provenance
-            event_payloads.extend(
-                (
-                    started,
-                    {
-                        "type": "engine_invocation_terminal",
-                        "invocation_id": invocation_id,
-                        "status": terminal_status,
-                    },
-                )
-            )
-
-    generation_randomness = (
-        {"effective_randomness": {"control": "provider_uncontrolled"}}
-        if route == "biohub"
-        else {
-            "effective_randomness": {
-                "control": "exact_seed",
-                "effective_seed": 1603,
-            }
-        }
-    )
-    add_node(
-        "generate-paired",
-        esm3_binding_id,
-        route_bindings[esm3_binding_id]["binding_version"],
-        tuple(
-            call
-            for index in range(10)
-            for call in (
-                (
-                    f"sequence-parent-{index}",
-                    "sequence_parent",
-                    None,
-                    generation_randomness,
-                    "succeeded",
-                ),
-                (
-                    f"structure-child-{index}",
-                    "structure_child",
-                    f"sequence-parent-{index}",
-                    generation_randomness,
-                    "succeeded",
-                ),
-            )
-        ),
-    )
-    for node_id, count in (("fold-sequences", 10), ("fold-final", 15)):
-        add_node(
-            node_id,
-            fold_binding_id,
-            route_bindings[fold_binding_id]["binding_version"],
-            tuple(
-                (
-                    f"{node_id}-{index}",
-                    f"fold_parent_{index}_sample_0",
-                    None,
-                    generation_randomness,
-                    "succeeded",
-                )
-                for index in range(count)
-            ),
-        )
-    add_node(
-        "design-children",
-        PROTEINMPNN_BINDING_ID,
-        PROTEINMPNN_BINDING_VERSION,
-        tuple(
-            (
-                f"design-child-{index}",
-                f"design_parent_{index}",
-                None,
-                {
-                    "effective_randomness": {
-                        "control": "exact_seed",
-                        "effective_seed": 1603 + index,
-                    },
-                    "provider_residue_projection": {
-                        "position_semantics": "one_based_chain_local",
-                        "workbench_chain_order": ["A"],
-                        "provider_structure_chain_order": ["A"],
-                        "provider_chain_order": ["A"],
-                        "entries": [
-                            {
-                                "residue_id": "A:1",
-                                "segment_index": 0,
-                                "provider_chain_id": "A",
-                                "provider_position": 1,
-                            }
-                        ],
-                    },
-                },
-                "succeeded",
-            )
-            for index in range(3)
-        ),
-    )
-    add_node(
-        "align-fixed",
-        "structure_comparison.align_fixed_reference.sequence_primary_affine",
-        "5.0.0",
-        (
-            (
-                "local-alignment-failed-attempt",
-                "evidence_tm_score",
-                None,
-                None,
-                "failed",
-            ),
-            (
-                "local-alignment-retry",
-                "evidence_tm_score",
-                None,
-                None,
-                "succeeded",
-            ),
-        ),
-    )
-    return (
-        catalog,
-        {"nodes": workflow_nodes},
-        {"node_dispositions": dispositions},
-        tuple(
-            {
-                "schema_namespace": "protein-workbench-public/v2",
-                "project_id": "canonical-3gb1-fixture",
-                "run_id": "run-fixture",
-                "sequence": sequence,
-                "cursor": f"cursor-{sequence}",
-                "emitted_at": "2026-08-17T00:00:00+00:00",
-                "event": event,
-            }
-            for sequence, event in enumerate(event_payloads, start=1)
-        ),
-    )
-
-
-@pytest.mark.parametrize("route", ("biohub", "local"))
-def test_provider_invocation_contract_allows_selected_workflow_invocations(
-    route: str,
-) -> None:
-    fixture = _provider_invocation_contract_fixture(route)
-    for message in fixture[3]:
-        validate_event(message)
-    _assert_provider_invocations(*fixture, route)
-
-
-def test_provider_invocation_contract_rejects_a_missing_call() -> None:
-    catalog, workflow, projection, events = (
-        _provider_invocation_contract_fixture()
-    )
-    incomplete = tuple(
-        message
-        for message in events
-        if message["event"].get("invocation_id") != "fold-final-14"
-    )
-    for message in incomplete:
-        validate_event(message)
-
-    with pytest.raises(AssertionError):
-        _assert_provider_invocations(
-            catalog,
-            workflow,
-            projection,
-            incomplete,
-            "biohub",
-        )
-
-
-def test_provider_invocation_contract_rejects_the_wrong_binding() -> None:
-    catalog, workflow, projection, events = (
-        _provider_invocation_contract_fixture()
-    )
-    wrong_workflow = {
-        "nodes": [
-            {
-                **node,
-                "binding_version": (
-                    "6.0.0"
-                    if node["node_id"] == "generate-paired"
-                    else node["binding_version"]
-                ),
-            }
-            for node in workflow["nodes"]
-        ]
-    }
-
-    with pytest.raises(AssertionError):
-        _assert_provider_invocations(
-            catalog,
-            wrong_workflow,
-            projection,
-            events,
-            "biohub",
-        )
-
-
-@pytest.mark.parametrize(
-    ("invocation_id", "replacement"),
-    (
-        ("design-child-0", {"engine_identity": "sha256:" + "0" * 64}),
-        ("design-child-0", {"engine_role": "wrong-role"}),
-        ("fold-final-0", {"status": "failed"}),
-    ),
-)
-def test_provider_invocation_contract_rejects_wrong_invocation_evidence(
-    invocation_id: str,
-    replacement: dict[str, Any],
-) -> None:
-    catalog, workflow, projection, events = (
-        _provider_invocation_contract_fixture()
-    )
-    changed = tuple(
-        {
-            **message,
-            "event": {**message["event"], **replacement},
-        }
-        if message["event"].get("invocation_id") == invocation_id
-        and (
-            (
-                "status" in replacement
-                and message["event"]["type"]
-                == "engine_invocation_terminal"
-            )
-            or (
-                "status" not in replacement
-                and message["event"]["type"]
-                == "engine_invocation_started"
-            )
-        )
-        else message
-        for message in events
-    )
-    for message in changed:
-        validate_event(message)
-
-    with pytest.raises(AssertionError):
-        _assert_provider_invocations(
-            catalog,
-            workflow,
-            projection,
-            changed,
-            "biohub",
-        )
 
 
 def _assert_science(
@@ -934,12 +530,6 @@ def _assert_science(
         for item in projection["selection_results"][0]["objectives"]
     } == {"fixed-3gb1": 0.7, "paired-esm3": 0.3}
 
-    prompt_output = next(
-        output
-        for output in projection["outputs"]
-        if output["node_id"] == "override-secondary-structure"
-        and output["output_port"] == "protein_prompt"
-    )
     visible_backbones = sum(
         bool(is_visible)
         and value is not None
@@ -962,9 +552,6 @@ def _assert_science(
     assert sum(value is None for value in prompt.sequence_track.values) == 35
     assert len(prompt.secondary_structure_track.values) == 71
     assert visible_backbones == 46
-    assert prompt_output["content_digest"] == (
-        CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST
-    )
     assert "".join(
         value if value is not None else "_"
         for value in prompt.sequence_track.values
@@ -1025,10 +612,7 @@ def test_fresh_canonical_3gb1_public_run() -> None:
             active_commit.raise_for_status()
             commit = active_commit.json()
             assert commit["accepted"] is True
-            assert commit["catalog_contract_digest"] == catalog.contract_digest
-            assert commit["workflow_digest"] == decode_workflow_document(
-                workflow
-            ).digest
+            assert commit["workflow"]["workflow_id"] == project_id
         else:
             input_bytes = (
                 files("examples")
@@ -1086,7 +670,6 @@ def test_fresh_canonical_3gb1_public_run() -> None:
         events = public_run_events(service, project_id, projection["run_id"])
 
         assert projection["workflow_commit_id"] == commit["workflow_commit_id"]
-        assert projection["workflow_digest"] == commit["workflow_digest"]
         assert "derived_from_run_id" not in projection
         _assert_science(
             service,
@@ -1098,7 +681,6 @@ def test_fresh_canonical_3gb1_public_run() -> None:
         )
         retain_service_run(
             run_label,
-            catalog=catalog,
             service=service,
             projection=projection,
             events=events,

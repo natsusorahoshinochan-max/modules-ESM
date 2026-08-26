@@ -28,10 +28,7 @@ def _binding_error(error: V2RunError) -> StructuredError:
     return StructuredError(
         code=error.code,
         message=str(error),
-        retryable={
-            "binding_unavailable": False,
-            "readiness_rejected": True,
-        }[error.code],
+        retryable=True,
         correlation_id=f"incident-{uuid.uuid4().hex}",
         details=error.details,
     )

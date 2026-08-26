@@ -1,4 +1,4 @@
-"""Typed Workflow document and exact Contract Lock values."""
+"""Typed Workflow document using stable Catalog IDs."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from types import MappingProxyType
 from typing import Any
 
 from core.catalog.errors import CatalogBuildError
-from core.catalog.canonical import canonical_sha256
 from core.scoring.selection import (
     ContextSelector,
     ObservationSelector,
@@ -27,8 +26,6 @@ from datatypes.observation import (
 
 
 WORKFLOW_SCHEMA_VERSION = "2.1.0"
-WORKFLOW_DIGEST_NAMESPACE = "protein-workbench-workflow/v2"
-CONTRACT_LOCK_NAMESPACE = "protein-workbench-contract-lock/v2"
 
 
 def _freeze_json(value: Any) -> Any:
@@ -45,7 +42,7 @@ def _freeze_json(value: Any) -> Any:
 def _thaw_json(value: Any) -> Any:
     if isinstance(value, Mapping):
         return {name: _thaw_json(item) for name, item in value.items()}
-    if isinstance(value, tuple):
+    if isinstance(value, (list, tuple)):
         return [_thaw_json(item) for item in value]
     return value
 
@@ -57,8 +54,6 @@ def _exact_reference_from_admitted(
     return ExactContractReference(
         contract_kind=reference["contract_kind"],
         contract_id=reference["contract_id"],
-        contract_version=reference["contract_version"],
-        contract_digest=reference["contract_digest"],
     )
 
 def _selection_input_from_admitted(
@@ -131,51 +126,13 @@ def _selection_objective_from_admitted(
         missing_policy=value["missing_policy"],
     )
 
-@dataclass(frozen=True, slots=True, order=True)
-class ContractLockEntry:
-    """One exact author-approved reachable Catalog contract."""
-
-    contract_kind: str
-    contract_id: str
-    contract_version: str
-    contract_digest: str
-
-    @classmethod
-    def from_canonical(cls, payload: Mapping[str, Any]) -> ContractLockEntry:
-        """Hydrate one exact entry from a durable canonical projection."""
-        return cls(
-            contract_kind=payload["contract_kind"],
-            contract_id=payload["contract_id"],
-            contract_version=payload["contract_version"],
-            contract_digest=payload["contract_digest"],
-        )
-
-    @property
-    def key(self) -> tuple[str, str, str]:
-        return (
-            self.contract_kind,
-            self.contract_id,
-            self.contract_version,
-        )
-
-    def canonical_projection(self) -> dict[str, Any]:
-        """Project the exact entry for Workflow and Plan identity."""
-        return {
-            "contract_kind": self.contract_kind,
-            "contract_id": self.contract_id,
-            "contract_version": self.contract_version,
-            "contract_digest": self.contract_digest,
-        }
-
 @dataclass(frozen=True, slots=True)
 class WorkflowNodeInstance:
-    """One exact v2 Node Instance with separated parameter scopes."""
+    """One v2 Node Instance with separated parameter scopes."""
 
     node_id: str
     node_type_id: str
-    node_type_version: str
     binding_id: str
-    binding_version: str
     node_parameters: Mapping[str, Any]
     binding_parameters: Mapping[str, Any]
 
@@ -200,9 +157,7 @@ class WorkflowNodeInstance:
         return cls(
             node_id=payload["node_id"],
             node_type_id=payload["node_type_id"],
-            node_type_version=payload["node_type_version"],
             binding_id=payload["binding_id"],
-            binding_version=payload["binding_version"],
             node_parameters=payload["node_parameters"],
             binding_parameters=payload["binding_parameters"],
         )
@@ -212,9 +167,7 @@ class WorkflowNodeInstance:
         return {
             "node_id": self.node_id,
             "node_type_id": self.node_type_id,
-            "node_type_version": self.node_type_version,
             "binding_id": self.binding_id,
-            "binding_version": self.binding_version,
             "node_parameters": _thaw_json(self.node_parameters),
             "binding_parameters": _thaw_json(self.binding_parameters),
         }
@@ -255,7 +208,6 @@ class WorkflowDocument:
     workflow_id: str
     nodes: tuple[WorkflowNodeInstance, ...]
     edges: tuple[WorkflowEdge, ...]
-    contract_lock: tuple[ContractLockEntry, ...]
     observation_selectors: tuple[ObservationSelector, ...] = ()
     selection_objectives: tuple[SelectionObjective, ...] = ()
 
@@ -278,31 +230,7 @@ class WorkflowDocument:
                 selection_objective_canonical(objective)
                 for objective in self.selection_objectives
             ],
-            "contract_lock": [
-                entry.canonical_projection() for entry in self.contract_lock
-            ],
         }
-
-    @property
-    def digest(self) -> str:
-        return canonical_sha256(
-            {
-                "schema_namespace": WORKFLOW_DIGEST_NAMESPACE,
-                "workflow": self.canonical_projection(),
-            }
-        )
-
-    @property
-    def contract_lock_digest(self) -> str:
-        return canonical_sha256(
-            {
-                "schema_namespace": CONTRACT_LOCK_NAMESPACE,
-                "entries": [
-                    entry.canonical_projection()
-                    for entry in self.contract_lock
-                ],
-            }
-        )
 
 class WorkflowDocumentError(ValueError):
     """A Workflow projection cannot hydrate the typed document."""
@@ -326,10 +254,6 @@ def workflow_document_from_canonical(
             edges=tuple(
                 WorkflowEdge.from_canonical(edge)
                 for edge in payload["edges"]
-            ),
-            contract_lock=tuple(
-                ContractLockEntry.from_canonical(entry)
-                for entry in payload["contract_lock"]
             ),
             observation_selectors=tuple(
                 _observation_selector_from_admitted(selector)

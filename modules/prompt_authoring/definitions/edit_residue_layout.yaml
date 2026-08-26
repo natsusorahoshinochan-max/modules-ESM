@@ -1,26 +1,21 @@
-schema_version: "2.1.0"
 node_type_id: prompt_authoring.edit_residue_layout
-version: "3.0.0"
 title: Edit residue layout
 summary: Reconciles explicit identity-addressed insertions and deletions into a source-to-target residue map.
 category: prompt_authoring
 inputs:
   - name: source_layout
     port_type_id: residue.layout
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete residue layout before editing.
   - name: target_layout
     port_type_id: residue.layout
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Identity-complete intended residue layout after editing.
 outputs:
   - name: residue_map
     port_type_id: residue.map
-    port_type_version: "3.0.0"
     required: true
     multiplicity: one
     scientific_meaning: Complete explicit source-to-target mapping with match, insert, and delete dispositions.
