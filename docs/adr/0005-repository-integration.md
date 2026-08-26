@@ -12,8 +12,9 @@ checkout or infer their source from `repositories/`.
 ProteinMPNN remains an external configured source root because its upstream
 source is not an installable package. `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT`
 selects that root explicitly. The Adapter loads `protein_mpnn_utils.py` and the
-configured model checkpoint from it; Readiness checks operability rather than
-Git revision or installation identity.
+configured model checkpoint from it at Provider entry; Readiness checks the
+declared root and required paths rather than loading the model or proving Git
+revision or installation identity.
 
 SoluProt-next is project-owned Provider source under
 `repositories/soluprot-next/`. It is built as its own wheel from source on the

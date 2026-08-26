@@ -17,13 +17,12 @@ Commit. The trusted single-user application does not add Project-lock,
 concurrent-retry, stale-revision, or idempotency state machines around it.
 
 A Workflow Commit records its Project, source Draft revision, admitted Workflow,
-the execution information needed to rebuild the current plan, minimum
-Node/Method/Metric scientific definition snapshots, and
-`workflow_commit_id`. It does not store a Contract Lock, internal contract
-semver, Catalog descriptor digest, Workflow digest, Contract Lock digest, or
-Execution Plan digest. The authoring owner alone writes and loads Draft and
-Commit records; Project bootstrap and seed installation use that owner rather
-than a parallel Workflow file.
+minimum Node/Method/Metric scientific definition snapshots, and
+`workflow_commit_id`. It does not store an Execution Plan, Contract Lock,
+internal contract semver, Catalog descriptor digest, Workflow digest, Contract
+Lock digest, or Execution Plan digest. The authoring owner alone writes and
+loads Draft and Commit records; Project bootstrap and seed installation use
+that owner rather than a parallel Workflow file.
 
 The public protocol exposes only the current authoring resources:
 
@@ -36,11 +35,12 @@ expected revision. The authoring owner assigns the next Draft revision and
 stores each Commit in the normal sequential flow.
 
 Starting a Run supplies the active `workflow_commit_id`. The runtime loads that
-Commit and uses its admitted Workflow and execution information. When in-memory
-compilation state is absent, it rebuilds the current plan from the Commit rather
-than reloading the source Draft or re-resolving a historical Contract Lock. The
-rebuilt plan must have the same scientific definition snapshots as the Commit;
-otherwise that development Commit is invalid under the current checkout and
-fails fast. The Commit's embedded snapshots remain the interpretation record
-for the completed Run. Parse or scientific admission failures fail fast; there
-is no compatibility reader, damage taxonomy, or recovery protocol.
+Commit and uses its admitted Workflow. When in-memory compilation state is
+absent, the authoring owner compiles that Workflow against the current Catalog
+rather than reloading the source Draft or re-resolving a historical Contract
+Lock. The compiled plan must have the same scientific definition snapshots as
+the Commit; otherwise that development Commit is invalid under the current
+checkout and fails fast. The Commit's embedded snapshots remain the
+interpretation record for the completed Run. Parse or scientific admission
+failures fail fast; there is no compatibility reader, damage taxonomy, or
+recovery protocol.

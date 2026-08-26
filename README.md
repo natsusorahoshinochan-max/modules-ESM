@@ -45,5 +45,5 @@ evidence remains separately configurable with
 `PROTEIN_WORKBENCH_VERIFICATION_RESULTS_ROOT`.
 
 Local ESM-3 additionally requires `PROTEIN_WORKBENCH_ESM3_MODEL_ROOT` to name the
-absolute root of the already selected locked model snapshot. The backend does not
-search Hugging Face cache layouts for that snapshot.
+absolute root of the configured complete `esm3_sm_open_v1` snapshot. The backend
+does not search Hugging Face cache layouts for that snapshot.

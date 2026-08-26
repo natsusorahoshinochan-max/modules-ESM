@@ -28,8 +28,9 @@ _Avoid_: Workflow Commit, Execution Plan, runnable revision
 
 **Workflow Commit**:
 One immutable runnable publication of an admitted Workflow Draft. It stores the
-Workflow, the execution information needed by the Run, and the minimum
-scientific definition snapshots required to interpret its results.
+admitted Workflow and the minimum scientific definition snapshots required to
+interpret its results. The current Catalog recompiles its in-process Execution
+Plan when needed.
 _Avoid_: Workflow Draft, compile ID, mutable active Workflow
 
 **Run**:

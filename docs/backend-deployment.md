@@ -8,12 +8,12 @@ wheel and subject to their target-machine Provider gates.
 ## 1. Install the Workbench
 
 Use Python 3.12, `uv`, and the current checkout. Install the project and the
-Provider dependencies required by the selected routes:
+Provider and verification dependencies required by this deployment contract:
 
 ```bash
 git clone <repository-url> protein-workbench
 cd protein-workbench
-uv sync --frozen --extra providers
+uv sync --frozen --extra dev --extra providers
 ```
 
 Select stable absolute data and Provider roots outside the checkout. These shell
@@ -114,6 +114,7 @@ Run the existing tests; do not create a separate installation suite:
 
 Run the additional existing Provider tiers corresponding to the Providers
 installed on that machine. SoluProt, Protein-Sol, and mkdssp Readiness checks
-configured paths, imports, loads, and binary operability. It does not hash source
-or assets, require Git/PEP 610 identity, or require executable bytes to match a
-macOS/ARM64 machine; real-Provider tiers validate the scientific routes.
+their declared configured paths, required files, package discoverability, and
+executable presence. It does not import or load models, execute binaries, hash
+source or assets, require Git/PEP 610 identity, or require executable bytes to
+match a macOS/ARM64 machine; real-Provider tiers validate the scientific routes.

@@ -12,8 +12,11 @@ implementation or Adapter factory. Availability is resolved and reported per
 Execution Binding, so a missing baseline runtime or binary makes only that
 Binding diagnostically `unavailable`; it does not hide the Node Type, invalidate
 another Binding, or block a Run. External paths, credentials, imports, loads,
-and other actual operational prerequisites are checked by Readiness immediately
-before a Cache miss enters the Provider.
+and other actual operational prerequisites do not belong to Availability.
+Readiness checks the selected Binding's declared configuration, required paths,
+package discoverability, executable presence, and device availability before a
+Cache miss enters the Provider. Provider-module imports, model loads, and
+execution occur at Provider entry.
 
 Module Package registration contributes these bindings explicitly. Malformed or
 conflicting binding contracts fail startup atomically, whereas valid but

@@ -53,7 +53,7 @@ Environment Configuration uses the following external fields:
 | Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT` | Folding model files |
 | Local ESMFold2 | `PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT` | ESMC language-model files |
 | SimpleFold | `PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT` | `simplefold_100M.ckpt`, `simplefold_1.6B.ckpt`, `plddt.ckpt`, and `ccd.pkl` as required by the selected route |
-| SimpleFold ESM2 source | `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT` | Importable Facebook ESM source layout used for isolated staging |
+| SimpleFold ESM2 source | `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT` | Importable Facebook ESM source layout used directly by the selected route |
 | SimpleFold ESM2 models | `PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT` | `esm2_t36_3B_UR50D.pt` and, for folding, its contact-regression object |
 | ProteinMPNN | `PROTEIN_WORKBENCH_PROTEINMPNN_ROOT` | Importable `protein_mpnn_utils.py` and `vanilla_model_weights/v_48_020.pt` |
 | SoluProt-next | `PROTEIN_WORKBENCH_SOLUPROT_ROOT` | Installed or built SoluProt runtime and required external tools |
@@ -71,11 +71,14 @@ On the first Cache miss or bypass for one Adapter Binding in a Run, Readiness
 uses the external fields already admitted by the composition root and checks
 only what is needed to enter the actual Provider route:
 
-- required files are readable;
-- the configured package or source can be imported;
-- the selected model, checkpoint, binary, or service route can be minimally
-  loaded or reached as required by that Provider;
-- route-specific operational prerequisites are satisfied.
+- required configured files, directories, and executables are present;
+- the configured package or source is discoverable where the Binding declares
+  it;
+- the selected device and other declared route prerequisites are available.
+
+Provider-module imports, model and checkpoint loads, binary execution, remote
+calls, and scientific translation occur at Provider entry rather than
+Readiness.
 
 Readiness does not:
 
@@ -91,17 +94,18 @@ Nodes using the same Binding in one Run share the Readiness conclusion.
 Availability remains a separate startup diagnostic and cannot suppress a fresh
 Readiness check.
 
-## SimpleFold staging
+## SimpleFold resource binding
 
 The folding package's shared module owns the route-specific resource roles and
-isolated staging used by SimpleFold folding and existing-structure confidence.
-It stages only the configured resources needed by the selected route. Folding
+binds each SimpleFold Adapter directly to its trusted configured roots. Folding
 uses both ESM2 representation and contact-regression objects; confidence uses
-the representation object only. Unrelated files are ignored.
+the representation object only. Unrelated files are ignored. Provider source
+and checkpoints are not copied into an isolated asset root.
 
-Staging preserves the source layout required for namespace isolation and does
-not download, hash, inspect Git state, or choose an alternate resource. The two
-Bindings retain distinct Readiness conclusions and scientific Methods.
+Each invocation receives a private temporary work directory for the working
+files and outputs required by the Provider. Resource binding does not download,
+hash, inspect Git state, or choose an alternate resource. The two Bindings
+retain distinct Readiness conclusions and scientific Methods.
 
 ## Device policy
 

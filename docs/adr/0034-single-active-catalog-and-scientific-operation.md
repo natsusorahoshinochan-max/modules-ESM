@@ -15,12 +15,11 @@ the Catalog identity model.
 Repository-owned producers, consumers, examples, fixtures, tests, and
 documentation change together when a current definition changes. Development
 Workflow, Commit, Ledger, and fixture artifacts may be invalidated and
-regenerated. When a current definition that can affect a scientific result
-changes without receiving a new stable ID, cutover to that definition must
-atomically clear or isolate every Cache entry created under the superseded
-definition. The current runtime must never replay such an entry. The application
-does not preserve an old reader, migration, parallel generation, or alternate
-decoder for superseded internal contracts.
+regenerated. Project Cache is ordinary development state and has no compatibility
+contract across checkout changes. The runtime does not detect definition
+changes or implement Cache generation cutover, clearing, or isolation. The
+application does not preserve an old reader, migration, parallel generation, or
+alternate decoder for superseded internal contracts.
 
 The Catalog builder validates stable-ID uniqueness, required references,
 implementation or Adapter resolvability, Node/Binding ownership, Port
@@ -39,10 +38,12 @@ definitions. Execution consumes that plan and does not ask the Catalog to
 reinterpret the Workflow.
 
 A Workflow Commit is the durable root for execution. It stores the admitted
-Workflow, the information required to rebuild its current plan, and minimum
-Node/Method/Metric scientific definition snapshots needed to interpret its
-results. A Run names that Commit only by `workflow_commit_id`; it does not bind
-parallel Workflow, Catalog, Contract Lock, or Plan digests.
+Workflow and minimum Node/Method/Metric scientific definition snapshots needed
+to interpret its results. When an in-memory Plan is absent, the authoring owner
+compiles the admitted Workflow against the current Catalog and admits it only
+when those snapshots match. A Run names that Commit only by
+`workflow_commit_id`; it does not bind parallel Workflow, Catalog, Contract Lock,
+or Plan digests.
 
 Each scientific operation has one canonical implementation for one scientific
 meaning. Distinct algorithms or model variants remain distinct stable Methods.
@@ -52,11 +53,12 @@ translates its output back. Provider-native tensors, positions, payloads, paths,
 and response objects do not cross that seam.
 
 Provider source bytes, checkpoint bytes, Git state, installation form, and
-device are not scientific Method identity. Readiness checks operability rather
-than proving those bytes. CPU/GPU execution and its accepted tiny numerical
-variation do not split Method, Result Identity, or Cache identity and do not
-create a cross-device equivalence gate. An actual device observation may be
-recorded as non-gating invocation provenance when already known.
+device are not scientific Method identity. Readiness checks the Binding's
+declared lightweight prerequisites rather than proving those bytes. CPU/GPU
+execution and its accepted tiny numerical variation do not split Method, Result
+Identity, or Cache identity and do not create a cross-device equivalence gate.
+An actual device observation may be recorded as non-gating invocation
+provenance when already known.
 
 Call seeds derive from the configured base seed, canonical scientific input
 content, and stable parent, sample, and track slots. Candidate IDs, Result IDs,

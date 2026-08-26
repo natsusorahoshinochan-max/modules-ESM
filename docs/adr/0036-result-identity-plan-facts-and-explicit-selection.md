@@ -39,12 +39,11 @@ metadata text. The Run Evidence Ledger records the stable IDs and minimum
 scientific definitions needed to interpret the result rather than a duplicate
 plan-facts digest.
 
-Stable IDs do not authorize replay across a result-affecting definition change.
-The repository change that installs such a definition must also perform an
-atomic Cache cutover: old entries are cleared or placed in an unreachable data
-root before the new definition can execute. This is development-state
-invalidation, not a version namespace, compatibility migration, descriptor
-digest, or cross-Run conflict check.
+Stable IDs name the current definitions. The runtime does not retain historical
+definition generations or perform a Cache cutover when a checkout changes.
+Existing Cache entries remain ordinary Project development state; there is no
+version namespace, compatibility migration, descriptor digest, or cross-Run
+conflict check.
 
 Selection executes only through an explicit Selection Node and its canonical
 scientific operation. Every Workflow Selection Objective and Observation

@@ -21,9 +21,11 @@ without persisting credentials or private paths. It does not create a Readiness
 contract digest, attestation digest, reusable-proof cache, maximum age,
 configuration fingerprint, or invalidation state machine.
 
-The Provider owner checks actual operability at this boundary: required external
-configuration is present, imports and loads needed for the call succeed, and the
-selected route can enter its Provider. It does not hash Provider source,
-checkpoints, model assets, or installation trees and does not require PEP 610 or
-Git checkout identity. Observed Availability and Readiness conclusions are
-diagnostic evidence, not scientific identity.
+The Provider owner checks the declared prerequisites at this boundary: required
+external configuration and paths are present, packages or sources are
+discoverable where declared, executables are present, and the selected device is
+available. Provider-module imports, model loads, binary execution, remote calls,
+and scientific translation occur at Provider entry. Readiness does not hash
+Provider source, checkpoints, model assets, or installation trees and does not
+require PEP 610 or Git checkout identity. Observed Availability and Readiness
+conclusions are diagnostic evidence, not scientific identity.
