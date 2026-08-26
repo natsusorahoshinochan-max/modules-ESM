@@ -17,8 +17,9 @@ SimpleFold confidence-head values are multiplied by 100. Range guessing such
 as `max(values) <= 1` is forbidden. Structure serialization continues to obey
 the provider-native scale so canonical values are never scaled twice.
 
-The Method records the actual model and confidence-head identity. pTM remains
+The stable Method identifies the scientific model variant and confidence
+normalization. pTM remains
 on `[0, 1]`, PAE remains measured in angstroms, and classic Meta ESMFold is
-outside the project scope. The SimpleFold evaluation Method fixes its actual
-checkpoint and confidence-head identities and does not expose a mutable model
-selector.
+outside the project scope. The SimpleFold evaluation Method does not expose a
+mutable model selector; checkpoint bytes and installation form are operational
+Provider facts, not scientific identity.

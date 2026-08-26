@@ -210,8 +210,9 @@ Core 可以提供内建类型，Module Package 也可以通过统一 registratio
 相同的 `type_id + version`；结构相似、隐式 coercion、subtyping 和版本范围都不构成
 连接兼容。科学转换必须由显式 Node Type 表达。
 
-相关决定见
-[ADR-0028](./adr/0028-port-types-are-versioned-nominal-contracts.md)。
+上述版本化规则是历史设计，已由当前
+[ADR-0028](./adr/0028-port-types-are-nominal-scientific-contracts.md)
+的 stable-ID 名义合同取代。
 
 ### 2.7 参数与 Environment Configuration
 

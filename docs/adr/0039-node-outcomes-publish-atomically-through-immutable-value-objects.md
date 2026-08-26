@@ -47,10 +47,10 @@ demand. There is no embedded/reference dual path. Artifact retrieval remains a
 separate public contract, and WebSocket lifecycle events remain free of large
 scientific payloads.
 
-Run Ledger schema `5.0.0`, Cache entry schema `v5`, and public protocol bundle
-`2.3.0` are the current schemas. Result Identity uses the
-scientific `protein-workbench-cache/v3` namespace because storage
-representation does not change scientific identity. Only the current schemas
-are admitted. Result Identity inputs, Project-scoped Cache, and replay
-provenance are scientific contracts; Result Identity is not a conflict
+Internal Ledger and Cache records use only the fields needed for normal reading,
+causal transitions, and replay. They do not use internal semver, compatibility
+decoders, exact closed metadata fields, canonical metadata text, or a
+self-digest hierarchy. The public protocol retains its own current wire
+discriminator. Result Identity inputs, Project-scoped Cache, and replay
+provenance remain scientific contracts; Result Identity is not a conflict
 authority.

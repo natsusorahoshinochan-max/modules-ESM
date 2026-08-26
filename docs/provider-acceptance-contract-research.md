@@ -12,11 +12,10 @@ release 等价。已经吸收进当前 Method、Adapter 与科学测试的结论
 
 ## 2026-08-26 当前裁决补记
 
-当前 local Torch device policy 由 active Execution Binding 拥有：Linux 与 Windows
-选择 CUDA，macOS 选择 CPU；CUDA 平台 Readiness 失败时绝不回退 CPU。当前
-ProteinMPNN native-scoring gate 使用 device-specific 3GB1 reference：CPU 为
-`1.385357141494751`，CUDA 为 `1.3671133518218994`，并在所选 reference 周围应用相同的
-16-binary32-ULP 纯绝对包络。本补记只记录裁决；现行 operational owner 仍是
+当前 local Torch device policy 由 Execution Binding 拥有：Linux 与 Windows 选择 CUDA，
+macOS 选择 CPU；CUDA route 不静默回退 CPU。CPU/GPU 的极小数值差异被接受为同一科学
+合同内的执行差异，不拆分 Result Identity 或 Cache，也不增加跨设备 reference、tolerance
+或等价性验证。本补记只记录裁决；现行 operational owner 仍是
 [`provider-install-contract.md`](provider-install-contract.md)，下文各节继续保留其带日期的
 历史快照地位。
 
@@ -150,7 +149,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 现有门禁已有很好的正向基础：
 
 - [installed design and score gate](../tests/acceptance/test_installed_provider_gates_v2.py) 证明真实 Binding/Method 执行；
-- 当时的 [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时记录 3GB1 macOS ARM64 CPU NLL reference `1.385357141494751`，并观察到 Linux x86_64 CPU 值 `1.385355830192566`；这两个历史 CPU 值相差 11 binary32 ULP。当时的 gate 使用 16 binary32 ULP（`1.9073486328125e-6 nats/residue`）的纯绝对容差且不改写 provider-native 值；当前 device-specific gate 见本文件顶部的 2026-08-26 addendum；
+- 当时的 [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时记录 3GB1 macOS ARM64 CPU NLL reference `1.385357141494751`，并观察到 Linux x86_64 CPU 值 `1.385355830192566`；这两个历史 CPU 值相差 11 binary32 ULP。当时的 gate 使用 16 binary32 ULP（`1.9073486328125e-6 nats/residue`）的纯绝对容差且不改写 provider-native 值；该 device-specific 验证方向已被本文件顶部的 2026-08-26 裁决取代，不是当前目标；
 - 同一文件固定 design sequence digest 与 effective seed；
 - [chain-order gate](../tests/acceptance/test_proteinmpnn_chain_order_v2.py) 证明 design B/fix A 后恢复 A,B，并验证 fixed CSH parent 缠有 missing backbone atom 时的保留行为。
 

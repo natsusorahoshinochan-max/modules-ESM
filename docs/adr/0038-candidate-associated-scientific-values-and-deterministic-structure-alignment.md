@@ -31,19 +31,19 @@ admitted Candidates and creates their associated values.
 
 Structure prediction follows that rule through an explicit generation and
 materialization sequence. A generation operation emits structure Candidates
-and a subjectless `structure_prediction.confidence_facts@2.0.0` value. For each
+and a subjectless `structure_prediction.confidence_facts` value. For each
 confidence-bearing structure output, the producer places the same canonical
 Prediction Key in Candidate metadata and in one Confidence Fact. The key is
 derived only from the exact output role and slot, structure content digest, and
-`structure_prediction.prediction_residue_axis@2.0.0` content digest. The fact
+`structure_prediction.prediction_residue_axis` content digest. The fact
 also carries those exact structure and axis facts plus pLDDT, optional pTM, and
 optional PAE; the enclosing collection carries their one exact provider
 observation Method. Neither value contains a Candidate ID, Candidate Data
 Reference, Score Observation, Run identity, or Engine Invocation identity.
 
-`structure_prediction.materialize_confidence@2.0.0`, through
-`structure_prediction.materialize_confidence.direct@2.0.0` and
-`structure_prediction.materialize_confidence.exact_reference_join@2.0.0`, is
+`structure_prediction.materialize_confidence`, through
+`structure_prediction.materialize_confidence.direct` and
+`structure_prediction.materialize_confidence.exact_reference_join`, is
 the later shared seam.
 It consumes the admitted structure Candidate Collection and the matching
 Confidence Fact Collection, obtains exact Candidate Data References from its
@@ -51,7 +51,7 @@ admitted input identities, and requires full-set closure by Prediction Key. A
 missing, duplicate, extra, wrong-type, structure-digest-conflicting, or
 axis-conflicting association fails before any Score Observation is emitted.
 Only after that closure does it assign the admitted Candidate Data Reference as
-the Score subject and populate `score.collection@5.0.0`.
+the Score subject and populate `score.collection`.
 
 The confidence-facts Port owns two dynamic projections. Its scientific-axis
 projection exposes each exact prediction-axis reference, and its observation-
@@ -60,7 +60,7 @@ The materializer Binding declares those projections as the axis and Method
 sources of its Produced Observations. Consequently per-residue and mean-residue
 pLDDT and PAE retain their exact prediction population, while each final Score
 retains the provider Method that observed the confidence. The materializer's
-`structure_prediction.materialize_confidence.exact_reference_join@2.0.0`
+`structure_prediction.materialize_confidence.exact_reference_join`
 Method identifies only the deterministic association and population operation;
 it must never be substituted for the provider Method in a Score.
 

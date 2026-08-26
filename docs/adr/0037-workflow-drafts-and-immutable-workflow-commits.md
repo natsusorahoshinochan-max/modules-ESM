@@ -6,22 +6,24 @@ status: accepted
 
 Authoring and execution use two distinct values. A **Workflow Draft** is one
 unlocked authoring revision that may be scientifically incomplete or invalid.
-A **Workflow Commit** is one immutable, exact, runnable publication of a Draft
-against the active `FrozenCatalog`. A Run never executes a Draft.
+A **Workflow Commit** is one immutable runnable publication of an admitted Draft
+against the current stable-ID Catalog. A Run never executes a Draft.
 
 The authoring owner exposes Draft save and one commit boundary. Commit resolves
-the exact Contract Lock, validates topology, scientific Port compatibility,
-parameters, Selection consumers, and result-affecting contracts, compiles the
-Execution Plan, then publishes the Commit. This is the only scientific
-admission seam. The trusted single-user application does not add Project-lock,
+stable Node Type and Binding IDs, validates topology, scientific Port
+compatibility, parameters, Selection consumers, and result-affecting scientific
+relationships, then compiles the in-process Execution Plan and publishes the
+Commit. The trusted single-user application does not add Project-lock,
 concurrent-retry, stale-revision, or idempotency state machines around it.
 
-A Workflow Commit records its Project, source Draft revision and digest,
-locked Workflow and digest, active Catalog contract digest, Contract Lock
-digest, Execution Plan digest, commit revision, and `workflow_commit_id`.
-The authoring owner alone writes and loads Draft and Commit records; Project
-bootstrap and seed installation use that owner rather than a parallel Workflow
-file.
+A Workflow Commit records its Project, source Draft revision, admitted Workflow,
+the execution information needed to rebuild the current plan, minimum
+Node/Method/Metric scientific definition snapshots, commit revision, and
+`workflow_commit_id`. It does not store a Contract Lock, internal contract
+semver, Catalog descriptor digest, Workflow digest, Contract Lock digest, or
+Execution Plan digest. The authoring owner alone writes and loads Draft and
+Commit records; Project bootstrap and seed installation use that owner rather
+than a parallel Workflow file.
 
 The public protocol exposes only the current authoring resources:
 
@@ -33,12 +35,10 @@ Save and commit submissions contain the unlocked Workflow, not a caller-owned
 expected revision. The authoring owner assigns the next Draft and Commit
 revisions in the normal sequential flow.
 
-Starting a Run supplies the active `workflow_commit_id`; the runtime asks the
-authoring owner for its compiled Plan. The owner trusts the Commit it wrote.
-When in-memory compilation state is absent, it parses the record and compiles
-the contained locked Workflow normally. The resulting Execution Plan digest
-must still equal the public Commit identity, because executing another Plan
-under that identity would be scientifically incorrect. It does not reload the
-source Draft, relock it, or build a storage-integrity proof. A parse, compile,
-or Plan-identity failure fails fast; there is no damage taxonomy or recovery
-protocol.
+Starting a Run supplies the active `workflow_commit_id`. The runtime loads that
+Commit and uses its admitted Workflow and execution information. When in-memory
+compilation state is absent, it rebuilds the current plan from the Commit rather
+than reloading the source Draft or re-resolving a historical Contract Lock. The
+Commit's embedded scientific definition snapshots remain the interpretation
+record for the completed Run. Parse or scientific admission failures fail fast;
+there is no compatibility reader, damage taxonomy, or recovery protocol.

@@ -10,7 +10,7 @@ ordinary ligands, and solvent can all require different scientific treatment.
 No downstream Method or Adapter may therefore infer the protein residue axis
 again by filtering record names.
 
-The active `protein.structure@4.0.0` admission boundary owns the canonical
+The `protein.structure` admission boundary owns the canonical
 wwPDB v3.3 coordinate-record syntax before any residue-axis logic runs. Every
 `ATOM` and `HETATM` record is exactly 80 columns; occupancy, temperature factor,
 and right-justified ASCII element are required and finite; charge is blank or
@@ -119,23 +119,23 @@ chain whose `SEQRES` already contains no `CSH` is preserved exactly; the
 normalizer does not guess a positional correspondence or synthesize missing
 polymer declarations.
 
-The active resolved-axis Port embeds the current exact
-`protein.structure@4.0.0`, `residue.layout@3.0.0`, and
-`structure_transform.modified_residue_normalizations@3.0.0` contracts. Its closed codec
+The resolved-axis Port embeds the current
+`protein.structure`, `residue.layout`, and
+`structure_transform.modified_residue_normalizations` contracts. Its scientific codec
 binds structure content, axis identities, segment topology, component
 dispositions, coordinates, masks, and normalization records into one content
 identity. The resolver Node Type and direct Binding change whenever those
 declared Port contracts or the output descriptor change. A Method changes only
 when the scientific classification, normalization, coordinate-selection, or
 topology algorithm changes. The CSH topology repair is such a scientific
-change, so its normalization Method receives a new exact version as well as a
-new Node Type and Binding version.
+change, so it is represented by a distinct stable normalization Method rather
+than an internal version of the old Method.
 
 The scalar axis describes exactly one structure. Candidate Collection workflows
-use `candidate.collection@4.0.0` together with
-`structure_transform.candidate_resolved_residue_axis_associations@6.0.0` and,
+use `candidate.collection` together with
+`structure_transform.candidate_resolved_residue_axis_associations` and,
 when required,
-`structure_transform.candidate_modified_residue_normalization_associations@6.0.0`.
+`structure_transform.candidate_modified_residue_normalization_associations`.
 Every association carries the complete
 `CandidateDataReference`—Candidate identity, data type, and Candidate data-content
 digest—beside its resolved axis. The codec canonically sorts associations only

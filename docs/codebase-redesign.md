@@ -24,13 +24,17 @@ contract:
 
 - `protein_workbench_public/` owns wire payloads and events;
 - `datatypes/` and Port Type admission own scientific values;
-- Catalog compilation owns Node, Method, Binding, unit, shape, randomness, and
-  provenance declarations;
+- Catalog build/test admission owns Node, Method, Binding, unit, shape,
+  randomness, provenance, Port compatibility, Metric, Observation, and
+  residue-axis relationships; runtime startup consumes stable-ID typed
+  registrations;
 - Provider Adapters own translation from official Provider responses;
 - acceptance tests own scenario-specific scientific conclusions.
 
-After admission, internal storage, Evidence, cache, and orchestration code trust
-the value. They may serialize or copy it, but do not re-derive its meaning.
+Public responses use typed constructors that guarantee their complete wire
+shape before serialization. After admission, internal storage, Evidence, cache,
+and orchestration code trust the value. They may serialize or copy it, but do
+not re-derive its meaning or re-run the public Bundle validator.
 
 ## Runtime
 
@@ -52,8 +56,9 @@ the value. They may serialize or copy it, but do not re-derive its meaning.
   Certification pass.
 - Each tier asserts its own scientific contract, then retains already-validated
   public Run observations.
-- Evidence has one small schema and no checksum/manifest hierarchy or recursive
-  safety scanner.
+- Evidence is rooted by `workflow_commit_id`, stores minimum scientific
+  definition snapshots and causal facts, and has no checksum/manifest hierarchy
+  or recursive safety scanner.
 - Real-Provider acceptance cannot be replaced by mocks.
 
 The current acceptance contract is recorded in
@@ -71,6 +76,9 @@ remains evidence for its recorded revision rather than a current command source.
 - security-only verification tiers in this trusted application;
 - AST, function-length, private call-order, or helper-count tests;
 - compatibility aliases, legacy schemas, and dual implementations.
+- internal contract semver, Contract Locks, descriptor/self-digest hierarchies,
+  Provider source/checkpoint hashes, PEP 610/Git gates, and device-specific
+  Result Identity or Cache partitioning.
 
 ## Verification
 

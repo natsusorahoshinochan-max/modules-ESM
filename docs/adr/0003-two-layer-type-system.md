@@ -2,10 +2,10 @@
 status: accepted
 ---
 
-# Two-layer type system: versioned nominal Port Types and runtime values
+# Two-layer type system: nominal Port Types and runtime values
 
-Port compatibility is checked against exact nominal `type_id + version`
-identity, resolved through a Port Type Definition. The core does not hard-code
+Port compatibility is checked against stable nominal `type_id` identity,
+resolved through the current Port Type Definition. The core does not hard-code
 the scientific structure of values; it delegates validation, canonical
 encoding, and content-digest calculation to that Definition.
 
@@ -14,8 +14,8 @@ by the registered validator and codec. Node implementations read and write them
 through the exact Port contract declared by their Node Definition.
 
 Module Packages can register new Port Type Definitions without modifying
-`core/`. Producer and consumer Ports connect only when both exact identities
+`core/`. Producer and consumer Ports connect only when both stable type IDs
 match; scientific conversion uses an explicit Node Type.
 
-ADR-0028 supplies the complete versioned contract, atomic registration, and
-fail-closed unknown-type rules for this decision.
+ADR-0028 supplies the complete nominal contract and scientific admission rules
+for this decision.
