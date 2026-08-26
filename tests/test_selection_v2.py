@@ -64,6 +64,23 @@ SCORER_NODE_VERSION = "5.0.0"
 SOURCE_PARTITION = "contract_test.partition.a"
 
 
+def _application_roots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, Path]:
+    data_root = tmp_path / "application-data"
+    roots = {
+        "PROJECT": data_root / "projects",
+        "CACHE": data_root / "cache",
+        "OUTPUT": data_root / "outputs",
+        "RUN": data_root / "runs",
+    }
+    for root in roots.values():
+        root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
+    return roots
+
+
 def _assert_workflow_commit_owner(
     app: FastAPI,
     project_id: str,
@@ -775,11 +792,8 @@ def test_public_execution_is_cache_replay_stable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "selection public cache"
     ).id
     workflow = replace(
@@ -872,11 +886,8 @@ def test_changing_resolved_objective_invalidates_selection_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "selection objective cache identity"
     ).id
     workflow = replace(

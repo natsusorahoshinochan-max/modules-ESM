@@ -8,6 +8,10 @@ import shutil
 
 import pytest
 
+from core.local_torch_device import expected_local_torch_device
+from protein_workbench_public.application_environment import (
+    application_storage_roots,
+)
 from protein_workbench_public.bootstrap import create_application
 from protein_workbench_public.provider_environment import (
     ProviderEnvironmentError,
@@ -63,18 +67,56 @@ def test_process_environment_configures_both_solubility_providers(
     )
 
 
+def test_fresh_2emo_uses_the_process_selected_protein_sol_runtimes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_fresh_source_bound_acceptance_v2 import _environment
+
+    executable_root = tmp_path / "provider executables"
+    executable_root.mkdir()
+    bash = executable_root / "bash"
+    perl = executable_root / "perl"
+    for executable in (bash, perl):
+        executable.write_text("", encoding="utf-8")
+        executable.chmod(0o755)
+    token_file = tmp_path / "biohub-token"
+    token_file.write_text("test-token\n", encoding="utf-8")
+    token_file.chmod(0o600)
+    monkeypatch.setenv("PATH", str(executable_root))
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",
+        str(token_file),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT",
+        str(tmp_path / "ProteinMPNN"),
+    )
+    monkeypatch.setenv(
+        "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT",
+        str(tmp_path / "Protein-Sol"),
+    )
+
+    environment = _environment("fresh-2emo")
+    protein_sol = environment[("solubility.protein_sol.local", "5.0.0")]
+
+    assert protein_sol["values"]["bash_executable"] == bash
+    assert protein_sol["values"]["perl_executable"] == perl
+
+
 def test_process_environment_configures_every_selected_real_provider(
     tmp_path: Path,
 ) -> None:
     token_file = tmp_path / "biohub-token"
     token_file.write_text("test-token\n", encoding="utf-8")
     token_file.chmod(0o600)
-    run_root = tmp_path / "runs"
     environment = {
         "PATH": os.environ["PATH"],
         "PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE": str(token_file),
-        "HF_HUB_CACHE": str(tmp_path / "huggingface"),
-        "PROTEIN_WORKBENCH_RUN_ROOT": str(run_root),
+        "PROTEIN_WORKBENCH_DATA_ROOT": str(tmp_path / "workbench-data"),
+        "PROTEIN_WORKBENCH_ESM3_MODEL_ROOT": str(
+            tmp_path / "esm3-snapshot"
+        ),
         "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT": str(tmp_path / "esmfold2"),
         "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT": str(tmp_path / "esmc"),
         "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT": str(tmp_path / "simplefold"),
@@ -113,31 +155,32 @@ def test_process_environment_configures_every_selected_real_provider(
     )
 
     local_esm3 = configuration[
-        ("esm3.generate_sequence.local_open", "8.0.0")
+        ("esm3.generate_sequence.local_open", "9.0.0")
     ]["values"]
     assert local_esm3 == {
         "model_snapshot_revision": (
             "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
         ),
-        "model_snapshot_path": (
-            tmp_path
-            / "huggingface/models--biohub--esm3-sm-open-v1/snapshots"
-            / "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
+        "model_snapshot_path": tmp_path / "esm3-snapshot",
+        "runtime_directory": (
+            tmp_path / "workbench-data/provider-runtime/esm3"
         ),
-        "runtime_directory": run_root / "provider-runtime/esm3",
-        "device": "cpu",
+        "device": expected_local_torch_device(),
         "performance_settings": {},
     }
     assert local_esm3["runtime_directory"].is_dir()
-    assert configuration[("folding.fold.esmfold2_local", "10.0.0")][
+    assert configuration[("folding.fold.esmfold2_local", "11.0.0")][
         "values"
     ]["model_snapshot_path"] == tmp_path / "esmfold2"
-    assert configuration[("folding.fold.simplefold_local", "10.0.0")][
+    assert configuration[("folding.fold.simplefold_local", "11.0.0")][
         "values"
     ]["esm2_source_root"] == tmp_path / "esm2-source"
-    assert configuration[("proteinmpnn.design.local", "11.0.0")][
+    assert configuration[("proteinmpnn.design.local", "12.0.0")][
         "values"
-    ] == {"provider_root": tmp_path / "proteinmpnn", "device": "cpu"}
+    ] == {
+        "provider_root": tmp_path / "proteinmpnn",
+        "device": expected_local_torch_device(),
+    }
     assert configuration[
         ("structure_annotation.dssp_compute.mkdssp_local", "7.0.0")
     ] == {"values": {"dssp_binary": tmp_path / "bin/mkdssp"}}
@@ -147,16 +190,7 @@ def test_default_application_loads_process_provider_environment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in (
-        "PROJECT",
-        "CACHE",
-        "OUTPUT",
-        "RUN",
-    ):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path / "data"))
     monkeypatch.setenv(
         "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT",
         str(tmp_path / "esmfold2"),
@@ -173,6 +207,39 @@ def test_default_application_loads_process_provider_environment(
         create_application()
 
 
+def test_default_application_requires_one_absolute_data_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PROTEIN_WORKBENCH_DATA_ROOT", raising=False)
+
+    with pytest.raises(RuntimeError, match="PROTEIN_WORKBENCH_DATA_ROOT"):
+        create_application(v2_environment_configuration={})
+
+    for configured in ("", "relative/data"):
+        monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", configured)
+        with pytest.raises(RuntimeError, match="must be absolute"):
+            create_application(v2_environment_configuration={})
+
+
+def test_application_data_root_expands_literal_tilde_before_deriving_stores(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "operator-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    storage = application_storage_roots({
+        "PROTEIN_WORKBENCH_DATA_ROOT": "~/protein-workbench-data",
+    })
+
+    assert storage.data == home / "protein-workbench-data"
+    assert storage.projects == home / "protein-workbench-data/projects"
+    assert storage.cache == home / "protein-workbench-data/cache"
+    assert storage.outputs == home / "protein-workbench-data/outputs"
+    assert storage.runs == home / "protein-workbench-data/runs"
+
+
 def test_process_provider_roots_must_be_absolute() -> None:
     with pytest.raises(
         ProviderEnvironmentError,
@@ -184,3 +251,72 @@ def test_process_provider_roots_must_be_absolute() -> None:
                 "PROTEIN_WORKBENCH_PROTEIN_SOL_ROOT": "relative/provider",
             }
         )
+
+
+@pytest.mark.parametrize("configured", ("", "relative/model"))
+def test_local_esm3_model_root_must_be_absolute(configured: str) -> None:
+    with pytest.raises(ProviderEnvironmentError, match="must be absolute"):
+        provider_environment_configuration({
+            "PROTEIN_WORKBENCH_DATA_ROOT": "/absolute/application-data",
+            "PROTEIN_WORKBENCH_ESM3_MODEL_ROOT": configured,
+        })
+
+
+def test_local_esm3_model_root_expands_literal_tilde(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "operator-home"
+    home.mkdir()
+    data_root = tmp_path / "application-data"
+    monkeypatch.setenv("HOME", str(home))
+
+    configuration = provider_environment_configuration({
+        "PROTEIN_WORKBENCH_DATA_ROOT": str(data_root),
+        "PROTEIN_WORKBENCH_ESM3_MODEL_ROOT": "~/esm3-snapshot",
+    })
+
+    values = configuration[
+        ("esm3.generate_sequence.local_open", "9.0.0")
+    ]["values"]
+    assert values["model_snapshot_path"] == home / "esm3-snapshot"
+    assert values["runtime_directory"] == data_root / "provider-runtime/esm3"
+
+
+@pytest.mark.parametrize("platform_name", ("linux", "linux2", "win32"))
+def test_process_environment_selects_cuda_for_gpu_required_platforms(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform_name: str,
+) -> None:
+    import core.local_torch_device as device_policy
+
+    monkeypatch.setattr(device_policy.sys, "platform", platform_name)
+    configuration = provider_environment_configuration({
+        "PROTEIN_WORKBENCH_DATA_ROOT": str(tmp_path / "workbench-data"),
+        "PROTEIN_WORKBENCH_ESM3_MODEL_ROOT": str(tmp_path / "esm3"),
+        "PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT": str(tmp_path / "esmfold2"),
+        "PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT": str(tmp_path / "esmc"),
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_MODEL_ROOT": str(tmp_path / "simplefold"),
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_ROOT": str(tmp_path / "esm2-source"),
+        "PROTEIN_WORKBENCH_SIMPLEFOLD_ESM2_MODEL_ROOT": str(
+            tmp_path / "esm2-model"
+        ),
+        "PROTEIN_WORKBENCH_PROTEINMPNN_ROOT": str(tmp_path / "proteinmpnn"),
+    })
+
+    by_binding_id = {
+        binding_id: entry["values"]
+        for (binding_id, _version), entry in configuration.items()
+    }
+    assert {
+        by_binding_id[binding_id]["device"]
+        for binding_id in (
+            "esm3.generate_sequence.local_open",
+            "folding.fold.esmfold2_local",
+            "folding.fold.simplefold_local",
+            "folding.simplefold_confidence.simplefold_local",
+            "proteinmpnn.design.local",
+            "proteinmpnn.score.local",
+        )
+    } == {"cuda"}

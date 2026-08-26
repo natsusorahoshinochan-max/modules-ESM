@@ -749,6 +749,10 @@ identity，不能由 Binding version 推断。实际 Workflow 仍只能选择下
 | 1PGA-75 | `folding.fold` | `3.0.0` | `folding.fold.esmfold2_remote` | `3.0.0` |
 | 1PGA-75 | `folding.fold` | `3.0.0` | `folding.fold.simplefold_local` | `3.0.0` |
 
+当前 Campaign 后来增加的 fresh-local route、exact Method evidence、Observation Selector 与
+Contract Lock 规则不属于本历史版本矩阵；其现行 owner 是
+[`backend-verification.md`](backend-verification.md)。
+
 所需 repository-owned Binding 也必须逐个写入 Workflow，不允许依赖“唯一可用项”的隐式
 选择。本轮允许使用的准确 IDs 为：
 

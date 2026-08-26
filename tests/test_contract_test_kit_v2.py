@@ -53,6 +53,11 @@ from tests.fixtures.zero_core_packages.synthetic_echo.package import (
 )
 
 
+FIXTURE_ROOT = (
+    Path(__file__).resolve().parent / "fixtures" / "zero_core_packages"
+)
+
+
 EXECUTION_CASES = (SOURCE_EXECUTION_CASE, EXECUTION_CASE)
 
 
@@ -218,10 +223,7 @@ def test_source_public_journey_compiles_executes_replays_and_retrieves(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=build_frozen_catalog((FIXTURE_PACKAGE,)),
         v2_environment_configuration={
@@ -498,7 +500,7 @@ def test_malformed_or_unknown_definition_fails_before_catalog_publication(
     message: str,
 ) -> None:
     root_name = "negative_zero_core_packages"
-    source = Path("tests/fixtures/zero_core_packages")
+    source = FIXTURE_ROOT
     destination = tmp_path / root_name
     shutil.copytree(source, destination)
     (
@@ -524,7 +526,7 @@ def test_eager_optional_dependency_import_propagates_programmer_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root_name = "eager_zero_core_packages"
-    source = Path("tests/fixtures/zero_core_packages")
+    source = FIXTURE_ROOT
     destination = tmp_path / root_name
     shutil.copytree(source, destination)
     package_path = destination / "synthetic_echo" / "package.py"

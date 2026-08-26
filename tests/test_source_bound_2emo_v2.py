@@ -12,6 +12,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from core.local_torch_device import expected_local_torch_device
 import torch
 
 from core.catalog.builder import (
@@ -607,10 +608,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
 ) -> None:
     import modules.solubility.protein_sol as solubility_adapter
 
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        path = tmp_path / name.lower()
-        path.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(path))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     proteinmpnn = _ControlledProteinMPNN()
 
@@ -651,9 +649,9 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     )
 
     environment = {
-        ("proteinmpnn.design.local", "11.0.0"): {
+        ("proteinmpnn.design.local", "12.0.0"): {
             "values": {
-                "device": "cpu",
+                "device": expected_local_torch_device(),
                 "provider_root": ROOT / "repositories" / "ProteinMPNN",
             },
         },
@@ -895,6 +893,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             project_id,
             committed.json()["workflow_commit_id"],
             request_id=f"provider-free-2emo-replay-{expected_passing}",
+            timeout_seconds=90,
         )
         assert replay.projection["status"] == "succeeded"
         replay_dispositions = {

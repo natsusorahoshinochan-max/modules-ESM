@@ -71,7 +71,7 @@ testpaths = ["tests"]
 addopts = [
     "--strict-markers",
     "-m",
-    "not acceptance and not installed_package and not deterministic_acceptance and not live_provider and not local_provider and not slow and not scientific_repro and not repair_findings",
+    "not acceptance and not installed_package and not deterministic_acceptance and not live_provider and not local_provider and not slow",
 ]
 markers = [
     "acceptance: tests that exercise real providers, models, or binaries",
@@ -79,8 +79,5 @@ markers = [
     "installed_package: builds and installs release artifacts in an isolated environment",
     "live_provider: tests that make remote provider calls",
     "local_provider: tests that execute installed local providers or binaries",
-    "fresh_remote_real: one source-bound canonical run against all required real providers",
     "slow: tests with long or heavy model loading",
-    "scientific_repro: deterministic reproductions intentionally red until their repair ticket",
-    "repair_findings: deterministic post-review reproductions intentionally red until repaired",
 ]

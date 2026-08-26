@@ -6,25 +6,48 @@ does not claim to be an official upstream SoluProt 1.1.0 release.
 
 ## Build and install
 
-Build from this source tree on the target machine:
+Stage and build the source on the target machine while keeping the build
+environment, intermediate files, and artifacts outside the checkout:
 
 ```bash
-python3.12 -m venv .venv-build
-.venv-build/bin/python -m pip install --upgrade pip build
-.venv-build/bin/python -m build --wheel
+export SOLUPROT_BUILD_ROOT="$(mktemp -d)"
+cp -R . "$SOLUPROT_BUILD_ROOT/source"
+python3.12 -m venv "$SOLUPROT_BUILD_ROOT/environment"
+"$SOLUPROT_BUILD_ROOT/environment/bin/python" -m pip install --upgrade pip build pytest
+"$SOLUPROT_BUILD_ROOT/environment/bin/python" -m build --wheel \
+  --outdir "$SOLUPROT_BUILD_ROOT/dist" "$SOLUPROT_BUILD_ROOT/source"
+"$SOLUPROT_BUILD_ROOT/environment/bin/python" -m pip install \
+  "$SOLUPROT_BUILD_ROOT/dist/soluprot-1.1.0-py3-none-any.whl"
 ```
 
 Install the resulting wheel into the runtime environment:
 
 ```bash
-runtime/bin/python -m pip install dist/soluprot-1.1.0-py3-none-any.whl
+export SOLUPROT_RUNTIME="$HOME/soluprot-runtime"
+python3.12 -m venv "$SOLUPROT_RUNTIME"
+"$SOLUPROT_RUNTIME/bin/python" -m pip install \
+  "$SOLUPROT_BUILD_ROOT/dist/soluprot-1.1.0-py3-none-any.whl"
 ```
 
 The wheel contains the Python implementation, both exported gradient-boosting
-models, the E. coli reference database, and the personal-deployment TMHMM 2.0d
-asset closure. TMHMM decoders are included for `Darwin_arm64` and
-`Linux_x86_64`; the Workbench selects the decoder matching `uname -s` and
-`uname -m`. USEARCH 12 remains an external target-platform executable.
+models, the E. coli reference database, and the Workbench-owned TMHMM 2.0d
+asset closure. TMHMM decoders are included only for `Darwin_arm64` and
+`Linux_x86_64`; the Workbench selects the exact decoder for the current
+supported platform. Intel macOS and Linux ARM64 are not supported by the full
+Method. USEARCH 12 remains an external target-platform executable.
+
+The wheel currently retains the `py3-none-any` filename because its Python
+packages have no CPython ABI extension and one wheel deliberately carries both
+decoder data files. That filename is not a platform-support claim: readiness
+admits only the two platform pairs above. A future decoder inventory or
+target-specific wheel policy requires an explicit packaging-contract change.
+
+The environment above is a standalone SoluProt runtime, not a complete Protein
+Workbench Provider root. Workbench deployment uses Python 3.12 and the fixed
+`PROTEIN_WORKBENCH_SOLUPROT_ROOT/var/environments/soluprot` plus
+`var/tools/soluprot/usearch` layout documented in the
+[backend deployment contract](../../docs/backend-deployment.md#2-build-soluprot-next-on-the-target-machine).
+Do not point `PROTEIN_WORKBENCH_SOLUPROT_ROOT` at `$SOLUPROT_RUNTIME`.
 
 ## Run
 
@@ -51,8 +74,10 @@ soluprot \
 ## Test
 
 ```bash
-.venv-build/bin/python -m pip install pytest
-.venv-build/bin/python -m pytest -q
+(
+  cd "$SOLUPROT_BUILD_ROOT/source"
+  "$SOLUPROT_BUILD_ROOT/environment/bin/python" -m pytest -q tests
+)
 ```
 
 The Workbench-level real Provider acceptance remains the authoritative check of

@@ -1,6 +1,5 @@
 """Acceptance: all local ESM-3 v2 generation modes through public contracts."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -13,9 +12,17 @@ from tests.acceptance.retained_evidence import retain_service_run
 @pytest.mark.slow
 def test_local_esm3_all_generation_modes(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from core.local_torch_device import expected_local_torch_device
+    import esm.pretrained as esm_pretrained
+    import esm.utils.constants.esm3 as esm3_constants
+
     from modules.esm3.local_adapter import (
         LOCAL_ESM3_SNAPSHOT_REVISION,
+    )
+    from protein_workbench_public.provider_environment import (
+        provider_environment_configuration,
     )
     from tests.fixtures.esm3_generation import (
         decode_output,
@@ -23,25 +30,36 @@ def test_local_esm3_all_generation_modes(
         run_generation,
     )
 
-    if configured_cache := os.environ.get("HF_HUB_CACHE"):
-        hub_cache = Path(configured_cache)
-    else:
-        hub_cache = Path(os.environ["HF_HOME"]) / "hub"
-    snapshot = (
-        hub_cache
-        / "models--biohub--esm3-sm-open-v1"
-        / "snapshots"
-        / LOCAL_ESM3_SNAPSHOT_REVISION
+    def forbidden_data_root(_model: str) -> Path:
+        pytest.fail(
+            "explicit local ESM-3 execution must not use an SDK data fallback"
+        )
+
+    monkeypatch.setattr(esm3_constants, "data_root", forbidden_data_root)
+    monkeypatch.setattr(esm_pretrained, "data_root", forbidden_data_root)
+    monkeypatch.setattr(
+        esm3_constants,
+        "snapshot_download",
+        lambda **_kwargs: pytest.fail(
+            "explicit local ESM-3 execution must not access Hugging Face"
+        ),
     )
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
-    environment = {
-        "model_snapshot_path": snapshot,
-        "model_snapshot_revision": LOCAL_ESM3_SNAPSHOT_REVISION,
-        "device": "cpu",
-        "runtime_directory": runtime_directory,
-        "performance_settings": {},
-    }
+
+    process_configuration = provider_environment_configuration()
+    environment = process_configuration[
+        ("esm3.generate_sequence.local_open", "9.0.0")
+    ]["values"]
+    assert all(
+        process_configuration[(f"esm3.{operation}.local_open", "9.0.0")][
+            "values"
+        ]
+        == environment
+        for operation in (
+            "generate_paired",
+            "generate_sequence",
+            "generate_structure",
+        )
+    )
     results = {}
     shared_catalog = generation_catalog(include_protein_io=True)
     for operation, sequence in (
@@ -64,11 +82,12 @@ def test_local_esm3_all_generation_modes(
             catalog=shared_catalog,
         )
         assert projection["status"] == "succeeded"
+        assert esm3_constants.data_root is forbidden_data_root
         binding_id = f"esm3.{operation}.local_open"
         binding = catalog.require_contract(
             "binding",
             binding_id,
-            "8.0.0",
+            "9.0.0",
         )
         assert binding.descriptor["method"]["contract_id"] == (
             f"esm3.{operation}.esm3_sm_open_v1_local"
@@ -84,7 +103,7 @@ def test_local_esm3_all_generation_modes(
             for index, event in enumerate(events)
             if event["event"]["type"] == "readiness_attested"
             and event["event"]["binding"]["contract_id"] == binding_id
-            and event["event"]["binding"]["contract_version"] == "8.0.0"
+            and event["event"]["binding"]["contract_version"] == "9.0.0"
             and event["event"]["conclusion"] == "passing"
         )
         invocations = [

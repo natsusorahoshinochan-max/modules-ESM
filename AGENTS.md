@@ -18,13 +18,9 @@ Biohub and its official API specification are authoritative. Assume conforming r
 
 Fail fast on local invariant violations. Avoid broad catches, silent coercion, guessed defaults, catch-and-continue behavior, and undocumented retries or fallbacks. Retain checks only for scientific correctness, explicit contracts, durable writes, accidental data loss, and credential hygiene.
 
-## Remote Development
-
-Use the SSH command in `remote/ssh.md` to connect to the remote development server.
-
 ## Verification
 
-Use Python 3.12, typed code, and pytest. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance. The existing `frontend/` is retired and is not part of the current verification gate.
+Use Python 3.12, typed code, and pytest. Test current scientific and package contracts. Mocks cannot replace required real-provider acceptance. No frontend implementation is part of the current verification gate.
 
 Run focused tests plus:
 
@@ -33,4 +29,4 @@ Run focused tests plus:
 .venv/bin/python -m verification.backend deterministic-acceptance
 ```
 
-Never commit `.local/`, `keys/`, environments, or frontend build output.
+Never commit `.local/`, `keys/`, environments, or client build output.

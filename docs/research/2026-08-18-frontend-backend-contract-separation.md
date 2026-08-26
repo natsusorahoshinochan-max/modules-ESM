@@ -1,9 +1,9 @@
 # Protein Workbench 前后端契约分离调研
 
 - 日期：2026-08-18
-- 状态：调研与建议，尚未形成 ADR
+- 状态：历史调研与未来客户端设计输入，尚未形成 ADR；其中旧前端事实固定于已退役实现
 - 范围：可独立构建、发布和部署的 React 前端与 Python 后端之间的公共契约
-- 来源边界：外部事实仅使用官方规范、官方文档和第一方源码；项目事实来自当前仓库
+- 来源边界：外部事实仅使用官方规范、官方文档和第一方源码；后端项目事实来自调研时仓库，已退役前端事实使用固定 commit permalink
 
 ## 1. 结论摘要
 
@@ -13,7 +13,7 @@
 schema 和 event-stream 定义；source wheel 与 installed wheel 已验证 bundle 和 Catalog
 identity 相同。
 
-但是，当前旧前端没有真正消费这条 seam。它仍然：
+但是，2026-08-18 当时仍存在、后来已删除的旧前端没有真正消费这条 seam。它当时：
 
 - 手写 `/api/v2/...` URL；
 - 手写不完整的 TypeScript DTO；
@@ -261,29 +261,31 @@ artifact 确定它应按哪一版 JSON Schema 解释。
 limits、pattern、exclusive bounds、unit、group、resource kind 等当前后端已经支持的字段。
 这不是纯展示代码，而是第二份、不完整的参数契约。
 
-### 3.3 当前前端绕过了 public protocol
+### 3.3 已退役前端曾绕过 public protocol
 
-[`frontend/src/currentProtocol.ts`](../../frontend/src/currentProtocol.ts) 手写 DTO，并把
+已退役实现的 [`frontend/src/currentProtocol.ts`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/ef8e253d0754d13ee6b9dab635393396de683608/frontend/src/currentProtocol.ts) 手写 DTO，并把
 `response.json()` 直接 cast 为泛型 `T`。Catalog translation 通过
 `as unknown as NodeTypeDescriptor` 绕过结构证明。Workflow schema version
 `2.1.0` 也作为 TypeScript literal 手写。
 
-[`frontend/src/App.tsx`](../../frontend/src/App.tsx) 直接手写 Catalog、Project、Draft、
+已退役实现的 [`frontend/src/App.tsx`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/ef8e253d0754d13ee6b9dab635393396de683608/frontend/src/App.tsx) 直接手写 Catalog、Project、Draft、
 Commit、Run 和 Cancel URL；WebSocket 使用当前页面的 host；没有读 protocol discovery，
 没有 reconnect/resume，也没有检查 stream event envelope 的完整 schema。
 
-[`frontend/src/typedOutputs.ts`](../../frontend/src/typedOutputs.ts) 再次手写 Typed Value
+已退役实现的 [`frontend/src/typedOutputs.ts`](https://github.com/natsusorahoshinochan-max/modules-ESM/blob/ef8e253d0754d13ee6b9dab635393396de683608/frontend/src/typedOutputs.ts) 再次手写 Typed Value
 route 与 header 名，并以 non-null assertion 接受所有 header。旧前端因此会把 protocol
 drift 变成运行时 null、错误状态或静默错误，而不会在 adapter boundary 失败。
 
 上传流程还根据文件扩展名硬编码两个具体 Node Type ID。这既复制 Catalog 能力，也使新
 格式、新导入 Node 或 Module Package 改名必须修改前端。
 
-### 3.4 独立部署当前不可直接工作
+### 3.4 已退役前端的独立部署不可直接工作
 
-当前 Vite development proxy 和 `window.location.host` 假设同源；backend 未配置
-cross-origin response policy。即使 REST body 可以访问，Typed Value 依赖的非 safelisted
-headers 在跨源 Fetch 下也不会自动暴露给前端。
+已退役实现的 Vite development proxy 和 `window.location.host` 假设同源；当时 backend
+未配置 cross-origin response policy。即使 REST body 可以访问，Typed Value 依赖的非
+safelisted headers 在跨源 Fetch 下也不会自动暴露给该前端。当前 checkout 没有前端，
+CORS、Vite proxy 和 WebSocket Origin 因此是未来客户端的显式部署设计选择，不是当前
+backend deployment blocker。
 
 同时，所有 public FastAPI routes 都 `include_in_schema=False`，所以 FastAPI 自动生成的
 `/openapi.json` 不是当前 public v2 contract。未来不能从 FastAPI introspection 重新生成

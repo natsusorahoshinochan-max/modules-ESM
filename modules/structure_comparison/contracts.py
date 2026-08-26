@@ -32,6 +32,19 @@ REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE = ExactContractReference(
         "27b5cf4c17bd0bfc2143b25bf669bee8"
     ),
 )
+LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE = ExactContractReference(
+    contract_kind="method",
+    contract_id="folding.fold.esmfold2_hf_1ebf0e3",
+    contract_version="6.0.0",
+    contract_digest=(
+        "sha256:8073e63f0291d1af2bc644f50307b298"
+        "a02a2cb73e2de4159582da2295daaa7a"
+    ),
+)
+ESMFOLD2_FOLD_METHOD_REFERENCES = (
+    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
+    LOCAL_ESMFOLD2_FOLD_METHOD_REFERENCE,
+)
 
 
 SEQUENCE_PRIMARY_AFFINE_METHOD = MethodDefinition(

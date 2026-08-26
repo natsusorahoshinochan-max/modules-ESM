@@ -12,7 +12,7 @@
 ## 文件布局
 
 ```text
-docs/reference/biohub/v1/
+docs/biohub-api-reference/v1/
 ├── README.md
 ├── manifest.json
 ├── api-reference.json
@@ -49,7 +49,7 @@ docs/reference/biohub/v1/
 ## 使用规则
 
 1. 修改 provider adapter、请求模型或验证逻辑时，先以 `api-reference.json` 核对字段事实，再阅读对应端点文档中的来源语义说明。
-2. 本快照是 Biohub wire contract 的外部证据，不自动成为产品或科学合同；与 `docs/target-contract-index.md` 指向的目标合同冲突时，必须显式裁决。
+2. 本快照是 Biohub wire contract 的外部证据，不自动成为产品或科学合同；与当前 [Biohub / ESM 产品合同](../product-contract-supplement.md)、active Method/Binding 或固定 SDK revision 冲突时，必须显式裁决。
 3. 不得把 `response.schema: null` 解释为“响应为空”；它只表示来源页未公开 schema。
 4. 不得把公开模型枚举当作账户能力全集；来源页说明私有模型可能另行出现。
 5. 更新快照时应一次刷新全部 9 个端点，并比较 `manifest.json` 的 definition SHA-256，避免只更新共享类型的一部分使用者。

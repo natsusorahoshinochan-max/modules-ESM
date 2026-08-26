@@ -66,6 +66,7 @@ from core.operation import (
     ResolvedOutputIdentity,
 )
 from core.parameters.contract import admit_declarations
+from core.local_torch_device import expected_local_torch_device
 from core.execution.node_attempt import ExecutionTermination
 from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
 from tests.support.application import create_application
@@ -1282,9 +1283,7 @@ def test_branch_failure_closes_every_disposition_and_unrelated_work_continues(
     calls: list[str] = []
     run_root = tmp_path / "runs"
     secret = "sk-secret-branch-provider-failure"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
@@ -1386,9 +1385,7 @@ def test_failed_optional_input_does_not_block_a_node(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
@@ -1441,9 +1438,7 @@ def test_started_engine_terminal_statuses_are_causally_closed(
     disposition: str,
     run_status: str,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             [],
@@ -1512,9 +1507,7 @@ def test_cache_miss_fails_at_an_unavailable_binding_without_readiness(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -1573,9 +1566,7 @@ def test_direct_cache_miss_enters_its_operation_without_readiness(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -1656,9 +1647,7 @@ def test_preparation_error_emits_no_attempt_evidence(
         effective_randomness_parameters=("seed",),
         effective_randomness_resolver=resolver,
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
@@ -1722,18 +1711,7 @@ def test_readiness_programming_error_fails_after_attempt_start(
         calls.append("readiness")
         raise RuntimeError("fixture Readiness invariant failure")
 
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -1801,18 +1779,7 @@ def test_result_store_preoperation_failure_retains_typed_run_closure(
         raise ResultIntegrityError("sha256:" + "7" * 64)
 
     monkeypatch.setattr(ResultStore, "lookup_replay", fail_replay)
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([], cacheable=True),
         v2_environment_configuration={
@@ -1878,9 +1845,7 @@ def test_late_worker_failure_gates_every_lifecycle_use_case_and_restart(
     project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
     output_root = tmp_path / "outputs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog(
         calls,
         readiness_checks={"test.direct.local": fail_after_receipt},
@@ -1984,9 +1949,7 @@ def test_public_terminal_wait_helper_never_returns_a_running_projection(
     release = threading.Event()
     returned = threading.Event()
     projections: list[dict[str, Any]] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -2040,9 +2003,7 @@ def test_one_operation_can_record_zero_or_multiple_engine_invocations(
     monkeypatch,
     invocation_count: int,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -2095,9 +2056,7 @@ def test_public_start_run_binds_the_exact_commit_before_direct_execution(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls),
         v2_environment_configuration={
@@ -2217,18 +2176,7 @@ def test_node_execution_attempt_interface_returns_only_committed_outcome(
             "values": {"credential": "credential-value"},
         }
     }
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration=environment_configuration,
@@ -2338,18 +2286,7 @@ def test_run_accepts_output_method_projected_by_its_binding(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -2386,18 +2323,7 @@ def test_run_rejects_output_method_not_owned_by_its_binding(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -2472,9 +2398,7 @@ def test_run_executes_only_the_resolved_plan_after_compilation(
         ),
         resolve=resolve_randomness,
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog(
         calls,
         node_parameter_declarations={
@@ -2555,19 +2479,17 @@ def test_simplefold_bindings_receive_independent_run_scoped_readiness(
 
     calls: list[str] = []
     admissions: list[SimpleFoldProviderAssetClosure] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     bindings = (
         "folding.fold.simplefold_local",
         "folding.simplefold_confidence.simplefold_local",
     )
     environment = {
         (binding_id, "2.1.0"): {
-                "values": {
-                    "credential": "credential-value",
-                    "device": "cpu",
-                },
+            "values": {
+                "credential": "credential-value",
+                "device": expected_local_torch_device(),
+            },
         }
         for binding_id in bindings
     }
@@ -2655,9 +2577,7 @@ def test_failed_readiness_closes_only_the_provider_bound_node(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     bindings = ("test.direct.local", "test.other.local")
     secret = "sk-never-persist-this-value"
     private_path = str(tmp_path / "private-runtime")
@@ -2779,10 +2699,7 @@ def test_public_run_exposes_no_node_subset_when_transaction_commit_fails(
 
     calls: list[str] = []
     cache_root = tmp_path / "cache"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(calls, cacheable=True),
         v2_environment_configuration={
@@ -2831,9 +2748,7 @@ def test_run_without_selection_closes_after_its_node_disposition(
     monkeypatch,
 ) -> None:
     run_root = tmp_path / "runs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
@@ -2906,9 +2821,7 @@ def test_cleanup_failure_is_bounded_and_does_not_rewrite_engine_success(
         "cleanup_temporary_work",
         fail_cleanup,
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
@@ -2983,9 +2896,7 @@ def test_operation_failure_retains_ordered_workspace_cleanup_causality(
         "cleanup_temporary_work",
         fail_cleanup,
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -3056,9 +2967,7 @@ def test_connected_ports_publish_and_consume_only_canonical_validated_values(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_pipeline_catalog(calls))
 
     with TestClient(app) as client:
@@ -3205,9 +3114,7 @@ def test_invalid_output_never_publishes_success_or_a_public_result(
     monkeypatch,
 ) -> None:
     calls: list[str] = []
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_pipeline_catalog(
             calls,
@@ -3287,9 +3194,7 @@ def test_artifact_port_without_publication_intent_remains_an_ordinary_output(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
@@ -3353,12 +3258,7 @@ def test_artifact_object_write_failure_publishes_no_node_values(
         "store",
         fail_artifact_put,
     )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_artifact_catalog([]))
 
     with TestClient(app) as client:
@@ -3422,9 +3322,7 @@ def test_standalone_file_collection_projects_each_opaque_artifact(
         b"MODEL        1\nEND\n",
         b"MODEL        2\nEND\n",
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(tmp_path / "outputs"))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
@@ -3465,9 +3363,7 @@ def test_candidate_artifact_identifier_is_metadata_not_a_storage_path(
     candidate_id: str,
 ) -> None:
     output_root = tmp_path / "outputs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_artifact_catalog(
             [],
@@ -3516,9 +3412,7 @@ def test_success_ledger_projects_validated_events_and_opaque_artifact(
     calls: list[str] = []
     run_root = tmp_path / "runs"
     output_root = tmp_path / "outputs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(tmp_path / "projects"))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_artifact_catalog(calls))
 
     with TestClient(app) as client:
@@ -3649,9 +3543,7 @@ def test_terminal_run_projection_and_events_rebuild_after_backend_restart(
     project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
     output_root = tmp_path / "outputs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog([])
     environment = {
         ("test.direct.local", "2.1.0"): {
@@ -3795,12 +3687,7 @@ def test_restart_rejects_an_inactive_catalog_generation_without_rewriting_ledger
     release = threading.Event()
     project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
         ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},
@@ -3879,15 +3766,7 @@ def test_running_event_reconnect_switches_from_replay_to_live_without_loss(
 ) -> None:
     entered = threading.Event()
     release = threading.Event()
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -3986,15 +3865,7 @@ def test_background_runs_keep_project_reserved_serial_and_joined(
     release = threading.Event()
     shutdown_done = threading.Event()
     calls: list[str] = []
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -4066,15 +3937,7 @@ def test_run_runtime_switches_and_releases_local_provider_state(
             state["model"] = object()
             states.append(state)
 
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     binding_ids = ("test.first.local", "test.second.local")
     app = create_application(
         frozen_catalog_override=_direct_catalog(
@@ -4122,15 +3985,7 @@ def test_sync_runs_share_the_application_execution_slot(
     entered = threading.Event()
     release = threading.Event()
     calls: list[str] = []
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             calls,
@@ -4203,15 +4058,7 @@ def test_terminal_project_lease_waits_for_background_release(
     release_entered = threading.Event()
     allow_release = threading.Event()
     second_finished = threading.Event()
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
@@ -4288,15 +4135,7 @@ def test_sync_starts_queue_on_the_project_lease(
 ) -> None:
     entered = threading.Event()
     release = threading.Event()
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog(
             [],
@@ -4383,15 +4222,7 @@ def test_background_thread_start_is_atomic_with_shutdown(
     start_entered = threading.Event()
     allow_start = threading.Event()
     shutdown_done = threading.Event()
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=_direct_catalog([]),
         v2_environment_configuration={
@@ -4465,9 +4296,7 @@ def test_restart_marks_unfinished_run_interrupted_without_guessing_attempts(
     project_root = tmp_path / "projects"
     run_root = tmp_path / "runs"
     output_root = tmp_path / "outputs"
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_OUTPUT_ROOT", str(output_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = _direct_catalog(
         [],
         execution_gate=(entered, release),
@@ -4553,15 +4382,7 @@ def test_run_event_stream_rejects_malformed_stale_and_cross_scope_cursors(
     tmp_path,
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(tmp_path / "runs"))
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
         ("test.direct.local", "2.1.0"): {
             "values": {"credential": "credential-value"},

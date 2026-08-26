@@ -69,7 +69,7 @@ class ProjectManager:
 
     def __init__(
         self,
-        root_dir: str | Path = ".local/projects",
+        root_dir: str | Path,
         *,
         cache_root: str | Path | None = None,
         output_root: str | Path | None = None,

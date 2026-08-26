@@ -5,10 +5,16 @@ from __future__ import annotations
 from tests.support.ledger import public_run_events, public_run_projection
 
 from core.catalog.builder import build_frozen_catalog
+from core.workflow.compiler import (
+    CompilationRequest,
+    compile as compile_workflow,
+    lock_workflow,
+)
 
 from protein_workbench_public.bootstrap import module_registrations
 
 from collections import Counter
+import hashlib
 from importlib.resources import files
 import json
 import math
@@ -17,6 +23,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from core.local_torch_device import expected_local_torch_device
 
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from datatypes.candidate import CandidateCollection
@@ -42,9 +49,15 @@ from tests.acceptance.installed_harness import (
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROJECT_ID = "canonical-3gb1"
-RUN_LABEL = "fresh-canonical-3gb1"
+RUN_LABELS = {
+    "biohub": "fresh-canonical-3gb1",
+    "local": "fresh-local-canonical-3gb1",
+}
+INPUT_SHA256 = (
+    "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
+)
 PROTEINMPNN_BINDING_ID = "proteinmpnn.design.local"
-PROTEINMPNN_BINDING_VERSION = "11.0.0"
+PROTEINMPNN_BINDING_VERSION = "12.0.0"
 PROTEINMPNN_METHOD_ID = "proteinmpnn.design.v_48_020_8907e667"
 PROTEINMPNN_METHOD_VERSION = "6.0.0"
 REMOTE_BINDINGS = {
@@ -67,13 +80,128 @@ REMOTE_BINDINGS = {
         "source": "Biohub",
     },
 }
+LOCAL_BINDINGS = {
+    "esm3.generate_paired.local_open": {
+        "binding_version": "9.0.0",
+        "method_id": "esm3.generate_paired.esm3_sm_open_v1_local",
+        "method_version": "5.0.0",
+        "adapter_id": "esm3.local_open/adapter",
+        "adapter_version": "9.0.0",
+        "model": "esm3_sm_open_v1",
+        "source": "biohub/esm3-sm-open-v1",
+    },
+    "folding.fold.esmfold2_local": {
+        "binding_version": "11.0.0",
+        "method_id": "folding.fold.esmfold2_hf_1ebf0e3",
+        "method_version": "6.0.0",
+        "adapter_id": "folding.esmfold2_local/adapter",
+        "adapter_version": "11.0.0",
+        "model": "biohub/ESMFold2",
+        "source": "Hugging Face",
+    },
+}
+_LOCAL_BINDING_REPLACEMENTS = {
+    ("esm3.generate_paired.biohub_medium", "8.0.0"): (
+        "esm3.generate_paired.local_open",
+        "9.0.0",
+    ),
+    ("folding.fold.esmfold2_remote", "9.0.0"): (
+        "folding.fold.esmfold2_local",
+        "11.0.0",
+    ),
+}
 
 
-def _environment() -> dict[tuple[str, str], Any]:
+def _route_bindings(route: str) -> dict[str, dict[str, str]]:
+    return {"biohub": REMOTE_BINDINGS, "local": LOCAL_BINDINGS}[route]
+
+
+def _select_local_model_bindings(workflow: dict[str, Any]) -> None:
+    replaced = 0
+    for node in workflow["nodes"]:
+        replacement = _LOCAL_BINDING_REPLACEMENTS.get(
+            (node["binding_id"], node["binding_version"])
+        )
+        if replacement is None:
+            continue
+        node["binding_id"], node["binding_version"] = replacement
+        replaced += 1
+    assert replaced == 3
+
+
+def _author_local_workflow(
+    workflow: dict[str, Any],
+    *,
+    workflow_id: str,
+    project_input_ref: str,
+) -> None:
+    _select_local_model_bindings(workflow)
+    workflow["workflow_id"] = workflow_id
+    workflow["contract_lock"] = []
+    input_nodes = [
+        node
+        for node in workflow["nodes"]
+        if node["node_id"] == "import-3gb1"
+    ]
+    assert len(input_nodes) == 1
+    input_node = input_nodes[0]
+    assert input_node["node_type_id"] == "protein_io.import_structure"
+    input_node["node_parameters"] = {
+        "project_input_ref": project_input_ref
+    }
+
+
+def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
+    catalog = build_frozen_catalog(module_registrations())
+    workflow = json.loads(
+        files("examples").joinpath(
+            "v2", "canonical-3gb1.workflow.json"
+        ).read_text(encoding="utf-8")
+    )
+    project_input_ref = "input-0123456789abcdef0123456789abcdef"
+
+    _author_local_workflow(
+        workflow,
+        workflow_id="fresh-local-canonical-3gb1",
+        project_input_ref=project_input_ref,
+    )
+
+    nodes = {node["node_id"]: node for node in workflow["nodes"]}
+    assert {
+        node_id: (
+            nodes[node_id]["binding_id"],
+            nodes[node_id]["binding_version"],
+        )
+        for node_id in ("generate-paired", "fold-sequences", "fold-final")
+    } == {
+        "generate-paired": ("esm3.generate_paired.local_open", "9.0.0"),
+        "fold-sequences": ("folding.fold.esmfold2_local", "11.0.0"),
+        "fold-final": ("folding.fold.esmfold2_local", "11.0.0"),
+    }
+    assert workflow["workflow_id"] == "fresh-local-canonical-3gb1"
+    assert workflow["contract_lock"] == []
+    assert nodes["import-3gb1"]["node_parameters"] == {
+        "project_input_ref": project_input_ref
+    }
+
+    decoded = decode_workflow_document(workflow)
+    locked = lock_workflow(decoded, catalog)
+    compiled = compile_workflow(CompilationRequest(locked, 1), catalog)
+    assert compiled.resolved_contracts == locked.contract_lock
+
+
+def _environment(route: str) -> dict[tuple[str, str], Any]:
+    if route == "local":
+        from protein_workbench_public.provider_environment import (
+            provider_environment_configuration,
+        )
+
+        return provider_environment_configuration(os.environ)
+
     environment = biohub_esm3_esmfold2_environment()
     environment[(PROTEINMPNN_BINDING_ID, PROTEINMPNN_BINDING_VERSION)] = {
         "values": {
-            "device": "cpu",
+            "device": expected_local_torch_device(),
             "provider_root": Path(
                 os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
             ).resolve(),
@@ -153,6 +281,7 @@ def _assert_provider_invocations(
     workflow: dict[str, Any],
     projection: dict[str, Any],
     events: tuple[dict[str, Any], ...],
+    route: str,
 ) -> None:
     nodes = {node["node_id"]: node for node in workflow["nodes"]}
     dispositions = {
@@ -164,18 +293,29 @@ def _assert_provider_invocations(
         if message["event"]["type"] == "engine_invocation_terminal"
     }
     invocations = _invocations_by_node(events)
+    route_bindings = _route_bindings(route)
+    esm3_binding_id = next(
+        binding_id
+        for binding_id in route_bindings
+        if binding_id.startswith("esm3.")
+    )
+    fold_binding_id = next(
+        binding_id
+        for binding_id in route_bindings
+        if binding_id.startswith("folding.")
+    )
     expected = {
-        "generate-paired": ("esm3.generate_paired.biohub_medium", 20),
-        "fold-sequences": ("folding.fold.esmfold2_remote", 10),
+        "generate-paired": (esm3_binding_id, 20),
+        "fold-sequences": (fold_binding_id, 10),
         "design-children": (PROTEINMPNN_BINDING_ID, 3),
-        "fold-final": ("folding.fold.esmfold2_remote", 15),
+        "fold-final": (fold_binding_id, 15),
     }
     for node_id, (binding_id, count) in expected.items():
         node = nodes[node_id]
         binding_version = (
             PROTEINMPNN_BINDING_VERSION
             if binding_id == PROTEINMPNN_BINDING_ID
-            else REMOTE_BINDINGS[binding_id]["binding_version"]
+            else route_bindings[binding_id]["binding_version"]
         )
         assert (node["binding_id"], node["binding_version"]) == (
             binding_id,
@@ -213,26 +353,60 @@ def _assert_provider_invocations(
         for item in esm3
         if item["engine_role"] == "structure_child"
     ) == Counter({parent: 1 for parent in sequence_parents})
-    assert all(
-        item["invocation_provenance"] == {
-            "effective_randomness": {"control": "provider_uncontrolled"}
-        }
-        for item in esm3
-    )
+    if route == "biohub":
+        assert all(
+            item["invocation_provenance"]
+            == {
+                "effective_randomness": {
+                    "control": "provider_uncontrolled"
+                }
+            }
+            for item in esm3
+        )
+    else:
+        assert all(
+            item["invocation_provenance"]["effective_randomness"][
+                "control"
+            ]
+            == "exact_seed"
+            and type(
+                item["invocation_provenance"]["effective_randomness"][
+                    "effective_seed"
+                ]
+            )
+            is int
+            for item in esm3
+        )
 
     for node_id, count in (("fold-sequences", 10), ("fold-final", 15)):
         folds = invocations[node_id]
         assert Counter(item["engine_role"] for item in folds) == Counter({
             f"fold_parent_{index}_sample_0": 1 for index in range(count)
         })
-        assert all(
-            item["invocation_provenance"] == {
-                "effective_randomness": {
-                    "control": "provider_uncontrolled"
+        if route == "biohub":
+            assert all(
+                item["invocation_provenance"]
+                == {
+                    "effective_randomness": {
+                        "control": "provider_uncontrolled"
+                    }
                 }
-            }
-            for item in folds
-        )
+                for item in folds
+            )
+        else:
+            assert all(
+                item["invocation_provenance"]["effective_randomness"][
+                    "control"
+                ]
+                == "exact_seed"
+                and type(
+                    item["invocation_provenance"]["effective_randomness"][
+                        "effective_seed"
+                    ]
+                )
+                is int
+                for item in folds
+            )
 
     proteinmpnn = invocations["design-children"]
     assert Counter(item["engine_role"] for item in proteinmpnn) == {
@@ -253,7 +427,7 @@ def _assert_provider_invocations(
         for item in proteinmpnn
     )
 
-    for binding_id, expected_contract in REMOTE_BINDINGS.items():
+    for binding_id, expected_contract in route_bindings.items():
         binding = catalog.require_contract(
             "binding", binding_id, expected_contract["binding_version"]
         )
@@ -289,8 +463,20 @@ def _assert_provider_invocations(
 
 
 def _provider_invocation_contract_fixture(
+    route: str = "biohub",
 ) -> tuple[Any, dict[str, Any], dict[str, Any], tuple[dict[str, Any], ...]]:
     catalog = build_frozen_catalog(module_registrations())
+    route_bindings = _route_bindings(route)
+    esm3_binding_id = next(
+        binding_id
+        for binding_id in route_bindings
+        if binding_id.startswith("esm3.")
+    )
+    fold_binding_id = next(
+        binding_id
+        for binding_id in route_bindings
+        if binding_id.startswith("folding.")
+    )
     workflow_nodes: list[dict[str, Any]] = []
     dispositions: list[dict[str, Any]] = []
     event_payloads: list[dict[str, Any]] = []
@@ -368,13 +554,20 @@ def _provider_invocation_contract_fixture(
                 )
             )
 
-    uncontrolled = {
-        "effective_randomness": {"control": "provider_uncontrolled"}
-    }
+    generation_randomness = (
+        {"effective_randomness": {"control": "provider_uncontrolled"}}
+        if route == "biohub"
+        else {
+            "effective_randomness": {
+                "control": "exact_seed",
+                "effective_seed": 1603,
+            }
+        }
+    )
     add_node(
         "generate-paired",
-        "esm3.generate_paired.biohub_medium",
-        "8.0.0",
+        esm3_binding_id,
+        route_bindings[esm3_binding_id]["binding_version"],
         tuple(
             call
             for index in range(10)
@@ -383,14 +576,14 @@ def _provider_invocation_contract_fixture(
                     f"sequence-parent-{index}",
                     "sequence_parent",
                     None,
-                    uncontrolled,
+                    generation_randomness,
                     "succeeded",
                 ),
                 (
                     f"structure-child-{index}",
                     "structure_child",
                     f"sequence-parent-{index}",
-                    uncontrolled,
+                    generation_randomness,
                     "succeeded",
                 ),
             )
@@ -399,14 +592,14 @@ def _provider_invocation_contract_fixture(
     for node_id, count in (("fold-sequences", 10), ("fold-final", 15)):
         add_node(
             node_id,
-            "folding.fold.esmfold2_remote",
-            "9.0.0",
+            fold_binding_id,
+            route_bindings[fold_binding_id]["binding_version"],
             tuple(
                 (
                     f"{node_id}-{index}",
                     f"fold_parent_{index}_sample_0",
                     None,
-                    uncontrolled,
+                    generation_randomness,
                     "succeeded",
                 )
                 for index in range(count)
@@ -486,12 +679,14 @@ def _provider_invocation_contract_fixture(
     )
 
 
-def test_provider_invocation_contract_allows_local_workflow_invocations(
+@pytest.mark.parametrize("route", ("biohub", "local"))
+def test_provider_invocation_contract_allows_selected_workflow_invocations(
+    route: str,
 ) -> None:
-    fixture = _provider_invocation_contract_fixture()
+    fixture = _provider_invocation_contract_fixture(route)
     for message in fixture[3]:
         validate_event(message)
-    _assert_provider_invocations(*fixture)
+    _assert_provider_invocations(*fixture, route)
 
 
 def test_provider_invocation_contract_rejects_a_missing_call() -> None:
@@ -512,6 +707,7 @@ def test_provider_invocation_contract_rejects_a_missing_call() -> None:
             workflow,
             projection,
             incomplete,
+            "biohub",
         )
 
 
@@ -539,6 +735,7 @@ def test_provider_invocation_contract_rejects_the_wrong_binding() -> None:
             wrong_workflow,
             projection,
             events,
+            "biohub",
         )
 
 
@@ -587,6 +784,7 @@ def test_provider_invocation_contract_rejects_wrong_invocation_evidence(
             workflow,
             projection,
             changed,
+            "biohub",
         )
 
 
@@ -596,6 +794,7 @@ def _assert_science(
     workflow: dict[str, Any],
     projection: dict[str, Any],
     events: tuple[dict[str, Any], ...],
+    route: str,
 ) -> None:
     assert projection["status"] == "succeeded", events
     workflow_node_ids = {node["node_id"] for node in workflow["nodes"]}
@@ -608,15 +807,22 @@ def _assert_science(
         for item in projection["node_dispositions"]
     )
     event_payloads = tuple(message["event"] for message in events)
-    passing_remote_readiness = {
+    provider_binding_ids = set(_route_bindings(route))
+    passing_provider_readiness = {
         event["binding"]["contract_id"]
         for event in event_payloads
         if event["type"] == "readiness_attested"
         and event["conclusion"] == "passing"
-        and event["binding"]["contract_id"] in REMOTE_BINDINGS
+        and event["binding"]["contract_id"] in provider_binding_ids
     }
-    assert passing_remote_readiness == set(REMOTE_BINDINGS)
-    _assert_provider_invocations(catalog, workflow, projection, events)
+    assert passing_provider_readiness == provider_binding_ids
+    _assert_provider_invocations(
+        catalog,
+        workflow,
+        projection,
+        events,
+        route,
+    )
 
     paired_sequences = _one(
         service, catalog, projection, "generate-paired", "sequence_candidates"
@@ -799,53 +1005,99 @@ def _assert_science(
 def test_fresh_canonical_3gb1_public_run() -> None:
     from protein_workbench_public.bootstrap import create_application
     from fastapi.testclient import TestClient
+    from tests.support.public_request import encode_project_input_content
 
+    route = os.environ["PROTEIN_WORKBENCH_ACCEPTANCE_MODEL_ROUTE"]
+    run_label = RUN_LABELS[route]
     workflow = json.loads(
         files("examples").joinpath(
             "v2", "canonical-3gb1.workflow.json"
         ).read_text(encoding="utf-8")
     )
     catalog = build_frozen_catalog(module_registrations())
-    app = create_application(v2_environment_configuration=_environment())
+    app = create_application(v2_environment_configuration=_environment(route))
     with TestClient(app) as client:
-        active_commit = client.get(
-            f"/api/v2/projects/{PROJECT_ID}/workflow/active-commit"
-        )
-        active_commit.raise_for_status()
-        commit = active_commit.json()
-        assert commit["accepted"] is True
-        assert commit["catalog_contract_digest"] == catalog.contract_digest
-        assert commit["workflow_digest"] == decode_workflow_document(
-            workflow
-        ).digest
+        if route == "biohub":
+            project_id = PROJECT_ID
+            active_commit = client.get(
+                f"/api/v2/projects/{project_id}/workflow/active-commit"
+            )
+            active_commit.raise_for_status()
+            commit = active_commit.json()
+            assert commit["accepted"] is True
+            assert commit["catalog_contract_digest"] == catalog.contract_digest
+            assert commit["workflow_digest"] == decode_workflow_document(
+                workflow
+            ).digest
+        else:
+            input_bytes = (
+                files("examples")
+                .joinpath("v2", "structures", "3GB1.pdb")
+                .read_bytes()
+            )
+            assert hashlib.sha256(input_bytes).hexdigest() == INPUT_SHA256
+            created = client.post(
+                "/api/v2/projects",
+                json={"name": "fresh local canonical 3GB1"},
+            )
+            created.raise_for_status()
+            project_id = created.json()["id"]
+            uploaded = client.post(
+                f"/api/v2/projects/{project_id}/inputs",
+                json={
+                    "filename": "3GB1.pdb",
+                    "content_base64": encode_project_input_content(
+                        input_bytes
+                    ),
+                },
+            )
+            uploaded.raise_for_status()
+            _author_local_workflow(
+                workflow,
+                workflow_id=project_id,
+                project_input_ref=uploaded.json()["project_input_ref"],
+            )
+            committed = client.post(
+                f"/api/v2/projects/{project_id}/workflow:commit",
+                json={"workflow": workflow},
+            )
+            committed.raise_for_status()
+            commit = committed.json()
         started = client.post(
-            f"/api/v2/projects/{PROJECT_ID}/runs",
+            f"/api/v2/projects/{project_id}/runs",
             json={
                 "workflow_commit_id": commit["workflow_commit_id"],
-                "client_request_id": RUN_LABEL,
+                "client_request_id": run_label,
             },
         )
         started.raise_for_status()
         service = app.state.run_runtime
         wait_for_service_run_terminal_events(
             service,
-            PROJECT_ID,
+            project_id,
             started.json()["run_id"],
-            timeout_seconds=75 * 60,
+            timeout_seconds=(170 if route == "local" else 75) * 60,
         )
         projection = public_run_projection(
             service,
-            PROJECT_ID,
+            project_id,
             started.json()["run_id"],
         )
-        events = public_run_events(service, PROJECT_ID, projection["run_id"])
+        events = public_run_events(service, project_id, projection["run_id"])
 
         assert projection["workflow_commit_id"] == commit["workflow_commit_id"]
         assert projection["workflow_digest"] == commit["workflow_digest"]
         assert "derived_from_run_id" not in projection
-        _assert_science(service, catalog, workflow, projection, events)
+        _assert_science(
+            service,
+            catalog,
+            workflow,
+            projection,
+            events,
+            route,
+        )
         retain_service_run(
-            RUN_LABEL,
+            run_label,
             catalog=catalog,
             service=service,
             projection=projection,
@@ -859,6 +1111,14 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
     installed_artifact: InstalledArtifact,
     tmp_path: Path,
 ) -> None:
+    _run_installed_3gb1("biohub", installed_artifact, tmp_path)
+
+
+def _run_installed_3gb1(
+    route: str,
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
     evidence_root = Path(
         os.environ["PROTEIN_WORKBENCH_ACCEPTANCE_EVIDENCE_STAGING"]
     )
@@ -866,10 +1126,8 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
     env = os.environ.copy()
     env.pop("PYTHONPATH", None)
     env["PW_SOURCE_ROOT"] = str(PROJECT_ROOT)
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        isolated = tmp_path / name.lower()
-        isolated.mkdir(mode=0o700)
-        env[f"PROTEIN_WORKBENCH_{name}_ROOT"] = str(isolated)
+    env["PROTEIN_WORKBENCH_DATA_ROOT"] = str(tmp_path)
+    env["PROTEIN_WORKBENCH_ACCEPTANCE_MODEL_ROUTE"] = route
     output = run_external_acceptance(
         installed_artifact,
         tmp_path,
@@ -878,10 +1136,19 @@ def test_fresh_remote_3gb1_installed_public_run_retains_auditable_bundle(
             "test_fresh_canonical_3gb1_public_run",
         ),
         environment=env,
-        timeout_seconds=80 * 60,
+        timeout_seconds=(175 if route == "local" else 80) * 60,
     )
     assert "Bearer " not in output
     require_retained_evidence(
         evidence_root,
-        required_runs=(RUN_LABEL,),
+        required_runs=(RUN_LABELS[route],),
     )
+
+
+@pytest.mark.acceptance
+@pytest.mark.local_provider
+def test_fresh_local_3gb1_installed_public_run_retains_auditable_bundle(
+    installed_artifact: InstalledArtifact,
+    tmp_path: Path,
+) -> None:
+    _run_installed_3gb1("local", installed_artifact, tmp_path)

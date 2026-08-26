@@ -10,6 +10,10 @@ import hashlib
 from typing import Any
 
 import pytest
+from core.local_torch_device import expected_local_torch_device
+from tests.support.local_torch_device import provider_free_cpu_device_policy
+
+pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
 
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -81,13 +85,15 @@ def _local_environment(tmp_path: Path) -> dict[str, Any]:
         "model_snapshot_revision": (
             "47f0545b2b6daf26a93439a3cd610f4f7f3d5478"
         ),
-        "device": "cpu",
+        "device": expected_local_torch_device(),
         "runtime_directory": tmp_path / "local-runtime",
         "performance_settings": {},
     }
 
 
 def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
+    from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
+
     registrations = {
         registration.package_id: registration
         for registration in module_registrations()
@@ -111,7 +117,7 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         local = catalog.require_contract(
             "binding",
             f"esm3.{operation}.local_open",
-            "8.0.0",
+            "9.0.0",
         )
         remote = catalog.require_contract(
             "binding",
@@ -132,7 +138,9 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         assert local.descriptor["implementation_identity"][
             "model"
         ] == "esm3_sm_open_v1"
-        assert local.descriptor["implementation_identity"]["device"] == "cpu"
+        assert local.descriptor["implementation_identity"][
+            "device_policy"
+        ] == LOCAL_TORCH_DEVICE_POLICY
         assert local.descriptor["implementation_identity"][
             "torch_version"
         ] == "2.13.0"
@@ -218,10 +226,17 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
         "model_snapshot_revision": (
             local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
         ),
-        "device": "cpu",
+        "device": expected_local_torch_device(),
         "runtime_directory": runtime_directory,
         "performance_settings": {},
     }
+    import torch
+
+    monkeypatch.setattr(
+        torch,
+        "__version__",
+        f"{local_adapter.LOCAL_ESM3_TORCH_VERSION}+cu130",
+    )
 
     runtime = local_adapter.resolve_local_runtime(environment)
     assert runtime.artifact_sources == {
@@ -243,6 +258,11 @@ def test_local_runtime_admits_exact_model_and_runtime_configuration(
     wrong_device = {**environment, "device": "mps"}
     with pytest.raises(RuntimeError, match="device does not match"):
         local_adapter.resolve_local_runtime(wrong_device)
+
+    monkeypatch.setattr(torch, "__version__", "2.12.0+cu130")
+    with pytest.raises(RuntimeError, match="Torch runtime does not match"):
+        local_adapter.resolve_local_runtime(environment)
+
 
 def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
     tmp_path: Path,
@@ -279,7 +299,7 @@ def test_huggingface_blob_links_are_admitted_by_digest_and_staged(
             "model_snapshot_revision": (
                 local_adapter.LOCAL_ESM3_SNAPSHOT_REVISION
             ),
-            "device": "cpu",
+            "device": expected_local_torch_device(),
             "runtime_directory": runtime_directory,
             "performance_settings": {},
         }
@@ -306,7 +326,7 @@ def test_staging_failure_retains_staged_root_cleanup_type(
     runtime = local_adapter.LocalESM3Runtime(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
-        device="cpu",
+        device=expected_local_torch_device(),
         performance_settings={},
         artifact_sources={"fixture.pth": source},
     )
@@ -331,24 +351,46 @@ def test_staging_failure_retains_staged_root_cleanup_type(
     assert secondary_cleanup_exception_types(caught.value) == ("OSError",)
 
 
-def test_successful_local_load_has_explicit_staging_cleanup(
+def test_local_client_uses_configured_snapshot_until_explicit_release(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import esm.utils.constants.esm3 as esm3_constants
     import esm.models.esm3 as esm3_model
     import esm.pretrained as esm_pretrained
     import modules.esm3.local_adapter as local_adapter
 
+    original_data_root = esm3_constants.data_root
+    monkeypatch.setattr(
+        esm3_constants,
+        "snapshot_download",
+        lambda **_kwargs: pytest.fail(
+            "explicit local ESM-3 execution must not access Hugging Face"
+        ),
+    )
+
+    class FakeFunctionTokenizer:
+        lsh_path: Path | None = None
+
+    class FakeTokenizers:
+        function = FakeFunctionTokenizer()
+
     class FakeESM3:
+        tokenizers = FakeTokenizers()
+
         def float(self) -> FakeESM3:
             return self
 
+    received_devices: list[str] = []
+
     def main_builder(device: object = "cpu") -> FakeESM3:
-        del device
+        received_devices.append(str(device))
+        assert esm3_constants.data_root("esm3") == runtime.snapshot_path
         return FakeESM3()
 
     def component_builder(device: object = "cpu") -> object:
         del device
+        assert esm3_constants.data_root("esm3") == runtime.snapshot_path
         return object()
 
     payload = b"staged fixture"
@@ -360,7 +402,7 @@ def test_successful_local_load_has_explicit_staging_cleanup(
     runtime = local_adapter.LocalESM3Runtime(
         snapshot_path=tmp_path,
         runtime_directory=runtime_directory,
-        device="cpu",
+        device=expected_local_torch_device(),
         performance_settings={},
         artifact_sources={"fixture.pth": artifact},
     )
@@ -385,12 +427,192 @@ def test_successful_local_load_has_explicit_staging_cleanup(
         runtime,
         model_name=local_adapter.LOCAL_ESM3_MODEL,
     )
+    assert received_devices == [runtime.device]
     staged_root = client._protein_workbench_staged_root
     assert staged_root.is_dir()
+    assert esm3_constants.data_root is original_data_root
+    assert client.tokenizers.function.lsh_path == (
+        runtime.snapshot_path / "data/hyperplanes_8bit_58641.npz"
+    )
+    client.function_decoder_fn()
+    assert esm3_constants.data_root is original_data_root
 
     local_adapter.release_local_esm3_client(client)
 
     assert not staged_root.exists()
+    assert esm3_constants.data_root is original_data_root
+
+
+def test_local_client_load_failure_restores_sdk_data_root_and_staging(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.pretrained as esm_pretrained
+    import esm.utils.constants.esm3 as esm3_constants
+    import modules.esm3.local_adapter as local_adapter
+
+    original_data_root = esm3_constants.data_root
+
+    def fail_main_builder(device: object = "cpu") -> object:
+        del device
+        assert esm3_constants.data_root("esm3") == runtime.snapshot_path
+        raise RuntimeError("fixture local ESM-3 load failed")
+
+    def unused_component_builder(device: object = "cpu") -> object:
+        del device
+        return object()
+
+    payload = b"staged fixture"
+    artifact = tmp_path / "fixture.pth"
+    artifact.write_bytes(payload)
+    runtime_directory = tmp_path / "runtime"
+    runtime_directory.mkdir()
+    runtime = local_adapter.LocalESM3Runtime(
+        snapshot_path=tmp_path,
+        runtime_directory=runtime_directory,
+        device="cpu",
+        performance_settings={},
+        artifact_sources={"fixture.pth": artifact},
+    )
+    monkeypatch.setattr(
+        esm_pretrained,
+        "LOCAL_MODEL_REGISTRY",
+        {
+            local_adapter.LOCAL_ESM3_MODEL: fail_main_builder,
+            "esm3_structure_encoder_v0": unused_component_builder,
+            "esm3_structure_decoder_v0": unused_component_builder,
+            "esm3_function_decoder_v0": unused_component_builder,
+        },
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "LOCAL_ESM3_WEIGHT_SHA256",
+        {"fixture.pth": hashlib.sha256(payload).hexdigest()},
+    )
+
+    with pytest.raises(RuntimeError, match="fixture local ESM-3 load failed"):
+        local_adapter.load_local_esm3_client(
+            runtime,
+            model_name=local_adapter.LOCAL_ESM3_MODEL,
+        )
+
+    assert esm3_constants.data_root is original_data_root
+    assert list(runtime_directory.iterdir()) == []
+
+
+def test_local_client_loads_serialize_sdk_snapshot_bindings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    import esm.pretrained as esm_pretrained
+    import esm.utils.constants.esm3 as esm3_constants
+    import modules.esm3.local_adapter as local_adapter
+
+    class FakeFunctionTokenizer:
+        lsh_path: Path | None = None
+
+    class FakeTokenizers:
+        def __init__(self) -> None:
+            self.function = FakeFunctionTokenizer()
+
+    class FakeESM3:
+        def __init__(self) -> None:
+            self.tokenizers = FakeTokenizers()
+
+        def float(self) -> FakeESM3:
+            return self
+
+    original_data_root = esm3_constants.data_root
+    first_entered = Event()
+    second_started = Event()
+    second_entered = Event()
+    release_first = Event()
+    release_second = Event()
+
+    def first_builder(device: object = "cpu") -> FakeESM3:
+        del device
+        first_entered.set()
+        assert release_first.wait(timeout=5.0)
+        assert esm3_constants.data_root("esm3") == first.snapshot_path
+        return FakeESM3()
+
+    def second_builder(device: object = "cpu") -> FakeESM3:
+        del device
+        second_entered.set()
+        assert release_second.wait(timeout=5.0)
+        assert esm3_constants.data_root("esm3") == second.snapshot_path
+        return FakeESM3()
+
+    def component_builder(device: object = "cpu") -> object:
+        del device
+        return object()
+
+    def load_second_client() -> object:
+        second_started.set()
+        return local_adapter.load_local_esm3_client(
+            second,
+            model_name="fixture-second",
+        )
+
+    payload = b"staged fixture"
+    artifact = tmp_path / "fixture.pth"
+    artifact.write_bytes(payload)
+    runtimes = []
+    for name in ("first", "second"):
+        snapshot_path = tmp_path / f"{name}-snapshot"
+        snapshot_path.mkdir()
+        runtime_directory = tmp_path / f"{name}-runtime"
+        runtime_directory.mkdir()
+        runtimes.append(
+            local_adapter.LocalESM3Runtime(
+                snapshot_path=snapshot_path,
+                runtime_directory=runtime_directory,
+                device="cpu",
+                performance_settings={},
+                artifact_sources={"fixture.pth": artifact},
+            )
+        )
+    first, second = runtimes
+    monkeypatch.setattr(
+        esm_pretrained,
+        "LOCAL_MODEL_REGISTRY",
+        {
+            "fixture-first": first_builder,
+            "fixture-second": second_builder,
+            "esm3_structure_encoder_v0": component_builder,
+            "esm3_structure_decoder_v0": component_builder,
+            "esm3_function_decoder_v0": component_builder,
+        },
+    )
+    monkeypatch.setattr(
+        local_adapter,
+        "LOCAL_ESM3_WEIGHT_SHA256",
+        {"fixture.pth": hashlib.sha256(payload).hexdigest()},
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(
+            local_adapter.load_local_esm3_client,
+            first,
+            model_name="fixture-first",
+        )
+        assert first_entered.wait(timeout=5.0)
+        second_future = executor.submit(load_second_client)
+        assert second_started.wait(timeout=5.0)
+        overlapped = second_entered.wait(timeout=0.2)
+        release_first.set()
+        first_client = first_future.result(timeout=5.0)
+        assert second_entered.wait(timeout=5.0)
+        release_second.set()
+        second_client = second_future.result(timeout=5.0)
+
+    assert not overlapped
+    assert esm3_constants.data_root is original_data_root
+    local_adapter.release_local_esm3_client(first_client)
+    local_adapter.release_local_esm3_client(second_client)
 
 
 def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
@@ -645,7 +867,7 @@ def test_local_execution_preserves_remote_scientific_contracts(
     binding = catalog.require_contract(
         "binding",
         f"esm3.{operation}.local_open",
-        "8.0.0",
+        "9.0.0",
     )
     method = catalog.require_contract(
         "method",
@@ -823,6 +1045,7 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         environment={
             "model_snapshot_path": runtime.snapshot_path,
             "runtime_directory": runtime.runtime_directory,
+            "device": expected_local_torch_device(),
         },
         resources=InvocationResources(),
         model_name=local_adapter.LOCAL_ESM3_MODEL,

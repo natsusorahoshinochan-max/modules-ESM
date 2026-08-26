@@ -2,7 +2,7 @@
 
 Provides:
 - pdb_3gb1 / pdb_1pga: ProteinStructure fixtures from examples/v2/structures/
-- run_root: auto-creates var/runs/acceptance/{date}_{run_id}/
+- run_root: auto-creates data-root/runs/acceptance/{date}_{run_id}/
 """
 
 import hashlib
@@ -60,16 +60,13 @@ def run_root() -> str:
     """Create a dated run root directory for evidence output.
 
     Returns the path as a string. The directory is created under
-    var/runs/acceptance/{date}_{run_id}/.
+    the configured application data root under runs/acceptance/{date}_{run_id}/.
     """
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     run_id = str(uuid.uuid4())[:8]
     configured_root = Path(
-        os.environ.get(
-            "PROTEIN_WORKBENCH_RUN_ROOT",
-            str(PROJECT_ROOT / "var" / "runs"),
-        )
-    )
+        os.environ["PROTEIN_WORKBENCH_DATA_ROOT"]
+    ) / "runs"
     root = configured_root / "acceptance" / f"{date_str}_{run_id}"
     root.mkdir(parents=True, exist_ok=True)
     return str(root)

@@ -17,6 +17,10 @@ from core.operation import (
     OperationResources,
     ReadinessResult,
 )
+from core.local_torch_device import (
+    expected_local_torch_device,
+    local_torch_device_is_available,
+)
 from core.provider_support import (
     ProviderInstallationUnavailable,
     validate_installed_provider_checkout,
@@ -34,7 +38,6 @@ from .domain import (
 )
 from .esmfold2_contract import (
     ESM_SDK_REVISION,
-    LOCAL_DEVICE,
     LOCAL_ESMC_ARTIFACT_SHA256,
     LOCAL_ESMC_PRECISION,
     LOCAL_ESMC_REVISION,
@@ -97,6 +100,37 @@ class _LocalFoldResult(Protocol):
     plddt: torch.Tensor
     ptm: float
     pae: torch.Tensor
+
+
+@dataclass(slots=True)
+class _LocalEngine:
+    model: Any
+    builder: Any
+    protein_input_type: Any
+    structure_prediction_input_type: Any
+
+    def fold(
+        self,
+        *,
+        sequence: str,
+        effective_seed: int,
+    ) -> object:
+        provider_input = self.structure_prediction_input_type(
+            sequences=[self.protein_input_type(id="A", sequence=sequence)]
+        )
+        return self.builder.fold(
+            self.model,
+            provider_input,
+            num_loops=20,
+            num_sampling_steps=100,
+            num_diffusion_samples=1,
+            seed=effective_seed,
+            lm_dropout=0.3,
+            lm_mask_pct=0.1,
+            msa_max_depth=1024,
+            msa_column_mask_rate=0.1,
+            complex_id="protein-workbench-fold",
+        )
 
 
 def transformers_esmfold2_runtime_is_exact() -> bool:
@@ -181,7 +215,8 @@ def resolve_local_runtime(
         )
     import torch
 
-    if str(torch.__version__) != LOCAL_TORCH_VERSION:
+    torch_public_version = str(torch.__version__).partition("+")[0]
+    if torch_public_version != LOCAL_TORCH_VERSION:
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 Torch runtime is not exact"
         )
@@ -194,9 +229,14 @@ def resolve_local_runtime(
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 snapshot revision is not exact"
         )
-    if environment["device"] != LOCAL_DEVICE:
+    expected_device = expected_local_torch_device()
+    if environment["device"] != expected_device:
         raise LocalESMFold2RuntimeUnavailable(
             "local ESMFold2 device does not match the Binding"
+        )
+    if not local_torch_device_is_available(torch, expected_device):
+        raise LocalESMFold2RuntimeUnavailable(
+            "local ESMFold2 policy-selected Torch device is unavailable"
         )
     model_path = cast(Path, environment["model_snapshot_path"])
     language_path = cast(Path, environment["language_model_snapshot_path"])
@@ -207,7 +247,7 @@ def resolve_local_runtime(
     return LocalESMFold2Runtime(
         model_snapshot_path=model_path,
         language_model_snapshot_path=language_path,
-        device=LOCAL_DEVICE,
+        device=expected_device,
     )
 
 
@@ -221,7 +261,7 @@ def _trusted_local_runtime(
             Path,
             environment["language_model_snapshot_path"],
         ),
-        device=LOCAL_DEVICE,
+        device=cast(str, environment["device"]),
     )
 
 
@@ -265,7 +305,7 @@ def decode_local_fold_result(
     )
 
 
-def load_local_engine(runtime: LocalESMFold2Runtime) -> Any:
+def load_local_engine(runtime: LocalESMFold2Runtime) -> _LocalEngine:
     """Load the exact local snapshots already admitted by Readiness."""
     from esm.models.esmfold2 import (
         ESMFold2InputBuilder,
@@ -289,32 +329,12 @@ def load_local_engine(runtime: LocalESMFold2Runtime) -> Any:
         esmc_precision=LOCAL_ESMC_PRECISION,
     ).to(runtime.device).eval()
     builder = ESMFold2InputBuilder(ccd_cache=runtime.model_snapshot_path)
-
-    class LocalEngine:
-        def fold(
-            self,
-            *,
-            sequence: str,
-            effective_seed: int,
-        ) -> object:
-            provider_input = StructurePredictionInput(
-                sequences=[ProteinInput(id="A", sequence=sequence)]
-            )
-            return builder.fold(
-                model,
-                provider_input,
-                num_loops=20,
-                num_sampling_steps=100,
-                num_diffusion_samples=1,
-                seed=effective_seed,
-                lm_dropout=0.3,
-                lm_mask_pct=0.1,
-                msa_max_depth=1024,
-                msa_column_mask_rate=0.1,
-                complex_id="protein-workbench-fold",
-            )
-
-    return LocalEngine()
+    return _LocalEngine(
+        model=model,
+        builder=builder,
+        protein_input_type=ProteinInput,
+        structure_prediction_input_type=StructurePredictionInput,
+    )
 
 
 class LocalESMFold2Adapter:
@@ -329,14 +349,14 @@ class LocalESMFold2Adapter:
         self._environment = environment
         self._resources = resources
 
-    def _provider_engine(self, state: dict[object, object]) -> Any:
+    def _provider_engine(self, state: dict[object, object]) -> _LocalEngine:
         runtime = _trusted_local_runtime(self._environment)
         engine = state.get(runtime)
         if engine is None:
             state.clear()
             engine = load_local_engine(runtime)
             state[runtime] = engine
-        return engine
+        return cast(_LocalEngine, engine)
 
     def fold(
         self,

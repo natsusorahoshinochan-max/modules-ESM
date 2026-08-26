@@ -56,10 +56,7 @@ def test_server_publishes_only_the_frozen_catalog_runtime(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     with TestClient(bootstrap.create_application()) as client:
         assert client.get("/api/v2/catalog").status_code == 200
         for method, path in (
@@ -108,8 +105,7 @@ def test_legacy_persisted_run_and_project_are_rejected(
         json.dumps({"schema_version": 1, "status": "completed"}),
         encoding="utf-8",
     )
-    monkeypatch.setenv("PROTEIN_WORKBENCH_PROJECT_ROOT", str(project_root))
-    monkeypatch.setenv("PROTEIN_WORKBENCH_RUN_ROOT", str(run_root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(bootstrap.create_application()) as client:
         run = client.get(f"/api/v2/projects/{project_id}/runs/legacy-run")

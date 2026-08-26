@@ -86,6 +86,23 @@ METRIC_UTILITY_VERSION = "3.0.0"
 OPERATIONS = ("weighted_rank", "pareto", "diversity")
 
 
+def _application_roots(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, Path]:
+    data_root = tmp_path / "application-data"
+    roots = {
+        "PROJECT": data_root / "projects",
+        "CACHE": data_root / "cache",
+        "OUTPUT": data_root / "outputs",
+        "RUN": data_root / "runs",
+    }
+    for root in roots.values():
+        root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
+    return roots
+
+
 def _catalog():
     return build_frozen_catalog(
         (
@@ -1318,13 +1335,8 @@ def _selection_public_scope(
     project_name: str,
 ) -> tuple[Any, str, WorkflowDocument, dict[str, Path]]:
     catalog = _catalog()
-    roots: dict[str, Path] = {}
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        roots[name] = root
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(project_name).id
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(project_name).id
     workflow = replace(
         _workflow(catalog, "weighted_rank"),
         workflow_id=project_id,
@@ -1361,11 +1373,8 @@ def test_result_identity_ignores_node_renames_while_plan_digest_tracks_topology(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "result identity ignores workflow locators"
     ).id
     original = replace(
@@ -1466,11 +1475,8 @@ def test_selection_result_identity_ignores_objective_label_renames(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "result identity ignores objective labels"
     ).id
     original = replace(
@@ -1563,11 +1569,8 @@ def test_consumed_objective_weight_invalidates_only_the_selection_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "consumed objective weight identity"
     ).id
     original = replace(
@@ -1641,11 +1644,8 @@ def test_upstream_result_identity_ignores_unrelated_downstream_utility(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "unrelated Utility isolation"
     ).id
     source_only = WorkflowDocument(
@@ -1710,11 +1710,8 @@ def test_resolved_plan_executes_observations_objectives_and_selectors_without_ca
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "compile-resolved selection facts"
     ).id
     filter_node = WorkflowNodeInstance(
@@ -1805,11 +1802,8 @@ def test_public_selection_uses_the_executed_method_and_is_cache_replay_stable(
     expected_count: int,
 ) -> None:
     catalog = _catalog()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
-    project_id = ProjectManager(tmp_path / "project").create(
+    roots = _application_roots(tmp_path, monkeypatch)
+    project_id = ProjectManager(roots["PROJECT"]).create(
         "explicit multi-objective selection"
     ).id
     workflow = replace(

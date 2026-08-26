@@ -10,6 +10,16 @@
 release 等价。已经吸收进当前 Method、Adapter 与科学测试的结论仍有效；当前
 权威状态以 `protein_workbench_architecture.md` 和 `backend-verification.md` 为准。
 
+## 2026-08-26 当前裁决补记
+
+当前 local Torch device policy 由 active Execution Binding 拥有：Linux 与 Windows
+选择 CUDA，macOS 选择 CPU；CUDA 平台 Readiness 失败时绝不回退 CPU。当前
+ProteinMPNN native-scoring gate 使用 device-specific 3GB1 reference：CPU 为
+`1.385357141494751`，CUDA 为 `1.3671133518218994`，并在所选 reference 周围应用相同的
+16-binary32-ULP 纯绝对包络。本补记只记录裁决；现行 operational owner 仍是
+[`provider-install-contract.md`](provider-install-contract.md)，下文各节继续保留其带日期的
+历史快照地位。
+
 ## 2026-08-03 实施后更新
 
 本文件下文保留发现问题时的证据与修复理由；其中描述的 ProteinMPNN mask/seed/chain-order、mkdssp identifier mapping、ESM-3/ESMFold2 翻译以及真实 Provider 门禁缺口已经在本轮后端修复中处理。最新门禁结果应以 `.local/verification-results/` 中对应 tier 的保留证据为准。
@@ -111,7 +121,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 ### 官方/固定契约
 
-仓库固定 [ProteinMPNN source](../repositories/ProteinMPNN) 到 commit `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57`。官方 README 定义 `score` 为 designed residues 的平均 negative log probability，`global_score` 为全部 residues 的平均 NLL，并记录 model、git hash 和 seed：[pinned README](https://github.com/dauparas/ProteinMPNN/blob/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/README.md#L80-L95)。
+仓库固定 [ProteinMPNN source](https://github.com/dauparas/ProteinMPNN/tree/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57) 到 commit `8907e6671bfbfc92303b5f79c4b5e6ce47cdef57`。官方 README 定义 `score` 为 designed residues 的平均 negative log probability，`global_score` 为全部 residues 的平均 NLL，并记录 model、git hash 和 seed：[pinned README](https://github.com/dauparas/ProteinMPNN/blob/8907e6671bfbfc92303b5f79c4b5e6ce47cdef57/README.md#L80-L95)。
 
 固定上游的重要行为是：
 
@@ -134,13 +144,13 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 - design 精确进入 `tied_sample`，并证明 seed、temperature、number of sequences、omit `X`、fixed-position/chain constraints、backbone noise 等参数；
 - score 精确进入固定上游 forward，loss mask 是 `mask * chain_M * chain_M_pos`，decoding order 的随机种子与 provenance 一致；
 - 输入 residue IDs 到 Provider `chain-local 1-based` position 的完整 mapping；至少一个 fixture 的 Workbench chain order 与 Provider design-first order 不同，并分别测试“同一 partition 内的顺序”和“design/fixed partition 间的顺序”；
-- design 输出 exact sequence digest、effective seed 和恢复后的 residue IDs；score 输出固定结构/序列的 exact native NLL；
+- design 输出 exact sequence digest、effective seed 和恢复后的 residue IDs；score 输出固定结构/序列的 provider-native binary32 NLL，并以明确的窄数值容差验证跨 CPU kernel 一致性；
 - designable residue 缺失所需 N/CA/C/O 时在调用前 fail fast；fixed parent 中缺失 backbone atom 时仍按固定上游 mask 语义保留。这两个是科学输入/translation 事实，不是 malformed Provider 测试。
 
 现有门禁已有很好的正向基础：
 
 - [installed design and score gate](../tests/acceptance/test_installed_provider_gates_v2.py) 证明真实 Binding/Method 执行；
-- [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时的 3GB1 NLL `1.385357141494751`；
+- 当时的 [native scoring gate](../tests/acceptance/test_proteinmpnn_scoring_v2.py) 固定 seed 在 resident model 解析后应用时记录 3GB1 macOS ARM64 CPU NLL reference `1.385357141494751`，并观察到 Linux x86_64 CPU 值 `1.385355830192566`；这两个历史 CPU 值相差 11 binary32 ULP。当时的 gate 使用 16 binary32 ULP（`1.9073486328125e-6 nats/residue`）的纯绝对容差且不改写 provider-native 值；当前 device-specific gate 见本文件顶部的 2026-08-26 addendum；
 - 同一文件固定 design sequence digest 与 effective seed；
 - [chain-order gate](../tests/acceptance/test_proteinmpnn_chain_order_v2.py) 证明 design B/fix A 后恢复 A,B，并验证 fixed CSH parent 缠有 missing backbone atom 时的保留行为。
 
@@ -156,7 +166,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 ### 官方/固定契约
 
-仓库固定 [Biohub ESM SDK](../repositories/esm) 到 commit `917af90b624535eed1e072d343c717e3ec11fef4`。`ESMProtein`、`ESMProteinError` 和 `GenerationConfig` 的类型及默认值由 [pinned SDK api.py](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L27-L48) 与 [GenerationConfig](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L315-L360) 定义。
+仓库固定 [Biohub ESM SDK](https://github.com/Biohub/esm/tree/917af90b624535eed1e072d343c717e3ec11fef4) 到 commit `917af90b624535eed1e072d343c717e3ec11fef4`。`ESMProtein`、`ESMProteinError` 和 `GenerationConfig` 的类型及默认值由 [pinned SDK api.py](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L27-L48) 与 [GenerationConfig](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/api.py#L315-L360) 定义。
 
 固定 SDK 的 Forge 客户端把 sequence、secondary structure、SASA、function annotations、coordinates 和 GenerationConfig 映射到 wire request；坐标 NaN 在 wire 上转为 `None`，response 字段再转回 `ESMProtein`：[request/response translation](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/forge.py#L521-L594)。`generate` 的官方结果是 `ESMProtein | ESMProteinError`，并会把 `num_steps` 限制到目标 track 长度：[generate behavior](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/sdk/forge.py#L842-L902)。因此，处理 `ESMProteinError` 是官方 operational contract，应保留。
 
@@ -227,7 +237,7 @@ Adapter 虽读取 `label_seq_id`，实际却用 `label_asym_id + label_comp_id +
 
 ### 上游事实与当前 Method 的性质
 
-仓库固定 [Apple ml-simplefold](../repositories/ml-simplefold) 到 commit `c7a5570a6be9f5c695126e27c804e77567209934`。上游 `ModelWrapper.from_pretrained_plddt_model` 加载 `plddt.ckpt` 的 confidence head、`simplefold_1.6B.ckpt` latent model 并设 eval：[wrapper.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L117-L196)。官方 folding path 的 processor 使用 coordinate scale 16/reference scale 5；sampler 生成坐标后，以 `t = 1` 调 latent module 和 output module，最后 `plddt * 100`：[processor/sampler setup](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L264-L291) 和 [confidence decode](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L321-L354)。官方 inference CLI 使用相同模块与尺度：[inference.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/inference.py#L119-L179)。
+仓库固定 [Apple ml-simplefold](https://github.com/apple/ml-simplefold/tree/c7a5570a6be9f5c695126e27c804e77567209934) 到 commit `c7a5570a6be9f5c695126e27c804e77567209934`。上游 `ModelWrapper.from_pretrained_plddt_model` 加载 `plddt.ckpt` 的 confidence head、`simplefold_1.6B.ckpt` latent model 并设 eval：[wrapper.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L117-L196)。官方 folding path 的 processor 使用 coordinate scale 16/reference scale 5；sampler 生成坐标后，以 `t = 1` 调 latent module 和 output module，最后 `plddt * 100`：[processor/sampler setup](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L264-L291) 和 [confidence decode](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/wrapper.py#L321-L354)。官方 inference CLI 使用相同模块与尺度：[inference.py](https://github.com/apple/ml-simplefold/blob/c7a5570a6be9f5c695126e27c804e77567209934/src/simplefold/inference.py#L119-L179)。
 
 上游没有公开“给定现有结构，仅评估 confidence 而不采样/refold”的 API。当前项目的 [simplefold_confidence_adapter.py](../modules/folding/simplefold_confidence_adapter.py) 是一个 **project-defined composition**：
 

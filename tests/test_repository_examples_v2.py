@@ -419,9 +419,9 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         ("structure_comparison.align_single", "5.0.0"),
         (
             "structure_comparison.classify_three_way_consistency",
-            "3.0.0",
+            "4.0.0",
         ),
-        ("structure_comparison.evaluate_inserted_loop", "2.0.0"),
+        ("structure_comparison.evaluate_inserted_loop", "3.0.0"),
         ("structure_comparison.rmsd_counterparts", "6.0.0"),
         ("structure_comparison.rmsd_fixed_reference", "6.0.0"),
         ("structure_comparison.tm_score_counterparts", "6.0.0"),
@@ -454,11 +454,11 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         ),
         (
             "structure_comparison.classify_three_way_consistency.direct",
-            "3.0.0",
+            "4.0.0",
         ),
         (
             "structure_comparison.evaluate_inserted_loop.direct",
-            "2.0.0",
+            "3.0.0",
         ),
         (
             "structure_comparison.rmsd_counterparts.from_alignment_evidence",
@@ -491,7 +491,6 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
     }
     assert comparison_scientific_contracts
     assert {version for _, _, version in comparison_scientific_contracts} == {
-        "2.0.0",
         "3.0.0",
         "4.0.0",
     }
@@ -519,13 +518,8 @@ def test_routine_example_verification_is_pure_and_provider_free(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    isolated_roots = {
-        name: tmp_path / name.lower()
-        for name in ("PROJECT", "CACHE", "OUTPUT", "RUN")
-    }
-    for name, root in isolated_roots.items():
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    data_root = tmp_path / "application-data"
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
 
     assert verify_repository_examples() == {
         "catalog_contract_digest": (
@@ -535,7 +529,7 @@ def test_routine_example_verification_is_pure_and_provider_free(
         "node_type_count": 70,
         "workflow_count": len(PRODUCTION_WORKFLOW_PATHS),
     }
-    assert all(not any(root.iterdir()) for root in isolated_roots.values())
+    assert not data_root.exists()
 
 
 def test_example_verification_is_deterministic() -> None:

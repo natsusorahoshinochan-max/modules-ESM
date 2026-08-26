@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 import pytest
+from core.local_torch_device import expected_local_torch_device
 import torch
 
 from core.catalog.builder import (
@@ -182,7 +183,7 @@ def _provider_free_simplefold_environment(
             path.write_bytes(f"provider-free-{relative}".encode())
     return {
         **configured_roots,
-        "device": simplefold_contract.SIMPLEFOLD_DEVICE,
+        "device": expected_local_torch_device(),
     }
 
 
@@ -340,10 +341,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     source_bytes = INPUT_PATH.read_bytes()
     source_text = source_bytes.decode("ascii")
@@ -360,7 +358,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
                 "credential_handle": "provider-free-folding-credential",
             },
         },
-        ("folding.fold.simplefold_local", "10.0.0"): {
+        ("folding.fold.simplefold_local", "11.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,
@@ -754,10 +752,7 @@ def test_source_bound_1pga_public_classification_contract(
     expected_classification: str,
     expected_subreason: str | None,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     source = INPUT_PATH.read_text(encoding="ascii")
     esmfold2 = _ControlledESMFold2(
         _deformed_source(source, esmfold2_deformation)
@@ -777,7 +772,7 @@ def test_source_bound_1pga_public_classification_contract(
                 "credential_handle": "provider-free-folding-credential",
             },
         },
-        ("folding.fold.simplefold_local", "10.0.0"): {
+        ("folding.fold.simplefold_local", "11.0.0"): {
             "values": _provider_free_simplefold_environment(
                 tmp_path / "simplefold-assets",
                 monkeypatch,

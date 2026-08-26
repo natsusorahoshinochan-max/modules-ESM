@@ -948,8 +948,8 @@ def test_protein_sol_readiness_requires_the_exact_scientific_sources(
     conclusion = protein_sol_readiness(
         {
             "source_root": source_root,
-            "bash_executable": Path("/bin/bash"),
-            "perl_executable": Path("/usr/bin/perl"),
+            "bash_executable": tmp_path / "bash",
+            "perl_executable": tmp_path / "perl",
         }
     )
 

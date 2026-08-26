@@ -2131,18 +2131,7 @@ def test_run_executes_objectives_and_publishes_effective_provenance(
     monkeypatch,
 ) -> None:
     catalog, contracts = _scoring_catalog()
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration={
@@ -2272,18 +2261,7 @@ def test_selection_failure_is_public_and_survives_ledger_reload(
             },
         ),
     )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_PROJECT_ROOT",
-        str(tmp_path / "projects"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_RUN_ROOT",
-        str(tmp_path / "runs"),
-    )
-    monkeypatch.setenv(
-        "PROTEIN_WORKBENCH_OUTPUT_ROOT",
-        str(tmp_path / "outputs"),
-    )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     environment = {
         ("candidate.source.direct", "2.1.0"): {
             "values": {},

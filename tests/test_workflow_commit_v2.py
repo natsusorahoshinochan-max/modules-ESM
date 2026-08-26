@@ -367,11 +367,7 @@ def test_public_synthetic_scorer_commit_requires_candidate_input(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     catalog = build_frozen_catalog((SYNTHETIC_ECHO_PACKAGE,))
     case = SYNTHETIC_ECHO_EXECUTION_CASE
     app = create_application(frozen_catalog_override=catalog)
@@ -719,11 +715,7 @@ def test_event_stream_rejects_duplicate_query_parameters(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_catalog())
 
     with TestClient(app) as client:
@@ -746,11 +738,7 @@ def test_event_stream_maps_unexpected_failure_to_internal_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_catalog())
 
     with TestClient(app) as client:

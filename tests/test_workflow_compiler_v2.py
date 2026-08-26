@@ -60,6 +60,15 @@ from tests.support.application import create_application
 from tests.support.protocol import validate_error, validate_response
 
 
+def _configure_application_data_root(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_root = tmp_path / "application-data"
+    data_root.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(data_root))
+
+
 def _catalog_contract(
     contract_kind: str,
     contract_id: str,
@@ -1717,11 +1726,7 @@ def test_public_v2_mutation_failures_use_the_structured_error_vocabulary(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    _configure_application_data_root(tmp_path, monkeypatch)
     app = create_application(frozen_catalog_override=_workflow_catalog())
 
     with TestClient(app) as client:
@@ -1801,11 +1806,7 @@ def test_public_commit_reports_an_inactive_exact_contract_generation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    _configure_application_data_root(tmp_path, monkeypatch)
     app = create_application(frozen_catalog_override=_workflow_catalog())
 
     with TestClient(app) as client:
@@ -1846,11 +1847,7 @@ def test_public_commit_rejects_invalid_selector_scientific_inputs(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    _configure_application_data_root(tmp_path, monkeypatch)
     catalog = _workflow_catalog()
     app = create_application(frozen_catalog_override=catalog)
 
@@ -1914,11 +1911,7 @@ def test_public_draft_preserves_an_inactive_generation_until_commit(
     version_field: str,
     expected_path: list[object],
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    _configure_application_data_root(tmp_path, monkeypatch)
     catalog = _workflow_catalog()
 
     with TestClient(create_application(frozen_catalog_override=catalog)) as client:
@@ -1962,11 +1955,7 @@ def test_persisted_commit_cannot_start_after_catalog_generation_change(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    _configure_application_data_root(tmp_path, monkeypatch)
     original_catalog = _workflow_catalog(source_algorithm="generation-a")
     active_catalog = _workflow_catalog(source_algorithm="generation-b")
     assert original_catalog.contract_digest != active_catalog.contract_digest
@@ -2024,11 +2013,7 @@ def test_public_draft_commit_journey_is_revisioned_and_exact(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    _configure_application_data_root(tmp_path, monkeypatch)
     app = create_application(frozen_catalog_override=_workflow_catalog())
 
     with TestClient(app) as client:
@@ -2117,11 +2102,7 @@ def test_failed_commit_preserves_active_commit_and_submitted_draft(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    _configure_application_data_root(tmp_path, monkeypatch)
     factory_calls: list[str] = []
     catalog = _workflow_catalog(factory_calls=factory_calls)
     app = create_application(frozen_catalog_override=catalog)

@@ -42,7 +42,6 @@ def _write_profile(tmp_path: Path) -> Path:
         for alternatives in tier.environment_configuration
         for name in alternatives
     }
-    names.remove("HF_HOME")
     path = tmp_path / "acceptance-profile.json"
     path.write_text(
         json.dumps({
@@ -142,9 +141,13 @@ def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
         "installed-soluprot",
         "installed-protein-sol",
         "fresh-1pga",
+        "fresh-local-1pga",
         "fresh-2emo",
+        "fresh-local-2emo",
         "fresh-canonical-3gb1",
+        "fresh-local-canonical-3gb1",
         "fresh-5g53",
+        "fresh-local-5g53",
     )
     assert all(
         tier.pytest_arguments
@@ -162,13 +165,25 @@ def test_campaign_owns_one_complete_canonical_tier_sequence() -> None:
         "fresh-1pga": (
             "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
         ),
+        "fresh-local-1pga": (
+            "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
+        ),
         "fresh-2emo": (
+            "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
+        ),
+        "fresh-local-2emo": (
             "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
         ),
         "fresh-canonical-3gb1": (
             "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
         ),
+        "fresh-local-canonical-3gb1": (
+            "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
+        ),
         "fresh-5g53": (
+            "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
+        ),
+        "fresh-local-5g53": (
             "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
         ),
     }
@@ -232,6 +247,14 @@ def test_campaign_definition_projects_every_execution_fact_from_that_sequence() 
         ),
         "workflow_path": "examples/v2/source-bound-5g53.workflow.json",
     }
+
+
+def test_local_esm3_tier_requires_one_explicit_snapshot_root() -> None:
+    tier = acceptance_tier("installed-local-esm3")
+
+    assert tier.environment_configuration == (
+        ("PROTEIN_WORKBENCH_ESM3_MODEL_ROOT",),
+    )
 
 
 def test_execution_profile_projects_only_one_tiers_declared_configuration(
@@ -396,7 +419,6 @@ def test_campaign_admits_structured_outcomes_once_in_exact_serial_order(
             name
             for name in environment
             if name.startswith("PROTEIN_WORKBENCH_")
-            or name in {"HF_HUB_CACHE", "HF_HOME"}
         }
         observed.append((tier_name, configured_names))
         return _outcome(campaign_root, tier_name, "passed")

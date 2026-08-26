@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from contextlib import ExitStack
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import hashlib
 import importlib.util
 from pathlib import Path
 import shutil
 import tempfile
+from threading import RLock
 from types import FunctionType
 from typing import Any, cast
 import weakref
@@ -18,6 +19,10 @@ from core.operation import (
     OperationResources,
     ReadinessResult,
     retain_secondary_cleanup_exception,
+)
+from core.local_torch_device import (
+    expected_local_torch_device,
+    local_torch_device_is_available,
 )
 from core.provider_support import (
     ProviderInstallationUnavailable,
@@ -49,9 +54,9 @@ LOCAL_ESM3_WEIGHT_SHA256 = {
         "f76d074efcaccfe21365a4fa96f212dadd66798e1e49d809ab7ffbe025d227c9"
     ),
 }
-LOCAL_ESM3_DEVICE = "cpu"
 LOCAL_ESM3_TORCH_VERSION = "2.13.0"
 LOCAL_ESM3_PERFORMANCE_SETTINGS: Mapping[str, Any] = {}
+_LOCAL_ESM3_SDK_ROOT_LOCK = RLock()
 
 
 class LocalESM3RuntimeUnavailable(RuntimeError):
@@ -127,7 +132,8 @@ def _validated_performance_settings(
 
 
 def _validate_device(device: object) -> str:
-    if device != LOCAL_ESM3_DEVICE:
+    expected_device = expected_local_torch_device()
+    if device != expected_device:
         raise LocalESM3RuntimeUnavailable(
             "local ESM-3 device does not match the Binding"
         )
@@ -138,11 +144,16 @@ def _validate_device(device: object) -> str:
             "exact local ESM-3 runtime is unavailable"
         ) from error
 
-    if str(torch.__version__) != LOCAL_ESM3_TORCH_VERSION:
+    torch_public_version = str(torch.__version__).partition("+")[0]
+    if torch_public_version != LOCAL_ESM3_TORCH_VERSION:
         raise LocalESM3RuntimeUnavailable(
             "local ESM-3 Torch runtime does not match the Binding"
         )
-    return LOCAL_ESM3_DEVICE
+    if not local_torch_device_is_available(torch, expected_device):
+        raise LocalESM3RuntimeUnavailable(
+            "local ESM-3 policy-selected Torch device is unavailable"
+        )
+    return expected_device
 
 
 def resolve_local_runtime(
@@ -185,7 +196,7 @@ def _trusted_local_runtime(
     return LocalESM3Runtime(
         snapshot_path=snapshot_path,
         runtime_directory=Path(environment["runtime_directory"]),
-        device=LOCAL_ESM3_DEVICE,
+        device=cast(str, environment["device"]),
         performance_settings=dict(LOCAL_ESM3_PERFORMANCE_SETTINGS),
         artifact_sources={
             relative_path: snapshot_path / relative_path
@@ -256,6 +267,46 @@ def _bind_builder_to_staged_root(
     return bound
 
 
+@contextmanager
+def _sdk_snapshot_root(snapshot_path: Path) -> Iterator[None]:
+    """Temporarily bind SDK-owned ESM-3 lookups to one snapshot."""
+    import esm.utils.constants.esm3 as esm3_constants
+
+    with _LOCAL_ESM3_SDK_ROOT_LOCK:
+        original_data_root = esm3_constants.data_root
+
+        def snapshot_data_root(model: str) -> Path:
+            if model != "esm3":
+                raise LocalESM3RuntimeUnavailable(
+                    "local ESM-3 SDK requested an undeclared model root"
+                )
+            return snapshot_path
+
+        esm3_constants.data_root = snapshot_data_root
+        try:
+            yield
+        finally:
+            esm3_constants.data_root = original_data_root
+
+
+def _bind_builder_to_local_roots(
+    builder: FunctionType,
+    staged_root: Path,
+    snapshot_path: Path,
+    default_device: Any,
+) -> Callable[[Any], Any]:
+    """Bind one SDK builder to staged weights and snapshot data."""
+    staged_builder = _bind_builder_to_staged_root(builder, staged_root)
+
+    def load(device: Any = None) -> Any:
+        with _sdk_snapshot_root(snapshot_path):
+            return staged_builder(
+                default_device if device is None else device
+            )
+
+    return load
+
+
 def load_local_esm3_client(
     runtime: LocalESM3Runtime,
     *,
@@ -264,6 +315,7 @@ def load_local_esm3_client(
     """Load only the exact readiness-validated local model on explicit demand."""
     import torch
     import esm.pretrained as esm_pretrained
+    import esm.utils.constants.esm3 as esm3_constants
 
     staged_root = stage_local_runtime(runtime)
     try:
@@ -278,13 +330,21 @@ def load_local_esm3_client(
             )
         }
         bound = {
-            name: _bind_builder_to_staged_root(builder, staged_root)
+            name: _bind_builder_to_local_roots(
+                builder,
+                staged_root,
+                runtime.snapshot_path,
+                torch.device(runtime.device),
+            )
             for name, builder in required_builders.items()
         }
         client = bound[model_name](torch.device(runtime.device))
         client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
         client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
         client.function_decoder_fn = bound["esm3_function_decoder_v0"]
+        client.tokenizers.function.lsh_path = (
+            runtime.snapshot_path / esm3_constants.LSH_TABLE_PATHS["8bit"]
+        )
         client = client.float()
         client._protein_workbench_staged_root = staged_root
         client._protein_workbench_staged_cleanup = weakref.finalize(
@@ -314,13 +374,20 @@ def call_local_provider(
     operation: str,
     *,
     effective_seed: int,
+    device: str,
 ) -> Any:
     """Execute one local call under the exact derived Torch seed."""
     import torch
     from esm.sdk.api import ESMProteinError
 
     try:
-        with torch.random.fork_rng():
+        torch_device = torch.device(device)
+        fork_devices = (
+            [torch.cuda.current_device()]
+            if torch_device.type == "cuda"
+            else []
+        )
+        with torch.random.fork_rng(devices=fork_devices):
             torch.manual_seed(effective_seed)
             result = client.generate(protein, config)
     except ESMProteinError as error:
@@ -381,6 +448,7 @@ class LocalESM3Adapter(_BaseESM3Adapter):
             config,
             provider_operation,
             effective_seed=cast(int, effective_call_seed),
+            device=cast(str, self._environment["device"]),
         )
 
     def _admit_confidence(self, result: Any) -> ESM3Confidence:

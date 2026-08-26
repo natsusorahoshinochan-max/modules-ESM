@@ -50,6 +50,7 @@ from tests.fixtures.canonical_3gb1_v2 import (
     ControlledProteinMPNNProvider,
     controlled_catalog,
     controlled_environment,
+    controlled_module_registrations,
 )
 from tests.fixtures.public_v2 import (
     retrieve_typed_output_canonical_bytes,
@@ -162,7 +163,7 @@ def test_canonical_seed_is_exact_locked_compilable_v2() -> None:
     } == expected_node_versions
     expected_binding_versions = dict(expected_node_versions)
     expected_binding_versions.update({
-        "design-children": "11.0.0",
+        "design-children": "12.0.0",
         "fold-sequences": "9.0.0",
         "fold-final": "9.0.0",
     })
@@ -219,10 +220,7 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     esm3 = ControlledESM3Client()
     folding = ControlledFoldingClient()
     workflow = _workflow_payload()
@@ -444,10 +442,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
     monkeypatch,
 ) -> None:
     """One provider-backed run proves the complete v2 canonical journey."""
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     esm3 = ControlledESM3Client()
     folding = ControlledFoldingClient()
     proteinmpnn = ControlledProteinMPNNProvider()
@@ -463,6 +458,11 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         monkeypatch,
         esm3,
         folding,
+    )
+    controlled_registrations = controlled_module_registrations()
+    monkeypatch.setattr(
+        "protein_workbench_public.bootstrap.module_registrations",
+        lambda: controlled_registrations,
     )
     app = create_application(
         v2_environment_configuration=controlled_configuration,
@@ -1011,7 +1011,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             == "proteinmpnn.design.local"
         )
         assert proteinmpnn_readiness["binding"]["contract_version"] == (
-            "11.0.0"
+            "12.0.0"
         )
 
         esm_calls_before = len(esm3.sequence_prompts)

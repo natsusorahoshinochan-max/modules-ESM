@@ -8,13 +8,19 @@ from protein_workbench_public.bootstrap import module_registrations
 
 from contextlib import ExitStack
 from pathlib import Path
+import gc
 import hashlib
 import json
 from typing import Any, cast
 from unittest.mock import patch
+import weakref
 
 import pytest
+from core.local_torch_device import expected_local_torch_device
 import torch
+from tests.support.local_torch_device import provider_free_cpu_device_policy
+
+pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
 
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
@@ -67,8 +73,8 @@ from tests.fixtures.simplefold import (
 
 _FOLD_NODE_VERSION = "8.0.0"
 _REMOTE_FOLD_BINDING_VERSION = "9.0.0"
-_LOCAL_FOLD_BINDING_VERSION = "10.0.0"
-_SIMPLEFOLD_BINDING_VERSION = "10.0.0"
+_LOCAL_FOLD_BINDING_VERSION = "11.0.0"
+_SIMPLEFOLD_BINDING_VERSION = "11.0.0"
 
 
 def _esmfold2_binding_version(route: str) -> str:
@@ -308,7 +314,7 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
         for registration in module_registrations()
     }
     registration = registrations["folding"]
-    assert registration.package_version == "10.0.0"
+    assert registration.package_version == "11.0.0"
     assert {
         resource.resource for resource in registration.node_definitions
     } == {
@@ -604,7 +610,7 @@ def _write_local_runtime_fixture(
         "model_snapshot_revision": adapter.LOCAL_ESMFOLD2_REVISION,
         "language_model_snapshot_path": language_snapshot,
         "language_model_snapshot_revision": adapter.LOCAL_ESMC_REVISION,
-        "device": "cpu",
+        "device": expected_local_torch_device(),
     }
 
 
@@ -613,12 +619,30 @@ def test_local_readiness_validates_both_exact_snapshots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.folding.esmfold2_local as adapter
+    import torch
 
     environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        torch,
+        "__version__",
+        f"{adapter.LOCAL_TORCH_VERSION}+cu130",
+    )
     conclusion = adapter.local_readiness(environment)
     assert conclusion == ReadinessResult(
         True,
         proof_source="direct-observation",
+    )
+
+    monkeypatch.setattr(torch, "__version__", "2.12.0+cu130")
+    assert adapter.local_readiness(environment) == ReadinessResult(
+        False,
+        proof_source="direct-observation",
+        reason_code="local_runtime_unavailable",
+    )
+    monkeypatch.setattr(
+        torch,
+        "__version__",
+        f"{adapter.LOCAL_TORCH_VERSION}+cu130",
     )
 
     (environment["model_snapshot_path"] / "model.bin").write_bytes(
@@ -632,7 +656,7 @@ def test_local_readiness_validates_both_exact_snapshots(
     )
 
 
-def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
+def test_local_esmfold2_loads_esmc_at_exact_policy_device_and_float32_precision(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -680,10 +704,12 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
         "ESMFold2InputBuilder",
         lambda *, ccd_cache: object(),
     )
+    from core.local_torch_device import expected_local_torch_device
+
     runtime = adapter.LocalESMFold2Runtime(
         model_snapshot_path=tmp_path / "esmfold2",
         language_model_snapshot_path=tmp_path / "esmc",
-        device="cpu",
+        device=expected_local_torch_device(),
     )
 
     adapter.load_local_engine(runtime)
@@ -704,8 +730,102 @@ def test_local_esmfold2_loads_esmc_at_exact_cpu_float32_precision(
     assert model_kwargs["config"].esmc_id == str(
         runtime.language_model_snapshot_path
     )
-    assert calls["device"] == "cpu"
+    assert calls["device"] == expected_local_torch_device()
     assert calls["eval"] is True
+
+
+def test_local_esmfold2_releases_its_model_before_cuda_cache_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.models.esmfold2 as esmfold2
+    from core.execution.resources import LocalProviderMemory
+    import modules.folding.esmfold2_local as adapter
+    from transformers.models.esmfold2.configuration_esmfold2 import (
+        ESMFold2Config,
+    )
+    from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model
+
+    model_reference: weakref.ReferenceType[object] | None = None
+
+    class Configuration:
+        esmc_id = "unset"
+
+    class Model:
+        def to(self, _device: str) -> "Model":
+            return self
+
+        def eval(self) -> "Model":
+            return self
+
+    def load_model(_path: Path, **_kwargs: Any) -> Model:
+        nonlocal model_reference
+        model = Model()
+        model_reference = weakref.ref(model)
+        return model
+
+    monkeypatch.setattr(
+        ESMFold2Config,
+        "from_pretrained",
+        staticmethod(lambda _path, **_kwargs: Configuration()),
+    )
+    monkeypatch.setattr(
+        ESMFold2Model,
+        "from_pretrained",
+        staticmethod(load_model),
+    )
+    monkeypatch.setattr(
+        esmfold2,
+        "ESMFold2InputBuilder",
+        lambda *, ccd_cache: object(),
+    )
+    cuda_cache_releases = 0
+
+    class Cuda:
+        @staticmethod
+        def is_available() -> bool:
+            return True
+
+        @staticmethod
+        def empty_cache() -> None:
+            nonlocal cuda_cache_releases
+            assert model_reference is not None
+            assert model_reference() is None
+            cuda_cache_releases += 1
+
+    class TorchModule:
+        cuda = Cuda()
+
+    runtime = adapter.LocalESMFold2Runtime(
+        model_snapshot_path=tmp_path / "esmfold2",
+        language_model_snapshot_path=tmp_path / "esmc",
+        device=expected_local_torch_device(),
+    )
+    memory = LocalProviderMemory(torch_module=TorchModule())
+    cyclic_gc_was_enabled = gc.isenabled()
+    real_gc_collect = gc.collect
+    gc.disable()
+    monkeypatch.setattr(
+        gc,
+        "collect",
+        lambda: pytest.fail("provider transition invoked cyclic GC"),
+    )
+    try:
+        with memory.use("local-esmfold2") as state:
+            state[runtime] = adapter.load_local_engine(runtime)
+        assert model_reference is not None
+        assert model_reference() is not None
+
+        with memory.use("simplefold-folding"):
+            pass
+
+        assert model_reference() is None
+        assert cuda_cache_releases == 1
+    finally:
+        monkeypatch.setattr(gc, "collect", real_gc_collect)
+        if cyclic_gc_was_enabled:
+            gc.enable()
+        real_gc_collect()
 
 
 def test_native_plddt_is_statically_scaled_and_projects_protein_tokens() -> None:
@@ -1216,7 +1336,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
         catalog,
         "folding.fold.esmfold2_local",
         object(),
-        binding_version="10.0.0",
+        binding_version="11.0.0",
     )
 
     def observed(candidate_id: str, sequence: str) -> int:
@@ -1235,7 +1355,7 @@ def test_esmfold_call_seed_uses_candidate_content_not_candidate_identity() -> No
             operation_call(
                 catalog=catalog,
                 binding_id="folding.fold.esmfold2_local",
-                binding_version="10.0.0",
+                binding_version="11.0.0",
                 inputs={
                     "sequence_candidates": CandidateCollection(
                         "parents",
@@ -1512,9 +1632,10 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from core.local_torch_device import expected_local_torch_device
     import modules.folding.esmfold2_local as local_adapter
     import modules.folding.esmfold2_remote as remote_adapter
-    from modules.folding.package import MODULE_PACKAGE as FOLDING_PACKAGE
+    import modules.folding.package as folding_package
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
     )
@@ -1563,6 +1684,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         tmp_path,
         monkeypatch,
     )
+    local_environment["device"] = expected_local_torch_device()
     import modules.folding.simplefold_asset_closure as asset_closure
     import modules.folding.simplefold_adapter as simplefold_adapter
     import modules.folding.simplefold_confidence_adapter as confidence_adapter
@@ -1646,6 +1768,14 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
 
     simplefold_client = SimpleFoldClient()
     confidence_client = ConfidenceClient()
+    loaded_esmfold2_devices: list[str] = []
+
+    def load_local_engine(
+        runtime: local_adapter.LocalESMFold2Runtime,
+    ) -> LocalClient:
+        loaded_esmfold2_devices.append(runtime.device)
+        return LocalClient()
+
     monkeypatch.setattr(
         remote_adapter,
         "build_remote_engine",
@@ -1654,7 +1784,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
     monkeypatch.setattr(
         local_adapter,
         "load_local_engine",
-        lambda _runtime: LocalClient(),
+        load_local_engine,
     )
     monkeypatch.setattr(
         simplefold_runtime,
@@ -1665,7 +1795,8 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         confidence_adapter,
         "_native_existing_structure_confidence",
         lambda **kwargs: confidence_client.evaluate(
-            residue_axis=kwargs["residue_axis"]
+            residue_axis=kwargs["residue_axis"],
+            device=kwargs["device"],
         ),
     )
     install_fixture_source_runtime_group(monkeypatch, simplefold_adapter)
@@ -1675,13 +1806,13 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
-        "device": simplefold_contract.SIMPLEFOLD_DEVICE,
+        "device": expected_local_torch_device(),
     }
     confidence_environment = {
         "model_root": simplefold_model_root,
         "esm2_model_root": simplefold_esm2_models,
         "esm2_source_root": simplefold_esm2_source,
-        "device": simplefold_contract.SIMPLEFOLD_CONFIDENCE_DEVICE,
+        "device": expected_local_torch_device(),
     }
     structure_source_node = WorkflowNodeInstance(
         node_id="structure-source",
@@ -1774,7 +1905,7 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
             binding_id=(
                 "folding.simplefold_confidence.simplefold_local"
             ),
-            binding_version="6.0.0",
+            binding_version="7.0.0",
             node_parameters={},
             binding_parameters={},
             environment_values=confidence_environment,
@@ -1808,8 +1939,18 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         ),
     )
 
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_runtime_structurally_available",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        folding_package,
+        "simplefold_confidence_runtime_structurally_available",
+        lambda: True,
+    )
     report = verify_module_package_contract(
-        FOLDING_PACKAGE,
+        folding_package.MODULE_PACKAGE,
         execution_cases=cases,
         supporting_registrations=(
             SOURCE_PACKAGE,
@@ -1825,3 +1966,4 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "succeeded",
         "succeeded",
     ]
+    assert loaded_esmfold2_devices == [local_environment["device"]]

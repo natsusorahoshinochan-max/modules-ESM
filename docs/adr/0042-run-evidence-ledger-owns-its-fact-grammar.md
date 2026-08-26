@@ -5,12 +5,14 @@ status: accepted
 # Run Evidence Ledger owns its typed fact grammar
 
 Each Run has one deep Run Evidence Ledger module and no cross-Run or generic
-event-store authority. Its current 17 logical fact kinds preserve the distinct
+event-store authority. Its current 16 logical fact kinds preserve the distinct
 scientific meanings of Run scope, Availability, admission, Readiness,
 cancellation, Node Execution Attempt, Operation Attempt, Engine Invocation,
 Typed Output and Artifact publication, Node disposition, Selection conclusion,
-and Run Closure. Deepening the module hides this grammar from callers; it does
-not collapse those meanings into one generic fact.
+and Run Closure. Typed Output and Artifact descriptors are the two typed
+collections of one `OutputsPublished` fact kind, not separate fact kinds.
+Deepening the module hides this grammar from callers; it does not collapse those
+meanings into one generic fact.
 
 The Ledger interface accepts complete legal causal transitions. Callers choose
 the domain conclusion that occurred but do not supply fact-type strings,

@@ -86,7 +86,7 @@ def _tier(
 
 
 _BIOHUB = (("PROTEIN_WORKBENCH_BIOHUB_TOKEN_FILE",),)
-_LOCAL_ESM3 = (("HF_HUB_CACHE", "HF_HOME"),)
+_LOCAL_ESM3 = (("PROTEIN_WORKBENCH_ESM3_MODEL_ROOT",),)
 _LOCAL_ESMFOLD2 = (
     ("PROTEIN_WORKBENCH_ESMFOLD2_MODEL_ROOT",),
     ("PROTEIN_WORKBENCH_ESMFOLD2_ESMC_MODEL_ROOT",),
@@ -240,6 +240,23 @@ CANONICAL_ACCEPTANCE_TIERS = (
         ),
     ),
     _tier(
+        "fresh-local-1pga",
+        (
+            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "test_fresh_local_1pga_installed_public_run_retains_auditable_bundle"
+        ),
+        timeout_seconds=120 * 60,
+        required_run_labels=("fresh-local-1pga",),
+        environment_configuration=(*_LOCAL_ESMFOLD2, *_SIMPLEFOLD),
+        source_bound=SourceBoundAssets(
+            input_path="examples/v2/structures/1PGA-75-gen1_0690.pdb",
+            input_sha256=(
+                "d4392068a70cd5cb21f1598a83b6eff29f829d510ae808be0f62f35a6d01dc30"
+            ),
+            workflow_path="examples/v2/source-bound-1pga.workflow.json",
+        ),
+    ),
+    _tier(
         "fresh-2emo",
         (
             "tests/test_fresh_source_bound_acceptance_v2.py::"
@@ -249,6 +266,28 @@ CANONICAL_ACCEPTANCE_TIERS = (
         required_run_labels=("fresh-2emo",),
         lifecycle_receipt_required=True,
         environment_configuration=(*_BIOHUB, *_PROTEINMPNN, *_PROTEIN_SOL),
+        source_bound=SourceBoundAssets(
+            input_path="examples/v2/structures/2EMO.pdb",
+            input_sha256=(
+                "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
+            ),
+            workflow_path="examples/v2/source-bound-2emo.workflow.json",
+        ),
+    ),
+    _tier(
+        "fresh-local-2emo",
+        (
+            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "test_fresh_local_2emo_installed_public_run_retains_auditable_bundle"
+        ),
+        timeout_seconds=180 * 60,
+        required_run_labels=("fresh-local-2emo",),
+        lifecycle_receipt_required=True,
+        environment_configuration=(
+            *_LOCAL_ESMFOLD2,
+            *_PROTEINMPNN,
+            *_PROTEIN_SOL,
+        ),
         source_bound=SourceBoundAssets(
             input_path="examples/v2/structures/2EMO.pdb",
             input_sha256=(
@@ -276,6 +315,27 @@ CANONICAL_ACCEPTANCE_TIERS = (
         ),
     ),
     _tier(
+        "fresh-local-canonical-3gb1",
+        (
+            "tests/test_fresh_remote_3gb1_v2.py::"
+            "test_fresh_local_3gb1_installed_public_run_retains_auditable_bundle"
+        ),
+        timeout_seconds=180 * 60,
+        required_run_labels=("fresh-local-canonical-3gb1",),
+        environment_configuration=(
+            *_LOCAL_ESM3,
+            *_LOCAL_ESMFOLD2,
+            *_PROTEINMPNN,
+        ),
+        source_bound=SourceBoundAssets(
+            input_path="examples/v2/structures/3GB1.pdb",
+            input_sha256=(
+                "ee623d3d9fd77a131895dc367c31ac8d7266b1d4f241b56325170e5f62ed7811"
+            ),
+            workflow_path="examples/v2/canonical-3gb1.workflow.json",
+        ),
+    ),
+    _tier(
         "fresh-5g53",
         (
             "tests/test_fresh_source_bound_acceptance_v2.py::"
@@ -284,6 +344,23 @@ CANONICAL_ACCEPTANCE_TIERS = (
         timeout_seconds=180 * 60,
         required_run_labels=("fresh-5g53",),
         environment_configuration=_BIOHUB,
+        source_bound=SourceBoundAssets(
+            input_path="examples/v2/structures/5G53.pdb",
+            input_sha256=(
+                "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
+            ),
+            workflow_path="examples/v2/source-bound-5g53.workflow.json",
+        ),
+    ),
+    _tier(
+        "fresh-local-5g53",
+        (
+            "tests/test_fresh_source_bound_acceptance_v2.py::"
+            "test_fresh_local_5g53_installed_public_run_retains_auditable_bundle"
+        ),
+        timeout_seconds=240 * 60,
+        required_run_labels=("fresh-local-5g53",),
+        environment_configuration=(*_LOCAL_ESM3, *_LOCAL_ESMFOLD2),
         source_bound=SourceBoundAssets(
             input_path="examples/v2/structures/5G53.pdb",
             input_sha256=(
@@ -383,8 +460,6 @@ class ExecutionProfile:
             if name.startswith("PROTEIN_WORKBENCH_")
         }
         controlled.update({
-            "HF_HUB_CACHE",
-            "HF_HOME",
             "PYTHONPATH",
             "PYTEST_ADDOPTS",
         })
@@ -610,7 +685,7 @@ def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
 
 def _git_authority() -> tuple[str, bool]:
     revision = subprocess.run(
-        ["/usr/bin/git", "rev-parse", "HEAD"],
+        ["git", "rev-parse", "HEAD"],
         cwd=PROJECT_ROOT,
         check=True,
         text=True,
@@ -618,7 +693,7 @@ def _git_authority() -> tuple[str, bool]:
     ).stdout.strip()
     dirty = bool(
         subprocess.run(
-            ["/usr/bin/git", "status", "--porcelain"],
+            ["git", "status", "--porcelain"],
             cwd=PROJECT_ROOT,
             check=True,
             text=True,

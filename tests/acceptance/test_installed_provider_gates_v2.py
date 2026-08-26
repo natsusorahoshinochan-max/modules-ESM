@@ -558,6 +558,7 @@ def test_biohub_esmfold2_executes_exact_method(
 @pytest.mark.local_provider
 @pytest.mark.slow
 def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
+    from core.local_torch_device import expected_local_torch_device
     from modules.folding.esmfold2_contract import (
         LOCAL_ESMC_REVISION,
         LOCAL_ESMFOLD2_REVISION,
@@ -580,7 +581,7 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
             "model_snapshot_revision": LOCAL_ESMFOLD2_REVISION,
             "language_model_snapshot_path": esmc_model_root,
             "language_model_snapshot_revision": LOCAL_ESMC_REVISION,
-            "device": "cpu",
+            "device": expected_local_torch_device(),
         },
         source_sequence="AG",
     )
@@ -589,14 +590,14 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
     method = _method_for_binding(
         catalog,
         "folding.fold.esmfold2_local",
-        "10.0.0",
+        "11.0.0",
     )
     started = _assert_exact_execution(
         projection=projection,
         events=events,
         node_id="fold",
         binding_id="folding.fold.esmfold2_local",
-        binding_version="10.0.0",
+        binding_version="11.0.0",
         method_digest=method.contract_digest,
         expected_roles=("fold_parent_0_sample_0",),
     )
@@ -615,7 +616,7 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
             "effective_seed": structures.items[0].metadata[
                 "effective_call_seed"
             ],
-        }
+        },
     }
     retain_service_run(
         "local-esmfold2",
@@ -632,6 +633,7 @@ def test_local_esmfold2_executes_exact_method(tmp_path: Path) -> None:
 def test_proteinmpnn_design_and_score_execute_exact_methods(
     tmp_path: Path,
 ) -> None:
+    from core.local_torch_device import expected_local_torch_device
     from core.workflow.document import WorkflowEdge, WorkflowNodeInstance
     from datatypes.candidate import CandidateCollection
     from datatypes.observation import ScoreCollection
@@ -658,7 +660,7 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             node_type_id="proteinmpnn.design",
             node_type_version="10.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="11.0.0",
+            binding_version="12.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -692,20 +694,20 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             ),
         ),
         binding_id="proteinmpnn.design.local",
-        binding_version="11.0.0",
+        binding_version="12.0.0",
     )
     assert design_projection["status"] == "succeeded", design_events
     design_method = _method_for_binding(
         design_catalog,
         "proteinmpnn.design.local",
-        "11.0.0",
+        "12.0.0",
     )
     design_started = _assert_exact_execution(
         projection=design_projection,
         events=design_events,
         node_id="design",
         binding_id="proteinmpnn.design.local",
-        binding_version="11.0.0",
+        binding_version="12.0.0",
         method_digest=design_method.contract_digest,
         expected_roles=("design_parent_0",),
     )
@@ -744,7 +746,7 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             node_type_id="proteinmpnn.score",
             node_type_version="7.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="8.0.0",
+            binding_version="9.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -785,20 +787,20 @@ def test_proteinmpnn_design_and_score_execute_exact_methods(
             ),
         ),
         binding_id="proteinmpnn.score.local",
-        binding_version="8.0.0",
+        binding_version="9.0.0",
     )
     assert score_projection["status"] == "succeeded", score_events
     score_method = _method_for_binding(
         score_catalog,
         "proteinmpnn.score.local",
-        "8.0.0",
+        "9.0.0",
     )
-    _assert_exact_execution(
+    score_started = _assert_exact_execution(
         projection=score_projection,
         events=score_events,
         node_id="score",
         binding_id="proteinmpnn.score.local",
-        binding_version="8.0.0",
+        binding_version="9.0.0",
         method_digest=score_method.contract_digest,
         expected_roles=("score_subject",),
     )
@@ -1021,7 +1023,64 @@ def test_mkdssp_executes_exact_method_through_public_run(
     assert "".join(annotation.secondary_structure) == (
         "CEEEEEEECSSCEEEEEEECSSHHHHHHHHHHHHHHTTCCSEEEEETTTTEEEEEC"
     )
-    assert all(type(value) is float for value in annotation.sasa)
+    assert annotation.sasa == (
+        123.5,
+        83.4,
+        15.7,
+        77.5,
+        0.0,
+        56.5,
+        14.2,
+        66.5,
+        2.0,
+        142.4,
+        132.3,
+        71.9,
+        135.2,
+        33.5,
+        129.9,
+        44.3,
+        76.9,
+        45.2,
+        160.3,
+        7.9,
+        120.4,
+        62.6,
+        17.1,
+        38.8,
+        56.5,
+        0.0,
+        72.8,
+        126.3,
+        63.9,
+        3.9,
+        84.5,
+        108.7,
+        103.0,
+        0.3,
+        100.4,
+        110.2,
+        62.0,
+        61.4,
+        7.9,
+        117.4,
+        20.0,
+        129.5,
+        72.7,
+        78.9,
+        73.2,
+        70.4,
+        121.2,
+        90.7,
+        73.2,
+        59.9,
+        21.5,
+        4.5,
+        41.7,
+        0.3,
+        56.2,
+        87.8,
+    )
 
     method = _method_for_binding(catalog, binding_id, "7.0.0")
     _assert_exact_execution(

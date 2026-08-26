@@ -60,9 +60,13 @@ EXPECTED_INSTALLED_RUNS = {
 }
 EXPECTED_FRESH_RUNS = {
     "fresh-1pga": ("fresh-1pga",),
+    "fresh-local-1pga": ("fresh-local-1pga",),
     "fresh-2emo": ("fresh-2emo",),
+    "fresh-local-2emo": ("fresh-local-2emo",),
     "fresh-canonical-3gb1": ("fresh-canonical-3gb1",),
+    "fresh-local-canonical-3gb1": ("fresh-local-canonical-3gb1",),
     "fresh-5g53": ("fresh-5g53",),
+    "fresh-local-5g53": ("fresh-local-5g53",),
 }
 
 
@@ -98,7 +102,7 @@ def test_tier_contracts_declare_only_run_labels_and_lifecycle_need() -> None:
         tier.name
         for tier in CANONICAL_ACCEPTANCE_TIERS
         if tier.lifecycle_receipt_required
-    } == {"fresh-2emo"}
+    } == {"fresh-2emo", "fresh-local-2emo"}
 
 
 def test_campaign_freezes_the_minimal_tier_evidence_contract() -> None:
@@ -424,7 +428,7 @@ def test_provider_transition_receipt_contains_public_binding_order(
         {
             "contract_kind": "binding",
             "contract_id": "proteinmpnn.design.local",
-            "contract_version": "11.0.0",
+            "contract_version": "12.0.0",
             "contract_digest": "sha256:" + "1" * 64,
         },
         {

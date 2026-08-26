@@ -1394,11 +1394,7 @@ def test_backend_serves_the_authoritative_bundle_without_a_v1_fallback(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     discovery = load_bundle()["bundle_discovery"]
 
     with TestClient(
@@ -1423,11 +1419,7 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())
@@ -1489,11 +1481,7 @@ def test_project_and_immutable_input_publication_use_only_bundle_operations(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())
@@ -1569,11 +1557,7 @@ def test_project_input_metadata_recovers_filename_after_backend_restart(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     def public_request(
         http: TestClient,
@@ -1642,11 +1626,7 @@ def test_backend_rejects_route_owned_fields_in_every_json_body(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     workflow = {
         "schema_version": "2.1.0",
         "workflow_id": "project-2",
@@ -1724,11 +1704,7 @@ def test_backend_distinguishes_absent_empty_and_null_cancel_bodies(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())
@@ -1758,11 +1734,7 @@ def test_backend_rejects_invalid_project_identity_at_public_admission(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())
@@ -1781,11 +1753,7 @@ def test_backend_classifies_nested_workflow_version_before_authoring(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     workflow = {
         "schema_version": "2.0.0",
         "workflow_id": "project-1",
@@ -1820,11 +1788,7 @@ def test_project_input_publication_rejects_invalid_project_id_at_admission(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())
@@ -1845,11 +1809,7 @@ def test_backend_event_stream_rejects_undeclared_query_fields(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())
@@ -1933,11 +1893,7 @@ def test_public_deep_commit_creates_draft_active_commit_and_runnable_plan(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     with TestClient(
         create_application(frozen_catalog_override=builtin_frozen_catalog())

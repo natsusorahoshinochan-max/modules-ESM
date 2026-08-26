@@ -18,16 +18,13 @@ _ATOM_DIGEST = (
 )
 
 
-def test_project_manager_defaults_to_ignored_local_state(
+def test_project_manager_uses_its_explicit_project_storage_root(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.chdir(tmp_path)
-
-    project = ProjectManager().create("default local state")
+    project = ProjectManager(tmp_path / "projects").create("explicit state")
 
     assert (
-        tmp_path / ".local" / "projects" / project.id / "project.json"
+        tmp_path / "projects" / project.id / "project.json"
     ).is_file()
 
 

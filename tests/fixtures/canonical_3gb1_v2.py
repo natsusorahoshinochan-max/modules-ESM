@@ -7,6 +7,7 @@ from protein_workbench_public.bootstrap import module_registrations
 from dataclasses import dataclass, replace
 import math
 from pathlib import Path
+from core.local_torch_device import expected_local_torch_device
 from typing import Any
 
 import torch
@@ -28,7 +29,7 @@ from datatypes.sequence import ProteinSequence
 VERSION = "2.1.0"
 ESM3_REMOTE_BINDING_VERSION = "8.0.0"
 FOLDING_REMOTE_BINDING_VERSION = "9.0.0"
-PROTEINMPNN_BINDING_VERSION = "11.0.0"
+PROTEINMPNN_BINDING_VERSION = "12.0.0"
 CANONICAL_PROVIDER_PROMPT_CONTENT_DIGEST = (
     "sha256:af6fb4017077a24d67882151d39beb7790b118b02c155a986a48907e1a569ab8"
 )
@@ -270,8 +271,8 @@ class ControlledProteinMPNNProvider:
         return sequences
 
 
-def controlled_catalog() -> Any:
-    """Preserve every public contract byte while opening provider test seams."""
+def controlled_module_registrations() -> tuple[ModulePackageRegistration, ...]:
+    """Preserve contract bytes while opening explicit Provider test seams."""
 
     def available() -> AvailabilityResult:
         return AvailabilityResult.available()
@@ -302,7 +303,12 @@ def controlled_catalog() -> Any:
         registrations.append(
             replace(registration, bindings=tuple(bindings))
         )
-    return build_frozen_catalog(tuple(registrations))
+    return tuple(registrations)
+
+
+def controlled_catalog() -> Any:
+    """Freeze the explicit Provider-controlled production registrations."""
+    return build_frozen_catalog(controlled_module_registrations())
 
 
 def controlled_environment(
@@ -340,7 +346,7 @@ def controlled_environment(
         },
         ("proteinmpnn.design.local", PROTEINMPNN_BINDING_VERSION): {
             "values": {
-                "device": "cpu",
+                "device": expected_local_torch_device(),
                 "provider_root": (
                     Path(__file__).resolve().parents[2]
                     / "repositories"

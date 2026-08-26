@@ -569,10 +569,7 @@ def test_backend_publishes_the_same_explicit_catalog_snapshot(
     root_name = _write_registration_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     importlib.invalidate_caches()
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        root = tmp_path / name.lower()
-        root.mkdir()
-        monkeypatch.setenv(f"PROTEIN_WORKBENCH_{name}_ROOT", str(root))
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     try:
         catalog = build_frozen_catalog((_load_registration(root_name),))

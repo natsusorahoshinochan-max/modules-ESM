@@ -70,10 +70,10 @@ _CANDIDATE_PROJECTION_NODE_GENERATIONS = {
     "structure_comparison.align_fixed_reference": ("5.0.0", "4.0.0"),
     "structure_comparison.align_single": ("5.0.0", "4.0.0"),
     "structure_comparison.classify_three_way_consistency": (
+        "4.0.0",
         "3.0.0",
-        "2.0.0",
     ),
-    "structure_comparison.evaluate_inserted_loop": ("2.0.0", "1.0.0"),
+    "structure_comparison.evaluate_inserted_loop": ("3.0.0", "2.0.0"),
     "structure_comparison.rmsd_counterparts": ("6.0.0", "5.0.0"),
     "structure_comparison.rmsd_fixed_reference": ("6.0.0", "5.0.0"),
     "structure_comparison.tm_score_counterparts": ("6.0.0", "5.0.0"),
@@ -95,8 +95,8 @@ _CANDIDATE_PROJECTION_NODE_GENERATIONS = {
 
 _CANDIDATE_PROJECTION_METHOD_GENERATIONS = {
     "structure_comparison.inserted_loop.exact_evidence_gate": (
+        "3.0.0",
         "2.0.0",
-        "1.0.0",
     ),
     "structure_comparison.rmsd.from_alignment_evidence.method": (
         "4.0.0",
@@ -123,22 +123,22 @@ _CANDIDATE_PROJECTION_BINDING_GENERATIONS = {
     "collection_ops.take_candidates.direct": ("4.0.0", "3.0.0"),
     "esm3.generate_paired.biohub_medium": ("8.0.0", "7.0.0"),
     "esm3.generate_paired.biohub_open": ("8.0.0", "7.0.0"),
-    "esm3.generate_paired.local_open": ("8.0.0", "7.0.0"),
+    "esm3.generate_paired.local_open": ("9.0.0", "8.0.0"),
     "esm3.generate_sequence.biohub_medium": ("8.0.0", "7.0.0"),
     "esm3.generate_sequence.biohub_open": ("8.0.0", "7.0.0"),
-    "esm3.generate_sequence.local_open": ("8.0.0", "7.0.0"),
+    "esm3.generate_sequence.local_open": ("9.0.0", "8.0.0"),
     "esm3.generate_structure.biohub_medium": ("8.0.0", "7.0.0"),
     "esm3.generate_structure.biohub_open": ("8.0.0", "7.0.0"),
-    "esm3.generate_structure.local_open": ("8.0.0", "7.0.0"),
-    "folding.fold.esmfold2_local": ("10.0.0", "9.0.0"),
+    "esm3.generate_structure.local_open": ("9.0.0", "8.0.0"),
+    "folding.fold.esmfold2_local": ("11.0.0", "10.0.0"),
     "folding.fold.esmfold2_remote": ("9.0.0", "8.0.0"),
-    "folding.fold.simplefold_local": ("10.0.0", "9.0.0"),
-    "folding.simplefold_confidence.simplefold_local": ("6.0.0", "5.0.0"),
+    "folding.fold.simplefold_local": ("11.0.0", "10.0.0"),
+    "folding.simplefold_confidence.simplefold_local": ("7.0.0", "6.0.0"),
     "protein_io.export_structure.direct": ("6.0.0", "5.0.0"),
     "protein_io.import_sequence.direct": ("6.0.0", "5.0.0"),
     "protein_io.import_structure.direct": ("6.0.0", "5.0.0"),
-    "proteinmpnn.design.local": ("11.0.0", "10.0.0"),
-    "proteinmpnn.score.local": ("8.0.0", "7.0.0"),
+    "proteinmpnn.design.local": ("12.0.0", "11.0.0"),
+    "proteinmpnn.score.local": ("9.0.0", "8.0.0"),
     "selection.diversity.direct": ("5.0.0", "4.0.0"),
     "selection.filter.direct": ("5.0.0", "4.0.0"),
     "selection.pareto.direct": ("5.0.0", "4.0.0"),
@@ -174,10 +174,10 @@ _CANDIDATE_PROJECTION_BINDING_GENERATIONS = {
         "4.0.0",
     ),
     "structure_comparison.classify_three_way_consistency.direct": (
+        "4.0.0",
         "3.0.0",
-        "2.0.0",
     ),
-    "structure_comparison.evaluate_inserted_loop.direct": ("2.0.0", "1.0.0"),
+    "structure_comparison.evaluate_inserted_loop.direct": ("3.0.0", "2.0.0"),
     "structure_comparison.rmsd_counterparts.from_alignment_evidence": (
         "6.0.0",
         "5.0.0",
@@ -228,8 +228,8 @@ def test_candidate_reference_projection_ports_publish_new_exact_generations(
         "candidate.pairing": "4.0.0",
         "score.collection": "5.0.0",
         "structure_comparison.alignment_evidence": "5.0.0",
-        "structure_comparison.inserted_loop_evaluation": "2.0.0",
-        "structure_comparison.three_way_consistency": "3.0.0",
+        "structure_comparison.inserted_loop_evaluation": "3.0.0",
+        "structure_comparison.three_way_consistency": "4.0.0",
         "structure_prediction.confidence_facts": "2.0.0",
         "structure_prediction.prediction_residue_axis": "2.0.0",
         (
@@ -246,8 +246,8 @@ def test_candidate_reference_projection_ports_publish_new_exact_generations(
         "candidate.pairing": "3.0.0",
         "score.collection": "4.0.0",
         "structure_comparison.alignment_evidence": "4.0.0",
-        "structure_comparison.inserted_loop_evaluation": "1.0.0",
-        "structure_comparison.three_way_consistency": "2.0.0",
+        "structure_comparison.inserted_loop_evaluation": "2.0.0",
+        "structure_comparison.three_way_consistency": "3.0.0",
         "structure_prediction.confidence_facts": "1.0.0",
         "structure_prediction.prediction_residue_axis": "1.0.0",
         (
@@ -479,7 +479,9 @@ def test_esm3_nodes_bindings_cascade_without_method_or_port_aliases() -> None:
             assert output_port["contract_id"] != "score.collection"
         for route in routes:
             binding = catalog.require_contract(
-                "binding", f"{node_id}.{route}", "8.0.0"
+                "binding",
+                f"{node_id}.{route}",
+                "9.0.0" if route == "local_open" else "8.0.0",
             )
             assert binding.descriptor["method"]["contract_version"] == "5.0.0"
             assert binding.descriptor["produced_observations"] == ()
@@ -514,17 +516,17 @@ def test_proteinmpnn_cascade_uses_exact_axis_and_score_generations() -> None:
         ),
         "design": (
             "10.0.0",
-            "11.0.0",
+            "12.0.0",
             "6.0.0",
             "9.0.0",
-            "10.0.0",
+            "11.0.0",
         ),
         "score": (
             "7.0.0",
+            "9.0.0",
+            "6.0.0",
+            "6.0.0",
             "8.0.0",
-            "6.0.0",
-            "6.0.0",
-            "7.0.0",
         ),
     }
     for operation, (
@@ -611,16 +613,16 @@ def test_structure_comparison_conclusion_ports_follow_embedded_methods() -> None
 
     expected_outputs = {
         "structure_comparison.classify_three_way_consistency": (
-            "3.0.0",
+            "4.0.0",
             "consistency",
             "structure_comparison.three_way_consistency",
-            "3.0.0",
+            "4.0.0",
         ),
         "structure_comparison.evaluate_inserted_loop": (
-            "2.0.0",
+            "3.0.0",
             "quality_evidence",
             "structure_comparison.inserted_loop_evaluation",
-            "2.0.0",
+            "3.0.0",
         ),
     }
     for node_id, (
@@ -658,8 +660,8 @@ def test_folding_and_confidence_materialization_use_fact_then_score_generations(
     }
     for binding_id, binding_version in (
         ("folding.fold.esmfold2_remote", "9.0.0"),
-        ("folding.fold.esmfold2_local", "10.0.0"),
-        ("folding.fold.simplefold_local", "10.0.0"),
+        ("folding.fold.esmfold2_local", "11.0.0"),
+        ("folding.fold.simplefold_local", "11.0.0"),
     ):
         binding = catalog.require_contract(
             "binding",

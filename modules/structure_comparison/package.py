@@ -48,8 +48,8 @@ _RMSD_NORMALIZATION = "aligned-CA-mean-square-distance"
 _TM_NORMALIZATION = "reference-axis-residue-count"
 ALIGNMENT_NODE_VERSION = "5.0.0"
 SCORE_NODE_VERSION = "6.0.0"
-THREE_WAY_VERSION = "3.0.0"
-INSERTED_LOOP_VERSION = "2.0.0"
+THREE_WAY_VERSION = "4.0.0"
+INSERTED_LOOP_VERSION = "3.0.0"
 TM_UTILITY_VERSION = "4.0.0"
 
 
@@ -304,7 +304,7 @@ def _binding(
 
 MODULE_PACKAGE = ModulePackageRegistration(
     package_id="structure_comparison",
-    package_version="7.0.0",
+    package_version="8.0.0",
     package_module=__package__,
     node_definitions=(
         DefinitionResource("definitions/align_single.yaml"),

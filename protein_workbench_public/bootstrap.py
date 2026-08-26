@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from contextlib import ExitStack
 from importlib.resources import as_file, files
 import json
-import os
 from typing import Any
 
 from fastapi import FastAPI
@@ -42,6 +41,9 @@ from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM,
 )
 from protein_workbench_public.http.app import create_http_app
+from protein_workbench_public.application_environment import (
+    application_storage_roots,
+)
 from protein_workbench_public.provider_environment import (
     provider_environment_configuration,
 )
@@ -77,14 +79,12 @@ def create_application(
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
     catalog = build_frozen_catalog(module_registrations())
+    storage = application_storage_roots()
     projects = ProjectManager(
-        root_dir=os.environ.get(
-            "PROTEIN_WORKBENCH_PROJECT_ROOT",
-            ".local/projects",
-        ),
-        cache_root=os.environ.get("PROTEIN_WORKBENCH_CACHE_ROOT"),
-        output_root=os.environ.get("PROTEIN_WORKBENCH_OUTPUT_ROOT"),
-        run_root=os.environ.get("PROTEIN_WORKBENCH_RUN_ROOT"),
+        root_dir=storage.projects,
+        cache_root=storage.cache,
+        output_root=storage.outputs,
+        run_root=storage.runs,
     )
     authoring = WorkflowAuthoringService(projects, catalog)
     with ExitStack() as asset_stack:

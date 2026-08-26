@@ -18,7 +18,7 @@ from core.catalog.port_contract import (
 )
 
 from .contracts import (
-    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
+    ESMFOLD2_FOLD_METHOD_REFERENCES,
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
     SIMPLEFOLD_FOLD_METHOD_REFERENCE,
@@ -35,12 +35,12 @@ from .domain import (
 )
 
 
-THREE_WAY_CONSISTENCY_VERSION = "3.0.0"
+THREE_WAY_CONSISTENCY_VERSION = "4.0.0"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CONFIDENCE_ROLES = ("esmfold2", "simplefold")
-_CONFIDENCE_METHODS = (
-    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
-    SIMPLEFOLD_FOLD_METHOD_REFERENCE,
+_CONFIDENCE_METHODS_BY_ROLE = (
+    ESMFOLD2_FOLD_METHOD_REFERENCES,
+    (SIMPLEFOLD_FOLD_METHOD_REFERENCE,),
 )
 _EDGE_IDS = (
     "input_esmfold2",
@@ -75,16 +75,16 @@ def _validate_confidences(value: ThreeWayConsistencyEvidence) -> None:
     subjects = (value.esmfold2_structure, value.simplefold_structure)
     if tuple(item.role for item in value.confidences) != _CONFIDENCE_ROLES:
         raise ValueError("three-way confidence roles are not canonical")
-    for item, subject, method in zip(
+    for item, subject, methods in zip(
         value.confidences,
         subjects,
-        _CONFIDENCE_METHODS,
+        _CONFIDENCE_METHODS_BY_ROLE,
         strict=True,
     ):
         if (
             type(item) is not ThreeWayConfidenceEvidence
             or item.subject != subject
-            or item.method != method
+            or item.method not in methods
             or isinstance(item.mean_residue_plddt, bool)
             or not isinstance(item.mean_residue_plddt, (int, float))
             or not math.isfinite(float(item.mean_residue_plddt))
@@ -385,9 +385,14 @@ THREE_WAY_CONSISTENCY_PORT_TYPE = PortTypeDefinition(
                 "reference_normalized_tm_score_minimum": 0.8,
                 "ca_rmsd_angstrom_maximum": 2.5,
             },
-            "confidence_method_digests": [
-                item.contract_digest for item in _CONFIDENCE_METHODS
-            ],
+            "confidence_method_digests_by_role": {
+                role: [method.contract_digest for method in methods]
+                for role, methods in zip(
+                    _CONFIDENCE_ROLES,
+                    _CONFIDENCE_METHODS_BY_ROLE,
+                    strict=True,
+                )
+            },
             "classification_method_digest": (
                 THREE_WAY_CONSISTENCY_METHOD_REFERENCE.contract_digest
             ),

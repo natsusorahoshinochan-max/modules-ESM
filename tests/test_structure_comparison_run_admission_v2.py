@@ -105,7 +105,7 @@ def _verify_comparison_package(
             ),
             ModulePackagePortCase(
                 "structure_comparison.three_way_consistency",
-                "3.0.0",
+                "4.0.0",
                 _three_way_consistency_value(),
                 (
                     object(),

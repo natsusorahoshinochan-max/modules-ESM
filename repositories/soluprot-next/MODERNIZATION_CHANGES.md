@@ -6,11 +6,15 @@
 
 本次修改的目标是将项目从旧版 Python / 旧版依赖运行方式迁移为仅依赖现代 Python 包栈运行，并移除旧版兼容层。
 
-当前项目目标环境：
+作为独立 package/CLI 使用时，当前项目目标环境：
 
 - Python 3.12 或 3.13
 - 现代 Biopython、NumPy、pandas、tqdm
 - 不再依赖旧版 scikit-learn/joblib/pickle 模型文件进行运行时预测
+
+Protein Workbench Provider 部署是更窄的合同：使用 Python 3.12，并要求
+`PROTEIN_WORKBENCH_SOLUPROT_ROOT` 下的固定 runtime/USEARCH 布局。独立 package 的
+Python 3.13 支持不扩大该 Workbench Provider 合同。
 
 ## 主要改动
 
@@ -70,27 +74,37 @@ python -m soluprot_core.cli --help
 
 ### 5. 外部工具处理
 
-项目仍依赖为目标平台单独安装的外部工具完成部分特征计算：
-
-- USEARCH
-- TMHMM
+项目仍依赖为目标平台单独安装的 USEARCH 完成部分特征计算。full Method 还会执行
+wheel-bundled TMHMM 2.0d asset closure；它不是另一个 Workbench 外部安装前提。
 
 命令行会按以下顺序解析工具路径：
 
 1. 显式传入的 `--usearch` / `--tmhmm`
 2. 系统 `PATH`
-源码和 wheel 不包含 USEARCH；TMHMM 2.0d 作为个人部署资产随包提供，包含
-`Darwin_arm64` 与 `Linux_x86_64` decoder。
+
+上面的顺序描述 standalone CLI 的路径解析；Workbench 直接提供已经接纳的 USEARCH 与
+wheel-bundled TMHMM 路径。源码和 wheel 不包含 USEARCH；TMHMM 2.0d 作为 Workbench
+Provider 资产随包提供，
+仅支持 `Darwin_arm64` 与 `Linux_x86_64` decoder。Intel macOS 与 Linux ARM64 不属于
+当前 full Method 支持范围。
 
 ## 测试与验证
 
-本次修改后已执行并通过以下验证：
+以下验证可在源码树外的临时构建环境中执行：
 
 ```bash
-python3.12 -m venv .venv-build
-.venv-build/bin/python -m pip install build pytest
-.venv-build/bin/python -m build --wheel
-.venv-build/bin/python -m pytest -q
+export SOLUPROT_BUILD_ROOT="$(mktemp -d)"
+cp -R . "$SOLUPROT_BUILD_ROOT/source"
+python3.12 -m venv "$SOLUPROT_BUILD_ROOT/environment"
+"$SOLUPROT_BUILD_ROOT/environment/bin/python" -m pip install build pytest
+"$SOLUPROT_BUILD_ROOT/environment/bin/python" -m build --wheel \
+  --outdir "$SOLUPROT_BUILD_ROOT/dist" "$SOLUPROT_BUILD_ROOT/source"
+"$SOLUPROT_BUILD_ROOT/environment/bin/python" -m pip install \
+  "$SOLUPROT_BUILD_ROOT/dist/soluprot-1.1.0-py3-none-any.whl"
+(
+  cd "$SOLUPROT_BUILD_ROOT/source"
+  "$SOLUPROT_BUILD_ROOT/environment/bin/python" -m pytest -q tests
+)
 ```
 
 还执行了完整 CLI 示例，使用显式配置的 USEARCH/TMHMM 对 `data/test.fa` 进行预测，并确认输出与 `data/test.csv` 一致。
@@ -102,6 +116,11 @@ python3.12 -m venv .venv-build
 - 不再包含旧 scikit-learn wrapper
 - package metadata 中不再声明 `joblib`
 - USEARCH 由部署环境提供；Workbench 从 wheel 中选择与目标平台匹配的 TMHMM decoder
+
+wheel 保留 `py3-none-any` 文件名，是因为 Python 包不含 CPython ABI extension，且同一
+wheel 有意携带两组 decoder 数据文件；该文件名不表示任意平台均受支持。Readiness 仍只
+接受 `Darwin_arm64` 与 `Linux_x86_64`。若将来改变 decoder inventory 或拆分平台 wheel，
+必须形成新的明确 packaging contract。
 
 ## 当前状态
 

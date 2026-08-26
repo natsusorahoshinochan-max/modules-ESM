@@ -1,4 +1,5 @@
 .venv/
+/output/
 .DS_Store
 .codex/
 .local/

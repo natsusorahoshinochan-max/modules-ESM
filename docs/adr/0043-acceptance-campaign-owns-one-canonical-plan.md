@@ -5,7 +5,7 @@ status: accepted
 # Acceptance Campaign owns one canonical plan
 
 The Acceptance Campaign module owns one immutable canonical tier plan for the
-15 real-Provider and source-bound tiers. The plan is the sole representation of
+19 real-Provider and source-bound tiers. The plan is the sole representation of
 tier identity and order, pytest selector, timeout, zero-skip requirement,
 required run labels, lifecycle-receipt requirement, and required Environment
 Configuration names. For each source-bound tier it also fixes the exact input,
@@ -57,7 +57,7 @@ completion. The Campaign validates structural completion centrally without
 reinterpreting scientific content.
 
 The Campaign state is closed: prepared, running, passed, failed, or interrupted.
-A Campaign is passed if and only if all 15 tiers produce complete Acceptance
+A Campaign is passed if and only if all 19 tiers produce complete Acceptance
 Results in canonical order. Retained observations support inspection; they do
 not introduce an evidence manifest, checksum graph, promotion protocol, or
 second integrity authority.

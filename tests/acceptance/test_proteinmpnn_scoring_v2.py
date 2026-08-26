@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from core.local_torch_device import expected_local_torch_device
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -55,7 +56,7 @@ def _environment(
     return {
         (binding_id, binding_version): {
             "values": {
-                "device": "cpu",
+                "device": expected_local_torch_device(),
                 "provider_root": Path(
                     os.environ["PROTEIN_WORKBENCH_PROTEINMPNN_ROOT"]
                 ).resolve(),
@@ -212,7 +213,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
             node_type_id="proteinmpnn.score",
             node_type_version="7.0.0",
             binding_id="proteinmpnn.score.local",
-            binding_version="8.0.0",
+            binding_version="9.0.0",
             node_parameters={},
             binding_parameters={},
         ),
@@ -254,7 +255,7 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.score.local",
-        binding_version="8.0.0",
+        binding_version="9.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -275,7 +276,16 @@ def test_proteinmpnn_v2_scoring_publishes_exact_native_observation(
         "proteinmpnn.score.v_48_020_8907e667"
     )
     assert observation.context == IntrinsicObservationContext()
-    assert observation.value == 1.385357141494751
+    expected = {
+        "cpu": 1.385357141494751,
+        "cuda": 1.3671133518218994,
+    }[expected_local_torch_device()]
+    binary32_cross_platform_tolerance = 16 * 2**-23
+    assert observation.value == pytest.approx(
+        expected,
+        rel=0.0,
+        abs=binary32_cross_platform_tolerance,
+    )
     invocation = next(
         item["event"]
         for item in events
@@ -320,7 +330,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
             node_type_id="proteinmpnn.design",
             node_type_version="10.0.0",
             binding_id="proteinmpnn.design.local",
-            binding_version="11.0.0",
+            binding_version="12.0.0",
             node_parameters={
                 "effective_seed": 1603,
                 "num_sequences": 1,
@@ -355,7 +365,7 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
         nodes=nodes,
         edges=edges,
         binding_id="proteinmpnn.design.local",
-        binding_version="11.0.0",
+        binding_version="12.0.0",
     )
 
     assert projection["status"] == "succeeded", events
@@ -369,10 +379,16 @@ def test_proteinmpnn_v2_sibling_design_remains_exact_and_complete(
     assert candidates.item_type == "protein.sequence"
     assert len(candidates.items) == 1
     candidate = candidates.items[0]
-    assert hashlib.sha256(
-        candidate.data.sequence.encode()
-    ).hexdigest() == (
-        "b89c0a40b93d8b5cbfffd0b39d219a2b01703898e9956a3e893ba7ac02ec9eea"
+    expected_digest = {
+        "cpu": (
+            "b89c0a40b93d8b5cbfffd0b39d219a2b01703898e9956a3e893ba7ac02ec9eea"
+        ),
+        "cuda": (
+            "1a96539c4a8e0233e9910e05f75a4725b1a3f652095957af7123c44db5db41ac"
+        ),
+    }[expected_local_torch_device()]
+    assert hashlib.sha256(candidate.data.sequence.encode()).hexdigest() == (
+        expected_digest
     )
     assert candidate.metadata["effective_call_seed"] == 4484333622234277
     assert "model" not in candidate.metadata

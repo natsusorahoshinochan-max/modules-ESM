@@ -196,7 +196,7 @@ contract version。Node Instance ID、Run ID 和公共事件投影属于 runtime
 7. 将 Typed Output 与 Artifact bytes 写入 Project-scoped immutable objects，并以一个
    Ledger transaction 原子发布 Node outcome；
 8. 从 Run Evidence Ledger 投影事件和 bounded output descriptors，再在成功后发布可选的
-   Cache v4 replay index。
+   Cache entry v5 replay index。
 
 Run scheduling 只负责按 Execution Plan 串行调度、required-input blocking、调度前取消、
 已提交 Typed Outputs 的下游传播、Selection conclusion 与 Run Closure。一个
@@ -213,8 +213,10 @@ Operation、cleanup 与 Node Outcome Publication 所需事实。它取代跨 ser
 该 deep module 在第一次 exact Adapter-route Binding 的 Cache miss 或 bypass 时检查一次
 Readiness，并在同一 Run 内复用结论。Node Execution Attempt 仅在 Node Outcome
 Publication 的 Ledger transaction 原子提交后结束；成功后写入的 Cache replay index
-不是 outcome authority。Run Evidence Ledger 仍是 fact schema、因果验证、durable
-persistence、reduction 与公共投影的唯一 owner。详见 ADR-0041 与 ADR-0042。
+不是 outcome authority。Run Evidence Ledger 仍是 typed domain fact schema、因果验证、
+durable persistence、reduction 与 domain projection 的唯一 owner；
+`protein_workbench_public` 独占 public wire projection 与 redaction。详见 ADR-0041 与
+ADR-0042。
 
 Readiness 只把 closure admission 或明确 Environment/Provider prerequisite failure 映射为
 failing conclusion。编程错误与本地 invariant violation 直接 fail fast；Readiness 不使用
@@ -371,7 +373,8 @@ record，不因为进入另一个内部函数而重复同一 predicate。
 | Scientific Operation | 该 Method 特有且只有在完整 admitted inputs 上才能判定的科学前置、后置与集合 closure | 该 Operation Attempt 的 admitted inputs/outputs |
 | Provider Adapter | 按权威规范翻译并接纳 provider-native observation，构造 canonical output 与 Invocation provenance | 该 Adapter result / Engine Invocation record |
 | Binding Readiness | exact route 的 Environment prerequisites 与 Provider Asset Closure | 该 Binding 在该 Run 的 Readiness conclusion |
-| Run Evidence Ledger durable write | closed fact/public schema、因果、transaction、顺序、redaction、size、durable acknowledgement 与 Invocation provenance semantics | committed durable transaction；restart 时重新接纳 durable prefix |
+| Run Evidence Ledger durable write | closed typed domain fact schema、因果、transaction、顺序、size、durable acknowledgement 与 Invocation provenance semantics | committed durable transaction；restart 时重新接纳 durable prefix |
+| Public protocol projection | REST/WebSocket wire schema、redaction 与 public cursor translation | 该次 admitted public encoding |
 | Persistence read / restart | current schema、object digest、exact Contract references 与 durable prefix | 本次恢复得到的 admitted immutable state |
 | Durable object publication | 路径归属、原子发布、冲突和意外数据损失 | 已确认的 immutable object publication |
 
@@ -522,10 +525,11 @@ Method，且没有科学或部署参数。
 
 `folding.fold@8.0.0`、`esm3.generate_sequence@8.0.0`、
 `esm3.generate_structure@8.0.0` 和 `esm3.generate_paired@8.0.0` 不在产生 Candidate
-的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `10.0.0`、
-remote ESMFold2 `9.0.0` 或 local ESMFold2 `10.0.0`；ESM3 generation Bindings 为
-`8.0.0`。其 exact provider Methods 也依 route 固定：SimpleFold 与 remote ESMFold2 为
-`4.0.0`、local ESMFold2 为 `6.0.0`、ESM3 generation 为 `5.0.0`。每个
+的同一次操作中预造 Score subject。Folding Bindings 依 route 固定为 SimpleFold `11.0.0`、
+remote ESMFold2 `9.0.0` 或 local ESMFold2 `11.0.0`；ESM3 generation Bindings 依 route
+固定为 remote `8.0.0` 或 local `9.0.0`。其 exact provider Methods 也依 route 固定：
+SimpleFold 为 `5.0.0`、remote ESMFold2 为 `4.0.0`、local ESMFold2 为 `6.0.0`、ESM3
+generation 为 `5.0.0`。每个
 confidence-bearing structure 或 coordinate-conditioned reconstruction output 同时产生：
 
 1. `candidate.collection@4.0.0`，其中 Candidate metadata 携带 content-derived
@@ -679,7 +683,7 @@ Result Identity 是 admitted scientific inputs 与 implementation identity 导�
 ordinary 与 artifact-capable output 的 Port Value Manifest。内部信任 conforming
 deterministic Binding；不存在从 Ledger 重建的第二套 authority index 或跨 Run 冲突锁。
 
-Cache v4 是 Project-scoped、可重新生成的 replay index，不是科学证据源。entry 只引用
+Cache entry v5 是 Project-scoped、可重新生成的 replay index，不是科学证据源。entry 只引用
 committed Node Result Manifest 与 immutable value objects，记录 original producer，不复制
 canonical values 或 base64 payload。replay 另行记录 current Run materialization，不复制旧
 Availability、Readiness、Operation Attempt 或 Engine Invocation。Cache 不存在表示 miss；
@@ -694,17 +698,23 @@ Run Evidence Ledger 是 Node Execution Attempt、Operation Attempt、Engine Invo
 
 Ledger 的 interface 接受完整的合法因果 transition。调用者决定实际发生的领域结论，但不
 提供 fact-type 字符串、任意 payload dictionary、logical-fact 顺序、sequence、cursor 或
-transaction grouping。Ledger 自己构造 exact logical facts，并集中拥有 closed schema、
-causal prerequisites、terminal rules、atomic transaction membership、reducer change 与
-public projection。现有 17 类 logical facts 保持各自的科学含义，不压成 generic event。
+transaction grouping。Ledger 自己构造 exact logical facts，并集中拥有 closed typed domain
+schema、causal prerequisites、terminal rules、atomic transaction membership、reducer change
+与 domain projection。现有 16 类 logical facts 保持各自的科学含义，不压成 generic event；
+Typed Output 与 Artifact descriptors 是同一个 `OutputsPublished` fact 的两个 typed
+collections。
 
-Ledger 在 durable-write seam 一次性验证 fact/public schema、因果一致性、transaction
-完整性和顺序、monotonic identity、public redaction、size bound 与 durable
-acknowledgement。Invocation provenance 的 closed grammar、chain/order 与 residue mapping
-semantics 也只在这里验证；Engine Invocation recorder 与 `RunResources` 只冻结和传递 typed
+Ledger 在 durable-write seam 一次性验证 typed domain fact schema、因果一致性、transaction
+完整性和顺序、monotonic identity、size bound 与 durable acknowledgement。Invocation
+provenance 的 closed grammar、chain/order 与 residue mapping semantics 也只在这里验证；
+Engine Invocation recorder 与 `RunResources` 只冻结和传递 typed
 provenance，不重复该 grammar。Ledger 不重新验证已 admitted 的科学值，也不处理
 adversarial caller、Provider payload repair、coercion、fallback 或 retry policy。
 caller-facing raw append/commit 不作为 escape hatch 保留。详见 ADR-0042。
+
+`protein_workbench_public` 消费 Ledger 的 typed domain projection 与 events，独占 REST、
+WebSocket wire encoding、redaction、public cursor translation 与 current public schema
+validation。public projection failure 不改变已经 durable-acknowledged 的 execution outcome。
 
 一次 Node outcome publication 使用一个物理 Ledger transaction，保留 Operation terminal、
 output descriptors、Artifact descriptors、Node terminal 与 disposition 等独立 logical facts。
@@ -872,7 +882,7 @@ Ledger 与 projection tests 使用 admitted fixtures，不保留 malformed priva
 第二次防御性校验。
 
 Acceptance Campaign module 拥有唯一、不可变的 canonical tier plan。该 plan 按规范顺序
-完整定义 15 个 tier 的身份、selector、timeout、零 skip、required run labels、lifecycle
+完整定义 19 个 tier 的身份、selector、timeout、零 skip、required run labels、lifecycle
 receipt 与 Environment Configuration requirements；source-bound tier 还固定 exact input、
 input digest 与 Workflow path。Repository verification matrix 不属于该 plan。
 
@@ -886,7 +896,7 @@ Acceptance Result。
 
 Acceptance Result 只在 tier 自己的科学断言通过且 plan 声明的结构完成契约满足后成立。
 Campaign 集中验证 tier identity、source revision、required run labels、lifecycle receipt 与
-retained location，但不解释或重复科学断言。`passed` 当且仅当全部 15 个 tier 按顺序产生
+retained location，但不解释或重复科学断言。`passed` 当且仅当全部 19 个 tier 按顺序产生
 完整 Acceptance Result；失败或 interrupted diagnostic output 不计入完成度。详见 ADR-0043。
 
 完整命令和 tier 定义见 [`backend-verification.md`](backend-verification.md)。

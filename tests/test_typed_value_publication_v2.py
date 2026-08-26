@@ -42,11 +42,7 @@ def test_run_projection_publishes_bounded_descriptors_and_exact_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[str] = []
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_pipeline_catalog(calls))
 
     with TestClient(app) as client:
@@ -118,11 +114,7 @@ def test_typed_value_retrieval_is_strictly_run_node_port_and_index_scoped(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
     app = create_application(frozen_catalog_override=_pipeline_catalog([]))
 
     with TestClient(app) as client:
@@ -198,11 +190,7 @@ def test_object_write_failure_closes_node_without_public_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for name in ("PROJECT", "CACHE", "OUTPUT", "RUN"):
-        monkeypatch.setenv(
-            f"PROTEIN_WORKBENCH_{name}_ROOT",
-            str(tmp_path / name.lower()),
-        )
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
 
     def fail_write(
         _store: ProjectObjectStore,

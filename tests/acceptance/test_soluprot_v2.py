@@ -58,7 +58,7 @@ def _trusted_external_root() -> Path:
     )
     root = Path(configured).expanduser()
     assert root.is_absolute()
-    return root.resolve()
+    return root
 
 
 def _environment(mode: str) -> dict[str, Any]:

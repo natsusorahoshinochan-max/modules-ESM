@@ -101,6 +101,48 @@ def _protein_sol_admitted_environment(
     }
 
 
+@pytest.mark.parametrize(
+    "banner",
+    (
+        "usearch v12.0 [7412f73], 17.2Gb RAM, 10 cores",
+        "usearch v12.0, 528Gb RAM, 128 cores",
+    ),
+)
+def test_soluprot_readiness_accepts_official_usearch_12_banners(
+    tmp_path: Path,
+    banner: str,
+) -> None:
+    import modules.solubility.soluprot as adapter
+
+    executable = tmp_path / "usearch"
+    executable.write_text(
+        f"#!/bin/sh\nprintf '%s\\n' '{banner}'\n",
+        encoding="ascii",
+    )
+    executable.chmod(0o755)
+
+    assert adapter._validate_usearch_runtime(executable) == executable
+
+
+def test_soluprot_readiness_rejects_another_usearch_version(
+    tmp_path: Path,
+) -> None:
+    import modules.solubility.soluprot as adapter
+
+    executable = tmp_path / "usearch"
+    executable.write_text(
+        "#!/bin/sh\nprintf '%s\\n' 'usearch v12.1, changed'\n",
+        encoding="ascii",
+    )
+    executable.chmod(0o755)
+
+    with pytest.raises(
+        adapter.SolubilityReadinessUnavailable,
+        match="version changed",
+    ):
+        adapter._validate_usearch_runtime(executable)
+
+
 def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

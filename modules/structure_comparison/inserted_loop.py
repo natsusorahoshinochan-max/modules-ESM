@@ -27,8 +27,8 @@ from datatypes.observation import (
 )
 from datatypes.structure import ResolvedStructureResidueAxis
 from .contracts import (
+    ESMFOLD2_FOLD_METHOD_REFERENCES,
     INSERTED_LOOP_EVALUATION_METHOD_REFERENCE,
-    REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE,
     RMSD_FROM_EVIDENCE_METHOD_REFERENCE,
     TM_SCORE_FROM_EVIDENCE_METHOD_REFERENCE,
 )
@@ -180,7 +180,7 @@ def _per_residue_confidence(
         for observation in collection.entries
         if observation.metric.contract_id == "structure.plddt.per_residue"
         and observation.metric.contract_version == "3.0.0"
-        and observation.method == REMOTE_ESMFOLD2_FOLD_METHOD_REFERENCE
+        and observation.method in ESMFOLD2_FOLD_METHOD_REFERENCES
         and type(observation.context) is IntrinsicObservationContext
         and observation.source_partition == "prediction_confidence"
     )
