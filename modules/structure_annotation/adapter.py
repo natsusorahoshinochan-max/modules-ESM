@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from io import StringIO
 import os
 from pathlib import Path
-import subprocess
 from typing import Any, cast
 
 from Bio.PDB.MMCIF2Dict import MMCIF2Dict
@@ -23,6 +22,7 @@ from .domain import DSSPAnnotation
 
 
 MKDSSP_BINARY = "mkdssp"
+MKDSSP_PROCESS_TIMEOUT_SECONDS: float = 120.0
 _DSSP_SECONDARY = frozenset("GHITEBSP")
 
 
@@ -231,6 +231,16 @@ class MkdsspAdapter:
     ) -> DSSPAnnotation:
         """Run mkdssp and return only its admitted canonical annotation."""
         binary = self._environment["dssp_binary"]
+        with self._resources.local_provider("mkdssp"):
+            return self._annotate(residue_axis, subject=subject, binary=binary)
+
+    def _annotate(
+        self,
+        residue_axis: ResolvedStructureResidueAxis,
+        *,
+        subject: CandidateDataReference,
+        binary: Any,
+    ) -> DSSPAnnotation:
         with self._resources.temporary_directory(
             prefix="structure-annotation-dssp-"
         ) as workspace:
@@ -241,14 +251,15 @@ class MkdsspAdapter:
             )
             with self._resources.engine_invocation():
                 try:
-                    result = subprocess.run(
-                        [
-                            binary,
+                    result = self._resources.run_managed_local_process(
+                        command=[
+                            str(binary),
                             "--calculate-accessibility",
                             str(input_path),
                         ],
+                        cwd=workspace,
+                        timeout_seconds=MKDSSP_PROCESS_TIMEOUT_SECONDS,
                         capture_output=True,
-                        check=False,
                     )
                 except OSError as error:
                     raise RuntimeError(

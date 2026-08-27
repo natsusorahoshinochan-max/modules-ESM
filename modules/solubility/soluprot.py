@@ -25,6 +25,7 @@ from .domain import SequenceSolubilitySubject
 
 
 SoluProtMode = Literal["full", "no_tm"]
+SOLUPROT_PROCESS_TIMEOUT_SECONDS: float = 300.0
 SOLUPROT_TMHMM_RELATIVE_ROOT = Path("soluprot_assets/tmhmm-2.0d")
 SOLUPROT_TMHMM_FILES = (
     "bin/tmhmm",
@@ -279,6 +280,7 @@ class LocalSoluProtAdapter:
                         if resolved.perl_executable is not None
                         else ()
                     ),
+                    timeout_seconds=SOLUPROT_PROCESS_TIMEOUT_SECONDS,
                 )
                 if return_code != 0:
                     raise SoluProtProviderNonzeroExit(

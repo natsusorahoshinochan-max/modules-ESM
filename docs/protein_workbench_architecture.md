@@ -314,10 +314,12 @@ per-invocation work directory，仅承载 Provider 所需的工作文件和输�
 不下载、不联网、不检查 Git state，也不选择 alternate checkpoint 或 fallback。
 
 Readiness failure 阻止 Operation Attempt 与 Engine Invocation。Readiness 成功后，direct
-binding 信任已接纳的配置 roots，不建立另一层验证 seam。Provider-module import、model load
-与 execution 在实际调用 seam 记录。Adapter 继续拥有不同的 loading、namespace、
-deserialization、provider-native translation 与 canonical output translation；closure module
-不处理 Candidate、Prediction Key、Axis、Confidence Fact、Metric 或 publication。详见 ADR-0045。
+binding 信任已接纳的配置 roots，不建立另一层验证 seam。Provider-module import 与 model
+load 属于 Operation Attempt 内、对应 Engine Invocation 前的 Provider activation；scientific
+execution 与 documented Provider outcome classification 发生在该 Engine Invocation 内。
+Adapter 继续拥有不同的 loading、namespace、deserialization、provider-native translation
+与 canonical output translation；closure module 不处理 Candidate、Prediction Key、Axis、
+Confidence Fact、Metric 或 publication。详见 ADR-0045。
 
 ## 7. Scientific values 与信任模型
 

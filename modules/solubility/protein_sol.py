@@ -26,6 +26,7 @@ from .domain import SequenceSolubilitySubject
 
 PROTEIN_SOL_RELEASE = "2017-10"
 PROTEIN_SOL_POPULATION_SCALED = 0.446
+PROTEIN_SOL_PROCESS_TIMEOUT_SECONDS: float = 300.0
 PROTEIN_SOL_CALIBRATION_CONTEXT = {
     "kind": "calibration",
     "calibration_metric": "population_scaled_solubility",
@@ -209,6 +210,7 @@ class LocalProteinSolAdapter:
                     staging_directory=staging_directory,
                     resources=self.resources,
                     path_entries=(resolved.perl_executable.parent,),
+                    timeout_seconds=PROTEIN_SOL_PROCESS_TIMEOUT_SECONDS,
                 )
                 if return_code != 0:
                     raise ProteinSolProviderNonzeroExit(

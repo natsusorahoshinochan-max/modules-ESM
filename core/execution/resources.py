@@ -2,23 +2,68 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 import os
+from pathlib import Path
 import signal
+import subprocess
 import sys
 import threading
 import time
-from typing import Any, ContextManager, Protocol
+from typing import Any, ContextManager, Protocol, cast
 
-from core.operation import EngineInvocationProvenance
+from core.operation import EngineInvocationProvenance, ManagedProcessResult
 from core.execution.run_context import RunContext
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 
 
 CANCELLATION_TERM_GRACE_SECONDS = 0.25
 CANCELLATION_KILL_GRACE_SECONDS = 0.25
+
+
+class ManagedProcessTimeout(RuntimeError):
+    """One core-managed local Provider process exceeded its closed budget."""
+
+
+def _process_group_active(process_group: int) -> bool:
+    """Report whether any member of one isolated process group is alive."""
+    if process_group <= 1 or process_group == os.getpgrp():
+        return True
+    try:
+        os.killpg(process_group, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+    return True
+
+
+def _conclude_process_group(
+    process_group: int,
+    *,
+    fallback: Callable[[], None] | None,
+    term_grace_seconds: float = CANCELLATION_TERM_GRACE_SECONDS,
+    kill_grace_seconds: float = CANCELLATION_KILL_GRACE_SECONDS,
+) -> None:
+    """Bounded SIGTERM then SIGKILL escalation of one whole process group."""
+    for process_signal, grace_seconds in (
+        (signal.SIGTERM, term_grace_seconds),
+        (signal.SIGKILL, kill_grace_seconds),
+    ):
+        if not _process_group_active(process_group):
+            return
+        _signal_process_group(
+            process_group,
+            process_signal,
+            fallback=fallback,
+        )
+        deadline = time.monotonic() + grace_seconds
+        while _process_group_active(process_group):
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.01)
 
 
 class _InvocationRecorder(Protocol):
@@ -118,20 +163,34 @@ class CancellationControl:
 
     def unregister_process_group(self, registration: int) -> None:
         with self._condition:
-            self._process_groups.pop(registration, None)
+            entry = self._process_groups.pop(registration, None)
+        if entry is None:
+            return
+        process_group, fallback = entry
+        # The host's own process group is not an owned Provider descendant and
+        # is never concluded by unregister; only isolated Provider groups are.
+        if process_group <= 1 or process_group == os.getpgrp():
+            with self._condition:
+                self._condition.notify_all()
+            return
+        if not _process_group_active(process_group):
+            with self._condition:
+                self._condition.notify_all()
+            return
+        # Leader exit alone must not close ownership while descendants remain.
+        _conclude_process_group(process_group, fallback=fallback)
+        if _process_group_active(process_group):
+            with self._condition:
+                if self._cleanup_error is None:
+                    self._cleanup_error = RuntimeError(
+                        "Run process-group cleanup could not be confirmed"
+                    )
+        with self._condition:
             self._condition.notify_all()
 
     @staticmethod
     def _process_group_active(process_group: int) -> bool:
-        if process_group <= 1 or process_group == os.getpgrp():
-            return True
-        try:
-            os.killpg(process_group, 0)
-        except ProcessLookupError:
-            return False
-        except (PermissionError, OSError):
-            return True
-        return True
+        return _process_group_active(process_group)
 
     def _active_groups(
         self,
@@ -303,6 +362,80 @@ class RunResources:
             yield
         finally:
             self._cancellation_control.unregister_process_group(registration)
+
+    def run_managed_local_process(
+        self,
+        *,
+        command: Sequence[str],
+        cwd: Path,
+        timeout_seconds: float,
+        path_entries: Sequence[Path] = (),
+        capture_output: bool = False,
+    ) -> ManagedProcessResult:
+        """Own one isolated local Provider process through bounded termination.
+
+        Adapters pass their own fixed positive finite timeout constant; this
+        owner owns the process-group lifecycle, bounded escalation, and the
+        wait for the whole group to disappear before unregistering it.
+        """
+        stdout_target = (
+            subprocess.PIPE if capture_output else subprocess.DEVNULL
+        )
+        stderr_target = (
+            subprocess.PIPE if capture_output else subprocess.DEVNULL
+        )
+        env = {
+            "HOME": str(cwd),
+            "LANG": "C",
+            "LC_ALL": "C",
+            "PATH": os.pathsep.join(
+                (*map(str, path_entries), os.defpath)
+            ),
+        }
+        process = subprocess.Popen(
+            list(command),
+            cwd=str(cwd),
+            stdin=subprocess.DEVNULL,
+            stdout=stdout_target,
+            stderr=stderr_target,
+            env=env,
+            start_new_session=True,
+        )
+        process_group = process.pid
+
+        def _safe_kill() -> None:
+            try:
+                process.kill()
+            except (ProcessLookupError, OSError):
+                pass
+
+        with self.cancellable_process_group(
+            process_group,
+            fallback=_safe_kill,
+        ):
+            try:
+                stdout_data, stderr_data = process.communicate(
+                    timeout=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired:
+                # Conclude the whole group and reap the leader before the
+                # registration context exits, so unregister observes no live
+                # or zombie member of the owned group.
+                _conclude_process_group(process_group, fallback=_safe_kill)
+                try:
+                    process.wait(
+                        timeout=CANCELLATION_KILL_GRACE_SECONDS + 0.5,
+                    )
+                except subprocess.TimeoutExpired:
+                    pass
+                raise ManagedProcessTimeout(
+                    "Local provider invocation timed out safely"
+                )
+        return ManagedProcessResult(
+            returncode=cast(int, process.returncode),
+            stdout=stdout_data or b"",
+            stderr=stderr_data or b"",
+        )
 
     @contextmanager
     def engine_invocation(
