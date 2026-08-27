@@ -33,9 +33,9 @@ from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 
 def _prepare_protein_sol_fixture(
     **kwargs: Any,
-) -> tuple[tuple[str, ...], Path]:
-    staging_directory = kwargs["staging_directory"]
-    (staging_directory / "input.fasta").write_text(
+) -> tuple[tuple[str, ...], Path, Path]:
+    invocation_directory = kwargs["invocation_directory"]
+    (invocation_directory / "input.fasta").write_text(
         "".join(
             f">candidate_{index}\n{sequence}\n"
             for index, sequence in enumerate(kwargs["sequences"])
@@ -43,7 +43,8 @@ def _prepare_protein_sol_fixture(
     )
     return (
         ("fixture-protein-sol",),
-        staging_directory / "seq_prediction.txt",
+        invocation_directory / "seq_prediction.txt",
+        invocation_directory,
     )
 
 
@@ -105,13 +106,15 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
     def run_process(**kwargs: Any) -> int:
         assert kwargs["command"] == (
             str(bash_executable),
-            "multiple_prediction_wrapper_export.sh",
-            "input.fasta",
+            str(source_root / "multiple_prediction_wrapper_export.sh"),
+            str(staging_directory / "input.fasta"),
         )
-        assert (
+        # No Provider source is copied into the invocation directory.
+        assert not (
             staging_directory / "multiple_prediction_wrapper_export.sh"
-        ).read_bytes() == b"multiple_prediction_wrapper_export.sh"
+        ).exists()
         assert kwargs["path_entries"] == (tmp_path,)
+        assert kwargs["staging_directory"] == source_root
         events.append("provider-invoked")
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(

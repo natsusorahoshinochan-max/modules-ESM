@@ -119,16 +119,15 @@ def test_local_protein_sol_golden_multiple_metrics(
     original_run_process = adapter._run_local_process
 
     def record_and_delegate(**kwargs: Any) -> int:
-        staging_directory = kwargs["staging_directory"]
         record = {
             "command": tuple(kwargs["command"]),
-            "input_fasta": (
-                staging_directory / "input.fasta"
-            ).read_text(encoding="ascii"),
+            "input_fasta": Path(kwargs["command"][2]).read_text(
+                encoding="ascii"
+            ),
         }
         return_code = original_run_process(**kwargs)
         record["raw_output"] = (
-            staging_directory / "seq_prediction.txt"
+            kwargs["staging_directory"] / "seq_prediction.txt"
         ).read_bytes()
         recorded.append(record)
         return return_code
@@ -234,11 +233,11 @@ def test_local_protein_sol_golden_multiple_metrics(
     ]
     assert len(candidate_ids) == len(SEQUENCES) == len(EXPECTED) == 2
     assert len(recorded) == 1
-    assert recorded[0]["command"] == (
-        str(_environment()["bash_executable"]),
-        "multiple_prediction_wrapper_export.sh",
-        "input.fasta",
+    assert recorded[0]["command"][0] == str(_environment()["bash_executable"])
+    assert recorded[0]["command"][1] == str(
+        _environment()["source_root"] / "multiple_prediction_wrapper_export.sh"
     )
+    assert Path(recorded[0]["command"][2]).name == "input.fasta"
     assert recorded[0]["input_fasta"] == "".join(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)

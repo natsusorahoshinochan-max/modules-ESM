@@ -9,7 +9,6 @@ from __future__ import annotations
 import gc
 import importlib
 import os
-import shutil
 import sys
 import threading
 from argparse import Namespace
@@ -92,11 +91,6 @@ def _bind_simplefold_esm2_source(
         source_root,
         model_dir / "esm2_t36_3B_UR50D.pt",
     )
-
-
-def _prepare_simplefold_cache(model_dir: Path, cache: Path) -> None:
-    """Populate a fresh cache from verified objects; never invoke a downloader."""
-    shutil.copyfile(model_dir / "ccd.pkl", cache / "ccd.pkl")
 
 
 def _load_reviewed_torch_module(
@@ -223,13 +217,11 @@ def fold_sequence(
     fasta_path = cache / "input.fasta"
     fasta_path.write_text(f">A|Protein\n{sequence.sequence}\n")
 
-    _prepare_simplefold_cache(model_dir, cache)
-
-    # Process FASTA
+    # Process FASTA against the admitted CCD asset by exact path (no copy).
     process_fastas(
         data=[fasta_path],
         out_dir=output_dir,
-        ccd_path=cache / "ccd.pkl",
+        ccd_path=model_dir / "ccd.pkl",
     )
 
     torch_device = torch.device(device)

@@ -449,7 +449,7 @@ def test_local_esmfold2_v2_invokes_configured_models(
         model_snapshot.resolve()
     )
     assert provider_call["input_type"] == (
-        "esm.models.esmfold2."
+        "esm.utils.structure.input_builder."
         "StructurePredictionInput"
     )
     assert provider_call["sequences"] == (("A", "AG"),)

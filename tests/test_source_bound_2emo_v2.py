@@ -598,7 +598,12 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
 
     def prepare_protein_sol(**kwargs: Any):
         prepared_sequences[:] = kwargs["sequences"]
-        return (("provider-free-protein-sol",), kwargs["staging_directory"] / "seq_prediction.txt")
+        invocation_directory = kwargs["invocation_directory"]
+        return (
+            ("provider-free-protein-sol",),
+            invocation_directory / "seq_prediction.txt",
+            invocation_directory,
+        )
 
     def run_protein_sol(**kwargs: Any) -> int:
         rows = [

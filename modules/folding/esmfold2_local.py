@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 import importlib.util
+import os
 from pathlib import Path
 from typing import Any, cast, Protocol, TYPE_CHECKING
 
@@ -239,24 +241,54 @@ def load_local_engine(runtime: LocalESMFold2Runtime) -> _LocalEngine:
     )
     from transformers.models.esmfold2.modeling_esmfold2 import ESMFold2Model
 
-    configuration = ESMFold2Config.from_pretrained(
-        runtime.model_snapshot_path,
-        local_files_only=True,
-    )
-    configuration.esmc_id = str(runtime.language_model_snapshot_path)
-    model = ESMFold2Model.from_pretrained(
-        runtime.model_snapshot_path,
-        config=configuration,
-        local_files_only=True,
-        esmc_precision=LOCAL_ESMC_PRECISION,
-    ).to(runtime.device).eval()
-    builder = ESMFold2InputBuilder(ccd_cache=runtime.model_snapshot_path)
+    with _admitted_ccd_root(runtime.model_snapshot_path):
+        configuration = ESMFold2Config.from_pretrained(
+            runtime.model_snapshot_path,
+            local_files_only=True,
+        )
+        configuration.esmc_id = str(runtime.language_model_snapshot_path)
+        model = ESMFold2Model.from_pretrained(
+            runtime.model_snapshot_path,
+            config=configuration,
+            local_files_only=True,
+            esmc_precision=LOCAL_ESMC_PRECISION,
+        ).to(runtime.device).eval()
+        builder = ESMFold2InputBuilder(ccd_cache=runtime.model_snapshot_path)
     return _LocalEngine(
         model=model,
         builder=builder,
         protein_input_type=ProteinInput,
         structure_prediction_input_type=StructurePredictionInput,
     )
+
+
+@contextmanager
+def _admitted_ccd_root(model_snapshot_path: Path) -> Iterator[None]:
+    """Bind the ESMFold2 SDK CCD loader to the admitted model root only.
+
+    The pinned SDK's ``load_ccd`` honors an ``ESMCFOLD_CCD_PATH`` override
+    (captured at import time as ``CCD_PICKLE_PATH``) and a download fallback
+    before the admitted ``cache_dir``. To make the admitted model root the only
+    CCD source, pre-populate the SDK's process CCD cache from that root with the
+    import-time capture and the ambient override neutralized; every later
+    internal call (including the one inside ``ESMFold2InputBuilder``)
+    short-circuits on that cache and never reads another root. The capture and
+    override are restored before engine construction proceeds.
+    """
+    import esm.models.esmfold2.conformers as conformers
+
+    ccd_path = model_snapshot_path / "ccd.pkl"
+    if conformers._CCD_MOLECULES is None and ccd_path.is_file():
+        saved_pickle_path = conformers.CCD_PICKLE_PATH
+        saved_override = os.environ.pop("ESMCFOLD_CCD_PATH", None)
+        conformers.CCD_PICKLE_PATH = None
+        try:
+            conformers.load_ccd(cache_dir=model_snapshot_path)
+        finally:
+            conformers.CCD_PICKLE_PATH = saved_pickle_path
+            if saved_override is not None:
+                os.environ["ESMCFOLD_CCD_PATH"] = saved_override
+    yield
 
 
 class LocalESMFold2Adapter:

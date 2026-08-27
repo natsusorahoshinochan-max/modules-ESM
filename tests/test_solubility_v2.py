@@ -55,9 +55,9 @@ def _prepare_soluprot_fixture(**kwargs: Any) -> tuple[tuple[str, ...], Path]:
 
 def _prepare_protein_sol_fixture(
     **kwargs: Any,
-) -> tuple[tuple[str, ...], Path]:
-    staging_directory = kwargs["staging_directory"]
-    (staging_directory / "input.fasta").write_text(
+) -> tuple[tuple[str, ...], Path, Path]:
+    invocation_directory = kwargs["invocation_directory"]
+    (invocation_directory / "input.fasta").write_text(
         "".join(
             f">candidate_{index}\n{sequence}\n"
             for index, sequence in enumerate(kwargs["sequences"])
@@ -65,7 +65,8 @@ def _prepare_protein_sol_fixture(
     )
     return (
         ("fixture-protein-sol",),
-        staging_directory / "seq_prediction.txt",
+        invocation_directory / "seq_prediction.txt",
+        invocation_directory,
     )
 
 

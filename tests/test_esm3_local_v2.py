@@ -161,6 +161,7 @@ def test_local_runtime_resolves_configured_model_and_runtime_paths(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import esm.utils.constants.esm3 as esm3_constants
     import modules.esm3.local_adapter as local_adapter
 
     snapshot = tmp_path / "snapshot"
@@ -169,6 +170,9 @@ def test_local_runtime_resolves_configured_model_and_runtime_paths(
     artifact.parent.mkdir(parents=True)
     runtime_directory.mkdir()
     artifact.write_bytes(b"locked fixture")
+    lsh_artifact = snapshot / esm3_constants.LSH_TABLE_PATHS["8bit"]
+    lsh_artifact.parent.mkdir(parents=True, exist_ok=True)
+    lsh_artifact.write_bytes(b"lsh fixture")
     monkeypatch.setattr(
         local_adapter,
         "LOCAL_ESM3_WEIGHT_FILES",
@@ -184,82 +188,6 @@ def test_local_runtime_resolves_configured_model_and_runtime_paths(
 
     artifact.write_bytes(b"replaced fixture")
     assert local_adapter.resolve_local_runtime(environment).snapshot_path == snapshot
-
-
-def test_huggingface_blob_links_are_staged(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import modules.esm3.local_adapter as local_adapter
-
-    repository = tmp_path / "models--biohub--esm3-sm-open-v1"
-    snapshot = repository / "snapshots" / "configured"
-    runtime_directory = tmp_path / "runtime"
-    weights = snapshot / "data" / "weights"
-    blobs = repository / "blobs"
-    weights.mkdir(parents=True)
-    blobs.mkdir()
-    runtime_directory.mkdir()
-    payload = b"locked huggingface blob"
-    digest = hashlib.sha256(payload).hexdigest()
-    blob = blobs / digest
-    blob.write_bytes(payload)
-    linked = weights / "fixture.pth"
-    linked.symlink_to(Path("../../../../blobs") / digest)
-    monkeypatch.setattr(
-        local_adapter,
-        "LOCAL_ESM3_WEIGHT_FILES",
-        ("data/weights/fixture.pth",),
-    )
-    runtime = local_adapter.resolve_local_runtime(
-        {
-            "model_snapshot_path": snapshot,
-            "runtime_directory": runtime_directory,
-        }
-    )
-
-    staged = local_adapter.stage_local_runtime(runtime)
-    staged_artifact = staged / "data" / "weights" / "fixture.pth"
-    assert staged_artifact.is_file()
-    assert not staged_artifact.is_symlink()
-    assert staged_artifact.read_bytes() == payload
-
-
-def test_staging_failure_retains_staged_root_cleanup_type(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from core.operation import secondary_cleanup_exception_types
-    import modules.esm3.local_adapter as local_adapter
-
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
-    source = tmp_path / "fixture.pth"
-    source.write_bytes(b"fixture")
-    runtime = local_adapter.LocalESM3Runtime(
-        snapshot_path=tmp_path,
-        runtime_directory=runtime_directory,
-        device=expected_local_torch_device(),
-    )
-    monkeypatch.setattr(
-        local_adapter,
-        "LOCAL_ESM3_WEIGHT_FILES",
-        ("fixture.pth",),
-    )
-
-    def fail_copy(_source: Path, _destination: Path) -> None:
-        raise RuntimeError("private staging failure")
-
-    def fail_delete(_root: Path) -> None:
-        raise OSError("private staged-root cleanup failure")
-
-    monkeypatch.setattr(local_adapter.shutil, "copyfile", fail_copy)
-    monkeypatch.setattr(local_adapter.shutil, "rmtree", fail_delete)
-
-    with pytest.raises(RuntimeError, match="private staging failure") as caught:
-        local_adapter.stage_local_runtime(runtime)
-
-    assert secondary_cleanup_exception_types(caught.value) == ("OSError",)
 
 
 def test_local_client_uses_configured_snapshot_until_explicit_release(
@@ -336,8 +264,6 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
         model_name=local_adapter.LOCAL_ESM3_MODEL,
     )
     assert received_devices == [runtime.device]
-    staged_root = client._protein_workbench_staged_root
-    assert staged_root.is_dir()
     assert esm3_constants.data_root is original_data_root
     assert client.tokenizers.function.lsh_path == (
         runtime.snapshot_path / "data/hyperplanes_8bit_58641.npz"
@@ -346,8 +272,6 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
     assert esm3_constants.data_root is original_data_root
 
     local_adapter.release_local_esm3_client(client)
-
-    assert not staged_root.exists()
     assert esm3_constants.data_root is original_data_root
 
 

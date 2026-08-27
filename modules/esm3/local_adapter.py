@@ -7,12 +7,9 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import importlib.util
 from pathlib import Path
-import shutil
-import tempfile
 from threading import RLock
 from types import FunctionType
 from typing import Any, cast
-import weakref
 
 from core.operation import (
     OperationResources,
@@ -37,6 +34,12 @@ LOCAL_ESM3_WEIGHT_FILES = (
     "data/weights/esm3_structure_encoder_v0.pth",
     "data/weights/esm3_structure_decoder_v0.pth",
     "data/weights/esm3_function_decoder_v0.pth",
+)
+LOCAL_ESM3_FUNCTION_TOKENIZATION_PACKAGE_ASSETS = (
+    "KEYWORDS_VOCABULARY",
+    "KEYWORDS_IDF",
+    "INTERPRO2KEYWORDS",
+    "INTERPRO_ENTRY",
 )
 _LOCAL_ESM3_SDK_ROOT_LOCK = RLock()
 
@@ -101,10 +104,24 @@ def resolve_local_runtime(
     snapshot_path = _configured_path(environment, "model_snapshot_path")
     runtime_directory = _configured_path(environment, "runtime_directory")
     device = _validate_device()
-    if any(
-        not (snapshot_path / relative_path).is_file()
+    import esm.utils.constants.esm3 as esm3_constants
+
+    required_files: list[Path] = [
+        snapshot_path / relative_path
         for relative_path in LOCAL_ESM3_WEIGHT_FILES
-    ):
+    ]
+    # The function-tokenization LSH hyperplanes live in the admitted snapshot.
+    required_files.append(
+        snapshot_path / esm3_constants.LSH_TABLE_PATHS["8bit"],
+    )
+    # The function-tokenization vocab/IDF/InterPro tables are fixed package
+    # data of the pinned SDK install; a missing table must fail Readiness,
+    # not the Provider seam.
+    required_files.extend(
+        cast(Path, getattr(esm3_constants, name))
+        for name in LOCAL_ESM3_FUNCTION_TOKENIZATION_PACKAGE_ASSETS
+    )
+    if any(not path.is_file() for path in required_files):
         raise LocalESM3RuntimeUnavailable(
             "local ESM-3 model files are unavailable"
         )
@@ -140,41 +157,13 @@ def local_readiness(environment: Mapping[str, Any]) -> ReadinessResult:
     return ReadinessResult(True, proof_source="direct-observation")
 
 
-def stage_local_runtime(runtime: LocalESM3Runtime) -> Path:
-    """Stage the configured model files for the SDK loader."""
-    staged_root = Path(
-        tempfile.mkdtemp(
-            prefix="esm3-sm-open-v1-",
-            dir=runtime.runtime_directory,
-        )
-    )
-    staged_root.chmod(0o700)
-    try:
-        for relative_path in LOCAL_ESM3_WEIGHT_FILES:
-            source = runtime.snapshot_path / relative_path
-            destination = staged_root / relative_path
-            destination.parent.mkdir(
-                mode=0o700,
-                parents=True,
-                exist_ok=True,
-            )
-            shutil.copyfile(source, destination)
-        return staged_root
-    except BaseException as error:
-        try:
-            shutil.rmtree(staged_root)
-        except BaseException as cleanup_error:
-            retain_secondary_cleanup_exception(error, cleanup_error)
-        raise
-
-
-def _bind_builder_to_staged_root(
+def _bind_builder_to_root(
     builder: FunctionType,
-    staged_root: Path,
+    root: Path,
 ) -> FunctionType:
     """Clone an SDK builder with a private data-root binding."""
     builder_globals = dict(builder.__globals__)
-    builder_globals["data_root"] = lambda model: staged_root
+    builder_globals["data_root"] = lambda model: root
     bound = FunctionType(
         builder.__code__,
         builder_globals,
@@ -210,16 +199,15 @@ def _sdk_snapshot_root(snapshot_path: Path) -> Iterator[None]:
 
 def _bind_builder_to_local_roots(
     builder: FunctionType,
-    staged_root: Path,
     snapshot_path: Path,
     default_device: Any,
 ) -> Callable[[Any], Any]:
-    """Bind one SDK builder to staged weights and snapshot data."""
-    staged_builder = _bind_builder_to_staged_root(builder, staged_root)
+    """Bind one SDK builder directly to the admitted snapshot data root."""
+    bound_builder = _bind_builder_to_root(builder, snapshot_path)
 
     def load(device: Any = None) -> Any:
         with _sdk_snapshot_root(snapshot_path):
-            return staged_builder(
+            return bound_builder(
                 default_device if device is None else device
             )
 
@@ -236,54 +224,44 @@ def load_local_esm3_client(
     import esm.pretrained as esm_pretrained
     import esm.utils.constants.esm3 as esm3_constants
 
-    staged_root = stage_local_runtime(runtime)
-    try:
-        builders = esm_pretrained.LOCAL_MODEL_REGISTRY
-        required_builders: dict[str, FunctionType] = {
-            name: cast(FunctionType, builders[name])
-            for name in (
-                model_name,
-                "esm3_structure_encoder_v0",
-                "esm3_structure_decoder_v0",
-                "esm3_function_decoder_v0",
-            )
-        }
-        bound = {
-            name: _bind_builder_to_local_roots(
-                builder,
-                staged_root,
-                runtime.snapshot_path,
-                torch.device(runtime.device),
-            )
-            for name, builder in required_builders.items()
-        }
-        client = bound[model_name](torch.device(runtime.device))
-        client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
-        client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
-        client.function_decoder_fn = bound["esm3_function_decoder_v0"]
-        client.tokenizers.function.lsh_path = (
-            runtime.snapshot_path / esm3_constants.LSH_TABLE_PATHS["8bit"]
+    builders = esm_pretrained.LOCAL_MODEL_REGISTRY
+    required_builders: dict[str, FunctionType] = {
+        name: cast(FunctionType, builders[name])
+        for name in (
+            model_name,
+            "esm3_structure_encoder_v0",
+            "esm3_structure_decoder_v0",
+            "esm3_function_decoder_v0",
         )
-        client = client.float()
-        client._protein_workbench_staged_root = staged_root
-        client._protein_workbench_staged_cleanup = weakref.finalize(
-            client,
-            shutil.rmtree,
-            staged_root,
+    }
+    bound = {
+        name: _bind_builder_to_local_roots(
+            builder,
+            runtime.snapshot_path,
+            torch.device(runtime.device),
         )
-        return client
-    except BaseException as error:
-        try:
-            shutil.rmtree(staged_root)
-        except BaseException as cleanup_error:
-            retain_secondary_cleanup_exception(error, cleanup_error)
-        raise
+        for name, builder in required_builders.items()
+    }
+    client = bound[model_name](torch.device(runtime.device))
+    client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
+    client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
+    client.function_decoder_fn = bound["esm3_function_decoder_v0"]
+    client.tokenizers.function.lsh_path = (
+        runtime.snapshot_path / esm3_constants.LSH_TABLE_PATHS["8bit"]
+    )
+    client = client.float()
+    return client
 
 
 def release_local_esm3_client(client: Any) -> None:
-    """Release private staged weights owned by an internally loaded client."""
-    shutil.rmtree(client._protein_workbench_staged_root)
-    client._protein_workbench_staged_cleanup.detach()
+    """Release an internally loaded local ESM-3 client.
+
+    Direct binding loads weights from the admitted snapshot root, so no
+    per-invocation asset root is owned by the client. Resident model memory is
+    released by the local_provider lifecycle on Provider switch; this hook
+    exists only as the adapter's deterministic exit seam.
+    """
+    del client
 
 
 def call_local_provider(

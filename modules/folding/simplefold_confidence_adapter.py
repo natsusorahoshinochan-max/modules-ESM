@@ -8,7 +8,6 @@ import importlib.util
 import json
 import os
 import pickle
-import shutil
 import sys
 from argparse import Namespace
 from collections.abc import Mapping
@@ -258,7 +257,6 @@ def _native_existing_structure_confidence(
             output_dir = staging_directory / "confidence-features"
             cache.mkdir(mode=0o700)
             output_dir.mkdir(mode=0o700)
-            shutil.copyfile(model_dir / "ccd.pkl", cache / "ccd.pkl")
             fasta_path = cache / "existing.fasta"
             fasta_path.write_text(
                 "".join(
@@ -271,7 +269,7 @@ def _native_existing_structure_confidence(
                     )
                 )
             )
-            with (cache / "ccd.pkl").open("rb") as handle:
+            with (model_dir / "ccd.pkl").open("rb") as handle:
                 ccd = pickle.load(handle)
             target = parse_fasta(fasta_path, ccd)
             for chain in target.record.chains:

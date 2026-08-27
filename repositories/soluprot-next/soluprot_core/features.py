@@ -192,19 +192,15 @@ class Predictor:
             str(self.usearch_threads),
             "-top_hits_only",
         ]
-        for command in ("-search_global", "-usearch_global"):
-            try:
-                sb.run(
-                    [self.usearch, command] + usearch_arguments,
-                    check=True,
-                    stdout=sb.DEVNULL,
-                    stderr=sb.DEVNULL,
-                )
-                break
-            except sb.CalledProcessError:
-                continue
-        else:
-            raise UsearchExcecutionFailed()
+        try:
+            sb.run(
+                [self.usearch, "-usearch_global"] + usearch_arguments,
+                check=True,
+                stdout=sb.DEVNULL,
+                stderr=sb.DEVNULL,
+            )
+        except sb.CalledProcessError as error:
+            raise UsearchExcecutionFailed() from error
         if not os.path.exists(b6_path):
             raise UsearchExcecutionFailed()
         identity = process_blast6(b6_path, "sid", "identity")
