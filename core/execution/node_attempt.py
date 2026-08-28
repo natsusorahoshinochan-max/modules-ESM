@@ -412,9 +412,18 @@ class _NodeAttempt:
     ) -> AttemptOutcome:
         if self._ledger.cancellation_requested:
             state.cancellation.wait_for_cleanup()
+        cancellation_cleanup_error = state.cancellation.cleanup_error
+        if (
+            cancellation_cleanup_error is not None
+            and cancellation_cleanup_error is not error
+        ):
+            retain_secondary_cleanup_exception(
+                error,
+                cancellation_cleanup_error,
+            )
         terminal_status = (
             "failed"
-            if state.cancellation.cleanup_error is not None
+            if cancellation_cleanup_error is not None
             else "cancelled"
             if self._ledger.cancellation_requested
             else error.status
@@ -455,12 +464,6 @@ class _NodeAttempt:
                     error,
                     cleanup_error,
                 )
-        cancellation_cleanup_error = state.cancellation.cleanup_error
-        if cancellation_cleanup_error is not None:
-            retain_secondary_cleanup_exception(
-                error,
-                cancellation_cleanup_error,
-            )
         return self._commit_execution_error(
             state,
             error,
@@ -534,15 +537,14 @@ class _NodeAttempt:
                     )
                 else:
                     body_error = cleanup_error
+            if self._ledger.cancellation_requested:
+                state.cancellation.wait_for_cleanup()
             cancellation_cleanup_error = state.cancellation.cleanup_error
-            if cancellation_cleanup_error is not None:
-                if body_error is not None:
-                    retain_secondary_cleanup_exception(
-                        body_error,
-                        cancellation_cleanup_error,
-                    )
-                else:
-                    body_error = cancellation_cleanup_error
+            if (
+                cancellation_cleanup_error is not None
+                and body_error is None
+            ):
+                body_error = cancellation_cleanup_error
         if body_error is not None:
             return self._commit_execution_error(
                 state,

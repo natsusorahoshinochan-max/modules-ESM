@@ -57,6 +57,14 @@ def secondary_cleanup_exception_types(
     return getattr(error, _CLEANUP_EXCEPTION_TYPES_ATTRIBUTE, ())
 
 
+class ExecutionTermination(RuntimeError):
+    """A bounded terminal conclusion reported by a started engine seam."""
+
+    def __init__(self, status: str) -> None:
+        self.status = status
+        super().__init__("Execution terminated without public diagnostics")
+
+
 @dataclass(frozen=True, slots=True)
 class ManagedProcessResult:
     """Terminal record of one core-managed local Provider process."""

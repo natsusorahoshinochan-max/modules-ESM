@@ -35,11 +35,15 @@ LOCAL_ESM3_WEIGHT_FILES = (
     "data/weights/esm3_structure_decoder_v0.pth",
     "data/weights/esm3_function_decoder_v0.pth",
 )
-LOCAL_ESM3_FUNCTION_TOKENIZATION_PACKAGE_ASSETS = (
-    "KEYWORDS_VOCABULARY",
-    "KEYWORDS_IDF",
-    "INTERPRO2KEYWORDS",
-    "INTERPRO_ENTRY",
+LOCAL_ESM3_LSH_TABLE_PATH = "data/hyperplanes_8bit_58641.npz"
+LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH = (
+    "data/uniref90_and_mgnify90_residue_annotations_gt_1k_proteins.csv"
+)
+LOCAL_ESM3_PACKAGE_ASSET_FILES = (
+    "data/keyword_vocabulary_safety_filtered_58641.txt",
+    "data/keyword_idf_safety_filtered_58641.npy",
+    "data/interpro_29026_to_keywords_58641.csv",
+    "data/entry_list_safety_29026.list",
 )
 _LOCAL_ESM3_SDK_ROOT_LOCK = RLock()
 
@@ -53,7 +57,6 @@ class LocalESM3Runtime:
     """Resolved paths admitted by the local ESM3 Binding."""
 
     snapshot_path: Path
-    runtime_directory: Path
     device: str
 
 
@@ -102,24 +105,24 @@ def resolve_local_runtime(
 ) -> LocalESM3Runtime:
     """Resolve configured paths before entering the local Provider."""
     snapshot_path = _configured_path(environment, "model_snapshot_path")
-    runtime_directory = _configured_path(environment, "runtime_directory")
     device = _validate_device()
-    import esm.utils.constants.esm3 as esm3_constants
-
     required_files: list[Path] = [
         snapshot_path / relative_path
-        for relative_path in LOCAL_ESM3_WEIGHT_FILES
+        for relative_path in (
+            *LOCAL_ESM3_WEIGHT_FILES,
+            LOCAL_ESM3_LSH_TABLE_PATH,
+            LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH,
+        )
     ]
-    # The function-tokenization LSH hyperplanes live in the admitted snapshot.
-    required_files.append(
-        snapshot_path / esm3_constants.LSH_TABLE_PATHS["8bit"],
-    )
-    # The function-tokenization vocab/IDF/InterPro tables are fixed package
-    # data of the pinned SDK install; a missing table must fail Readiness,
-    # not the Provider seam.
+    package_spec = importlib.util.find_spec("esm")
+    if package_spec is None or package_spec.origin is None:
+        raise LocalESM3RuntimeUnavailable(
+            "local ESM-3 runtime is unavailable"
+        )
+    package_root = Path(package_spec.origin).parent
     required_files.extend(
-        cast(Path, getattr(esm3_constants, name))
-        for name in LOCAL_ESM3_FUNCTION_TOKENIZATION_PACKAGE_ASSETS
+        package_root / relative_path
+        for relative_path in LOCAL_ESM3_PACKAGE_ASSET_FILES
     )
     if any(not path.is_file() for path in required_files):
         raise LocalESM3RuntimeUnavailable(
@@ -127,7 +130,6 @@ def resolve_local_runtime(
         )
     return LocalESM3Runtime(
         snapshot_path=snapshot_path,
-        runtime_directory=runtime_directory,
         device=device,
     )
 
@@ -139,7 +141,6 @@ def _trusted_local_runtime(
     snapshot_path = Path(environment["model_snapshot_path"])
     return LocalESM3Runtime(
         snapshot_path=snapshot_path,
-        runtime_directory=Path(environment["runtime_directory"]),
         device=expected_local_torch_device(),
     )
 
@@ -222,7 +223,6 @@ def load_local_esm3_client(
     """Load the configured local model on explicit demand."""
     import torch
     import esm.pretrained as esm_pretrained
-    import esm.utils.constants.esm3 as esm3_constants
 
     builders = esm_pretrained.LOCAL_MODEL_REGISTRY
     required_builders: dict[str, FunctionType] = {
@@ -246,8 +246,11 @@ def load_local_esm3_client(
     client.structure_encoder_fn = bound["esm3_structure_encoder_v0"]
     client.structure_decoder_fn = bound["esm3_structure_decoder_v0"]
     client.function_decoder_fn = bound["esm3_function_decoder_v0"]
+    client.get_structure_encoder()
+    client.get_structure_decoder()
+    client.get_function_decoder()
     client.tokenizers.function.lsh_path = (
-        runtime.snapshot_path / esm3_constants.LSH_TABLE_PATHS["8bit"]
+        runtime.snapshot_path / LOCAL_ESM3_LSH_TABLE_PATH
     )
     client = client.float()
     return client

@@ -135,6 +135,10 @@ class _ControlledProteinMPNN:
         )
         return [{"name": "target", "seq": sequence, "seq_chain_A": sequence}]
 
+    @staticmethod
+    def activate(model_name: str, backbone_noise: float) -> None:
+        del model_name, backbone_noise
+
     def design(self, request: Any) -> list[ProteinSequence]:
         self.requests.append(request)
         _, reference = next(iter(request.reference_sequences.items()))

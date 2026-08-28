@@ -28,10 +28,13 @@ from core.operation import (
 from .protein_sol import (
     PROTEIN_SOL_CALIBRATION_CONTEXT,
     PROTEIN_SOL_RELEASE,
+    PROTEIN_SOL_SOURCE_FILES,
     LocalProteinSolAdapter,
     protein_sol_readiness,
 )
 from .soluprot import (
+    SOLUPROT_PROVIDER_SOURCE_FILES,
+    SOLUPROT_TMHMM_FILES,
     SOLUPROT_TMHMM_RELATIVE_ROOT,
     LocalSoluProtAdapter,
     SoluProtMode,
@@ -91,7 +94,9 @@ def _build_protein_sol(
 
 def _method(mode: SoluProtMode) -> MethodDefinition:
     tm_feature = mode == "full"
-    model_variant = "grad_clf_v1_tc" if tm_feature else "grad_clf_v1_tc_notmhmm"
+    model_variant = (
+        "grad_clf_v1_tc" if tm_feature else "grad_clf_v1_tc_notmhmm"
+    )
     return MethodDefinition(
         method_id=f"solubility.soluprot_{mode}.v1_1_0",
         algorithm_identity={
@@ -133,6 +138,7 @@ def _method(mode: SoluProtMode) -> MethodDefinition:
 def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
     method_id = f"solubility.soluprot_{mode}.v1_1_0"
     tm_feature = mode == "full"
+    model_variant = "grad_clf_v1_tc" if tm_feature else "grad_clf_v1_tc_notmhmm"
     return ExecutionBindingDefinition(
         binding_id=f"solubility.soluprot_{mode}.local",
         node_type=ContractIdentity(
@@ -200,11 +206,22 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                 "python_runtime": {
                     "path_source": "trusted_environment_configuration",
                 },
+                "provider_source": {
+                    "path_source": "trusted_environment_configuration",
+                    "required_relative_files": SOLUPROT_PROVIDER_SOURCE_FILES,
+                },
                 "model": {
                     "path_source": "trusted_environment_configuration",
+                    "required_relative_files": (
+                        f"data/models/{model_variant}/model.json",
+                        f"data/models/{model_variant}/trees.npz",
+                    ),
                 },
                 "reference_database": {
                     "path_source": "trusted_environment_configuration",
+                    "required_relative_files": (
+                        "data/Ecoli_xray_nmr_pdb_no_nesg.fa",
+                    ),
                 },
                 "usearch": {
                     "path_source": "trusted_environment_configuration",
@@ -218,6 +235,7 @@ def _binding(mode: SoluProtMode) -> ExecutionBindingDefinition:
                         "decoder": {
                             "selection": "uname-system-and-machine",
                         },
+                        "required_relative_files": SOLUPROT_TMHMM_FILES,
                         "path_source": "installed_distribution",
                     }
                     if tm_feature
@@ -326,7 +344,6 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
                 "solubility.protein_sol/factory",
                 {
                     "provider_import": "not-applicable",
-                    "source_copy": "after-readiness-attestation",
                 },
             ),
             build=_build_protein_sol,
@@ -364,6 +381,7 @@ def _protein_sol_binding() -> ExecutionBindingDefinition:
             prerequisites={
                 "source_root": {
                     "path_source": "trusted_environment_configuration",
+                    "required_relative_files": PROTEIN_SOL_SOURCE_FILES,
                 },
                 "bash": {
                     "path_source": "trusted_environment_configuration",

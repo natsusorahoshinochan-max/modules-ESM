@@ -61,10 +61,12 @@ In this document, **Provider activation** is only a descriptive phase for
 Provider import, client construction, and resident-model loading. It is not a
 new domain object, Ledger fact, or public event.
 
-Provider activation occurs inside the Operation Attempt and before the Engine
-Invocation that performs scientific work. Activation failure produces a failed
-Operation Attempt with zero Engine Invocations. It does not invent a failed
-Invocation for a scientific engine that was never entered.
+Provider activation occurs inside the Operation Attempt and before the
+corresponding Engine Invocation that performs scientific work. Activation
+failure produces a failed Operation Attempt without inventing an Invocation for
+the scientific engine that was never entered. When the declared Method composes
+several scientific engine calls, any completed preceding Invocations remain
+evidence; only the not-yet-entered engine has no Invocation.
 
 An Engine Invocation is one actual entry into one declared scientific engine
 seam. It contains exactly one physical Adapter- or SDK-owned Provider attempt.
@@ -303,20 +305,25 @@ scientific translation and outcomes. After focused and deterministic gates
 pass, the canonical real-Provider Acceptance Campaign runs once in serial order
 under its admitted Execution Profile.
 
-## Confirmed implementation gaps
+## Implementation status
 
-The confirmed current gaps against this contract are:
+The current implementation addresses these previously confirmed gaps against
+this contract:
 
 - [#77 — admitted Provider assets are copied into runtime work directories, including Protein-Sol source](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/77)
 - [#78 — Local ESMFold2 can read CCD data outside the admitted model root](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/78)
 - [#79 — Local ESM-3 Readiness omits function-tokenization assets](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/79)
+- [#83 — cancellation can unregister a process group while descendants remain alive](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/83)
+- [#84 — Module Packages directly own mkdssp and SoluProt/Protein-Sol process lifecycle](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/84)
+- [#86 — SoluProt uses failure-driven USEARCH command fallback](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/86)
+- [#87 — temporary-directory cleanup can replace the primary Operation error](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/87)
+
+The remaining confirmed gaps are:
+
 - [#80 — Biohub SDK retries are collapsed into one Engine Invocation](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/80)
 - [#81 — Biohub requests have no finite timeout and clients are not deterministically closed](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/81)
 - [#82 — remote ESMFold2 records Provider errors outside the Invocation boundary](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/82)
-- [#83 — cancellation can unregister a process group while descendants remain alive](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/83)
-- [#84 — Module Packages directly own mkdssp and SoluProt/Protein-Sol process lifecycle](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/84)
 - [#85 — SimpleFold leaves Provider import state in the host process](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/85)
-- [#86 — SoluProt uses failure-driven USEARCH command fallback](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/86)
-- [#87 — temporary-directory cleanup can replace the primary Operation error](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/87)
-The linked issues record implementation gaps. They do not define alternate
-contracts or preserve the current behavior as compatibility.
+
+The linked issues record implementation status. They do not define alternate
+contracts or preserve superseded behavior as compatibility.

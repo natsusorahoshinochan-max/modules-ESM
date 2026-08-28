@@ -6,6 +6,7 @@ from tests.support.ledger import public_run_events, public_run_projection
 
 import os
 from pathlib import Path
+import shlex
 import shutil
 from typing import Any
 
@@ -102,6 +103,7 @@ def _run(
     tmp_path: Path,
     *,
     mode: str,
+    usearch_executable: Path | None = None,
 ) -> tuple[Any, V2RunService, dict[str, Any], tuple[dict[str, Any], ...]]:
     from modules.solubility.package import MODULE_PACKAGE
     from tests.fixtures.folding_sources.package import (
@@ -153,6 +155,8 @@ def _run(
             )),
     )
     environment_values = _environment(mode)
+    if usearch_executable is not None:
+        environment_values["usearch_executable"] = usearch_executable
     service = V2RunService(
         projects,
         catalog,
@@ -199,13 +203,33 @@ def test_model_backed_soluprot_golden_methods(
     import modules.solubility.soluprot as adapter
 
     recorded: list[dict[str, Any]] = []
+    usearch_log = tmp_path / f"usearch-{mode}.argv"
+    actual_usearch = _environment(mode)["usearch_executable"]
+    usearch_probe = tmp_path / f"usearch-{mode}-probe"
+    usearch_probe.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$#\" >> {shlex.quote(str(usearch_log))}\n"
+        f"printf '%s\\n' \"$@\" >> {shlex.quote(str(usearch_log))}\n"
+        f"exec {shlex.quote(str(actual_usearch))} \"$@\"\n",
+        encoding="ascii",
+    )
+    usearch_probe.chmod(0o755)
     original_run_process = adapter._run_local_process
 
     def record_and_delegate(**kwargs: Any) -> int:
         staging_directory = kwargs["staging_directory"]
+        perl_command = staging_directory / "perl"
         record = {
             "command": tuple(kwargs["command"]),
             "staging_directory": staging_directory,
+            "path_entries": tuple(kwargs["path_entries"]),
+            "timeout_seconds": kwargs["timeout_seconds"],
+            "perl_command_is_symlink": perl_command.is_symlink(),
+            "perl_command_target": (
+                perl_command.resolve(strict=True)
+                if perl_command.is_symlink()
+                else None
+            ),
             "input_fasta": (
                 staging_directory / "input.fasta"
             ).read_text(encoding="ascii"),
@@ -219,7 +243,11 @@ def test_model_backed_soluprot_golden_methods(
 
     monkeypatch.setattr(adapter, "_run_local_process", record_and_delegate)
 
-    catalog, service, projection, events = _run(tmp_path, mode=mode)
+    catalog, service, projection, events = _run(
+        tmp_path,
+        mode=mode,
+        usearch_executable=usearch_probe,
+    )
 
     assert projection["status"] == "succeeded", projection
     binding_id = f"solubility.soluprot_{mode}.local"
@@ -243,9 +271,12 @@ def test_model_backed_soluprot_golden_methods(
     )
     assert len(scores.entries) == len(source_candidates.items) == 2
     assert len(recorded) == 1
+    assert usearch_log.is_file()
     record = recorded[0]
+    assert record["timeout_seconds"] == 300.0
     staging_directory = record["staging_directory"]
     environment = _environment(mode)
+    environment["usearch_executable"] = usearch_probe
     site_packages_root = environment["site_packages_root"]
     model_directory = (
         "grad_clf_v1_tc"
@@ -257,8 +288,9 @@ def test_model_backed_soluprot_golden_methods(
         "-I",
         "-X",
         f"pycache_prefix={staging_directory / 'bytecode-cache'}",
-        "-m",
-        "soluprot_core.cli",
+        "-c",
+        adapter._SOLUPROT_MODULE_DRIVER,
+        str(site_packages_root),
         "--i_fa",
         str(staging_directory / "input.fasta"),
         "--o_csv",
@@ -298,10 +330,37 @@ def test_model_backed_soluprot_golden_methods(
     else:
         expected_command.append("--no_tmhmm")
     assert record["command"] == tuple(expected_command)
+    if mode == "full":
+        assert record["perl_command_is_symlink"] is True
+        assert record["perl_command_target"] == environment[
+            "perl_executable"
+        ].resolve(strict=True)
+        assert record["path_entries"] == (staging_directory,)
+    else:
+        assert record["perl_command_is_symlink"] is False
+        assert record["perl_command_target"] is None
+        assert record["path_entries"] == ()
     assert record["input_fasta"] == "".join(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)
     )
+    expected_usearch_argv = (
+        "-usearch_global",
+        str(staging_directory / "provider-work/query.fa"),
+        "-db",
+        str(site_packages_root / "data/Ecoli_xray_nmr_pdb_no_nesg.fa"),
+        "-id",
+        "0.0",
+        "-blast6out",
+        str(staging_directory / "provider-work/identity.b6"),
+        "-threads",
+        "1",
+        "-top_hits_only",
+    )
+    assert usearch_log.read_text(encoding="ascii").splitlines() == [
+        str(len(expected_usearch_argv)),
+        *expected_usearch_argv,
+    ]
     sequence_type = catalog.require_port_type(
         "protein.sequence")
     observations_by_subject = {

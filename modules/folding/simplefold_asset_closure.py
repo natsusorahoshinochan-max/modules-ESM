@@ -33,6 +33,7 @@ class SimpleFoldClosureSource:
     package_name: str | None = None
     environment_key: str | None = None
     runtime_group: str | None = None
+    required_relative_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +65,10 @@ class SimpleFoldProviderAssetClosure:
                 source["package_name"] = entry.package_name
             if entry.environment_key is not None:
                 source["environment_key"] = entry.environment_key
+            if entry.required_relative_files:
+                source["required_relative_files"] = (
+                    entry.required_relative_files
+                )
             sources.append(source)
         return {
             "files": files,
@@ -98,7 +103,16 @@ def admit_simplefold_provider_asset_closure(
     """Check that one route's configured resources are available."""
     for source in closure.sources:
         if source.package_name is not None:
-            if importlib.util.find_spec(source.package_name) is None:
+            package_spec = importlib.util.find_spec(source.package_name)
+            if package_spec is None:
+                raise SimpleFoldAssetClosureAdmissionError(
+                    "SimpleFold installed source is unavailable"
+                )
+            package_root = Path(cast(str, package_spec.origin)).parent
+            if any(
+                not (package_root / relative_path).is_file()
+                for relative_path in source.required_relative_files
+            ):
                 raise SimpleFoldAssetClosureAdmissionError(
                     "SimpleFold installed source is unavailable"
                 )
@@ -141,10 +155,24 @@ def bind_simplefold_provider_asset_closure(
     )
 
 
-_SIMPLEFOLD_SOURCE = SimpleFoldClosureSource(
+_SIMPLEFOLD_FOLDING_SOURCE = SimpleFoldClosureSource(
     role="provider_runtime_source",
     source_name="ml-simplefold",
     package_name="simplefold",
+    required_relative_files=(
+        "configs/model/architecture/foldingdit_100M.yaml",
+        "configs/model/architecture/plddt_module.yaml",
+        "configs/model/architecture/foldingdit_1.6B.yaml",
+    ),
+)
+_SIMPLEFOLD_CONFIDENCE_SOURCE = SimpleFoldClosureSource(
+    role="provider_runtime_source",
+    source_name="ml-simplefold",
+    package_name="simplefold",
+    required_relative_files=(
+        "configs/model/architecture/plddt_module.yaml",
+        "configs/model/architecture/foldingdit_1.6B.yaml",
+    ),
 )
 _ESM2_SOURCE = SimpleFoldClosureSource(
     role="language_model_runtime_source",
@@ -201,11 +229,11 @@ SIMPLEFOLD_FOLDING_ASSET_CLOSURE = SimpleFoldProviderAssetClosure(
         _SIMPLEFOLD_1_6B,
         _SIMPLEFOLD_100M,
     ),
-    sources=(_SIMPLEFOLD_SOURCE, _ESM2_SOURCE),
+    sources=(_SIMPLEFOLD_FOLDING_SOURCE, _ESM2_SOURCE),
 )
 
 SIMPLEFOLD_CONFIDENCE_ASSET_CLOSURE = SimpleFoldProviderAssetClosure(
     binding_id="folding.simplefold_confidence.simplefold_local",
     files=(_CCD, _ESM2, _PLDDT, _SIMPLEFOLD_1_6B),
-    sources=(_SIMPLEFOLD_SOURCE, _ESM2_SOURCE),
+    sources=(_SIMPLEFOLD_CONFIDENCE_SOURCE, _ESM2_SOURCE),
 )

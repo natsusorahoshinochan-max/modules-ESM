@@ -54,6 +54,10 @@ class ControlledStressProteinMPNN:
             "seq_chain_A": "AGSTW",
         }]
 
+    @staticmethod
+    def activate(model_name: str, backbone_noise: float) -> None:
+        del model_name, backbone_noise
+
     def design(self, request: Any) -> list[ProteinSequence]:
         self.requests.append(request)
         alphabet = "ACDEFGHIKLMNPQRSTVWY"

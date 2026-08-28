@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from tests.support.ledger import public_run_events, public_run_projection
-
-from protein_workbench_public.bootstrap import module_registrations
-
 import json
+import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -18,6 +16,9 @@ from core.local_torch_device import (
     expected_local_torch_device,
 )
 from tests.support.local_torch_device import provider_free_cpu_device_policy
+from tests.support.ledger import public_run_events, public_run_projection
+
+from protein_workbench_public.bootstrap import module_registrations
 
 pytestmark = pytest.mark.usefixtures("provider_free_cpu_device_policy")
 
@@ -53,6 +54,41 @@ from tests.fixtures.scientific_operation import (
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
 )
+
+
+def test_folding_package_import_does_not_require_optional_torch(
+) -> None:
+    """Base installs reach Availability without importing optional Torch."""
+    script = """
+import importlib.abc
+import sys
+
+class BlockTorch(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path, target=None):
+        if fullname == "torch" or fullname.startswith("torch."):
+            raise ModuleNotFoundError("No module named 'torch'", name="torch")
+        return None
+
+sys.meta_path.insert(0, BlockTorch())
+sys.path.insert(0, sys.argv[1])
+from modules.folding.package import MODULE_PACKAGE
+assert MODULE_PACKAGE.package_id == "folding"
+"""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            script,
+            str(Path(__file__).resolve().parents[1]),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_simplefold_runtime_applies_the_exact_normalized_step_count(
@@ -116,7 +152,7 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     (model_root / "ccd.pkl").write_bytes(b"reviewed-ccd")
 
     with pytest.raises(StopAfterInferenceConstruction):
-        simplefold_runtime.fold_sequence(
+        simplefold_runtime.activate_fold_sequence(
             ProteinSequence("AG", ("A:1", "A:2")),
             num_steps=75,
             num_samples=1,
@@ -131,7 +167,7 @@ def test_simplefold_runtime_applies_the_exact_normalized_step_count(
     assert captured == {"num_steps": 75}
 
 
-def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
+def test_simplefold_releases_esm2_before_loading_folding_models(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -161,6 +197,8 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
 
         def run_inference(self, *_args: Any) -> object:
             assert len(loaded_modules) == 3
+            assert lifecycle["features_prepared"] is True
+            assert lifecycle["language_model_released"] is True
             raise StopAfterStagedModelLoad
 
     loaded_checkpoints: list[tuple[str, dict[str, Any]]] = []
@@ -171,6 +209,7 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
         path: Path,
         **kwargs: Any,
     ) -> dict[str, str]:
+        assert lifecycle["request_processed"] is True
         assert lifecycle["features_prepared"] is True
         assert lifecycle["language_model_released"] is True
         loaded_checkpoints.append((Path(path).name, kwargs))
@@ -212,6 +251,7 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
         return LoadedModule(config)
 
     def process_fastas(*, out_dir: Path, **_kwargs: Any) -> None:
+        lifecycle["request_processed"] = True
         structures = Path(out_dir) / "structures"
         records = Path(out_dir) / "records"
         structures.mkdir(parents=True)
@@ -270,7 +310,9 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
     import hydra
     import omegaconf
 
-    monkeypatch.setattr(simplefold_runtime.torch, "load", load_checkpoint)
+    import torch
+
+    monkeypatch.setattr(torch, "load", load_checkpoint)
     monkeypatch.setattr(omegaconf.OmegaConf, "load", load_config)
     monkeypatch.setattr(hydra.utils, "instantiate", instantiate)
     model_root = tmp_path / "model"
@@ -280,18 +322,32 @@ def test_simplefold_runtime_releases_esm2_before_loading_folding_models(
         root.mkdir()
     (model_root / "ccd.pkl").write_bytes(b"reviewed-ccd")
 
+    activated = simplefold_runtime.activate_fold_sequence(
+        ProteinSequence("AG", ("A:1", "A:2")),
+        num_steps=50,
+        num_samples=1,
+        staging_directory=tmp_path / "project",
+        effective_seed=1603,
+        staged_model_root=model_root,
+        staged_esm2_source_root=esm2_source_root,
+        staged_esm2_model_root=esm2_model_root,
+        device="cpu",
+    )
+    assert lifecycle == {"request_processed": True}
+    assert loaded_checkpoints == []
+
+    activated.prepare_inputs()
+    assert lifecycle == {
+        "request_processed": True,
+        "features_prepared": True,
+        "language_model_released": True,
+    }
+    assert loaded_checkpoints == []
+
+    activated.activate_final_models()
+
     with pytest.raises(StopAfterStagedModelLoad):
-        simplefold_runtime.fold_sequence(
-            ProteinSequence("AG", ("A:1", "A:2")),
-            num_steps=50,
-            num_samples=1,
-            staging_directory=tmp_path / "project",
-            effective_seed=1603,
-            staged_model_root=model_root,
-            staged_esm2_source_root=esm2_source_root,
-            staged_esm2_model_root=esm2_model_root,
-            device="cpu",
-        )
+        activated.invoke()
 
     assert loaded_checkpoints == [
         (
@@ -380,6 +436,9 @@ def test_simplefold_is_one_explicit_binding_of_the_shared_folding_node() -> None
         "folding.fold.esmfold2_local")
     assert simplefold.descriptor["node_type"] == esmfold2.descriptor["node_type"]
     assert simplefold.descriptor["execution_route"] == "adapter"
+    assert simplefold.descriptor["route_behavior"]["parameters"][
+        "staging"
+    ] == "one-private-directory-per-adapter-call"
     assert simplefold.descriptor["binding_parameters"] == {
         "num_steps": {
             "parameter_scope": "scientific",
@@ -543,20 +602,33 @@ def _simplefold_environment(
     import modules.folding.simplefold_contract as contract
     import modules.folding.simplefold_runtime as simplefold_runtime
 
-    def fixture_fold_sequence(**kwargs: Any) -> Any:
-        return client.fold(
-            sequence=kwargs["sequence"],
-            num_steps=kwargs["num_steps"],
-            num_samples=kwargs["num_samples"],
-            effective_seed=kwargs["effective_seed"],
-            staging_directory=kwargs["staging_directory"],
-            device=kwargs["device"],
-        )
+    class FixtureActivatedFold:
+        def __init__(self, kwargs: dict[str, Any]) -> None:
+            self._kwargs = kwargs
+
+        def prepare_inputs(self) -> None:
+            pass
+
+        def activate_final_models(self) -> None:
+            pass
+
+        def invoke(self) -> Any:
+            return client.fold(
+                sequence=self._kwargs["sequence"],
+                num_steps=self._kwargs["num_steps"],
+                num_samples=self._kwargs["num_samples"],
+                effective_seed=self._kwargs["effective_seed"],
+                staging_directory=self._kwargs["staging_directory"],
+                device=self._kwargs["device"],
+            )
+
+    def fixture_activate_fold_sequence(**kwargs: Any) -> Any:
+        return FixtureActivatedFold(kwargs)
 
     monkeypatch.setattr(
         simplefold_runtime,
-        "fold_sequence",
-        fixture_fold_sequence,
+        "activate_fold_sequence",
+        fixture_activate_fold_sequence,
     )
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -724,6 +796,113 @@ def _run_simplefold(
     return catalog, service, projection, events
 
 
+def test_simplefold_activation_failure_records_zero_engine_invocations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    class Client:
+        def fold(
+            self,
+            **_kwargs: Any,
+        ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
+            return (
+                [ProteinStructure(_upstream_simplefold_serialized_pdb())],
+                [{"per_residue": [71.0, 83.0], "sample_index": 0}],
+            )
+
+    environment = _simplefold_environment(
+        tmp_path,
+        monkeypatch,
+        Client(),
+    )
+
+    def fail_activation(**_kwargs: Any) -> object:
+        raise RuntimeError("fixture SimpleFold activation failed")
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "activate_fold_sequence",
+        fail_activation,
+        raising=False,
+    )
+
+    _, _, projection, events = _run_simplefold(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+        num_samples=1,
+        environment_values=environment,
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith("fold_parent_0")
+        for event in events
+    )
+
+
+def test_simplefold_esm2_failure_is_recorded_before_final_engine_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_runtime as simplefold_runtime
+
+    class Client:
+        def fold(self, **_kwargs: Any) -> object:
+            raise AssertionError("final SimpleFold engine must not run")
+
+    environment = _simplefold_environment(
+        tmp_path,
+        monkeypatch,
+        Client(),
+    )
+
+    class FailingFeatureEngine:
+        def prepare_inputs(self) -> None:
+            raise RuntimeError("fixture ESM2 feature failure")
+
+        def activate_final_models(self) -> None:
+            raise AssertionError("final models must not load")
+
+        def invoke(self) -> object:
+            raise AssertionError("final SimpleFold engine must not run")
+
+    monkeypatch.setattr(
+        simplefold_runtime,
+        "activate_fold_sequence",
+        lambda **_kwargs: FailingFeatureEngine(),
+    )
+
+    _, _, projection, events = _run_simplefold(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+        num_samples=1,
+        environment_values=environment,
+    )
+
+    assert projection["status"] == "failed"
+    started = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith("fold_parent_0")
+    ]
+    assert [event["engine_role"] for event in started] == [
+        "fold_parent_0_esm2_features"
+    ]
+    terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"] == started[0]["invocation_id"]
+    )
+    assert terminal["status"] == "failed"
+
+
 def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -862,6 +1041,12 @@ def test_simplefold_preserves_high_level_plddt_and_exact_multi_sample_lineage(
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["engine_role"] == "fold_parent_0"
     ]
+    assert [
+        event["event"]["engine_role"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith("fold_parent_0")
+    ] == ["fold_parent_0_esm2_features", "fold_parent_0"]
     invocation_index = next(
         index
         for index, event in enumerate(events)

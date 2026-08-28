@@ -117,15 +117,31 @@ def test_local_protein_sol_golden_multiple_metrics(
 
     recorded: list[dict[str, Any]] = []
     original_run_process = adapter._run_local_process
+    source_root = _environment()["source_root"]
+
+    def source_state() -> dict[str, tuple[int, int]]:
+        return {
+            path.name: (path.stat().st_size, path.stat().st_mtime_ns)
+            for path in source_root.iterdir()
+        }
 
     def record_and_delegate(**kwargs: Any) -> int:
+        command = tuple(kwargs["command"])
         record = {
-            "command": tuple(kwargs["command"]),
-            "input_fasta": Path(kwargs["command"][2]).read_text(
+            "command": command,
+            "timeout_seconds": kwargs["timeout_seconds"],
+            "input_fasta": Path(command[7]).read_text(
                 encoding="ascii"
             ),
         }
+        assert kwargs["staging_directory"] != source_root
+        for relative in adapter.PROTEIN_SOL_LINKED_ASSETS:
+            bound_asset = kwargs["staging_directory"] / relative
+            assert bound_asset.is_symlink()
+            assert bound_asset.resolve() == source_root / relative
+        before = source_state()
         return_code = original_run_process(**kwargs)
+        assert source_state() == before
         record["raw_output"] = (
             kwargs["staging_directory"] / "seq_prediction.txt"
         ).read_bytes()
@@ -233,11 +249,20 @@ def test_local_protein_sol_golden_multiple_metrics(
     ]
     assert len(candidate_ids) == len(SEQUENCES) == len(EXPECTED) == 2
     assert len(recorded) == 1
-    assert recorded[0]["command"][0] == str(_environment()["bash_executable"])
-    assert recorded[0]["command"][1] == str(
-        _environment()["source_root"] / "multiple_prediction_wrapper_export.sh"
+    assert recorded[0]["timeout_seconds"] == 300.0
+    command = recorded[0]["command"]
+    environment = _environment()
+    assert command[:2] == (str(environment["bash_executable"]), "-c")
+    assert command[3:7] == (
+        "protein-sol",
+        str(environment["source_root"]),
+        str(environment["perl_executable"]),
+        str(
+            environment["source_root"]
+            / "multiple_prediction_wrapper_export.sh"
+        ),
     )
-    assert Path(recorded[0]["command"][2]).name == "input.fasta"
+    assert Path(command[7]).name == "input.fasta"
     assert recorded[0]["input_fasta"] == "".join(
         f">candidate_{index}\n{sequence}\n"
         for index, sequence in enumerate(SEQUENCES)

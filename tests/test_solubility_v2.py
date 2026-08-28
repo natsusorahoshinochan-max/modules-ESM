@@ -88,6 +88,57 @@ def _soluprot_admitted_environment(
     return environment
 
 
+def _create_soluprot_readiness_environment(
+    root: Path,
+    *,
+    mode: str,
+) -> dict[str, Any]:
+    import modules.solubility.soluprot as adapter
+
+    site_packages_root = root / "site-packages"
+    for relative in adapter.SOLUPROT_PROVIDER_SOURCE_FILES:
+        path = site_packages_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    for path in adapter._site_asset_paths(site_packages_root, mode).values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+
+    executables = [root / "python", root / "usearch"]
+    environment: dict[str, Any] = {
+        "python_executable": executables[0],
+        "site_packages_root": site_packages_root,
+        "usearch_executable": executables[1],
+    }
+    if mode == "full":
+        tmhmm_root = site_packages_root / adapter.SOLUPROT_TMHMM_RELATIVE_ROOT
+        for relative in adapter.SOLUPROT_TMHMM_FILES:
+            path = tmhmm_root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"fixture")
+        decoder_name = (
+            f"decodeanhmm.{adapter.platform.system()}_"
+            f"{adapter.platform.machine()}"
+        )
+        decoder = tmhmm_root / "bin" / decoder_name
+        decoder.write_bytes(b"fixture")
+        perl_executable = root / "perl5.38"
+        environment["perl_executable"] = perl_executable
+        executables.extend(
+            (
+                perl_executable,
+                tmhmm_root / "bin/tmhmm",
+                tmhmm_root / "bin/tmhmmformat.pl",
+                decoder,
+            )
+        )
+    for executable in executables:
+        if not executable.exists():
+            executable.write_bytes(b"fixture")
+        executable.chmod(0o755)
+    return environment
+
+
 def _protein_sol_admitted_environment(
     *,
     private_runtime_path: str,
@@ -108,6 +159,10 @@ def test_soluprot_readiness_uses_configured_executables_and_assets(
     site_packages_root = tmp_path / "site-packages"
     assets = adapter._site_asset_paths(site_packages_root, "no_tm")
     for path in assets.values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    for relative in adapter.SOLUPROT_PROVIDER_SOURCE_FILES:
+        path = site_packages_root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b"fixture")
     python_executable = tmp_path / "python"
@@ -132,6 +187,220 @@ def test_soluprot_readiness_uses_configured_executables_and_assets(
     ).passing is False
 
 
+def test_soluprot_readiness_requires_configured_provider_source(
+    tmp_path: Path,
+) -> None:
+    import modules.solubility.soluprot as adapter
+
+    site_packages_root = tmp_path / "site-packages"
+    for path in adapter._site_asset_paths(site_packages_root, "no_tm").values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    python_executable = tmp_path / "python"
+    usearch_executable = tmp_path / "usearch"
+    for executable in (python_executable, usearch_executable):
+        executable.write_text("#!/bin/sh\n", encoding="ascii")
+        executable.chmod(0o755)
+
+    assert adapter.soluprot_readiness(
+        {
+            "python_executable": python_executable,
+            "site_packages_root": site_packages_root,
+            "usearch_executable": usearch_executable,
+        },
+        mode="no_tm",
+    ).passing is False
+
+
+def test_soluprot_full_readiness_requires_executable_tmhmm_formatter(
+    tmp_path: Path,
+) -> None:
+    import modules.solubility.soluprot as adapter
+
+    site_packages_root = tmp_path / "site-packages"
+    for relative in adapter.SOLUPROT_PROVIDER_SOURCE_FILES:
+        path = site_packages_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    for path in adapter._site_asset_paths(site_packages_root, "full").values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    tmhmm_root = site_packages_root / adapter.SOLUPROT_TMHMM_RELATIVE_ROOT
+    for relative in adapter.SOLUPROT_TMHMM_FILES:
+        path = tmhmm_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    decoder = (
+        tmhmm_root
+        / "bin"
+        / f"decodeanhmm.{adapter.platform.system()}_{adapter.platform.machine()}"
+    )
+    decoder.write_bytes(b"fixture")
+    python_executable = tmp_path / "python"
+    usearch_executable = tmp_path / "usearch"
+    perl_executable = tmp_path / "perl"
+    for executable in (
+        python_executable,
+        usearch_executable,
+        perl_executable,
+        tmhmm_root / "bin/tmhmm",
+        decoder,
+    ):
+        if not executable.exists():
+            executable.write_bytes(b"fixture")
+        executable.chmod(0o755)
+
+    assert adapter.soluprot_readiness(
+        {
+            "python_executable": python_executable,
+            "site_packages_root": site_packages_root,
+            "usearch_executable": usearch_executable,
+            "perl_executable": perl_executable,
+        },
+        mode="full",
+    ).passing is False
+
+
+def test_soluprot_full_readiness_accepts_exact_perl_with_a_nonstandard_name(
+    tmp_path: Path,
+) -> None:
+    import modules.solubility.soluprot as adapter
+
+    site_packages_root = tmp_path / "site-packages"
+    for relative in adapter.SOLUPROT_PROVIDER_SOURCE_FILES:
+        path = site_packages_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    for path in adapter._site_asset_paths(site_packages_root, "full").values():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    tmhmm_root = site_packages_root / adapter.SOLUPROT_TMHMM_RELATIVE_ROOT
+    for relative in adapter.SOLUPROT_TMHMM_FILES:
+        path = tmhmm_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fixture")
+    decoder = (
+        tmhmm_root
+        / "bin"
+        / f"decodeanhmm.{adapter.platform.system()}_{adapter.platform.machine()}"
+    )
+    decoder.write_bytes(b"fixture")
+    executables = (
+        tmp_path / "python",
+        tmp_path / "usearch",
+        tmp_path / "perl5.38",
+        tmhmm_root / "bin/tmhmm",
+        tmhmm_root / "bin/tmhmmformat.pl",
+        decoder,
+    )
+    for executable in executables:
+        if not executable.exists():
+            executable.write_bytes(b"fixture")
+        executable.chmod(0o755)
+
+    assert adapter.soluprot_readiness(
+        {
+            "python_executable": executables[0],
+            "site_packages_root": site_packages_root,
+            "usearch_executable": executables[1],
+            "perl_executable": executables[2],
+        },
+        mode="full",
+    ).passing is True
+
+
+@pytest.mark.parametrize("decoder_state", ("missing", "non_executable"))
+def test_soluprot_full_closure_declares_and_requires_current_platform_decoder(
+    tmp_path: Path,
+    decoder_state: str,
+) -> None:
+    import modules.solubility.soluprot as adapter
+    from modules.solubility.package import MODULE_PACKAGE
+
+    decoder_relative = (
+        f"bin/decodeanhmm.{adapter.platform.system()}_"
+        f"{adapter.platform.machine()}"
+    )
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    tmhmm_prerequisite = catalog.require_contract(
+        "binding",
+        "solubility.soluprot_full.local",
+    ).descriptor["readiness_declaration"]["prerequisites"]["tmhmm"]
+    assert decoder_relative in tmhmm_prerequisite["required_relative_files"]
+
+    environment = _create_soluprot_readiness_environment(
+        tmp_path,
+        mode="full",
+    )
+    decoder = (
+        environment["site_packages_root"]
+        / adapter.SOLUPROT_TMHMM_RELATIVE_ROOT
+        / decoder_relative
+    )
+    if decoder_state == "missing":
+        decoder.unlink()
+    else:
+        decoder.chmod(0o644)
+
+    assert adapter.soluprot_readiness(
+        environment,
+        mode="full",
+    ) == ReadinessResult(
+        False,
+        proof_source="direct-observation",
+        reason_code="soluprot_full_runtime_unavailable",
+    )
+
+
+@pytest.mark.parametrize("mode", ("full", "no_tm"))
+def test_soluprot_readiness_rejects_each_declared_fixed_asset_removal(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    import modules.solubility.soluprot as adapter
+    from modules.solubility.package import MODULE_PACKAGE
+
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    prerequisites = catalog.require_contract(
+        "binding",
+        f"solubility.soluprot_{mode}.local",
+    ).descriptor["readiness_declaration"]["prerequisites"]
+    closure_roots = [
+        ("provider_source", Path()),
+        ("model", Path()),
+        ("reference_database", Path()),
+    ]
+    if mode == "full":
+        closure_roots.append(
+            ("tmhmm", adapter.SOLUPROT_TMHMM_RELATIVE_ROOT)
+        )
+
+    for prerequisite_name, relative_root in closure_roots:
+        for index, relative in enumerate(
+            prerequisites[prerequisite_name]["required_relative_files"]
+        ):
+            case_root = tmp_path / f"{prerequisite_name}-{index}"
+            environment = _create_soluprot_readiness_environment(
+                case_root,
+                mode=mode,
+            )
+            missing_path = (
+                environment["site_packages_root"]
+                / relative_root
+                / relative
+            )
+            missing_path.unlink()
+
+            assert adapter.soluprot_readiness(
+                environment,
+                mode=mode,
+            ) == ReadinessResult(
+                False,
+                proof_source="direct-observation",
+                reason_code=f"soluprot_{mode}_runtime_unavailable",
+            ), f"Readiness admitted missing {prerequisite_name}: {relative}"
+
+
 def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -147,6 +416,9 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
     site_packages_root = tmp_path / "site-packages"
     python_executable = tmp_path / "python"
     usearch_executable = tmp_path / "usearch"
+    perl_executable = tmp_path / "perl5.38"
+    perl_executable.write_bytes(b"fixture")
+    perl_executable.chmod(0o755)
     tmhmm_root = site_packages_root / "soluprot_assets/tmhmm-2.0d"
 
     class Resources:
@@ -179,8 +451,9 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             "-I",
             "-X",
             f"pycache_prefix={staging_directory / 'bytecode-cache'}",
-            "-m",
-            "soluprot_core.cli",
+            "-c",
+            adapter._SOLUPROT_MODULE_DRIVER,
+            str(site_packages_root),
             "--i_fa",
             str(staging_directory / "input.fasta"),
             "--o_csv",
@@ -205,7 +478,12 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             "--tmhmm",
             str(tmhmm_root / "bin/tmhmm"),
         )
-        assert kwargs["path_entries"] == (tmp_path,)
+        perl_command = staging_directory / "perl"
+        assert perl_command.is_symlink()
+        assert perl_command.resolve(strict=True) == perl_executable.resolve(
+            strict=True
+        )
+        assert kwargs["path_entries"] == (staging_directory,)
         events.append("provider-invoked")
         output_path = kwargs["staging_directory"] / "output.csv"
         output_path.write_bytes(
@@ -221,7 +499,7 @@ def test_local_soluprot_adapter_uses_readiness_admitted_environment_once(
             "python_executable": python_executable,
             "site_packages_root": site_packages_root,
             "usearch_executable": usearch_executable,
-            "perl_executable": tmp_path / "perl",
+            "perl_executable": perl_executable,
         },
         resources=Resources(),
     )
@@ -584,6 +862,8 @@ def test_soluprot_requires_no_core_dispatch_or_readiness_branch() -> None:
 
 
 def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
+    import modules.solubility.protein_sol as protein_sol_adapter
+    import modules.solubility.soluprot as soluprot_adapter
     from modules.solubility.package import MODULE_PACKAGE
 
     catalog = build_frozen_catalog((MODULE_PACKAGE,))
@@ -610,6 +890,26 @@ def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
     assert soluprot_prerequisites["python_runtime"] == {
         "path_source": "trusted_environment_configuration",
     }
+    assert soluprot_prerequisites["provider_source"] == {
+        "path_source": "trusted_environment_configuration",
+        "required_relative_files": (
+            soluprot_adapter.SOLUPROT_PROVIDER_SOURCE_FILES
+        ),
+    }
+    full_assets = soluprot_adapter._site_asset_paths(Path(), "full")
+    assert soluprot_prerequisites["model"] == {
+        "path_source": "trusted_environment_configuration",
+        "required_relative_files": (
+            str(full_assets["model_json"]),
+            str(full_assets["model_arrays"]),
+        ),
+    }
+    assert soluprot_prerequisites["reference_database"] == {
+        "path_source": "trusted_environment_configuration",
+        "required_relative_files": (
+            str(full_assets["reference_database"]),
+        ),
+    }
     assert soluprot_prerequisites["usearch"] == {
         "path_source": "trusted_environment_configuration",
     }
@@ -622,10 +922,44 @@ def test_solubility_runtime_contracts_include_supported_target_assets() -> None:
     assert soluprot_prerequisites["tmhmm"]["path_source"] == (
         "installed_distribution"
     )
+    assert soluprot_prerequisites["tmhmm"]["required_relative_files"] == (
+        soluprot_adapter.SOLUPROT_TMHMM_FILES
+    )
+
+    soluprot_no_tm_prerequisites = catalog.require_contract(
+        "binding",
+        "solubility.soluprot_no_tm.local",
+    ).descriptor["readiness_declaration"]["prerequisites"]
+    no_tm_assets = soluprot_adapter._site_asset_paths(Path(), "no_tm")
+    assert soluprot_no_tm_prerequisites["provider_source"] == {
+        "path_source": "trusted_environment_configuration",
+        "required_relative_files": (
+            soluprot_adapter.SOLUPROT_PROVIDER_SOURCE_FILES
+        ),
+    }
+    assert soluprot_no_tm_prerequisites["model"] == {
+        "path_source": "trusted_environment_configuration",
+        "required_relative_files": (
+            str(no_tm_assets["model_json"]),
+            str(no_tm_assets["model_arrays"]),
+        ),
+    }
+    assert soluprot_no_tm_prerequisites["reference_database"] == {
+        "path_source": "trusted_environment_configuration",
+        "required_relative_files": (
+            str(no_tm_assets["reference_database"]),
+        ),
+    }
 
     protein_sol_prerequisites = protein_sol["readiness_declaration"][
         "prerequisites"
     ]
+    assert protein_sol_prerequisites["source_root"] == {
+        "path_source": "trusted_environment_configuration",
+        "required_relative_files": (
+            protein_sol_adapter.PROTEIN_SOL_SOURCE_FILES
+        ),
+    }
     assert protein_sol_prerequisites["bash"] == {
         "path_source": "trusted_environment_configuration",
     }

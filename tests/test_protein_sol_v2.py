@@ -77,6 +77,7 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
     staging_directory = tmp_path / "staging"
     staging_directory.mkdir()
     bash_executable = tmp_path / "bash"
+    perl_executable = tmp_path / "perl-exact"
 
     class Resources:
         @staticmethod
@@ -104,17 +105,26 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
             events.append("engine-succeeded")
 
     def run_process(**kwargs: Any) -> int:
-        assert kwargs["command"] == (
-            str(bash_executable),
+        command = kwargs["command"]
+        assert command[0:2] == (str(bash_executable), "-c")
+        assert command[3:] == (
+            "protein-sol",
+            str(source_root),
+            str(perl_executable),
             str(source_root / "multiple_prediction_wrapper_export.sh"),
             str(staging_directory / "input.fasta"),
         )
+        assert '"$perl_executable" "$provider_root/$provider_script"' in command[2]
         # No Provider source is copied into the invocation directory.
         assert not (
             staging_directory / "multiple_prediction_wrapper_export.sh"
         ).exists()
-        assert kwargs["path_entries"] == (tmp_path,)
-        assert kwargs["staging_directory"] == source_root
+        assert kwargs["path_entries"] == ()
+        assert kwargs["staging_directory"] == staging_directory
+        for relative in ("seq_reference_data.txt", "ss_propensities.txt"):
+            bound_asset = staging_directory / relative
+            assert bound_asset.is_symlink()
+            assert bound_asset.resolve() == source_root / relative
         events.append("provider-invoked")
         output_path = kwargs["staging_directory"] / "seq_prediction.txt"
         output_path.write_bytes(
@@ -130,7 +140,7 @@ def test_local_protein_sol_adapter_uses_readiness_admitted_environment_once(
         environment={
             "source_root": source_root,
             "bash_executable": bash_executable,
-            "perl_executable": tmp_path / "perl",
+            "perl_executable": perl_executable,
         },
         resources=Resources(),
     )
@@ -209,6 +219,12 @@ def test_protein_sol_registers_one_exact_method_and_three_metrics() -> None:
         "response_subject_join"
     ] == "staged-fasta-identity"
     assert len(binding.descriptor["produced_observations"]) == 3
+    registered_binding = next(
+        item
+        for item in MODULE_PACKAGE.bindings
+        if item.binding_id == "solubility.protein_sol.local"
+    )
+    assert "source_copy" not in registered_binding.factory.behavior.parameters
     assert {
         item["metric"]["contract_id"]
         for item in binding.descriptor["produced_observations"]
@@ -873,35 +889,40 @@ def test_protein_sol_cache_replay_preserves_metrics_and_calibration_without_infe
 def test_protein_sol_readiness_requires_configured_source_files(
     tmp_path: Path,
 ) -> None:
+    from modules.solubility.package import MODULE_PACKAGE
     from modules.solubility.protein_sol import (
         PROTEIN_SOL_SOURCE_FILES,
         protein_sol_readiness,
     )
 
-    source_root = tmp_path / "protein-sol"
-    source_root.mkdir()
-    for relative in PROTEIN_SOL_SOURCE_FILES:
-        (source_root / relative).write_bytes(b"fixture source")
     for name in ("bash", "perl"):
         executable = tmp_path / name
         executable.write_text("#!/bin/sh\n", encoding="ascii")
         executable.chmod(0o755)
-    assert protein_sol_readiness({
-        "source_root": source_root,
-        "bash_executable": tmp_path / "bash",
-        "perl_executable": tmp_path / "perl",
-    }).passing is True
-    (source_root / PROTEIN_SOL_SOURCE_FILES[0]).unlink()
-    conclusion = protein_sol_readiness(
-        {
+    catalog = build_frozen_catalog((MODULE_PACKAGE,))
+    declared_files = catalog.require_contract(
+        "binding",
+        "solubility.protein_sol.local",
+    ).descriptor["readiness_declaration"]["prerequisites"]["source_root"][
+        "required_relative_files"
+    ]
+    assert declared_files == PROTEIN_SOL_SOURCE_FILES
+
+    for index, missing_relative in enumerate(declared_files):
+        source_root = tmp_path / f"protein-sol-{index}"
+        source_root.mkdir()
+        for relative in PROTEIN_SOL_SOURCE_FILES:
+            (source_root / relative).write_bytes(b"fixture source")
+        environment = {
             "source_root": source_root,
             "bash_executable": tmp_path / "bash",
             "perl_executable": tmp_path / "perl",
         }
-    )
+        assert protein_sol_readiness(environment).passing is True
+        (source_root / missing_relative).unlink()
 
-    assert conclusion == ReadinessResult(
-        False,
-        proof_source="direct-observation",
-        reason_code="protein_sol_runtime_unavailable",
-    )
+        assert protein_sol_readiness(environment) == ReadinessResult(
+            False,
+            proof_source="direct-observation",
+            reason_code="protein_sol_runtime_unavailable",
+        ), f"Readiness admitted missing Protein-Sol source: {missing_relative}"

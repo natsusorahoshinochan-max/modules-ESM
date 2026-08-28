@@ -10,6 +10,7 @@ from contextlib import ExitStack
 from pathlib import Path
 import gc
 import json
+import pickle
 from typing import Any, cast
 from unittest.mock import patch
 import weakref
@@ -66,6 +67,10 @@ from tests.fixtures.scientific_operation import (
 from tests.fixtures.public_v2 import decode_service_typed_output_value
 from tests.fixtures.simplefold import (
     build_fixture_simplefold_closure,
+)
+from modules.folding.esmfold2_local import (
+    LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES,
+    LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES,
 )
 
 
@@ -323,6 +328,15 @@ def test_remote_and_local_esmfold2_are_explicit_bindings_of_one_node() -> None:
     assert local.descriptor["readiness_declaration"]["prerequisites"][
         "language_model_snapshot"
     ]["precision"] == "fp32"
+    prerequisites = local.descriptor["readiness_declaration"][
+        "prerequisites"
+    ]
+    assert prerequisites["model_snapshot"][
+        "required_relative_files"
+    ] == LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES
+    assert prerequisites["language_model_snapshot"][
+        "required_relative_files"
+    ] == LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES
     assert local.descriptor["route_behavior"]["parameters"][
         "provider_seed_domain"
     ] == "unsigned_32_bit"
@@ -517,18 +531,9 @@ def _write_local_runtime_fixture(
     language_snapshot = tmp_path / "esmc"
     fold_snapshot.mkdir()
     language_snapshot.mkdir()
-    for name in ("ccd.pkl", "config.json", "model.safetensors"):
+    for name in adapter.LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES:
         (fold_snapshot / name).write_bytes(b"folding-model-fixture")
-    for name in (
-        "config.json",
-        "model.safetensors.index.json",
-        "model-00001-of-00006.safetensors",
-        "model-00002-of-00006.safetensors",
-        "model-00003-of-00006.safetensors",
-        "model-00004-of-00006.safetensors",
-        "model-00005-of-00006.safetensors",
-        "model-00006-of-00006.safetensors",
-    ):
+    for name in adapter.LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES:
         (language_snapshot / name).write_bytes(b"language-model-fixture")
     return {
         "model_snapshot_path": fold_snapshot,
@@ -569,6 +574,37 @@ def test_local_readiness_requires_configured_model_roots(
         proof_source="direct-observation",
         reason_code="local_runtime_unavailable",
     )
+
+
+@pytest.mark.parametrize(
+    ("environment_key", "relative_path"),
+    (
+        *(
+            ("model_snapshot_path", relative_path)
+            for relative_path in LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES
+        ),
+        *(
+            ("language_model_snapshot_path", relative_path)
+            for relative_path in (
+                LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES
+            )
+        ),
+    ),
+)
+def test_local_esmfold2_readiness_rejects_each_removed_fixed_asset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    environment_key: str,
+    relative_path: str,
+) -> None:
+    import modules.folding.esmfold2_local as adapter
+
+    environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
+    assert adapter.local_readiness(environment).passing is True
+
+    (environment[environment_key] / relative_path).unlink()
+
+    assert adapter.local_readiness(environment).passing is False
 
 
 def test_esmfold2_structural_checks_short_circuit_missing_esm(
@@ -643,6 +679,9 @@ def test_local_esmfold2_loads_esmc_at_exact_policy_device_and_float32_precision(
         language_model_snapshot_path=tmp_path / "esmc",
         device=expected_local_torch_device(),
     )
+    runtime.model_snapshot_path.mkdir()
+    with (runtime.model_snapshot_path / "ccd.pkl").open("wb") as stream:
+        pickle.dump({"comp": "fixture"}, stream)
 
     adapter.load_local_engine(runtime)
 
@@ -733,6 +772,9 @@ def test_local_esmfold2_releases_its_model_before_cuda_cache_cleanup(
         language_model_snapshot_path=tmp_path / "esmc",
         device=expected_local_torch_device(),
     )
+    runtime.model_snapshot_path.mkdir()
+    with (runtime.model_snapshot_path / "ccd.pkl").open("wb") as stream:
+        pickle.dump({"comp": "fixture"}, stream)
     memory = LocalProviderMemory(torch_module=TorchModule())
     cyclic_gc_was_enabled = gc.isenabled()
     real_gc_collect = gc.collect
@@ -914,6 +956,51 @@ def test_folding_operation_failure_publishes_no_partial_samples(
     )
     assert fold_terminal["status"] == "failed"
     assert fold_terminal["failure_origin"] == "operation"
+
+
+def test_remote_esmfold2_activation_failure_starts_no_engine_invocation(
+    tmp_path: Path,
+) -> None:
+    with patch(
+        "modules.folding.esmfold2_remote.build_remote_engine",
+        side_effect=RuntimeError("remote ESMFold2 activation failed"),
+    ):
+        _, _, projection, events = _run_fold(
+            tmp_path,
+            route="remote",
+            client=None,
+        )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith("fold_parent_")
+        for event in events
+    )
+
+
+def test_local_esmfold2_activation_failure_starts_no_engine_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    environment = _write_local_runtime_fixture(tmp_path, monkeypatch)
+    with patch(
+        "modules.folding.esmfold2_local.load_local_engine",
+        side_effect=RuntimeError("local ESMFold2 activation failed"),
+    ):
+        _, _, projection, events = _run_fold(
+            tmp_path,
+            route="local",
+            client=None,
+            environment_overrides=environment,
+        )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith("fold_parent_")
+        for event in events
+    )
 
 
 def test_local_provider_native_result_translates_to_canonical_confidence() -> None:
@@ -1656,18 +1743,44 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         "load_local_engine",
         load_local_engine,
     )
+    class ActivatedSimpleFoldFixture:
+        def __init__(self, kwargs: dict[str, Any]) -> None:
+            self._kwargs = kwargs
+
+        def prepare_inputs(self) -> None:
+            pass
+
+        def activate_final_models(self) -> None:
+            pass
+
+        def invoke(self) -> Any:
+            return simplefold_client.fold(**self._kwargs)
+
+    class ActivatedConfidenceFixture:
+        def __init__(self, kwargs: dict[str, Any]) -> None:
+            self._kwargs = kwargs
+
+        def prepare_inputs(self) -> None:
+            pass
+
+        def activate_final_models(self) -> None:
+            pass
+
+        def invoke(self) -> Any:
+            return confidence_client.evaluate(
+                residue_axis=self._kwargs["residue_axis"],
+                device=self._kwargs["device"],
+            )
+
     monkeypatch.setattr(
         simplefold_runtime,
-        "fold_sequence",
-        lambda **kwargs: simplefold_client.fold(**kwargs),
+        "activate_fold_sequence",
+        lambda **kwargs: ActivatedSimpleFoldFixture(kwargs),
     )
     monkeypatch.setattr(
         confidence_adapter,
-        "_native_existing_structure_confidence",
-        lambda **kwargs: confidence_client.evaluate(
-            residue_axis=kwargs["residue_axis"],
-            device=kwargs["device"],
-        ),
+        "activate_existing_structure_confidence",
+        lambda **kwargs: ActivatedConfidenceFixture(kwargs),
     )
     simplefold_environment = {
         "model_root": simplefold_model_root,

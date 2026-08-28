@@ -8,7 +8,7 @@ There is no historical compatibility obligation. Do not add shims, aliases, lega
 
 ## Architecture
 
-`core/` owns runtime and evidence logic. `datatypes/` defines provider-independent scientific values. Extensions live in `modules/<package>/`; provider translation belongs in Adapters. `protein_workbench_public/` owns the current protocol. Treat `repositories/` as pinned upstream.
+`core/` owns runtime and evidence logic. `datatypes/` defines provider-independent scientific values. Extensions live in `modules/<package>/`; provider translation belongs in Adapters. `protein_workbench_public/` owns the current protocol. Treat `repositories/` as pinned upstream, except for the project-owned SoluProt-next Provider source identified by ADR-0005.
 
 ## Trust Model
 

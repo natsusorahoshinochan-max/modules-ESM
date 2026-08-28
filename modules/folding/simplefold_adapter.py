@@ -162,7 +162,7 @@ class LocalSimpleFoldAdapter:
         derived_call_seed: int,
         engine_role: str,
     ) -> SimpleFoldAdapterResult:
-        """Invoke once, decode outside Invocation, and clean private work."""
+        """Invoke ESM2 then folding, decode, and clean private work."""
         with (
             self._resources.local_provider("simplefold-folding"),
             self._resources.temporary_directory(
@@ -173,8 +173,31 @@ class LocalSimpleFoldAdapter:
                 simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE,
                 self._environment,
             )
-            from .simplefold_runtime import fold_sequence
+            from .simplefold_runtime import activate_fold_sequence
 
+            activated = activate_fold_sequence(
+                sequence=sequence,
+                num_steps=num_steps,
+                num_samples=num_samples,
+                staging_directory=staging_directory,
+                effective_seed=derived_call_seed,
+                staged_model_root=bound_closure.group_root(
+                    "simplefold_models"
+                ),
+                staged_esm2_source_root=bound_closure.group_root(
+                    "esm2_source"
+                ),
+                staged_esm2_model_root=bound_closure.group_root(
+                    "esm2_models"
+                ),
+                device=expected_local_torch_device(),
+            )
+
+            with self._resources.engine_invocation(
+                engine_role=f"{engine_role}_esm2_features",
+            ):
+                activated.prepare_inputs()
+            activated.activate_final_models()
             with self._resources.engine_invocation(
                 engine_role=engine_role,
                 invocation_provenance=EngineInvocationProvenance(
@@ -186,23 +209,7 @@ class LocalSimpleFoldAdapter:
             ):
                 raw_result = cast(
                     _SimpleFoldNativeResult,
-                    fold_sequence(
-                        sequence=sequence,
-                        num_steps=num_steps,
-                        num_samples=num_samples,
-                        staging_directory=staging_directory,
-                        effective_seed=derived_call_seed,
-                        staged_model_root=bound_closure.group_root(
-                            "simplefold_models"
-                        ),
-                        staged_esm2_source_root=bound_closure.group_root(
-                            "esm2_source"
-                        ),
-                        staged_esm2_model_root=bound_closure.group_root(
-                            "esm2_models"
-                        ),
-                        device=expected_local_torch_device(),
-                    ),
+                    activated.invoke(),
                 )
             samples = _decode_fold_result(
                 raw_result=raw_result,

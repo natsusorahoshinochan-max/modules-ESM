@@ -43,8 +43,10 @@ def _catalog() -> FrozenCatalog:
     )
 
 
-def test_environment_configuration_is_admitted_once_per_binding() -> None:
-    root = Path("provider")
+def test_environment_configuration_is_admitted_once_per_binding(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "provider"
     configuration = admit_environment_configuration(
         _catalog(),
         {
@@ -61,17 +63,34 @@ def test_environment_configuration_is_admitted_once_per_binding() -> None:
     assert not configuration.for_binding("other.binding")
 
 
-def test_environment_configuration_normalizes_string_filesystem_paths() -> None:
+def test_environment_configuration_normalizes_string_filesystem_paths(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "provider"
     configuration = admit_environment_configuration(
         _catalog(),
         {
-            "test.binding": {"provider_root": "provider"}
+            "test.binding": {"provider_root": str(root)}
         },
     )
 
     environment = configuration.for_binding("test.binding")
-    assert environment["provider_root"] == Path("provider")
+    assert environment["provider_root"] == root
     assert isinstance(environment["provider_root"], Path)
+
+
+@pytest.mark.parametrize("provider_root", ("provider", Path("provider")))
+def test_environment_configuration_rejects_relative_filesystem_paths(
+    provider_root: str | Path,
+) -> None:
+    with pytest.raises(
+        EnvironmentConfigurationError,
+        match="must be an absolute filesystem path",
+    ):
+        admit_environment_configuration(
+            _catalog(),
+            {"test.binding": {"provider_root": provider_root}},
+        )
 
 
 @pytest.mark.parametrize(

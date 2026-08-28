@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import importlib.util
 import os
 from pathlib import Path
+from threading import RLock
 from typing import Any, cast, Protocol, TYPE_CHECKING
 
 from core.operation import (
@@ -61,6 +62,22 @@ _PDB_RESIDUE_TO_ONE = {
     "TYR": "Y",
     "VAL": "V",
 }
+_CCD_CACHE_BINDING_LOCK = RLock()
+LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES = (
+    "ccd.pkl",
+    "config.json",
+    "model.safetensors",
+)
+LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES = (
+    "config.json",
+    "model.safetensors.index.json",
+    "model-00001-of-00006.safetensors",
+    "model-00002-of-00006.safetensors",
+    "model-00003-of-00006.safetensors",
+    "model-00004-of-00006.safetensors",
+    "model-00005-of-00006.safetensors",
+    "model-00006-of-00006.safetensors",
+)
 
 
 class LocalESMFold2RuntimeUnavailable(RuntimeError):
@@ -151,17 +168,11 @@ def resolve_local_runtime(
     model_path = cast(Path, environment["model_snapshot_path"])
     language_path = cast(Path, environment["language_model_snapshot_path"])
     required_files = (
-        model_path / "ccd.pkl",
-        model_path / "config.json",
-        model_path / "model.safetensors",
-        language_path / "config.json",
-        language_path / "model.safetensors.index.json",
-        language_path / "model-00001-of-00006.safetensors",
-        language_path / "model-00002-of-00006.safetensors",
-        language_path / "model-00003-of-00006.safetensors",
-        language_path / "model-00004-of-00006.safetensors",
-        language_path / "model-00005-of-00006.safetensors",
-        language_path / "model-00006-of-00006.safetensors",
+        *(model_path / name for name in LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES),
+        *(
+            language_path / name
+            for name in LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES
+        ),
     )
     if (
         not model_path.is_dir()
@@ -277,18 +288,32 @@ def _admitted_ccd_root(model_snapshot_path: Path) -> Iterator[None]:
     """
     import esm.models.esmfold2.conformers as conformers
 
-    ccd_path = model_snapshot_path / "ccd.pkl"
-    if conformers._CCD_MOLECULES is None and ccd_path.is_file():
+    with _CCD_CACHE_BINDING_LOCK:
         saved_pickle_path = conformers.CCD_PICKLE_PATH
         saved_override = os.environ.pop("ESMCFOLD_CCD_PATH", None)
+        saved_molecules = conformers._CCD_MOLECULES
         conformers.CCD_PICKLE_PATH = None
+        conformers._CCD_MOLECULES = None
         try:
             conformers.load_ccd(cache_dir=model_snapshot_path)
+        except Exception:
+            conformers._CCD_MOLECULES = saved_molecules
+            raise
+        else:
+            for cache in (
+                conformers._CCD_CONFORMERS,
+                conformers._CCD_ATOM_CACHE,
+                conformers._CCD_BONDS_CACHE,
+                conformers._CCD_LEAVING_ATOMS_CACHE,
+                conformers._IDEALIZED_POS_CACHE,
+                conformers._LIGAND_IDEALIZED_POS_CACHE,
+            ):
+                cache.clear()
         finally:
             conformers.CCD_PICKLE_PATH = saved_pickle_path
             if saved_override is not None:
                 os.environ["ESMCFOLD_CCD_PATH"] = saved_override
-    yield
+        yield
 
 
 class LocalESMFold2Adapter:
@@ -320,9 +345,9 @@ class LocalESMFold2Adapter:
         engine_role: str,
     ) -> ESMFold2AdapterResult:
         """Invoke the local model once, then admit its raw result."""
-        with (
-            self._resources.local_provider("local-esmfold2") as state,
-            self._resources.engine_invocation(
+        with self._resources.local_provider("local-esmfold2") as state:
+            engine = self._provider_engine(state)
+            with self._resources.engine_invocation(
                 engine_role=engine_role,
                 invocation_provenance=EngineInvocationProvenance(
                     effective_randomness=InvocationRandomness(
@@ -330,12 +355,11 @@ class LocalESMFold2Adapter:
                         effective_seed=derived_call_seed,
                     )
                 ),
-            ),
-        ):
-            raw_result = self._provider_engine(state).fold(
-                sequence=sequence.sequence,
-                effective_seed=derived_call_seed,
-            )
+            ):
+                raw_result = engine.fold(
+                    sequence=sequence.sequence,
+                    effective_seed=derived_call_seed,
+                )
         return decode_local_fold_result(
             cast(_LocalFoldResult, raw_result),
             effective_call_seed=derived_call_seed,

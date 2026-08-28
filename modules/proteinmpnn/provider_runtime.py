@@ -9,6 +9,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+from core.operation import retain_secondary_cleanup_exception
 from datatypes.sequence import ProteinSequence
 
 from . import provider_request as _provider_request
@@ -98,11 +99,20 @@ def _parse_structure(
         tmp.write(pdb_string)
         pdb_path = tmp.name
 
+    primary_error: BaseException | None = None
     try:
         pdb_dict_list = parse_PDB(pdb_path)
         return pdb_dict_list
+    except BaseException as error:
+        primary_error = error
+        raise
     finally:
-        Path(pdb_path).unlink(missing_ok=True)
+        try:
+            Path(pdb_path).unlink(missing_ok=True)
+        except BaseException as cleanup_error:
+            if primary_error is None:
+                raise
+            retain_secondary_cleanup_exception(primary_error, cleanup_error)
 
 
 def _featurize(
@@ -298,6 +308,9 @@ class _LocalProteinMPNNProvider:
             temp_dir=self._temp_dir,
             provider_root=self._provider_root,
         )
+
+    def activate(self, model_name: str, backbone_noise: float) -> None:
+        self._resident_model(model_name, backbone_noise)
 
     def design(
         self, request: ProteinMPNNDesignRequest

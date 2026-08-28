@@ -34,7 +34,6 @@ from .provider_runtime import _LocalProteinMPNNProvider
 
 
 PROTEINMPNN_MODEL = "v_48_020"
-PROTEINMPNN_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
 PROTEINMPNN_SCORING_SEED = 42
 _PROVIDER_CHAIN_IDS = tuple(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -51,6 +50,9 @@ class ProteinMPNNProvider(Protocol):
 
     def parse_structure(self, pdb_string: str) -> list[dict[str, Any]]:
         """Parse a PDB string into ProteinMPNN's structure representation."""
+
+    def activate(self, model_name: str, backbone_noise: float) -> None:
+        """Load the selected resident model before its Engine Invocation."""
 
     def design(
         self, request: ProteinMPNNDesignRequest
@@ -394,6 +396,7 @@ class LocalProteinMPNNAdapter:
                 constraints=constraints,
                 reference_sequence=reference_sequence,
             )
+            provider.activate(request.model_name, request.backbone_noise)
             with self._resources.engine_invocation(
                 engine_role=engine_role,
                 invocation_provenance=EngineInvocationProvenance(
@@ -428,6 +431,7 @@ class LocalProteinMPNNAdapter:
                 residue_axis=residue_axis,
                 sequence=sequence,
             )
+            provider.activate(request.model_name, request.backbone_noise)
             with self._resources.engine_invocation(
                 engine_role="score_subject",
                 invocation_provenance=EngineInvocationProvenance(

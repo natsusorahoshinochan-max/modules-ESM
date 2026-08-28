@@ -27,11 +27,32 @@ from .domain import SequenceSolubilitySubject
 SoluProtMode = Literal["full", "no_tm"]
 SOLUPROT_PROCESS_TIMEOUT_SECONDS: float = 300.0
 SOLUPROT_TMHMM_RELATIVE_ROOT = Path("soluprot_assets/tmhmm-2.0d")
+SOLUPROT_TMHMM_DECODER_FILE = (
+    f"bin/decodeanhmm.{platform.system()}_{platform.machine()}"
+)
 SOLUPROT_TMHMM_FILES = (
     "bin/tmhmm",
     "bin/tmhmmformat.pl",
+    SOLUPROT_TMHMM_DECODER_FILE,
     "lib/TMHMM2.0.model",
     "lib/TMHMM2.0.options",
+)
+SOLUPROT_PROVIDER_SOURCE_FILES = (
+    "soluprot_core/__init__.py",
+    "soluprot_core/cli.py",
+    "soluprot_core/exceptions.py",
+    "soluprot_core/features.py",
+    "soluprot_core/model.py",
+    "soluprot_core/parsers.py",
+    "soluprot_core/paths.py",
+    "feature_scripts/__init__.py",
+    "feature_scripts/blast6_to_max_id_csv.py",
+)
+_SOLUPROT_MODULE_DRIVER = (
+    "import sys;"
+    "sys.path.insert(0,sys.argv.pop(1));"
+    "from soluprot_core.cli import main;"
+    "raise SystemExit(main())"
 )
 
 
@@ -54,11 +75,11 @@ def _validate_tmhmm_runtime(root: Path) -> None:
         root / "bin" / "tmhmm",
         provider_name="SoluProt TMHMM",
     )
-    decoder = (
-        root
-        / "bin"
-        / f"decodeanhmm.{platform.system()}_{platform.machine()}"
+    _require_executable(
+        root / "bin" / "tmhmmformat.pl",
+        provider_name="SoluProt TMHMM formatter",
     )
+    decoder = root / SOLUPROT_TMHMM_DECODER_FILE
     _require_executable(decoder, provider_name="SoluProt TMHMM decoder")
 
 
@@ -94,6 +115,11 @@ def _admit_soluprot_environment(
         raise SolubilityReadinessUnavailable(
             "configured SoluProt package root is unavailable"
         )
+    for relative in SOLUPROT_PROVIDER_SOURCE_FILES:
+        _require_file(
+            site_packages_root / relative,
+            provider_name="SoluProt source",
+        )
     assets = _site_asset_paths(site_packages_root, mode)
     for path in assets.values():
         _require_file(path)
@@ -101,8 +127,9 @@ def _admit_soluprot_environment(
     if mode == "full":
         tmhmm_root = site_packages_root / SOLUPROT_TMHMM_RELATIVE_ROOT
         _validate_tmhmm_runtime(tmhmm_root)
+        perl_executable = cast(Path, environment["perl_executable"])
         _require_executable(
-            cast(Path, environment["perl_executable"]),
+            perl_executable,
             provider_name="SoluProt Perl",
         )
 
@@ -129,6 +156,7 @@ class _TrustedSoluProtEnvironment:
     """Runtime paths already admitted by per-run Binding readiness."""
 
     python_executable: Path
+    site_packages_root: Path
     model_json: Path
     reference_database: Path
     usearch_executable: Path
@@ -151,6 +179,7 @@ def _trusted_soluprot_environment(
     )
     return _TrustedSoluProtEnvironment(
         python_executable=cast(Path, environment["python_executable"]),
+        site_packages_root=site_packages_root,
         model_json=assets["model_json"],
         reference_database=assets["reference_database"],
         usearch_executable=cast(Path, environment["usearch_executable"]),
@@ -181,14 +210,19 @@ def _prepare_soluprot_invocation(
     scratch_path.mkdir(mode=0o700)
     bytecode_path = staging_directory / "bytecode-cache"
     bytecode_path.mkdir(mode=0o700)
+    if mode == "full":
+        (staging_directory / "perl").symlink_to(
+            cast(Path, resolved_environment.perl_executable)
+        )
     _write_fasta(input_path, sequences)
     command = [
         str(resolved_environment.python_executable),
         "-I",
         "-X",
         f"pycache_prefix={bytecode_path}",
-        "-m",
-        "soluprot_core.cli",
+        "-c",
+        _SOLUPROT_MODULE_DRIVER,
+        str(resolved_environment.site_packages_root),
         "--i_fa",
         str(input_path),
         "--o_csv",
@@ -276,7 +310,7 @@ class LocalSoluProtAdapter:
                     staging_directory=staging_directory,
                     resources=self.resources,
                     path_entries=(
-                        (resolved.perl_executable.parent,)
+                        (staging_directory,)
                         if resolved.perl_executable is not None
                         else ()
                     ),

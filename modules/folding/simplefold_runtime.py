@@ -13,11 +13,10 @@ import sys
 import threading
 from argparse import Namespace
 from copy import deepcopy
+from dataclasses import dataclass, field
 from functools import partial, wraps
 from pathlib import Path
 from typing import Any, Callable
-
-import torch
 
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
@@ -40,6 +39,8 @@ def _load_reviewed_simplefold_esm2(
     model_path: Path,
 ) -> tuple[Any, Any]:
     """Load Facebook ESM2 locally after replacing Biohub's `esm` namespace."""
+    import torch
+
     prior_esm_modules = {
         module_name: module
         for module_name, module in tuple(sys.modules.items())
@@ -102,6 +103,7 @@ def _load_reviewed_torch_module(
     """Bind a reviewed checkpoint without retaining a copied state dictionary."""
     import hydra
     import omegaconf
+    import torch
 
     checkpoint = torch.load(
         checkpoint_path,
@@ -169,7 +171,7 @@ def _restore_process_cwd(function: Callable[..., Any]) -> Callable[..., Any]:
 
 
 @_restore_process_cwd
-def fold_sequence(
+def activate_fold_sequence(
     sequence: ProteinSequence,
     *,
     num_steps: int,
@@ -180,19 +182,17 @@ def fold_sequence(
     staged_esm2_source_root: Path,
     staged_esm2_model_root: Path,
     device: str,
-) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
-    """Fold a protein sequence using SimpleFold.
+) -> ActivatedSimpleFoldFolding:
+    """Import SimpleFold, load ESM2, and prepare its fixed request."""
+    import torch
 
-    Returns structures plus provider-native per-sample confidence data.
-
-    num_steps is the exact Plan-normalized value admitted by the Binding.
-    """
     artifacts = staging_directory / "simplefold_artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     model_dir = staged_model_root
     esm2_source_root = staged_esm2_source_root
     esm2_model_dir = staged_esm2_model_root
     _setup_simplefold_imports()
+    provider_directory = Path.cwd()
     from simplefold.wrapper import InferenceWrapper
     from simplefold.utils.boltz_utils import (
         process_structure,
@@ -213,17 +213,6 @@ def fold_sequence(
     cache = artifacts / "cache"
     cache.mkdir(parents=True, exist_ok=True)
 
-    # Write sequence to FASTA
-    fasta_path = cache / "input.fasta"
-    fasta_path.write_text(f">A|Protein\n{sequence.sequence}\n")
-
-    # Process FASTA against the admitted CCD asset by exact path (no copy).
-    process_fastas(
-        data=[fasta_path],
-        out_dir=output_dir,
-        ccd_path=model_dir / "ccd.pkl",
-    )
-
     torch_device = torch.device(device)
 
     # Initialize inference wrapper
@@ -237,87 +226,138 @@ def fold_sequence(
         backend="torch",
     )
 
-    struct_files = list(output_dir.glob("structures/*.npz"))
-
-    prepared_inputs: list[tuple[Any, Any, Any]] = []
-    for struct_file in struct_files:
-        record_file = output_dir / "records" / f"{struct_file.stem}.json"
-        prepared_inputs.append(
-            process_one_inference_structure(
-                struct_file,
-                record_file,
-                inf_wrapper.tokenizer,
-                inf_wrapper.featurizer,
-                inf_wrapper.processor,
-                inf_wrapper.esm_model,
-                inf_wrapper.esm_dict,
-                inf_wrapper.af2_to_esm,
-            )
-        )
-
-    # ESM2 is only needed to materialize the detached language-model features.
-    # Release its 3B parameters before loading folding and pLDDT weights.
-    inf_wrapper.esm_model = None
-    inf_wrapper.esm_dict = None
-    inf_wrapper.af2_to_esm = None
-    gc.collect()
-
-    model, plddt_models = _load_reviewed_folding_models(
-        model_dir,
-        torch_device,
+    fasta_path = cache / "input.fasta"
+    fasta_path.write_text(f">A|Protein\n{sequence.sequence}\n")
+    process_fastas(
+        data=[fasta_path],
+        out_dir=output_dir,
+        ccd_path=model_dir / "ccd.pkl",
+    )
+    return ActivatedSimpleFoldFolding(
+        provider_directory=provider_directory,
+        model_directory=model_dir,
+        output_directory=output_dir,
+        inference_wrapper=inf_wrapper,
+        process_one_inference_structure=process_one_inference_structure,
+        torch_device=torch_device,
+        torch_module=torch,
+        effective_seed=effective_seed,
+        num_samples=num_samples,
+        process_structure=process_structure,
+        to_pdb=sf_to_pdb,
     )
 
-    structures: list[ProteinStructure] = []
-    confidence_results: list[dict[str, Any]] = []
 
-    for batch, structure, record in prepared_inputs:
-        # Run inference
-        fork_devices = (
-            [
-                torch_device.index
-                if torch_device.index is not None
-                else torch.cuda.current_device()
-            ]
-            if torch_device.type == "cuda"
-            else []
+@dataclass(slots=True)
+class ActivatedSimpleFoldFolding:
+    """The two serial scientific engines of one SimpleFold folding call."""
+
+    provider_directory: Path
+    model_directory: Path
+    output_directory: Path
+    inference_wrapper: Any
+    process_one_inference_structure: Callable[..., tuple[Any, Any, Any]]
+    torch_device: Any
+    torch_module: Any
+    effective_seed: int
+    num_samples: int
+    process_structure: Callable[..., Any]
+    to_pdb: Callable[..., str]
+    prepared_inputs: tuple[tuple[Any, Any, Any], ...] = field(init=False)
+    folding_model: Any = field(init=False)
+    plddt_models: dict[str, Any] = field(init=False)
+
+    @_restore_process_cwd
+    def prepare_inputs(self) -> None:
+        """Run the ESM2 feature engine and release its resident model."""
+        os.chdir(self.provider_directory)
+        try:
+            self.prepared_inputs = tuple(
+                self.process_one_inference_structure(
+                    struct_file,
+                    self.output_directory
+                    / "records"
+                    / f"{struct_file.stem}.json",
+                    self.inference_wrapper.tokenizer,
+                    self.inference_wrapper.featurizer,
+                    self.inference_wrapper.processor,
+                    self.inference_wrapper.esm_model,
+                    self.inference_wrapper.esm_dict,
+                    self.inference_wrapper.af2_to_esm,
+                )
+                for struct_file in self.output_directory.glob(
+                    "structures/*.npz"
+                )
+            )
+        finally:
+            self.inference_wrapper.esm_model = None
+            self.inference_wrapper.esm_dict = None
+            self.inference_wrapper.af2_to_esm = None
+            gc.collect()
+
+    @_restore_process_cwd
+    def activate_final_models(self) -> None:
+        """Load the folding and confidence models after ESM2 is released."""
+        os.chdir(self.provider_directory)
+        self.folding_model, self.plddt_models = (
+            _load_reviewed_folding_models(
+                self.model_directory,
+                self.torch_device,
+            )
         )
-        with torch.random.fork_rng(devices=fork_devices):
-            torch.manual_seed(effective_seed)
-            results = inf_wrapper.run_inference(
-                batch,
-                model,
-                plddt_models,
-                torch_device,
+
+    @_restore_process_cwd
+    def invoke(
+        self,
+    ) -> tuple[list[ProteinStructure], list[dict[str, Any]]]:
+        """Enter the already-activated provider's scientific engine once."""
+        os.chdir(self.provider_directory)
+        structures: list[ProteinStructure] = []
+        confidence_results: list[dict[str, Any]] = []
+
+        for batch, structure, record in self.prepared_inputs:
+            fork_devices = (
+                [
+                    self.torch_device.index
+                    if self.torch_device.index is not None
+                    else self.torch_module.cuda.current_device()
+                ]
+                if self.torch_device.type == "cuda"
+                else []
             )
+            with self.torch_module.random.fork_rng(devices=fork_devices):
+                self.torch_module.manual_seed(self.effective_seed)
+                results = self.inference_wrapper.run_inference(
+                    batch,
+                    self.folding_model,
+                    self.plddt_models,
+                    self.torch_device,
+                )
 
-        sampled_coord = results["sampled_coord"]
-        pad_mask = results["pad_mask"]
-        plddts = results["plddts"]
+            sampled_coord = results["sampled_coord"]
+            pad_mask = results["pad_mask"]
+            plddts = results["plddts"]
 
-        for i in range(num_samples):
-            coord_i = sampled_coord[i]
-            mask_i = pad_mask[i]
-            plddt_i = plddts[i]
-
-            # Process and save structure
-            structure_save = process_structure(
-                deepcopy(structure),
-                coord_i,
-                mask_i,
-                record,
-                backend="torch",
-            )
-
-            # Get PDB string
-            pdb_string = sf_to_pdb(structure_save, plddts=plddt_i)
-            ps = ProteinStructure(pdb_string=pdb_string)
-            structures.append(ps)
-
-            # Collect pLDDT scores
-            confidence_results.append(
-                {
-                    "per_residue": plddt_i.detach().cpu().tolist(),
-                    "sample_index": i,
-                }
-            )
-    return structures, confidence_results
+            for sample_index in range(self.num_samples):
+                structure_save = self.process_structure(
+                    deepcopy(structure),
+                    sampled_coord[sample_index],
+                    pad_mask[sample_index],
+                    record,
+                    backend="torch",
+                )
+                pdb_string = self.to_pdb(
+                    structure_save,
+                    plddts=plddts[sample_index],
+                )
+                structures.append(ProteinStructure(pdb_string=pdb_string))
+                confidence_results.append(
+                    {
+                        "per_residue": plddts[sample_index]
+                        .detach()
+                        .cpu()
+                        .tolist(),
+                        "sample_index": sample_index,
+                    }
+                )
+        return structures, confidence_results

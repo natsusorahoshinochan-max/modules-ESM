@@ -14,7 +14,11 @@ import threading
 import time
 from typing import Any, ContextManager, Protocol, cast
 
-from core.operation import EngineInvocationProvenance, ManagedProcessResult
+from core.operation import (
+    EngineInvocationProvenance,
+    ExecutionTermination,
+    ManagedProcessResult,
+)
 from core.execution.run_context import RunContext
 from core.project.manager import ProjectInputDescriptor, ProjectManager
 
@@ -114,15 +118,20 @@ def _signal_process_group(
     process_signal: signal.Signals,
     *,
     fallback: Callable[[], None] | None = None,
-) -> None:
+) -> bool:
     """Signal an isolated group without risking the backend's own group."""
     try:
         if process_group <= 1 or process_group == os.getpgrp():
             raise PermissionError
         os.killpg(process_group, process_signal)
-    except (ProcessLookupError, PermissionError, OSError):
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
         if fallback is not None:
             fallback()
+            return True
+        return False
+    return True
 
 
 class CancellationControl:
@@ -131,10 +140,12 @@ class CancellationControl:
     def __init__(self) -> None:
         self._condition = threading.Condition(threading.RLock())
         self._cleanup_lock = threading.Lock()
-        self._cleanup_complete = threading.Event()
         self._requested = False
+        self._cleanup_generation = 0
+        self._completed_cleanup_generation = 0
         self._next_registration = 0
         self._cleanup_error: BaseException | None = None
+        self._cancelled_registrations: set[int] = set()
         self._process_groups: dict[
             int,
             tuple[int, Callable[[], None] | None],
@@ -152,7 +163,7 @@ class CancellationControl:
             self._process_groups[registration] = (process_group, fallback)
             requested = self._requested
             if requested:
-                self._cleanup_complete.clear()
+                self._cleanup_generation += 1
         if requested:
             threading.Thread(
                 target=self.request,
@@ -161,32 +172,42 @@ class CancellationControl:
             ).start()
         return registration
 
-    def unregister_process_group(self, registration: int) -> None:
+    def unregister_process_group(self, registration: int) -> bool:
         with self._condition:
-            entry = self._process_groups.pop(registration, None)
+            entry = self._process_groups.get(registration)
         if entry is None:
-            return
+            return False
         process_group, fallback = entry
         # The host's own process group is not an owned Provider descendant and
         # is never concluded by unregister; only isolated Provider groups are.
         if process_group <= 1 or process_group == os.getpgrp():
             with self._condition:
+                was_cancelled = registration in self._cancelled_registrations
+                self._process_groups.pop(registration, None)
+                self._cancelled_registrations.discard(registration)
                 self._condition.notify_all()
-            return
+            return was_cancelled
         if not _process_group_active(process_group):
             with self._condition:
+                was_cancelled = registration in self._cancelled_registrations
+                self._process_groups.pop(registration, None)
+                self._cancelled_registrations.discard(registration)
                 self._condition.notify_all()
-            return
+            return was_cancelled
         # Leader exit alone must not close ownership while descendants remain.
         _conclude_process_group(process_group, fallback=fallback)
-        if _process_group_active(process_group):
-            with self._condition:
+        with self._condition:
+            was_cancelled = registration in self._cancelled_registrations
+            if _process_group_active(process_group):
                 if self._cleanup_error is None:
                     self._cleanup_error = RuntimeError(
                         "Run process-group cleanup could not be confirmed"
                     )
-        with self._condition:
+            else:
+                self._process_groups.pop(registration, None)
+                self._cancelled_registrations.discard(registration)
             self._condition.notify_all()
+            return was_cancelled
 
     @staticmethod
     def _process_group_active(process_group: int) -> bool:
@@ -194,37 +215,49 @@ class CancellationControl:
 
     def _active_groups(
         self,
+        registrations: tuple[int, ...],
     ) -> tuple[tuple[int, int, Callable[[], None] | None], ...]:
         with self._condition:
-            for registration, (process_group, _) in tuple(
-                self._process_groups.items()
-            ):
-                if not self._process_group_active(process_group):
-                    self._process_groups.pop(registration, None)
             return tuple(
-                (registration, process_group, fallback)
-                for registration, (process_group, fallback) in (
-                    self._process_groups.items()
-                )
+                (registration, entry[0], entry[1])
+                for registration in registrations
+                if (entry := self._process_groups.get(registration))
+                is not None
+                if self._process_group_active(entry[0])
             )
 
-    def _signal_all(self, process_signal: signal.Signals) -> None:
-        for _, process_group, fallback in self._active_groups():
+    def _signal_all(
+        self,
+        process_signal: signal.Signals,
+        registrations: tuple[int, ...],
+    ) -> None:
+        for registration, process_group, fallback in self._active_groups(
+            registrations
+        ):
             try:
-                _signal_process_group(
-                    process_group,
-                    process_signal,
-                    fallback=fallback,
-                )
+                with self._condition:
+                    if registration not in self._process_groups:
+                        continue
+                    signalled = _signal_process_group(
+                        process_group,
+                        process_signal,
+                        fallback=fallback,
+                    )
+                    if signalled:
+                        self._cancelled_registrations.add(registration)
             except BaseException as error:
                 with self._condition:
                     if self._cleanup_error is None:
                         self._cleanup_error = error
 
-    def _wait_for_exit(self, timeout_seconds: float) -> bool:
+    def _wait_for_exit(
+        self,
+        timeout_seconds: float,
+        registrations: tuple[int, ...],
+    ) -> bool:
         deadline = time.monotonic() + timeout_seconds
         with self._condition:
-            while self._active_groups():
+            while self._active_groups(registrations):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     return False
@@ -233,15 +266,29 @@ class CancellationControl:
 
     def request(self) -> None:
         with self._cleanup_lock:
-            self._cleanup_complete.clear()
-            try:
-                with self._condition:
+            with self._condition:
+                if not self._requested:
                     self._requested = True
-                self._signal_all(signal.SIGTERM)
-                if self._wait_for_exit(CANCELLATION_TERM_GRACE_SECONDS):
+                    self._cleanup_generation += 1
+                if (
+                    self._completed_cleanup_generation
+                    >= self._cleanup_generation
+                ):
                     return
-                self._signal_all(signal.SIGKILL)
-                if self._wait_for_exit(CANCELLATION_KILL_GRACE_SECONDS):
+                generation = self._cleanup_generation
+                registrations = tuple(self._process_groups)
+            try:
+                self._signal_all(signal.SIGTERM, registrations)
+                if self._wait_for_exit(
+                    CANCELLATION_TERM_GRACE_SECONDS,
+                    registrations,
+                ):
+                    return
+                self._signal_all(signal.SIGKILL, registrations)
+                if self._wait_for_exit(
+                    CANCELLATION_KILL_GRACE_SECONDS,
+                    registrations,
+                ):
                     return
                 with self._condition:
                     if self._cleanup_error is None:
@@ -249,7 +296,12 @@ class CancellationControl:
                             "Run process-group cleanup could not be confirmed"
                         )
             finally:
-                self._cleanup_complete.set()
+                with self._condition:
+                    self._completed_cleanup_generation = max(
+                        self._completed_cleanup_generation,
+                        generation,
+                    )
+                    self._condition.notify_all()
 
     def wait_for_cleanup(self) -> None:
         """Wait until the cancellation owner reaches a bounded conclusion."""
@@ -258,9 +310,30 @@ class CancellationControl:
             + CANCELLATION_KILL_GRACE_SECONDS
             + 0.25
         )
-        if self._cleanup_complete.wait(timeout):
-            return
         with self._condition:
+            completed_generation = self._completed_cleanup_generation
+            deadline = time.monotonic() + timeout
+            while (
+                self._completed_cleanup_generation
+                < self._cleanup_generation
+            ):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._condition.wait(remaining)
+                if (
+                    self._completed_cleanup_generation
+                    > completed_generation
+                ):
+                    completed_generation = (
+                        self._completed_cleanup_generation
+                    )
+                    deadline = time.monotonic() + timeout
+            if (
+                self._completed_cleanup_generation
+                >= self._cleanup_generation
+            ):
+                return
             if self._cleanup_error is None:
                 self._cleanup_error = RuntimeError(
                     "Run cancellation cleanup did not reach a conclusion"
@@ -358,10 +431,24 @@ class RunResources:
             process_group,
             fallback=fallback,
         )
+        primary_error: BaseException | None = None
         try:
             yield
+        except BaseException as error:
+            primary_error = error
+            raise
         finally:
-            self._cancellation_control.unregister_process_group(registration)
+            was_cancelled = (
+                self._cancellation_control.unregister_process_group(
+                    registration
+                )
+            )
+            cleanup_error = self._cancellation_control.cleanup_error
+            if cleanup_error is not None and cleanup_error is not primary_error:
+                if primary_error is None:
+                    raise cleanup_error
+            if was_cancelled and primary_error is None:
+                raise ExecutionTermination("cancelled")
 
     def run_managed_local_process(
         self,
@@ -409,10 +496,13 @@ class RunResources:
             except (ProcessLookupError, OSError):
                 pass
 
-        with self.cancellable_process_group(
+        registration = self._cancellation_control.register_process_group(
             process_group,
             fallback=_safe_kill,
-        ):
+        )
+        timed_out = False
+        was_cancelled = False
+        try:
             try:
                 stdout_data, stderr_data = process.communicate(
                     timeout=timeout_seconds,
@@ -428,9 +518,22 @@ class RunResources:
                     )
                 except subprocess.TimeoutExpired:
                     pass
-                raise ManagedProcessTimeout(
-                    "Local provider invocation timed out safely"
+                timed_out = True
+        finally:
+            was_cancelled = (
+                self._cancellation_control.unregister_process_group(
+                    registration
                 )
+            )
+        if was_cancelled:
+            raise ExecutionTermination("cancelled")
+        if timed_out:
+            raise ManagedProcessTimeout(
+                "Local provider invocation timed out safely"
+            )
+        cleanup_error = self._cancellation_control.cleanup_error
+        if cleanup_error is not None:
+            raise cleanup_error
         return ManagedProcessResult(
             returncode=cast(int, process.returncode),
             stdout=stdout_data or b"",

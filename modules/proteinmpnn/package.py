@@ -32,10 +32,10 @@ from core.local_torch_device import LOCAL_TORCH_DEVICE_POLICY
 
 from .adapter import (
     LocalProteinMPNNAdapter,
-    PROTEINMPNN_CHECKPOINT,
     PROTEINMPNN_MODEL,
     proteinmpnn_readiness,
 )
+from .assets import PROTEINMPNN_FIXED_ASSET_FILES
 from . import port_types as _port_types
 
 
@@ -366,10 +366,9 @@ def _binding(operation: str) -> ExecutionBindingDefinition:
                 prerequisites={
                     "provider_root": {
                         "path_source": "trusted_environment_configuration",
-                    },
-                    "model_checkpoint": {
-                        "relative_path": PROTEINMPNN_CHECKPOINT,
-                        "path_source": "provider_root",
+                        "required_relative_files": (
+                            PROTEINMPNN_FIXED_ASSET_FILES
+                        ),
                     },
                     "device": {
                         "source": "adapter",

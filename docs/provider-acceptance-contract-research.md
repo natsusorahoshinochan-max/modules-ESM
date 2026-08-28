@@ -321,7 +321,9 @@ b7e716a8e611577a465bd3510702fcd12a5de5a38299946707ca8a0995630e4c
 
 - `SOLUPROT_VERSION = "1.1.0"`；
 - 由目标机从 [`repositories/soluprot-next`](../repositories/soluprot-next) 构建并安装的 `soluprot 1.1.0`；
-- entry point `python -I -m soluprot_core.cli`；
+- configured Python 以 `-I -c` 启动，并把 Readiness 已准入的
+  `site_packages_root` 显式放入该进程的 isolated import path 后调用
+  `soluprot_core.cli.main`；
 - JSON/NPZ models；
 - `--i_fa`、`--o_csv`、`--tmp_dir`、`--model`、`--usearch`、`--pdb`、`--check_unknown`、`--no_proc 1`，再选择 TMHMM 或 `--no_tmhmm`。
 

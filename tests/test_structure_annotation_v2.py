@@ -28,6 +28,7 @@ from core.operation import (
 )
 from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
+from core.execution.resources import RunResources
 from core.execution.runtime import (
     V2RunError,
     V2RunService,
@@ -65,6 +66,9 @@ from modules.structure_annotation.implementation import (
     DSSPComputeOperation,
     SASAComputeOperation,
     SecondaryStructureExtractOperation,
+)
+from modules.structure_annotation.adapter import (
+    MKDSSP_PROCESS_TIMEOUT_SECONDS,
 )
 from modules.structure_annotation.package import (
     MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE,
@@ -1321,6 +1325,57 @@ def _pdb_ca_line(
     )
     assert len(line) == 80
     return line
+
+
+def test_mkdssp_route_uses_the_exact_120_second_process_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_timeouts: list[float] = []
+    run_process = RunResources.run_managed_local_process
+
+    def record_timeout(self: RunResources, **kwargs: Any):
+        observed_timeouts.append(kwargs["timeout_seconds"])
+        return run_process(self, **kwargs)
+
+    monkeypatch.setattr(
+        RunResources,
+        "run_managed_local_process",
+        record_timeout,
+    )
+    _, _, projection, _, _ = _run_dssp(
+        tmp_path,
+        monkeypatch,
+        pdb_text=(
+            "ATOM      1  CA  GLY A   1       "
+            "1.000   2.000   3.000  1.00 20.00           C  \n"
+            "TER\nEND\n"
+        ),
+        dssp_output="""\
+data_fixture
+loop_
+_atom_site.label_asym_id
+_atom_site.label_seq_id
+_atom_site.auth_asym_id
+_atom_site.auth_seq_id
+_atom_site.pdbx_PDB_ins_code
+X 1 A 1 ?
+#
+loop_
+_dssp_struct_summary.entry_id
+_dssp_struct_summary.label_asym_id
+_dssp_struct_summary.label_seq_id
+_dssp_struct_summary.label_comp_id
+_dssp_struct_summary.secondary_structure
+_dssp_struct_summary.accessibility
+fixture X 1 GLY . 10.0
+#
+""",
+    )
+
+    assert projection["status"] == "succeeded"
+    assert MKDSSP_PROCESS_TIMEOUT_SECONDS == 120.0
+    assert observed_timeouts == [120.0]
 
 
 def test_dssp_compute_joins_label_ids_through_atom_site_to_exact_authored_axis(

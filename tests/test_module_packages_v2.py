@@ -384,6 +384,49 @@ def test_only_adapter_bindings_declare_provider_readiness() -> None:
                 assert "readiness_declaration" not in resolved.descriptor
 
 
+def test_provider_execution_profiles_cover_every_adapter_binding() -> None:
+    focused_profile_bindings = {
+        "local_assets": {
+            "esm3.generate_sequence.local_open",
+            "esm3.generate_structure.local_open",
+            "esm3.generate_paired.local_open",
+            "folding.fold.esmfold2_local",
+            "folding.fold.simplefold_local",
+            "folding.simplefold_confidence.simplefold_local",
+            "proteinmpnn.design.local",
+            "proteinmpnn.score.local",
+        },
+        "remote_provider": {
+            "esm3.generate_sequence.biohub_medium",
+            "esm3.generate_structure.biohub_medium",
+            "esm3.generate_paired.biohub_medium",
+            "esm3.generate_sequence.biohub_open",
+            "esm3.generate_structure.biohub_open",
+            "esm3.generate_paired.biohub_open",
+            "esm3.represent_sequence.biohub_esmc_600m_2024_12",
+            "folding.fold.esmfold2_remote",
+        },
+        "local_process": {
+            "solubility.soluprot_full.local",
+            "solubility.soluprot_no_tm.local",
+            "solubility.protein_sol.local",
+            "structure_annotation.dssp_compute.mkdssp_local",
+        },
+    }
+    represented_bindings = set().union(*focused_profile_bindings.values())
+    adapter_bindings = {
+        binding.binding_id
+        for registration in module_registrations()
+        for binding in registration.bindings
+        if binding.execution_route == "adapter"
+    }
+
+    assert sum(map(len, focused_profile_bindings.values())) == len(
+        represented_bindings
+    )
+    assert represented_bindings == adapter_bindings
+
+
 def test_package_owned_port_type_has_one_independent_exact_reference(
     tmp_path: Path,
     monkeypatch,

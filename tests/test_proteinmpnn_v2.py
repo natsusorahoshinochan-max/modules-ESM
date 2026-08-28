@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from modules.proteinmpnn.assets import PROTEINMPNN_FIXED_ASSET_FILES
 
 from core.local_torch_device import (
     expected_local_torch_device,
@@ -1069,6 +1070,10 @@ class _ControlledProteinMPNNProvider:
             }
         ]
 
+    @staticmethod
+    def activate(model_name: str, backbone_noise: float) -> None:
+        del model_name, backbone_noise
+
     def design(self, request: Any) -> list[ProteinSequence]:
         self.requests.append(request)
         alphabet = "ACDEFGHIKLMNPQRSTVWY"
@@ -1455,6 +1460,97 @@ def test_scoring_emits_one_exact_intrinsic_observation_with_real_attempts(
         == invocation["operation_attempt_id"]
         and event["status"] == "succeeded"
         for event in public_events
+    )
+
+
+def test_model_activation_failure_starts_no_engine_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    class FailingActivationProvider(_ControlledProteinMPNNProvider):
+        @staticmethod
+        def activate(model_name: str, backbone_noise: float) -> None:
+            del model_name, backbone_noise
+            raise RuntimeError("ProteinMPNN resident-model activation failed")
+
+    provider = FailingActivationProvider()
+    _install_test_provider(monkeypatch, provider)
+    nodes, edges = _score_workflow()
+    catalog, _, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=edges,
+        registrations=(
+            PROTEINMPNN_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        ),
+        environment=_proteinmpnn_environment(),
+    )
+
+    assert projection["status"] == "failed"
+    score_method_id = catalog.require_contract(
+        "method",
+        "proteinmpnn.score.v_48_020_8907e667",
+    ).contract_id
+    assert all(
+        event["event"]["type"] != "engine_invocation_started"
+        or event["event"]["engine_identity"] != score_method_id
+        for event in events
+    )
+
+
+def test_design_model_activation_failure_starts_no_engine_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from modules.prompt_authoring.package import (
+        MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.proteinmpnn.package import (
+        MODULE_PACKAGE as PROTEINMPNN_PACKAGE,
+    )
+    from tests.fixtures.proteinmpnn_sources.package import (
+        MODULE_PACKAGE as SOURCE_PACKAGE,
+    )
+
+    class FailingActivationProvider(_ControlledProteinMPNNProvider):
+        @staticmethod
+        def activate(model_name: str, backbone_noise: float) -> None:
+            del model_name, backbone_noise
+            raise RuntimeError("ProteinMPNN resident-model activation failed")
+
+    _install_test_provider(monkeypatch, FailingActivationProvider())
+    nodes, edges = _design_workflow()
+    catalog, _, projection, events = _run(
+        tmp_path,
+        nodes=nodes,
+        edges=edges,
+        registrations=(
+            PROMPT_AUTHORING_PACKAGE,
+            PROTEINMPNN_PACKAGE,
+            SOURCE_PACKAGE,
+            STRUCTURE_TRANSFORM_PACKAGE,
+        ),
+        environment=_proteinmpnn_environment(),
+    )
+
+    assert projection["status"] == "failed"
+    design_method_id = catalog.require_contract(
+        "method",
+        "proteinmpnn.design.v_48_020_8907e667",
+    ).contract_id
+    assert all(
+        event["event"]["type"] != "engine_invocation_started"
+        or event["event"]["engine_identity"] != design_method_id
+        for event in events
     )
 
 
@@ -2708,6 +2804,47 @@ def test_provider_scoring_uses_exact_backbone_and_designability_mask(
     )
 
 
+def test_provider_structure_cleanup_does_not_replace_parse_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from core.operation import secondary_cleanup_exception_types
+    import modules.proteinmpnn.provider_runtime as provider_runtime
+
+    class ProviderModule:
+        @staticmethod
+        def parse_PDB(_path: str) -> list[dict[str, Any]]:
+            raise RuntimeError("ProteinMPNN structure parse failed")
+
+    monkeypatch.setattr(
+        provider_runtime,
+        "_provider_module",
+        lambda _provider_root: ProviderModule(),
+    )
+    real_unlink = Path.unlink
+
+    def fail_provider_cleanup(path: Path, *, missing_ok: bool = False) -> None:
+        if path.suffix == ".pdb":
+            raise OSError("fixture PDB cleanup failed")
+        real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", fail_provider_cleanup)
+    provider = provider_runtime._LocalProteinMPNNProvider(
+        provider_root=tmp_path,
+        temp_dir=tmp_path,
+        device="cpu",
+        model_cache={},
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="ProteinMPNN structure parse failed",
+    ) as caught:
+        provider.parse_structure("MODEL\nEND\n")
+
+    assert secondary_cleanup_exception_types(caught.value) == ("OSError",)
+
+
 def test_design_produces_canonical_three_parent_by_five_child_lineage(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -3304,6 +3441,46 @@ def test_readiness_uses_configured_provider_root(
     assert proteinmpnn_readiness(
         BindingEnvironment(environment)
     ).passing is True
+
+
+@pytest.mark.parametrize(
+    "removed_relative_path",
+    PROTEINMPNN_FIXED_ASSET_FILES,
+)
+def test_proteinmpnn_readiness_rejects_each_removed_fixed_asset(
+    tmp_path: Path,
+    removed_relative_path: str,
+) -> None:
+    from modules.proteinmpnn.adapter import proteinmpnn_readiness
+    provider_root = tmp_path / "ProteinMPNN"
+    for relative_path in PROTEINMPNN_FIXED_ASSET_FILES:
+        asset = provider_root / relative_path
+        asset.parent.mkdir(parents=True, exist_ok=True)
+        asset.write_bytes(b"provider fixture")
+    environment = BindingEnvironment({"provider_root": provider_root})
+    assert proteinmpnn_readiness(environment).passing is True
+
+    (provider_root / removed_relative_path).unlink()
+
+    assert proteinmpnn_readiness(environment).passing is False
+
+
+@pytest.mark.parametrize("operation", ("design", "score"))
+def test_model_binding_catalog_enumerates_fixed_asset_union(
+    operation: str,
+) -> None:
+    catalog = build_frozen_catalog(module_registrations())
+    binding = catalog.require_contract(
+        "binding",
+        f"proteinmpnn.{operation}.local",
+    )
+    prerequisites = binding.descriptor["readiness_declaration"][
+        "prerequisites"
+    ]
+    assert prerequisites["provider_root"][
+        "required_relative_files"
+    ] == PROTEINMPNN_FIXED_ASSET_FILES
+    assert set(prerequisites) == {"provider_root", "device"}
 
 
 def test_proteinmpnn_readiness_uses_platform_device(

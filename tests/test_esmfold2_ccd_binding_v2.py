@@ -25,7 +25,15 @@ def _reset_ccd_cache() -> None:
     import esm.models.esmfold2.conformers as conformers
 
     conformers._CCD_MOLECULES = None
-    conformers._CCD_CONFORMERS.clear()
+    for cache in (
+        conformers._CCD_CONFORMERS,
+        conformers._CCD_ATOM_CACHE,
+        conformers._CCD_BONDS_CACHE,
+        conformers._CCD_LEAVING_ATOMS_CACHE,
+        conformers._IDEALIZED_POS_CACHE,
+        conformers._LIGAND_IDEALIZED_POS_CACHE,
+    ):
+        cache.clear()
 
 
 def test_admitted_ccd_root_ignores_esmcfold_ccd_path_override(
@@ -51,19 +59,32 @@ def test_admitted_ccd_root_ignores_esmcfold_ccd_path_override(
     assert os.environ.get("ESMCFOLD_CCD_PATH") == str(decoy_root / "ccd.pkl")
 
 
-def test_admitted_ccd_root_reuses_existing_cache_without_touching_env(
+def test_admitted_ccd_root_replaces_every_foreign_cache_atomically(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A populated cache short-circuits; the ambient override is untouched."""
+    """All process CCD state is rebound to the one admitted model root."""
     import esm.models.esmfold2.conformers as conformers
     from modules.folding.esmfold2_local import _admitted_ccd_root
 
-    conformers._CCD_MOLECULES = {"existing": True}
+    _write_ccd(tmp_path / "ccd.pkl", {"comp": "admitted"})
+    conformers._CCD_MOLECULES = {"comp": "foreign"}
+    conformers._CCD_CONFORMERS["foreign"] = {"CA": object()}
+    conformers._CCD_ATOM_CACHE["foreign"] = [("CA", "C", 0)]
+    conformers._CCD_BONDS_CACHE["foreign"] = [("CA", "CB")]
+    conformers._CCD_LEAVING_ATOMS_CACHE["foreign"] = {"OXT"}
+    conformers._IDEALIZED_POS_CACHE[(0, "CA")] = None
+    conformers._LIGAND_IDEALIZED_POS_CACHE[("foreign", "CA")] = None
     monkeypatch.setenv("ESMCFOLD_CCD_PATH", "/nonexistent/decoy.pkl")
 
     with _admitted_ccd_root(tmp_path):
-        assert conformers._CCD_MOLECULES == {"existing": True}
+        assert conformers._CCD_MOLECULES == {"comp": "admitted"}
+        assert conformers._CCD_CONFORMERS == {}
+        assert conformers._CCD_ATOM_CACHE == {}
+        assert conformers._CCD_BONDS_CACHE == {}
+        assert conformers._CCD_LEAVING_ATOMS_CACHE == {}
+        assert conformers._IDEALIZED_POS_CACHE == {}
+        assert conformers._LIGAND_IDEALIZED_POS_CACHE == {}
 
     assert os.environ.get("ESMCFOLD_CCD_PATH") == "/nonexistent/decoy.pkl"
 

@@ -47,6 +47,8 @@ from .esmfold2_contract import (
     REMOTE_ESMFOLD2_MODEL,
 )
 from .esmfold2_local import (
+    LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES,
+    LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES,
     LocalESMFold2Adapter,
     local_readiness,
     local_runtime_structurally_available,
@@ -285,11 +287,17 @@ def _binding(route: str) -> ExecutionBindingDefinition:
                 "model_snapshot": {
                     "source": LOCAL_ESMFOLD2_MODEL,
                     "path_source": "trusted_environment_configuration",
+                    "required_relative_files": (
+                        LOCAL_ESMFOLD2_MODEL_SNAPSHOT_FILES
+                    ),
                 },
                 "language_model_snapshot": {
                     "source": LOCAL_ESMC_MODEL,
                     "precision": LOCAL_ESMC_PRECISION,
                     "path_source": "trusted_environment_configuration",
+                    "required_relative_files": (
+                        LOCAL_ESMFOLD2_LANGUAGE_MODEL_SNAPSHOT_FILES
+                    ),
                 },
                 "device": {
                     "source": "adapter",
@@ -404,7 +412,7 @@ def _simplefold_binding() -> ExecutionBindingDefinition:
             {
                 "provider_contract": "ml-simplefold",
                 "native_scale": "[0,100]_identity",
-                "staging": "one-private-directory-per-engine-invocation",
+                "staging": "one-private-directory-per-adapter-call",
                 "engine_identity": "stable_method_id",
                 "randomness_evidence": "exact_seed",
                 "pdb_translation": (
