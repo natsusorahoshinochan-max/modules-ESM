@@ -12,7 +12,6 @@ import sys
 from argparse import Namespace
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any, cast, Protocol, TypedDict
 
@@ -40,7 +39,7 @@ from .simplefold_asset_closure import (
 from .simplefold_runtime import (
     _load_reviewed_plddt_models,
     _restore_process_cwd,
-    _setup_simplefold_imports,
+    _simplefold_activation_scope,
 )
 
 
@@ -257,16 +256,15 @@ class ActivatedSimpleFoldConfidence:
             self.af2_to_esm = None
             gc.collect()
 
-    @_restore_process_cwd
     def activate_final_models(self) -> None:
         """Load the confidence models after ESM2 is released."""
-        os.chdir(self.provider_directory)
-        plddt_models = _load_reviewed_plddt_models(
-            self.model_directory,
-            self.torch_device,
-        )
-        self.latent_module = plddt_models["plddt_latent_module"]
-        self.output_module = plddt_models["plddt_out_module"]
+        with _simplefold_activation_scope():
+            plddt_models = _load_reviewed_plddt_models(
+                self.model_directory,
+                self.torch_device,
+            )
+            self.latent_module = plddt_models["plddt_latent_module"]
+            self.output_module = plddt_models["plddt_out_module"]
 
     @_restore_process_cwd
     def invoke(self) -> _SimpleFoldConfidenceNativeResult:
@@ -351,7 +349,6 @@ class ActivatedSimpleFoldConfidence:
         }
 
 
-@_restore_process_cwd
 def activate_existing_structure_confidence(
     *,
     residue_axis: ResolvedStructureResidueAxis,
@@ -366,86 +363,85 @@ def activate_existing_structure_confidence(
     model_dir = bound_closure.group_root("simplefold_models")
     esm2_model_dir = bound_closure.group_root("esm2_models")
     esm2_source_root = bound_closure.group_root("esm2_source")
-    _setup_simplefold_imports()
-    provider_directory = Path.cwd()
-    from simplefold.boltz_data_pipeline import const
-    from simplefold.boltz_data_pipeline.feature.featurizer import (
-        BoltzFeaturizer,
-    )
-    from simplefold.boltz_data_pipeline.parse.fasta import parse_fasta
-    from simplefold.boltz_data_pipeline.tokenize.boltz_protein import (
-        BoltzTokenizer,
-    )
-    from simplefold.processor.protein_processor import ProteinDataProcessor
-    from simplefold.utils.datamodule_utils import (
-        process_one_inference_structure,
-    )
-    from simplefold.utils.esm_utils import _af2_to_esm, esm_registry
+    with _simplefold_activation_scope() as provider_directory:
+        from simplefold.boltz_data_pipeline import const
+        from simplefold.boltz_data_pipeline.feature.featurizer import (
+            BoltzFeaturizer,
+        )
+        from simplefold.boltz_data_pipeline.parse.fasta import parse_fasta
+        from simplefold.boltz_data_pipeline.tokenize.boltz_protein import (
+            BoltzTokenizer,
+        )
+        from simplefold.processor.protein_processor import (
+            ProteinDataProcessor,
+        )
+        from simplefold.utils.datamodule_utils import (
+            process_one_inference_structure,
+        )
+        from simplefold.utils.esm_utils import _af2_to_esm
 
-    esm_registry["esm2_3B"] = partial(
-        _load_representation_only_esm2,
-        esm2_source_root,
-        esm2_model_dir / "esm2_t36_3B_UR50D.pt",
-    )
-    cache = staging_directory / "confidence-input"
-    output_dir = staging_directory / "confidence-features"
-    cache.mkdir(mode=0o700)
-    output_dir.mkdir(mode=0o700)
-    torch_device = torch.device(device)
-    esm_model, esm_dict = esm_registry["esm2_3B"]()
-    esm_model = esm_model.to(torch_device).eval()
-    af2_to_esm = _af2_to_esm(esm_dict).to(torch_device)
-    fasta_path = cache / "existing.fasta"
-    fasta_path.write_text(
-        "".join(
-            f">{chain_id}|Protein\n{sequence}\n"
-            for chain_id, sequence in zip(
-                _provider_chain_ids(residue_axis.segments),
-                _segment_sequences(residue_axis),
-                strict=True,
+        esm_model, esm_dict = _load_representation_only_esm2(
+            esm2_source_root,
+            esm2_model_dir / "esm2_t36_3B_UR50D.pt",
+        )
+        cache = staging_directory / "confidence-input"
+        output_dir = staging_directory / "confidence-features"
+        cache.mkdir(mode=0o700)
+        output_dir.mkdir(mode=0o700)
+        torch_device = torch.device(device)
+        esm_model = esm_model.to(torch_device).eval()
+        af2_to_esm = _af2_to_esm(esm_dict).to(torch_device)
+        fasta_path = cache / "existing.fasta"
+        fasta_path.write_text(
+            "".join(
+                f">{chain_id}|Protein\n{sequence}\n"
+                for chain_id, sequence in zip(
+                    _provider_chain_ids(residue_axis.segments),
+                    _segment_sequences(residue_axis),
+                    strict=True,
+                )
             )
         )
-    )
-    with (model_dir / "ccd.pkl").open("rb") as handle:
-        ccd = pickle.load(handle)
-    target = parse_fasta(fasta_path, ccd)
-    for chain in target.record.chains:
-        chain.msa_id = -1
-    structure_dir = output_dir / "structures"
-    record_dir = output_dir / "records"
-    structure_dir.mkdir()
-    record_dir.mkdir()
-    structure_file = structure_dir / f"{target.record.id}.npz"
-    record_file = record_dir / f"{target.record.id}.json"
-    target.structure.dump(structure_file)
-    record_file.write_text(
-        json.dumps(asdict(target.record), sort_keys=True)
-    )
-    return ActivatedSimpleFoldConfidence(
-        provider_directory=provider_directory,
-        model_directory=model_dir,
-        residue_axis=residue_axis,
-        structure_file=structure_file,
-        record_file=record_file,
-        const_module=const,
-        tokenizer=BoltzTokenizer(),
-        featurizer=BoltzFeaturizer(),
-        processor=ProteinDataProcessor(
-            device=torch_device,
-            scale=16.0,
-            ref_scale=5.0,
-            multiplicity=1,
-            inference_multiplicity=1,
-            backend="torch",
-        ),
-        process_one_inference_structure=process_one_inference_structure,
-        esm_model=esm_model,
-        esm_dict=esm_dict,
-        af2_to_esm=af2_to_esm,
-        torch_device=torch_device,
-        torch_module=torch,
-        numpy_module=np,
-    )
+        with (model_dir / "ccd.pkl").open("rb") as handle:
+            ccd = pickle.load(handle)
+        target = parse_fasta(fasta_path, ccd)
+        for chain in target.record.chains:
+            chain.msa_id = -1
+        structure_dir = output_dir / "structures"
+        record_dir = output_dir / "records"
+        structure_dir.mkdir()
+        record_dir.mkdir()
+        structure_file = structure_dir / f"{target.record.id}.npz"
+        record_file = record_dir / f"{target.record.id}.json"
+        target.structure.dump(structure_file)
+        record_file.write_text(
+            json.dumps(asdict(target.record), sort_keys=True)
+        )
+        return ActivatedSimpleFoldConfidence(
+            provider_directory=provider_directory,
+            model_directory=model_dir,
+            residue_axis=residue_axis,
+            structure_file=structure_file,
+            record_file=record_file,
+            const_module=const,
+            tokenizer=BoltzTokenizer(),
+            featurizer=BoltzFeaturizer(),
+            processor=ProteinDataProcessor(
+                device=torch_device,
+                scale=16.0,
+                ref_scale=5.0,
+                multiplicity=1,
+                inference_multiplicity=1,
+                backend="torch",
+            ),
+            process_one_inference_structure=process_one_inference_structure,
+            esm_model=esm_model,
+            esm_dict=esm_dict,
+            af2_to_esm=af2_to_esm,
+            torch_device=torch_device,
+            torch_module=torch,
+            numpy_module=np,
+        )
 
 
 class LocalSimpleFoldConfidenceAdapter:
