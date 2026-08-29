@@ -24,11 +24,6 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Nullable named-atom coordinate fixture values carrying source_layout.
-  - name: source_visibility_track
-    port_type_id: prompt_authoring.track.visibility
-    required: true
-    multiplicity: one
-    scientific_meaning: Nullable visibility fixture values carrying source_layout.
   - name: source_secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
     required: true

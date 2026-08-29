@@ -342,35 +342,6 @@ def test_insertion_deletion_boundaries_and_chain_breaks_remain_explicit(
     )
 
 
-def test_visibility_track_mapping_keeps_nullable_positions_explicit(
-    tmp_path: Path,
-) -> None:
-    catalog, service, projection, _ = run_operation(
-        tmp_path,
-        operation="map_residue_track",
-        node_parameters={},
-        source_edges=(
-            WorkflowEdge(
-                "source",
-                "source_visibility_track",
-                "author",
-                "visibility_track",
-            ),
-            WorkflowEdge("source", "residue_map", "author", "residue_map"),
-        ),
-    )
-
-    assert decoded_output(
-        catalog,
-        service,
-        projection,
-        _author_output(projection),
-    ) == AlignedResidueTrack(
-        TARGET_LAYOUT,
-        (True, None, False),
-    )
-
-
 def test_structure_override_accepts_named_atom_coordinates(
     tmp_path: Path,
 ) -> None:

@@ -18,11 +18,6 @@ inputs:
     required: false
     multiplicity: one
     scientific_meaning: Nullable named-atom coordinates aligned to target_layout.
-  - name: visibility_track
-    port_type_id: prompt_authoring.track.visibility
-    required: false
-    multiplicity: one
-    scientific_meaning: Nullable boolean visibility values aligned to target_layout.
   - name: secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
     required: false
@@ -38,7 +33,6 @@ input_constraints:
     ports:
       - sequence_track
       - structure_track
-      - visibility_track
       - secondary_structure_track
       - sasa_track
 outputs:
@@ -52,11 +46,6 @@ outputs:
     required: false
     multiplicity: one
     scientific_meaning: Identity-aligned named-atom coordinates after explicit overrides.
-  - name: visibility_track
-    port_type_id: prompt_authoring.track.visibility
-    required: false
-    multiplicity: one
-    scientific_meaning: Identity-aligned visibility values after explicit overrides.
   - name: secondary_structure_track
     port_type_id: prompt_authoring.track.secondary_structure
     required: false

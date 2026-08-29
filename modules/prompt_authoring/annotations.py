@@ -37,8 +37,6 @@ def _interval_positions(
 def require_function_annotation_layout(
     annotations: FunctionAnnotations,
     layout: ResidueLayout,
-    *,
-    overlap_policy: str | None = None,
 ) -> FunctionAnnotations:
     """Require only the cross-value annotation-to-layout relationship."""
     residue_index = {
@@ -60,13 +58,6 @@ def require_function_annotation_layout(
             raise ValueError(
                 f"{subject} interval contradicts residue provenance"
             )
-        if (
-            overlap_policy is not None
-            and annotation.overlap_policy != overlap_policy
-        ):
-            raise ValueError(
-                "function_annotations overlap policy does not match"
-            )
     return annotations
 
 
@@ -81,11 +72,7 @@ def add_function_annotation(
     if existing is None:
         current = FunctionAnnotations()
     else:
-        current = require_function_annotation_layout(
-            existing,
-            layout,
-            overlap_policy=overlap_policy,
-        )
+        current = require_function_annotation_layout(existing, layout)
     residue_index = {
         residue_id: index
         for index, residue_id in enumerate(layout.residue_ids)
@@ -113,7 +100,6 @@ def add_function_annotation(
         chain_id=chain_id,
         start_residue_id=start_residue_id,
         end_residue_id=end_residue_id,
-        overlap_policy=overlap_policy,
     )
     appended = FunctionAnnotations(
         sorted(
@@ -128,4 +114,12 @@ def add_function_annotation(
             ),
         )
     )
+    if overlap_policy == "reject":
+        previous_end = 0
+        for item in appended.annotations:
+            if item.start <= previous_end:
+                raise ValueError(
+                    "function annotations overlap under the reject policy"
+                )
+            previous_end = item.end
     return appended

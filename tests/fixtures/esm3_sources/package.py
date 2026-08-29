@@ -47,6 +47,7 @@ class _Source:
         if inputs or set(node_parameters) != {"mode"} or binding_parameters:
             raise ValueError("ESM-3 prompt source accepts only resolved mode")
         mode = node_parameters["mode"]
+        length = 291 if mode == "coordinate_conditioned_291" else 3
         if mode in {"assigned_sequence", "rich_assigned"}:
             sequence_track = ResidueTrack(["A", "C", "D"], None)
         elif mode == "rich_masked":
@@ -55,19 +56,16 @@ class _Source:
             "coordinate_conditioned",
             "coordinate_conditioned_291",
         }:
-            length = 291 if mode == "coordinate_conditioned_291" else 3
             sequence_track = ResidueTrack([None] * length, None)
         else:
-            sequence_track = None
-        structure_track = None
-        visibility_track = None
+            sequence_track = ResidueTrack([None] * length, None)
+        structure_track = ResidueTrack([None] * length, None)
         if mode in {
             "coordinate_conditioned",
             "coordinate_conditioned_291",
             "rich_assigned",
             "rich_masked",
         }:
-            length = 291 if mode == "coordinate_conditioned_291" else 3
             structure_track = ResidueTrack(
                 [
                     {
@@ -80,13 +78,8 @@ class _Source:
                 ],
                 None,
             )
-            visibility_track = ResidueTrack(
-                [True, *([False] * (length - 1))],
-                None,
-            )
         rich_prompt = mode in {"rich_assigned", "rich_masked"}
         with self._run_resources.engine_invocation():
-            length = 291 if mode == "coordinate_conditioned_291" else 3
             prompt = ProteinPrompt(
                 target_layout=ResidueLayout(
                     chain_id="A",
@@ -97,7 +90,6 @@ class _Source:
                 ),
                 sequence_track=sequence_track,
                 structure_track=structure_track,
-                structure_visibility_track=visibility_track,
                 secondary_structure_track=(
                     ResidueTrack(["G", "-", None], None)
                     if rich_prompt
@@ -117,7 +109,6 @@ class _Source:
                             chain_id="A",
                             start_residue_id="A:1",
                             end_residue_id="A:2",
-                            overlap_policy="reject",
                         )
                     ]
                     if rich_prompt

@@ -119,16 +119,12 @@ class _Source:
                 source,
                 ("H", "E", "-"),
             )
-            visibility_track = AlignedResidueTrack(
-                source,
-                (True, True, False),
-            )
             source_structure_track = AlignedResidueTrack(
                 source,
                 (
                     {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)},
                     None,
-                    {"CA": (2.0, 0.0, 0.0)},
+                    None,
                 ),
             )
             source_sasa_track = AlignedResidueTrack(
@@ -143,7 +139,6 @@ class _Source:
                     "chain_id": "A",
                     "start_residue_id": "A:1",
                     "end_residue_id": "A:2",
-                    "overlap_policy": "reject",
                 }]
             )
             sequence_value = "AGS"
@@ -157,7 +152,6 @@ class _Source:
                         "chain_id": "A",
                         "start_residue_id": "A:1",
                         "end_residue_id": "A:2",
-                        "overlap_policy": "reject",
                     },
                     {
                         "label": "active_site",
@@ -166,7 +160,6 @@ class _Source:
                         "chain_id": "A",
                         "start_residue_id": "A:2",
                         "end_residue_id": "A:2",
-                        "overlap_policy": "reject",
                     },
                 ])
             elif fixture == "annotation-out-of-order":
@@ -178,7 +171,6 @@ class _Source:
                         "chain_id": "B",
                         "start_residue_id": "B:1",
                         "end_residue_id": "B:1",
-                        "overlap_policy": "allow",
                     },
                     {
                         "label": "chain_a_site",
@@ -187,7 +179,6 @@ class _Source:
                         "chain_id": "A",
                         "start_residue_id": "A:1",
                         "end_residue_id": "A:1",
-                        "overlap_policy": "allow",
                     },
                 ])
             elif fixture == "annotation-cross-chain":
@@ -199,7 +190,6 @@ class _Source:
                         "chain_id": "A",
                         "start_residue_id": "A:2",
                         "end_residue_id": "B:1",
-                        "overlap_policy": "reject",
                     },
                 ])
             elif fixture == "annotation-allow":
@@ -211,7 +201,6 @@ class _Source:
                         "chain_id": "A",
                         "start_residue_id": "A:1",
                         "end_residue_id": "A:2",
-                        "overlap_policy": "allow",
                     },
                 ])
             elif fixture == "prompt-illegal-sequence":
@@ -235,10 +224,6 @@ class _Source:
                     tuple(sequence_value),
                 )
                 source_structure_track = AlignedResidueTrack(
-                    source,
-                    tuple(None for _ in range(56)),
-                )
-                visibility_track = AlignedResidueTrack(
                     source,
                     tuple(None for _ in range(56)),
                 )
@@ -270,7 +255,6 @@ class _Source:
                 target = source
                 source_track = AlignedResidueTrack(source, ("A",))
                 source_structure_track = AlignedResidueTrack(source, (None,))
-                visibility_track = AlignedResidueTrack(source, (True,))
                 source_secondary_structure_track = AlignedResidueTrack(
                     source,
                     ("-",),
@@ -363,10 +347,6 @@ class _Source:
                     source,
                     ("H",),
                 )
-                visibility_track = AlignedResidueTrack(
-                    source,
-                    (True,),
-                )
                 residue_map = ResidueMap(
                     source_layout=source,
                     target_layout=target,
@@ -422,7 +402,6 @@ class _Source:
             "target_layout": target,
             "source_sequence_track": source_track,
             "source_structure_track": source_structure_track,
-            "source_visibility_track": visibility_track,
             "source_secondary_structure_track": (
                 source_secondary_structure_track
             ),
@@ -460,10 +439,6 @@ class _Source:
                 sequence_track=ResidueTrack(list(sequence_value), None),
                 structure_track=ResidueTrack(
                     list(source_structure_track.values),
-                    None,
-                ),
-                structure_visibility_track=ResidueTrack(
-                    list(visibility_track.values),
                     None,
                 ),
                 secondary_structure_track=ResidueTrack(

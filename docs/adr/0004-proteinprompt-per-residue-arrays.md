@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0046
 ---
 
 # ProteinPrompt uses per-residue arrays with optional values

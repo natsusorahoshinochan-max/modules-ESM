@@ -642,10 +642,6 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
             ],
             None,
         ),
-        structure_visibility_track=ResidueTrack(
-            [True, False, True, True, True, True, True, True],
-            None,
-        ),
         secondary_structure_track=ResidueTrack(
             ["G", "H", "I", "T", "E", "B", "S", "-"],
             None,
@@ -663,7 +659,6 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
                     chain_id="A",
                     start_residue_id="A:2",
                     end_residue_id="A:5",
-                    overlap_policy="reject",
                 )
             ]
         ),
@@ -758,6 +753,7 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
     prompt = ProteinPrompt(
         target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
         sequence_track=ResidueTrack([None, "C", "D"], None),
+        structure_track=ResidueTrack([None, None, None], None),
     )
 
     with adapter:
@@ -860,6 +856,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     prompt = ProteinPrompt(
         target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
         sequence_track=ResidueTrack([None, "C", "D"], None),
+        structure_track=ResidueTrack([None, None, None], None),
     )
     parameters = ESM3CallParameters(
         num_steps=4,
@@ -875,7 +872,8 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
             prompt,
             parameters=parameters,
             sequence_derived_call_seed=17,
-            structure_derived_call_seed=23,
+            configured_base_seed=17,
+            sample_index=0,
         )
 
     assert type(result) is ESM3PairResult
@@ -927,7 +925,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     ]
 
 
-def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> None:
+def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> None:
     from modules.esm3.adapter import ESM3SequenceResult
     from modules.esm3.implementation import ESM3GenerationOperation
 
@@ -961,9 +959,13 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
     prompt = ProteinPrompt(
         target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
         sequence_track=ResidueTrack([None, "C", "D"], None),
+        structure_track=ResidueTrack([None, None, None], None),
     )
 
-    def observed(content_digest: str) -> tuple[int | None, ...]:
+    def observed(
+        value: ProteinPrompt,
+        content_digest: str,
+    ) -> tuple[int | None, ...]:
         adapter = RecordingAdapter()
         operation = ESM3GenerationOperation(
             adapter=adapter,
@@ -976,7 +978,7 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
             OperationCall(
                 inputs={
                     "protein_prompt": admitted_port_fixture(
-                        prompt,
+                        value,
                         port_type_id="protein.prompt",
                         value_content_digests=(content_digest,),
                     )
@@ -997,13 +999,119 @@ def test_esm3_call_seed_uses_prompt_content_and_stable_sample_track_slot() -> No
         )
         return tuple(adapter.seeds)
 
-    first = observed("sha256:" + "a" * 64)
-    repeated = observed("sha256:" + "a" * 64)
-    changed_content = observed("sha256:" + "b" * 64)
+    renamed_axis = replace(
+        prompt,
+        target_layout=ResidueLayout(
+            "Q",
+            3,
+            ["Q:alpha", "Q:beta", "Q:gamma"],
+        ),
+    )
+    changed_sequence = replace(
+        prompt,
+        sequence_track=ResidueTrack([None, "C", "E"], None),
+    )
+    first = observed(prompt, "sha256:" + "a" * 64)
+    repeated = observed(prompt, "sha256:" + "a" * 64)
+    renamed = observed(renamed_axis, "sha256:" + "b" * 64)
+    changed = observed(changed_sequence, "sha256:" + "c" * 64)
 
     assert first == repeated
     assert first[0] != first[1]
-    assert first != changed_content
+    assert first == renamed
+    assert first != changed
+
+
+def test_esm3_functional_input_digest_matches_every_translated_track() -> None:
+    from modules.esm3.adapter import esm3_functional_input_digest
+
+    prompt = ProteinPrompt(
+        target_layout=ResidueLayout("A", 2, ["A:1", "A:2"]),
+        sequence_track=ResidueTrack([None, "C"], None),
+        structure_track=ResidueTrack([None, None], None),
+        function_annotations=FunctionAnnotations(
+            [
+                FunctionAnnotation(
+                    label="binding site",
+                    start=1,
+                    end=1,
+                    chain_id="A",
+                    start_residue_id="A:1",
+                    end_residue_id="A:1",
+                )
+            ]
+        ),
+    )
+    renamed_provenance = replace(
+        prompt,
+        target_layout=ResidueLayout("Q", 2, ["Q:alpha", "Q:beta"]),
+        function_annotations=FunctionAnnotations(
+            [
+                FunctionAnnotation(
+                    label="binding site",
+                    start=1,
+                    end=1,
+                    chain_id="Q",
+                    start_residue_id="Q:alpha",
+                    end_residue_id="Q:alpha",
+                )
+            ]
+        ),
+    )
+    changed_inputs = (
+        replace(
+            prompt,
+            sequence_track=ResidueTrack([None, "D"], None),
+        ),
+        replace(
+            prompt,
+            structure_track=ResidueTrack(
+                [{"CA": (1.0, 2.0, 3.0)}, None],
+                None,
+            ),
+        ),
+        replace(
+            prompt,
+            secondary_structure_track=ResidueTrack(["H", None], None),
+        ),
+        replace(
+            prompt,
+            sasa_track=ResidueTrack([0.0, None], None),
+        ),
+        replace(
+            prompt,
+            function_annotations=FunctionAnnotations(
+                [
+                    replace(
+                        prompt.function_annotations.annotations[0],
+                        label="active site",
+                    )
+                ]
+            ),
+        ),
+        replace(
+            prompt,
+            function_annotations=FunctionAnnotations(
+                [
+                    FunctionAnnotation(
+                        label="binding site",
+                        start=2,
+                        end=2,
+                        chain_id="A",
+                        start_residue_id="A:2",
+                        end_residue_id="A:2",
+                    )
+                ]
+            ),
+        ),
+    )
+
+    digest = esm3_functional_input_digest(prompt)
+
+    assert digest == esm3_functional_input_digest(renamed_provenance)
+    assert len(
+        {digest, *(esm3_functional_input_digest(item) for item in changed_inputs)}
+    ) == 1 + len(changed_inputs)
 
 
 def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
@@ -1040,6 +1148,7 @@ def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
     prompt = ProteinPrompt(
         target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
         sequence_track=ResidueTrack(["A", "C", "D"], None),
+        structure_track=ResidueTrack([None, None, None], None),
     )
     adapter = AcceptingAdapter()
     operation = ESM3GenerationOperation(

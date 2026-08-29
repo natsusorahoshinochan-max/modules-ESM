@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import hashlib
 from typing import Any, cast
 
 from core.operation import (
@@ -35,25 +34,9 @@ from .adapter import (
     ESM3CallParameters,
     ESM3Confidence,
     ESM3GenerationAdapter,
+    derive_esm3_call_seed,
+    esm3_functional_input_digest,
 )
-
-
-def _derived_call_seed(
-    effective_seed: int | None,
-    prompt_content_digest: str,
-    sample_index: int,
-    track: str,
-) -> int | None:
-    """Derive the stable scientific identity for one sample/track slot."""
-    if effective_seed is None:
-        return None
-    digest = hashlib.sha256(
-        (
-            "protein-workbench-esm3-call-seed/v2:"
-            f"{effective_seed}:{prompt_content_digest}:{sample_index}:{track}"
-        ).encode("ascii")
-    ).digest()
-    return int.from_bytes(digest[:6], "big")
 
 
 class ESM3GenerationOperation:
@@ -158,12 +141,12 @@ class ESM3GenerationOperation:
         effective_seed: int | None = call.effective_randomness.get(
             "effective_seed"
         )
-        prompt_content_digest = admitted_prompt.content_digest
+        functional_input_digest = esm3_functional_input_digest(prompt)
         with self._adapter:
             return self._generate(
                 prompt,
                 effective_seed=effective_seed,
-                prompt_content_digest=prompt_content_digest,
+                functional_input_digest=functional_input_digest,
                 admitted_prompt=admitted_prompt,
                 num_samples=num_samples,
                 parameters=parameters,
@@ -228,7 +211,7 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        prompt_content_digest: str,
+        functional_input_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -239,9 +222,9 @@ class ESM3GenerationOperation:
         reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
-            call_seed = _derived_call_seed(
+            call_seed = derive_esm3_call_seed(
                 effective_seed,
-                prompt_content_digest,
+                functional_input_digest,
                 sample_index,
                 "sequence",
             )
@@ -321,7 +304,7 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        prompt_content_digest: str,
+        functional_input_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -334,9 +317,9 @@ class ESM3GenerationOperation:
             result = self._adapter.generate_structure(
                 prompt,
                 parameters=parameters,
-                derived_call_seed=_derived_call_seed(
+                derived_call_seed=derive_esm3_call_seed(
                     effective_seed,
-                    prompt_content_digest,
+                    functional_input_digest,
                     sample_index,
                     "structure",
                 ),
@@ -386,7 +369,7 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        prompt_content_digest: str,
+        functional_input_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -403,18 +386,14 @@ class ESM3GenerationOperation:
             result = self._adapter.generate_pair(
                 prompt,
                 parameters=parameters,
-                sequence_derived_call_seed=_derived_call_seed(
+                sequence_derived_call_seed=derive_esm3_call_seed(
                     effective_seed,
-                    prompt_content_digest,
+                    functional_input_digest,
                     sample_index,
                     "sequence",
                 ),
-                structure_derived_call_seed=_derived_call_seed(
-                    effective_seed,
-                    prompt_content_digest,
-                    sample_index,
-                    "structure",
-                ),
+                configured_base_seed=effective_seed,
+                sample_index=sample_index,
             )
             sequence_candidate = Candidate(
                 f"sequence-{sample_index}",

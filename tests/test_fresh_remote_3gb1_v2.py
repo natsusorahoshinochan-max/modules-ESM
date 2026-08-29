@@ -530,9 +530,8 @@ def _assert_science(
         for item in projection["selection_results"][0]["objectives"]
     } == {"fixed-3gb1": 0.7, "paired-esm3": 0.3}
 
-    visible_backbones = sum(
-        bool(is_visible)
-        and value is not None
+    conditioned_backbones = sum(
+        value is not None
         and all(
             atom in value
             and all(
@@ -542,16 +541,12 @@ def _assert_science(
             )
             for atom in ("N", "CA", "C")
         )
-        for value, is_visible in zip(
-            prompt.structure_track.values,
-            prompt.structure_visibility_track.values,
-            strict=True,
-        )
+        for value in prompt.structure_track.values
     )
     assert prompt.num_residues == 71
     assert sum(value is None for value in prompt.sequence_track.values) == 35
     assert len(prompt.secondary_structure_track.values) == 71
-    assert visible_backbones == 46
+    assert conditioned_backbones == 46
     assert "".join(
         value if value is not None else "_"
         for value in prompt.sequence_track.values
@@ -563,12 +558,6 @@ def _assert_science(
         for value in prompt.secondary_structure_track.values
     ) == (
         "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____EEEEEEEEEEEEEEEEEEEEEE_______________"
-    )
-    assert "".join(
-        "1" if value else "0"
-        for value in prompt.structure_visibility_track.values
-    ) == (
-        "10101011111011110111011111111111101111101011101011101101111111101111011"
     )
     assert len(projection["artifact_index"]) == 15
     assert [

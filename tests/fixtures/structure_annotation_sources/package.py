@@ -152,6 +152,7 @@ class _ValueSource:
             protein_prompt = ProteinPrompt(
                 target_layout=layout,
                 sequence_track=ResidueTrack(["G", "A"], None),
+                structure_track=ResidueTrack([None, None], None),
                 secondary_structure_track=ResidueTrack(["H", None], None),
                 sasa_track=ResidueTrack([None, None], None),
             )

@@ -49,7 +49,6 @@ def test_signed_residue_identities_address_constraints_and_annotations() -> None
             chain_id="A",
             start_residue_id="A:-3",
             end_residue_id="A:-3A",
-            overlap_policy="reject",
         ),
     ))
 
@@ -103,7 +102,6 @@ def test_function_annotation_provenance_remains_closed_and_layout_bound() -> Non
             chain_id="A",
             start_residue_id="A:-1234",
             end_residue_id="A:-1234",
-            overlap_policy="reject",
         ),
     ))
     with pytest.raises(ValueError, match="'<chain>:<label>'"):
@@ -117,7 +115,6 @@ def test_function_annotation_provenance_remains_closed_and_layout_bound() -> Non
             chain_id="A",
             start_residue_id="A:-4",
             end_residue_id="A:-4",
-            overlap_policy="reject",
         ),
     ))
     validate_canonical_function_annotations(absent)

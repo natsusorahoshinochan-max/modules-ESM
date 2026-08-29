@@ -27,7 +27,6 @@ class TrackKind(Enum):
 
     SEQUENCE = "sequence"
     STRUCTURE = "structure"
-    VISIBILITY = "visibility"
     SECONDARY_STRUCTURE = "secondary_structure"
     SASA = "sasa"
 
@@ -214,11 +213,6 @@ def _validate_track_values(
                 )
         elif kind is TrackKind.STRUCTURE:
             _validate_structure_value(item, subject=f"{subject}[{index}]")
-        elif kind is TrackKind.VISIBILITY:
-            if type(item) is not bool:
-                raise ValueError(
-                    f"{subject}[{index}] is not nullable visibility"
-                )
         elif kind is TrackKind.SECONDARY_STRUCTURE:
             if type(item) is not str or item not in _SECONDARY_STRUCTURE:
                 raise ValueError(

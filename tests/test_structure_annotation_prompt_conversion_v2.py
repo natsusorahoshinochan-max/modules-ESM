@@ -109,7 +109,6 @@ def test_apply_secondary_structure_to_prompt_maps_exact_ss8_semantics() -> None:
         [{"CA": [float(index), 0.0, 0.0]} for index in range(9)],
         None,
     )
-    visibility = ResidueTrack([True] * 9, None)
     sasa = ResidueTrack([float(index) for index in range(9)], None)
     annotations = FunctionAnnotations(
         [{"label": "active_site", "start": 1, "end": 2}]
@@ -118,7 +117,6 @@ def test_apply_secondary_structure_to_prompt_maps_exact_ss8_semantics() -> None:
         target_layout=layout,
         sequence_track=sequence,
         structure_track=structure,
-        structure_visibility_track=visibility,
         secondary_structure_track=ResidueTrack([None] * 9, None),
         sasa_track=sasa,
         function_annotations=annotations,
@@ -149,7 +147,6 @@ def test_apply_secondary_structure_to_prompt_maps_exact_ss8_semantics() -> None:
     assert updated.target_layout is prompt.target_layout
     assert updated.sequence_track is sequence
     assert updated.structure_track is structure
-    assert updated.structure_visibility_track is visibility
     assert updated.sasa_track is sasa
     assert updated.function_annotations is annotations
 
@@ -208,6 +205,7 @@ def test_apply_sasa_to_prompt_preserves_angstrom_squared_values() -> None:
     prompt = ProteinPrompt(
         target_layout=layout,
         sequence_track=ResidueTrack(["A", "C", "D", "E"], None),
+        structure_track=ResidueTrack([None] * 4, None),
         secondary_structure_track=secondary,
         sasa_track=ResidueTrack([None] * 4, None),
     )
@@ -259,6 +257,8 @@ def test_expected_secondary_structure_from_prompt_restores_annotation_symbols() 
     )
     prompt = ProteinPrompt(
         target_layout=layout,
+        sequence_track=ResidueTrack([None] * 9, None),
+        structure_track=ResidueTrack([None] * 9, None),
         secondary_structure_track=ResidueTrack(
             ["G", "H", "I", "T", "E", "B", "S", "-", None],
             None,
@@ -300,7 +300,11 @@ def test_expected_secondary_structure_from_prompt_restores_annotation_symbols() 
         ExpectedSecondaryStructureFromPromptOperation(_RunResources()).execute(
             _operation_call(
                 inputs={
-                    "protein_prompt": ProteinPrompt(target_layout=layout),
+                    "protein_prompt": ProteinPrompt(
+                        target_layout=layout,
+                        sequence_track=ResidueTrack([None] * 9, None),
+                        structure_track=ResidueTrack([None] * 9, None),
+                    ),
                     "references": references,
                 },
                 node_parameters={},

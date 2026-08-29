@@ -7,6 +7,10 @@
 - **领域词汇**：当前仍以 [`CONTEXT.md`](../CONTEXT.md) 为准；本文新增词汇均为待讨论候选
 - **前置调研**：[`前后端契约分离调研`](research/2026-08-18-frontend-backend-contract-separation.md)
 
+> **功能决策已迁移**：截至 2026-08-29 已确认的用户功能以
+> [`Protein Workbench WebUI 功能规格`](2026-08-29-webui-functional-spec.md) 为准。
+> 本文中的协议、架构与实施建议仍未接受，不能反向覆盖或限制该功能规格。
+
 ## 1. 文档定位
 
 本文把当前已经达成的产品方向落盘，作为后续讨论和拆分实施任务的共同基线。它刻意保留
@@ -64,7 +68,6 @@ Prompt Studio 必须覆盖当前 `ProteinPrompt` 的全部输入语义：
 - target `ResidueLayout`；
 - sequence track；
 - structure coordinate track；
-- structure visibility track；
 - secondary-structure track；
 - absolute per-residue SASA track，单位为 Å²；
 - function annotations。
@@ -464,10 +467,10 @@ Workflow science。
 - exact source roles，例如 source structure、source sequence 或现有 Workflow output；
 - identity-complete source/target layout；
 - anchored insertions 和 exact-identity deletions；
-- sequence、structure coordinates、visibility、secondary structure 和 SASA 的 exact-identity
+- sequence、structure coordinates、secondary structure 和 SASA 的 exact-identity
   replacements/clears/preserves；
 - function annotation 的 label、chain-qualified interval，以及 final annotation collection
-  共享的一个 overlap policy；
+  materialization 使用的 operation-scoped overlap policy；
 - document schema version 和 capability version。
 
 插入 residue 的新身份由 backend authoring capability 规范化并返回；前端不得根据数组位置
@@ -475,15 +478,15 @@ Workflow science。
 
 track 之间保持独立：
 
-- 清除 sequence 不得自动隐藏 structure；
-- structure coordinates 缺失与 structure visibility=false 是不同状态；
+- 清除 sequence 不得自动清除 structure；
+- concrete structure coordinate value 是该 residue 结构 conditioning 的唯一 owner；清除该值才移除 conditioning；
 - residue insertion/deletion 改变整个 layout，因此所有 present tracks 必须一起重新对齐；
 - SASA concrete value 始终是 absolute Å²，不做前端单位换算；
 - function annotation 是区间集合而不是 nullable scalar track。UI 的“mask annotation range”
   应编译为最终 annotation 集合的删除或拆分，而不是发明一个 annotation null sentinel。
-- 当前每条 admitted annotation 携带 `overlap_policy`，但 collection validator 要求全体 policy
-  相同。Prompt Edit Document 因此只暴露一个 collection-level policy；切换 policy 时必须对
-  完整 final collection 重新验证，`reject` 不能只验证刚编辑的 interval。
+- admitted annotation 不携带 `overlap_policy`。Prompt Edit Document 暴露一个 authoring
+  operation policy；materialize 时把它应用于完整 final collection，`reject` 不能只处理刚编辑的
+  interval。该 policy 不进入 `function.annotations` 或 `ProteinPrompt` 内容身份。
 
 ### 9.3 支持的编辑动作
 
@@ -492,7 +495,6 @@ track 之间保持独立：
 | residue layout | 在相邻 identity anchor 间插入 | 修改新插入 residue 的目标值 | exact identity delete | layout 无独立 mask |
 | sequence | 为 residue 指定氨基酸 | replace value | clear value | unspecified sequence conditioning |
 | structure coordinates | 从合法 source 添加或输入 named-atom XYZ | replace exact named-atom coordinates | clear coordinate value | coordinates unspecified |
-| structure visibility | 指定 visible/hidden | toggle exact residue | clear为 unspecified | hidden 不等于 coordinate missing |
 | secondary structure | set one/range | replace class | clear value | unspecified SS conditioning |
 | SASA | set one/range | replace finite Å² value | clear value | unspecified SASA conditioning |
 | function annotation | add labelled interval | edit label/endpoints；policy 在 collection level 修改 | remove/split interval | 从 conditioning annotation 集合排除 |
@@ -882,7 +884,7 @@ CI/lint 应阻止：
 - Candidate table 使用 cursor page 和 virtual rendering；
 - WS 断开后从最后 durable cursor 恢复，最终 projection 与未断开一致；
 - Prompt 的 residue matrix 与 3D selection 通过 exact ResidueIdentity 双向同步；
-- sequence/coordinates/visibility/SS/SASA/function annotations 的操作均能 preview、materialize、
+- sequence/coordinates/SS/SASA/function annotations 的操作均能 preview、materialize、
   save、commit 和 run；
 - 场景 2 的结构比较和场景 3 的 ProteinMPNN child lineage 不按数组位置建立；
 - batch export 中每个文件和 score 都可回溯到 exact Candidate 和 Run evidence。

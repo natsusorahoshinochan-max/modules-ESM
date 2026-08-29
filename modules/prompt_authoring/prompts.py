@@ -30,7 +30,6 @@ from .domain import (
 _TRACK_KINDS = {
     "sequence_track": TrackKind.SEQUENCE,
     "structure_track": TrackKind.STRUCTURE,
-    "visibility_track": TrackKind.VISIBILITY,
     "secondary_structure_track": TrackKind.SECONDARY_STRUCTURE,
     "sasa_track": TrackKind.SASA,
 }
@@ -38,7 +37,6 @@ _TRACK_KINDS = {
 _PROMPT_TRACK_ATTRIBUTES = {
     "sequence": ("sequence_track", TrackKind.SEQUENCE),
     "structure": ("structure_track", TrackKind.STRUCTURE),
-    "visibility": ("structure_visibility_track", TrackKind.VISIBILITY),
     "secondary_structure": (
         "secondary_structure_track",
         TrackKind.SECONDARY_STRUCTURE,
@@ -62,7 +60,10 @@ def assemble_protein_prompt(
 ) -> ProteinPrompt:
     """Assemble only explicit aligned values into one validated Prompt."""
     normalized: dict[str, ResidueTrack | None] = {
-        name: None for name in _TRACK_KINDS
+        "sequence_track": ResidueTrack([None] * layout.length, None),
+        "structure_track": ResidueTrack([None] * layout.length, None),
+        "secondary_structure_track": None,
+        "sasa_track": None,
     }
     for name, track in tracks.items():
         if track.layout != layout:
@@ -80,9 +81,8 @@ def assemble_protein_prompt(
     )
     return ProteinPrompt(
         target_layout=layout,
-        sequence_track=normalized["sequence_track"],
-        structure_track=normalized["structure_track"],
-        structure_visibility_track=normalized["visibility_track"],
+        sequence_track=cast(ResidueTrack, normalized["sequence_track"]),
+        structure_track=cast(ResidueTrack, normalized["structure_track"]),
         secondary_structure_track=normalized[
             "secondary_structure_track"
         ],
@@ -106,10 +106,6 @@ def validate_protein_prompt(value: object) -> ProteinPrompt:
     prompt_tracks = {
         "sequence_track": (value.sequence_track, TrackKind.SEQUENCE),
         "structure_track": (value.structure_track, TrackKind.STRUCTURE),
-        "visibility_track": (
-            value.structure_visibility_track,
-            TrackKind.VISIBILITY,
-        ),
         "secondary_structure_track": (
             value.secondary_structure_track,
             TrackKind.SECONDARY_STRUCTURE,
@@ -117,7 +113,10 @@ def validate_protein_prompt(value: object) -> ProteinPrompt:
         "sasa_track": (value.sasa_track, TrackKind.SASA),
     }
     for name, (track, kind) in prompt_tracks.items():
-        if track is None:
+        if track is None and name in {
+            "secondary_structure_track",
+            "sasa_track",
+        }:
             continue
         if type(track) is not ResidueTrack:
             raise ValueError(
@@ -156,10 +155,7 @@ def update_prompt_sequence(
     updated = ProteinPrompt(
         target_layout=target,
         sequence_track=ResidueTrack(list(sequence.sequence), None),
-        structure_track=_copy_track(source.structure_track),
-        structure_visibility_track=_copy_track(
-            source.structure_visibility_track
-        ),
+        structure_track=cast(ResidueTrack, _copy_track(source.structure_track)),
         secondary_structure_track=_copy_track(
             source.secondary_structure_track
         ),
@@ -194,9 +190,6 @@ def override_protein_prompt_track(
     tracks = {
         "sequence_track": _copy_track(source.sequence_track),
         "structure_track": _copy_track(source.structure_track),
-        "structure_visibility_track": _copy_track(
-            source.structure_visibility_track
-        ),
         "secondary_structure_track": _copy_track(
             source.secondary_structure_track
         ),
@@ -205,9 +198,8 @@ def override_protein_prompt_track(
     tracks[attribute] = ResidueTrack(list(changed.values), None)
     return ProteinPrompt(
         target_layout=layout,
-        sequence_track=tracks["sequence_track"],
-        structure_track=tracks["structure_track"],
-        structure_visibility_track=tracks["structure_visibility_track"],
+        sequence_track=cast(ResidueTrack, tracks["sequence_track"]),
+        structure_track=cast(ResidueTrack, tracks["structure_track"]),
         secondary_structure_track=tracks["secondary_structure_track"],
         sasa_track=tracks["sasa_track"],
         function_annotations=FunctionAnnotations(

@@ -423,7 +423,6 @@ component disposition；folding/ESM Adapter 不得通过解析 output PDB 构造
 target ResidueLayout
 sequence track
 structure coordinate track
-structure visibility mask
 secondary-structure track
 SASA track (nullable absolute per-residue solvent-accessible surface area in Å²,
 without relative-accessibility normalization)
@@ -431,7 +430,7 @@ function annotations
 ResidueMap provenance
 ```
 
-序列是否指定、结构是否可见、二级结构是否指定、SASA 是否指定、功能标记和 ProteinMPNN designability 是独立语义，不得用一个统一 mask 代替。
+序列、结构坐标、二级结构、SASA、功能标记和 ProteinMPNN designability 是独立语义，不得用一个统一 mask 代替。sequence 与 structure 使用等长 nullable tracks，全-null 是其唯一的完整 mask；concrete structure value 是结构 conditioning 的唯一 owner。viewer hide/show 不进入科学 Prompt。
 
 ### 8.3 Candidate identity 与 lineage
 

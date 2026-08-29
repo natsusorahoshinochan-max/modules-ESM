@@ -54,7 +54,7 @@ def test_random_mask_clears_only_seeded_assigned_sequence_positions(
         [
             {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)},
             None,
-            {"CA": (2.0, 0.0, 0.0)},
+            None,
         ],
         None,
     )
@@ -105,7 +105,7 @@ def test_zero_and_full_masks_preserve_nullable_track_semantics(
         operation="random_mask",
         node_parameters={
             "effective_seed": 1603,
-            "count": 2,
+            "count": 1,
             "track": "structure",
             "eligible_residue_ids": [],
         },

@@ -17,7 +17,6 @@ from .domain import AlignedResidueTrack, TrackKind, validate_track
 _TYPE_ID_BY_KIND = {
     TrackKind.SEQUENCE: "prompt_authoring.track.sequence",
     TrackKind.STRUCTURE: "prompt_authoring.track.structure",
-    TrackKind.VISIBILITY: "prompt_authoring.track.visibility",
     TrackKind.SECONDARY_STRUCTURE: (
         "prompt_authoring.track.secondary_structure"
     ),

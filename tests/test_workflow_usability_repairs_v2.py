@@ -419,7 +419,6 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         for attribute in (
             "sequence_track",
             "structure_track",
-            "structure_visibility_track",
             "secondary_structure_track",
             "sasa_track",
         ):

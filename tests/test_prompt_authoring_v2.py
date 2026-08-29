@@ -99,7 +99,6 @@ def test_prompt_from_structure_declares_its_scientific_method() -> None:
         "name": "canonical-resolved-axis-to-protein-prompt",
         "residue_identity": "resolved-axis-layout-order",
         "coordinates": "resolved-axis-selected-named-atoms",
-        "visibility": "resolved-axis-coordinate-bearing-residues",
         "component_policy": "consume-resolver-admitted-polymer-axis",
     }
 
@@ -168,12 +167,12 @@ _ANNOTATIONS = FunctionAnnotations([
         chain_id="A",
         start_residue_id="A:1",
         end_residue_id="A:2",
-        overlap_policy="reject",
     ),
 ])
 _PROTEIN_PROMPT = ProteinPrompt(
     target_layout=SOURCE_LAYOUT,
     sequence_track=ResidueTrack(["A", "G", "S"], None),
+    structure_track=ResidueTrack([None, None, None], None),
     function_annotations=_ANNOTATIONS,
 )
 _TRACK_PORT_CASES = (
@@ -207,11 +206,6 @@ _TRACK_PORT_CASES = (
         ),
     ),
     ModulePackagePortCase(
-        "prompt_authoring.track.visibility",
-        AlignedResidueTrack(SOURCE_LAYOUT, (True, None, False)),
-        (AlignedResidueTrack(SOURCE_LAYOUT, (True, "visible", False)),),
-    ),
-    ModulePackagePortCase(
         "prompt_authoring.track.secondary_structure",
         AlignedResidueTrack(SOURCE_LAYOUT, ("H", None, "-")),
         (AlignedResidueTrack(SOURCE_LAYOUT, ("helix", None, "-")),),
@@ -233,7 +227,6 @@ _TRACK_PORT_CASES = (
                     chain_id="A",
                     start_residue_id="A:1",
                     end_residue_id="A:2",
-                    overlap_policy="reject",
                 ),
             ]),
         ),
@@ -244,6 +237,8 @@ _TRACK_PORT_CASES = (
         (
             ProteinPrompt(
                 target_layout=None,
+                sequence_track=ResidueTrack([None, None, None], None),
+                structure_track=ResidueTrack([None, None, None], None),
                 function_annotations=FunctionAnnotations(),
             ),
         ),

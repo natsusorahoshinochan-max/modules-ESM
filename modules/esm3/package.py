@@ -395,10 +395,11 @@ def _local_method(
                 else "not_applicable"
             ),
             "determinism_contract": (
-                "exact Torch seed derived from configured base seed, canonical "
-                "ProteinPrompt content digest, and zero-based sample-track "
-                "slot; exact outputs are runtime-device-specific and are not "
-                "cacheable"
+                "exact Torch seed derived from configured base seed, exact "
+                "translated ESM-3 functional input, and zero-based "
+                "sample-track slot; paired structure input includes the "
+                "generated sequence; exact outputs are runtime-device-specific "
+                "and are not cacheable"
             ),
             "step_count_contract": {
                 "requested": "num_steps is an upper bound",

@@ -139,10 +139,13 @@ _Avoid_: Package-specific smoke tests, manual checklist
 ## Scientific Data and Scoring
 
 **ProteinPrompt**:
-A residue-aligned, multi-track specification containing sequence, structure,
-secondary-structure, accessibility, function, and masking information. Its SASA
-track means nullable absolute per-residue solvent-accessible surface area in
-square angstroms, with no relative-accessibility normalization.
+A residue-aligned, multi-track specification containing sequence, structure
+coordinates, secondary structure, accessibility, and function conditioning.
+Sequence and structure each use one nullable value per residue, with all-null
+as their sole fully masked track state; viewer visibility and authoring policy
+are not ProteinPrompt science. Its SASA track means nullable absolute
+per-residue solvent-accessible surface area in square angstroms, with no
+relative-accessibility normalization.
 _Avoid_: Prompt object, ESM input, multi-track input
 
 **Candidate**:

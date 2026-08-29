@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import hashlib
+import struct
 from typing import Any, Protocol
 
+from core.catalog.canonical import canonical_sha256
 from core.operation import (
     OperationResources,
     EngineInvocationProvenance,
     InvocationRandomness,
 )
 from datatypes.prompt import ProteinPrompt
+from datatypes.residue import ResidueTrack
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
@@ -166,18 +170,14 @@ class ESM3GenerationAdapter(Protocol):
         *,
         parameters: ESM3CallParameters,
         sequence_derived_call_seed: int | None,
-        structure_derived_call_seed: int | None,
+        configured_base_seed: int | None,
+        sample_index: int,
     ) -> ESM3PairResult: ...
 
 
 def _sequence_track(prompt: ProteinPrompt) -> str:
-    values = (
-        [None] * prompt.num_residues
-        if prompt.sequence_track is None
-        else prompt.sequence_track.values
-    )
     symbols: list[str] = []
-    for position, value in enumerate(values):
+    for position, value in enumerate(prompt.sequence_track.values):
         if value is None:
             symbols.append("_")
             continue
@@ -216,28 +216,12 @@ def _sasa_track(prompt: ProteinPrompt) -> list[float | None] | None:
     ]
 
 
-def _coordinates(prompt: ProteinPrompt) -> Any | None:
-    if prompt.structure_track is None:
-        return None
-    import torch
-
-    visibility = (
-        [True] * prompt.num_residues
-        if prompt.structure_visibility_track is None
-        else [
-            value is True
-            for value in prompt.structure_visibility_track.values
-        ]
-    )
-    coordinates = torch.full(
-        (prompt.num_residues, 37, 3),
-        float("nan"),
-        dtype=torch.float32,
-    )
-    any_visible_atom = False
+def _atom37_entries(
+    prompt: ProteinPrompt,
+) -> tuple[tuple[int, int, tuple[float, float, float]], ...]:
+    entries: list[tuple[int, int, tuple[float, float, float]]] = []
     for position, residue in enumerate(prompt.structure_track.values):
-        is_visible = visibility[position]
-        if residue is None or not is_visible:
+        if residue is None:
             continue
         for atom_name, raw_coordinate in residue.items():
             atom_index = _ATOM37_INDEX.get(atom_name)
@@ -246,12 +230,97 @@ def _coordinates(prompt: ProteinPrompt) -> Any | None:
                     f"ESM-3 atom37 cannot represent atom {atom_name!r} "
                     f"at residue {position}"
                 )
-            coordinates[position, atom_index] = torch.tensor(
-                raw_coordinate,
-                dtype=torch.float32,
+            entries.append(
+                (
+                    position,
+                    atom_index,
+                    tuple(float(value) for value in raw_coordinate),
+                )
             )
-            any_visible_atom = True
-    return coordinates if any_visible_atom else None
+    return tuple(sorted(entries))
+
+
+def _coordinates(prompt: ProteinPrompt) -> Any | None:
+    entries = _atom37_entries(prompt)
+    if not entries:
+        return None
+    import torch
+
+    coordinates = torch.full(
+        (prompt.num_residues, 37, 3),
+        float("nan"),
+        dtype=torch.float32,
+    )
+    for position, atom_index, raw_coordinate in entries:
+        coordinates[position, atom_index] = torch.tensor(
+            raw_coordinate,
+            dtype=torch.float32,
+        )
+    return coordinates
+
+
+def esm3_functional_input_digest(prompt: ProteinPrompt) -> str:
+    """Identify only the exact high-level values translated to ESM-3."""
+    sasa = _sasa_track(prompt)
+    entries = _atom37_entries(prompt)
+    return canonical_sha256(
+        {
+            "schema_namespace": "protein-workbench-esm3-functional-input/v1",
+            "sequence": _sequence_track(prompt),
+            "secondary_structure": _secondary_structure_track(prompt),
+            "sasa_float64": (
+                None
+                if sasa is None
+                else [
+                    None
+                    if value is None
+                    else struct.pack("!d", value).hex()
+                    for value in sasa
+                ]
+            ),
+            "function_annotations": [
+                {
+                    "label": annotation.label,
+                    "start": annotation.start,
+                    "end": annotation.end,
+                }
+                for annotation in prompt.function_annotations.annotations
+            ],
+            "atom37_float32": (
+                None
+                if not entries
+                else [
+                    {
+                        "position": position,
+                        "atom_index": atom_index,
+                        "coordinate": [
+                            struct.pack("!f", value).hex()
+                            for value in coordinate
+                        ],
+                    }
+                    for position, atom_index, coordinate in entries
+                ]
+            ),
+        }
+    )
+
+
+def derive_esm3_call_seed(
+    effective_seed: int | None,
+    functional_input_digest: str,
+    sample_index: int,
+    track: str,
+) -> int | None:
+    """Derive one call seed from effective ESM-3 input and sample slot."""
+    if effective_seed is None:
+        return None
+    digest = hashlib.sha256(
+        (
+            "protein-workbench-esm3-call-seed/v2:"
+            f"{effective_seed}:{functional_input_digest}:{sample_index}:{track}"
+        ).encode("ascii")
+    ).digest()
+    return int.from_bytes(digest[:6], "big")
 
 
 def _function_annotations(prompt: ProteinPrompt) -> list[Any] | None:
@@ -566,7 +635,8 @@ class _BaseESM3Adapter:
         *,
         parameters: ESM3CallParameters,
         sequence_derived_call_seed: int | None,
-        structure_derived_call_seed: int | None,
+        configured_base_seed: int | None,
+        sample_index: int,
     ) -> ESM3PairResult:
         """Invoke one causally linked sequence/structure provider pair."""
         provider_prompt = protein_prompt_to_provider(prompt)
@@ -588,16 +658,30 @@ class _BaseESM3Adapter:
             sequence_effective_num_steps,
             sequence_effective_call_seed,
         )
+        structure_provider_prompt = structure_prompt_for_sequence(
+            provider_prompt,
+            sequence.sequence.sequence,
+        )
+        structure_functional_prompt = replace(
+            prompt,
+            sequence_track=ResidueTrack(
+                list(sequence.sequence.sequence),
+                None,
+            ),
+        )
+        structure_derived_call_seed = derive_esm3_call_seed(
+            configured_base_seed,
+            esm3_functional_input_digest(structure_functional_prompt),
+            sample_index,
+            "structure",
+        )
         (
             structure_response,
             _,
             structure_effective_num_steps,
             structure_effective_call_seed,
         ) = self._invoke(
-            structure_prompt_for_sequence(
-                provider_prompt,
-                sequence.sequence.sequence,
-            ),
+            structure_provider_prompt,
             generation_config("structure", parameters),
             role="structure_child",
             provider_operation="generate(track=structure)",

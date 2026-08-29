@@ -25,7 +25,6 @@ from .domain import residue_chain
 _TRACK_ATTRIBUTE = {
     "sequence": "sequence_track",
     "structure": "structure_track",
-    "visibility": "structure_visibility_track",
     "secondary_structure": "secondary_structure_track",
     "sasa": "sasa_track",
 }
@@ -68,17 +67,19 @@ def _copy_prompt(
     replacements = dict(tracks or {})
     return ProteinPrompt(
         target_layout=source.target_layout,
-        sequence_track=replacements.get(
-            "sequence_track",
-            _copy_track(source.sequence_track),
+        sequence_track=cast(
+            ResidueTrack,
+            replacements.get(
+                "sequence_track",
+                _copy_track(source.sequence_track),
+            ),
         ),
-        structure_track=replacements.get(
-            "structure_track",
-            _copy_track(source.structure_track),
-        ),
-        structure_visibility_track=replacements.get(
-            "structure_visibility_track",
-            _copy_track(source.structure_visibility_track),
+        structure_track=cast(
+            ResidueTrack,
+            replacements.get(
+                "structure_track",
+                _copy_track(source.structure_track),
+            ),
         ),
         secondary_structure_track=replacements.get(
             "secondary_structure_track",
@@ -347,35 +348,18 @@ def random_insert_masked(
             chain_id=annotation.chain_id,
             start_residue_id=annotation.start_residue_id,
             end_residue_id=annotation.end_residue_id,
-            overlap_policy=annotation.overlap_policy,
         )
         for annotation in source.function_annotations.annotations
     ])
     result = ProteinPrompt(
         target_layout=target_layout,
-        sequence_track=(
-            None
-            if source.sequence_track is None
-            else ResidueTrack(
-                target_values_by_attribute["sequence_track"],
-                None,
-            )
+        sequence_track=ResidueTrack(
+            target_values_by_attribute["sequence_track"],
+            None,
         ),
-        structure_track=(
-            None
-            if source.structure_track is None
-            else ResidueTrack(
-                target_values_by_attribute["structure_track"],
-                None,
-            )
-        ),
-        structure_visibility_track=(
-            None
-            if source.structure_visibility_track is None
-            else ResidueTrack(
-                target_values_by_attribute["structure_visibility_track"],
-                None,
-            )
+        structure_track=ResidueTrack(
+            target_values_by_attribute["structure_track"],
+            None,
         ),
         secondary_structure_track=(
             None

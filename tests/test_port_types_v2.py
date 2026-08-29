@@ -364,7 +364,6 @@ def test_canonical_scientific_values_are_deeply_immutable() -> None:
             chain_id="A",
             start_residue_id="A:1",
             end_residue_id="A:1",
-            overlap_policy="allow",
         )
     ]
     parent_ids = ["parent-1"]
@@ -387,6 +386,7 @@ def test_canonical_scientific_values_are_deeply_immutable() -> None:
     function_annotations = FunctionAnnotations(annotations)
     prompt = ProteinPrompt(
         target_layout=layout,
+        sequence_track=ResidueTrack([None, None], None),
         structure_track=track,
         function_annotations=function_annotations,
     )
@@ -838,6 +838,7 @@ def test_canonical_constructors_close_domain_invariants_before_encoding() -> Non
             ProteinPrompt(
                 target_layout=ResidueLayout("A", 2),
                 sequence_track=ResidueTrack(["A"]),
+                structure_track=ResidueTrack([None, None]),
             ),
         ),
         (

@@ -122,12 +122,6 @@ def _prompt_conditioning() -> dict[str, Any]:
             },
             {
                 "source_node_id": "prompt-values",
-                "source_port": "source_visibility_track",
-                "target_node_id": "assemble-prompt",
-                "target_port": "visibility_track",
-            },
-            {
-                "source_node_id": "prompt-values",
                 "source_port": "source_secondary_structure_track",
                 "target_node_id": "assemble-prompt",
                 "target_port": "secondary_structure_track",

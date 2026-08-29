@@ -710,6 +710,7 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
     prompt = ProteinPrompt(
         target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
         sequence_track=ResidueTrack([None, "C", "D"], None),
+        structure_track=ResidueTrack([None, None, None], None),
     )
 
     with adapter:
@@ -920,6 +921,44 @@ def test_local_execution_preserves_remote_scientific_contracts(
         is int
         for event in generation_events
     )
+    if operation == "generate_paired":
+        from datatypes.prompt import ProteinPrompt
+        from datatypes.residue import ResidueLayout, ResidueTrack
+        from modules.esm3.adapter import (
+            derive_esm3_call_seed,
+            esm3_functional_input_digest,
+        )
+
+        layout = ResidueLayout("A", 3, ["A:1", "A:2", "A:3"])
+        sequence_prompt = ProteinPrompt(
+            target_layout=layout,
+            sequence_track=ResidueTrack([None, None, None], None),
+            structure_track=ResidueTrack([None, None, None], None),
+        )
+        structure_prompt = ProteinPrompt(
+            target_layout=layout,
+            sequence_track=ResidueTrack(["A", "C", "D"], None),
+            structure_track=ResidueTrack([None, None, None], None),
+        )
+        assert {
+            event["engine_role"]: event["invocation_provenance"][
+                "effective_randomness"
+            ]["effective_seed"]
+            for event in generation_events
+        } == {
+            "sequence_parent": derive_esm3_call_seed(
+                1603,
+                esm3_functional_input_digest(sequence_prompt),
+                0,
+                "sequence",
+            ),
+            "structure_child": derive_esm3_call_seed(
+                1603,
+                esm3_functional_input_digest(structure_prompt),
+                0,
+                "structure",
+            ),
+        }
 
 
 def test_local_seed_is_declared_result_identity_randomness(
@@ -1079,6 +1118,7 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
     prompt = ProteinPrompt(
         target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
         sequence_track=ResidueTrack([None, "C", "D"], None),
+        structure_track=ResidueTrack([None, None, None], None),
     )
 
     with pytest.raises(RuntimeError, match="fixture provider failed") as caught:

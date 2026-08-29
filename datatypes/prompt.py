@@ -50,22 +50,20 @@ class ProteinPrompt:
     """Multi-track protein prompt for ESM3 conditioning.
 
     All per-residue tracks must have length equal to the target layout length.
-    Each track is fully independent.
+    Sequence and structure use one explicit nullable value per residue. A
+    whole-track mask is represented by an all-null track, not by absence.
     """
 
-    target_layout: Optional[ResidueLayout] = None
-    sequence_track: Optional[ResidueTrack] = None
-    structure_track: Optional[ResidueTrack] = None
-    structure_visibility_track: Optional[ResidueTrack] = None
+    target_layout: ResidueLayout
+    sequence_track: ResidueTrack
+    structure_track: ResidueTrack
     secondary_structure_track: Optional[ResidueTrack] = None
     sasa_track: Optional[ResidueTrack] = None
     function_annotations: FunctionAnnotations = field(default_factory=FunctionAnnotations)
 
     @property
     def num_residues(self) -> int:
-        if self.target_layout is not None:
-            return self.target_layout.length
-        return 0
+        return self.target_layout.length
 
 @dataclass(frozen=True, slots=True)
 class FunctionAnnotation:
@@ -77,17 +75,14 @@ class FunctionAnnotation:
     chain_id: str
     start_residue_id: str
     end_residue_id: str
-    overlap_policy: str
 
 def validate_canonical_function_annotations(
     value: object,
 ) -> tuple[FunctionAnnotation, ...]:
-    """Validate canonical ordering, provenance shape, and overlap semantics."""
+    """Validate canonical ordering and residue provenance shape."""
     if type(value) is not FunctionAnnotations:
         raise ValueError("function_annotations must be FunctionAnnotations")
-    policy: str | None = None
     previous_key: tuple[object, ...] | None = None
-    previous_end = 0
     annotations: list[FunctionAnnotation] = []
     for index, annotation in enumerate(value.annotations):
         subject = f"function_annotations[{index}]"
@@ -126,17 +121,6 @@ def validate_canonical_function_annotations(
             raise ValueError(
                 f"{subject} must use an ordered one-based inclusive interval"
             )
-        if (
-            type(annotation.overlap_policy) is not str
-            or annotation.overlap_policy not in {"allow", "reject"}
-        ):
-            raise ValueError(f"{subject}.overlap_policy is invalid")
-        if policy is None:
-            policy = annotation.overlap_policy
-        elif annotation.overlap_policy != policy:
-            raise ValueError(
-                "function_annotations cannot mix overlap policies"
-            )
         key = (
             annotation.start,
             annotation.end,
@@ -149,11 +133,6 @@ def validate_canonical_function_annotations(
             raise ValueError(
                 "function_annotations must use unique canonical ordering"
             )
-        if policy == "reject" and annotation.start <= previous_end:
-            raise ValueError(
-                "function_annotations overlap under the reject policy"
-            )
         previous_key = key
-        previous_end = max(previous_end, annotation.end)
         annotations.append(annotation)
     return tuple(annotations)

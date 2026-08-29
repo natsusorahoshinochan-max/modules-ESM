@@ -41,7 +41,6 @@ from .stochastic import random_insert_masked, random_mask_prompt
 _TRACK_PORTS = {
     "sequence_track": TrackKind.SEQUENCE,
     "structure_track": TrackKind.STRUCTURE,
-    "visibility_track": TrackKind.VISIBILITY,
     "secondary_structure_track": TrackKind.SECONDARY_STRUCTURE,
     "sasa_track": TrackKind.SASA,
 }
@@ -116,10 +115,13 @@ def _prompt_from_structure(
     residue_axis: ResolvedStructureResidueAxis,
 ) -> tuple[ResidueLayout, ProteinPrompt]:
     coordinates = [
-        {
-            atom.atom_name: atom.coordinate
-            for atom in residue.atom_coordinates
-        }
+        (
+            {
+                atom.atom_name: atom.coordinate
+                for atom in residue.atom_coordinates
+            }
+            or None
+        )
         for residue in residue_axis.residue_coordinates
     ]
     prompt = ProteinPrompt(
@@ -130,10 +132,6 @@ def _prompt_from_structure(
         ),
         structure_track=ResidueTrack(
             coordinates,
-            None,
-        ),
-        structure_visibility_track=ResidueTrack(
-            [bool(value) for value in coordinates],
             None,
         ),
         secondary_structure_track=ResidueTrack(

@@ -111,7 +111,6 @@ def test_function_annotation_keeps_chain_qualified_provenance(
             "chain_id": "A",
             "start_residue_id": "A:1",
             "end_residue_id": "A:2",
-            "overlap_policy": "reject",
         }]
     )
 
@@ -136,12 +135,6 @@ def test_prompt_assembly_preserves_every_declared_aligned_track(
                 "source_structure_track",
                 "author",
                 "structure_track",
-            ),
-            WorkflowEdge(
-                "source",
-                "source_visibility_track",
-                "author",
-                "visibility_track",
             ),
             WorkflowEdge(
                 "source",
@@ -185,11 +178,10 @@ def test_prompt_assembly_preserves_every_declared_aligned_track(
             [
                 {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)},
                 None,
-                {"CA": (2.0, 0.0, 0.0)},
+                None,
             ],
             None,
         ),
-        structure_visibility_track=ResidueTrack([True, True, False], None),
         secondary_structure_track=ResidueTrack(["H", "E", "-"], None),
         sasa_track=ResidueTrack([12.5, None, 30.0], None),
         function_annotations=canonical_annotations(
@@ -200,7 +192,6 @@ def test_prompt_assembly_preserves_every_declared_aligned_track(
                 "chain_id": "A",
                 "start_residue_id": "A:1",
                 "end_residue_id": "A:2",
-                "overlap_policy": "reject",
             }]
         ),
     )
@@ -246,12 +237,8 @@ def test_generic_sequence_update_preserves_layout_and_unaffected_tracks(
         [
             {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)},
             None,
-            {"CA": (2.0, 0.0, 0.0)},
+            None,
         ],
-        None,
-    )
-    assert updated.structure_visibility_track == ResidueTrack(
-        [True, True, False],
         None,
     )
     assert updated.secondary_structure_track == ResidueTrack(
@@ -267,12 +254,11 @@ def test_generic_sequence_update_preserves_layout_and_unaffected_tracks(
             "chain_id": "A",
             "start_residue_id": "A:1",
             "end_residue_id": "A:2",
-            "overlap_policy": "reject",
         }]
     )
 
 
-def test_prompt_assembly_keeps_absent_optional_tracks_absent(
+def test_blank_prompt_uses_one_canonical_sequence_and_structure_mask(
     tmp_path: Path,
 ) -> None:
     catalog, service, projection, _ = run_operation(
@@ -291,9 +277,9 @@ def test_prompt_assembly_keeps_absent_optional_tracks_absent(
         if output["node_id"] == "author"
     )
     prompt = decoded_output(catalog, service, projection, output)
-    assert prompt.sequence_track is None
-    assert prompt.structure_track is None
-    assert prompt.structure_visibility_track is None
+    assert prompt.sequence_track == ResidueTrack([None, None, None], None)
+    assert prompt.structure_track == ResidueTrack([None, None, None], None)
+    assert not hasattr(prompt, "structure_visibility_track")
     assert prompt.secondary_structure_track is None
     assert prompt.sasa_track is None
     assert prompt.function_annotations == canonical_annotations()
@@ -369,7 +355,6 @@ def test_function_annotation_rejects_invalid_layout_intervals(
 @pytest.mark.parametrize(
     "source_fixture",
     (
-        "annotation-overlap",
         "annotation-out-of-order",
         "annotation-cross-chain",
     ),
@@ -397,7 +382,7 @@ def test_prompt_assembly_rejects_noncanonical_function_annotations(
     assert projection["status"] == "failed"
 
 
-def test_function_annotation_overlap_policy_is_retained_and_enforced(
+def test_function_annotation_overlap_policy_is_operation_scoped(
     tmp_path: Path,
 ) -> None:
     catalog, service, allowed, _ = run_operation(
@@ -434,9 +419,10 @@ def test_function_annotation_overlap_policy_is_retained_and_enforced(
         "binding_site",
         "active_site",
     ]
-    assert {
-        item.overlap_policy for item in annotations.annotations
-    } == {"allow"}
+    assert not any(
+        hasattr(item, "overlap_policy")
+        for item in annotations.annotations
+    )
 
     _, _, rejected, _ = run_operation(
         tmp_path / "reject",
@@ -597,7 +583,6 @@ def test_prompt_nodes_expose_only_scientific_authoring_parameters() -> None:
             "layout",
             "sequence_track",
             "structure_track",
-            "visibility_track",
             "secondary_structure_track",
             "sasa_track",
             "function_annotations",
@@ -656,13 +641,11 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
             "end",
             "end_residue_id",
             "label",
-            "overlap_policy",
             "start",
             "start_residue_id",
         ),
         "indexing": "one-based-inclusive",
         "ordering": "start,end,label,chain-and-residue-provenance",
-        "overlap_policy": ("allow", "reject"),
         "residue_identity_contract": "residue.layout",
     }
     prompt_definition = catalog.require_port_type(
@@ -683,7 +666,6 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
                 "chain_id": "A",
                 "start_residue_id": "A:2",
                 "end_residue_id": "A:2",
-                "overlap_policy": "allow",
             },
             {
                 "label": "earlier",
@@ -692,27 +674,6 @@ def test_function_annotation_port_declares_canonical_provenance_shape() -> None:
                 "chain_id": "A",
                 "start_residue_id": "A:1",
                 "end_residue_id": "A:1",
-                "overlap_policy": "allow",
-            },
-        ]),
-        canonical_annotations([
-            {
-                "label": "first",
-                "start": 1,
-                "end": 2,
-                "chain_id": "A",
-                "start_residue_id": "A:1",
-                "end_residue_id": "A:2",
-                "overlap_policy": "reject",
-            },
-            {
-                "label": "overlap",
-                "start": 2,
-                "end": 2,
-                "chain_id": "A",
-                "start_residue_id": "A:2",
-                "end_residue_id": "A:2",
-                "overlap_policy": "reject",
             },
         ]),
     ),
@@ -749,12 +710,6 @@ def test_multichain_prompt_round_trip_preserves_explicit_esm3_refusal(
                 "source_structure_track",
                 "author",
                 "structure_track",
-            ),
-            WorkflowEdge(
-                "source",
-                "source_visibility_track",
-                "author",
-                "visibility_track",
             ),
             WorkflowEdge(
                 "source",

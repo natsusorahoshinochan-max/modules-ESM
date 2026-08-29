@@ -347,9 +347,6 @@ def test_user_can_condition_function_tracks_generate_and_replay(
         assert type(assembled) is type(masked) is ProteinPrompt
         assert masked.target_layout == assembled.target_layout
         assert masked.structure_track == assembled.structure_track
-        assert masked.structure_visibility_track == (
-            assembled.structure_visibility_track
-        )
         assert masked.secondary_structure_track == (
             assembled.secondary_structure_track
         )

@@ -31,13 +31,11 @@ _ANNOTATION_FIELDS = {
     "chain_id",
     "start_residue_id",
     "end_residue_id",
-    "overlap_policy",
 }
 _PROMPT_FIELDS = {
     "target_layout",
     "sequence_track",
     "structure_track",
-    "structure_visibility_track",
     "secondary_structure_track",
     "sasa_track",
     "function_annotations",
@@ -54,7 +52,6 @@ def _function_annotation_to_canonical(
         "chain_id": value.chain_id,
         "start_residue_id": value.start_residue_id,
         "end_residue_id": value.end_residue_id,
-        "overlap_policy": value.overlap_policy,
     }
 
 
@@ -91,7 +88,6 @@ def _annotations_from_wire(value: object) -> object:
                 chain_id=raw["chain_id"],
                 start_residue_id=raw["start_residue_id"],
                 end_residue_id=raw["end_residue_id"],
-                overlap_policy=raw["overlap_policy"],
             )
         )
     return FunctionAnnotations(annotations)
@@ -118,9 +114,6 @@ def _prompt_to_wire(prompt: ProteinPrompt) -> object:
         ),
         "sequence_track": _track_to_wire(prompt.sequence_track),
         "structure_track": _track_to_wire(prompt.structure_track),
-        "structure_visibility_track": _track_to_wire(
-            prompt.structure_visibility_track
-        ),
         "secondary_structure_track": _track_to_wire(
             prompt.secondary_structure_track
         ),
@@ -138,11 +131,8 @@ def _prompt_from_wire(value: object) -> object:
         target_layout=_LAYOUT_CODEC.from_wire(
             value["target_layout"],
         ),
-        sequence_track=_track_from_wire(value["sequence_track"]),
-        structure_track=_track_from_wire(value["structure_track"]),
-        structure_visibility_track=_track_from_wire(
-            value["structure_visibility_track"]
-        ),
+        sequence_track=_TRACK_CODEC.from_wire(value["sequence_track"]),
+        structure_track=_TRACK_CODEC.from_wire(value["structure_track"]),
         secondary_structure_track=_track_from_wire(
             value["secondary_structure_track"]
         ),
@@ -165,7 +155,6 @@ FUNCTION_ANNOTATIONS_PORT_TYPE = PortTypeDefinition(
                 "ordering": (
                     "start,end,label,chain-and-residue-provenance"
                 ),
-                "overlap_policy": ["allow", "reject"],
                 "residue_identity_contract": "residue.layout",
             },
             "complete_values_only": True,
@@ -218,7 +207,12 @@ PROTEIN_PROMPT_PORT_TYPE = PortTypeDefinition(
                 "target_layout": "residue.layout",
                 "tracks": "residue.track",
             },
-            "nullable_semantics": "JSON null means unspecified",
+            "nullable_semantics": {
+                "sequence_track": "all-null track means fully masked",
+                "structure_track": "all-null track means no coordinates",
+                "secondary_structure_track": "JSON null means absent",
+                "sasa_track": "JSON null means absent",
+            },
         },
     ),
     content_identity=BehaviorReference(

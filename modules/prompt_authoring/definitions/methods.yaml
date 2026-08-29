@@ -3,7 +3,7 @@
     name: chain-qualified-function-interval-authoring
     interval_indexing: one-based-inclusive-provider-axis
     ordering: global-start-global-end-label-and-provenance
-    overlap_policy: explicit-workflow-choice
+    overlap_policy: operation-scoped-workflow-choice
   model_identity:
     kind: none
   featurization_identity:
@@ -15,7 +15,7 @@
   algorithm_identity:
     name: validated-residue-aligned-protein-prompt-assembly
     track_layout: exact-effective-residue-layout
-    optional_tracks: absent-or-explicitly-nullable
+    sequence_and_structure_masks: explicit-all-null-residue-tracks
   model_identity:
     kind: none
   featurization_identity:
@@ -112,7 +112,6 @@
     name: canonical-resolved-axis-to-protein-prompt
     residue_identity: resolved-axis-layout-order
     coordinates: resolved-axis-selected-named-atoms
-    visibility: resolved-axis-coordinate-bearing-residues
     component_policy: consume-resolver-admitted-polymer-axis
   model_identity:
     kind: none

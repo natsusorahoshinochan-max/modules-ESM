@@ -74,10 +74,6 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
         [None, "H", "E", None, None, "-"],
         None,
     )
-    assert inserted.structure_visibility_track == ResidueTrack(
-        [None, True, True, None, None, False],
-        None,
-    )
     assert [
         (
             annotation.start,
@@ -239,7 +235,7 @@ def test_canonical_3gb1_insertion_intent_is_an_ordinary_regression(
     assert inserted.target_layout.length == 71
     assert catalog.require_port_type(
         "protein.prompt").content_digest(inserted) == (
-        "sha256:d90203c4378e548264c833b2ab9a689ad3452e541f7d2e8964b16320a69c7c5b"
+        "sha256:0285ad861e30f5dd739631f7aad79c8634de1650585753d6c27dd2eb45aea731"
     )
     method = catalog.require_contract(
         "method",

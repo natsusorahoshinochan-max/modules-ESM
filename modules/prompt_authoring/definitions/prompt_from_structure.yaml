@@ -1,6 +1,6 @@
 node_type_id: prompt_authoring.prompt_from_structure
 title: Build a ProteinPrompt from a structure
-summary: Converts one admitted resolved residue axis into residue-identified sequence, coordinate, and visibility tracks without rebuilding structure semantics.
+summary: Converts one admitted resolved residue axis into residue-identified sequence and coordinate tracks without rebuilding structure semantics.
 category: prompt_authoring
 inputs:
   - name: residue_axis
@@ -18,6 +18,6 @@ outputs:
     port_type_id: protein.prompt
     required: true
     multiplicity: one
-    scientific_meaning: ProteinPrompt carrying exact sequence, selected named-atom coordinates, and visibility from the admitted axis.
+    scientific_meaning: ProteinPrompt carrying exact sequence and selected named-atom coordinates from the admitted axis.
 parameter_groups: []
 node_parameters: {}

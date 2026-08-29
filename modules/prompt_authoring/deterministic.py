@@ -111,7 +111,6 @@ def _remap_annotations(
             chain_id=annotation.chain_id,
             start_residue_id=annotation.start_residue_id,
             end_residue_id=annotation.end_residue_id,
-            overlap_policy=annotation.overlap_policy,
         )
         for annotation in annotations.annotations
     ]
@@ -159,11 +158,13 @@ def insert_masked_residues(
     residue_map = build_residue_map(source_layout, target_layout, edits)
     result = ProteinPrompt(
         target_layout=target_layout,
-        sequence_track=_extend_track(source.sequence_track, boundaries),
-        structure_track=_extend_track(source.structure_track, boundaries),
-        structure_visibility_track=_extend_track(
-            source.structure_visibility_track,
-            boundaries,
+        sequence_track=cast(
+            ResidueTrack,
+            _extend_track(source.sequence_track, boundaries),
+        ),
+        structure_track=cast(
+            ResidueTrack,
+            _extend_track(source.structure_track, boundaries),
         ),
         secondary_structure_track=_extend_track(
             source.secondary_structure_track,

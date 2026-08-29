@@ -30,7 +30,6 @@ node_parameters:
       enum:
         - sequence
         - structure
-        - visibility
         - secondary_structure
         - sasa
   overrides:

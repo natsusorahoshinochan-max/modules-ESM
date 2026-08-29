@@ -14,9 +14,9 @@ A modular, node-based protein design workbench for personal local use. The user 
 
 1. As a protein engineer, I want to import a PDB structure into the workbench, so that I can use it as a starting point for design.
 2. As a protein engineer, I want to import a FASTA sequence into the workbench, so that I can fold or modify it.
-3. As a protein engineer, I want to build a multi-track ProteinPrompt with per-residue control over sequence, structure visibility, secondary structure, and SASA, so that I can precisely specify what ESM3 should condition on versus generate.
+3. As a protein engineer, I want to build a multi-track ProteinPrompt with per-residue control over sequence, structure coordinates, secondary structure, and SASA, so that I can precisely specify what ESM3 should condition on versus generate.
 4. As a protein engineer, I want to insert, delete, set, and mask individual residues in my prompt, so that I can redesign specific regions while keeping others fixed.
-5. As a protein engineer, I want structure visibility and sequence specification to be independent at each residue position, so that I can provide structural constraints without fixing the sequence.
+5. As a protein engineer, I want structure-coordinate and sequence conditioning to be independent at each residue position, so that I can provide structural constraints without fixing the sequence.
 6. As a protein engineer, I want to compute DSSP secondary structure and SASA from an imported structure and optionally override them by hand, so that my prompt reflects both computational and expert knowledge.
 7. As a protein engineer, I want to add named function annotations as residue ranges in my prompt, so that ESM3 receives functional constraints.
 8. As a protein engineer, I want to generate protein sequences from my ProteinPrompt using ESM3, so that I can explore the model's sequence space conditioned on my structural and functional constraints.
@@ -86,8 +86,8 @@ A modular, node-based protein design workbench for personal local use. The user 
 
 ### ProteinPrompt
 
-- All tracks (sequence, structure coordinates, structure visibility, secondary structure, SASA, function annotations) use per-residue arrays of length equal to the target layout. Each position holds either a concrete value or a sentinel meaning unspecified/masked/not-visible.
-- Tracks are fully independent: sequence specification and structure visibility each have their own array.
+- Sequence, structure coordinates, secondary structure, and SASA use residue-aligned values of length equal to the target layout; function annotations use aligned intervals. Each position holds either a concrete value or a null meaning unspecified/masked.
+- Sequence and structure-coordinate conditioning remain independent. A concrete coordinate value conditions ESM-3; a null structure value does not. Viewer visibility is not a scientific track.
 - A `ResidueMap` stores the correspondence between a template structure and the target layout, tracking insertions, deletions, and matched positions.
 - Supported edit operations: Insert, Delete, Set Residue, Mask Residue.
 
