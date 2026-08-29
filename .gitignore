@@ -2,7 +2,9 @@
 /output/
 .DS_Store
 .codex/
+.agents/
 .workbuddy/
+skills-lock.json
 .local/
 keys/
 *.egg-info/
