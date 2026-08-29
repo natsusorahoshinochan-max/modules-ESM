@@ -174,6 +174,9 @@ class _Controlled5G53ESM3:
         self.structure_prompts.append(protein)
         return self._response(protein.sequence, offset=sample_index)
 
+    def close(self) -> None:
+        pass
+
 
 def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
     assert hashlib.sha256(INPUT_PATH.read_bytes()).hexdigest() == INPUT_SHA256

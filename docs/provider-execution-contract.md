@@ -313,17 +313,17 @@ this contract:
 - [#77 — admitted Provider assets are copied into runtime work directories, including Protein-Sol source](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/77)
 - [#78 — Local ESMFold2 can read CCD data outside the admitted model root](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/78)
 - [#79 — Local ESM-3 Readiness omits function-tokenization assets](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/79)
+- [#81 — Biohub requests have no finite timeout and clients are not deterministically closed](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/81)
+- [#82 — remote ESMFold2 records Provider errors outside the Invocation boundary](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/82)
 - [#83 — cancellation can unregister a process group while descendants remain alive](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/83)
 - [#84 — Module Packages directly own mkdssp and SoluProt/Protein-Sol process lifecycle](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/84)
+- [#85 — SimpleFold leaves Provider import state in the host process](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/85)
 - [#86 — SoluProt uses failure-driven USEARCH command fallback](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/86)
 - [#87 — temporary-directory cleanup can replace the primary Operation error](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/87)
 
 The remaining confirmed gaps are:
 
 - [#80 — Biohub SDK retries are collapsed into one Engine Invocation](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/80)
-- [#81 — Biohub requests have no finite timeout and clients are not deterministically closed](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/81)
-- [#82 — remote ESMFold2 records Provider errors outside the Invocation boundary](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/82)
-- [#85 — SimpleFold leaves Provider import state in the host process](https://github.com/natsusorahoshinochan-max/modules-ESM/issues/85)
 
 The linked issues record implementation status. They do not define alternate
 contracts or preserve superseded behavior as compatibility.

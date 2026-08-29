@@ -282,6 +282,9 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
                 )).reshape(1, 1, 1152),
             )
 
+        def close(self) -> None:
+            pass
+
     catalog = build_frozen_catalog((
         ESM3_PACKAGE,
         PROMPT_AUTHORING_PACKAGE,
@@ -492,6 +495,7 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
     class ESMCClient:
         def __init__(self) -> None:
             self.calls: list[str] = []
+            self.close_calls = 0
 
         def encode(self, protein: object) -> object:
             self.calls.append("encode")
@@ -507,6 +511,9 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
                     torch.zeros(1151),
                 )).reshape(1, 1, 1152),
             )
+
+        def close(self) -> None:
+            self.close_calls += 1
 
     class InvocationResources:
         def __init__(self) -> None:
@@ -542,6 +549,7 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
         sequence_logits_shape=(5, 64),
     )
     assert client.calls == ["encode", "logits"]
+    assert client.close_calls == 1
     assert _plain_invocations(resources.invocations) == [
         {
             "engine_role": "sequence_encode",
@@ -550,6 +558,58 @@ def test_biohub_esmc_adapter_owns_both_sdk_calls_and_result_admission(
             "engine_role": "sequence_logits",
             "parent_invocation_id": "esmc-invocation-1",
         },
+    ]
+
+
+def test_biohub_esm_client_builders_own_the_fixed_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.sdk
+
+    from modules.esm3.adapter import build_biohub_esm3_client
+    from modules.esm3.esmc_adapter import build_biohub_esmc_client
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    def build_esm3(**kwargs: object) -> object:
+        calls.append(("esm3", kwargs))
+        return object()
+
+    def build_esmc(**kwargs: object) -> object:
+        calls.append(("esmc", kwargs))
+        return object()
+
+    monkeypatch.setattr(esm.sdk, "client", build_esm3)
+    monkeypatch.setattr(esm.sdk, "esmc_client", build_esmc)
+
+    build_biohub_esm3_client(
+        model_name="esm3-medium-2024-08",
+        credential_handle="credential",
+    )
+    build_biohub_esmc_client(
+        model_name="esmc-600m-2024-12",
+        credential_handle="credential",
+    )
+
+    assert calls == [
+        (
+            "esm3",
+            {
+                "model": "esm3-medium-2024-08",
+                "url": "https://biohub.ai",
+                "token": "credential",
+                "request_timeout": 150,
+            },
+        ),
+        (
+            "esmc",
+            {
+                "model": "esmc-600m-2024-12",
+                "url": "https://biohub.ai",
+                "token": "credential",
+                "request_timeout": 150,
+            },
+        ),
     ]
 
 
@@ -733,6 +793,7 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
         }
     ]
     assert [call[1].track for call in client.calls] == ["sequence"]
+    assert client.close_calls == 1
     with pytest.raises(FrozenInstanceError):
         result.reconstruction = object()  # type: ignore[misc]
 
@@ -1959,6 +2020,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
                     dtype=torch.float32,
                 ),
             )
+
+        def close(self) -> None:
+            pass
 
     esmc_client = ESMCClient()
     cases = (

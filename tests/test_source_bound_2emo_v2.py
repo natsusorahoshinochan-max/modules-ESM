@@ -202,6 +202,9 @@ class _ControlledESMFold2:
             pae=torch.zeros((len(sequence), len(sequence))),
         )
 
+    def close(self) -> None:
+        pass
+
 
 def test_controlled_fold_fixture_has_exact_sequence_and_lawful_backbone() -> None:
     normalized, _ = normalize_csh_parent_span(

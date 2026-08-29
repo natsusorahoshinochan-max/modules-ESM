@@ -59,10 +59,14 @@ class ProviderClient:
     def __init__(self, responses: list[ProviderResponse]) -> None:
         self._responses = iter(responses)
         self.calls: list[tuple[Any, Any]] = []
+        self.close_calls = 0
 
     def generate(self, protein: Any, config: Any) -> ProviderResponse:
         self.calls.append((protein, config))
         return next(self._responses)
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 @contextmanager

@@ -132,12 +132,13 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import os
     import pickle
     import sys
     from types import ModuleType
 
     import modules.folding.simplefold_confidence_adapter as adapter
+    import modules.folding.simplefold_runtime as simplefold_runtime
+    from datatypes.sequence import ProteinSequence
     from modules.structure_transform.residue_axis import resolve_residue_axis
 
     lifecycle: dict[str, bool] = {}
@@ -183,6 +184,17 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
         def __init__(self, **_kwargs: Any) -> None:
             pass
 
+    observed_folding_loaders: list[object] = []
+
+    def original_folding_loader() -> tuple[object, object]:
+        return object(), object()
+
+    folding_registry = {"esm2_3B": original_folding_loader}
+
+    class InferenceWrapper:
+        def __init__(self, **_kwargs: Any) -> None:
+            observed_folding_loaders.append(folding_registry["esm2_3B"])
+
     def parse_fasta(_path: Path, _ccd: object) -> Target:
         lifecycle["request_processed"] = True
         return Target()
@@ -210,6 +222,7 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
 
     modules = {
         "simplefold": ModuleType("simplefold"),
+        "simplefold.wrapper": ModuleType("simplefold.wrapper"),
         "simplefold.boltz_data_pipeline": ModuleType(
             "simplefold.boltz_data_pipeline"
         ),
@@ -239,12 +252,31 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
         "simplefold.utils.datamodule_utils": ModuleType(
             "simplefold.utils.datamodule_utils"
         ),
+        "simplefold.utils.boltz_utils": ModuleType(
+            "simplefold.utils.boltz_utils"
+        ),
+        "simplefold.utils.fasta_utils": ModuleType(
+            "simplefold.utils.fasta_utils"
+        ),
         "simplefold.utils.esm_utils": ModuleType(
             "simplefold.utils.esm_utils"
         ),
     }
     const = ModuleType("simplefold.boltz_data_pipeline.const")
     const.chain_type_ids = {"PROTEIN": 0}
+    provider_directory = tmp_path / "simplefold"
+    provider_directory.mkdir()
+    modules["simplefold"].__file__ = str(
+        provider_directory / "__init__.py"
+    )
+    modules["simplefold"].wrapper = modules["simplefold.wrapper"]
+    modules["simplefold.wrapper"].InferenceWrapper = InferenceWrapper
+    modules["simplefold.wrapper"].esm_registry = folding_registry
+    modules["simplefold.utils.boltz_utils"].process_structure = object()
+    modules["simplefold.utils.boltz_utils"].to_pdb = object()
+    modules["simplefold.utils.fasta_utils"].process_fastas = (
+        lambda **_kwargs: None
+    )
     modules["simplefold.boltz_data_pipeline"].const = const
     modules[
         "simplefold.boltz_data_pipeline.feature.featurizer"
@@ -268,7 +300,6 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
     for name, module in modules.items():
         monkeypatch.setitem(sys.modules, name, module)
 
-    monkeypatch.setattr(adapter, "_setup_simplefold_imports", os.getcwd)
     monkeypatch.setattr(
         adapter,
         "_load_representation_only_esm2",
@@ -297,6 +328,23 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
                 "esm2_source": esm2_source_root,
             }[role]
 
+    folding_arguments = {
+        "sequence": ProteinSequence("AG", ("A:1", "A:2")),
+        "num_steps": 50,
+        "num_samples": 1,
+        "effective_seed": 1603,
+        "staged_model_root": model_root,
+        "staged_esm2_source_root": esm2_source_root,
+        "staged_esm2_model_root": esm2_model_root,
+        "device": "cpu",
+    }
+    simplefold_runtime.activate_fold_sequence(
+        staging_directory=tmp_path / "folding-before-confidence",
+        **folding_arguments,
+    )
+    assert folding_registry == {"esm2_3B": original_folding_loader}
+    assert modules["simplefold.utils.esm_utils"].esm_registry == {}
+
     activated = adapter.activate_existing_structure_confidence(
         residue_axis=resolve_residue_axis(ProteinStructure(_two_residue_pdb())),
         staging_directory=staging_directory,
@@ -305,6 +353,18 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
     )
 
     assert lifecycle == {"request_processed": True}
+    assert modules["simplefold.utils.esm_utils"].esm_registry == {}
+    simplefold_runtime.activate_fold_sequence(
+        staging_directory=tmp_path / "folding-after-confidence",
+        **folding_arguments,
+    )
+    assert folding_registry == {"esm2_3B": original_folding_loader}
+    assert modules["simplefold.utils.esm_utils"].esm_registry == {}
+    assert len(observed_folding_loaders) == 2
+    assert all(
+        loader is not original_folding_loader
+        for loader in observed_folding_loaders
+    )
     activated.prepare_inputs()
     assert lifecycle == {
         "request_processed": True,
@@ -318,6 +378,75 @@ def test_confidence_releases_esm2_before_loading_plddt_models(
         "id": "existing",
         "chains": [{"msa_id": -1}],
     }
+
+
+def test_confidence_final_model_activation_restores_process_import_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import importlib
+    import os
+    import sys
+    from types import ModuleType
+
+    import modules.folding.simplefold_confidence_adapter as adapter
+
+    provider_directory = tmp_path / "simplefold"
+    model_package = provider_directory / "model"
+    model_package.mkdir(parents=True)
+    (model_package / "__init__.py").write_text("")
+    (model_package / "provider_model.py").write_text("value = 1\n")
+    simplefold_module = ModuleType("simplefold")
+    simplefold_module.__file__ = str(provider_directory / "__init__.py")
+    monkeypatch.setitem(sys.modules, "simplefold", simplefold_module)
+    for module_name in tuple(sys.modules):
+        if module_name == "model" or module_name.startswith("model."):
+            monkeypatch.delitem(sys.modules, module_name)
+
+    def load_models(
+        model_directory: Path,
+        device: object,
+    ) -> dict[str, object]:
+        assert model_directory == tmp_path / "models"
+        assert device == "device"
+        assert Path.cwd() == provider_directory
+        assert str(provider_directory) in sys.path
+        assert importlib.import_module("model.provider_model").value == 1
+        return {
+            "plddt_latent_module": "latent",
+            "plddt_out_module": "output",
+        }
+
+    monkeypatch.setattr(adapter, "_load_reviewed_plddt_models", load_models)
+    original_cwd = os.getcwd()
+    original_path = tuple(sys.path)
+    activated = adapter.ActivatedSimpleFoldConfidence(
+        provider_directory=provider_directory,
+        model_directory=tmp_path / "models",
+        residue_axis=object(),  # type: ignore[arg-type]
+        structure_file=tmp_path / "structure.npz",
+        record_file=tmp_path / "record.json",
+        const_module=object(),
+        tokenizer=object(),
+        featurizer=object(),
+        processor=object(),
+        process_one_inference_structure=lambda: None,
+        esm_model=object(),
+        esm_dict=object(),
+        af2_to_esm=object(),
+        torch_device="device",
+        torch_module=object(),
+        numpy_module=object(),
+    )
+
+    activated.activate_final_models()
+
+    assert activated.latent_module == "latent"
+    assert activated.output_module == "output"
+    assert os.getcwd() == original_cwd
+    assert tuple(sys.path) == original_path
+    assert "model" not in sys.modules
+    assert "model.provider_model" not in sys.modules
 
 
 def test_confidence_features_use_normalized_modified_polymer_axis() -> None:
