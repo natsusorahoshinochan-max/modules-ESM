@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 import os
 from pathlib import Path
-import signal
-import subprocess
 from typing import cast
 
 from core.operation import OperationResources
@@ -14,10 +12,6 @@ from core.operation import OperationResources
 
 class SolubilityReadinessUnavailable(RuntimeError):
     """A solubility Provider prerequisite is unavailable."""
-
-
-class LocalProviderTimeout(RuntimeError):
-    """One local provider exceeded its closed execution budget."""
 
 
 def _require_file(
@@ -62,36 +56,14 @@ def _run_local_process(
     staging_directory: Path,
     resources: OperationResources,
     path_entries: Sequence[Path] = (),
+    timeout_seconds: float,
 ) -> int:
-    process = subprocess.Popen(
-        list(command),
+    """Run one solubility Provider process through the core managed owner."""
+    result = resources.run_managed_local_process(
+        command=command,
         cwd=staging_directory,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        env={
-            "HOME": str(staging_directory),
-            "LANG": "C",
-            "LC_ALL": "C",
-            "PATH": os.pathsep.join(
-                (*map(str, path_entries), os.defpath)
-            ),
-        },
-        start_new_session=True,
+        timeout_seconds=timeout_seconds,
+        path_entries=path_entries,
+        capture_output=False,
     )
-    try:
-        with resources.cancellable_process_group(
-            process.pid,
-            fallback=process.kill,
-        ):
-            process.communicate(timeout=300)
-    except subprocess.TimeoutExpired as error:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait()
-        raise LocalProviderTimeout(
-            "Local provider invocation timed out safely"
-        ) from error
-    return cast(int, process.returncode)
+    return cast(int, result.returncode)

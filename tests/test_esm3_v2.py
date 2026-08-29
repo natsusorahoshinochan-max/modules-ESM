@@ -1890,16 +1890,13 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
         }
 
     local_snapshot = tmp_path / "local-snapshot"
-    local_runtime_directory = tmp_path / "local-runtime"
     local_snapshot.mkdir()
-    local_runtime_directory.mkdir()
 
     def resolve_local_runtime(
         environment_values: Any,
     ) -> local_adapter.LocalESM3Runtime:
         return local_adapter.LocalESM3Runtime(
             snapshot_path=local_snapshot,
-            runtime_directory=local_runtime_directory,
             device="cpu",
         )
 
@@ -1916,10 +1913,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
 
     def local_environment(client: ProviderClient) -> dict[str, Any]:
         local_clients.append(client)
-        return {
-            "model_snapshot_path": local_snapshot,
-            "runtime_directory": local_runtime_directory,
-        }
+        return {"model_snapshot_path": local_snapshot}
 
     structure_response = lambda: ProviderResponse(
         "ACD",

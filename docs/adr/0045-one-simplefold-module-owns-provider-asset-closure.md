@@ -40,8 +40,10 @@ outputs.
 
 Readiness failure prevents an Operation Attempt and Engine Invocation. After
 Readiness succeeds, direct binding trusts the admitted configured roots without
-another validation seam. Provider-module import, model loading, and scientific
-execution occur at their actual invocation seam. A successful Invocation
+another validation seam. Provider-module import and model loading occur during
+Provider activation inside the Operation Attempt and before the corresponding
+Engine Invocation. Scientific execution and documented Provider outcome
+classification occur inside that Engine Invocation. A successful Invocation
 followed by translation, normalization, or output admission failure remains a
 successful Invocation inside a failed Operation Attempt.
 

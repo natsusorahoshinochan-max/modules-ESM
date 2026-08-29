@@ -376,9 +376,66 @@ def _assert_1pga_science(
                 1,
                 "exact_seed" if local_models else "provider_uncontrolled",
             ),
-            "fold-simplefold": (1, "exact_seed"),
         },
     )
+    event_facts = tuple(message["event"] for message in events)
+    simplefold_binding = catalog.require_contract(
+        "binding",
+        "folding.fold.simplefold_local",
+    )
+    simplefold_disposition = next(
+        disposition
+        for disposition in projection["node_dispositions"]
+        if disposition["node_id"] == "fold-simplefold"
+    )
+    assert simplefold_disposition["outcome"] == "succeeded"
+    assert simplefold_disposition["resolution"] == "executed"
+    assert any(
+        event["type"] == "readiness_attested"
+        and event["binding"] == simplefold_binding.reference()
+        and event["conclusion"] == "passing"
+        for event in event_facts
+    )
+    simplefold_node_attempt_ids = {
+        event["node_attempt_id"]
+        for event in event_facts
+        if event["type"] == "node_attempt_started"
+        and event["node_id"] == "fold-simplefold"
+    }
+    simplefold_operation_attempt_ids = {
+        event["operation_attempt_id"]
+        for event in event_facts
+        if event["type"] == "operation_attempt_started"
+        and event["node_attempt_id"] in simplefold_node_attempt_ids
+    }
+    simplefold_invocations = tuple(
+        event
+        for event in event_facts
+        if event["type"] == "engine_invocation_started"
+        and event["operation_attempt_id"]
+        in simplefold_operation_attempt_ids
+    )
+    assert [
+        invocation["engine_role"]
+        for invocation in simplefold_invocations
+    ] == ["fold_parent_0_esm2_features", "fold_parent_0"]
+    terminal_by_invocation = {
+        event["invocation_id"]: event
+        for event in event_facts
+        if event["type"] == "engine_invocation_terminal"
+    }
+    assert all(
+        invocation["engine_identity"]
+        == simplefold_binding.descriptor["method"]["contract_id"]
+        and terminal_by_invocation[invocation["invocation_id"]]["status"]
+        == "succeeded"
+        for invocation in simplefold_invocations
+    )
+    feature_invocation, folding_invocation = simplefold_invocations
+    assert "invocation_provenance" not in feature_invocation
+    assert folding_invocation["invocation_provenance"][
+        "effective_randomness"
+    ]["control"] == "exact_seed"
     workflow_nodes = {node["node_id"]: node for node in workflow["nodes"]}
     assert workflow_nodes["fold-esmfold2"]["node_parameters"] == {
         "effective_seed": 1075001,
@@ -428,7 +485,7 @@ def _assert_1pga_science(
     )
     assert "configured_base_seed" not in simplefold.items[0].metadata
     assert simplefold.items[0].metadata["num_steps"] == 50
-    assert live_invocations["fold-simplefold"][0][
+    assert folding_invocation[
         "invocation_provenance"
     ]["effective_randomness"]["effective_seed"] == (
         simplefold.items[0].metadata["effective_call_seed"]

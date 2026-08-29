@@ -48,7 +48,11 @@ from .esmc_adapter import (
 from . import port_types as _port_types
 from .local_adapter import (
     LOCAL_ESM3_MODEL,
+    LOCAL_ESM3_LSH_TABLE_PATH,
+    LOCAL_ESM3_PACKAGE_ASSET_FILES,
+    LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH,
     LOCAL_ESM3_SNAPSHOT_SOURCE,
+    LOCAL_ESM3_WEIGHT_FILES,
     LocalESM3Adapter,
     local_readiness,
     local_runtime_structurally_available,
@@ -88,7 +92,6 @@ _BIOHUB_ENVIRONMENT_FIELDS = (
 )
 _LOCAL_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("model_snapshot_path", "filesystem_path"),
-    EnvironmentFieldDeclaration("runtime_directory", "filesystem_path"),
 )
 
 
@@ -579,16 +582,21 @@ def _local_binding(operation: str) -> ExecutionBindingDefinition:
                 "model_snapshot": {
                     "source": LOCAL_ESM3_SNAPSHOT_SOURCE,
                     "path_source": "trusted_environment_configuration",
+                    "required_relative_files": (
+                        *LOCAL_ESM3_WEIGHT_FILES,
+                        LOCAL_ESM3_LSH_TABLE_PATH,
+                        LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH,
+                    ),
                 },
                 "device": {
                     "source": "adapter",
                     "policy": LOCAL_TORCH_DEVICE_POLICY,
                     "fallback": "forbidden",
                 },
-                "runtime_directory": {
-                    "source": "trusted_environment_configuration",
+                "provider_sdk": {
+                    "name": "esm",
+                    "required_relative_files": LOCAL_ESM3_PACKAGE_ASSET_FILES,
                 },
-                "provider_sdk": {"name": "esm"},
             },
             check=_local_ready,
         ),

@@ -7,7 +7,6 @@ import csv
 from dataclasses import dataclass, field
 import io
 from pathlib import Path
-import shutil
 from typing import Any, cast
 
 from core.operation import OperationResources, ReadinessResult
@@ -26,6 +25,7 @@ from .domain import SequenceSolubilitySubject
 
 PROTEIN_SOL_RELEASE = "2017-10"
 PROTEIN_SOL_POPULATION_SCALED = 0.446
+PROTEIN_SOL_PROCESS_TIMEOUT_SECONDS: float = 300.0
 PROTEIN_SOL_CALIBRATION_CONTEXT = {
     "kind": "calibration",
     "calibration_metric": "population_scaled_solubility",
@@ -43,6 +43,22 @@ PROTEIN_SOL_SOURCE_FILES = (
     "server_prediction_seq_export.pl",
     "ss_propensities.txt",
 )
+PROTEIN_SOL_LINKED_ASSETS = (
+    "seq_reference_data.txt",
+    "ss_propensities.txt",
+)
+_PROTEIN_SOL_WRAPPER_DRIVER = """\
+provider_root=$1
+perl_executable=$2
+wrapper=$3
+input_fasta=$4
+perl() {
+    provider_script=$1
+    shift
+    "$perl_executable" "$provider_root/$provider_script" "$@"
+}
+. "$wrapper" "$input_fasta"
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +114,7 @@ def protein_sol_readiness(
 class _TrustedProteinSolEnvironment:
     """Runtime paths already admitted by per-run Binding readiness."""
 
+    source_root: Path
     source_files: Mapping[str, Path]
     bash_executable: Path
     perl_executable: Path
@@ -109,6 +126,7 @@ def _trusted_protein_sol_environment(
     """Project already-admitted environment values without probing again."""
     source_root = cast(Path, environment["source_root"])
     return _TrustedProteinSolEnvironment(
+        source_root=source_root,
         source_files={
             relative: source_root / relative
             for relative in PROTEIN_SOL_SOURCE_FILES
@@ -121,25 +139,37 @@ def _trusted_protein_sol_environment(
 def _prepare_protein_sol_invocation(
     *,
     sequences: Sequence[str],
-    staging_directory: Path,
+    invocation_directory: Path,
     resolved_environment: _TrustedProteinSolEnvironment,
-) -> tuple[tuple[str, ...], Path]:
-    """Stage one exact Protein-Sol request before its Engine Invocation."""
-    for relative in PROTEIN_SOL_SOURCE_FILES:
-        shutil.copyfile(
-            resolved_environment.source_files[relative],
-            staging_directory / relative,
-        )
-    input_path = staging_directory / "input.fasta"
+) -> tuple[tuple[str, ...], Path, Path]:
+    """Stage one exact Protein-Sol request before its Engine Invocation.
+
+    The wrapper and its sibling Provider sources remain at the admitted source
+    root. Its mutable relative paths are owned by the private invocation
+    directory, and each bare ``perl`` call is bound to the exact admitted
+    executable.
+    """
+    input_path = invocation_directory / "input.fasta"
     _write_fasta(input_path, sequences)
-    return (
-        (
-            str(resolved_environment.bash_executable),
-            "multiple_prediction_wrapper_export.sh",
-            input_path.name,
-        ),
-        staging_directory / "seq_prediction.txt",
+    for relative in PROTEIN_SOL_LINKED_ASSETS:
+        (invocation_directory / relative).symlink_to(
+            resolved_environment.source_files[relative]
+        )
+    wrapper_path = resolved_environment.source_files[
+        "multiple_prediction_wrapper_export.sh"
+    ]
+    command = (
+        str(resolved_environment.bash_executable),
+        "-c",
+        _PROTEIN_SOL_WRAPPER_DRIVER,
+        "protein-sol",
+        str(resolved_environment.source_root),
+        str(resolved_environment.perl_executable),
+        str(wrapper_path),
+        str(input_path),
     )
+    output_path = invocation_directory / "seq_prediction.txt"
+    return command, output_path, invocation_directory
 
 
 def parse_protein_sol_output(
@@ -195,20 +225,23 @@ class LocalProteinSolAdapter:
         resolved = _trusted_protein_sol_environment(self.environment)
         with self.resources.temporary_directory(
             prefix="protein-sol-"
-        ) as staging_directory:
-            command, output_path = _prepare_protein_sol_invocation(
-                sequences=provider_sequences,
-                staging_directory=staging_directory,
-                resolved_environment=resolved,
+        ) as invocation_directory:
+            command, output_path, working_directory = (
+                _prepare_protein_sol_invocation(
+                    sequences=provider_sequences,
+                    invocation_directory=invocation_directory,
+                    resolved_environment=resolved,
+                )
             )
             with self.resources.engine_invocation(
                 engine_role="protein_sol_sequence_prediction",
             ):
                 return_code = _run_local_process(
                     command=command,
-                    staging_directory=staging_directory,
+                    staging_directory=working_directory,
                     resources=self.resources,
-                    path_entries=(resolved.perl_executable.parent,),
+                    path_entries=(),
+                    timeout_seconds=PROTEIN_SOL_PROCESS_TIMEOUT_SECONDS,
                 )
                 if return_code != 0:
                     raise ProteinSolProviderNonzeroExit(

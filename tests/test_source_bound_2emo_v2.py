@@ -135,6 +135,10 @@ class _ControlledProteinMPNN:
         )
         return [{"name": "target", "seq": sequence, "seq_chain_A": sequence}]
 
+    @staticmethod
+    def activate(model_name: str, backbone_noise: float) -> None:
+        del model_name, backbone_noise
+
     def design(self, request: Any) -> list[ProteinSequence]:
         self.requests.append(request)
         _, reference = next(iter(request.reference_sequences.items()))
@@ -598,7 +602,12 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
 
     def prepare_protein_sol(**kwargs: Any):
         prepared_sequences[:] = kwargs["sequences"]
-        return (("provider-free-protein-sol",), kwargs["staging_directory"] / "seq_prediction.txt")
+        invocation_directory = kwargs["invocation_directory"]
+        return (
+            ("provider-free-protein-sol",),
+            invocation_directory / "seq_prediction.txt",
+            invocation_directory,
+        )
 
     def run_protein_sol(**kwargs: Any) -> int:
         rows = [

@@ -9,9 +9,6 @@ import shutil
 from typing import Any
 
 from core.provider_support import read_private_credential_file
-from protein_workbench_public.application_environment import (
-    application_storage_roots,
-)
 
 
 ProviderEnvironmentConfiguration = dict[str, dict[str, Any]]
@@ -82,12 +79,8 @@ def provider_environment_configuration(
         "PROTEIN_WORKBENCH_ESM3_MODEL_ROOT",
     )
     if esm3_model_root is not None:
-        storage = application_storage_roots(values)
-        runtime_directory = storage.data / "provider-runtime/esm3"
-        runtime_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
         local_esm3_values = {
             "model_snapshot_path": esm3_model_root,
-            "runtime_directory": runtime_directory,
         }
         for operation in (
             "generate_sequence",

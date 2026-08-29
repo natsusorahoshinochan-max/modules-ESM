@@ -19,6 +19,7 @@ def build_fixture_simplefold_closure(
             replace(
                 source,
                 package_name="pytest",
+                required_relative_files=(),
             )
             if source.package_name is not None
             else source

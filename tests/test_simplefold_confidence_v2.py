@@ -7,7 +7,7 @@ from tests.support.ledger import public_run_events, public_run_projection
 from protein_workbench_public.bootstrap import module_registrations
 
 import json
-from dataclasses import replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +128,198 @@ def test_confidence_provider_segments_come_only_from_resolved_axis() -> None:
     assert not hasattr(adapter, "_pdb_residues")
 
 
+def test_confidence_releases_esm2_before_loading_plddt_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import pickle
+    import sys
+    from types import ModuleType
+
+    import modules.folding.simplefold_confidence_adapter as adapter
+    from modules.structure_transform.residue_axis import resolve_residue_axis
+
+    lifecycle: dict[str, bool] = {}
+
+    class LanguageModel:
+        def to(self, _device: object) -> LanguageModel:
+            return self
+
+        def eval(self) -> LanguageModel:
+            return self
+
+        def __del__(self) -> None:
+            lifecycle["language_model_released"] = True
+
+    class Movable:
+        def to(self, _device: object) -> Movable:
+            return self
+
+    @dataclass
+    class Chain:
+        msa_id: int = 0
+
+    @dataclass
+    class Record:
+        id: str
+        chains: list[Chain]
+
+    class ProviderStructure:
+        def dump(self, path: Path) -> None:
+            Path(path).touch()
+
+    class Target:
+        record = Record("existing", [Chain()])
+        structure = ProviderStructure()
+
+    class Tokenizer:
+        pass
+
+    class Featurizer:
+        pass
+
+    class Processor:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+    def parse_fasta(_path: Path, _ccd: object) -> Target:
+        lifecycle["request_processed"] = True
+        return Target()
+
+    prepared_batch = object()
+    prepared_structure = object()
+
+    def process_one_inference_structure(
+        *_args: Any,
+    ) -> tuple[object, object, object]:
+        lifecycle["features_prepared"] = True
+        return prepared_batch, prepared_structure, object()
+
+    def load_plddt_models(
+        _model_dir: Path,
+        _device: object,
+    ) -> dict[str, object]:
+        assert lifecycle["request_processed"] is True
+        assert lifecycle["features_prepared"] is True
+        assert lifecycle["language_model_released"] is True
+        return {
+            "plddt_latent_module": object(),
+            "plddt_out_module": object(),
+        }
+
+    modules = {
+        "simplefold": ModuleType("simplefold"),
+        "simplefold.boltz_data_pipeline": ModuleType(
+            "simplefold.boltz_data_pipeline"
+        ),
+        "simplefold.boltz_data_pipeline.feature": ModuleType(
+            "simplefold.boltz_data_pipeline.feature"
+        ),
+        "simplefold.boltz_data_pipeline.feature.featurizer": ModuleType(
+            "simplefold.boltz_data_pipeline.feature.featurizer"
+        ),
+        "simplefold.boltz_data_pipeline.parse": ModuleType(
+            "simplefold.boltz_data_pipeline.parse"
+        ),
+        "simplefold.boltz_data_pipeline.parse.fasta": ModuleType(
+            "simplefold.boltz_data_pipeline.parse.fasta"
+        ),
+        "simplefold.boltz_data_pipeline.tokenize": ModuleType(
+            "simplefold.boltz_data_pipeline.tokenize"
+        ),
+        "simplefold.boltz_data_pipeline.tokenize.boltz_protein": ModuleType(
+            "simplefold.boltz_data_pipeline.tokenize.boltz_protein"
+        ),
+        "simplefold.processor": ModuleType("simplefold.processor"),
+        "simplefold.processor.protein_processor": ModuleType(
+            "simplefold.processor.protein_processor"
+        ),
+        "simplefold.utils": ModuleType("simplefold.utils"),
+        "simplefold.utils.datamodule_utils": ModuleType(
+            "simplefold.utils.datamodule_utils"
+        ),
+        "simplefold.utils.esm_utils": ModuleType(
+            "simplefold.utils.esm_utils"
+        ),
+    }
+    const = ModuleType("simplefold.boltz_data_pipeline.const")
+    const.chain_type_ids = {"PROTEIN": 0}
+    modules["simplefold.boltz_data_pipeline"].const = const
+    modules[
+        "simplefold.boltz_data_pipeline.feature.featurizer"
+    ].BoltzFeaturizer = Featurizer
+    modules["simplefold.boltz_data_pipeline.parse.fasta"].parse_fasta = (
+        parse_fasta
+    )
+    modules[
+        "simplefold.boltz_data_pipeline.tokenize.boltz_protein"
+    ].BoltzTokenizer = Tokenizer
+    modules["simplefold.processor.protein_processor"].ProteinDataProcessor = (
+        Processor
+    )
+    modules[
+        "simplefold.utils.datamodule_utils"
+    ].process_one_inference_structure = process_one_inference_structure
+    modules["simplefold.utils.esm_utils"]._af2_to_esm = (
+        lambda _dictionary: Movable()
+    )
+    modules["simplefold.utils.esm_utils"].esm_registry = {}
+    for name, module in modules.items():
+        monkeypatch.setitem(sys.modules, name, module)
+
+    monkeypatch.setattr(adapter, "_setup_simplefold_imports", os.getcwd)
+    monkeypatch.setattr(
+        adapter,
+        "_load_representation_only_esm2",
+        lambda *_args: (LanguageModel(), object()),
+    )
+    monkeypatch.setattr(
+        adapter,
+        "_load_reviewed_plddt_models",
+        load_plddt_models,
+    )
+
+    model_root = tmp_path / "models"
+    esm2_model_root = tmp_path / "esm2-models"
+    esm2_source_root = tmp_path / "esm2-source"
+    for root in (model_root, esm2_model_root, esm2_source_root):
+        root.mkdir()
+    (model_root / "ccd.pkl").write_bytes(pickle.dumps({}))
+    staging_directory = tmp_path / "staging"
+    staging_directory.mkdir()
+
+    class BoundClosure:
+        def group_root(self, role: str) -> Path:
+            return {
+                "simplefold_models": model_root,
+                "esm2_models": esm2_model_root,
+                "esm2_source": esm2_source_root,
+            }[role]
+
+    activated = adapter.activate_existing_structure_confidence(
+        residue_axis=resolve_residue_axis(ProteinStructure(_two_residue_pdb())),
+        staging_directory=staging_directory,
+        bound_closure=BoundClosure(),  # type: ignore[arg-type]
+        device="cpu",
+    )
+
+    assert lifecycle == {"request_processed": True}
+    activated.prepare_inputs()
+    assert lifecycle == {
+        "request_processed": True,
+        "features_prepared": True,
+        "language_model_released": True,
+    }
+    activated.activate_final_models()
+    assert activated.batch is prepared_batch
+    assert activated.provider_structure is prepared_structure
+    assert asdict(Target.record) == {
+        "id": "existing",
+        "chains": [{"msa_id": -1}],
+    }
+
+
 def test_confidence_features_use_normalized_modified_polymer_axis() -> None:
     import modules.folding.simplefold_confidence_adapter as adapter
     from modules.structure_transform.residue_axis import resolve_residue_axis
@@ -155,17 +347,30 @@ def _confidence_environment(
     import modules.folding.simplefold_confidence_adapter as adapter
     import modules.folding.simplefold_contract as contract
 
-    def fixture_native_confidence(**kwargs: Any) -> Any:
-        return client.evaluate(
-            residue_axis=kwargs["residue_axis"],
-            staging_directory=kwargs["staging_directory"],
-            device=kwargs["device"],
-        )
+    class FixtureActivatedConfidence:
+        def __init__(self, kwargs: dict[str, Any]) -> None:
+            self._kwargs = kwargs
+
+        def prepare_inputs(self) -> None:
+            pass
+
+        def activate_final_models(self) -> None:
+            pass
+
+        def invoke(self) -> Any:
+            return client.evaluate(
+                residue_axis=self._kwargs["residue_axis"],
+                staging_directory=self._kwargs["staging_directory"],
+                device=self._kwargs["device"],
+            )
+
+    def fixture_activate_confidence(**kwargs: Any) -> Any:
+        return FixtureActivatedConfidence(kwargs)
 
     monkeypatch.setattr(
         adapter,
-        "_native_existing_structure_confidence",
-        fixture_native_confidence,
+        "activate_existing_structure_confidence",
+        fixture_activate_confidence,
     )
     model_root = tmp_path / "models"
     esm2_model_root = tmp_path / "esm2-models"
@@ -348,6 +553,112 @@ def _run_confidence(
     finally:
         service.shutdown()
     return catalog, service, projection, events
+
+
+def test_simplefold_confidence_activation_failure_records_zero_invocations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_confidence_adapter as adapter
+
+    class Client:
+        def evaluate(self, **_kwargs: Any) -> dict[str, Any]:
+            return {
+                "native_plddt": [0.71, 0.83],
+                "valid_protein_residues": [True, True],
+            }
+
+    environment = _confidence_environment(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+    )
+
+    def fail_activation(**_kwargs: Any) -> object:
+        raise RuntimeError("fixture SimpleFold confidence activation failed")
+
+    monkeypatch.setattr(
+        adapter,
+        "activate_existing_structure_confidence",
+        fail_activation,
+        raising=False,
+    )
+
+    _, _, projection, events = _run_confidence(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+        environment_values=environment,
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith(
+            "confidence_subject_0"
+        )
+        for event in events
+    )
+
+
+def test_confidence_esm2_failure_is_recorded_before_final_engine_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import modules.folding.simplefold_confidence_adapter as adapter
+
+    class Client:
+        def evaluate(self, **_kwargs: Any) -> object:
+            raise AssertionError("final confidence engine must not run")
+
+    environment = _confidence_environment(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+    )
+
+    class FailingFeatureEngine:
+        def prepare_inputs(self) -> None:
+            raise RuntimeError("fixture ESM2 feature failure")
+
+        def activate_final_models(self) -> None:
+            raise AssertionError("final confidence models must not load")
+
+        def invoke(self) -> object:
+            raise AssertionError("final confidence engine must not run")
+
+    monkeypatch.setattr(
+        adapter,
+        "activate_existing_structure_confidence",
+        lambda **_kwargs: FailingFeatureEngine(),
+    )
+
+    _, _, projection, events = _run_confidence(
+        tmp_path,
+        monkeypatch,
+        client=Client(),
+        environment_values=environment,
+    )
+
+    assert projection["status"] == "failed"
+    started = [
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith(
+            "confidence_subject_0"
+        )
+    ]
+    assert [event["engine_role"] for event in started] == [
+        "confidence_subject_0_esm2_features"
+    ]
+    terminal = next(
+        event["event"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_terminal"
+        and event["event"]["invocation_id"] == started[0]["invocation_id"]
+    )
+    assert terminal["status"] == "failed"
 
 
 def test_simplefold_confidence_is_a_separate_fixed_existing_structure_node() -> None:
@@ -555,6 +866,17 @@ def test_direct_head_is_statically_scaled_and_masks_invalid_residues(
         for event in events
         if event["event"]["type"] == "engine_invocation_started"
         and event["event"]["engine_role"] == "confidence_subject_0"
+    ]
+    assert [
+        event["event"]["engine_role"]
+        for event in events
+        if event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"].startswith(
+            "confidence_subject_0"
+        )
+    ] == [
+        "confidence_subject_0_esm2_features",
+        "confidence_subject_0",
     ]
     terminal = [
         event["event"]

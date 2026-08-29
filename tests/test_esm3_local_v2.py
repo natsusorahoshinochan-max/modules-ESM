@@ -7,9 +7,16 @@ from protein_workbench_public.bootstrap import module_registrations
 from contextlib import contextmanager
 from pathlib import Path
 import hashlib
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from modules.esm3.local_adapter import (
+    LOCAL_ESM3_LSH_TABLE_PATH,
+    LOCAL_ESM3_PACKAGE_ASSET_FILES,
+    LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH,
+    LOCAL_ESM3_WEIGHT_FILES,
+)
 from core.local_torch_device import expected_local_torch_device
 from tests.support.local_torch_device import provider_free_cpu_device_policy
 
@@ -49,15 +56,12 @@ def _patch_local_runtime(
     import modules.esm3.local_adapter as local_adapter
     import modules.esm3.package as package
 
-    runtime_directory = tmp_path / "local-runtime"
     snapshot_path = tmp_path / "local-snapshot"
-    runtime_directory.mkdir(exist_ok=True)
     snapshot_path.mkdir(exist_ok=True)
 
     def resolve(environment: Any) -> local_adapter.LocalESM3Runtime:
         return local_adapter.LocalESM3Runtime(
             snapshot_path=snapshot_path,
-            runtime_directory=runtime_directory,
             device="cpu",
         )
 
@@ -70,10 +74,7 @@ def _patch_local_runtime(
 
 
 def _local_environment(tmp_path: Path) -> dict[str, Any]:
-    return {
-        "model_snapshot_path": tmp_path / "local-snapshot",
-        "runtime_directory": tmp_path / "local-runtime",
-    }
+    return {"model_snapshot_path": tmp_path / "local-snapshot"}
 
 
 def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
@@ -114,6 +115,25 @@ def test_local_esm3_reuses_generation_nodes_alongside_direct_esmc() -> None:
         )
         assert local.descriptor["deterministic"] is False
         assert local.descriptor["cacheable"] is False
+        assert [
+            field["name"] for field in local.descriptor["environment_fields"]
+        ] == ["model_snapshot_path"]
+        assert "runtime_directory" not in local.descriptor[
+            "readiness_declaration"
+        ]["prerequisites"]
+        prerequisites = local.descriptor["readiness_declaration"][
+            "prerequisites"
+        ]
+        assert prerequisites["model_snapshot"][
+            "required_relative_files"
+        ] == (
+            *LOCAL_ESM3_WEIGHT_FILES,
+            LOCAL_ESM3_LSH_TABLE_PATH,
+            LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH,
+        )
+        assert prerequisites["provider_sdk"][
+            "required_relative_files"
+        ] == LOCAL_ESM3_PACKAGE_ASSET_FILES
         node = catalog.require_contract(
             "node_type",
             f"esm3.{operation}",
@@ -157,27 +177,30 @@ def test_local_startup_failure_isolated_from_remote_bindings(
     ].result.is_available is True
 
 
-def test_local_runtime_resolves_configured_model_and_runtime_paths(
+def test_local_runtime_resolves_configured_model_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import modules.esm3.local_adapter as local_adapter
 
     snapshot = tmp_path / "snapshot"
-    runtime_directory = tmp_path / "runtime"
     artifact = snapshot / "data" / "weights" / "fixture.pth"
     artifact.parent.mkdir(parents=True)
-    runtime_directory.mkdir()
     artifact.write_bytes(b"locked fixture")
+    lsh_artifact = snapshot / local_adapter.LOCAL_ESM3_LSH_TABLE_PATH
+    lsh_artifact.parent.mkdir(parents=True, exist_ok=True)
+    lsh_artifact.write_bytes(b"lsh fixture")
+    resid_csv = (
+        snapshot / local_adapter.LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH
+    )
+    resid_csv.parent.mkdir(parents=True, exist_ok=True)
+    resid_csv.write_bytes(b"residue fixture")
     monkeypatch.setattr(
         local_adapter,
         "LOCAL_ESM3_WEIGHT_FILES",
         ("data/weights/fixture.pth",),
     )
-    environment = {
-        "model_snapshot_path": snapshot,
-        "runtime_directory": runtime_directory,
-    }
+    environment = {"model_snapshot_path": snapshot}
 
     runtime = local_adapter.resolve_local_runtime(environment)
     assert runtime.snapshot_path == snapshot
@@ -186,80 +209,85 @@ def test_local_runtime_resolves_configured_model_and_runtime_paths(
     assert local_adapter.resolve_local_runtime(environment).snapshot_path == snapshot
 
 
-def test_huggingface_blob_links_are_staged(
+def _write_local_readiness_asset_closure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+) -> tuple[dict[str, Path], Path, Path]:
+    import modules.esm3.local_adapter as local_adapter
+
+    snapshot = tmp_path / "snapshot"
+    package_root = tmp_path / "esm-package"
+    (package_root / "__init__.py").parent.mkdir(parents=True)
+    (package_root / "__init__.py").write_bytes(b"package fixture")
+    for relative_path in (
+        *LOCAL_ESM3_WEIGHT_FILES,
+        LOCAL_ESM3_LSH_TABLE_PATH,
+        LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH,
+    ):
+        asset = snapshot / relative_path
+        asset.parent.mkdir(parents=True, exist_ok=True)
+        asset.write_bytes(b"snapshot fixture")
+    for relative_path in LOCAL_ESM3_PACKAGE_ASSET_FILES:
+        asset = package_root / relative_path
+        asset.parent.mkdir(parents=True, exist_ok=True)
+        asset.write_bytes(b"package fixture")
+    real_find_spec = local_adapter.importlib.util.find_spec
+
+    def find_spec(name: str) -> Any:
+        if name == "esm":
+            return SimpleNamespace(origin=str(package_root / "__init__.py"))
+        return real_find_spec(name)
+
+    monkeypatch.setattr(local_adapter.importlib.util, "find_spec", find_spec)
+    return {"model_snapshot_path": snapshot}, snapshot, package_root
+
+
+@pytest.mark.parametrize(
+    "removed_relative_path",
+    (
+        *LOCAL_ESM3_WEIGHT_FILES,
+        LOCAL_ESM3_LSH_TABLE_PATH,
+        LOCAL_ESM3_RESIDUE_ANNOTATIONS_PATH,
+    ),
+)
+def test_local_readiness_rejects_each_removed_snapshot_asset(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    removed_relative_path: str,
 ) -> None:
     import modules.esm3.local_adapter as local_adapter
 
-    repository = tmp_path / "models--biohub--esm3-sm-open-v1"
-    snapshot = repository / "snapshots" / "configured"
-    runtime_directory = tmp_path / "runtime"
-    weights = snapshot / "data" / "weights"
-    blobs = repository / "blobs"
-    weights.mkdir(parents=True)
-    blobs.mkdir()
-    runtime_directory.mkdir()
-    payload = b"locked huggingface blob"
-    digest = hashlib.sha256(payload).hexdigest()
-    blob = blobs / digest
-    blob.write_bytes(payload)
-    linked = weights / "fixture.pth"
-    linked.symlink_to(Path("../../../../blobs") / digest)
-    monkeypatch.setattr(
-        local_adapter,
-        "LOCAL_ESM3_WEIGHT_FILES",
-        ("data/weights/fixture.pth",),
+    environment, snapshot, _ = _write_local_readiness_asset_closure(
+        tmp_path,
+        monkeypatch,
     )
-    runtime = local_adapter.resolve_local_runtime(
-        {
-            "model_snapshot_path": snapshot,
-            "runtime_directory": runtime_directory,
-        }
-    )
+    assert local_adapter.local_readiness(environment).passing is True
 
-    staged = local_adapter.stage_local_runtime(runtime)
-    staged_artifact = staged / "data" / "weights" / "fixture.pth"
-    assert staged_artifact.is_file()
-    assert not staged_artifact.is_symlink()
-    assert staged_artifact.read_bytes() == payload
+    (snapshot / removed_relative_path).unlink()
+
+    assert local_adapter.local_readiness(environment).passing is False
 
 
-def test_staging_failure_retains_staged_root_cleanup_type(
+@pytest.mark.parametrize(
+    "removed_relative_path",
+    LOCAL_ESM3_PACKAGE_ASSET_FILES,
+)
+def test_local_readiness_rejects_each_removed_package_asset(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    removed_relative_path: str,
 ) -> None:
-    from core.operation import secondary_cleanup_exception_types
     import modules.esm3.local_adapter as local_adapter
 
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
-    source = tmp_path / "fixture.pth"
-    source.write_bytes(b"fixture")
-    runtime = local_adapter.LocalESM3Runtime(
-        snapshot_path=tmp_path,
-        runtime_directory=runtime_directory,
-        device=expected_local_torch_device(),
+    environment, _, package_root = _write_local_readiness_asset_closure(
+        tmp_path,
+        monkeypatch,
     )
-    monkeypatch.setattr(
-        local_adapter,
-        "LOCAL_ESM3_WEIGHT_FILES",
-        ("fixture.pth",),
-    )
+    assert local_adapter.local_readiness(environment).passing is True
 
-    def fail_copy(_source: Path, _destination: Path) -> None:
-        raise RuntimeError("private staging failure")
+    (package_root / removed_relative_path).unlink()
 
-    def fail_delete(_root: Path) -> None:
-        raise OSError("private staged-root cleanup failure")
-
-    monkeypatch.setattr(local_adapter.shutil, "copyfile", fail_copy)
-    monkeypatch.setattr(local_adapter.shutil, "rmtree", fail_delete)
-
-    with pytest.raises(RuntimeError, match="private staging failure") as caught:
-        local_adapter.stage_local_runtime(runtime)
-
-    assert secondary_cleanup_exception_types(caught.value) == ("OSError",)
+    assert local_adapter.local_readiness(environment).passing is False
 
 
 def test_local_client_uses_configured_snapshot_until_explicit_release(
@@ -289,6 +317,21 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
     class FakeESM3:
         tokenizers = FakeTokenizers()
 
+        def get_structure_encoder(self) -> object:
+            if not hasattr(self, "_structure_encoder"):
+                self._structure_encoder = self.structure_encoder_fn()
+            return self._structure_encoder
+
+        def get_structure_decoder(self) -> object:
+            if not hasattr(self, "_structure_decoder"):
+                self._structure_decoder = self.structure_decoder_fn()
+            return self._structure_decoder
+
+        def get_function_decoder(self) -> object:
+            if not hasattr(self, "_function_decoder"):
+                self._function_decoder = self.function_decoder_fn()
+            return self._function_decoder
+
         def float(self) -> FakeESM3:
             return self
 
@@ -300,18 +343,15 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
         return FakeESM3()
 
     def component_builder(device: object = "cpu") -> object:
-        del device
+        received_devices.append(str(device))
         assert esm3_constants.data_root("esm3") == runtime.snapshot_path
         return object()
 
     payload = b"staged fixture"
     artifact = tmp_path / "fixture.pth"
     artifact.write_bytes(payload)
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
     runtime = local_adapter.LocalESM3Runtime(
         snapshot_path=tmp_path,
-        runtime_directory=runtime_directory,
         device=expected_local_torch_device(),
     )
     monkeypatch.setattr(esm3_model, "ESM3", FakeESM3)
@@ -335,23 +375,20 @@ def test_local_client_uses_configured_snapshot_until_explicit_release(
         runtime,
         model_name=local_adapter.LOCAL_ESM3_MODEL,
     )
-    assert received_devices == [runtime.device]
-    staged_root = client._protein_workbench_staged_root
-    assert staged_root.is_dir()
+    assert received_devices == [runtime.device] * 4
     assert esm3_constants.data_root is original_data_root
     assert client.tokenizers.function.lsh_path == (
         runtime.snapshot_path / "data/hyperplanes_8bit_58641.npz"
     )
-    client.function_decoder_fn()
+    client.get_function_decoder()
+    assert received_devices == [runtime.device] * 4
     assert esm3_constants.data_root is original_data_root
 
     local_adapter.release_local_esm3_client(client)
-
-    assert not staged_root.exists()
     assert esm3_constants.data_root is original_data_root
 
 
-def test_local_client_load_failure_restores_sdk_data_root_and_staging(
+def test_local_client_load_failure_restores_sdk_data_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -373,11 +410,8 @@ def test_local_client_load_failure_restores_sdk_data_root_and_staging(
     payload = b"staged fixture"
     artifact = tmp_path / "fixture.pth"
     artifact.write_bytes(payload)
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
     runtime = local_adapter.LocalESM3Runtime(
         snapshot_path=tmp_path,
-        runtime_directory=runtime_directory,
         device="cpu",
     )
     monkeypatch.setattr(
@@ -403,7 +437,6 @@ def test_local_client_load_failure_restores_sdk_data_root_and_staging(
         )
 
     assert esm3_constants.data_root is original_data_root
-    assert list(runtime_directory.iterdir()) == []
 
 
 def test_local_client_loads_serialize_sdk_snapshot_bindings(
@@ -427,6 +460,21 @@ def test_local_client_loads_serialize_sdk_snapshot_bindings(
     class FakeESM3:
         def __init__(self) -> None:
             self.tokenizers = FakeTokenizers()
+
+        def get_structure_encoder(self) -> object:
+            if not hasattr(self, "_structure_encoder"):
+                self._structure_encoder = self.structure_encoder_fn()
+            return self._structure_encoder
+
+        def get_structure_decoder(self) -> object:
+            if not hasattr(self, "_structure_decoder"):
+                self._structure_decoder = self.structure_decoder_fn()
+            return self._structure_decoder
+
+        def get_function_decoder(self) -> object:
+            if not hasattr(self, "_function_decoder"):
+                self._function_decoder = self.function_decoder_fn()
+            return self._function_decoder
 
         def float(self) -> FakeESM3:
             return self
@@ -469,12 +517,9 @@ def test_local_client_loads_serialize_sdk_snapshot_bindings(
         snapshot_path = tmp_path / f"{name}-snapshot"
         snapshot_path.mkdir()
         (snapshot_path / "fixture.pth").write_bytes(payload)
-        runtime_directory = tmp_path / f"{name}-runtime"
-        runtime_directory.mkdir()
         runtimes.append(
             local_adapter.LocalESM3Runtime(
                 snapshot_path=snapshot_path,
-                runtime_directory=runtime_directory,
                 device="cpu",
             )
         )
@@ -507,15 +552,101 @@ def test_local_client_loads_serialize_sdk_snapshot_bindings(
         assert second_started.wait(timeout=5.0)
         overlapped = second_entered.wait(timeout=0.2)
         release_first.set()
-        first_client = first_future.result(timeout=5.0)
         assert second_entered.wait(timeout=5.0)
         release_second.set()
+        first_client = first_future.result(timeout=5.0)
         second_client = second_future.result(timeout=5.0)
 
     assert not overlapped
     assert esm3_constants.data_root is original_data_root
     local_adapter.release_local_esm3_client(first_client)
     local_adapter.release_local_esm3_client(second_client)
+
+
+def test_auxiliary_model_activation_failure_starts_no_engine_invocation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.pretrained as esm_pretrained
+    import modules.esm3.local_adapter as local_adapter
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        ProviderResponse,
+        run_generation,
+    )
+
+    class FakeFunctionTokenizer:
+        lsh_path: Path | None = None
+
+    class FakeTokenizers:
+        function = FakeFunctionTokenizer()
+
+    class LazyComponentClient(ProviderClient):
+        tokenizers = FakeTokenizers()
+        _structure_encoder: object | None = None
+        _structure_decoder: object | None = None
+        _function_decoder: object | None = None
+
+        def float(self) -> LazyComponentClient:
+            return self
+
+        def get_structure_encoder(self) -> object:
+            if self._structure_encoder is None:
+                self._structure_encoder = self.structure_encoder_fn()
+            return self._structure_encoder
+
+        def get_structure_decoder(self) -> object:
+            if self._structure_decoder is None:
+                self._structure_decoder = self.structure_decoder_fn()
+            return self._structure_decoder
+
+        def get_function_decoder(self) -> object:
+            if self._function_decoder is None:
+                self._function_decoder = self.function_decoder_fn()
+            return self._function_decoder
+
+        def generate(self, protein: Any, config: Any) -> ProviderResponse:
+            self.get_structure_encoder()
+            return super().generate(protein, config)
+
+    client = LazyComponentClient([ProviderResponse("ACD")])
+
+    def main_builder(_device: object = "cpu") -> LazyComponentClient:
+        return client
+
+    def fail_structure_encoder(_device: object = "cpu") -> object:
+        raise RuntimeError("auxiliary resident-model activation failed")
+
+    def component_builder(_device: object = "cpu") -> object:
+        return object()
+
+    monkeypatch.setattr(
+        esm_pretrained,
+        "LOCAL_MODEL_REGISTRY",
+        {
+            local_adapter.LOCAL_ESM3_MODEL: main_builder,
+            "esm3_structure_encoder_v0": fail_structure_encoder,
+            "esm3_structure_decoder_v0": component_builder,
+            "esm3_function_decoder_v0": component_builder,
+        },
+    )
+    _patch_local_runtime(monkeypatch, tmp_path)
+
+    _, _, projection, events = run_generation(
+        tmp_path,
+        operation="generate_sequence",
+        client=None,
+        num_samples=1,
+        binding_route="local_open",
+        environment_overrides=_local_environment(tmp_path),
+    )
+
+    assert projection["status"] == "failed"
+    assert not any(
+        event["event"]["type"] == "engine_invocation_started"
+        and event["event"]["engine_role"] == "sequence_sample"
+        for event in events
+    )
 
 
 def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
@@ -917,11 +1048,8 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
             del kwargs
             yield "local-invocation"
 
-    runtime_directory = tmp_path / "runtime"
-    runtime_directory.mkdir()
     runtime = local_adapter.LocalESM3Runtime(
         snapshot_path=tmp_path,
-        runtime_directory=runtime_directory,
         device="cpu",
     )
     client = FailingClient()
@@ -943,7 +1071,6 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
     adapter = local_adapter.LocalESM3Adapter(
         environment={
             "model_snapshot_path": runtime.snapshot_path,
-            "runtime_directory": runtime.runtime_directory,
             "device": expected_local_torch_device(),
         },
         resources=InvocationResources(),

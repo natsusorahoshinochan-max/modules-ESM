@@ -5,7 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-_CHECKPOINT = "vanilla_model_weights/v_48_020.pt"
+PROTEINMPNN_PROVIDER_SOURCE_FILE = "protein_mpnn_utils.py"
+PROTEINMPNN_CHECKPOINT_FILE = "vanilla_model_weights/v_48_020.pt"
+PROTEINMPNN_FIXED_ASSET_FILES = (
+    PROTEINMPNN_PROVIDER_SOURCE_FILE,
+    PROTEINMPNN_CHECKPOINT_FILE,
+)
 
 
 class ProteinMPNNReadinessUnavailable(RuntimeError):
@@ -13,7 +18,7 @@ class ProteinMPNNReadinessUnavailable(RuntimeError):
 
 
 def _verify_provider_root(root: Path) -> None:
-    provider_file = root / "protein_mpnn_utils.py"
+    provider_file = root / PROTEINMPNN_PROVIDER_SOURCE_FILE
     if not provider_file.is_file():
         raise ProteinMPNNReadinessUnavailable(
             "Configured ProteinMPNN provider root must contain "
@@ -38,7 +43,7 @@ def _provider_root(root: Path) -> Path:
 def _checkpoint_path(
     provider_root: Path,
 ) -> Path:
-    path = provider_root / _CHECKPOINT
+    path = provider_root / PROTEINMPNN_CHECKPOINT_FILE
     if not path.is_file():
         raise ProteinMPNNReadinessUnavailable(
             "ProteinMPNN checkpoint is unavailable"

@@ -145,16 +145,29 @@ def _provider_free_simplefold_environment(
     import modules.folding.simplefold_contract as simplefold_contract
     import modules.folding.simplefold_runtime as simplefold_runtime
 
+    class ActivatedSimpleFoldFixture:
+        def __init__(self, kwargs: dict[str, Any]) -> None:
+            self._kwargs = kwargs
+
+        def prepare_inputs(self) -> None:
+            pass
+
+        def activate_final_models(self) -> None:
+            pass
+
+        def invoke(self) -> Any:
+            return client.fold(
+                sequence=self._kwargs["sequence"],
+                num_steps=self._kwargs["num_steps"],
+                num_samples=self._kwargs["num_samples"],
+                effective_seed=self._kwargs["effective_seed"],
+                staging_directory=self._kwargs["staging_directory"],
+            )
+
     monkeypatch.setattr(
         simplefold_runtime,
-        "fold_sequence",
-        lambda **kwargs: client.fold(
-            sequence=kwargs["sequence"],
-            num_steps=kwargs["num_steps"],
-            num_samples=kwargs["num_samples"],
-            effective_seed=kwargs["effective_seed"],
-            staging_directory=kwargs["staging_directory"],
-        ),
+        "activate_fold_sequence",
+        lambda **kwargs: ActivatedSimpleFoldFixture(kwargs),
     )
 
     closure = simplefold_contract.SIMPLEFOLD_FOLDING_ASSET_CLOSURE
@@ -666,7 +679,7 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         assert sum(
             message["event"]["type"] == "engine_invocation_started"
             for message in replay.events
-        ) == 3
+        ) == 4
         emit_stress_report(
             "three_way_refolding_1pga",
             runs={

@@ -2,6 +2,7 @@
 /output/
 .DS_Store
 .codex/
+.workbuddy/
 .local/
 keys/
 *.egg-info/

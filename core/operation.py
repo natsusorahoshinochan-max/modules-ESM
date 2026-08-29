@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -55,6 +55,23 @@ def secondary_cleanup_exception_types(
 ) -> tuple[str, ...]:
     """Return ordered cleanup causality retained on one primary exception."""
     return getattr(error, _CLEANUP_EXCEPTION_TYPES_ATTRIBUTE, ())
+
+
+class ExecutionTermination(RuntimeError):
+    """A bounded terminal conclusion reported by a started engine seam."""
+
+    def __init__(self, status: str) -> None:
+        self.status = status
+        super().__init__("Execution terminated without public diagnostics")
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedProcessResult:
+    """Terminal record of one core-managed local Provider process."""
+
+    returncode: int
+    stdout: bytes
+    stderr: bytes
 
 
 @dataclass(frozen=True, slots=True)
@@ -344,6 +361,16 @@ class OperationResources(Protocol):
         *,
         fallback: Callable[[], None] | None = None,
     ) -> ContextManager[None]: ...
+
+    def run_managed_local_process(
+        self,
+        *,
+        command: Sequence[str],
+        cwd: Path,
+        timeout_seconds: float,
+        path_entries: Sequence[Path] = (),
+        capture_output: bool = False,
+    ) -> ManagedProcessResult: ...
 
     def engine_invocation(
         self,

@@ -128,6 +128,8 @@ class BiohubESMFold2Adapter:
     ) -> ESMFold2AdapterResult:
         """Invoke Biohub once, then admit its raw result outside Invocation."""
         del derived_call_seed
+        engine = self._engine()
+        config = fixed_folding_config()
         with self._resources.engine_invocation(
             engine_role=engine_role,
             invocation_provenance=EngineInvocationProvenance(
@@ -136,9 +138,9 @@ class BiohubESMFold2Adapter:
                 )
             ),
         ):
-            raw_result = self._engine().fold(
+            raw_result = engine.fold(
                 sequence=sequence.sequence,
                 model_name=REMOTE_ESMFOLD2_MODEL,
-                config=fixed_folding_config(),
+                config=config,
             )
         return decode_remote_fold_result(raw_result, sequence)

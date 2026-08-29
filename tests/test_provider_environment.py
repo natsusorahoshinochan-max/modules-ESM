@@ -126,11 +126,10 @@ def test_process_environment_configures_every_selected_real_provider(
     local_esm3 = configuration["esm3.generate_sequence.local_open"]
     assert local_esm3 == {
         "model_snapshot_path": tmp_path / "esm3-snapshot",
-        "runtime_directory": (
-            tmp_path / "workbench-data/provider-runtime/esm3"
-        ),
     }
-    assert local_esm3["runtime_directory"].is_dir()
+    assert not (
+        tmp_path / "workbench-data/provider-runtime/esm3"
+    ).exists()
     assert configuration["folding.fold.esmfold2_local"]["model_snapshot_path"] == tmp_path / "esmfold2"
     assert configuration["folding.fold.simplefold_local"]["esm2_source_root"] == tmp_path / "esm2-source"
     assert configuration["proteinmpnn.design.local"] == {
@@ -230,5 +229,5 @@ def test_local_esm3_model_root_expands_literal_tilde(
     })
 
     values = configuration["esm3.generate_sequence.local_open"]
-    assert values["model_snapshot_path"] == home / "esm3-snapshot"
-    assert values["runtime_directory"] == data_root / "provider-runtime/esm3"
+    assert values == {"model_snapshot_path": home / "esm3-snapshot"}
+    assert not (data_root / "provider-runtime/esm3").exists()
