@@ -155,6 +155,9 @@ class ControlledESM3Client:
             ).removesuffix("TER\nEND\n"),
         )
 
+    def close(self) -> None:
+        pass
+
 
 @dataclass
 class ControlledFoldResponse:
@@ -215,6 +218,9 @@ class ControlledFoldingClient:
                 for left in range(residue_count)
             ]),
         )
+
+    def close(self) -> None:
+        pass
 
 
 class ControlledProteinMPNNProvider:

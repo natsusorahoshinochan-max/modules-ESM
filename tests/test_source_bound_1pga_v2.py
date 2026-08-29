@@ -213,6 +213,9 @@ class _ControlledESMFold2:
             pae=torch.zeros((count, count)),
         )
 
+    def close(self) -> None:
+        pass
+
 
 class _ControlledSimpleFold:
     def __init__(self, structure: str, *, plddt: float = 90.0) -> None:

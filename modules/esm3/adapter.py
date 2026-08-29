@@ -77,6 +77,7 @@ def build_biohub_esm3_client(
         model=model_name,
         url="https://biohub.ai",
         token=credential_handle,
+        request_timeout=150,
     )
 
 
@@ -631,6 +632,18 @@ class BiohubESM3Adapter(_BaseESM3Adapter):
         )
         self._environment = environment
         self._resolved_client: Any | None = None
+
+    def __exit__(
+        self,
+        exception_type: object,
+        exception: object,
+        traceback: object,
+    ) -> None:
+        del exception_type, exception, traceback
+        if self._resolved_client is not None:
+            client = self._resolved_client
+            self._resolved_client = None
+            client.close()
 
     def _client(self) -> Any:
         if self._resolved_client is not None:

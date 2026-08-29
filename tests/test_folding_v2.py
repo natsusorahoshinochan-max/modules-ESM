@@ -853,18 +853,31 @@ def test_remote_provider_native_result_translates_to_canonical_confidence() -> N
     assert result.confidence.pae == ((0.0, 1.0), (1.0, 0.0))
 
 
-def test_remote_provider_official_error_union_is_an_operational_failure() -> None:
-    from esm.sdk.api import ESMProteinError
-    from modules.folding.esmfold2_remote import decode_remote_fold_result
+def test_biohub_esmfold2_client_builder_owns_the_fixed_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import esm.sdk
 
-    with pytest.raises(
-        RuntimeError,
-        match="remote ESMFold2 provider returned an error",
-    ):
-        decode_remote_fold_result(
-            ESMProteinError(error_code=503, error_msg="provider unavailable"),
-            ProteinSequence("AG", ["A:1", "A:2"]),
-        )
+    from modules.folding.esmfold2_remote import build_remote_engine
+
+    calls: list[dict[str, object]] = []
+
+    def build_client(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return object()
+
+    monkeypatch.setattr(esm.sdk, "esmfold2_client", build_client)
+
+    build_remote_engine({"credential_handle": "credential"})
+
+    assert calls == [
+        {
+            "model": "esmfold2-fast-2026-05",
+            "url": "https://biohub.ai",
+            "token": "credential",
+            "request_timeout": 150,
+        }
+    ]
 
 
 def test_folding_operation_failure_publishes_no_partial_samples(
@@ -881,6 +894,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
     class Client:
         def __init__(self) -> None:
             self.calls = 0
+            self.close_calls = 0
 
         def fold(self, **_kwargs: Any) -> object:
             self.calls += 1
@@ -891,6 +905,9 @@ def test_folding_operation_failure_publishes_no_partial_samples(
                 error_msg="provider unavailable",
             )
 
+        def close(self) -> None:
+            self.close_calls += 1
+
     client = Client()
     _, _, projection, events = _run_fold(
         tmp_path,
@@ -900,6 +917,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
     )
 
     assert client.calls == 2
+    assert client.close_calls == 2
     assert projection["status"] == "failed"
     assert all(
         output["node_id"] != "fold"
@@ -931,7 +949,7 @@ def test_folding_operation_failure_publishes_no_partial_samples(
     assert [
         terminals_by_invocation[event["invocation_id"]]["status"]
         for event in started
-    ] == ["succeeded", "succeeded"]
+    ] == ["succeeded", "failed"]
 
     operation_attempt_id = started[0]["operation_attempt_id"]
     operation_terminal = next(
@@ -1414,6 +1432,9 @@ def test_selected_binding_folds_without_fallback_and_publishes_exact_lineage(
             self.calls.append((sequence, model_name, config))
             return RemoteResult()
 
+        def close(self) -> None:
+            pass
+
     class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
 
@@ -1627,6 +1648,9 @@ def test_remote_and_local_bindings_pass_shared_contract_test_kit(
         def fold(self, **kwargs: Any) -> RemoteResult:
             del kwargs
             return RemoteResult()
+
+        def close(self) -> None:
+            pass
 
     class LocalComplex(_LocalComplexRenderer):
         sequence = ("ALA", "GLY")
