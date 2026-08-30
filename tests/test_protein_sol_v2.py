@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import ProjectManager
 from core.catalog.builder import (
     build_frozen_catalog,
@@ -607,7 +608,7 @@ def _run_protein_sol(
         run_root=tmp_path / "runs",
     )
     project = projects.create("Protein-Sol")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(

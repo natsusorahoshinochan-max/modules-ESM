@@ -117,6 +117,7 @@ def test_all_json_routes_and_websocket_sends_use_the_single_emitters() -> None:
         _ROOT / "protein_workbench_public/http" / name
         for name in (
             "catalog_routes.py",
+            "prompt_authoring_routes.py",
             "project_routes.py",
             "run_routes.py",
             "workflow_routes.py",
@@ -142,7 +143,7 @@ def test_all_json_routes_and_websocket_sends_use_the_single_emitters() -> None:
         ].items()
         if operation["response"]["kind"] == "json"
     }
-    assert len(expected) == 12
+    assert len(expected) == 16
     assert emitted_operations == expected
 
     websocket_paths = (

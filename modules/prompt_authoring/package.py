@@ -11,6 +11,11 @@ from core.catalog.declarations import (
     ModulePackageRegistration,
     ScientificOperationFactory,
 )
+from core.catalog.authoring import (
+    AuthoringCapabilityDefinition,
+    AuthoringRoleEndpoint,
+    AuthoringSourceKind,
+)
 from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
@@ -22,19 +27,18 @@ from core.operation import (
     OperationContext,
     ScientificOperation,
 )
+from datatypes.exact_reference import ExactContractReference
 
 from .implementation import (
-    AddFunctionAnnotationImplementation,
     AssembleProteinPromptImplementation,
     BuildResidueLayoutImplementation,
-    EditResidueLayoutImplementation,
-    InsertMaskedResiduesImplementation,
-    MapResidueTrackImplementation,
+    EditProteinPromptLayoutImplementation,
+    MergeProteinPromptSourceImplementation,
     OverrideProteinPromptTrackImplementation,
-    OverrideResidueTrackImplementation,
     PromptFromStructureImplementation,
     RandomInsertMaskedImplementation,
     RandomMaskImplementation,
+    ReplaceProteinPromptAnnotationsImplementation,
     UpdatePromptSequenceImplementation,
 )
 from .prompt_types import PROMPT_PORT_TYPES
@@ -46,19 +50,99 @@ from .track_types import ALIGNED_TRACK_PORT_TYPES
 
 
 _OPERATIONS = {
-    "add_function_annotation": AddFunctionAnnotationImplementation,
     "assemble_protein_prompt": AssembleProteinPromptImplementation,
     "build_residue_layout": BuildResidueLayoutImplementation,
-    "edit_residue_layout": EditResidueLayoutImplementation,
-    "insert_masked_residues": InsertMaskedResiduesImplementation,
-    "map_residue_track": MapResidueTrackImplementation,
+    "edit_protein_prompt_layout": EditProteinPromptLayoutImplementation,
+    "merge_protein_prompt_source": MergeProteinPromptSourceImplementation,
     "override_protein_prompt_track": OverrideProteinPromptTrackImplementation,
-    "override_residue_track": OverrideResidueTrackImplementation,
     "prompt_from_structure": PromptFromStructureImplementation,
     "random_insert_masked": RandomInsertMaskedImplementation,
     "random_mask": RandomMaskImplementation,
+    "replace_protein_prompt_annotations": (
+        ReplaceProteinPromptAnnotationsImplementation
+    ),
     "update_prompt_sequence": UpdatePromptSequenceImplementation,
 }
+
+
+_PROMPT_MANAGED_NODE_TYPES = tuple(
+    ExactContractReference("node_type", f"prompt_authoring.{operation}")
+    for operation in _OPERATIONS
+)
+_SOURCE_MANAGED_NODE_TYPES = tuple(
+    ExactContractReference("node_type", contract_id)
+    for contract_id in (
+        "protein_io.import_structure",
+        "structure_transform.select_chains",
+        "structure_transform.normalize_csh_parent_span",
+        "structure_transform.resolve_residue_axis",
+    )
+)
+_MANAGED_NODE_TYPES = (
+    *_PROMPT_MANAGED_NODE_TYPES,
+    *_SOURCE_MANAGED_NODE_TYPES,
+)
+
+
+PROTEIN_PROMPT_AUTHORING_CAPABILITY = AuthoringCapabilityDefinition(
+    capability_id="protein_prompt.authoring",
+    title="编写 ProteinPrompt",
+    summary="从空白、序列、结构或已有 Prompt 编写完整 ProteinPrompt。",
+    category="prompt_authoring",
+    editor_kind="prompt_studio",
+    source_kinds=(
+        AuthoringSourceKind("blank", "空白"),
+        AuthoringSourceKind(
+            "fasta",
+            "FASTA / ProteinSequence",
+            (ExactContractReference("port_type", "protein.sequence"),),
+        ),
+        AuthoringSourceKind(
+            "pdb",
+            "PDB / Resolved Structure Residue Axis",
+            (
+                ExactContractReference(
+                    "port_type",
+                    "structure_transform.resolved_residue_axis",
+                ),
+            ),
+        ),
+        AuthoringSourceKind(
+            "protein_prompt",
+            "ProteinPrompt",
+            (ExactContractReference("port_type", "protein.prompt"),),
+        ),
+    ),
+    exposed_inputs=(
+        AuthoringRoleEndpoint(
+            "sequence_source",
+            ExactContractReference("port_type", "protein.sequence"),
+        ),
+        AuthoringRoleEndpoint(
+            "structure_source",
+            ExactContractReference(
+                "port_type",
+                "structure_transform.resolved_residue_axis",
+            ),
+        ),
+        AuthoringRoleEndpoint(
+            "prompt_source",
+            ExactContractReference("port_type", "protein.prompt"),
+        ),
+    ),
+    exposed_outputs=(
+        AuthoringRoleEndpoint(
+            "protein_prompt",
+            ExactContractReference("port_type", "protein.prompt"),
+        ),
+        AuthoringRoleEndpoint(
+            "residue_layout",
+            ExactContractReference("port_type", "residue.layout"),
+        ),
+    ),
+    managed_node_types=_PROMPT_MANAGED_NODE_TYPES,
+    materialized_node_types=_MANAGED_NODE_TYPES,
+)
 
 
 def _build(operation: str):
@@ -136,19 +220,19 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="prompt_authoring",
     package_module=__package__,
     node_definitions=(
-        DefinitionResource("definitions/add_function_annotation.yaml"),
         DefinitionResource("definitions/assemble_protein_prompt.yaml"),
         DefinitionResource("definitions/build_residue_layout.yaml"),
-        DefinitionResource("definitions/edit_residue_layout.yaml"),
-        DefinitionResource("definitions/insert_masked_residues.yaml"),
-        DefinitionResource("definitions/map_residue_track.yaml"),
+        DefinitionResource("definitions/edit_protein_prompt_layout.yaml"),
+        DefinitionResource("definitions/merge_protein_prompt_source.yaml"),
         DefinitionResource(
             "definitions/override_protein_prompt_track.yaml"
         ),
-        DefinitionResource("definitions/override_residue_track.yaml"),
         DefinitionResource("definitions/prompt_from_structure.yaml"),
         DefinitionResource("definitions/random_insert_masked.yaml"),
         DefinitionResource("definitions/random_mask.yaml"),
+        DefinitionResource(
+            "definitions/replace_protein_prompt_annotations.yaml"
+        ),
         DefinitionResource("definitions/update_prompt_sequence.yaml"),
     ),
     methods=load_method_definitions(
@@ -157,4 +241,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
     ),
     bindings=tuple(_binding(operation) for operation in _OPERATIONS),
     port_types=(*ALIGNED_TRACK_PORT_TYPES, *PROMPT_PORT_TYPES),
+    authoring_capabilities=(PROTEIN_PROMPT_AUTHORING_CAPABILITY,),
 )

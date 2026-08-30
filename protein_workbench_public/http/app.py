@@ -10,6 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
 from core.catalog.model import FrozenCatalog
+from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import ProjectManager
 from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
@@ -25,6 +26,10 @@ from protein_workbench_public.http.project_routes import (
     register_project_routes,
 )
 from protein_workbench_public.http.run_routes import register_run_routes
+from protein_workbench_public.http.prompt_authoring_routes import (
+    register_prompt_authoring_routes,
+)
+from modules.prompt_authoring.authoring import PromptAuthoringService
 from protein_workbench_public.http.workflow_routes import (
     register_workflow_routes,
 )
@@ -42,6 +47,8 @@ def create_http_app(
     projects: ProjectManager,
     authoring: WorkflowAuthoringService,
     runtime: V2RunService,
+    *,
+    authoring_projection: AuthoringCapabilityProjection,
 ) -> FastAPI:
     """Assemble routes around already-constructed application interfaces."""
 
@@ -57,6 +64,7 @@ def create_http_app(
     )
     app.state.project_manager = projects
     app.state.frozen_catalog = catalog
+    app.state.authoring_capability_projection = authoring_projection
     app.state.workflow_authoring = authoring
     app.state.run_runtime = runtime
 
@@ -96,8 +104,18 @@ def create_http_app(
             },
         )
 
-    register_catalog_routes(app, catalog, rest_operations)
+    register_catalog_routes(
+        app,
+        catalog,
+        rest_operations,
+        authoring_projection,
+    )
     register_project_routes(app, projects, rest_operations)
     register_workflow_routes(app, authoring, rest_operations)
+    register_prompt_authoring_routes(
+        app,
+        PromptAuthoringService(projects, authoring),
+        rest_operations,
+    )
     register_run_routes(app, runtime, rest_operations, run_event_stream)
     return app

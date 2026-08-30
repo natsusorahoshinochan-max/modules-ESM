@@ -54,6 +54,43 @@ The nominal scientific contract for values crossing a Port, including their
 scientific admission, canonical scientific representation, and content identity.
 _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 
+## Authoring Language
+
+**Authoring Capability Projection**:
+A startup-frozen, non-scientific projection over exact contracts in the same
+FrozenCatalog. It declares ordinary Palette operations, specialized authoring
+entries, and their managed Node Types; it is not another scientific Catalog.
+_Avoid_: Scientific Catalog, runtime registry, inferred editor grouping
+
+**Specialized Composition**:
+An authoring structure shown as one specialized entry on the ordinary canvas
+and materialized as explicit Node Instances and edges in the Workflow.
+_Avoid_: Hidden execution, opaque Workflow node, frontend-only group
+
+**Managed Member**:
+An explicit Node Instance or internal edge owned by one Specialized
+Composition. It remains inspectable in the Catalog and Workflow but cannot be
+created, changed, or partly deleted through generic authoring.
+_Avoid_: Hidden node, generic Palette node, inferred graph membership
+
+**Prompt Authoring Document**:
+A non-executable authoring value declaring a ProteinPrompt source, target
+residue membership, final track intents, function annotations, random
+conditions, source merges, and structure transforms.
+_Avoid_: ProteinPrompt, Workflow, command log, scientific evidence
+
+**Prompt Authoring Preview**:
+A non-published, non-executable backend projection of a Prompt Authoring
+Document containing its normalized document, complete Prompt projection,
+changes, realized random choices, and diagnostics.
+_Avoid_: Run, Candidate, Cache, Artifact, Evidence
+
+**Managed Composition Record**:
+Non-scientific authoring state persisted beside one Workflow Draft revision so
+the owning implementation can reopen, replace, copy, and delete a Specialized
+Composition without inferring user intent from the materialized graph.
+_Avoid_: Workflow scientific content, Workflow Commit snapshot, graph inference
+
 ## Extension Language
 
 **Module Package**:

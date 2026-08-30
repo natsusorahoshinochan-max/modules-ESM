@@ -70,6 +70,11 @@ def _schema_example(schema: dict[str, Any]) -> Any:
     if value_type == "string":
         if schema.get("format") == "date-time":
             return "2026-08-03T00:00:00Z"
+        if schema.get("pattern") in {
+            "^[A-Za-z0-9]$",
+            "^[A-Za-z0-9][A-Za-z0-9_.-]{0,31}$",
+        }:
+            return "A"
         return "value-1"
     if value_type == "integer":
         return schema.get("minimum", 0)

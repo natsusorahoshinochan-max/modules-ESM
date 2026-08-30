@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -62,7 +64,7 @@ def _run_import_export(
         payload,
         filename=f"{value_kind}-input",
     )
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     nodes = tuple(
         WorkflowNodeInstance(
             node_id=role,
@@ -256,7 +258,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         run_root=tmp_path / "runs",
     )
     project = projects.create("fifteen PDB artifact acceptance")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

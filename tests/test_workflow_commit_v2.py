@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timezone
 
@@ -178,7 +180,7 @@ def _workflow(
 def test_invalid_draft_can_be_saved_and_loaded(tmp_path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("invalid draft")
-    authoring = WorkflowAuthoringService(projects, _catalog())
+    authoring = WorkflowAuthoringService(projects, _catalog(), AuthoringCapabilityProjection((), ()))
     workflow = _workflow(project.id, invalid_edge=True)
 
     saved = authoring.save_draft(
@@ -190,6 +192,7 @@ def test_invalid_draft_can_be_saved_and_loaded(tmp_path) -> None:
         "project_id": project.id,
         "draft_revision": 1,
         "workflow": encode_workflow_document(workflow),
+        "authoring_compositions": [],
     }
     assert authoring.load_draft(project.id) == saved
 
@@ -198,7 +201,7 @@ def test_commit_compiles_and_activates_one_draft(tmp_path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("commit draft")
     catalog = _catalog()
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     workflow = _workflow(project.id)
 
     committed = authoring.commit(
@@ -287,7 +290,7 @@ def test_public_synthetic_scorer_commit_requires_candidate_input(
 def test_sequential_commits_keep_draft_lineage_and_distinct_ids(tmp_path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("idempotent commit")
-    authoring = WorkflowAuthoringService(projects, _catalog())
+    authoring = WorkflowAuthoringService(projects, _catalog(), AuthoringCapabilityProjection((), ()))
     workflow = _workflow(project.id)
 
     first = authoring.commit(
@@ -309,7 +312,7 @@ def test_restart_hydrates_the_active_commit_plan(tmp_path) -> None:
     projects = ProjectManager(project_root)
     project = projects.create("restart hydration")
     catalog = _catalog()
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     committed = authoring.commit(
         project.id,
         workflow=_workflow(project.id),
@@ -318,6 +321,7 @@ def test_restart_hydrates_the_active_commit_plan(tmp_path) -> None:
     restarted = WorkflowAuthoringService(
         ProjectManager(project_root),
         catalog,
+        AuthoringCapabilityProjection((), ()),
     )
     compiled = restarted.require_verified_commit(
         project.id,
@@ -340,6 +344,7 @@ def test_restart_rejects_commit_from_changed_scientific_definition(
     committed = WorkflowAuthoringService(
         projects,
         _catalog("original-science"),
+        AuthoringCapabilityProjection((), ()),
     ).commit(
         project.id,
         workflow=_workflow(project.id),
@@ -348,6 +353,7 @@ def test_restart_rejects_commit_from_changed_scientific_definition(
     restarted = WorkflowAuthoringService(
         ProjectManager(project_root),
         _catalog("changed-science"),
+        AuthoringCapabilityProjection((), ()),
     )
     with pytest.raises(WorkflowAuthoringError) as raised:
         restarted.require_verified_commit(
@@ -366,7 +372,7 @@ def test_draft_preserves_uncompiled_values_and_commit_rejects_unknown_parameters
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("uncompiled draft")
-    authoring = WorkflowAuthoringService(projects, _catalog())
+    authoring = WorkflowAuthoringService(projects, _catalog(), AuthoringCapabilityProjection((), ()))
     payload = encode_workflow_document(_workflow(project.id))
     payload["nodes"][0]["node_parameters"] = {"undeclared": 1}
 
@@ -384,7 +390,7 @@ def test_draft_preserves_uncompiled_values_and_commit_rejects_unknown_parameters
 def test_new_invalid_draft_and_failed_commit_keep_active_plan(tmp_path) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("retained active commit")
-    authoring = WorkflowAuthoringService(projects, _catalog())
+    authoring = WorkflowAuthoringService(projects, _catalog(), AuthoringCapabilityProjection((), ()))
     active = authoring.commit(
         project.id,
         workflow=_workflow(project.id),
@@ -418,7 +424,7 @@ def test_deep_commit_submits_draft_and_returns_frozen_typed_values(
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("single deep commit")
-    authoring = WorkflowAuthoringService(projects, _catalog())
+    authoring = WorkflowAuthoringService(projects, _catalog(), AuthoringCapabilityProjection((), ()))
     workflow = _workflow(project.id)
 
     committed = authoring.commit(
@@ -446,7 +452,7 @@ def test_commit_publish_failure_keeps_old_active_and_saved_submission(
 ) -> None:
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("durable publish failure")
-    authoring = WorkflowAuthoringService(projects, _catalog())
+    authoring = WorkflowAuthoringService(projects, _catalog(), AuthoringCapabilityProjection((), ()))
     active = authoring.commit(
         project.id,
         workflow=_workflow(project.id),
@@ -502,7 +508,7 @@ def test_seed_install_uses_the_current_draft_and_commit_owners(
     projects = ProjectManager(project_root)
     catalog = _catalog()
     workflow = _workflow(CANONICAL_3GB1_PROJECT_ID)
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
 
     committed = authoring.install_seed_commit(
         workflow=workflow,
@@ -519,6 +525,7 @@ def test_seed_install_uses_the_current_draft_and_commit_owners(
     restarted = WorkflowAuthoringService(
         ProjectManager(project_root),
         catalog,
+        AuthoringCapabilityProjection((), ()),
     )
     assert restarted.install_seed_commit(
         workflow=workflow,

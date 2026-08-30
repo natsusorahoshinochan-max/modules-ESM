@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -560,7 +562,7 @@ def _run(
         run_root=tmp_path / "runs",
     )
     project = projects.create("ProteinMPNN v2")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(
@@ -2487,7 +2489,7 @@ def test_scoring_replay_preserves_candidate_and_observation_identity_only(
         run_root=tmp_path / "runs",
     )
     project = projects.create("ProteinMPNN scoring replay")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(

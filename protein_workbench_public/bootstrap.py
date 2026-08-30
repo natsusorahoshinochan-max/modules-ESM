@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from core.catalog.builder import build_frozen_catalog
+from core.catalog.authoring import build_authoring_capability_projection
 from core.catalog.declarations import ModulePackageRegistration
 from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
@@ -79,6 +80,10 @@ def create_application(
 ) -> FastAPI:
     """Construct the current backend and bind it to the public HTTP app."""
     catalog = build_frozen_catalog(module_registrations())
+    authoring_projection = build_authoring_capability_projection(
+        module_registrations(),
+        catalog,
+    )
     storage = application_storage_roots()
     projects = ProjectManager(
         root_dir=storage.projects,
@@ -86,7 +91,11 @@ def create_application(
         output_root=storage.outputs,
         run_root=storage.runs,
     )
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(
+        projects,
+        catalog,
+        authoring_projection,
+    )
     with ExitStack() as asset_stack:
         canonical_structure = asset_stack.enter_context(
             as_file(
@@ -138,4 +147,10 @@ def create_application(
         node_attempt_factory,
         result_store,
     )
-    return create_http_app(catalog, projects, authoring, runtime)
+    return create_http_app(
+        catalog,
+        projects,
+        authoring,
+        runtime,
+        authoring_projection=authoring_projection,
+    )

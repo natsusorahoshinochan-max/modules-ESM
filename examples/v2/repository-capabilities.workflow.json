@@ -144,16 +144,18 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt-authoring-add-function-annotation-direct",
-      "node_type_id": "prompt_authoring.add_function_annotation",
-      "binding_id": "prompt_authoring.add_function_annotation.direct",
+      "node_id": "prompt-authoring-replace-protein-prompt-annotations-direct",
+      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
       "node_parameters": {
-        "annotation": {
-          "label": "example-function",
-          "chain_id": "A",
-          "start_residue_id": "A:1",
-          "end_residue_id": "A:2"
-        },
+        "annotations": [
+          {
+            "label": "example-function",
+            "chain_id": "A",
+            "start_residue_id": "A:1",
+            "end_residue_id": "A:2"
+          }
+        ],
         "overlap_policy": "reject"
       },
       "binding_parameters": {}
@@ -180,11 +182,18 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt-authoring-edit-residue-layout-direct",
-      "node_type_id": "prompt_authoring.edit_residue_layout",
-      "binding_id": "prompt_authoring.edit_residue_layout.direct",
+      "node_id": "prompt-authoring-merge-protein-prompt-source-direct",
+      "node_type_id": "prompt_authoring.merge_protein_prompt_source",
+      "binding_id": "prompt_authoring.merge_protein_prompt_source.direct",
       "node_parameters": {
-        "edits": []
+        "correspondence": [],
+        "track_decisions": {
+          "sequence": "preserve",
+          "structure": "preserve",
+          "secondary_structure": "preserve",
+          "sasa": "preserve",
+          "function_annotations": "preserve"
+        }
       },
       "binding_parameters": {}
     },
@@ -512,9 +521,9 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt-authoring-insert-masked-residues-direct",
-      "node_type_id": "prompt_authoring.insert_masked_residues",
-      "binding_id": "prompt_authoring.insert_masked_residues.direct",
+      "node_id": "prompt-authoring-edit-protein-prompt-layout-direct",
+      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
+      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
       "node_parameters": {
         "insertions": [
           {
@@ -524,7 +533,8 @@
               "A:example-inserted"
             ]
           }
-        ]
+        ],
+        "deleted_residue_ids": []
       },
       "binding_parameters": {}
     },
@@ -619,10 +629,10 @@
   ],
   "edges": [
     {
-      "source_node_id": "prompt-authoring-build-residue-layout-direct",
-      "source_port": "layout",
-      "target_node_id": "prompt-authoring-add-function-annotation-direct",
-      "target_port": "layout"
+      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-authoring-replace-protein-prompt-annotations-direct",
+      "target_port": "protein_prompt"
     },
     {
       "source_node_id": "prompt-authoring-build-residue-layout-direct",
@@ -631,22 +641,16 @@
       "target_port": "layout"
     },
     {
-      "source_node_id": "prompt-authoring-add-function-annotation-direct",
-      "source_port": "function_annotations",
-      "target_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "target_port": "function_annotations"
+      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-authoring-merge-protein-prompt-source-direct",
+      "target_port": "target_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-build-residue-layout-direct",
-      "source_port": "layout",
-      "target_node_id": "prompt-authoring-edit-residue-layout-direct",
-      "target_port": "source_layout"
-    },
-    {
-      "source_node_id": "prompt-authoring-build-residue-layout-direct",
-      "source_port": "layout",
-      "target_node_id": "prompt-authoring-edit-residue-layout-direct",
-      "target_port": "target_layout"
+      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-authoring-merge-protein-prompt-source-direct",
+      "target_port": "source_prompt"
     },
     {
       "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
@@ -1197,7 +1201,7 @@
     {
       "source_node_id": "prompt-authoring-update-prompt-sequence-direct",
       "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-insert-masked-residues-direct",
+      "target_node_id": "prompt-authoring-edit-protein-prompt-layout-direct",
       "target_port": "protein_prompt"
     },
     {

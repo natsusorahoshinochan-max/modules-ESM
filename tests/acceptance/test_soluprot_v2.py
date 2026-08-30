@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 import os
@@ -119,7 +121,7 @@ def _run(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"model-backed SoluProt {mode}")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(

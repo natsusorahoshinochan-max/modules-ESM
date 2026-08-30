@@ -1,5 +1,386 @@
 {
   "$defs": {
+    "AuthoringCapabilityEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "port_type": {"$ref": "#/$defs/ContractReference"},
+        "role": {"$ref": "#/$defs/Identifier"}
+      },
+      "required": ["role", "port_type"],
+      "type": "object"
+    },
+    "AuthoringCapabilityProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {"type": "array", "items": {"$ref": "#/$defs/SpecializedAuthoringCapability"}},
+        "node_roles": {"type": "array", "items": {"$ref": "#/$defs/AuthoringNodeRole"}},
+        "protocol_digest": {"$ref": "#/$defs/Digest"},
+        "schema_namespace": {"const": "protein-workbench-public/v2"}
+      },
+      "required": ["schema_namespace", "protocol_digest", "capabilities", "node_roles"],
+      "type": "object"
+    },
+    "AuthoringCapabilityProjectionRequest": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "AuthoringNodeRole": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {"$ref": "#/$defs/Identifier"},
+        "node_type": {"$ref": "#/$defs/ContractReference"},
+        "role": {"enum": ["ordinary_node", "managed_member"], "type": "string"}
+      },
+      "required": ["node_type", "role"],
+      "type": "object"
+    },
+    "AuthoringSourceKind": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted_port_types": {"type": "array", "items": {"$ref": "#/$defs/ContractReference"}},
+        "source_kind": {"$ref": "#/$defs/Identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 256}
+      },
+      "required": ["source_kind", "title", "accepted_port_types"],
+      "type": "object"
+    },
+    "SpecializedAuthoringCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {"$ref": "#/$defs/Identifier"},
+        "category": {"$ref": "#/$defs/Identifier"},
+        "editor_kind": {"$ref": "#/$defs/Identifier"},
+        "exposed_inputs": {"type": "array", "items": {"$ref": "#/$defs/AuthoringCapabilityEndpoint"}},
+        "exposed_outputs": {"type": "array", "items": {"$ref": "#/$defs/AuthoringCapabilityEndpoint"}},
+        "managed_node_types": {"type": "array", "items": {"$ref": "#/$defs/ContractReference"}},
+        "role": {"const": "specialized_composition"},
+        "source_kinds": {"type": "array", "items": {"$ref": "#/$defs/AuthoringSourceKind"}},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 1024},
+        "title": {"type": "string", "minLength": 1, "maxLength": 256}
+      },
+      "required": ["capability_id", "role", "title", "summary", "category", "editor_kind", "source_kinds", "exposed_inputs", "exposed_outputs", "managed_node_types"],
+      "type": "object"
+    },
+    "PromptSource": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chains": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/PromptChainDeclaration"}},
+            "kind": {"const": "blank"}
+          },
+          "required": ["kind", "chains"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chain_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9]$"}},
+            "kind": {"const": "fasta"},
+            "project_input_ref": {"$ref": "#/$defs/ProjectInputReference"}
+          },
+          "required": ["kind", "project_input_ref", "chain_ids"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chain_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9]$"}},
+            "kind": {"const": "pdb"},
+            "project_input_ref": {"$ref": "#/$defs/ProjectInputReference"}
+          },
+          "required": ["kind", "project_input_ref", "chain_ids"],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "composition_id": {"$ref": "#/$defs/Identifier"},
+            "kind": {"const": "protein_prompt"}
+          },
+          "required": ["kind", "composition_id"],
+          "type": "object"
+        }
+      ]
+    },
+    "PromptSourceFacts": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {"chains": {"type": "array", "items": {"$ref": "#/$defs/PromptChainDeclaration"}}, "kind": {"const": "blank"}},
+          "required": ["kind", "chains"], "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {"chain_ids": {"type": "array", "items": {"type": "string"}}, "content_digest": {"$ref": "#/$defs/Digest"}, "kind": {"enum": ["fasta", "pdb"]}, "project_input_ref": {"$ref": "#/$defs/ProjectInputReference"}},
+          "required": ["kind", "project_input_ref", "content_digest", "chain_ids"], "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {"composition_id": {"$ref": "#/$defs/Identifier"}, "confirmed_preview_identity": {"$ref": "#/$defs/Digest"}, "kind": {"const": "protein_prompt"}},
+          "required": ["kind", "composition_id", "confirmed_preview_identity"], "type": "object"
+        }
+      ]
+    },
+    "PromptChainDeclaration": {
+      "additionalProperties": false,
+      "properties": {
+        "chain_id": {"type": "string", "pattern": "^[A-Za-z0-9]$"},
+        "length": {"type": "integer", "minimum": 1, "maximum": 2000000}
+      },
+      "required": ["chain_id", "length"],
+      "type": "object"
+    },
+    "PromptTargetResidue": {
+      "additionalProperties": false,
+      "properties": {
+        "chain_id": {"type": "string", "pattern": "^[A-Za-z0-9]$"},
+        "origin": {"enum": ["source", "insert"], "type": "string"},
+        "residue_handle": {"$ref": "#/$defs/Identifier"}
+      },
+      "required": ["residue_handle", "origin", "chain_id"],
+      "type": "object"
+    },
+    "PromptTrackReplacementValue": {
+      "oneOf": [
+        {"type": "string", "minLength": 1, "maxLength": 8},
+        {"type": "number", "minimum": 0}
+      ]
+    },
+    "PromptTrackIntent": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {"action": {"enum": ["preserve", "mask"], "type": "string"}, "residue_handle": {"$ref": "#/$defs/Identifier"}, "track": {"enum": ["sequence", "structure", "secondary_structure", "sasa"], "type": "string"}},
+          "required": ["track", "residue_handle", "action"], "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {"action": {"const": "specify"}, "residue_handle": {"$ref": "#/$defs/Identifier"}, "track": {"enum": ["sequence", "secondary_structure", "sasa"], "type": "string"}, "value": {"$ref": "#/$defs/PromptTrackReplacementValue"}},
+          "required": ["track", "residue_handle", "action", "value"], "type": "object"
+        }
+      ]
+    },
+    "PromptFunctionAnnotationIntent": {
+      "additionalProperties": false,
+      "properties": {
+        "end_residue_handle": {"$ref": "#/$defs/Identifier"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 256},
+        "start_residue_handle": {"$ref": "#/$defs/Identifier"}
+      },
+      "required": ["label", "start_residue_handle", "end_residue_handle"],
+      "type": "object"
+    },
+    "PromptRandomOperation": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {"count": {"type": "integer", "minimum": 0, "maximum": 2000000}, "eligible_residue_handles": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/Identifier"}}, "kind": {"const": "mask"}, "operation_id": {"$ref": "#/$defs/Identifier"}, "seed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}, "track": {"enum": ["sequence", "structure", "secondary_structure", "sasa"], "type": "string"}},
+          "required": ["operation_id", "kind", "track", "count", "eligible_residue_handles", "seed"], "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {"count": {"type": "integer", "minimum": 0, "maximum": 2000000}, "eligible_chain_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9]$"}}, "kind": {"const": "insert"}, "operation_id": {"$ref": "#/$defs/Identifier"}, "seed": {"type": "integer", "minimum": 0, "maximum": 9007199254740991}},
+          "required": ["operation_id", "kind", "count", "eligible_chain_ids", "seed"], "type": "object"
+        }
+      ]
+    },
+    "PromptRigidTransform": {
+      "additionalProperties": false,
+      "properties": {
+        "origin": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+        "residue_handles": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/Identifier"}},
+        "rotation_matrix": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}},
+        "translation": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}
+      },
+      "required": ["residue_handles", "rotation_matrix", "origin", "translation"],
+      "type": "object"
+    },
+    "PromptCorrespondenceRow": {
+      "oneOf": [
+        {"additionalProperties": false, "properties": {"disposition": {"const": "match"}, "source_residue_handle": {"$ref": "#/$defs/Identifier"}, "target_residue_handle": {"$ref": "#/$defs/Identifier"}}, "required": ["disposition", "source_residue_handle", "target_residue_handle"], "type": "object"},
+        {"additionalProperties": false, "properties": {"disposition": {"const": "source_gap"}, "source_residue_handle": {"$ref": "#/$defs/Identifier"}}, "required": ["disposition", "source_residue_handle"], "type": "object"},
+        {"additionalProperties": false, "properties": {"disposition": {"const": "target_gap"}, "target_residue_handle": {"$ref": "#/$defs/Identifier"}}, "required": ["disposition", "target_residue_handle"], "type": "object"}
+      ]
+    },
+    "PromptTrackDecisions": {
+      "additionalProperties": false,
+      "properties": {
+        "function_annotations": {"enum": ["adopt", "preserve", "conflict"], "type": "string"},
+        "sasa": {"enum": ["adopt", "preserve", "conflict"], "type": "string"},
+        "secondary_structure": {"enum": ["adopt", "preserve", "conflict"], "type": "string"},
+        "sequence": {"enum": ["adopt", "preserve", "conflict"], "type": "string"},
+        "structure": {"enum": ["adopt", "preserve", "conflict"], "type": "string"}
+      },
+      "required": ["sequence", "structure", "secondary_structure", "sasa", "function_annotations"],
+      "type": "object"
+    },
+    "PromptSourceMerge": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmed": {"type": "boolean"},
+        "correspondence": {"type": "array", "items": {"$ref": "#/$defs/PromptCorrespondenceRow"}},
+        "source": {"$ref": "#/$defs/PromptSource"},
+        "track_decisions": {"$ref": "#/$defs/PromptTrackDecisions"}
+      },
+      "required": ["source", "correspondence", "track_decisions", "confirmed"],
+      "type": "object"
+    },
+    "PromptAuthoringDocument": {
+      "additionalProperties": false,
+      "properties": {
+        "authoring_session_id": {"$ref": "#/$defs/Identifier"},
+        "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationIntent"}},
+        "overlap_policy": {"enum": ["allow", "reject"], "type": "string"},
+        "random_operations": {"type": "array", "items": {"$ref": "#/$defs/PromptRandomOperation"}},
+        "rigid_transforms": {"type": "array", "items": {"$ref": "#/$defs/PromptRigidTransform"}},
+        "source": {"$ref": "#/$defs/PromptSource"},
+        "source_merges": {"type": "array", "items": {"$ref": "#/$defs/PromptSourceMerge"}},
+        "target_residues": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/PromptTargetResidue"}},
+        "track_intents": {"type": "array", "items": {"$ref": "#/$defs/PromptTrackIntent"}}
+      },
+      "required": ["authoring_session_id", "source", "target_residues", "track_intents", "function_annotations", "overlap_policy", "random_operations", "source_merges", "rigid_transforms"],
+      "type": "object"
+    },
+    "PromptAuthoringOpenRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "composition_id": {"$ref": "#/$defs/Identifier"},
+        "mode": {"enum": ["create", "reopen"], "type": "string"},
+        "project_id": {"$ref": "#/$defs/ProjectId"},
+        "source": {"$ref": "#/$defs/PromptSource"}
+      },
+      "required": ["project_id", "mode"],
+      "type": "object"
+    },
+    "PromptResidueProjection": {
+      "additionalProperties": false,
+      "properties": {"chain_id": {"type": "string"}, "position": {"type": "integer", "minimum": 1}, "residue_handle": {"$ref": "#/$defs/Identifier"}, "residue_label": {"type": "string"}},
+      "required": ["residue_handle", "chain_id", "residue_label", "position"],
+      "type": "object"
+    },
+    "PromptStructureProjectionValue": {
+      "additionalProperties": false,
+      "properties": {"atoms": {"type": "array", "items": {"additionalProperties": false, "properties": {"atom_handle": {"$ref": "#/$defs/Identifier"}, "atom_label": {"type": "string"}, "coordinates": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}}}, "required": ["atom_handle", "atom_label", "coordinates"], "type": "object"}}},
+      "required": ["atoms"], "type": "object"
+    },
+    "PromptProjectedValue": {"oneOf": [{"type": "null"}, {"type": "string"}, {"type": "number"}, {"$ref": "#/$defs/PromptStructureProjectionValue"}]},
+    "PromptTrackProjection": {
+      "additionalProperties": false,
+      "properties": {"residue_handle": {"$ref": "#/$defs/Identifier"}, "state": {"enum": ["source", "current", "changed", "cleared", "inserted", "pending-delete"], "type": "string"}, "value": {"$ref": "#/$defs/PromptProjectedValue"}},
+      "required": ["residue_handle", "value", "state"], "type": "object"
+    },
+    "PromptTrackProjectionSet": {
+      "additionalProperties": false,
+      "properties": {
+        "sasa": {"type": "array", "items": {"$ref": "#/$defs/PromptTrackProjection"}},
+        "secondary_structure": {"type": "array", "items": {"$ref": "#/$defs/PromptTrackProjection"}},
+        "sequence": {"type": "array", "items": {"$ref": "#/$defs/PromptTrackProjection"}},
+        "structure": {"type": "array", "items": {"$ref": "#/$defs/PromptTrackProjection"}}
+      },
+      "required": ["sequence", "structure", "secondary_structure", "sasa"], "type": "object"
+    },
+    "PromptAuthoringSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {"$ref": "#/$defs/PromptAuthoringDocument"},
+        "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationIntent"}},
+        "residues": {"type": "array", "items": {"$ref": "#/$defs/PromptResidueProjection"}},
+        "source": {"$ref": "#/$defs/PromptSourceFacts"},
+        "tracks": {"$ref": "#/$defs/PromptTrackProjectionSet"}
+      },
+      "required": ["document", "residues", "tracks", "function_annotations", "source"], "type": "object"
+    },
+    "PromptAuthoringPreviewRequest": {
+      "additionalProperties": false,
+      "properties": {"composition_id": {"$ref": "#/$defs/Identifier"}, "document": {"$ref": "#/$defs/PromptAuthoringDocument"}, "project_id": {"$ref": "#/$defs/ProjectId"}},
+      "required": ["project_id", "document"], "type": "object"
+    },
+    "PromptAuthoringChange": {
+      "oneOf": [
+        {"additionalProperties": false, "properties": {"deleted_count": {"type": "integer"}, "inserted_count": {"type": "integer"}, "kind": {"const": "layout"}, "source_length": {"type": "integer"}, "target_length": {"type": "integer"}}, "required": ["kind", "source_length", "target_length", "inserted_count", "deleted_count"], "type": "object"},
+        {"additionalProperties": false, "properties": {"action": {"enum": ["preserve", "mask", "specify"]}, "kind": {"const": "track"}, "residue_handle": {"$ref": "#/$defs/Identifier"}, "track": {"enum": ["sequence", "structure", "secondary_structure", "sasa"]}}, "required": ["kind", "track", "residue_handle", "action"], "type": "object"}
+      ]
+    },
+    "PromptRandomSelection": {
+      "oneOf": [
+        {"additionalProperties": false, "properties": {"kind": {"const": "mask"}, "operation_id": {"$ref": "#/$defs/Identifier"}, "residue_handles": {"type": "array", "items": {"$ref": "#/$defs/Identifier"}}}, "required": ["operation_id", "kind", "residue_handles"], "type": "object"},
+        {"additionalProperties": false, "properties": {"inserted_positions": {"type": "array", "items": {"type": "integer", "minimum": 0}}, "kind": {"const": "insert"}, "operation_id": {"$ref": "#/$defs/Identifier"}}, "required": ["operation_id", "kind", "inserted_positions"], "type": "object"}
+      ]
+    },
+    "PromptDiagnostic": {
+      "additionalProperties": false,
+      "properties": {"code": {"$ref": "#/$defs/Identifier"}, "field_path": {"type": "array", "items": {"oneOf": [{"type": "string"}, {"type": "integer"}]}}, "message": {"type": "string"}, "residue_handle": {"$ref": "#/$defs/Identifier"}},
+      "required": ["code", "message", "field_path"], "type": "object"
+    },
+    "PromptTrackSummary": {
+      "additionalProperties": false,
+      "properties": {"specified": {"type": "integer", "minimum": 0}, "unspecified": {"type": "integer", "minimum": 0}},
+      "required": ["specified", "unspecified"], "type": "object"
+    },
+    "PromptSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "chains": {"type": "array", "items": {"$ref": "#/$defs/PromptChainDeclaration"}},
+        "function_annotation_count": {"type": "integer", "minimum": 0},
+        "tracks": {"additionalProperties": false, "properties": {"sasa": {"$ref": "#/$defs/PromptTrackSummary"}, "secondary_structure": {"$ref": "#/$defs/PromptTrackSummary"}, "sequence": {"$ref": "#/$defs/PromptTrackSummary"}, "structure": {"$ref": "#/$defs/PromptTrackSummary"}}, "required": ["sequence", "structure", "secondary_structure", "sasa"], "type": "object"}
+      },
+      "required": ["chains", "tracks", "function_annotation_count"], "type": "object"
+    },
+    "PromptMergeProjection": {
+      "additionalProperties": false,
+      "properties": {"confirmed": {"type": "boolean"}, "correspondence": {"type": "array", "items": {"$ref": "#/$defs/PromptCorrespondenceRow"}}, "source": {"$ref": "#/$defs/PromptSourceFacts"}, "track_decisions": {"$ref": "#/$defs/PromptTrackDecisions"}},
+      "required": ["source", "correspondence", "track_decisions", "confirmed"], "type": "object"
+    },
+    "PromptAuthoringPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "changes": {"type": "array", "items": {"$ref": "#/$defs/PromptAuthoringChange"}},
+        "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/PromptDiagnostic"}},
+        "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationIntent"}},
+        "normalized_document": {"$ref": "#/$defs/PromptAuthoringDocument"},
+        "preview_digest": {"$ref": "#/$defs/Digest"},
+        "random_selections": {"type": "array", "items": {"$ref": "#/$defs/PromptRandomSelection"}},
+        "residues": {"type": "array", "items": {"$ref": "#/$defs/PromptResidueProjection"}},
+        "source_merges": {"type": "array", "items": {"$ref": "#/$defs/PromptMergeProjection"}},
+        "summary": {"$ref": "#/$defs/PromptSummary"},
+        "tracks": {"$ref": "#/$defs/PromptTrackProjectionSet"}
+      },
+      "required": ["normalized_document", "preview_digest", "residues", "tracks", "function_annotations", "changes", "random_selections", "source_merges", "diagnostics", "summary"], "type": "object"
+    },
+    "ManagedRoleEndpoint": {
+      "additionalProperties": false,
+      "properties": {"node_id": {"$ref": "#/$defs/NodeInstanceId"}, "port_name": {"$ref": "#/$defs/Identifier"}, "role": {"$ref": "#/$defs/Identifier"}},
+      "required": ["role", "node_id", "port_name"], "type": "object"
+    },
+    "ManagedCompositionProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {"$ref": "#/$defs/Identifier"},
+        "composition_id": {"$ref": "#/$defs/Identifier"},
+        "confirmed_preview_identity": {"$ref": "#/$defs/Digest"},
+        "exposed_inputs": {"type": "array", "items": {"$ref": "#/$defs/ManagedRoleEndpoint"}},
+        "exposed_outputs": {"type": "array", "items": {"$ref": "#/$defs/ManagedRoleEndpoint"}},
+        "managed_node_ids": {"type": "array", "items": {"$ref": "#/$defs/NodeInstanceId"}}
+      },
+      "required": ["composition_id", "capability_id", "managed_node_ids", "exposed_inputs", "exposed_outputs", "confirmed_preview_identity"], "type": "object"
+    },
+    "PromptCompositionProjection": {
+      "additionalProperties": false,
+      "properties": {"capability_id": {"$ref": "#/$defs/Identifier"}, "composition_id": {"$ref": "#/$defs/Identifier"}, "exposed_inputs": {"type": "array", "items": {"$ref": "#/$defs/ManagedRoleEndpoint"}}, "exposed_outputs": {"type": "array", "items": {"$ref": "#/$defs/ManagedRoleEndpoint"}}, "managed_node_ids": {"type": "array", "items": {"$ref": "#/$defs/NodeInstanceId"}}},
+      "required": ["composition_id", "capability_id", "managed_node_ids", "exposed_inputs", "exposed_outputs"], "type": "object"
+    },
+    "PromptAuthoringApplyRequest": {
+      "additionalProperties": false,
+      "properties": {"composition_id": {"$ref": "#/$defs/Identifier"}, "intent": {"enum": ["create", "replace", "copy", "delete"], "type": "string"}, "normalized_document": {"$ref": "#/$defs/PromptAuthoringDocument"}, "preview_digest": {"$ref": "#/$defs/Digest"}, "project_id": {"$ref": "#/$defs/ProjectId"}},
+      "required": ["project_id", "intent", "normalized_document", "preview_digest"], "type": "object"
+    },
+    "PromptAuthoringApplyResult": {
+      "additionalProperties": false,
+      "properties": {"composition": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/PromptCompositionProjection"}]}, "draft": {"$ref": "#/$defs/ProjectWorkflowDraft"}},
+      "required": ["draft", "composition"], "type": "object"
+    },
     "ArtifactDescriptor": {
       "oneOf": [
         {
@@ -1597,6 +1978,12 @@
     "ProjectWorkflowDraft": {
       "additionalProperties": false,
       "properties": {
+        "authoring_compositions": {
+          "items": {
+            "$ref": "#/$defs/ManagedCompositionProjection"
+          },
+          "type": "array"
+        },
         "draft_revision": {
           "minimum": 1,
           "type": "integer"
@@ -1611,7 +1998,8 @@
       "required": [
         "project_id",
         "draft_revision",
-        "workflow"
+        "workflow",
+        "authoring_compositions"
       ],
       "type": "object"
     },
@@ -3736,6 +4124,71 @@
         "default": "structured_error"
       }
     },
+    "authoring_capability_projection": {
+      "method": "GET",
+      "request_schema": "#/$defs/AuthoringCapabilityProjectionRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/AuthoringCapabilityProjection",
+        "success_status": 200
+      },
+      "route": "/api/v2/authoring-capabilities",
+      "status_mapping": {
+        "200": "response",
+        "default": "structured_error"
+      }
+    },
+    "open_prompt_authoring": {
+      "method": "POST",
+      "request_schema": "#/$defs/PromptAuthoringOpenRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/PromptAuthoringSnapshot",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/prompt-authoring:open",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "preview_prompt_authoring": {
+      "method": "POST",
+      "request_schema": "#/$defs/PromptAuthoringPreviewRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/PromptAuthoringPreview",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/prompt-authoring:preview",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
+    "apply_prompt_authoring": {
+      "method": "POST",
+      "request_schema": "#/$defs/PromptAuthoringApplyRequest",
+      "response": {
+        "kind": "json",
+        "schema": "#/$defs/PromptAuthoringApplyResult",
+        "success_status": 200
+      },
+      "route": "/api/v2/projects/{project_id}/prompt-authoring:apply",
+      "status_mapping": {
+        "200": "response",
+        "404": "structured_error",
+        "409": "structured_error",
+        "422": "structured_error",
+        "default": "structured_error"
+      }
+    },
     "commit_project_workflow": {
       "method": "POST",
       "request_schema": "#/$defs/SubmitProjectWorkflowRequest",
@@ -3939,7 +4392,7 @@
     "transport": "websocket"
   },
   "schema_namespace": "protein-workbench-public/v2",
-  "schema_version": "2.3.0",
+  "schema_version": "2.4.0",
   "structured_errors": {
     "details_max_bytes": 16384,
     "envelope_schema": "#/$defs/StructuredErrorEnvelope",
@@ -4094,6 +4547,6 @@
         "retryable": false
       }
     },
-    "vocabulary_version": "2.3.0"
+    "vocabulary_version": "2.4.0"
   }
 }

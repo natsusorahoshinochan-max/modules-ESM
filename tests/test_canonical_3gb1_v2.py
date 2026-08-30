@@ -151,7 +151,7 @@ def test_canonical_seed_is_compilable_v2() -> None:
     } == {0.7, 0.3}
 
 
-def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
+def test_generic_canonical_prompt_graph_is_rejected_before_provider_calls(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -159,7 +159,6 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
     esm3 = ControlledESM3Client()
     folding = ControlledFoldingClient()
     workflow = _workflow_payload()
-    workflow["edges"][0]["target_port"] = "missing"
     app = create_application(
         v2_environment_configuration=controlled_environment(
             monkeypatch,
@@ -181,8 +180,8 @@ def test_invalid_canonical_workflow_is_rejected_before_provider_calls(
             },
         )
 
-    assert rejected.status_code == 422
-    assert rejected.json()["error"]["code"] == "compile_rejected"
+    assert rejected.status_code == 400
+    assert rejected.json()["error"]["code"] == "malformed_request"
     assert not esm3.sequence_prompts
     assert not esm3.structure_prompts
     assert not folding.calls

@@ -1,0 +1,94 @@
+node_type_id: prompt_authoring.merge_protein_prompt_source
+title: Merge ProteinPrompt source
+summary: Merges one role-labelled Prompt source through confirmed exact residue correspondence and explicit per-track decisions.
+category: prompt_authoring
+inputs:
+  - name: target_prompt
+    port_type_id: protein.prompt
+    required: true
+    multiplicity: one
+    scientific_meaning: Current target ProteinPrompt whose identity axis is retained.
+  - name: source_prompt
+    port_type_id: protein.prompt
+    required: true
+    multiplicity: one
+    scientific_meaning: Role-labelled ProteinPrompt source whose selected track values may be adopted.
+outputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    required: true
+    multiplicity: one
+    scientific_meaning: Target ProteinPrompt after explicit correspondence-based per-track merge.
+parameter_groups:
+  - id: source_merge
+    title: Confirmed source merge
+    parameters: [correspondence, track_decisions]
+node_parameters:
+  correspondence:
+    parameter_scope: scientific
+    scientific_meaning: User-confirmed exact source-to-target residue correspondence and gap dispositions.
+    required: true
+    value_contract:
+      type: array
+      maxItems: 4000000
+      uniqueItems: true
+      items:
+        oneOf:
+          - type: object
+            additionalProperties: false
+            required: [disposition, source_residue_id, target_residue_id]
+            properties:
+              disposition:
+                field_scope: scientific
+                scientific_meaning: Exact source and target residues correspond.
+                const: match
+              source_residue_id:
+                field_scope: scientific
+                scientific_meaning: Exact source residue identity.
+                type: string
+                pattern: "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
+              target_residue_id:
+                field_scope: scientific
+                scientific_meaning: Exact target residue identity.
+                type: string
+                pattern: "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
+          - type: object
+            additionalProperties: false
+            required: [disposition, source_residue_id]
+            properties:
+              disposition:
+                field_scope: scientific
+                scientific_meaning: Source residue remains outside the target correspondence.
+                const: source_gap
+              source_residue_id:
+                field_scope: scientific
+                scientific_meaning: Exact unmatched source residue identity.
+                type: string
+                pattern: "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
+          - type: object
+            additionalProperties: false
+            required: [disposition, target_residue_id]
+            properties:
+              disposition:
+                field_scope: scientific
+                scientific_meaning: Target residue is preserved without a source correspondence.
+                const: target_gap
+              target_residue_id:
+                field_scope: scientific
+                scientific_meaning: Exact unmatched target residue identity.
+                type: string
+                pattern: "^[A-Za-z0-9]:(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,63}|[+-][0-9]{1,3}[A-Za-z]?)$"
+  track_decisions:
+    parameter_scope: scientific
+    scientific_meaning: Explicit adopt or preserve decision for each Prompt track and the annotation collection.
+    required: true
+    value_contract:
+      type: object
+      additionalProperties: false
+      required: [sequence, structure, secondary_structure, sasa, function_annotations]
+      properties:
+        sequence: {field_scope: scientific, scientific_meaning: Sequence merge decision., type: string, enum: [adopt, preserve]}
+        structure: {field_scope: scientific, scientific_meaning: Coordinate merge decision., type: string, enum: [adopt, preserve]}
+        secondary_structure: {field_scope: scientific, scientific_meaning: Secondary-structure merge decision., type: string, enum: [adopt, preserve]}
+        sasa: {field_scope: scientific, scientific_meaning: Absolute-SASA merge decision., type: string, enum: [adopt, preserve]}
+        function_annotations: {field_scope: scientific, scientific_meaning: Function annotation merge decision., type: string, enum: [adopt, preserve]}

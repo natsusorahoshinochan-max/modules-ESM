@@ -330,11 +330,11 @@ def test_user_can_condition_function_tracks_generate_and_replay(
         assert first.projection["status"] == replay.projection["status"] == (
             "succeeded"
         )
-        assembled = decode_one(
+        conditioned = decode_one(
             client,
             catalog,
             first.projection,
-            "assemble-prompt",
+            "replace-functions",
             "protein_prompt",
         )
         masked = decode_one(
@@ -344,14 +344,16 @@ def test_user_can_condition_function_tracks_generate_and_replay(
             "mask-sequence",
             "protein_prompt",
         )
-        assert type(assembled) is type(masked) is ProteinPrompt
-        assert masked.target_layout == assembled.target_layout
-        assert masked.structure_track == assembled.structure_track
+        assert type(conditioned) is type(masked) is ProteinPrompt
+        assert masked.target_layout == conditioned.target_layout
+        assert masked.structure_track == conditioned.structure_track
         assert masked.secondary_structure_track == (
-            assembled.secondary_structure_track
+            conditioned.secondary_structure_track
         )
-        assert masked.sasa_track == assembled.sasa_track
-        assert masked.function_annotations == assembled.function_annotations
+        assert masked.sasa_track == conditioned.sasa_track
+        assert (
+            masked.function_annotations == conditioned.function_annotations
+        )
         assert [
             index
             for index, value in enumerate(masked.sequence_track.values)
@@ -423,7 +425,7 @@ def test_user_can_condition_function_tracks_generate_and_replay(
     }
     assert replay_dispositions == {
         "prompt-values": "cache_replayed",
-        "add-function": "cache_replayed",
+            "replace-functions": "cache_replayed",
         "assemble-prompt": "cache_replayed",
         "mask-sequence": "cache_replayed",
         "generate-paired": "executed",

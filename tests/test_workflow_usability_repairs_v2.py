@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_projection
 
 from pathlib import Path
@@ -55,7 +57,7 @@ def _run(
         run_root=tmp_path / "runs",
     )
     project = projects.create("workflow usability repair regression")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(
@@ -326,14 +328,15 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
     edit_nodes = tuple(
         WorkflowNodeInstance(
             node_id=f"edit-{branch}",
-            node_type_id="prompt_authoring.insert_masked_residues",
-            binding_id="prompt_authoring.insert_masked_residues.direct",
+                node_type_id="prompt_authoring.edit_protein_prompt_layout",
+                binding_id="prompt_authoring.edit_protein_prompt_layout.direct",
             node_parameters={
                 "insertions": [{
                     "after_residue_id": "A:211",
                     "before_residue_id": "A:224",
                     "inserted_residue_ids": inserted_ids,
-                }]
+                }],
+                "deleted_residue_ids": [],
             },
             binding_parameters={},
         )

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -203,7 +205,7 @@ def _run_fold(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"folding {route}")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,
@@ -399,7 +401,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
         )
     )
     projects = ProjectManager(tmp_path / "projects")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     parents = CandidateCollection(
         "parents",
         "protein.sequence",

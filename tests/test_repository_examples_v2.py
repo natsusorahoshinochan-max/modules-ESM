@@ -279,8 +279,8 @@ def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
         for node in workflow.nodes
         if node.binding_id.startswith("prompt_authoring.")
     } == {
-        "prompt_authoring.map_residue_track.direct",
-        "prompt_authoring.override_residue_track.direct",
+        "prompt_authoring.edit_protein_prompt_layout.direct",
+        "prompt_authoring.override_protein_prompt_track.direct",
     }
 
 

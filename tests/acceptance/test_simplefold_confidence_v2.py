@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 import builtins
@@ -94,7 +96,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         run_root=tmp_path / "runs",
     )
     project = projects.create("SimpleFold confidence v2 3GB1")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from datatypes.prompt import (
     FunctionAnnotation,
@@ -123,3 +123,29 @@ def add_function_annotation(
                 )
             previous_end = item.end
     return appended
+
+
+def replace_function_annotations(
+    layout: ResidueLayout,
+    annotations: Sequence[Mapping[str, str]],
+    *,
+    overlap_policy: str,
+) -> FunctionAnnotations:
+    """Materialize one complete final annotation collection."""
+    result = FunctionAnnotations()
+    for annotation in annotations:
+        result = add_function_annotation(
+            layout,
+            result,
+            annotation,
+            overlap_policy="allow",
+        )
+    if overlap_policy == "reject":
+        previous_end = 0
+        for item in result.annotations:
+            if item.start <= previous_end:
+                raise ValueError(
+                    "function annotations overlap under the reject policy"
+                )
+            previous_end = item.end
+    return result

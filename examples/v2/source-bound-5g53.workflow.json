@@ -45,8 +45,8 @@
     },
     {
       "node_id": "insert-shorter-8",
-      "node_type_id": "prompt_authoring.insert_masked_residues",
-      "binding_id": "prompt_authoring.insert_masked_residues.direct",
+      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
+      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
       "node_parameters": {
         "insertions": [
           {
@@ -63,7 +63,8 @@
               "A:gap211_224.short.08"
             ]
           }
-        ]
+        ],
+        "deleted_residue_ids": []
       },
       "binding_parameters": {}
     },
@@ -485,8 +486,8 @@
     },
     {
       "node_id": "insert-numbering-implied-12",
-      "node_type_id": "prompt_authoring.insert_masked_residues",
-      "binding_id": "prompt_authoring.insert_masked_residues.direct",
+      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
+      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
       "node_parameters": {
         "insertions": [
           {
@@ -507,7 +508,8 @@
               "A:223"
             ]
           }
-        ]
+        ],
+        "deleted_residue_ids": []
       },
       "binding_parameters": {}
     },
@@ -933,8 +935,8 @@
     },
     {
       "node_id": "insert-longer-16",
-      "node_type_id": "prompt_authoring.insert_masked_residues",
-      "binding_id": "prompt_authoring.insert_masked_residues.direct",
+      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
+      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
       "node_parameters": {
         "insertions": [
           {
@@ -959,7 +961,8 @@
               "A:gap211_224.long.16"
             ]
           }
-        ]
+        ],
+        "deleted_residue_ids": []
       },
       "binding_parameters": {}
     },

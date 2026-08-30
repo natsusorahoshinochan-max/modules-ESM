@@ -148,15 +148,21 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
             ),
             WorkflowNodeInstance(
                 node_id="annotation",
-                node_type_id="prompt_authoring.add_function_annotation",
-                binding_id="prompt_authoring.add_function_annotation.direct",
+                node_type_id=(
+                    "prompt_authoring.replace_protein_prompt_annotations"
+                ),
+                binding_id=(
+                    "prompt_authoring.replace_protein_prompt_annotations.direct"
+                ),
                 node_parameters={
-                    "annotation": {
-                        "label": "signed_region",
-                        "chain_id": "A",
-                        "start_residue_id": "A:-3",
-                        "end_residue_id": "A:-3A",
-                    },
+                    "annotations": [
+                        {
+                            "label": "signed_region",
+                            "chain_id": "A",
+                            "start_residue_id": "A:-3",
+                            "end_residue_id": "A:-3A",
+                        }
+                    ],
                     "overlap_policy": "reject",
                 },
                 binding_parameters={},
@@ -186,15 +192,21 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
         nodes=(
             WorkflowNodeInstance(
                 node_id="annotation",
-                node_type_id="prompt_authoring.add_function_annotation",
-                binding_id="prompt_authoring.add_function_annotation.direct",
+                node_type_id=(
+                    "prompt_authoring.replace_protein_prompt_annotations"
+                ),
+                binding_id=(
+                    "prompt_authoring.replace_protein_prompt_annotations.direct"
+                ),
                 node_parameters={
-                    "annotation": {
-                        "label": "invalid",
-                        "chain_id": "A",
-                        "start_residue_id": "A:-1234",
-                        "end_residue_id": "A:-1234",
-                    },
+                    "annotations": [
+                        {
+                            "label": "invalid",
+                            "chain_id": "A",
+                            "start_residue_id": "A:-1234",
+                            "end_residue_id": "A:-1234",
+                        }
+                    ],
                     "overlap_policy": "reject",
                 },
                 binding_parameters={},

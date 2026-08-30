@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from core.catalog.builder import build_frozen_catalog
@@ -198,7 +200,7 @@ def _run_rich_esm3_generation(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"Biohub ESM-3 {operation} rich prompt gate")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(
@@ -837,7 +839,7 @@ def test_mkdssp_executes_exact_method_through_public_run(
         pdb_3gb1.pdb_string.encode("ascii"),
         filename="3GB1.pdb",
     )
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

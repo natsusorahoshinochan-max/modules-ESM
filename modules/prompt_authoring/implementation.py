@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 from core.operation import (
     OperationResources,
-    AdmittedPort,
     OperationCall,
 )
 from datatypes.prompt import (
@@ -20,16 +18,13 @@ from datatypes.residue import (
 )
 from datatypes.structure import ResolvedStructureResidueAxis
 
-from .annotations import add_function_annotation
-from .domain import (
-    AlignedResidueTrack,
-    build_layout,
-    build_residue_map,
-    map_track,
-    override_track,
-    TrackKind,
+from .annotations import replace_function_annotations
+from .domain import build_layout
+from .deterministic import (
+    edit_protein_prompt_layout,
+    edit_protein_prompt_layout_from_declarations,
+    merge_protein_prompt_source,
 )
-from .deterministic import insert_masked_residues
 from .prompts import (
     assemble_protein_prompt,
     override_protein_prompt_track,
@@ -38,12 +33,12 @@ from .prompts import (
 from .stochastic import random_insert_masked, random_mask_prompt
 
 
-_TRACK_PORTS = {
-    "sequence_track": TrackKind.SEQUENCE,
-    "structure_track": TrackKind.STRUCTURE,
-    "secondary_structure_track": TrackKind.SECONDARY_STRUCTURE,
-    "sasa_track": TrackKind.SASA,
-}
+_TRACK_PORTS = (
+    "sequence_track",
+    "structure_track",
+    "secondary_structure_track",
+    "sasa_track",
+)
 
 
 class _Implementation:
@@ -59,56 +54,6 @@ class BuildResidueLayoutImplementation(_Implementation):
         with self._invocation():
             layout = build_layout(call.node_parameters["chains"])
         return {"layout": layout}
-
-
-class EditResidueLayoutImplementation(_Implementation):
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        inputs = call.inputs
-        node_parameters = call.node_parameters
-        with self._invocation():
-            residue_map = build_residue_map(
-                inputs["source_layout"].value,
-                inputs["target_layout"].value,
-                node_parameters["edits"],
-            )
-        return {"residue_map": residue_map}
-
-
-def _selected_track(
-    inputs: Mapping[str, AdmittedPort],
-) -> tuple[str, TrackKind, AlignedResidueTrack]:
-    return next(
-        (port, kind, inputs[port].value)
-        for port, kind in _TRACK_PORTS.items()
-        if port in inputs
-    )
-
-
-class MapResidueTrackImplementation(_Implementation):
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        inputs = call.inputs
-        port, _kind, track = _selected_track(inputs)
-        with self._invocation():
-            converted = map_track(
-                track,
-                inputs["residue_map"].value,
-            )
-        return {port: converted}
-
-
-class OverrideResidueTrackImplementation(_Implementation):
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        inputs = call.inputs
-        node_parameters = call.node_parameters
-        port, kind, track = _selected_track(inputs)
-        with self._invocation():
-            result = override_track(
-                track,
-                inputs["target_layout"].value,
-                node_parameters["overrides"],
-                kind=kind,
-            )
-        return {port: result}
 
 
 def _prompt_from_structure(
@@ -188,22 +133,26 @@ class AssembleProteinPromptImplementation(_Implementation):
         return {"protein_prompt": prompt}
 
 
-class AddFunctionAnnotationImplementation(_Implementation):
+class ReplaceProteinPromptAnnotationsImplementation(_Implementation):
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
         node_parameters = call.node_parameters
+        source = inputs["protein_prompt"].value
         with self._invocation():
-            annotations = add_function_annotation(
-                inputs["layout"].value,
-                (
-                    inputs["existing_annotations"].value
-                    if "existing_annotations" in inputs
-                    else None
-                ),
-                node_parameters["annotation"],
+            annotations = replace_function_annotations(
+                source.target_layout,
+                node_parameters["annotations"],
                 overlap_policy=node_parameters["overlap_policy"],
             )
-        return {"function_annotations": annotations}
+            prompt = ProteinPrompt(
+                target_layout=source.target_layout,
+                sequence_track=source.sequence_track,
+                structure_track=source.structure_track,
+                secondary_structure_track=source.secondary_structure_track,
+                sasa_track=source.sasa_track,
+                function_annotations=annotations,
+            )
+        return {"protein_prompt": prompt}
 
 
 class UpdatePromptSequenceImplementation(_Implementation):
@@ -249,16 +198,29 @@ class RandomInsertMaskedImplementation(_Implementation):
         }
 
 
-class InsertMaskedResiduesImplementation(_Implementation):
+class EditProteinPromptLayoutImplementation(_Implementation):
     def execute(self, call: OperationCall) -> dict[str, Any]:
         inputs = call.inputs
         node_parameters = call.node_parameters
         with self._invocation():
-            prompt, residue_map = insert_masked_residues(
+            prompt, residue_map = edit_protein_prompt_layout_from_declarations(
                 inputs["protein_prompt"].value,
                 node_parameters["insertions"],
+                node_parameters["deleted_residue_ids"],
             )
         return {
             "protein_prompt": prompt,
             "residue_map": residue_map,
         }
+
+
+class MergeProteinPromptSourceImplementation(_Implementation):
+    def execute(self, call: OperationCall) -> dict[str, Any]:
+        with self._invocation():
+            prompt = merge_protein_prompt_source(
+                call.inputs["target_prompt"].value,
+                call.inputs["source_prompt"].value,
+                call.node_parameters["correspondence"],
+                call.node_parameters["track_decisions"],
+            )
+        return {"protein_prompt": prompt}

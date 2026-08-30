@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from protein_workbench_public.bootstrap import module_registrations
@@ -305,7 +307,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         b">3GB1\nACD\n",
         filename="sequence.fasta",
     )
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

@@ -103,13 +103,26 @@ def resolve_random_mask_effective_randomness(
 ) -> dict[str, Any]:
     """Resolve the canonical effective random-mask set before Cache lookup."""
     del binding_parameters
-    source: ProteinPrompt = inputs["protein_prompt"].value
-    seed = node_parameters["effective_seed"]
-    count = node_parameters["count"]
-    track = node_parameters["track"]
-    declared_eligibility: tuple[str, ...] = node_parameters[
-        "eligible_residue_ids"
-    ]
+    return normalize_random_mask_effective_randomness(
+        inputs["protein_prompt"].value,
+        effective_seed=node_parameters["effective_seed"],
+        count=node_parameters["count"],
+        track=node_parameters["track"],
+        eligible_residue_ids=node_parameters["eligible_residue_ids"],
+    )
+
+
+def normalize_random_mask_effective_randomness(
+    source: ProteinPrompt,
+    *,
+    effective_seed: int,
+    count: int,
+    track: str,
+    eligible_residue_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    """Normalize the one canonical random-mask eligibility set."""
+    seed = effective_seed
+    declared_eligibility = eligible_residue_ids
     target_layout = cast(ResidueLayout, source.target_layout)
     residue_ids = tuple(target_layout.residue_ids)
     residue_index = {
@@ -190,12 +203,24 @@ def resolve_random_insert_effective_randomness(
 ) -> dict[str, Any]:
     """Resolve the canonical effective insertion set before Cache lookup."""
     del binding_parameters
-    source: ProteinPrompt = inputs["protein_prompt"].value
-    seed = node_parameters["effective_seed"]
-    count = node_parameters["count"]
-    declared_eligibility: tuple[str, ...] = node_parameters[
-        "eligible_chain_ids"
-    ]
+    return normalize_random_insert_effective_randomness(
+        inputs["protein_prompt"].value,
+        effective_seed=node_parameters["effective_seed"],
+        count=node_parameters["count"],
+        eligible_chain_ids=node_parameters["eligible_chain_ids"],
+    )
+
+
+def normalize_random_insert_effective_randomness(
+    source: ProteinPrompt,
+    *,
+    effective_seed: int,
+    count: int,
+    eligible_chain_ids: tuple[str, ...],
+) -> dict[str, Any]:
+    """Normalize the one canonical random-insertion eligibility set."""
+    seed = effective_seed
+    declared_eligibility = eligible_chain_ids
     source_layout = cast(ResidueLayout, source.target_layout)
     chain_order = tuple(source_layout.chain_id.split(","))
     if set(declared_eligibility) - set(chain_order):

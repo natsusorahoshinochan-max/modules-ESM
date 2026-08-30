@@ -761,8 +761,7 @@ Contract Lock 规则不属于本历史版本矩阵；其现行 owner 是
 - `structure_transform.select_chains.direct` 与 `structure_transform.extract_sequence.direct`；
 - `prompt_authoring.prompt_from_structure.direct`、
   `prompt_authoring.build_residue_layout.direct`、
-  `prompt_authoring.edit_residue_layout.direct`、
-  `prompt_authoring.map_residue_track.direct`、
+  `prompt_authoring.edit_protein_prompt_layout.direct`、
   `prompt_authoring.assemble_protein_prompt.direct` 和
   `prompt_authoring.override_protein_prompt_track.direct`；
 - `proteinmpnn.constraints.local`；

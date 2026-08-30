@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 import json
@@ -87,7 +89,7 @@ def test_simplefold_v2_folds_3gb1_through_exact_binding(
         run_root=tmp_path / "runs",
     )
     project = projects.create("SimpleFold v2 3GB1")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

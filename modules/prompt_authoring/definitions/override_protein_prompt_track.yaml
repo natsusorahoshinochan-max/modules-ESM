@@ -1,6 +1,6 @@
 node_type_id: prompt_authoring.override_protein_prompt_track
 title: Override one ProteinPrompt track
-summary: Clears, preserves, or replaces identity-addressed values on one declared ProteinPrompt track without changing its layout or other tracks.
+summary: Clears, preserves, or replaces identity-addressed values on one ProteinPrompt track, creating an optional track from an all-null state when first specified.
 category: prompt_authoring
 inputs:
   - name: protein_prompt

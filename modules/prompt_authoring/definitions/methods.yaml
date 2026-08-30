@@ -1,16 +1,3 @@
-- method_id: prompt_authoring.add_function_annotation.method
-  algorithm_identity:
-    name: chain-qualified-function-interval-authoring
-    interval_indexing: one-based-inclusive-provider-axis
-    ordering: global-start-global-end-label-and-provenance
-    overlap_policy: operation-scoped-workflow-choice
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
 - method_id: prompt_authoring.assemble_protein_prompt.method
   algorithm_identity:
     name: validated-residue-aligned-protein-prompt-assembly
@@ -35,14 +22,15 @@
     chain_boundary: contiguous
   scale_contract:
     kind: identity
-- method_id: prompt_authoring.edit_residue_layout.method
+- method_id: prompt_authoring.edit_protein_prompt_layout.method
   algorithm_identity:
-    name: explicit-residue-identity-reconciliation
+    name: whole-protein-prompt-layout-edit
     mapping_operations:
     - delete
     - insert
     - match
-    mapping_indexing: zero-based-with-negative-unmapped-sentinel
+    track_effect: synchronous-all-present-tracks
+    annotation_effect: exact-endpoint-remap
   model_identity:
     kind: none
   featurization_identity:
@@ -50,26 +38,11 @@
     chain_boundary: contiguous
   scale_contract:
     kind: identity
-- method_id: prompt_authoring.insert_masked_residues.method
+- method_id: prompt_authoring.merge_protein_prompt_source.method
   algorithm_identity:
-    name: deterministic-identity-addressed-masked-insertion
-    boundary: adjacent-source-residue-identities
-    ordering: declared-source-boundary-order
-    preservation: all-source-identities-and-present-track-values
-    inserted_values: explicit-null-on-every-present-track
-    residue_map: complete-match-and-insert-only
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.map_residue_track.method
-  algorithm_identity:
-    name: explicit-residue-map-conversion
-    nullable_semantics: JSON null means unmapped or unspecified
-    mapping_indexing: zero-based
+    name: confirmed-correspondence-protein-prompt-source-merge
+    correspondence: exact-residue-identities-with-gap-dispositions
+    conflicts: explicit-per-track-decisions
   model_identity:
     kind: none
   featurization_identity:
@@ -85,21 +58,6 @@
     - preserve
     - replace
     unaffected_tracks: byte-equivalent-canonical-values
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.override_residue_track.method
-  algorithm_identity:
-    name: identity-addressed-track-override
-    actions:
-    - clear
-    - preserve
-    - replace
-    nullable_semantics: JSON null means unspecified
   model_identity:
     kind: none
   featurization_identity:
@@ -141,6 +99,19 @@
     replacement: without-replacement
     eligibility: canonical-unordered-assigned-residue-set-v1
     masked_value: explicit-null
+  model_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.replace_protein_prompt_annotations.method
+  algorithm_identity:
+    name: complete-function-annotation-collection-replacement
+    interval_indexing: one-based-inclusive-provider-axis
+    ordering: global-start-global-end-label-and-provenance
+    overlap_policy: operation-scoped-workflow-choice
   model_identity:
     kind: none
   featurization_identity:

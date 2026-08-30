@@ -10,6 +10,7 @@ from typing import Any
 import uuid
 
 from core.catalog.model import FrozenCatalog
+from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import (
     CANONICAL_3GB1_PROJECT_ID,
     ProjectManager,
@@ -20,6 +21,8 @@ from core.project.storage import write_new_file
 from core.workflow.compiler import CompilationRequest, compile
 from core.workflow.document import (
     WorkflowDocument,
+    WorkflowEdge,
+    _freeze_json,
     _thaw_json,
     workflow_document_from_canonical,
 )
@@ -52,6 +55,105 @@ class WorkflowDraft:
     project_id: str
     draft_revision: int
     workflow: WorkflowDocument
+    authoring_compositions: tuple[ManagedCompositionRecord, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedRoleEndpoint:
+    """One stable exposed role endpoint on a managed composition."""
+
+    role: str
+    node_id: str
+    port_name: str
+
+    def canonical_projection(self) -> dict[str, str]:
+        return {
+            "role": self.role,
+            "node_id": self.node_id,
+            "port_name": self.port_name,
+        }
+
+    @classmethod
+    def from_canonical(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> ManagedRoleEndpoint:
+        return cls(payload["role"], payload["node_id"], payload["port_name"])
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedCompositionRecord:
+    """Non-scientific authoring state persisted beside one Draft revision."""
+
+    composition_id: str
+    capability_id: str
+    normalized_document: Mapping[str, Any]
+    managed_node_ids: tuple[str, ...]
+    internal_edges: tuple[WorkflowEdge, ...]
+    exposed_inputs: tuple[ManagedRoleEndpoint, ...]
+    exposed_outputs: tuple[ManagedRoleEndpoint, ...]
+    confirmed_preview_identity: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "normalized_document",
+            _freeze_json(self.normalized_document),
+        )
+        for field_name in (
+            "managed_node_ids",
+            "internal_edges",
+            "exposed_inputs",
+            "exposed_outputs",
+        ):
+            object.__setattr__(self, field_name, tuple(getattr(self, field_name)))
+
+    def canonical_projection(self) -> dict[str, Any]:
+        return {
+            "composition_id": self.composition_id,
+            "capability_id": self.capability_id,
+            "normalized_document": _thaw_json(self.normalized_document),
+            "managed_node_ids": list(self.managed_node_ids),
+            "internal_edges": [
+                edge.canonical_projection() for edge in self.internal_edges
+            ],
+            "exposed_inputs": [
+                endpoint.canonical_projection()
+                for endpoint in self.exposed_inputs
+            ],
+            "exposed_outputs": [
+                endpoint.canonical_projection()
+                for endpoint in self.exposed_outputs
+            ],
+            "confirmed_preview_identity": self.confirmed_preview_identity,
+        }
+
+    @classmethod
+    def from_canonical(
+        cls,
+        payload: Mapping[str, Any],
+    ) -> ManagedCompositionRecord:
+        return cls(
+            composition_id=payload["composition_id"],
+            capability_id=payload["capability_id"],
+            normalized_document=payload["normalized_document"],
+            managed_node_ids=tuple(payload["managed_node_ids"]),
+            internal_edges=tuple(
+                WorkflowEdge.from_canonical(edge)
+                for edge in payload["internal_edges"]
+            ),
+            exposed_inputs=tuple(
+                ManagedRoleEndpoint.from_canonical(endpoint)
+                for endpoint in payload["exposed_inputs"]
+            ),
+            exposed_outputs=tuple(
+                ManagedRoleEndpoint.from_canonical(endpoint)
+                for endpoint in payload["exposed_outputs"]
+            ),
+            confirmed_preview_identity=payload[
+                "confirmed_preview_identity"
+            ],
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,9 +190,11 @@ class WorkflowAuthoringService:
         self,
         project_manager: ProjectManager,
         catalog: FrozenCatalog,
+        authoring_projection: AuthoringCapabilityProjection,
     ) -> None:
         self._projects = project_manager
         self._catalog = catalog
+        self._authoring_projection = authoring_projection
         self._active_commits: dict[str, WorkflowCommit] = {}
         self._verified_commits: dict[
             tuple[str, str],
@@ -178,8 +282,14 @@ class WorkflowAuthoringService:
         project_id: str,
         draft_revision: int,
         workflow: WorkflowDocument,
+        authoring_compositions: tuple[ManagedCompositionRecord, ...] = (),
     ) -> WorkflowDraft:
-        return WorkflowDraft(project_id, draft_revision, workflow)
+        return WorkflowDraft(
+            project_id,
+            draft_revision,
+            workflow,
+            authoring_compositions,
+        )
 
     def load_draft(self, project_id: str) -> WorkflowDraft:
         """Load the latest Draft without compiling it."""
@@ -198,7 +308,11 @@ class WorkflowAuthoringService:
         workflow = workflow_document_from_canonical(payload["workflow"])
         if workflow.workflow_id != project_id:
             raise ValueError("Workflow Draft belongs to another Project")
-        return self._draft_value(project_id, revision, workflow)
+        compositions = tuple(
+            ManagedCompositionRecord.from_canonical(item)
+            for item in payload["authoring_compositions"]
+        )
+        return self._draft_value(project_id, revision, workflow, compositions)
 
     def _require_writable_project(self, project_id: str) -> None:
         try:
@@ -232,21 +346,230 @@ class WorkflowAuthoringService:
         self._require_project(project_id)
         self._require_writable_project(project_id)
         self._validate_draft_submission(project_id, workflow)
+        current_compositions: tuple[ManagedCompositionRecord, ...] = ()
+        if self._latest_record_revision(project_id, "drafts"):
+            current = self.load_draft(project_id)
+            current_compositions = current.authoring_compositions
+        else:
+            current = self._draft_value(
+                project_id,
+                0,
+                WorkflowDocument(
+                    workflow.schema_version,
+                    workflow.workflow_id,
+                    (),
+                    (),
+                ),
+            )
+        self._admit_generic_managed_ownership(current, workflow)
         revision = self._latest_record_revision(project_id, "drafts") + 1
-        return self._publish_draft(project_id, revision, workflow)
+        return self._publish_draft(
+            project_id,
+            revision,
+            workflow,
+            current_compositions,
+        )
+
+    def _managed_node_type_owners(self) -> dict[str, str]:
+        return {
+            role.node_type.contract_id: role.capability_id
+            for role in self._authoring_projection.node_roles
+            if role.role == "managed_member"
+            and role.capability_id is not None
+        }
+
+    def _materialized_node_types(self) -> dict[str, frozenset[str]]:
+        return {
+            capability.capability_id: frozenset(
+                reference.contract_id
+                for reference in capability.materialized_node_types
+            )
+            for capability in self._authoring_projection.capabilities
+        }
+
+    def _admit_generic_managed_ownership(
+        self,
+        current: WorkflowDraft,
+        submitted: WorkflowDocument,
+    ) -> None:
+        current_nodes = {node.node_id: node for node in current.workflow.nodes}
+        submitted_nodes = {node.node_id: node for node in submitted.nodes}
+        records_by_node = {
+            node_id: record
+            for record in current.authoring_compositions
+            for node_id in record.managed_node_ids
+        }
+        for node_id in records_by_node:
+            if submitted_nodes.get(node_id) != current_nodes[node_id]:
+                raise WorkflowAuthoringError(
+                    "malformed_request",
+                    "Generic Workflow save cannot modify a managed Node",
+                    details={"field_path": ["workflow", "nodes", node_id]},
+                )
+        submitted_edges = set(submitted.edges)
+        for record in current.authoring_compositions:
+            if any(edge not in submitted_edges for edge in record.internal_edges):
+                raise WorkflowAuthoringError(
+                    "malformed_request",
+                    "Generic Workflow save cannot modify a managed internal edge",
+                    details={"field_path": ["workflow", "edges"]},
+                )
+        declared_internal_edges = {
+            edge
+            for record in current.authoring_compositions
+            for edge in record.internal_edges
+        }
+        exposed_inputs = {
+            (endpoint.node_id, endpoint.port_name)
+            for record in current.authoring_compositions
+            for endpoint in record.exposed_inputs
+        }
+        exposed_outputs = {
+            (endpoint.node_id, endpoint.port_name)
+            for record in current.authoring_compositions
+            for endpoint in record.exposed_outputs
+        }
+        for edge in submitted.edges:
+            if edge in declared_internal_edges:
+                continue
+            source_is_managed = edge.source_node_id in records_by_node
+            target_is_managed = edge.target_node_id in records_by_node
+            if (
+                source_is_managed
+                and target_is_managed
+                and records_by_node[edge.source_node_id]
+                is records_by_node[edge.target_node_id]
+            ):
+                raise WorkflowAuthoringError(
+                    "malformed_request",
+                    "Generic Workflow save cannot forge a managed internal edge",
+                    details={"field_path": ["workflow", "edges"]},
+                )
+            if source_is_managed and (
+                edge.source_node_id,
+                edge.source_port,
+            ) not in exposed_outputs:
+                raise WorkflowAuthoringError(
+                    "malformed_request",
+                    "Generic Workflow save can only connect a managed output role",
+                    details={"field_path": ["workflow", "edges"]},
+                )
+            if target_is_managed and (
+                edge.target_node_id,
+                edge.target_port,
+            ) not in exposed_inputs:
+                raise WorkflowAuthoringError(
+                    "malformed_request",
+                    "Generic Workflow save can only connect a managed input role",
+                    details={"field_path": ["workflow", "edges"]},
+                )
+        managed_type_owners = self._managed_node_type_owners()
+        for node in submitted.nodes:
+            if (
+                node.node_type_id in managed_type_owners
+                and node.node_id not in records_by_node
+            ):
+                raise WorkflowAuthoringError(
+                    "malformed_request",
+                    "Managed Nodes are created by their authoring capability",
+                    details={"field_path": ["workflow", "nodes", node.node_id]},
+                )
+
+    def publish_managed_draft(
+        self,
+        project_id: str,
+        *,
+        workflow: WorkflowDocument,
+        authoring_compositions: tuple[ManagedCompositionRecord, ...],
+    ) -> WorkflowDraft:
+        """Atomically publish one capability-owned complete Draft revision."""
+        self._require_project(project_id)
+        self._require_writable_project(project_id)
+        self._validate_draft_submission(project_id, workflow)
+        self._admit_managed_compositions(workflow, authoring_compositions)
+        revision = self._latest_record_revision(project_id, "drafts") + 1
+        return self._publish_draft(
+            project_id,
+            revision,
+            workflow,
+            authoring_compositions,
+        )
+
+    def _admit_managed_compositions(
+        self,
+        workflow: WorkflowDocument,
+        records: tuple[ManagedCompositionRecord, ...],
+    ) -> None:
+        nodes = {node.node_id: node for node in workflow.nodes}
+        edges = set(workflow.edges)
+        managed_type_owners = self._managed_node_type_owners()
+        materialized_node_types = self._materialized_node_types()
+        owned_node_ids: set[str] = set()
+        for record in records:
+            for node_id in record.managed_node_ids:
+                if node_id in owned_node_ids:
+                    raise ValueError("managed Node belongs to two compositions")
+                node = nodes[node_id]
+                if (
+                    managed_type_owners
+                    and managed_type_owners.get(node.node_type_id)
+                    != record.capability_id
+                    and node.node_type_id in managed_type_owners
+                ):
+                    raise ValueError(
+                        "managed Node Type contradicts its capability ownership"
+                    )
+                if (
+                    materialized_node_types
+                    and node.node_type_id
+                    not in materialized_node_types[record.capability_id]
+                ):
+                    raise ValueError(
+                        "managed Node Type is outside its capability materialization"
+                    )
+                owned_node_ids.add(node_id)
+            if any(edge not in edges for edge in record.internal_edges):
+                raise ValueError("managed internal edge is absent from Workflow")
+            if any(
+                edge.source_node_id not in record.managed_node_ids
+                or edge.target_node_id not in record.managed_node_ids
+                for edge in record.internal_edges
+            ):
+                raise ValueError("managed internal edge leaves its composition")
+            for endpoint in (*record.exposed_inputs, *record.exposed_outputs):
+                if endpoint.node_id not in record.managed_node_ids:
+                    raise ValueError("exposed role endpoint is not managed")
+        for node in workflow.nodes:
+            if (
+                node.node_type_id in managed_type_owners
+                and node.node_id not in owned_node_ids
+            ):
+                raise ValueError("Workflow contains an unowned managed Node")
 
     def _publish_draft(
         self,
         project_id: str,
         draft_revision: int,
         workflow: WorkflowDocument,
+        authoring_compositions: tuple[ManagedCompositionRecord, ...] = (),
     ) -> WorkflowDraft:
-        draft = self._draft_value(project_id, draft_revision, workflow)
+        draft = self._draft_value(
+            project_id,
+            draft_revision,
+            workflow,
+            authoring_compositions,
+        )
         self._write_record(
             project_id,
             "drafts",
             draft_revision,
-            {"workflow": draft.workflow.canonical_projection()},
+            {
+                "workflow": draft.workflow.canonical_projection(),
+                "authoring_compositions": [
+                    record.canonical_projection()
+                    for record in draft.authoring_compositions
+                ],
+            },
         )
         return draft
 
@@ -354,14 +677,7 @@ class WorkflowAuthoringService:
         workflow: WorkflowDocument,
     ) -> WorkflowCommit:
         """Save, compile, and publish one runnable Workflow Commit."""
-        self._require_project(project_id)
-        self._require_writable_project(project_id)
-        self._validate_draft_submission(project_id, workflow)
-        draft = self._publish_draft(
-            project_id,
-            self._latest_record_revision(project_id, "drafts") + 1,
-            workflow,
-        )
+        draft = self.save_draft(project_id, workflow=workflow)
         commit_record_revision = (
             self._latest_record_revision(project_id, "commits") + 1
         )

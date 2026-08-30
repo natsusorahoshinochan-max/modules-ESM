@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
+    from .authoring import AuthoringCapabilityDefinition
     from .definition_resource import DefinitionResource
 
 from core.operation import (
@@ -693,6 +694,7 @@ class ModulePackageRegistration:
     bindings: tuple[ExecutionBindingDefinition, ...] = ()
     port_types: tuple[PortTypeDefinition, ...] = ()
     utility_transforms: tuple[UtilityTransformDefinition, ...] = ()
+    authoring_capabilities: tuple[AuthoringCapabilityDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -702,5 +704,6 @@ class ModulePackageRegistration:
             "bindings",
             "port_types",
             "utility_transforms",
+            "authoring_capabilities",
         ):
             object.__setattr__(self, field_name, tuple(getattr(self, field_name)))

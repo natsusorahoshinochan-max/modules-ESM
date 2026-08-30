@@ -47,16 +47,16 @@ def _prompt_conditioning() -> dict[str, Any]:
                 "binding_parameters": {},
             },
             {
-                "node_id": "add-function",
-                "node_type_id": "prompt_authoring.add_function_annotation",
-                "binding_id": "prompt_authoring.add_function_annotation.direct",
+                "node_id": "replace-functions",
+                "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+                "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
                 "node_parameters": {
-                    "annotation": {
+                    "annotations": [{
                         "label": "binding_site",
                         "chain_id": "A",
                         "start_residue_id": "A:10",
                         "end_residue_id": "A:12",
-                    },
+                    }],
                     "overlap_policy": "reject",
                 },
                 "binding_parameters": {},
@@ -99,12 +99,6 @@ def _prompt_conditioning() -> dict[str, Any]:
             {
                 "source_node_id": "prompt-values",
                 "source_port": "source_layout",
-                "target_node_id": "add-function",
-                "target_port": "layout",
-            },
-            {
-                "source_node_id": "prompt-values",
-                "source_port": "source_layout",
                 "target_node_id": "assemble-prompt",
                 "target_port": "layout",
             },
@@ -133,13 +127,13 @@ def _prompt_conditioning() -> dict[str, Any]:
                 "target_port": "sasa_track",
             },
             {
-                "source_node_id": "add-function",
-                "source_port": "function_annotations",
-                "target_node_id": "assemble-prompt",
-                "target_port": "function_annotations",
+                "source_node_id": "assemble-prompt",
+                "source_port": "protein_prompt",
+                "target_node_id": "replace-functions",
+                "target_port": "protein_prompt",
             },
             {
-                "source_node_id": "assemble-prompt",
+                "source_node_id": "replace-functions",
                 "source_port": "protein_prompt",
                 "target_node_id": "mask-sequence",
                 "target_port": "protein_prompt",

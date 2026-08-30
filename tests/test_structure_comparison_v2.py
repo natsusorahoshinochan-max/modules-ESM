@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from dataclasses import replace
 from contextlib import contextmanager
 from pathlib import Path
@@ -1527,7 +1529,7 @@ def _run_inserted_loop_failure_case(
         run_root=tmp_path / "runs",
     )
     project = manager.create(case.case_id)
-    authoring = WorkflowAuthoringService(manager, catalog)
+    authoring = WorkflowAuthoringService(manager, catalog, AuthoringCapabilityProjection((), ()))
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

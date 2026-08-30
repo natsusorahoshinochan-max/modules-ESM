@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.catalog.authoring import AuthoringCapabilityProjection
+
 from tests.support.ledger import public_run_events, public_run_projection
 
 from pathlib import Path
@@ -60,7 +62,7 @@ def _run_transform(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"structure transform {operation}")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     needs_resolved_axis = operation in {"extract_backbone", "extract_sequence"}
     nodes = [
         WorkflowNodeInstance(
@@ -183,7 +185,7 @@ def _run_candidate_transform(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"candidate transform {operation}")
-    authoring = WorkflowAuthoringService(projects, catalog)
+    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
     needs_resolved_axes = operation == "extract_sequence_candidates"
     nodes = [
         WorkflowNodeInstance(

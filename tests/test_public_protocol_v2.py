@@ -58,7 +58,7 @@ def test_public_protocol_bundle_has_stable_canonical_identity() -> None:
 
     assert bundle["schema_namespace"] == "protein-workbench-public/v2"
     assert PUBLIC_PROTOCOL_NAMESPACE == bundle["schema_namespace"]
-    assert bundle["schema_version"] == "2.3.0"
+    assert bundle["schema_version"] == "2.4.0"
     assert bundle["identity"] == {
         "canonicalization": "RFC 8785",
         "character_encoding": "UTF-8",
@@ -85,11 +85,15 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
 
     assert set(operations) == {
         "artifact_retrieval",
+        "apply_prompt_authoring",
+        "authoring_capability_projection",
         "cancel_run",
         "catalog_snapshot",
         "commit_project_workflow",
-        "create_project",
-        "publish_project_input",
+            "create_project",
+            "open_prompt_authoring",
+            "preview_prompt_authoring",
+            "publish_project_input",
         "project_active_workflow_commit",
         "project_input_metadata",
         "project_workflow_draft",
@@ -105,11 +109,27 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "/api/v2/projects/{project_id}/runs/{run_id}/artifacts/"
             "{artifact_reference}",
         ),
+        "apply_prompt_authoring": (
+            "POST",
+            "/api/v2/projects/{project_id}/prompt-authoring:apply",
+        ),
+        "authoring_capability_projection": (
+            "GET",
+            "/api/v2/authoring-capabilities",
+        ),
         "cancel_run": (
             "POST",
             "/api/v2/projects/{project_id}/runs/{run_id}:cancel",
         ),
         "catalog_snapshot": ("GET", "/api/v2/catalog"),
+        "open_prompt_authoring": (
+            "POST",
+            "/api/v2/projects/{project_id}/prompt-authoring:open",
+        ),
+        "preview_prompt_authoring": (
+            "POST",
+            "/api/v2/projects/{project_id}/prompt-authoring:preview",
+        ),
         "create_project": ("POST", "/api/v2/projects"),
         "commit_project_workflow": (
             "POST",
@@ -368,7 +388,7 @@ def test_bundle_freezes_event_replay_close_and_error_vocabulary() -> None:
     }
 
     errors = bundle["structured_errors"]
-    assert errors["vocabulary_version"] == "2.3.0"
+    assert errors["vocabulary_version"] == "2.4.0"
     assert errors["envelope_schema"] == "#/$defs/StructuredErrorEnvelope"
     assert errors["details_max_bytes"] == 16384
     assert errors["redaction_contract"] == {
@@ -1961,3 +1981,5 @@ def test_acceptance_client_prepares_project_and_input_publication() -> None:
             "project-1",
             "input-1",
         ) == publication
+        "open_prompt_authoring",
+        "preview_prompt_authoring",

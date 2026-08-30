@@ -52,6 +52,14 @@ from tests.acceptance.biohub_environment import (
     biohub_esm3_esmfold2_environment,
 )
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
+from tests.support.prompt_authoring import (
+    apply_prompt_document,
+    composition_output,
+    initialize_prompt_authoring_draft,
+    open_pdb_prompt_document,
+    preview_prompt_document,
+    replace_prompt_managed_subgraph,
+)
 from tests.acceptance.installed_harness import (
     InstalledArtifact,
     installed_artifact,
@@ -1297,6 +1305,181 @@ def _environment(tier_name: str) -> dict[str, dict[str, Any]]:
     return environment
 
 
+def _materialize_prompt_compositions(
+    client: Any,
+    project_id: str,
+    project_input_ref: str,
+    workflow: dict[str, Any],
+    base_tier_name: str,
+) -> dict[str, Any]:
+    if base_tier_name == "fresh-1pga":
+        return workflow
+    initialize_prompt_authoring_draft(client, project_id)
+    if base_tier_name == "fresh-2emo":
+        opened = open_pdb_prompt_document(
+            client,
+            project_id,
+            project_input_ref,
+            chain_ids=["A"],
+        )
+        applied = apply_prompt_document(
+            client,
+            project_id,
+            preview_prompt_document(
+                client,
+                project_id,
+                opened["document"],
+            ),
+        )
+        layout = composition_output(
+            applied["composition"],
+            "residue_layout",
+        )
+        return replace_prompt_managed_subgraph(
+            workflow,
+            applied["draft"]["workflow"],
+            {"author-reference-layout"},
+            {("author-reference-layout", "layout"): layout},
+        )
+
+    replacements: dict[tuple[str, str], Mapping[str, str]] = {}
+    applied: Mapping[str, Any]
+    for branch, count in (
+        ("shorter-8", 8),
+        ("numbering-implied-12", 12),
+        ("longer-16", 16),
+    ):
+        opened = open_pdb_prompt_document(
+            client,
+            project_id,
+            project_input_ref,
+            chain_ids=["A"],
+        )
+        document = opened["document"]
+        insertion_index = next(
+            index
+            for index, residue in enumerate(opened["residues"])
+            if residue["residue_label"] == "224"
+        )
+        document["target_residues"][insertion_index:insertion_index] = [
+            {
+                "residue_handle": f"insert-{branch}-{index + 1:02d}",
+                "origin": "insert",
+                "chain_id": "A",
+            }
+            for index in range(count)
+        ]
+        applied = apply_prompt_document(
+            client,
+            project_id,
+            preview_prompt_document(client, project_id, document),
+        )
+        managed_node_ids = set(applied["composition"]["managed_node_ids"])
+        layout_edit = next(
+            node
+            for node in applied["draft"]["workflow"]["nodes"]
+            if node["node_id"] in managed_node_ids
+            and node["node_type_id"]
+            == "prompt_authoring.edit_protein_prompt_layout"
+        )
+        inserted_residue_ids = layout_edit["node_parameters"]["insertions"][
+            0
+        ]["inserted_residue_ids"]
+        evaluation = next(
+            node
+            for node in workflow["nodes"]
+            if node["node_id"] == f"evaluate-{branch}"
+        )
+        evaluation["node_parameters"]["loop_residue_ids"] = list(
+            inserted_residue_ids
+        )
+        replacements[(f"insert-{branch}", "protein_prompt")] = (
+            composition_output(applied["composition"], "protein_prompt")
+        )
+    return replace_prompt_managed_subgraph(
+        workflow,
+        applied["draft"]["workflow"],
+        {
+            "author-base-prompt",
+            "insert-shorter-8",
+            "insert-numbering-implied-12",
+            "insert-longer-16",
+        },
+        replacements,
+    )
+
+
+def test_5g53_prompt_materialization_updates_loop_consumer_identities(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.bootstrap import create_application
+    from tests.support.public_request import encode_project_input_content
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    input_bytes = (
+        files("examples").joinpath("v2", "structures", "5G53.pdb").read_bytes()
+    )
+    workflow = json.loads(
+        files("examples")
+        .joinpath("v2", "source-bound-5g53.workflow.json")
+        .read_text(encoding="utf-8")
+    )
+    app = create_application()
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v2/projects",
+            json={"name": "5G53 authoring identities"},
+        )
+        created.raise_for_status()
+        project_id = created.json()["id"]
+        uploaded = client.post(
+            f"/api/v2/projects/{project_id}/inputs",
+            json={
+                "filename": "5G53.pdb",
+                "content_base64": encode_project_input_content(input_bytes),
+            },
+        )
+        uploaded.raise_for_status()
+        project_input_ref = uploaded.json()["project_input_ref"]
+        workflow["workflow_id"] = project_id
+        next(
+            node
+            for node in workflow["nodes"]
+            if node["node_id"] == "import-input"
+        )["node_parameters"] = {"project_input_ref": project_input_ref}
+
+        materialized = _materialize_prompt_compositions(
+            client,
+            project_id,
+            project_input_ref,
+            workflow,
+            "fresh-5g53",
+        )
+
+        nodes = {node["node_id"]: node for node in materialized["nodes"]}
+        for branch, count in (
+            ("shorter-8", 8),
+            ("numbering-implied-12", 12),
+            ("longer-16", 16),
+        ):
+            loop_residue_ids = nodes[f"evaluate-{branch}"]["node_parameters"][
+                "loop_residue_ids"
+            ]
+            assert len(loop_residue_ids) == count
+            assert all(
+                residue_id.startswith("A:inserted.")
+                for residue_id in loop_residue_ids
+            )
+
+        committed = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
+            json={"workflow": materialized},
+        )
+        committed.raise_for_status()
+
+
 @pytest.mark.acceptance
 @pytest.mark.live_provider
 def test_fresh_source_bound_public_run() -> None:
@@ -1350,6 +1533,13 @@ def test_fresh_source_bound_public_run() -> None:
         )["node_parameters"] = {
             "project_input_ref": uploaded.json()["project_input_ref"]
         }
+        workflow = _materialize_prompt_compositions(
+            client,
+            project_id,
+            uploaded.json()["project_input_ref"],
+            workflow,
+            base_tier_name,
+        )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={"workflow": workflow},

@@ -178,7 +178,7 @@ def override_protein_prompt_track(
     attribute, kind = _PROMPT_TRACK_ATTRIBUTES[track]
     selected = getattr(source, attribute)
     if selected is None:
-        raise ValueError(f"protein_prompt has no {track} track to override")
+        selected = ResidueTrack([None] * source.target_layout.length, None)
     layout = cast(ResidueLayout, source.target_layout)
     changed = override_track(
         AlignedResidueTrack(layout, tuple(selected.values)),

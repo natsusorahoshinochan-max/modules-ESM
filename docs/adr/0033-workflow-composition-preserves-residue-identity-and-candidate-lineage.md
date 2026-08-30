@@ -39,11 +39,13 @@ insertion-coded components, or parent-identity collisions fail closed. The
 source Project Input is immutable, and direct structure-to-Prompt
 conversion continues to reject unnormalized CSH.
 
-`build_residue_layout` remains canonical-only. Deterministic gap authoring uses
-a whole-Prompt insertion Node addressed by adjacent source identities and
-explicit inserted identities. It preserves every source identity and present
-track value, inserts `null` on every present track, remaps annotation positions,
-and emits a complete match/insert-only `ResidueMap`.
+`build_residue_layout` remains canonical-only. Deterministic Prompt layout
+authoring uses one whole-Prompt edit Node with exact insert and delete
+declarations. Insertions are addressed by adjacent source identities and carry
+explicit inserted identities; deletions carry exact deleted identities. The
+operation atomically realigns every present sequence, structure,
+secondary-structure, and absolute-SASA track, inserts `null` for new residues,
+remaps function annotations, and emits the complete exact `ResidueMap`.
 
 Scientific provider seeds bind to the configured seed, parent structure
 content, and stable parent slot. Candidate Result Identity remains execution
