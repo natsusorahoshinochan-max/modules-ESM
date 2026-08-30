@@ -1,0 +1,2063 @@
+<!doctype html>
+<html lang="zh-Hans">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Protein Workbench — 原型 5：鼠标刚体编辑</title>
+    <style>
+      :root {
+        --bg: #09110f;
+        --panel: #101b18;
+        --panel-2: #14231f;
+        --line: #294039;
+        --line-soft: #20332e;
+        --text: #edf5f1;
+        --muted: #9eb1aa;
+        --accent: #b8f36a;
+        --accent-dark: #263d22;
+        --cyan: #72d9d0;
+        --warn: #ffb45f;
+        --danger: #ff6e67;
+        --x: #ff6f68;
+        --y: #7fe08a;
+        --z: #6ea7ff;
+        --shadow: 0 14px 38px rgba(0, 0, 0, 0.28);
+        font-family:
+          Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+      }
+
+      * { box-sizing: border-box; }
+      html, body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--text);
+      }
+      button {
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: #172720;
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { border-color: #527066; background: #1c3028; }
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      button:disabled { color: #60716b; cursor: default; opacity: 0.55; }
+      kbd {
+        display: inline-flex;
+        min-width: 20px;
+        min-height: 20px;
+        align-items: center;
+        justify-content: center;
+        padding: 1px 6px;
+        border: 1px solid #557068;
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        background: #0e1715;
+        color: #eef8f3;
+        font: 650 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      #app {
+        display: grid;
+        grid-template-rows: 48px 54px minmax(0, 1fr) 206px;
+        height: 100vh;
+        min-width: 0;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 0 16px;
+        border-bottom: 1px solid var(--line);
+        background: #0c1513;
+      }
+      .brand { font-weight: 750; letter-spacing: -0.02em; }
+      .crumb { color: var(--muted); font-size: 12px; }
+      .mode-pill, .source-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: #c7d8d2;
+        font-size: 11px;
+      }
+      .mode-pill { border-color: #597b31; background: #182515; color: var(--accent); }
+      .top-spacer { flex: 1; }
+      .top-action { padding: 7px 11px; font-size: 12px; }
+      .top-action.primary {
+        border-color: #91ca4b;
+        background: var(--accent);
+        color: #10200c;
+        font-weight: 750;
+      }
+      .question {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--line);
+        background: #122019;
+      }
+      .question-label {
+        color: var(--accent);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .question strong { display: block; font-size: 13px; line-height: 1.25; }
+      .question small { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
+      .throwaway { color: #71857d; font-size: 10px; white-space: nowrap; }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 326px;
+        min-height: 0;
+      }
+      .viewport-shell {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        border-right: 1px solid var(--line);
+        background: #07100e;
+      }
+      #structure-canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        cursor: default;
+        touch-action: none;
+      }
+      .viewport-toolbar {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        max-width: calc(100% - 20px);
+        padding: 6px;
+        border: 1px solid rgba(71, 101, 91, 0.82);
+        border-radius: 9px;
+        background: rgba(10, 20, 17, 0.92);
+        box-shadow: var(--shadow);
+      }
+      .tool { min-height: 30px; padding: 5px 9px; font-size: 11px; }
+      .tool.active { border-color: var(--accent); background: var(--accent-dark); color: var(--accent); }
+      .tool.axis-x.active { border-color: var(--x); color: var(--x); }
+      .tool.axis-y.active { border-color: var(--y); color: var(--y); }
+      .tool.axis-z.active { border-color: var(--z); color: var(--z); }
+      .tool.space.active { border-color: var(--cyan); background: #15302d; color: var(--cyan); }
+      .tool.proportional.active { border-color: var(--warn); background: #322519; color: #ffd29d; }
+      .tool.confirm { border-color: #5b8e48; }
+      .tool.cancel { border-color: #7c4d49; }
+      .divider { width: 1px; margin: 3px 2px; background: var(--line); }
+      .radius-badge {
+        display: inline-flex;
+        min-height: 30px;
+        align-items: center;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        color: var(--muted);
+        background: #0e1815;
+        font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .viewport-help {
+        position: absolute;
+        right: 10px;
+        bottom: 10px;
+        display: grid;
+        grid-template-columns: repeat(3, auto);
+        gap: 5px 10px;
+        padding: 8px 10px;
+        border: 1px solid rgba(62, 91, 82, 0.78);
+        border-radius: 8px;
+        background: rgba(8, 16, 14, 0.88);
+        color: var(--muted);
+        font-size: 10px;
+        pointer-events: none;
+      }
+      .viewport-help span { white-space: nowrap; }
+      .toast {
+        position: absolute;
+        left: 50%;
+        bottom: 12px;
+        max-width: min(540px, 68%);
+        transform: translateX(-50%);
+        padding: 7px 10px;
+        border: 1px solid #4c675e;
+        border-radius: 7px;
+        background: rgba(18, 31, 27, 0.94);
+        color: #d9e7e2;
+        font-size: 11px;
+        text-align: center;
+        pointer-events: none;
+      }
+      .toast.warn { border-color: #8a6032; color: #ffd39d; }
+      .toast.error { border-color: #824844; color: #ffaaa5; }
+      .state-panel { min-height: 0; overflow: auto; background: var(--panel); }
+      .panel-heading {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 11px 13px;
+        border-bottom: 1px solid var(--line);
+        background: #101b18;
+      }
+      .panel-heading h2 { margin: 0; font-size: 12px; letter-spacing: 0.02em; }
+      .phase {
+        padding: 4px 7px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--muted);
+        font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .phase.modal { border-color: #718f3d; color: var(--accent); }
+      #state-content { padding: 9px 12px 18px; }
+      .state-section { padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+      .state-section:last-child { border-bottom: 0; }
+      .section-kicker {
+        margin-bottom: 6px;
+        color: #7f968e;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .selection-title { color: var(--text); font-size: 13px; font-weight: 720; line-height: 1.35; }
+      .selection-list {
+        margin-top: 4px;
+        color: var(--muted);
+        font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .kv {
+        display: grid;
+        grid-template-columns: 100px 1fr;
+        gap: 5px 8px;
+        margin-top: 5px;
+        font-size: 10px;
+        line-height: 1.35;
+      }
+      .kv dt { color: #80948d; }
+      .kv dd {
+        margin: 0;
+        color: #dce9e4;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-align: right;
+      }
+      .exact-transform {
+        margin-top: 6px;
+        padding: 8px;
+        border: 1px solid #355046;
+        border-radius: 7px;
+        background: #0c1714;
+        color: var(--accent);
+        font: 700 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .warning-list, .history-list, .flag-list, .affected-list {
+        display: grid;
+        gap: 5px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        font-size: 10px;
+        line-height: 1.35;
+      }
+      .warning-list li {
+        padding: 5px 7px;
+        border-left: 2px solid var(--warn);
+        background: #251e14;
+        color: #e7c08e;
+      }
+      .affected-list li {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 4px 7px;
+        border-left: 2px solid var(--cyan);
+        background: #102523;
+        color: #b9dcd6;
+      }
+      .history-list li { color: #b9ccc5; }
+      .flag-list { grid-template-columns: 1fr 1fr; }
+      .flag-list li {
+        padding: 4px 6px;
+        border: 1px solid #2d3d38;
+        border-radius: 5px;
+        color: #93a79f;
+      }
+      .bottom {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 430px;
+        min-height: 0;
+        border-top: 1px solid var(--line);
+        background: #0d1714;
+      }
+      .residue-panel {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-width: 0;
+        border-right: 1px solid var(--line);
+      }
+      .residue-head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+      .residue-head h2 { margin: 0; font-size: 11px; }
+      .residue-head p { margin: 0; color: var(--muted); font-size: 9px; }
+      .residue-count {
+        margin-left: auto;
+        color: var(--accent);
+        font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .matrix-scroller { min-width: 0; overflow: auto; padding: 8px 11px 12px; }
+      .matrix-row { display: grid; grid-template-columns: 82px repeat(46, 30px); width: max-content; }
+      .row-label {
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        border-right: 1px solid var(--line);
+        background: #0d1714;
+        color: #82978f;
+        font-size: 9px;
+      }
+      .index-cell, .coord-cell {
+        display: flex;
+        height: 22px;
+        align-items: center;
+        justify-content: center;
+        border-right: 1px solid #192722;
+        color: #63766f;
+        font: 8px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .coord-cell { color: #6d9890; }
+      .residue-cell {
+        width: 28px;
+        height: 32px;
+        margin: 1px;
+        padding: 0;
+        border-color: #293d36;
+        border-radius: 4px;
+        background: #15231f;
+        font: 750 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      .residue-cell.selected { border-color: #b8f36a; background: #2c4825; color: #d9ffac; }
+      .residue-cell.affected {
+        border-color: #4f8c84;
+        background: #18302c;
+        color: #9fddd5;
+      }
+      .residue-cell.modified::after {
+        content: "";
+        display: block;
+        width: 4px;
+        height: 4px;
+        margin: 3px auto 0;
+        border-radius: 50%;
+        background: var(--cyan);
+      }
+      .residue-cell.boundary { box-shadow: inset 0 -2px var(--warn); }
+      .guides {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 0;
+        background: var(--panel);
+      }
+      .guide-tabs { display: grid; grid-template-columns: repeat(5, 1fr); border-bottom: 1px solid var(--line); }
+      .guide-tab {
+        min-height: 34px;
+        border: 0;
+        border-right: 1px solid var(--line-soft);
+        border-radius: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .guide-tab.active { box-shadow: inset 0 -2px var(--accent); color: var(--accent); }
+      #guide-content { min-height: 0; overflow: auto; padding: 9px 11px 13px; }
+      .guide-title { margin: 0; font-size: 12px; }
+      .guide-copy { margin: 4px 0 8px; color: var(--muted); font-size: 9px; line-height: 1.4; }
+      .guide-steps { display: flex; flex-wrap: wrap; gap: 5px; }
+      .guide-step { padding: 6px 8px; font-size: 9px; text-align: left; }
+      .guide-step strong { margin-right: 3px; color: var(--accent); }
+      .mouse-callout {
+        margin-top: 8px;
+        padding: 6px 8px;
+        border: 1px solid #48665d;
+        border-radius: 6px;
+        background: #10201b;
+        color: #b7cbc4;
+        font-size: 9px;
+      }
+      @media (max-width: 1120px) {
+        #app { grid-template-rows: 48px 58px minmax(0, 1fr) 218px; }
+        .workspace { grid-template-columns: minmax(0, 1fr) 292px; }
+        .bottom { grid-template-columns: minmax(0, 1fr) 400px; }
+        .source-pill { display: none; }
+      }
+      @media (max-width: 900px) {
+        #app { grid-template-rows: 46px 64px minmax(0, 1fr) 226px; }
+        .topbar { gap: 6px; padding: 0 8px; }
+        .crumb, .source-pill, .throwaway { display: none; }
+        .top-action { padding: 6px 7px; font-size: 10px; }
+        .question { grid-template-columns: auto 1fr; gap: 8px; padding: 7px 9px; }
+        .question strong { font-size: 11px; }
+        .question small { font-size: 8px; }
+        .workspace { grid-template-columns: minmax(0, 1fr) 270px; }
+        .bottom { grid-template-columns: minmax(0, 1fr) 300px; }
+        .viewport-toolbar { top: 6px; left: 6px; gap: 4px; max-width: calc(100% - 12px); padding: 4px; }
+        .tool { min-height: 25px; padding: 3px 6px; font-size: 9px; }
+        .radius-badge { min-height: 25px; padding: 0 6px; font-size: 8px; }
+        kbd { min-width: 17px; min-height: 17px; padding: 1px 4px; font-size: 9px; }
+        .viewport-help { right: 6px; bottom: 6px; grid-template-columns: repeat(2, auto); gap: 4px 7px; font-size: 8px; }
+        .toast { bottom: 6px; max-width: 66%; font-size: 9px; }
+        .residue-head p { display: none; }
+        .guide-tab { font-size: 8px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <header class="topbar">
+        <div class="brand">Protein Workbench</div>
+        <div class="crumb">Prompt Studio / 结构模式 / 原型 5</div>
+        <div class="mode-pill">● 结构模式</div>
+        <div class="source-pill">1CRN · chain A identity · 坐标为交互示意</div>
+        <div class="top-spacer"></div>
+        <button class="top-action" data-action="discard-studio">取消</button>
+        <button class="top-action primary" data-action="save-studio">保存 ProteinPrompt</button>
+      </header>
+      <section class="question">
+        <div class="question-label">唯一产品问题</div>
+        <div>
+          <strong>世界 XY 网格与透视 / 正交投影加入后，研究人员是否始终能判断视角方向、深度和坐标变化？</strong>
+          <small>小键盘 5 切换投影；网格固定在世界 Z=0 平面，结构、网格和 gizmo 始终共享同一相机。</small>
+        </div>
+        <div class="throwaway">THROWAWAY · 内存状态</div>
+      </section>
+      <section class="workspace">
+        <div class="viewport-shell" id="viewport-shell">
+          <canvas id="structure-canvas" aria-label="可操作的三维蛋白质结构视口"></canvas>
+          <div class="viewport-toolbar" aria-label="结构变换工具">
+            <button class="tool" data-action="move"><kbd>G</kbd> 移动</button>
+            <button class="tool" data-action="rotate"><kbd>R</kbd> 旋转</button>
+            <button class="tool projection active" data-action="projection"><kbd>Num 5</kbd> 透视</button>
+            <div class="divider"></div>
+            <button class="tool space" data-action="space" data-space="GLOBAL">Global</button>
+            <button class="tool space" data-action="space" data-space="LOCAL">Local</button>
+            <div class="divider"></div>
+            <button class="tool axis-x" data-action="axis" data-axis="X"><kbd>X</kbd></button>
+            <button class="tool axis-y" data-action="axis" data-axis="Y"><kbd>Y</kbd></button>
+            <button class="tool axis-z" data-action="axis" data-axis="Z"><kbd>Z</kbd></button>
+            <div class="divider"></div>
+            <button class="tool proportional" data-action="proportional"><kbd>O</kbd> 衰减</button>
+            <button class="tool" data-action="falloff">平滑</button>
+            <span class="radius-badge" id="radius-badge">8.0 Å</span>
+            <button class="tool" data-action="radius" data-delta="-2" aria-label="减小衰减半径">−</button>
+            <button class="tool" data-action="radius" data-delta="2" aria-label="增大衰减半径">＋</button>
+            <div class="divider"></div>
+            <button class="tool confirm" data-action="confirm">左键 / Enter 确认</button>
+            <button class="tool cancel" data-action="cancel">右键 / Esc 取消</button>
+            <button class="tool" data-action="undo"><kbd>⌘Z</kbd> 撤销</button>
+            <div class="divider"></div>
+            <button class="tool" data-action="scale"><kbd>S</kbd> 缩放不可用</button>
+            <button class="tool" data-action="atom">原子选择不可用</button>
+          </div>
+          <div class="viewport-help">
+            <span>空闲：左键选择 / 框选</span>
+            <span>Shift 连续区间</span>
+            <span>Ctrl/⌘ 不连续追加</span>
+            <span>中键旋转视角</span>
+            <span>Shift + 中键平移</span>
+            <span><kbd>Num 5</kbd> 透视 / 正交</span>
+            <span>世界 XY 网格 · Z=0</span>
+            <span>Global / Local 切换轴向</span>
+            <span><kbd>O</kbd> 开关衰减编辑</span>
+            <span>变换 + O：滚轮调半径</span>
+          </div>
+          <div class="toast" id="toast">先用左键选择残基，然后按 G 或 R；移动鼠标即可预览，无需输入数值。</div>
+        </div>
+        <aside class="state-panel">
+          <div class="panel-heading">
+            <h2>当前状态</h2>
+            <span class="phase" id="phase">IDLE</span>
+          </div>
+          <div id="state-content"></div>
+        </aside>
+      </section>
+      <section class="bottom">
+        <div class="residue-panel">
+          <div class="residue-head">
+            <h2>共享 ResidueLayout 轴 · chain A</h2>
+            <p>矩阵与三维视口双向同步；点位不能作为原子被选中</p>
+            <div class="residue-count" id="residue-count">0 selected</div>
+          </div>
+          <div class="matrix-scroller" id="matrix"></div>
+        </div>
+        <aside class="guides">
+          <div class="guide-tabs" id="guide-tabs"></div>
+          <div id="guide-content"></div>
+        </aside>
+      </section>
+    </main>
+
+    <script id="rigid-transform-machine">
+      window.RigidTransformMachine = (function () {
+        "use strict";
+        var EPS = 1e-9;
+        function add(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+        function sub(a, b) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+        function scale(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; }
+        function dot(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+        function cross(a, b) {
+          return [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0]
+          ];
+        }
+        function length(a) { return Math.sqrt(dot(a, a)); }
+        function normalize(a) { var n = length(a); return n < EPS ? [0, 0, 0] : scale(a, 1 / n); }
+        function cloneAtoms(residues) {
+          return residues.map(function (residue) {
+            return {
+              index: residue.index,
+              aa: residue.aa,
+              atoms: residue.atoms.map(function (atom) {
+                return { name: atom.name, element: atom.element, p: atom.p.slice() };
+              })
+            };
+          });
+        }
+        function clone(value) { return JSON.parse(JSON.stringify(value)); }
+        function pointOnIllustrativeChain(position) {
+          var t = position * 0.49;
+          return [
+            Math.cos(t) * 7.5 + Math.sin(position * 0.16) * 1.6,
+            Math.sin(t) * 7.5,
+            (position - 23.5) * 0.92 + Math.sin(position * 0.23) * 1.1
+          ];
+        }
+        function createIllustrativeAtoms(sequence) {
+          return sequence.split("").map(function (aa, zeroIndex) {
+            var index = zeroIndex + 1;
+            var ca = pointOnIllustrativeChain(index);
+            var prev = pointOnIllustrativeChain(index - 0.15);
+            var next = pointOnIllustrativeChain(index + 0.15);
+            var tangent = normalize(sub(next, prev));
+            var reference = Math.abs(dot(tangent, [0, 1, 0])) > 0.88 ? [1, 0, 0] : [0, 1, 0];
+            var normal = normalize(cross(tangent, reference));
+            var binormal = normalize(cross(tangent, normal));
+            var atoms = [
+              { name: "N", element: "N", p: add(add(ca, scale(tangent, -0.69)), scale(normal, 0.18)) },
+              { name: "CA", element: "C", p: ca },
+              { name: "C", element: "C", p: add(add(ca, scale(tangent, 0.72)), scale(normal, 0.12)) },
+              { name: "O", element: "O", p: add(add(ca, scale(tangent, 0.93)), scale(normal, 0.62)) }
+            ];
+            if (aa !== "G") {
+              atoms.push({ name: "CB", element: "C", p: add(add(ca, scale(normal, -0.56)), scale(binormal, 0.92)) });
+            }
+            return { index: index, aa: aa, atoms: atoms };
+          });
+        }
+        function rotatePoint(point, pivot, axis, angleRadians) {
+          var v = sub(point, pivot);
+          var c = Math.cos(angleRadians);
+          var s = Math.sin(angleRadians);
+          return add(pivot, add(add(scale(v, c), scale(cross(axis, v), s)), scale(axis, dot(axis, v) * (1 - c))));
+        }
+        function selectedGroups(selection) {
+          var sorted = selection.slice().sort(function (a, b) { return a - b; });
+          var groups = [];
+          sorted.forEach(function (value) {
+            var last = groups[groups.length - 1];
+            if (!last || value !== last[last.length - 1] + 1) groups.push([value]);
+            else last.push(value);
+          });
+          return groups;
+        }
+        function selectionPivot(residues, selection) {
+          var selected = new Set(selection);
+          var points = [];
+          residues.forEach(function (residue) {
+            if (selected.has(residue.index)) residue.atoms.forEach(function (atom) { points.push(atom.p); });
+          });
+          if (!points.length) return [0, 0, 0];
+          return scale(points.reduce(function (sum, p) { return add(sum, p); }, [0, 0, 0]), 1 / points.length);
+        }
+        function atomNamed(residue, name) {
+          return residue.atoms.find(function (atom) { return atom.name === name; });
+        }
+        function globalBasis() {
+          return {
+            X: [1, 0, 0],
+            Y: [0, 1, 0],
+            Z: [0, 0, 1],
+            definition: "固定 ProteinPrompt 世界坐标轴"
+          };
+        }
+        function residuePlaneNormal(residue) {
+          var n = atomNamed(residue, "N").p;
+          var ca = atomNamed(residue, "CA").p;
+          var c = atomNamed(residue, "C").p;
+          return normalize(cross(sub(ca, n), sub(c, ca)));
+        }
+        function localBasis(residues, selection) {
+          var selected = selection.slice().sort(function (a, b) { return a - b; })
+            .map(function (index) { return residues[index - 1]; });
+          if (!selected.length) return globalBasis();
+          var first = selected[0];
+          var last = selected[selected.length - 1];
+          var x;
+          if (selected.length === 1) {
+            x = normalize(sub(atomNamed(first, "C").p, atomNamed(first, "N").p));
+          } else {
+            x = normalize(sub(atomNamed(last, "CA").p, atomNamed(first, "CA").p));
+          }
+          if (length(x) < EPS) x = [1, 0, 0];
+          var firstNormal = residuePlaneNormal(first);
+          var normalSum = [0, 0, 0];
+          selected.forEach(function (residue) {
+            var normal = residuePlaneNormal(residue);
+            if (dot(normal, firstNormal) < 0) normal = scale(normal, -1);
+            normalSum = add(normalSum, normal);
+          });
+          var z = normalize(normalSum);
+          if (length(z) < EPS || Math.abs(dot(z, x)) > 0.96) {
+            var reference = Math.abs(dot(x, [0, 1, 0])) > 0.88 ? [1, 0, 0] : [0, 1, 0];
+            z = normalize(cross(x, reference));
+          }
+          var y = normalize(cross(z, x));
+          z = normalize(cross(x, y));
+          return {
+            X: x,
+            Y: y,
+            Z: z,
+            definition: selected.length === 1
+              ? "暂定：X=N→C，Z=残基 N–CA–C 平面法向，Y 构成右手系"
+              : "暂定：X=首个→末个所选 CA，Z=所选残基平面法向平均，Y 构成右手系"
+          };
+        }
+        function basisFor(space, residues, selection) {
+          return space === "LOCAL" ? localBasis(residues, selection) : globalBasis();
+        }
+        function smoothFalloff(t) {
+          return 1 - 3 * t * t + 2 * t * t * t;
+        }
+        function proportionalInfluence(residues, selection, proportional) {
+          var selected = new Set(selection);
+          var selectedPoints = selection.map(function (index) {
+            return atomNamed(residues[index - 1], "CA").p;
+          });
+          return residues.map(function (residue) {
+            if (selected.has(residue.index)) {
+              return { index: residue.index, weight: 1, distance: 0, selected: true };
+            }
+            if (!proportional.enabled || !selectedPoints.length) return null;
+            var ca = atomNamed(residue, "CA").p;
+            var distance = selectedPoints.reduce(function (minimum, point) {
+              return Math.min(minimum, length(sub(ca, point)));
+            }, Infinity);
+            if (distance >= proportional.radius) return null;
+            var t = distance / proportional.radius;
+            var weight = proportional.falloff === "LINEAR"
+              ? 1 - t
+              : proportional.falloff === "CONSTANT"
+                ? 1
+                : smoothFalloff(t);
+            if (weight <= 0.001) return null;
+            return { index: residue.index, weight: weight, distance: distance, selected: false };
+          }).filter(Boolean);
+        }
+        function boundaryPairs(selection, residueCount) {
+          var selected = new Set(selection);
+          var pairs = [];
+          for (var i = 1; i < residueCount; i += 1) {
+            if (selected.has(i) !== selected.has(i + 1)) pairs.push([i, i + 1]);
+          }
+          return pairs;
+        }
+        function emptyTransform(mode, axis, viewNormal, basis) {
+          return {
+            mode: mode,
+            axis: axis,
+            axisVector: axis ? basis[axis].slice() : (viewNormal || [0, 0, 1]).slice(),
+            translation: [0, 0, 0],
+            angleDeg: 0,
+            source: "mouse"
+          };
+        }
+        function applyRigid(baseAtoms, pivot, transform, influence) {
+          var weights = {};
+          influence.forEach(function (item) { weights[item.index] = item.weight; });
+          var result = cloneAtoms(baseAtoms);
+          result.forEach(function (residue) {
+            var weight = weights[residue.index] || 0;
+            if (weight <= 0) return;
+            residue.atoms.forEach(function (atom) {
+              if (transform.mode === "move") atom.p = add(atom.p, scale(transform.translation, weight));
+              else atom.p = rotatePoint(
+                atom.p,
+                pivot,
+                normalize(transform.axisVector),
+                transform.angleDeg * weight * Math.PI / 180
+              );
+            });
+          });
+          return result;
+        }
+        function maxInternalDistanceError(baseAtoms, previewAtoms, selection) {
+          var selected = new Set(selection);
+          var before = [];
+          var after = [];
+          baseAtoms.forEach(function (residue, residueIndex) {
+            if (!selected.has(residue.index)) return;
+            residue.atoms.forEach(function (atom, atomIndex) {
+              before.push(atom.p);
+              after.push(previewAtoms[residueIndex].atoms[atomIndex].p);
+            });
+          });
+          var maxError = 0;
+          for (var i = 0; i < before.length; i += 1) {
+            for (var j = i + 1; j < before.length; j += 1) {
+              maxError = Math.max(maxError, Math.abs(length(sub(before[i], before[j])) - length(sub(after[i], after[j]))));
+            }
+          }
+          return maxError;
+        }
+        function Machine(sequence) {
+          this.sequence = sequence;
+          this.originalAtoms = createIllustrativeAtoms(sequence);
+          this.state = null;
+          this.reset([15]);
+        }
+        Machine.prototype.reset = function (selection) {
+          var viewProjection = this.state ? this.state.viewProjection : "PERSPECTIVE";
+          this.state = {
+            atoms: cloneAtoms(this.originalAtoms),
+            selection: (selection || [15]).slice().sort(function (a, b) { return a - b; }),
+            selectionAnchor: selection && selection.length ? selection[selection.length - 1] : 15,
+            viewProjection: viewProjection,
+            coordinateSpace: "GLOBAL",
+            proportional: { enabled: false, radius: 8, falloff: "SMOOTH" },
+            operation: null,
+            history: [],
+            records: [],
+            modified: [],
+            actionLog: ["已重置示意坐标与内存历史"],
+            feedback: { kind: "info", text: "移动鼠标即可驱动变换；数值键只用于可选的精确覆盖。" }
+          };
+          return this.snapshot();
+        };
+        Machine.prototype.snapshot = function () {
+          var op = this.state.operation;
+          var idleInfluence = proportionalInfluence(
+            this.state.atoms,
+            this.state.selection,
+            this.state.proportional
+          );
+          var activeInfluence = op ? op.influence : idleInfluence;
+          return {
+            phase: op ? "transforming" : "idle",
+            atoms: cloneAtoms(op ? op.previewAtoms : this.state.atoms),
+            committedAtoms: cloneAtoms(this.state.atoms),
+            selection: this.state.selection.slice(),
+            selectionAnchor: this.state.selectionAnchor,
+            viewProjection: this.state.viewProjection,
+            coordinateSpace: this.state.coordinateSpace,
+            coordinateBasis: clone(op ? op.basis : basisFor(
+              this.state.coordinateSpace,
+              this.state.atoms,
+              this.state.selection
+            )),
+            proportional: {
+              enabled: this.state.proportional.enabled,
+              radius: this.state.proportional.radius,
+              falloff: this.state.proportional.falloff,
+              metric: "3D CA 到最近所选 CA 的距离（暂定）",
+              affected: clone(activeInfluence.filter(function (item) { return !item.selected; }))
+            },
+            groups: selectedGroups(this.state.selection),
+            boundaries: boundaryPairs(this.state.selection, this.sequence.length),
+            operation: op ? {
+              mode: op.mode,
+              axis: op.axis,
+              pivot: op.pivot.slice(),
+              startPointer: op.startPointer ? clone(op.startPointer) : null,
+              currentPointer: op.currentPointer ? clone(op.currentPointer) : null,
+              numericBuffer: op.numericBuffer,
+              basis: clone(op.basis),
+              influence: clone(op.influence),
+              transform: clone(op.transform),
+              internalDistanceError: maxInternalDistanceError(op.baseAtoms, op.previewAtoms, this.state.selection)
+            } : null,
+            basePreviewAtoms: op ? cloneAtoms(op.baseAtoms) : null,
+            historyDepth: this.state.history.length,
+            records: clone(this.state.records),
+            modified: this.state.modified.slice(),
+            actionLog: this.state.actionLog.slice(),
+            feedback: clone(this.state.feedback)
+          };
+        };
+        Machine.prototype.log = function (text, kind) {
+          this.state.actionLog.unshift(text);
+          this.state.actionLog = this.state.actionLog.slice(0, 8);
+          this.state.feedback = { kind: kind || "info", text: text };
+        };
+        Machine.prototype.select = function (ids, strategy, anchor) {
+          if (this.state.operation) {
+            this.log("变换进行中：选择已锁定。请先左键确认或右键取消。", "warn");
+            return this.snapshot();
+          }
+          var self = this;
+          var valid = ids.filter(function (id) { return Number.isInteger(id) && id >= 1 && id <= self.sequence.length; });
+          var current = new Set(this.state.selection);
+          if (strategy === "toggle") {
+            valid.forEach(function (id) { if (current.has(id)) current.delete(id); else current.add(id); });
+          } else if (strategy === "add") {
+            valid.forEach(function (id) { current.add(id); });
+          } else {
+            current = new Set(valid);
+          }
+          this.state.selection = Array.from(current).sort(function (a, b) { return a - b; });
+          if (anchor != null) this.state.selectionAnchor = anchor;
+          else if (valid.length) this.state.selectionAnchor = valid[valid.length - 1];
+          var groups = selectedGroups(this.state.selection);
+          this.log(this.state.selection.length
+            ? "已选择 " + this.state.selection.length + " 个残基，组成 " + groups.length + " 个连续组。"
+            : "选择已清空。", "info");
+          return this.snapshot();
+        };
+        Machine.prototype.start = function (mode, pointer) {
+          if (mode !== "move" && mode !== "rotate") return this.snapshot();
+          if (!this.state.selection.length) {
+            this.log("请先选择至少一个残基。", "warn");
+            return this.snapshot();
+          }
+          if (this.state.operation) {
+            this.log("已有未确认变换；请先确认或取消。", "warn");
+            return this.snapshot();
+          }
+          var pivot = selectionPivot(this.state.atoms, this.state.selection);
+          var base = cloneAtoms(this.state.atoms);
+          var basis = basisFor(this.state.coordinateSpace, base, this.state.selection);
+          var influence = proportionalInfluence(base, this.state.selection, this.state.proportional);
+          this.state.operation = {
+            mode: mode,
+            axis: null,
+            pivot: pivot,
+            baseAtoms: base,
+            previewAtoms: cloneAtoms(base),
+            startPointer: pointer ? clone(pointer) : null,
+            currentPointer: pointer ? clone(pointer) : null,
+            numericBuffer: "",
+            basis: basis,
+            influence: influence,
+            frame: null,
+            transform: emptyTransform(mode, null, [0, 0, 1], basis)
+          };
+          this.log(
+            (mode === "move" ? "G 移动" : "R 旋转") + "已进入：" +
+            this.state.coordinateSpace + " 轴向；现在移动鼠标，X/Y/Z 可随时约束。",
+            "info"
+          );
+          return this.snapshot();
+        };
+        Machine.prototype.computeMouseTransform = function (op) {
+          var frame = op.frame;
+          if (!frame || !op.startPointer || !op.currentPointer) {
+            return emptyTransform(op.mode, op.axis, frame ? frame.normal : [0, 0, 1], op.basis);
+          }
+          var dx = op.currentPointer.x - op.startPointer.x;
+          var dy = op.currentPointer.y - op.startPointer.y;
+          var transform = emptyTransform(op.mode, op.axis, frame.normal, op.basis);
+          if (op.mode === "move") {
+            if (op.axis) {
+              var screenAxis = frame.axes2D[op.axis];
+              var axisLength = Math.sqrt(screenAxis.x * screenAxis.x + screenAxis.y * screenAxis.y);
+              var signedPixels = axisLength < EPS ? 0 : (dx * screenAxis.x + dy * screenAxis.y) / axisLength;
+              transform.translation = scale(op.basis[op.axis], signedPixels * frame.unitsPerPixel);
+            } else {
+              transform.translation = add(scale(frame.right, dx * frame.unitsPerPixel), scale(frame.up, -dy * frame.unitsPerPixel));
+            }
+          } else {
+            var pivotScreen = frame.pivotScreen;
+            var a0 = Math.atan2(op.startPointer.y - pivotScreen.y, op.startPointer.x - pivotScreen.x);
+            var a1 = Math.atan2(op.currentPointer.y - pivotScreen.y, op.currentPointer.x - pivotScreen.x);
+            var radialDistance = Math.sqrt(
+              Math.pow(op.startPointer.x - pivotScreen.x, 2) + Math.pow(op.startPointer.y - pivotScreen.y, 2)
+            );
+            var angle = radialDistance < 18 ? (dx - dy) * 0.45 : (a1 - a0) * 180 / Math.PI;
+            while (angle > 180) angle -= 360;
+            while (angle < -180) angle += 360;
+            transform.axisVector = op.axis ? op.basis[op.axis].slice() : frame.normal.slice();
+            transform.angleDeg = angle;
+          }
+          return transform;
+        };
+        Machine.prototype.applyNumericOverride = function (op, transform) {
+          if (!op.numericBuffer || op.numericBuffer === "-" || op.numericBuffer === ".") return transform;
+          var value = Number(op.numericBuffer);
+          if (!Number.isFinite(value)) return transform;
+          var overridden = clone(transform);
+          overridden.source = "numeric";
+          if (op.mode === "move") {
+            var direction;
+            if (op.axis) direction = op.basis[op.axis].slice();
+            else if (length(transform.translation) > EPS) direction = normalize(transform.translation);
+            else direction = op.frame ? op.frame.right.slice() : [1, 0, 0];
+            overridden.translation = scale(direction, value);
+          } else {
+            overridden.angleDeg = value;
+          }
+          return overridden;
+        };
+        Machine.prototype.recompute = function () {
+          var op = this.state.operation;
+          if (!op) return;
+          var transform = this.applyNumericOverride(op, this.computeMouseTransform(op));
+          op.transform = transform;
+          op.influence = proportionalInfluence(op.baseAtoms, this.state.selection, this.state.proportional);
+          op.previewAtoms = applyRigid(op.baseAtoms, op.pivot, transform, op.influence);
+        };
+        Machine.prototype.updatePointer = function (pointer, frame) {
+          var op = this.state.operation;
+          if (!op) return this.snapshot();
+          if (!op.startPointer) op.startPointer = clone(pointer);
+          op.currentPointer = clone(pointer);
+          op.frame = clone(frame);
+          this.recompute();
+          this.state.feedback = {
+            kind: "info",
+            text: "鼠标正在驱动" + (op.mode === "move" ? "位移" : "旋转") + "预览；左键确认，右键取消。"
+          };
+          return this.snapshot();
+        };
+        Machine.prototype.setAxis = function (axis) {
+          var op = this.state.operation;
+          if (!op) {
+            this.log("轴约束只在 G 或 R 变换进行中生效。", "warn");
+            return this.snapshot();
+          }
+          op.axis = axis;
+          this.recompute();
+          this.log(
+            "已约束到 " + this.state.coordinateSpace + " " + axis + " 轴；继续移动鼠标即可改变数值。",
+            "info"
+          );
+          return this.snapshot();
+        };
+        Machine.prototype.setCoordinateSpace = function (space) {
+          if (space !== "GLOBAL" && space !== "LOCAL") return this.snapshot();
+          this.state.coordinateSpace = space;
+          var op = this.state.operation;
+          if (op) {
+            op.basis = basisFor(space, op.baseAtoms, this.state.selection);
+            op.frame = null;
+            this.recompute();
+          }
+          this.log(
+            space === "GLOBAL"
+              ? "已使用 Global：X/Y/Z 固定为 ProteinPrompt 世界坐标轴。"
+              : "已使用 Local：X/Y/Z 来自当前残基选区的暂定局部框架。",
+            "info"
+          );
+          return this.snapshot();
+        };
+        Machine.prototype.setViewProjection = function (projection) {
+          if (projection !== "PERSPECTIVE" && projection !== "ORTHOGRAPHIC") return this.snapshot();
+          this.state.viewProjection = projection;
+          if (this.state.operation) this.state.operation.frame = null;
+          this.log(
+            projection === "PERSPECTIVE"
+              ? "已切换为透视投影：近处放大、远处缩小，平行网格线向远方收敛。"
+              : "已切换为正交投影：不产生远近缩放，平行网格线保持平行。",
+            "info"
+          );
+          return this.snapshot();
+        };
+        Machine.prototype.toggleViewProjection = function () {
+          return this.setViewProjection(
+            this.state.viewProjection === "PERSPECTIVE" ? "ORTHOGRAPHIC" : "PERSPECTIVE"
+          );
+        };
+        Machine.prototype.toggleProportional = function () {
+          this.state.proportional.enabled = !this.state.proportional.enabled;
+          if (this.state.operation) this.recompute();
+          this.log(
+            this.state.proportional.enabled
+              ? "O 衰减编辑已开启：半径内未选残基将按显式权重接受变换。"
+              : "O 衰减编辑已关闭：只有所选残基接受变换。",
+            this.state.proportional.enabled ? "warn" : "info"
+          );
+          return this.snapshot();
+        };
+        Machine.prototype.cycleFalloff = function () {
+          var order = ["SMOOTH", "LINEAR", "CONSTANT"];
+          var current = order.indexOf(this.state.proportional.falloff);
+          this.state.proportional.falloff = order[(current + 1) % order.length];
+          if (this.state.operation) this.recompute();
+          this.log("衰减曲线：" + this.state.proportional.falloff + "。", "info");
+          return this.snapshot();
+        };
+        Machine.prototype.adjustProportionalRadius = function (delta) {
+          this.state.proportional.radius = Math.max(
+            2,
+            Math.min(30, this.state.proportional.radius + delta)
+          );
+          if (this.state.operation) this.recompute();
+          this.state.feedback = {
+            kind: "info",
+            text: "O 衰减半径 " + this.state.proportional.radius.toFixed(1) +
+              " Å；滚轮继续调整，左键确认。"
+          };
+          return this.snapshot();
+        };
+        Machine.prototype.typeNumeric = function (key) {
+          var op = this.state.operation;
+          if (!op) return this.snapshot();
+          if (key === "Backspace") op.numericBuffer = op.numericBuffer.slice(0, -1);
+          else if (key === "-" && !op.numericBuffer) op.numericBuffer = "-";
+          else if (key === "." && op.numericBuffer.indexOf(".") === -1) op.numericBuffer += op.numericBuffer ? "." : "0.";
+          else if (/^[0-9]$/.test(key)) op.numericBuffer += key;
+          else return this.snapshot();
+          this.recompute();
+          this.state.feedback = {
+            kind: "info",
+            text: op.numericBuffer
+              ? "精确数值覆盖：" + op.numericBuffer + (op.mode === "move" ? " Å" : "°") + "；移动鼠标仍保留方向。"
+              : "数值覆盖已清空，恢复鼠标驱动。"
+          };
+          return this.snapshot();
+        };
+        Machine.prototype.confirm = function () {
+          var op = this.state.operation;
+          if (!op) {
+            this.log("当前没有未确认变换。", "warn");
+            return this.snapshot();
+          }
+          this.state.history.push({
+            atoms: cloneAtoms(this.state.atoms),
+            modified: this.state.modified.slice(),
+            records: clone(this.state.records)
+          });
+          this.state.atoms = cloneAtoms(op.previewAtoms);
+          var transformedResidues = op.influence.map(function (item) { return item.index; });
+          this.state.modified = Array.from(new Set(this.state.modified.concat(transformedResidues)))
+            .sort(function (a, b) { return a - b; });
+          var record = {
+            id: this.state.records.length + 1,
+            selection: this.state.selection.slice(),
+            groups: selectedGroups(this.state.selection),
+            mode: op.mode,
+            axis: op.axis,
+            coordinateSpace: this.state.coordinateSpace,
+            basis: clone(op.basis),
+            pivot: op.pivot.slice(),
+            transform: clone(op.transform),
+            proportional: clone(this.state.proportional),
+            affected: clone(op.influence.filter(function (item) { return !item.selected; })),
+            boundaryCount: boundaryPairs(this.state.selection, this.sequence.length).length
+          };
+          this.state.records.push(record);
+          this.state.operation = null;
+          this.log(
+            "已确认" + record.coordinateSpace + " " + (record.mode === "move" ? "移动" : "旋转") +
+            "；" + record.selection.length + " 个所选残基" +
+            (record.affected.length ? " + " + record.affected.length + " 个衰减影响残基" : "") +
+            "的示意原子坐标已更新。",
+            "info"
+          );
+          return this.snapshot();
+        };
+        Machine.prototype.cancel = function () {
+          if (!this.state.operation) {
+            this.log("当前没有未确认变换。", "warn");
+            return this.snapshot();
+          }
+          this.state.operation = null;
+          this.log("已取消预览；已确认坐标和历史没有变化。", "info");
+          return this.snapshot();
+        };
+        Machine.prototype.undo = function () {
+          if (this.state.operation) {
+            this.state.operation = null;
+            this.log("先撤销了当前未确认预览；已确认坐标没有变化。", "info");
+            return this.snapshot();
+          }
+          var previous = this.state.history.pop();
+          if (!previous) {
+            this.log("没有可撤销的已确认变换。", "warn");
+            return this.snapshot();
+          }
+          this.state.atoms = cloneAtoms(previous.atoms);
+          this.state.modified = previous.modified.slice();
+          this.state.records = clone(previous.records);
+          this.log("已撤销最近一次已确认刚体变换。", "info");
+          return this.snapshot();
+        };
+        Machine.prototype.rejectScale = function () {
+          this.log("结构模式不支持 S 缩放；没有创建任何变换。", "error");
+          return this.snapshot();
+        };
+        Machine.prototype.rejectAtomSelection = function () {
+          this.log("选择单位锁定为残基；不能选择或编辑单个原子。", "error");
+          return this.snapshot();
+        };
+        Machine.math = {
+          add: add, sub: sub, scale: scale, dot: dot, cross: cross, length: length, normalize: normalize
+        };
+        return Machine;
+      }());
+    </script>
+
+    <script>
+      (function () {
+        "use strict";
+        if (location.search) history.replaceState({}, "", location.pathname);
+        var sequence = "TTCCPSIVARSNFNVCRLPGTPEAICATYTGCIIIPGATCPGDYAN";
+        var machine = new window.RigidTransformMachine(sequence);
+        var math = window.RigidTransformMachine.math;
+        var canvas = document.getElementById("structure-canvas");
+        var shell = document.getElementById("viewport-shell");
+        var ctx = canvas.getContext("2d");
+        var stateContent = document.getElementById("state-content");
+        var phaseEl = document.getElementById("phase");
+        var toast = document.getElementById("toast");
+        var matrix = document.getElementById("matrix");
+        var residueCount = document.getElementById("residue-count");
+        var guideTabs = document.getElementById("guide-tabs");
+        var guideContent = document.getElementById("guide-content");
+        var snapshot = machine.snapshot();
+        var hoverResidue = null;
+        var projectedAtoms = [];
+        var selectionDrag = null;
+        var cameraDrag = null;
+        var lastPointer = null;
+        var activeGuide = 0;
+        var camera = { yaw: -0.82, pitch: 0.28, distance: 54, panX: 0, panY: 4 };
+        var originalCenter = computeCenter(snapshot.committedAtoms);
+        var guides = [
+          {
+            label: "1 · 投影",
+            title: "同一世界视角在透视与正交之间切换",
+            copy: "透视投影让近处更大、远处更小，XY 网格线向远方收敛；正交投影移除远近缩放，但不改变相机方向或结构坐标。",
+            callout: "按小键盘 5 或顶部按钮反复切换。观察结构两端的大小差异和网格收敛；selection、坐标和历史必须保持不变。",
+            steps: [["1", "使用透视投影", "perspective"], ["2", "切为正交", "orthographic"], ["3", "回到透视", "perspective"]]
+          },
+          {
+            label: "2 · Global / Local",
+            title: "同一个 X，在两个坐标系中指向不同方向",
+            copy: "Global X 固定为世界 [1,0,0]；Local X 由当前 residue selection 构造并在右侧显示轴向量和暂定规则。",
+            callout: "先用 Global G+X 移动并取消，再切 Local 重复。局部轴 gizmo 会旋转，世界角落坐标轴保持固定。",
+            steps: [["1", "选择 A:15 V", "single"], ["2", "Global", "global"], ["3", "进入 G", "move"], ["4", "约束 X", "axisX"], ["5", "取消", "cancel"], ["6", "Local", "local"], ["7", "再次 G", "move"], ["8", "约束 X", "axisX"]]
+          },
+          {
+            label: "3 · Local 刚体",
+            title: "不连续选区的暂定 Local frame",
+            copy: "A:8–10、A:23、A:31–33 仍是一个刚体；Local X 取首末所选 CA，Z 取所选残基平面法向平均。",
+            callout: "用 Local R+Z 鼠标旋转，核对 34 个所选示意原子的内部距离误差仍接近 0 Å。",
+            steps: [["1", "选择 7 residues / 3 groups", "multi"], ["2", "Local", "local"], ["3", "进入 R", "rotate"], ["4", "约束 Z", "axisZ"], ["5", "确认", "confirm"], ["6", "撤销", "undo"]]
+          },
+          {
+            label: "4 · O 衰减编辑",
+            title: "所选 residue 完整变换，未选 residue 按权重衰减",
+            copy: "O 使用 3D CA 到最近所选 CA 的暂定距离；平滑曲线和 Å 半径决定哪些未选 residue 接受多少坐标变换。",
+            callout: "进入 G 后直接滚轮调整半径。青色 residue 和矩阵百分比是显式影响列表；这不是自动结构优化。",
+            steps: [["1", "选择 A:15 V", "single"], ["2", "开启 O", "proportional"], ["3", "进入 G", "move"], ["4", "增大半径", "radiusUp"], ["5", "约束 X", "axisX"], ["6", "确认", "confirm"], ["7", "撤销", "undo"]]
+          },
+          {
+            label: "5 · 取消与禁止",
+            title: "取消不会提交；禁止项不创建状态",
+            copy: "右键或 Esc 丢弃预览。S 缩放和原子选择仍明确拒绝；O 影响不会被描述成结构优化。",
+            callout: "进入 G 并移动鼠标后，在视口内点右键；预览应立即回到已确认坐标，历史深度不增加。",
+            steps: [["1", "选择 A:15 V", "single"], ["2", "进入 G", "move"], ["3", "右键 / 取消", "cancel"], ["4", "尝试 S", "scale"], ["5", "尝试原子选择", "atom"]]
+          }
+        ];
+        function computeCenter(residues) {
+          var points = [];
+          residues.forEach(function (residue) { residue.atoms.forEach(function (atom) { points.push(atom.p); }); });
+          return math.scale(points.reduce(function (value, p) { return math.add(value, p); }, [0, 0, 0]), 1 / points.length);
+        }
+        function pointerForEvent(event) {
+          var rect = canvas.getBoundingClientRect();
+          return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+        }
+        function getViewFrame(pivot, basis) {
+          var rect = canvas.getBoundingClientRect();
+          var width = Math.max(1, rect.width);
+          var height = Math.max(1, rect.height);
+          var forward = math.normalize([
+            Math.cos(camera.yaw) * Math.cos(camera.pitch),
+            Math.sin(camera.yaw) * Math.cos(camera.pitch),
+            Math.sin(camera.pitch)
+          ]);
+          var right = math.normalize(math.cross([0, 0, 1], forward));
+          var up = math.normalize(math.cross(forward, right));
+          var centerPixelsPerUnit = Math.min(width, height) * 0.92 / camera.distance;
+          var nearPlane = 1;
+          function viewDepth(point) {
+            return camera.distance - math.dot(math.sub(point, originalCenter), forward);
+          }
+          function project(point) {
+            var q = math.sub(point, originalCenter);
+            var depth = math.dot(q, forward);
+            var distanceFromCamera = camera.distance - depth;
+            var perspectiveFactor = snapshot.viewProjection === "PERSPECTIVE"
+              ? camera.distance / Math.max(distanceFromCamera, nearPlane)
+              : 1;
+            var pointPixelsPerUnit = centerPixelsPerUnit * perspectiveFactor;
+            return {
+              x: width / 2 + camera.panX + math.dot(q, right) * pointPixelsPerUnit,
+              y: height / 2 + camera.panY - math.dot(q, up) * pointPixelsPerUnit,
+              depth: depth,
+              viewDepth: distanceFromCamera,
+              pixelsPerUnit: pointPixelsPerUnit,
+              visible: snapshot.viewProjection !== "PERSPECTIVE" || distanceFromCamera > nearPlane
+            };
+          }
+          function projectSegment(a, b) {
+            if (snapshot.viewProjection !== "PERSPECTIVE") return [project(a), project(b)];
+            var depthA = viewDepth(a);
+            var depthB = viewDepth(b);
+            if (depthA <= nearPlane && depthB <= nearPlane) return null;
+            var clippedA = a;
+            var clippedB = b;
+            if (depthA <= nearPlane) {
+              clippedA = math.add(a, math.scale(math.sub(b, a), (nearPlane - depthA) / (depthB - depthA)));
+            }
+            if (depthB <= nearPlane) {
+              clippedB = math.add(b, math.scale(math.sub(a, b), (nearPlane - depthB) / (depthA - depthB)));
+            }
+            return [project(clippedA), project(clippedB)];
+          }
+          var pivotScreen = project(pivot || originalCenter);
+          var pixelsPerUnit = pivotScreen.pixelsPerUnit;
+          var axes2D = {};
+          var globalAxes2D = {};
+          var activeBasis = basis || { X: [1, 0, 0], Y: [0, 1, 0], Z: [0, 0, 1] };
+          ["X", "Y", "Z"].forEach(function (axis) {
+            var endpoint = project(math.add(pivot || originalCenter, activeBasis[axis]));
+            axes2D[axis] = { x: endpoint.x - pivotScreen.x, y: endpoint.y - pivotScreen.y };
+            var world = axis === "X" ? [1, 0, 0] : axis === "Y" ? [0, 1, 0] : [0, 0, 1];
+            var globalEndpoint = project(math.add(pivot || originalCenter, world));
+            globalAxes2D[axis] = {
+              x: globalEndpoint.x - pivotScreen.x,
+              y: globalEndpoint.y - pivotScreen.y
+            };
+          });
+          return {
+            width: width, height: height, right: right, up: up, normal: forward,
+            pixelsPerUnit: pixelsPerUnit, unitsPerPixel: 1 / pixelsPerUnit,
+            centerPixelsPerUnit: centerPixelsPerUnit, pivotScreen: pivotScreen,
+            axes2D: axes2D, globalAxes2D: globalAxes2D, project: project, projectSegment: projectSegment
+          };
+        }
+        function atomByName(residue, name) { return residue.atoms.find(function (atom) { return atom.name === name; }); }
+        function resizeCanvas() {
+          var rect = canvas.getBoundingClientRect();
+          var dpr = Math.min(window.devicePixelRatio || 1, 2);
+          var width = Math.round(rect.width * dpr);
+          var height = Math.round(rect.height * dpr);
+          if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        function drawLine(a, b, color, width, dash, alpha) {
+          if (!a || !b || !Number.isFinite(a.x) || !Number.isFinite(a.y) ||
+            !Number.isFinite(b.x) || !Number.isFinite(b.y)) return;
+          ctx.save();
+          ctx.globalAlpha = alpha == null ? 1 : alpha;
+          ctx.strokeStyle = color;
+          ctx.lineWidth = width;
+          ctx.setLineDash(dash || []);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.stroke();
+          ctx.restore();
+        }
+        function drawGrid(frame) {
+          var targetPixels = 24;
+          var rawStep = targetPixels * frame.unitsPerPixel;
+          var magnitude = Math.pow(10, Math.floor(Math.log10(Math.max(rawStep, 0.0001))));
+          var normalized = rawStep / magnitude;
+          var step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+          var extent = Math.ceil(Math.max(60, camera.distance * 2.4) / (step * 5)) * step * 5;
+          var lineCount = Math.ceil(extent / step);
+          var colors = { minor: "#13241f", major: "#1c332b", X: "#9f403d", Y: "#3f8250" };
+          function drawGridLine(a, b, color, width, alpha) {
+            var segment = frame.projectSegment(a, b);
+            if (segment) drawLine(segment[0], segment[1], color, width, null, alpha);
+          }
+          for (var i = -lineCount; i <= lineCount; i += 1) {
+            var value = i * step;
+            var major = i % 5 === 0;
+            drawGridLine(
+              [-extent, value, 0],
+              [extent, value, 0],
+              i === 0 ? colors.X : major ? colors.major : colors.minor,
+              i === 0 ? 1.8 : major ? 1.15 : 0.75,
+              i === 0 ? 0.95 : major ? 0.82 : 0.62
+            );
+            drawGridLine(
+              [value, -extent, 0],
+              [value, extent, 0],
+              i === 0 ? colors.Y : major ? colors.major : colors.minor,
+              i === 0 ? 1.8 : major ? 1.15 : 0.75,
+              i === 0 ? 0.95 : major ? 0.82 : 0.62
+            );
+          }
+          var origin = frame.project([0, 0, 0]);
+          var xLabel = frame.project([Math.min(extent, step * 6), 0, 0]);
+          var yLabel = frame.project([0, Math.min(extent, step * 6), 0]);
+          ctx.save();
+          ctx.fillStyle = "#ff736c";
+          ctx.font = "800 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillText("+X", xLabel.x + 4, xLabel.y - 4);
+          ctx.fillStyle = "#72df88";
+          ctx.fillText("+Y", yLabel.x + 4, yLabel.y - 4);
+          ctx.fillStyle = "#789087";
+          ctx.font = "700 8px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillText("XY · Z=0", origin.x + 6, origin.y + 12);
+          ctx.restore();
+        }
+        function drawStructure() {
+          resizeCanvas();
+          var frame = getViewFrame(
+            snapshot.operation ? snapshot.operation.pivot : originalCenter,
+            snapshot.operation ? snapshot.operation.basis : snapshot.coordinateBasis
+          );
+          ctx.clearRect(0, 0, frame.width, frame.height);
+          ctx.fillStyle = "#07100e";
+          ctx.fillRect(0, 0, frame.width, frame.height);
+          drawGrid(frame);
+          var selected = new Set(snapshot.selection);
+          var affectedWeights = {};
+          snapshot.proportional.affected.forEach(function (item) {
+            affectedWeights[item.index] = item.weight;
+          });
+          var atoms = snapshot.atoms;
+          var baseAtoms = snapshot.basePreviewAtoms;
+          projectedAtoms = [];
+          for (var i = 0; i < atoms.length - 1; i += 1) {
+            var caA = frame.project(atomByName(atoms[i], "CA").p);
+            var caB = frame.project(atomByName(atoms[i + 1], "CA").p);
+            drawLine(caA, caB, selected.has(i + 1) && selected.has(i + 2) ? "#769348" : "#263b34",
+              selected.has(i + 1) && selected.has(i + 2) ? 3 : 2, null, 0.9);
+          }
+          atoms.forEach(function (residue, residueIndex) {
+            [["N", "CA"], ["CA", "C"], ["C", "O"], ["CA", "CB"]].forEach(function (pair) {
+              var a = atomByName(residue, pair[0]);
+              var b = atomByName(residue, pair[1]);
+              if (!a || !b) return;
+              drawLine(frame.project(a.p), frame.project(b.p), selected.has(residue.index) ? "#98b75c" : "#32473f",
+                selected.has(residue.index) ? 1.7 : 1.15, null, selected.has(residue.index) ? 0.95 : 0.58);
+            });
+            if (residueIndex < atoms.length - 1) {
+              drawLine(frame.project(atomByName(residue, "C").p),
+                frame.project(atomByName(atoms[residueIndex + 1], "N").p), "#2f453d", 1.1, null, 0.62);
+            }
+          });
+          if (snapshot.operation && baseAtoms) {
+            baseAtoms.forEach(function (residue) {
+              if (!selected.has(residue.index) && !affectedWeights[residue.index]) return;
+              residue.atoms.forEach(function (atom) {
+                var p = frame.project(atom.p);
+                ctx.save();
+                ctx.strokeStyle = "#9aada6";
+                ctx.globalAlpha = 0.34;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, atom.name === "CA" ? 4 : 2.4, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+              });
+            });
+          }
+          var renderedAtoms = [];
+          atoms.forEach(function (residue) {
+            residue.atoms.forEach(function (atom) {
+              var projected = frame.project(atom.p);
+              renderedAtoms.push({
+                residue: residue, atom: atom, x: projected.x, y: projected.y, depth: projected.depth,
+                visible: projected.visible,
+                perspectiveScale: Math.max(0.62, Math.min(1.65,
+                  projected.pixelsPerUnit / frame.centerPixelsPerUnit
+                ))
+              });
+            });
+          });
+          renderedAtoms.sort(function (a, b) { return a.depth - b.depth; });
+          renderedAtoms.forEach(function (item) {
+            if (!item.visible) return;
+            var isSelected = selected.has(item.residue.index);
+            var affectedWeight = affectedWeights[item.residue.index] || 0;
+            var isAffected = !isSelected && affectedWeight > 0;
+            var isHover = hoverResidue === item.residue.index;
+            var color = item.atom.element === "O" ? "#ff8179" : item.atom.element === "N" ? "#75a9ff" : "#8ca49b";
+            if (isSelected) color = item.atom.element === "O" ? "#ff9b83" : item.atom.element === "N" ? "#7cc7ff" : "#b8f36a";
+            else if (isAffected) color = "#72d9d0";
+            ctx.save();
+            ctx.globalAlpha = isSelected ? 1 : isAffected ? 0.55 + affectedWeight * 0.4 : 0.72;
+            ctx.fillStyle = color;
+            ctx.strokeStyle = isSelected ? "#eaffc8" : isAffected ? "#c6fff8" : "#15241f";
+            ctx.lineWidth = isSelected ? 1.1 : isAffected ? 0.9 : 0.6;
+            ctx.beginPath();
+            ctx.arc(
+              item.x,
+              item.y,
+              (item.atom.name === "CA"
+                ? (isSelected ? 5.1 : isAffected ? 3.8 + affectedWeight * 1.5 : 3.7)
+                : (isSelected ? 3.2 : isAffected ? 2.3 + affectedWeight : 2.2)) * item.perspectiveScale,
+              0,
+              Math.PI * 2
+            );
+            ctx.fill();
+            ctx.stroke();
+            if (isHover && item.atom.name === "CA") {
+              ctx.strokeStyle = "#ffffff";
+              ctx.lineWidth = 1.2;
+              ctx.beginPath();
+              ctx.arc(item.x, item.y, 8, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+            ctx.restore();
+            projectedAtoms.push({ x: item.x, y: item.y, residue: item.residue.index, atom: item.atom.name });
+          });
+          atoms.forEach(function (residue) {
+            if (!selected.has(residue.index)) return;
+            var ca = frame.project(atomByName(residue, "CA").p);
+            ctx.save();
+            ctx.fillStyle = "#eaffc8";
+            ctx.font = "700 9px ui-monospace, SFMono-Regular, Menlo, monospace";
+            ctx.fillText("A:" + residue.index + " " + residue.aa, ca.x + 7, ca.y - 6);
+            ctx.restore();
+          });
+          if (snapshot.operation && snapshot.proportional.enabled) {
+            ctx.save();
+            ctx.strokeStyle = "#72d9d0";
+            ctx.fillStyle = "#b9fff6";
+            ctx.lineWidth = 1.2;
+            ctx.setLineDash([5, 4]);
+            snapshot.selection.slice(0, 3).forEach(function (index) {
+              var center = frame.project(atomByName(snapshot.basePreviewAtoms[index - 1], "CA").p);
+              ctx.beginPath();
+              ctx.arc(center.x, center.y, snapshot.proportional.radius * frame.pixelsPerUnit, 0, Math.PI * 2);
+              ctx.stroke();
+            });
+            ctx.setLineDash([]);
+            ctx.font = "700 9px ui-monospace, SFMono-Regular, Menlo, monospace";
+            ctx.fillText(
+              "O · " + snapshot.proportional.radius.toFixed(1) + " Å · " + snapshot.proportional.falloff,
+              18,
+              184
+            );
+            ctx.restore();
+          }
+          snapshot.boundaries.forEach(function (pair) {
+            var left = atoms[pair[0] - 1];
+            var right = atoms[pair[1] - 1];
+            drawLine(frame.project(atomByName(left, "C").p), frame.project(atomByName(right, "N").p),
+              "#ffb45f", 2.2, [4, 3], 1);
+          });
+          if (snapshot.operation) drawTransformGizmo(frame);
+          if (selectionDrag && selectionDrag.moved) {
+            var sx = Math.min(selectionDrag.start.x, selectionDrag.current.x);
+            var sy = Math.min(selectionDrag.start.y, selectionDrag.current.y);
+            var sw = Math.abs(selectionDrag.start.x - selectionDrag.current.x);
+            var sh = Math.abs(selectionDrag.start.y - selectionDrag.current.y);
+            ctx.save();
+            ctx.fillStyle = "rgba(184, 243, 106, 0.08)";
+            ctx.strokeStyle = "#b8f36a";
+            ctx.setLineDash([5, 4]);
+            ctx.fillRect(sx, sy, sw, sh);
+            ctx.strokeRect(sx, sy, sw, sh);
+            ctx.restore();
+          }
+          drawCornerAxes(frame);
+        }
+        function drawTransformGizmo(frame) {
+          var op = snapshot.operation;
+          var pivot = frame.project(op.pivot);
+          var colors = { X: "#ff6f68", Y: "#7fe08a", Z: "#6ea7ff" };
+          ctx.save();
+          ctx.fillStyle = snapshot.coordinateSpace === "LOCAL" ? "#72d9d0" : "#b8f36a";
+          ctx.font = "800 9px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillText(snapshot.coordinateSpace, pivot.x + 8, pivot.y + 14);
+          ctx.restore();
+          ["X", "Y", "Z"].forEach(function (axis) {
+            var endpoint = frame.project(math.add(op.pivot, math.scale(op.basis[axis], 5.2)));
+            var active = !op.axis || op.axis === axis;
+            drawLine(pivot, endpoint, colors[axis], op.axis === axis ? 3 : 1.4, null, active ? 1 : 0.28);
+            ctx.save();
+            ctx.fillStyle = colors[axis];
+            ctx.font = "800 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+            ctx.fillText(axis, endpoint.x + 4, endpoint.y + 3);
+            ctx.restore();
+          });
+          if (op.mode === "move") {
+            var movedPivot = frame.project(math.add(op.pivot, op.transform.translation));
+            drawLine(pivot, movedPivot, "#f1ffd4", 2.4, [6, 3], 1);
+            ctx.save();
+            ctx.fillStyle = "#f1ffd4";
+            ctx.beginPath();
+            ctx.arc(movedPivot.x, movedPivot.y, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          } else {
+            ctx.save();
+            ctx.strokeStyle = "#f1ffd4";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            var endAngle = -Math.PI / 2 + op.transform.angleDeg * Math.PI / 180;
+            ctx.arc(pivot.x, pivot.y, 34, -Math.PI / 2, endAngle, op.transform.angleDeg < 0);
+            ctx.stroke();
+            ctx.fillStyle = "#f1ffd4";
+            ctx.font = "700 10px ui-monospace, SFMono-Regular, Menlo, monospace";
+            ctx.fillText(formatNumber(op.transform.angleDeg, 2) + "°", pivot.x + 39, pivot.y - 4);
+            ctx.restore();
+          }
+        }
+        function drawCornerAxes(frame) {
+          var origin = { x: 34, y: frame.height - 32 };
+          var colors = { X: "#ff6f68", Y: "#7fe08a", Z: "#6ea7ff" };
+          ["X", "Y", "Z"].forEach(function (axis) {
+            var vector = frame.globalAxes2D[axis];
+            var n = Math.sqrt(vector.x * vector.x + vector.y * vector.y) || 1;
+            var end = { x: origin.x + vector.x / n * 18, y: origin.y + vector.y / n * 18 };
+            drawLine(origin, end, colors[axis], 2, null, 0.9);
+            ctx.save();
+            ctx.fillStyle = colors[axis];
+            ctx.font = "800 8px ui-monospace, SFMono-Regular, Menlo, monospace";
+            ctx.fillText(axis, end.x + 2, end.y);
+            ctx.restore();
+          });
+          ctx.save();
+          ctx.fillStyle = "#7f968e";
+          ctx.font = "700 8px ui-monospace, SFMono-Regular, Menlo, monospace";
+          ctx.fillText(snapshot.viewProjection === "PERSPECTIVE" ? "PERSPECTIVE" : "ORTHOGRAPHIC", origin.x - 22, origin.y - 25);
+          ctx.fillText("GLOBAL", origin.x - 22, origin.y + 28);
+          ctx.restore();
+        }
+        function formatNumber(value, decimals) {
+          var safe = Math.abs(value) < 0.0000005 ? 0 : value;
+          return (safe >= 0 ? "+" : "") + safe.toFixed(decimals);
+        }
+        function formatPoint(point, decimals) {
+          return point.map(function (v) { return formatNumber(v, decimals); }).join(", ");
+        }
+        function formatGroup(group) {
+          return group.length === 1 ? "A:" + group[0] + " " + sequence[group[0] - 1] : "A:" + group[0] + "–" + group[group.length - 1];
+        }
+        function selectionNames(selection) {
+          if (selection.length <= 10) {
+            return selection.map(function (index) { return "A:" + index + " " + sequence[index - 1]; }).join(" · ");
+          }
+          return selection.slice(0, 10).map(function (index) { return "A:" + index; }).join(" · ") + " …";
+        }
+        function transformText(op) {
+          if (!op) return "尚无未确认变换";
+          if (op.mode === "move") {
+            return "ΔX " + formatNumber(op.transform.translation[0], 3) + " Å\n" +
+              "ΔY " + formatNumber(op.transform.translation[1], 3) + " Å\n" +
+              "ΔZ " + formatNumber(op.transform.translation[2], 3) + " Å";
+          }
+          return "轴向量 [" + op.transform.axisVector.map(function (v) { return v.toFixed(3); }).join(", ") + "]\n" +
+            "角度 " + formatNumber(op.transform.angleDeg, 3) + "°";
+        }
+        function renderState() {
+          phaseEl.textContent = snapshot.phase === "idle" ? "IDLE" : (snapshot.operation.mode === "move" ? "G · MOVE" : "R · ROTATE");
+          phaseEl.classList.toggle("modal", snapshot.phase !== "idle");
+          var op = snapshot.operation;
+          var groupsText = snapshot.groups.length ? snapshot.groups.map(formatGroup).join(" + ") : "无";
+          var boundaryItems = snapshot.boundaries.length
+            ? snapshot.boundaries.map(function (pair) {
+                var selectedIndex = snapshot.selection.indexOf(pair[0]) >= 0 ? pair[0] : pair[1];
+                var neighborIndex = selectedIndex === pair[0] ? pair[1] : pair[0];
+                return "<li>A:" + selectedIndex + " ↔ A:" + neighborIndex + " · 选中 / 未选边界</li>";
+              }).join("")
+            : "<li>当前选区没有选中 / 未选的链内相邻边界。</li>";
+          var records = snapshot.records.length
+            ? snapshot.records.slice().reverse().map(function (record) {
+                var detail = record.mode === "move"
+                  ? "Δ[" + record.transform.translation.map(function (v) { return v.toFixed(3); }).join(", ") + "] Å"
+                  : (record.axis || "view") + " " + formatNumber(record.transform.angleDeg, 3) + "°";
+                return "<li>#" + record.id + " · " + record.coordinateSpace + " · " +
+                  record.selection.length + " selected" +
+                  (record.affected.length ? " + " + record.affected.length + " falloff" : "") +
+                  " · " + detail + "</li>";
+              }).join("")
+            : "<li>尚无已确认变换</li>";
+          var numericText = op
+            ? (op.numericBuffer ? op.numericBuffer + (op.mode === "move" ? " Å" : "°") : "未使用（鼠标驱动）")
+            : "—";
+          var sourceText = op ? (op.transform.source === "numeric" ? "精确数值覆盖" : "鼠标实时预览") : "—";
+          var falloffNames = { SMOOTH: "平滑", LINEAR: "线性", CONSTANT: "恒定" };
+          var projectionName = snapshot.viewProjection === "PERSPECTIVE" ? "透视 / Perspective" : "正交 / Orthographic";
+          var affectedItems = snapshot.proportional.affected.length
+            ? snapshot.proportional.affected.slice(0, 14).map(function (item) {
+                return "<li><span>A:" + item.index + " " + sequence[item.index - 1] +
+                  " · " + item.distance.toFixed(2) + " Å</span><strong>" +
+                  Math.round(item.weight * 100) + "%</strong></li>";
+              }).join("") +
+              (snapshot.proportional.affected.length > 14
+                ? "<li><span>其余 " + (snapshot.proportional.affected.length - 14) + " residues</span><strong>…</strong></li>"
+                : "")
+            : "<li><span>" +
+                (snapshot.proportional.enabled ? "当前半径内没有未选残基" : "O 关闭：未选残基不受影响") +
+              "</span><strong>—</strong></li>";
+          stateContent.innerHTML =
+            '<section class="state-section">' +
+              '<div class="section-kicker">三维视图 · CAMERA</div>' +
+              '<div class="selection-title">' + projectionName + '</div>' +
+              '<dl class="kv"><dt>切换</dt><dd>小键盘 5 / 顶部按钮</dd>' +
+                '<dt>世界上方向</dt><dd>Z-up</dd><dt>参考平面</dt><dd>XY · Z=0</dd>' +
+                '<dt>远近缩放</dt><dd>' + (snapshot.viewProjection === "PERSPECTIVE" ? "开启" : "关闭") + '</dd>' +
+                '<dt>编辑坐标</dt><dd>切换投影时保持不变</dd></dl>' +
+            '</section>' +
+            '<section class="state-section">' +
+              '<div class="section-kicker">移动对象 · residue identities</div>' +
+              '<div class="selection-title">' + snapshot.selection.length + ' residues · ' + snapshot.groups.length + ' groups</div>' +
+              '<div class="selection-list">' + (selectionNames(snapshot.selection) || "未选择") + '</div>' +
+              '<dl class="kv"><dt>刚体范围</dt><dd>' + groupsText + '</dd><dt>示意原子</dt><dd>' +
+                snapshot.selection.reduce(function (sum, index) { return sum + snapshot.committedAtoms[index - 1].atoms.length; }, 0) +
+                ' atoms / 全部一起变换</dd></dl>' +
+            '</section>' +
+            '<section class="state-section">' +
+              '<div class="section-kicker">未确认精确变换</div>' +
+              '<dl class="kv"><dt>模式</dt><dd>' + (op ? (op.mode === "move" ? "G / 移动" : "R / 旋转") : "空闲") +
+                '</dd><dt>坐标系</dt><dd>' + snapshot.coordinateSpace +
+                '</dd><dt>Local 暂定定义</dt><dd>' +
+                  (snapshot.coordinateSpace === "LOCAL" ? snapshot.coordinateBasis.definition : "—") +
+                '</dd><dt>约束</dt><dd>' +
+                  (op ? (op.axis ? snapshot.coordinateSpace + " " + op.axis : "视图平面 / 视图轴") : "—") +
+                '</dd><dt>轴向量</dt><dd>' +
+                  (op && op.axis ? "[" + op.transform.axisVector.map(function (v) { return v.toFixed(3); }).join(", ") + "]" : "—") +
+                '</dd><dt>选择中心</dt><dd>' + (op ? "[" + formatPoint(op.pivot, 2) + "] Å" : "—") +
+                '</dd><dt>来源</dt><dd>' + sourceText +
+                '</dd><dt>数值键</dt><dd>' + numericText + '</dd></dl>' +
+              '<div class="exact-transform">' + transformText(op).replace(/\n/g, "<br>") + '</div>' +
+              '<dl class="kv"><dt>内部距离误差</dt><dd>' +
+                (op ? "≤ " + op.internalDistanceError.toExponential(2) + " Å" : "—") +
+                '</dd><dt>确认方式</dt><dd>视口左键 / Enter</dd><dt>取消方式</dt><dd>视口右键 / Esc</dd></dl>' +
+            '</section>' +
+            '<section class="state-section">' +
+              '<div class="section-kicker">O 衰减编辑 · 显式影响</div>' +
+              '<dl class="kv"><dt>状态</dt><dd>' + (snapshot.proportional.enabled ? "ON" : "OFF") +
+                '</dd><dt>半径</dt><dd>' + snapshot.proportional.radius.toFixed(1) + ' Å' +
+                '</dd><dt>曲线</dt><dd>' + falloffNames[snapshot.proportional.falloff] +
+                '</dd><dt>距离规则</dt><dd>' + snapshot.proportional.metric +
+                '</dd><dt>调节</dt><dd>' +
+                  (op && snapshot.proportional.enabled ? "滚轮调整半径" : "O 开启；G/R 后滚轮") +
+                '</dd></dl>' +
+              '<ul class="affected-list">' + affectedItems + '</ul>' +
+              '<dl class="kv"><dt>科学含义</dt><dd>用户指定坐标变换；不是优化</dd></dl>' +
+            '</section>' +
+            '<section class="state-section">' +
+              '<div class="section-kicker">选区边界 · 仅交互示意</div>' +
+              '<ul class="warning-list">' + boundaryItems + '</ul>' +
+              '<dl class="kv"><dt>处理</dt><dd>只警告，不自动修复</dd><dt>未选残基</dt><dd>' +
+                (snapshot.proportional.enabled
+                  ? snapshot.proportional.affected.length + " 个按 O 权重显式变换"
+                  : "保持不变") +
+                '</dd></dl>' +
+            '</section>' +
+            '<section class="state-section">' +
+              '<div class="section-kicker">已确认历史</div>' +
+              '<ul class="history-list">' + records + '</ul>' +
+              '<dl class="kv"><dt>撤销深度</dt><dd>' + snapshot.historyDepth + '</dd><dt>已修改残基</dt><dd>' +
+                (snapshot.modified.length ? snapshot.modified.map(function (i) { return "A:" + i; }).join(", ") : "无") +
+                '</dd></dl>' +
+            '</section>' +
+            '<section class="state-section">' +
+              '<div class="section-kicker">明确不存在</div>' +
+              '<ul class="flag-list"><li>原子选择：false</li><li>S 缩放：false</li><li>自动邻居移动：false</li><li>自动优化：false</li></ul>' +
+            '</section>';
+        }
+        function renderMatrix() {
+          var selected = new Set(snapshot.selection);
+          var modified = new Set(snapshot.modified);
+          var affected = {};
+          snapshot.proportional.affected.forEach(function (item) { affected[item.index] = item.weight; });
+          var boundaries = new Set();
+          snapshot.boundaries.forEach(function (pair) { boundaries.add(pair[0]); boundaries.add(pair[1]); });
+          var indices = sequence.split("").map(function (_, i) { return '<div class="index-cell">' + (i + 1) + '</div>'; }).join("");
+          var residues = sequence.split("").map(function (aa, i) {
+            var index = i + 1;
+            var classes = ["residue-cell"];
+            if (selected.has(index)) classes.push("selected");
+            else if (affected[index]) classes.push("affected");
+            if (modified.has(index)) classes.push("modified");
+            if (boundaries.has(index)) classes.push("boundary");
+            return '<button class="' + classes.join(" ") + '" data-residue="' + index + '" title="A:' + index + ' ' + aa + '">' + aa + '</button>';
+          }).join("");
+          var coords = sequence.split("").map(function (_, i) {
+            var index = i + 1;
+            return '<div class="coord-cell">' +
+              (modified.has(index) ? "MOD" : affected[index] ? Math.round(affected[index] * 100) + "%" : "") +
+              '</div>';
+          }).join("");
+          matrix.innerHTML =
+            '<div class="matrix-row"><div class="row-label">Residue ID</div>' + indices + '</div>' +
+            '<div class="matrix-row"><div class="row-label">sequence</div>' + residues + '</div>' +
+            '<div class="matrix-row"><div class="row-label">坐标状态</div>' + coords + '</div>';
+          residueCount.textContent = snapshot.selection.length + " selected · " + snapshot.groups.length + " groups";
+        }
+        function renderGuides() {
+          guideTabs.innerHTML = guides.map(function (guide, index) {
+            return '<button class="guide-tab ' + (index === activeGuide ? "active" : "") +
+              '" data-guide-tab="' + index + '">' + guide.label + '</button>';
+          }).join("");
+          var guide = guides[activeGuide];
+          guideContent.innerHTML =
+            '<h3 class="guide-title">' + guide.title + '</h3>' +
+            '<p class="guide-copy">' + guide.copy + '</p>' +
+            '<div class="guide-steps">' +
+              guide.steps.map(function (step) {
+                return '<button class="guide-step" data-guide-action="' + step[2] + '"><strong>' +
+                  step[0] + '</strong>' + step[1] + '</button>';
+              }).join("") +
+            '</div><div class="mouse-callout">' + guide.callout + '</div>';
+        }
+        function updateToolbar() {
+          document.querySelectorAll('[data-action="projection"]').forEach(function (button) {
+            button.classList.toggle("active", snapshot.viewProjection === "PERSPECTIVE");
+            button.innerHTML = '<kbd>Num 5</kbd> ' +
+              (snapshot.viewProjection === "PERSPECTIVE" ? "透视" : "正交");
+          });
+          document.querySelectorAll('[data-action="move"]').forEach(function (button) {
+            button.classList.toggle("active", !!snapshot.operation && snapshot.operation.mode === "move");
+          });
+          document.querySelectorAll('[data-action="rotate"]').forEach(function (button) {
+            button.classList.toggle("active", !!snapshot.operation && snapshot.operation.mode === "rotate");
+          });
+          document.querySelectorAll('[data-action="axis"]').forEach(function (button) {
+            button.disabled = !snapshot.operation;
+            button.classList.toggle("active", !!snapshot.operation && snapshot.operation.axis === button.dataset.axis);
+          });
+          document.querySelectorAll('[data-action="space"]').forEach(function (button) {
+            button.classList.toggle("active", snapshot.coordinateSpace === button.dataset.space);
+          });
+          document.querySelectorAll('[data-action="proportional"]').forEach(function (button) {
+            button.classList.toggle("active", snapshot.proportional.enabled);
+          });
+          document.querySelectorAll('[data-action="falloff"]').forEach(function (button) {
+            var labels = { SMOOTH: "平滑", LINEAR: "线性", CONSTANT: "恒定" };
+            button.textContent = labels[snapshot.proportional.falloff];
+          });
+          document.getElementById("radius-badge").textContent = snapshot.proportional.radius.toFixed(1) + " Å";
+          document.querySelectorAll('[data-action="confirm"], [data-action="cancel"]').forEach(function (button) {
+            button.disabled = !snapshot.operation;
+          });
+          document.querySelectorAll('[data-action="undo"]').forEach(function (button) {
+            button.disabled = snapshot.historyDepth === 0 && !snapshot.operation;
+          });
+        }
+        function renderToast() {
+          toast.textContent = snapshot.feedback.text;
+          toast.className = "toast" + (snapshot.feedback.kind === "warn" ? " warn" : snapshot.feedback.kind === "error" ? " error" : "");
+        }
+        function renderAll() {
+          renderState();
+          renderMatrix();
+          renderGuides();
+          updateToolbar();
+          renderToast();
+          drawStructure();
+        }
+        function interactionFrame(pivot, basis) {
+          var frame = getViewFrame(pivot, basis);
+          return {
+            right: frame.right, up: frame.up, normal: frame.normal,
+            unitsPerPixel: frame.unitsPerPixel, pivotScreen: frame.pivotScreen, axes2D: frame.axes2D
+          };
+        }
+        function refreshOperationFrame() {
+          if (!snapshot.operation || !snapshot.operation.currentPointer) return;
+          snapshot = machine.updatePointer(
+            snapshot.operation.currentPointer,
+            interactionFrame(snapshot.operation.pivot, snapshot.operation.basis)
+          );
+        }
+        function modalStart(mode) {
+          var frame = getViewFrame(originalCenter);
+          var pointer = lastPointer || { x: frame.width / 2, y: frame.height / 2 };
+          snapshot = machine.start(mode, pointer);
+          if (snapshot.operation) {
+            snapshot = machine.updatePointer(
+              pointer,
+              interactionFrame(snapshot.operation.pivot, snapshot.operation.basis)
+            );
+          }
+          renderAll();
+        }
+        function performAction(action, axis, space, delta) {
+          if (action === "projection") {
+            snapshot = machine.toggleViewProjection();
+            refreshOperationFrame();
+          }
+          else if (action === "move") modalStart("move");
+          else if (action === "rotate") modalStart("rotate");
+          else if (action === "axis") snapshot = machine.setAxis(axis);
+          else if (action === "space") {
+            snapshot = machine.setCoordinateSpace(space);
+            refreshOperationFrame();
+          }
+          else if (action === "proportional") snapshot = machine.toggleProportional();
+          else if (action === "falloff") snapshot = machine.cycleFalloff();
+          else if (action === "radius") snapshot = machine.adjustProportionalRadius(Number(delta));
+          else if (action === "confirm") snapshot = machine.confirm();
+          else if (action === "cancel") snapshot = machine.cancel();
+          else if (action === "undo") snapshot = machine.undo();
+          else if (action === "scale") snapshot = machine.rejectScale();
+          else if (action === "atom") snapshot = machine.rejectAtomSelection();
+          else if (action === "save-studio") {
+            snapshot.feedback = { kind: "info", text: "原型：模拟明确保存边界；没有写回 Workflow 或持久化。" };
+          } else if (action === "discard-studio") {
+            snapshot.feedback = { kind: "warn", text: "原型：模拟取消 Prompt Studio；内存状态暂未关闭，便于继续走查。" };
+          }
+          renderAll();
+        }
+        function performGuideAction(action) {
+          if (action === "perspective") {
+            snapshot = machine.setViewProjection("PERSPECTIVE");
+            refreshOperationFrame();
+          }
+          else if (action === "orthographic") {
+            snapshot = machine.setViewProjection("ORTHOGRAPHIC");
+            refreshOperationFrame();
+          }
+          else if (action === "single") snapshot = machine.reset([15]);
+          else if (action === "multi") snapshot = machine.reset([8, 9, 10, 23, 31, 32, 33]);
+          else if (action === "global") snapshot = machine.setCoordinateSpace("GLOBAL");
+          else if (action === "local") {
+            snapshot = machine.setCoordinateSpace("LOCAL");
+            refreshOperationFrame();
+          }
+          else if (action === "proportional") snapshot = machine.toggleProportional();
+          else if (action === "radiusUp") snapshot = machine.adjustProportionalRadius(4);
+          else if (action === "move") { modalStart("move"); return; }
+          else if (action === "rotate") { modalStart("rotate"); return; }
+          else if (action === "axisX") snapshot = machine.setAxis("X");
+          else if (action === "axisZ") snapshot = machine.setAxis("Z");
+          else if (action === "confirm") snapshot = machine.confirm();
+          else if (action === "cancel") snapshot = machine.cancel();
+          else if (action === "undo") snapshot = machine.undo();
+          else if (action === "scale") snapshot = machine.rejectScale();
+          else if (action === "atom") snapshot = machine.rejectAtomSelection();
+          renderAll();
+        }
+        function pickResidue(pointer) {
+          var best = null;
+          projectedAtoms.forEach(function (item) {
+            var distance = Math.hypot(pointer.x - item.x, pointer.y - item.y);
+            var threshold = item.atom === "CA" ? 13 : 8;
+            if (distance <= threshold && (!best || distance < best.distance)) best = { residue: item.residue, distance: distance };
+          });
+          return best ? best.residue : null;
+        }
+        function selectClickedResidue(index, event) {
+          if (event.shiftKey && snapshot.selectionAnchor != null) {
+            var start = Math.min(snapshot.selectionAnchor, index);
+            var end = Math.max(snapshot.selectionAnchor, index);
+            var range = [];
+            for (var i = start; i <= end; i += 1) range.push(i);
+            snapshot = machine.select(range, (event.ctrlKey || event.metaKey) ? "add" : "replace", snapshot.selectionAnchor);
+          } else if (event.ctrlKey || event.metaKey) {
+            snapshot = machine.select([index], "toggle", index);
+          } else {
+            snapshot = machine.select([index], "replace", index);
+          }
+          renderAll();
+        }
+        canvas.addEventListener("pointerdown", function (event) {
+          var pointer = pointerForEvent(event);
+          lastPointer = pointer;
+          if (event.button === 1) {
+            cameraDrag = { pointerId: event.pointerId, x: pointer.x, y: pointer.y, pan: event.shiftKey };
+            canvas.setPointerCapture(event.pointerId);
+            event.preventDefault();
+            return;
+          }
+          if (event.button === 2) {
+            if (snapshot.operation) { snapshot = machine.cancel(); renderAll(); }
+            event.preventDefault();
+            return;
+          }
+          if (event.button !== 0) return;
+          if (snapshot.operation) {
+            snapshot = machine.confirm();
+            renderAll();
+            event.preventDefault();
+            return;
+          }
+          selectionDrag = {
+            pointerId: event.pointerId,
+            start: pointer,
+            current: pointer,
+            moved: false,
+            add: event.shiftKey || event.ctrlKey || event.metaKey,
+            modifiers: { shiftKey: event.shiftKey, ctrlKey: event.ctrlKey, metaKey: event.metaKey }
+          };
+          canvas.setPointerCapture(event.pointerId);
+          event.preventDefault();
+        });
+        canvas.addEventListener("pointermove", function (event) {
+          var pointer = pointerForEvent(event);
+          lastPointer = pointer;
+          if (cameraDrag) {
+            var dx = pointer.x - cameraDrag.x;
+            var dy = pointer.y - cameraDrag.y;
+            if (cameraDrag.pan) { camera.panX += dx; camera.panY += dy; }
+            else {
+              camera.yaw += dx * 0.008;
+              camera.pitch = Math.max(-1.45, Math.min(1.45, camera.pitch + dy * 0.008));
+            }
+            cameraDrag.x = pointer.x;
+            cameraDrag.y = pointer.y;
+            drawStructure();
+            return;
+          }
+          if (selectionDrag) {
+            selectionDrag.current = pointer;
+            selectionDrag.moved = selectionDrag.moved ||
+              Math.hypot(pointer.x - selectionDrag.start.x, pointer.y - selectionDrag.start.y) > 5;
+            drawStructure();
+            return;
+          }
+          if (snapshot.operation) {
+            snapshot = machine.updatePointer(
+              pointer,
+              interactionFrame(snapshot.operation.pivot, snapshot.operation.basis)
+            );
+            renderAll();
+            return;
+          }
+          var picked = pickResidue(pointer);
+          if (hoverResidue !== picked) {
+            hoverResidue = picked;
+            canvas.style.cursor = picked ? "pointer" : "default";
+            drawStructure();
+          }
+        });
+        canvas.addEventListener("pointerup", function (event) {
+          var pointer = pointerForEvent(event);
+          if (cameraDrag && cameraDrag.pointerId === event.pointerId) {
+            cameraDrag = null;
+            if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+            return;
+          }
+          if (!selectionDrag || selectionDrag.pointerId !== event.pointerId) return;
+          var drag = selectionDrag;
+          selectionDrag = null;
+          if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+          if (drag.moved) {
+            var minX = Math.min(drag.start.x, pointer.x);
+            var maxX = Math.max(drag.start.x, pointer.x);
+            var minY = Math.min(drag.start.y, pointer.y);
+            var maxY = Math.max(drag.start.y, pointer.y);
+            var ids = Array.from(new Set(projectedAtoms.filter(function (item) {
+              return item.x >= minX && item.x <= maxX && item.y >= minY && item.y <= maxY;
+            }).map(function (item) { return item.residue; })));
+            snapshot = machine.select(ids, drag.add ? "add" : "replace", ids.length ? ids[ids.length - 1] : null);
+            renderAll();
+          } else {
+            var picked = pickResidue(pointer);
+            if (picked) selectClickedResidue(picked, drag.modifiers);
+            else if (!drag.add) { snapshot = machine.select([], "replace", null); renderAll(); }
+          }
+        });
+        canvas.addEventListener("pointercancel", function () {
+          selectionDrag = null;
+          cameraDrag = null;
+          drawStructure();
+        });
+        canvas.addEventListener("contextmenu", function (event) { event.preventDefault(); });
+        canvas.addEventListener("wheel", function (event) {
+          if (snapshot.operation && snapshot.proportional.enabled) {
+            snapshot = machine.adjustProportionalRadius(event.deltaY < 0 ? 0.8 : -0.8);
+            renderAll();
+          } else {
+            camera.distance = Math.max(30, Math.min(105, camera.distance * Math.exp(event.deltaY * 0.0012)));
+            drawStructure();
+          }
+          event.preventDefault();
+        }, { passive: false });
+        document.addEventListener("click", function (event) {
+          var actionButton = event.target.closest("[data-action]");
+          if (actionButton) {
+            performAction(
+              actionButton.dataset.action,
+              actionButton.dataset.axis,
+              actionButton.dataset.space,
+              actionButton.dataset.delta
+            );
+            return;
+          }
+          var residueButton = event.target.closest("[data-residue]");
+          if (residueButton) { selectClickedResidue(Number(residueButton.dataset.residue), event); return; }
+          var tabButton = event.target.closest("[data-guide-tab]");
+          if (tabButton) { activeGuide = Number(tabButton.dataset.guideTab); renderGuides(); return; }
+          var guideButton = event.target.closest("[data-guide-action]");
+          if (guideButton) performGuideAction(guideButton.dataset.guideAction);
+        });
+        window.addEventListener("keydown", function (event) {
+          var key = event.key;
+          if ((event.metaKey || event.ctrlKey) && key.toLowerCase() === "z") {
+            snapshot = machine.undo(); renderAll(); event.preventDefault(); return;
+          }
+          if (event.code === "Numpad5" || (key === "5" && event.location === 3)) {
+            snapshot = machine.toggleViewProjection();
+            refreshOperationFrame();
+            renderAll();
+            event.preventDefault();
+            return;
+          }
+          if (key === "g" || key === "G") { modalStart("move"); event.preventDefault(); return; }
+          if (key === "r" || key === "R") { modalStart("rotate"); event.preventDefault(); return; }
+          if (key === "o" || key === "O") {
+            snapshot = event.shiftKey ? machine.cycleFalloff() : machine.toggleProportional();
+            renderAll();
+            event.preventDefault();
+            return;
+          }
+          if (key === "s" || key === "S") {
+            snapshot = machine.rejectScale(); renderAll(); event.preventDefault(); return;
+          }
+          if (snapshot.operation && ["x", "X", "y", "Y", "z", "Z"].indexOf(key) >= 0) {
+            snapshot = machine.setAxis(key.toUpperCase()); renderAll(); event.preventDefault(); return;
+          }
+          if (snapshot.operation && key === "Enter") {
+            snapshot = machine.confirm(); renderAll(); event.preventDefault(); return;
+          }
+          if (snapshot.operation && key === "Escape") {
+            snapshot = machine.cancel(); renderAll(); event.preventDefault(); return;
+          }
+          if (snapshot.operation && (/^[0-9]$/.test(key) || key === "." || key === "-" || key === "Backspace")) {
+            snapshot = machine.typeNumeric(key); renderAll(); event.preventDefault();
+          }
+        });
+        new ResizeObserver(function () { drawStructure(); }).observe(shell);
+        renderAll();
+      }());
+    </script>
+  </body>
+</html>

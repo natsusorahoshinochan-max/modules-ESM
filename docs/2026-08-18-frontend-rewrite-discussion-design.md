@@ -65,19 +65,22 @@ ProteinMPNN 得到子代序列，再经 SimpleFold/ESMFold2 折叠、评分和�
 
 Prompt Studio 必须覆盖当前 `ProteinPrompt` 的全部输入语义：
 
-- target `ResidueLayout`；
 - sequence track；
 - structure coordinate track；
 - secondary-structure track；
 - absolute per-residue SASA track，单位为 Å²；
 - function annotations。
 
+`ResidueLayout` 是 backend 内部科学身份轴，不是 frontend 向用户呈现或允许直接编辑的
+`ProteinPrompt` 内容。frontend 只显示用于定位的链与残基位置，并把新增、删除等领域操作交给
+backend 维护科学身份和各 track 的重新对齐。
+
 这份列表描述当前 active contract，不是前端永久硬编码的封闭列表。若未来 ESM-3/ProteinPrompt
 增加新的 conditioning track，backend 必须以新的 exact contract 和 capability version 发布；
 frontend 要么显式支持该版本，要么显示 unsupported capability，不能静默忽略新 track。
 
-用户需要对残基布局和各 track 执行添加、编辑、删除、清除/掩码操作，并通过不同颜色、边框、
-符号和纹理区分状态。颜色不能成为唯一编码。
+用户需要新增或删除残基，并对各 track 执行添加、编辑、删除、清除/掩码操作；这些动作通过
+不同颜色、边框、符号和纹理区分状态。颜色不能成为唯一编码。
 
 Prompt Studio 在 Canvas 上表现为一个 **组合单元**，但 Workflow Draft 中始终保存显式 Node
 Instances 和 edges；组合单元不是新的科学 Node Type，也不进入 Run。
@@ -492,7 +495,7 @@ track 之间保持独立：
 
 | 对象 | 添加 | 编辑 | 删除/清除 | 掩码含义 |
 |---|---|---|---|---|
-| residue layout | 在相邻 identity anchor 间插入 | 修改新插入 residue 的目标值 | exact identity delete | layout 无独立 mask |
+| residue membership（由 backend 映射到内部科学身份轴） | 在相邻位置间插入 | 修改新插入 residue 的目标值 | 删除指定 residue | 无独立 mask |
 | sequence | 为 residue 指定氨基酸 | replace value | clear value | unspecified sequence conditioning |
 | structure coordinates | 从合法 source 添加或输入 named-atom XYZ | replace exact named-atom coordinates | clear coordinate value | coordinates unspecified |
 | secondary structure | set one/range | replace class | clear value | unspecified SS conditioning |
