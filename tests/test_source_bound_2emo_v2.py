@@ -58,6 +58,13 @@ from modules.structure_transform.domain import (
 )
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from tests.support.public_request import encode_project_input_content
+from tests.support.prompt_authoring import (
+    apply_prompt_document,
+    initialize_prompt_authoring_draft,
+    open_pdb_prompt_document,
+    preview_prompt_document,
+    save_ordinary_graph_on_prompt_draft,
+)
 from tests.support.workflow_stress import (
     StressRun,
     emit_stress_report,
@@ -655,6 +662,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
     with TestClient(create_application(
         frozen_catalog_override=catalog,
         v2_environment_configuration=environment,
+        authoring_registrations=module_registrations(),
     )) as client:
         project_id = client.post(
             "/api/v2/projects", json={"name": "source-bound 2EMO"}
@@ -668,11 +676,35 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         )
         assert uploaded.status_code == 201
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
+        initialize_prompt_authoring_draft(client, project_id)
+        opened_prompt = open_pdb_prompt_document(
+            client,
+            project_id,
+            uploaded.json()["project_input_ref"],
+            chain_ids=["A"],
+        )
+        applied = apply_prompt_document(
+            client,
+            project_id,
+            preview_prompt_document(
+                client,
+                project_id,
+                opened_prompt["document"],
+            ),
+        )
         payload = _payload()
         payload["workflow_id"] = project_id
-        next(node for node in payload["nodes"] if node["node_id"] == "import-input")["node_parameters"] = {
-            "project_input_ref": uploaded.json()["project_input_ref"]
-        }
+        for node in payload["nodes"]:
+            if node["node_type_id"] == "protein_io.import_structure":
+                node["node_parameters"] = {
+                    "project_input_ref": uploaded.json()["project_input_ref"]
+                }
+        payload = save_ordinary_graph_on_prompt_draft(
+            client,
+            project_id,
+            applied,
+            payload,
+        )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={"workflow": payload},

@@ -36,12 +36,11 @@ from tests.acceptance.biohub_environment import (
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 from tests.support.prompt_authoring import (
     apply_prompt_document,
-    composition_output,
     initialize_prompt_authoring_draft,
     open_blank_prompt_document,
     open_pdb_prompt_document,
     preview_prompt_document,
-    replace_prompt_managed_subgraph,
+    save_ordinary_graph_on_prompt_draft,
 )
 from tests.acceptance.installed_harness import (
     InstalledArtifact,
@@ -113,21 +112,19 @@ def _author_local_workflow(
     input_nodes = [
         node
         for node in workflow["nodes"]
-        if node["node_id"] == "import-3gb1"
+        if node["node_type_id"] == "protein_io.import_structure"
     ]
-    assert len(input_nodes) == 1
-    input_node = input_nodes[0]
-    assert input_node["node_type_id"] == "protein_io.import_structure"
-    input_node["node_parameters"] = {
-        "project_input_ref": project_input_ref
-    }
+    assert input_nodes
+    for input_node in input_nodes:
+        input_node["node_parameters"] = {
+            "project_input_ref": project_input_ref
+        }
 
 
 def _materialize_local_prompt_compositions(
     client: Any,
     project_id: str,
     project_input_ref: str,
-    workflow: dict[str, Any],
 ) -> dict[str, Any]:
     initialize_prompt_authoring_draft(client, project_id)
     opened = open_pdb_prompt_document(
@@ -162,11 +159,7 @@ def _materialize_local_prompt_compositions(
             "seed": 1603,
         },
     ]
-    random_preview = preview_prompt_document(
-        client,
-        project_id,
-        document,
-    )
+    random_preview = preview_prompt_document(client, project_id, document)
     document["track_intents"] = [
         {
             "track": "secondary_structure",
@@ -181,7 +174,7 @@ def _materialize_local_prompt_compositions(
         )
         if value != "_"
     ]
-    prompt_applied = apply_prompt_document(
+    apply_prompt_document(
         client,
         project_id,
         preview_prompt_document(client, project_id, document),
@@ -191,38 +184,10 @@ def _materialize_local_prompt_compositions(
         project_id,
         chains=[{"chain_id": "A", "length": 71}],
     )
-    layout_applied = apply_prompt_document(
+    return apply_prompt_document(
         client,
         project_id,
-        preview_prompt_document(
-            client,
-            project_id,
-            blank["document"],
-        ),
-    )
-    return replace_prompt_managed_subgraph(
-        workflow,
-        layout_applied["draft"]["workflow"],
-        {
-            "build-prompt",
-            "mask-sequence",
-            "mask-structure",
-            "insert-masked",
-            "override-secondary-structure",
-            "build-final-layout",
-        },
-        {
-            ("override-secondary-structure", "protein_prompt"): (
-                composition_output(
-                    prompt_applied["composition"],
-                    "protein_prompt",
-                )
-            ),
-            ("build-final-layout", "layout"): composition_output(
-                layout_applied["composition"],
-                "residue_layout",
-            ),
-        },
+        preview_prompt_document(client, project_id, blank["document"]),
     )
 
 
@@ -258,6 +223,60 @@ def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
     decoded = decode_workflow_document(workflow)
     compiled = compile_workflow(CompilationRequest(decoded), catalog)
     assert compiled.workflow_id == decoded.workflow_id
+
+
+def test_local_canonical_fixture_commits_with_materialized_ownership(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi.testclient import TestClient
+    from protein_workbench_public.bootstrap import create_application
+    from tests.support.public_request import encode_project_input_content
+
+    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
+    workflow = json.loads(
+        files("examples").joinpath(
+            "v2", "canonical-3gb1.workflow.json"
+        ).read_text(encoding="utf-8")
+    )
+    input_bytes = files("examples").joinpath(
+        "v2", "structures", "3GB1.pdb"
+    ).read_bytes()
+    with TestClient(create_application()) as client:
+        project_id = client.post(
+            "/api/v2/projects",
+            json={"name": "canonical fixture ownership"},
+        ).json()["id"]
+        uploaded = client.post(
+            f"/api/v2/projects/{project_id}/inputs",
+            json={
+                "filename": "3GB1.pdb",
+                "content_base64": encode_project_input_content(input_bytes),
+            },
+        )
+        uploaded.raise_for_status()
+        _author_local_workflow(
+            workflow,
+            workflow_id=project_id,
+            project_input_ref=uploaded.json()["project_input_ref"],
+        )
+        applied = _materialize_local_prompt_compositions(
+            client,
+            project_id,
+            uploaded.json()["project_input_ref"],
+        )
+        workflow = save_ordinary_graph_on_prompt_draft(
+            client,
+            project_id,
+            applied,
+            workflow,
+        )
+        committed = client.post(
+            f"/api/v2/projects/{project_id}/workflow:commit",
+            json={"workflow": workflow},
+        )
+
+    assert committed.status_code == 200, committed.json()
 
 
 def _environment(route: str) -> dict[str, dict[str, Any]]:
@@ -753,10 +772,15 @@ def test_fresh_canonical_3gb1_public_run() -> None:
                 workflow_id=project_id,
                 project_input_ref=uploaded.json()["project_input_ref"],
             )
-            workflow = _materialize_local_prompt_compositions(
+            applied = _materialize_local_prompt_compositions(
                 client,
                 project_id,
                 uploaded.json()["project_input_ref"],
+            )
+            workflow = save_ordinary_graph_on_prompt_draft(
+                client,
+                project_id,
+                applied,
                 workflow,
             )
             committed = client.post(

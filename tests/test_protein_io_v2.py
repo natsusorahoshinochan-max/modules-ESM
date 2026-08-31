@@ -534,10 +534,10 @@ def test_sequence_import_reads_only_one_project_scoped_reference(
         for event in events
     )
 
-def test_sequence_import_rejects_multi_fasta_instead_of_concatenating_records(
+def test_sequence_import_concatenates_multi_fasta_records_in_file_order(
     tmp_path: Path,
 ) -> None:
-    _, _, projection, _ = _run_single_node(
+    catalog, service, projection, _ = _run_single_node(
         tmp_path,
         operation="import_sequence",
         node_parameters={"project_input_ref": "multi-fasta"},
@@ -546,8 +546,20 @@ def test_sequence_import_rejects_multi_fasta_instead_of_concatenating_records(
         },
     )
 
-    assert projection["status"] == "failed"
-    assert projection["outputs"] == []
+    assert projection["status"] == "succeeded"
+    output = next(
+        item
+        for item in projection["outputs"]
+        if item["output_port"] == "sequence"
+    )
+    from tests.fixtures.public_v2 import decode_service_typed_output_value
+
+    assert decode_service_typed_output_value(
+        service,
+        catalog,
+        projection,
+        output,
+    ) == ProteinSequence(sequence="ACDEFG")
 
 
 def test_project_input_identity_uses_content_not_opaque_locator(

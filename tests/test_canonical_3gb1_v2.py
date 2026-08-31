@@ -105,9 +105,27 @@ def test_canonical_seed_is_compilable_v2() -> None:
     assert set(nodes) == {
         node["node_id"] for node in _workflow_payload()["nodes"]
     }
-    assert nodes["mask-sequence"].node_parameters["effective_seed"] == 1603
-    assert nodes["mask-structure"].node_parameters["effective_seed"] == 1603
-    assert nodes["insert-masked"].node_parameters["effective_seed"] == 1603
+    prompt_nodes = tuple(nodes.values())
+    sequence_mask = next(
+        node
+        for node in prompt_nodes
+        if node.node_type_id == "prompt_authoring.random_mask"
+        and node.node_parameters["track"] == "sequence"
+    )
+    structure_mask = next(
+        node
+        for node in prompt_nodes
+        if node.node_type_id == "prompt_authoring.random_mask"
+        and node.node_parameters["track"] == "structure"
+    )
+    insertion = next(
+        node
+        for node in prompt_nodes
+        if node.node_type_id == "prompt_authoring.random_insert_masked"
+    )
+    assert sequence_mask.node_parameters["effective_seed"] == 1603
+    assert structure_mask.node_parameters["effective_seed"] == 1603
+    assert insertion.node_parameters["effective_seed"] == 1603
     assert nodes["generate-paired"].node_parameters == {
         "effective_seed": 1603,
         "num_samples": 10,

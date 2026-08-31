@@ -47,13 +47,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "author-reference-layout",
-      "node_type_id": "prompt_authoring.prompt_from_structure",
-      "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
       "node_id": "author-constraints",
       "node_type_id": "proteinmpnn.constraints",
       "binding_id": "proteinmpnn.constraints.local",
@@ -425,6 +418,57 @@
       "binding_id": "collection_ops.intersect_candidates.direct",
       "node_parameters": {},
       "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "2EMO.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "node_type_id": "structure_transform.normalize_csh_parent_span",
+      "binding_id": "structure_transform.normalize_csh_parent_span.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.prompt",
+      "node_type_id": "prompt_authoring.prompt_from_structure",
+      "binding_id": "prompt_authoring.prompt_from_structure.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.0001.annotations",
+      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
+      "node_parameters": {
+        "annotations": [],
+        "overlap_policy": "allow"
+      },
+      "binding_parameters": {}
     }
   ],
   "edges": [
@@ -477,13 +521,7 @@
       "target_port": "residue_axis"
     },
     {
-      "source_node_id": "project-reference-axis",
-      "source_port": "residue_axis",
-      "target_node_id": "author-reference-layout",
-      "target_port": "residue_axis"
-    },
-    {
-      "source_node_id": "author-reference-layout",
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.prompt",
       "source_port": "layout",
       "target_node_id": "author-constraints",
       "target_port": "layout"
@@ -685,6 +723,42 @@
       "source_port": "candidates",
       "target_node_id": "passing-candidates",
       "target_port": "candidates_d"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "source_port": "modified_residue_normalizations",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "target_port": "modified_residue_normalizations"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.normalize_csh",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.prompt",
+      "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.source.prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.0001.annotations",
+      "target_port": "protein_prompt"
     }
   ],
   "observation_selectors": [

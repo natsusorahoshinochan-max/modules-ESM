@@ -617,6 +617,7 @@ def test_biohub_esm_client_builders_own_the_fixed_request_timeout(
 
 def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None:
     from modules.esm3.adapter import (
+        esm3_functional_input_digest,
         protein_prompt_to_provider,
         structure_prompt_for_sequence,
     )
@@ -626,6 +627,13 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         length=8,
         residue_ids=[f"A:{index}" for index in range(1, 9)],
     )
+    representable_structure = {
+        "N": (1.0, 2.0, 3.0),
+        "CA": (4.0, 5.0, 6.0),
+        "C": (7.0, 8.0, 9.0),
+        "CB": (10.0, 11.0, 12.0),
+        "O": (13.0, 14.0, 15.0),
+    }
     prompt = ProteinPrompt(
         target_layout=layout,
         sequence_track=ResidueTrack(
@@ -635,10 +643,8 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         structure_track=ResidueTrack(
             [
                 {
-                    "N": (1.0, 2.0, 3.0),
-                    "CA": (4.0, 5.0, 6.0),
-                    "C": (7.0, 8.0, 9.0),
-                    "O": (10.0, 11.0, 12.0),
+                    **representable_structure,
+                    "H": (16.0, 17.0, 18.0),
                 },
                 *([None] * 7),
             ],
@@ -677,7 +683,18 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
     assert tuple(provider.coordinates.shape) == (8, 37, 3)
     assert provider.coordinates[0, 0].tolist() == [1.0, 2.0, 3.0]
     assert provider.coordinates[0, 1].tolist() == [4.0, 5.0, 6.0]
+    assert provider.coordinates[0, 3].tolist() == [10.0, 11.0, 12.0]
     assert math.isnan(float(provider.coordinates[1, 1, 0]))
+    prompt_without_hydrogen = replace(
+        prompt,
+        structure_track=ResidueTrack(
+            [representable_structure, *([None] * 7)],
+            None,
+        ),
+    )
+    assert esm3_functional_input_digest(prompt) == (
+        esm3_functional_input_digest(prompt_without_hydrogen)
+    )
 
     paired_structure_prompt = structure_prompt_for_sequence(
         provider,

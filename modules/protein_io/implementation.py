@@ -55,13 +55,12 @@ class SequenceImportImplementation:
                 for index, line in enumerate(nonempty_lines)
                 if line.lstrip().startswith(">")
             ]
-            if len(header_indices) > 1:
-                raise ValueError("Sequence input must contain exactly one record")
-            if header_indices and header_indices != [0]:
+            if header_indices and header_indices[0] != 0:
                 raise ValueError("Sequence input has a misplaced FASTA header")
             sequence_parts = [
                 re.sub(r"\s+", "", line)
-                for line in nonempty_lines[len(header_indices) :]
+                for line in nonempty_lines
+                if not line.lstrip().startswith(">")
             ]
             raw_sequence = "".join(sequence_parts)
             imported = ProteinSequence(

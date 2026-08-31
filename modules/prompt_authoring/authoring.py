@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
+import math
 import re
 from typing import Any, cast
-import uuid
 
 from core.catalog.canonical import canonical_json_bytes
 from core.project.manager import ProjectInputDescriptor, ProjectManager
@@ -241,7 +242,6 @@ def _source_document(
     handles = _source_handles(prompt)
     handle_by_id = {residue_id: handle for handle, residue_id in handles.items()}
     return {
-        "authoring_session_id": f"authoring-{uuid.uuid4().hex}",
         "source": _copy_document(source),
         "target_residues": [
             {
@@ -431,15 +431,6 @@ class PromptAuthoringService:
             source=evaluated.source.facts,
         )
 
-    def _inserted_residue_id(
-        self,
-        session_id: str,
-        chain_id: str,
-        ordinal: int,
-    ) -> str:
-        token = session_id.removeprefix("authoring-")[:12]
-        return f"{chain_id}:inserted.{token}.{ordinal}"
-
     def _rigid_overrides(
         self,
         prompt: ProteinPrompt,
@@ -500,7 +491,6 @@ class PromptAuthoringService:
         handle_to_id = dict(source_handles)
         target_ids: list[str] = []
         chain_order: list[str] = []
-        inserted_ordinal = 0
         for item in document["target_residues"]:
             handle = item["residue_handle"]
             chain_id = item["chain_id"]
@@ -509,12 +499,10 @@ class PromptAuthoringService:
             if item["origin"] == "source":
                 residue_id = source_handles[handle]
             else:
-                inserted_ordinal += 1
-                residue_id = self._inserted_residue_id(
-                    document["authoring_session_id"],
-                    chain_id,
-                    inserted_ordinal,
-                )
+                token = hashlib.sha256(
+                    f"{chain_id}:{handle}".encode("utf-8")
+                ).hexdigest()[:24]
+                residue_id = f"{chain_id}:inserted.{token}"
                 handle_to_id[handle] = residue_id
             target_ids.append(residue_id)
         target_layout = ResidueLayout(
@@ -819,6 +807,55 @@ class PromptAuthoringService:
         for transform_index, transform in enumerate(
             document["rigid_transforms"]
         ):
+            matrix = transform["rotation_matrix"]
+            orthonormal = all(
+                math.isclose(
+                    math.fsum(
+                        matrix[index][left] * matrix[index][right]
+                        for index in range(3)
+                    ),
+                    1.0 if left == right else 0.0,
+                    rel_tol=0.0,
+                    abs_tol=1e-8,
+                )
+                for left in range(3)
+                for right in range(3)
+            )
+            determinant = (
+                matrix[0][0]
+                * (
+                    matrix[1][1] * matrix[2][2]
+                    - matrix[1][2] * matrix[2][1]
+                )
+                - matrix[0][1]
+                * (
+                    matrix[1][0] * matrix[2][2]
+                    - matrix[1][2] * matrix[2][0]
+                )
+                + matrix[0][2]
+                * (
+                    matrix[1][0] * matrix[2][1]
+                    - matrix[1][1] * matrix[2][0]
+                )
+            )
+            if not orthonormal or not math.isclose(
+                determinant,
+                1.0,
+                rel_tol=0.0,
+                abs_tol=1e-8,
+            ):
+                diagnostics.append(
+                    PromptAuthoringDiagnostic(
+                        "rigid_rotation_invalid",
+                        "Rigid transform rotation matrix is not a proper rotation",
+                        (
+                            "rigid_transforms",
+                            transform_index,
+                            "rotation_matrix",
+                        ),
+                    )
+                )
+                continue
             invalid = False
             for handle in transform["residue_handles"]:
                 if (
@@ -970,6 +1007,7 @@ class PromptAuthoringService:
             correspondence_items: list[Mapping[str, str]] = []
             correspondence_valid = True
             for row_index, item in enumerate(merge["correspondence"]):
+                row_valid = True
                 source_handle = item.get("source_residue_handle")
                 target_handle = item.get("target_residue_handle")
                 if (
@@ -991,6 +1029,7 @@ class PromptAuthoringService:
                         )
                     )
                     correspondence_valid = False
+                    row_valid = False
                 if (
                     target_handle is not None
                     and (
@@ -1014,7 +1053,8 @@ class PromptAuthoringService:
                         )
                     )
                     correspondence_valid = False
-                if correspondence_valid:
+                    row_valid = False
+                if row_valid:
                     correspondence_items.append(
                         {
                             "disposition": item["disposition"],
@@ -1039,6 +1079,156 @@ class PromptAuthoringService:
                         }
                     )
             correspondence = tuple(correspondence_items)
+            source_corresponded = tuple(
+                item["source_residue_id"]
+                for item in correspondence
+                if "source_residue_id" in item
+            )
+            target_corresponded = tuple(
+                item["target_residue_id"]
+                for item in correspondence
+                if "target_residue_id" in item
+            )
+            source_counts = Counter(source_corresponded)
+            target_counts = Counter(target_corresponded)
+            source_id_to_handle = {
+                residue_id: handle
+                for handle, residue_id in source_handle_map.items()
+            }
+            target_id_to_handle = {
+                residue_id: handle for handle, residue_id in handle_to_id.items()
+            }
+            for residue_id in merge_source.prompt.target_layout.residue_ids:
+                count = source_counts[residue_id]
+                if count == 0:
+                    diagnostics.append(
+                        PromptAuthoringDiagnostic(
+                            "correspondence_source_missing",
+                            "Merge correspondence does not dispose this source residue",
+                            ("source_merges", merge_index, "correspondence"),
+                            source_id_to_handle[residue_id],
+                        )
+                    )
+                    correspondence_valid = False
+                elif count > 1:
+                    diagnostics.append(
+                        PromptAuthoringDiagnostic(
+                            "correspondence_source_duplicate",
+                            "Merge correspondence disposes this source residue more than once",
+                            ("source_merges", merge_index, "correspondence"),
+                            source_id_to_handle[residue_id],
+                        )
+                    )
+                    correspondence_valid = False
+            for residue_id in prompt.target_layout.residue_ids:
+                count = target_counts[residue_id]
+                if count == 0:
+                    diagnostics.append(
+                        PromptAuthoringDiagnostic(
+                            "correspondence_target_missing",
+                            "Merge correspondence does not dispose this target residue",
+                            ("source_merges", merge_index, "correspondence"),
+                            target_id_to_handle[residue_id],
+                        )
+                    )
+                    correspondence_valid = False
+                elif count > 1:
+                    diagnostics.append(
+                        PromptAuthoringDiagnostic(
+                            "correspondence_target_duplicate",
+                            "Merge correspondence disposes this target residue more than once",
+                            ("source_merges", merge_index, "correspondence"),
+                            target_id_to_handle[residue_id],
+                        )
+                    )
+                    correspondence_valid = False
+            for track in _TRACK_NAMES:
+                if (
+                    merge["track_decisions"][track] == "adopt"
+                    and _track_values(merge_source.prompt, track) is None
+                ):
+                    diagnostics.append(
+                        PromptAuthoringDiagnostic(
+                            "merge_source_track_missing",
+                            "Merge source does not contain the adopted track",
+                            (
+                                "source_merges",
+                                merge_index,
+                                "track_decisions",
+                                track,
+                            ),
+                        )
+                    )
+                    correspondence_valid = False
+            if merge["track_decisions"]["function_annotations"] == "adopt":
+                source_to_target = {
+                    item["source_residue_id"]: item["target_residue_id"]
+                    for item in correspondence
+                    if item["disposition"] == "match"
+                }
+                source_ids = tuple(
+                    merge_source.prompt.target_layout.residue_ids
+                )
+                source_index = {
+                    residue_id: index
+                    for index, residue_id in enumerate(source_ids)
+                }
+                target_index = {
+                    residue_id: index
+                    for index, residue_id in enumerate(
+                        prompt.target_layout.residue_ids
+                    )
+                }
+                for annotation_index, annotation in enumerate(
+                    merge_source.prompt.function_annotations.annotations
+                ):
+                    source_span = source_ids[
+                        source_index[annotation.start_residue_id] :
+                        source_index[annotation.end_residue_id] + 1
+                    ]
+                    mapped_span = tuple(
+                        source_to_target.get(residue_id)
+                        for residue_id in source_span
+                    )
+                    mapped_positions = tuple(
+                        target_index[residue_id]
+                        for residue_id in mapped_span
+                        if residue_id is not None
+                    )
+                    annotation_lost = (
+                        len(mapped_positions) != len(source_span)
+                        or mapped_positions
+                        != tuple(
+                            range(
+                                mapped_positions[0],
+                                mapped_positions[0] + len(mapped_positions),
+                            )
+                        )
+                        or len({
+                            residue_chain(residue_id)
+                            for residue_id in mapped_span
+                            if residue_id is not None
+                        })
+                        != 1
+                    )
+                    if annotation_lost:
+                        diagnostics.append(
+                            PromptAuthoringDiagnostic(
+                                "annotation_loss",
+                                "Source merge would lose a function annotation interval",
+                                (
+                                    "source_merges",
+                                    merge_index,
+                                    "track_decisions",
+                                    "function_annotations",
+                                    annotation_index,
+                                ),
+                                source_id_to_handle[
+                                    annotation.start_residue_id
+                                ],
+                            )
+                        )
+                        correspondence_valid = False
             if correspondence_valid and merge["confirmed"] and "conflict" not in merge[
                 "track_decisions"
             ].values():
@@ -1092,6 +1282,17 @@ class PromptAuthoringService:
     ]:
         prompt = evaluated.prompt
         handles = evaluated.residue_id_to_handle
+        source_prompt = evaluated.source.prompt
+        source_ids = tuple(source_prompt.target_layout.residue_ids)
+        source_index = {
+            residue_id: index for index, residue_id in enumerate(source_ids)
+        }
+        target_ids = set(prompt.target_layout.residue_ids)
+        preserved = {
+            (intent["track"], intent["residue_handle"])
+            for intent in evaluated.document["track_intents"]
+            if intent["action"] == "preserve"
+        }
         residues: list[Mapping[str, Any]] = []
         for index, residue_id in enumerate(prompt.target_layout.residue_ids):
             handle = handles[residue_id]
@@ -1103,14 +1304,27 @@ class PromptAuthoringService:
                     "position": index + 1,
                 }
             )
+        for index, residue_id in enumerate(source_ids):
+            if residue_id in target_ids:
+                continue
+            residues.append(
+                {
+                    "residue_handle": handles[residue_id],
+                    "chain_id": residue_chain(residue_id),
+                    "residue_label": residue_id.split(":", 1)[1],
+                    "position": index + 1,
+                }
+            )
         tracks: dict[str, tuple[Mapping[str, Any], ...]] = {}
         for track in _TRACK_NAMES:
             values = _track_values(prompt, track)
-            def projected_value(index: int) -> Any:
-                if values is None or values[index] is None:
+            source_values = _track_values(source_prompt, track)
+
+            def projected_value(value: Any) -> Any:
+                if value is None:
                     return None
                 if track != "structure":
-                    return values[index]
+                    return value
                 return {
                     "atoms": [
                         {
@@ -1119,31 +1333,109 @@ class PromptAuthoringService:
                             "coordinates": list(coordinates),
                         }
                         for atom_index, (atom_name, coordinates) in enumerate(
-                            cast(Mapping[str, Any], values[index]).items()
+                            cast(Mapping[str, Any], value).items()
                         )
                     ]
                 }
-            tracks[track] = tuple(
-                {
+
+            projected: list[Mapping[str, Any]] = []
+            for index, residue_id in enumerate(prompt.target_layout.residue_ids):
+                handle = cast(str, residues[index]["residue_handle"])
+                value = None if values is None else values[index]
+                if residue_id not in source_index:
+                    state = "inserted"
+                else:
+                    source_value = (
+                        None
+                        if source_values is None
+                        else source_values[source_index[residue_id]]
+                    )
+                    if value == source_value:
+                        state = (
+                            "current"
+                            if (track, handle) in preserved
+                            else "source"
+                        )
+                    elif value is None:
+                        state = "cleared"
+                    else:
+                        state = "changed"
+                projected.append({
                     "residue_handle": residues[index]["residue_handle"],
-                    "value": projected_value(index),
+                    "value": projected_value(value),
+                    "state": state,
+                })
+            for index, residue_id in enumerate(source_ids):
+                if residue_id in target_ids:
+                    continue
+                source_value = (
+                    None if source_values is None else source_values[index]
+                )
+                projected.append({
+                    "residue_handle": handles[residue_id],
+                    "value": projected_value(source_value),
+                    "state": "pending-delete",
+                })
+            tracks[track] = tuple(projected)
+        source_annotations = {
+            (
+                annotation.label,
+                annotation.start_residue_id,
+                annotation.end_residue_id,
+            ): annotation
+            for annotation in source_prompt.function_annotations.annotations
+        }
+        final_annotation_keys = {
+            (
+                annotation.label,
+                annotation.start_residue_id,
+                annotation.end_residue_id,
+            )
+            for annotation in prompt.function_annotations.annotations
+        }
+        source_labels = {
+            annotation.label
+            for annotation in source_prompt.function_annotations.annotations
+        }
+        annotations: list[Mapping[str, Any]] = []
+        for annotation in prompt.function_annotations.annotations:
+            key = (
+                annotation.label,
+                annotation.start_residue_id,
+                annotation.end_residue_id,
+            )
+            annotations.append(
+                {
+                    "label": annotation.label,
+                    "start_residue_handle": handles[
+                        annotation.start_residue_id
+                    ],
+                    "end_residue_handle": handles[annotation.end_residue_id],
                     "state": (
-                        "cleared"
-                        if values is None or values[index] is None
-                        else "current"
+                        "source"
+                        if key in source_annotations
+                        else (
+                            "changed"
+                            if annotation.label in source_labels
+                            else "inserted"
+                        )
                     ),
                 }
-                for index in range(prompt.target_layout.length)
             )
-        annotations = tuple(
-            {
-                "label": annotation.label,
-                "start_residue_handle": handles[annotation.start_residue_id],
-                "end_residue_handle": handles[annotation.end_residue_id],
-            }
-            for annotation in prompt.function_annotations.annotations
-        )
-        return tuple(residues), tracks, annotations
+        for key, annotation in source_annotations.items():
+            if key in final_annotation_keys:
+                continue
+            annotations.append(
+                {
+                    "label": annotation.label,
+                    "start_residue_handle": handles[
+                        annotation.start_residue_id
+                    ],
+                    "end_residue_handle": handles[annotation.end_residue_id],
+                    "state": "pending-delete",
+                }
+            )
+        return tuple(residues), tracks, tuple(annotations)
 
     def preview(
         self,
@@ -1479,25 +1771,34 @@ class PromptAuthoringService:
         )
         current = (assemble.node_id, "protein_prompt")
         if kind == "fasta":
-            overrides = [
-                {
-                    "action": "replace",
-                    "residue_id": residue_id,
-                    "value": evaluated.source.prompt.sequence_track.values[index],
-                }
-                for index, residue_id in enumerate(
-                    evaluated.source.prompt.target_layout.residue_ids
-                )
-            ]
+            imported = self._node(
+                composition_id,
+                "source.import_sequence",
+                "protein_io.import_sequence",
+                {"project_input_ref": source["project_input_ref"]},
+            )
             sequence = self._node(
                 composition_id,
                 "source.sequence",
-                "prompt_authoring.override_protein_prompt_track",
-                {"track": "sequence", "overrides": overrides},
+                "prompt_authoring.update_prompt_sequence",
+                {},
             )
-            nodes.append(sequence)
-            edges.append(
-                WorkflowEdge(current[0], current[1], sequence.node_id, "protein_prompt")
+            nodes.extend((imported, sequence))
+            edges.extend(
+                (
+                    WorkflowEdge(
+                        current[0],
+                        current[1],
+                        sequence.node_id,
+                        "protein_prompt",
+                    ),
+                    WorkflowEdge(
+                        imported.node_id,
+                        "sequence",
+                        sequence.node_id,
+                        "sequence",
+                    ),
+                )
             )
             current = (sequence.node_id, "protein_prompt")
         return (
@@ -1557,17 +1858,46 @@ class PromptAuthoringService:
                 "prompt_authoring.prompt_from_structure",
                 {},
             )
-            nodes.extend((imported, selected, resolved, prompt_node))
+            nodes.extend((imported, selected))
+            edges.append(
+                WorkflowEdge(
+                    imported.node_id,
+                    "structure",
+                    selected.node_id,
+                    "structure",
+                )
+            )
+            resolved_source = selected
+            if source_value.csh_normalized:
+                normalized = self._node(
+                    composition_id,
+                    f"{prefix}.normalize_csh",
+                    "structure_transform.normalize_csh_parent_span",
+                    {},
+                )
+                nodes.append(normalized)
+                edges.extend(
+                    (
+                        WorkflowEdge(
+                            selected.node_id,
+                            "structure",
+                            normalized.node_id,
+                            "structure",
+                        ),
+                        WorkflowEdge(
+                            normalized.node_id,
+                            "modified_residue_normalizations",
+                            resolved.node_id,
+                            "modified_residue_normalizations",
+                        ),
+                    )
+                )
+                resolved_source = normalized
+            nodes.extend((resolved, prompt_node))
             edges.extend(
                 (
                     WorkflowEdge(
-                        imported.node_id,
-                        "structure",
-                        selected.node_id,
-                        "structure",
-                    ),
-                    WorkflowEdge(
-                        selected.node_id,
+                        resolved_source.node_id,
                         "structure",
                         resolved.node_id,
                         "structure",
@@ -1650,33 +1980,33 @@ class PromptAuthoringService:
         )
         current = (assemble.node_id, "protein_prompt")
         if source["kind"] == "fasta":
+            imported = self._node(
+                composition_id,
+                f"{prefix}.import_sequence",
+                "protein_io.import_sequence",
+                {"project_input_ref": source["project_input_ref"]},
+            )
             sequence = self._node(
                 composition_id,
                 f"{prefix}.sequence",
-                "prompt_authoring.override_protein_prompt_track",
-                {
-                    "track": "sequence",
-                    "overrides": [
-                        {
-                            "action": "replace",
-                            "residue_id": residue_id,
-                            "value": source_value.prompt.sequence_track.values[
-                                index
-                            ],
-                        }
-                        for index, residue_id in enumerate(
-                            source_value.prompt.target_layout.residue_ids
-                        )
-                    ],
-                },
+                "prompt_authoring.update_prompt_sequence",
+                {},
             )
-            nodes.append(sequence)
-            edges.append(
-                WorkflowEdge(
-                    current[0],
-                    current[1],
-                    sequence.node_id,
-                    "protein_prompt",
+            nodes.extend((imported, sequence))
+            edges.extend(
+                (
+                    WorkflowEdge(
+                        current[0],
+                        current[1],
+                        sequence.node_id,
+                        "protein_prompt",
+                    ),
+                    WorkflowEdge(
+                        imported.node_id,
+                        "sequence",
+                        sequence.node_id,
+                        "sequence",
+                    ),
                 )
             )
             current = (sequence.node_id, "protein_prompt")
@@ -1762,6 +2092,9 @@ class PromptAuthoringService:
                     ],
                 },
             )
+            layout_output = ManagedRoleEndpoint(
+                "residue_layout", current[0], "layout"
+            )
         for random_operation in evaluated.random_operations:
             effective = random_operation["effective"]
             if random_operation["kind"] == "mask":
@@ -1775,6 +2108,9 @@ class PromptAuthoringService:
                     f"random_insert_{random_operation['operation_id']}",
                     "prompt_authoring.random_insert_masked",
                     effective,
+                )
+                layout_output = ManagedRoleEndpoint(
+                    "residue_layout", current[0], "layout"
                 )
         for track in _TRACK_NAMES:
             overrides = evaluated.track_overrides[track]
@@ -1943,8 +2279,36 @@ class PromptAuthoringService:
             )
             return PromptApplyResult(published, None)
 
+        evaluated = self._evaluate(project_id, normalized_document)
         if intent in {"create", "copy"}:
-            target_composition_id = f"prompt-composition-{uuid.uuid4().hex}"
+            identity_document = _copy_document(evaluated.document)
+            if "project_input_ref" in identity_document["source"]:
+                identity_document["source"]["project_input_ref"] = (
+                    evaluated.source.facts["content_digest"]
+                )
+            token = hashlib.sha256(
+                canonical_json_bytes(identity_document)
+            ).hexdigest()[:24]
+            base_composition_id = f"prompt-composition-{token}"
+            matching_ordinals = tuple(
+                1
+                if record.composition_id == base_composition_id
+                else int(
+                    record.composition_id.removeprefix(
+                        f"{base_composition_id}-"
+                    )
+                )
+                for record in records
+                if record.composition_id == base_composition_id
+                or record.composition_id.startswith(
+                    f"{base_composition_id}-"
+                )
+            )
+            target_composition_id = (
+                base_composition_id
+                if not matching_ordinals
+                else f"{base_composition_id}-{max(matching_ordinals) + 1}"
+            )
         else:
             if existing is None:
                 raise WorkflowAuthoringError(
@@ -1956,7 +2320,6 @@ class PromptAuthoringService:
                     },
                 )
             target_composition_id = existing.composition_id
-        evaluated = self._evaluate(project_id, normalized_document)
         nodes, internal_edges, record, source_external_edges = self._materialize(
             project_id,
             target_composition_id,

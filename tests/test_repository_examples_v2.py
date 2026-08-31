@@ -77,6 +77,26 @@ def _load(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def test_prompt_examples_use_canonical_materializer_nodes() -> None:
+    for filename in (
+        "canonical-3gb1.workflow.json",
+        "source-bound-2emo.workflow.json",
+        "source-bound-5g53.workflow.json",
+    ):
+        workflow = _load(PROJECT_ROOT / "examples" / "v2" / filename)
+        nodes = workflow["nodes"]
+        prompt_nodes = [
+            node
+            for node in nodes
+            if node["node_type_id"].startswith("prompt_authoring.")
+        ]
+        assert prompt_nodes
+        assert all(
+            node["node_id"].startswith("prompt-composition-")
+            for node in prompt_nodes
+        )
+
+
 def _selection_catalog():
     return build_frozen_catalog(
         (

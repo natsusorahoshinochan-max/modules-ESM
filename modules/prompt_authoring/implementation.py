@@ -195,6 +195,7 @@ class RandomInsertMaskedImplementation(_Implementation):
         return {
             "protein_prompt": prompt,
             "residue_map": residue_map,
+            "layout": prompt.target_layout,
         }
 
 
@@ -211,6 +212,7 @@ class EditProteinPromptLayoutImplementation(_Implementation):
         return {
             "protein_prompt": prompt,
             "residue_map": residue_map,
+            "layout": prompt.target_layout,
         }
 
 

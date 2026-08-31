@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from fastapi import FastAPI
 
 from core.catalog.model import FrozenCatalog
+from core.catalog.declarations import ModulePackageRegistration
 from core.catalog.authoring import build_authoring_capability_projection
 from core.execution.environment import admit_environment_configuration
 from core.execution.ledger import LedgerStore
@@ -31,10 +32,14 @@ def create_application(
         Mapping[str, Mapping[str, Any]] | None
     ) = None,
     ledger_transaction_store: LedgerStore | None = None,
+    authoring_registrations: Sequence[ModulePackageRegistration] = (),
 ) -> FastAPI:
     """Compose an app around explicit test-owned dependencies."""
     catalog = frozen_catalog_override
-    authoring_projection = build_authoring_capability_projection((), catalog)
+    authoring_projection = build_authoring_capability_projection(
+        authoring_registrations,
+        catalog,
+    )
     storage = application_storage_roots()
     projects = ProjectManager(
         root_dir=storage.projects,

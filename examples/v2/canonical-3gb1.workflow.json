@@ -40,43 +40,356 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "build-prompt",
+      "node_id": "generate-paired",
+      "node_type_id": "esm3.generate_paired",
+      "binding_id": "esm3.generate_paired.biohub_medium",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "num_samples": 10
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-generated-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-sequences",
+      "node_type_id": "folding.fold",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-folded-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rebind-counterparts",
+      "node_type_id": "collection_ops.rebind_candidate_pairing",
+      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-folded-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-generated-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-canonical-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-fixed",
+      "node_type_id": "structure_comparison.align_fixed_reference",
+      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "score-fixed",
+      "node_type_id": "structure_comparison.tm_score_fixed_reference",
+      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-paired",
+      "node_type_id": "structure_comparison.align_counterparts",
+      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "score-paired",
+      "node_type_id": "structure_comparison.tm_score_counterparts",
+      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "merge-scores",
+      "node_type_id": "collection_ops.merge_scores",
+      "binding_id": "collection_ops.merge_scores.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rank-candidates",
+      "node_type_id": "selection.weighted_rank",
+      "binding_id": "selection.weighted_rank.direct",
+      "node_parameters": {
+        "objective_ids": [
+          "fixed-3gb1",
+          "paired-esm3"
+        ],
+        "tie_policy": "candidate_id_ascending"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "take-top-three",
+      "node_type_id": "collection_ops.take_candidates",
+      "binding_id": "collection_ops.take_candidates.direct",
+      "node_parameters": {
+        "k": 3
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-selected-residue-axes",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fixed-positions",
+      "node_type_id": "proteinmpnn.random_fixed_positions",
+      "binding_id": "proteinmpnn.random_fixed_positions.local",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "fraction": 0.5
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "design-children",
+      "node_type_id": "proteinmpnn.design",
+      "binding_id": "proteinmpnn.design.local",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "num_sequences": 5,
+        "temperature": 0.1,
+        "backbone_noise": 0
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-final",
+      "node_type_id": "folding.fold",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "node_parameters": {
+        "effective_seed": 1603,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-final-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "export-final",
+      "node_type_id": "protein_io.export_structure",
+      "binding_id": "protein_io.export_structure.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "3GB1.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.source.prompt",
       "node_type_id": "prompt_authoring.prompt_from_structure",
       "binding_id": "prompt_authoring.prompt_from_structure.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "mask-sequence",
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0001.random_mask_mask-sequence",
       "node_type_id": "prompt_authoring.random_mask",
       "binding_id": "prompt_authoring.random_mask.direct",
       "node_parameters": {
-        "effective_seed": 1603,
         "count": 20,
-        "track": "sequence",
-        "eligible_residue_ids": []
+        "effective_seed": 1603,
+        "eligible_residue_ids": [
+          "A:1",
+          "A:10",
+          "A:11",
+          "A:12",
+          "A:13",
+          "A:14",
+          "A:15",
+          "A:16",
+          "A:17",
+          "A:18",
+          "A:19",
+          "A:2",
+          "A:20",
+          "A:21",
+          "A:22",
+          "A:23",
+          "A:24",
+          "A:25",
+          "A:26",
+          "A:27",
+          "A:28",
+          "A:29",
+          "A:3",
+          "A:30",
+          "A:31",
+          "A:32",
+          "A:33",
+          "A:34",
+          "A:35",
+          "A:36",
+          "A:37",
+          "A:38",
+          "A:39",
+          "A:4",
+          "A:40",
+          "A:41",
+          "A:42",
+          "A:43",
+          "A:44",
+          "A:45",
+          "A:46",
+          "A:47",
+          "A:48",
+          "A:49",
+          "A:5",
+          "A:50",
+          "A:51",
+          "A:52",
+          "A:53",
+          "A:54",
+          "A:55",
+          "A:56",
+          "A:6",
+          "A:7",
+          "A:8",
+          "A:9"
+        ],
+        "track": "sequence"
       },
       "binding_parameters": {}
     },
     {
-      "node_id": "mask-structure",
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0002.random_mask_mask-structure",
       "node_type_id": "prompt_authoring.random_mask",
       "binding_id": "prompt_authoring.random_mask.direct",
       "node_parameters": {
-        "effective_seed": 1603,
         "count": 10,
-        "track": "structure",
-        "eligible_residue_ids": []
+        "effective_seed": 1603,
+        "eligible_residue_ids": [
+          "A:1",
+          "A:10",
+          "A:11",
+          "A:12",
+          "A:13",
+          "A:14",
+          "A:15",
+          "A:16",
+          "A:17",
+          "A:18",
+          "A:19",
+          "A:2",
+          "A:20",
+          "A:21",
+          "A:22",
+          "A:23",
+          "A:24",
+          "A:25",
+          "A:26",
+          "A:27",
+          "A:28",
+          "A:29",
+          "A:3",
+          "A:30",
+          "A:31",
+          "A:32",
+          "A:33",
+          "A:34",
+          "A:35",
+          "A:36",
+          "A:37",
+          "A:38",
+          "A:39",
+          "A:4",
+          "A:40",
+          "A:41",
+          "A:42",
+          "A:43",
+          "A:44",
+          "A:45",
+          "A:46",
+          "A:47",
+          "A:48",
+          "A:49",
+          "A:5",
+          "A:50",
+          "A:51",
+          "A:52",
+          "A:53",
+          "A:54",
+          "A:55",
+          "A:56",
+          "A:6",
+          "A:7",
+          "A:8",
+          "A:9"
+        ],
+        "track": "structure"
       },
       "binding_parameters": {}
     },
     {
-      "node_id": "insert-masked",
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0003.random_insert_insert-masked",
       "node_type_id": "prompt_authoring.random_insert_masked",
       "binding_id": "prompt_authoring.random_insert_masked.direct",
       "node_parameters": {
-        "effective_seed": 1603,
         "count": 15,
+        "effective_seed": 1603,
         "eligible_chain_ids": [
           "A"
         ]
@@ -84,11 +397,10 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "override-secondary-structure",
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0004.override_secondary_structure",
       "node_type_id": "prompt_authoring.override_protein_prompt_track",
       "binding_id": "prompt_authoring.override_protein_prompt_track.direct",
       "node_parameters": {
-        "track": "secondary_structure",
         "overrides": [
           {
             "action": "replace",
@@ -335,138 +647,23 @@
             "residue_id": "A:43",
             "value": "E"
           }
-        ]
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "generate-paired",
-      "node_type_id": "esm3.generate_paired",
-      "binding_id": "esm3.generate_paired.biohub_medium",
-      "node_parameters": {
-        "effective_seed": 1603,
-        "num_samples": 10
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "materialize-generated-confidence",
-      "node_type_id": "structure_prediction.materialize_confidence",
-      "binding_id": "structure_prediction.materialize_confidence.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "fold-sequences",
-      "node_type_id": "folding.fold",
-      "binding_id": "folding.fold.esmfold2_remote",
-      "node_parameters": {
-        "effective_seed": 1603,
-        "num_samples": 1
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "materialize-folded-confidence",
-      "node_type_id": "structure_prediction.materialize_confidence",
-      "binding_id": "structure_prediction.materialize_confidence.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "rebind-counterparts",
-      "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "resolve-folded-residue-axes",
-      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "resolve-generated-residue-axes",
-      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "resolve-canonical-residue-axes",
-      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "align-fixed",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "score-fixed",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "align-paired",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "score-paired",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "merge-scores",
-      "node_type_id": "collection_ops.merge_scores",
-      "binding_id": "collection_ops.merge_scores.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "rank-candidates",
-      "node_type_id": "selection.weighted_rank",
-      "binding_id": "selection.weighted_rank.direct",
-      "node_parameters": {
-        "objective_ids": [
-          "fixed-3gb1",
-          "paired-esm3"
         ],
-        "tie_policy": "candidate_id_ascending"
+        "track": "secondary_structure"
       },
       "binding_parameters": {}
     },
     {
-      "node_id": "take-top-three",
-      "node_type_id": "collection_ops.take_candidates",
-      "binding_id": "collection_ops.take_candidates.direct",
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0005.annotations",
+      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
       "node_parameters": {
-        "k": 3
+        "annotations": [],
+        "overlap_policy": "allow"
       },
       "binding_parameters": {}
     },
     {
-      "node_id": "resolve-selected-residue-axes",
-      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
-      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "build-final-layout",
+      "node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.layout",
       "node_type_id": "prompt_authoring.build_residue_layout",
       "binding_id": "prompt_authoring.build_residue_layout.direct",
       "node_parameters": {
@@ -480,49 +677,20 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "fixed-positions",
-      "node_type_id": "proteinmpnn.random_fixed_positions",
-      "binding_id": "proteinmpnn.random_fixed_positions.local",
-      "node_parameters": {
-        "effective_seed": 1603,
-        "fraction": 0.5
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "design-children",
-      "node_type_id": "proteinmpnn.design",
-      "binding_id": "proteinmpnn.design.local",
-      "node_parameters": {
-        "effective_seed": 1603,
-        "num_sequences": 5,
-        "temperature": 0.1,
-        "backbone_noise": 0
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "fold-final",
-      "node_type_id": "folding.fold",
-      "binding_id": "folding.fold.esmfold2_remote",
-      "node_parameters": {
-        "effective_seed": 1603,
-        "num_samples": 1
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "materialize-final-confidence",
-      "node_type_id": "structure_prediction.materialize_confidence",
-      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.prompt",
+      "node_type_id": "prompt_authoring.assemble_protein_prompt",
+      "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
-      "node_id": "export-final",
-      "node_type_id": "protein_io.export_structure",
-      "binding_id": "protein_io.export_structure.direct",
-      "node_parameters": {},
+      "node_id": "prompt-composition-72d0f6197d8104e86d6484ca.0001.annotations",
+      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
+      "node_parameters": {
+        "annotations": [],
+        "overlap_policy": "allow"
+      },
       "binding_parameters": {}
     }
   ],
@@ -552,37 +720,7 @@
       "target_port": "structure"
     },
     {
-      "source_node_id": "resolve-imported-residue-axis",
-      "source_port": "residue_axis",
-      "target_node_id": "build-prompt",
-      "target_port": "residue_axis"
-    },
-    {
-      "source_node_id": "build-prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "mask-sequence",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "mask-sequence",
-      "source_port": "protein_prompt",
-      "target_node_id": "mask-structure",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "mask-structure",
-      "source_port": "protein_prompt",
-      "target_node_id": "insert-masked",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "insert-masked",
-      "source_port": "protein_prompt",
-      "target_node_id": "override-secondary-structure",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "override-secondary-structure",
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0005.annotations",
       "source_port": "protein_prompt",
       "target_node_id": "generate-paired",
       "target_port": "protein_prompt"
@@ -792,7 +930,7 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "build-final-layout",
+      "source_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.layout",
       "source_port": "layout",
       "target_node_id": "fixed-positions",
       "target_port": "layout"
@@ -838,6 +976,66 @@
       "source_port": "structure_candidates",
       "target_node_id": "export-final",
       "target_port": "structures"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.prompt",
+      "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0001.random_mask_mask-sequence",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0001.random_mask_mask-sequence",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0002.random_mask_mask-structure",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0002.random_mask_mask-structure",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0003.random_insert_insert-masked",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0003.random_insert_insert-masked",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0004.override_secondary_structure",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0004.override_secondary_structure",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0005.annotations",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.layout",
+      "source_port": "layout",
+      "target_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.prompt",
+      "target_port": "layout"
+    },
+    {
+      "source_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.0001.annotations",
+      "target_port": "protein_prompt"
     }
   ],
   "observation_selectors": [],

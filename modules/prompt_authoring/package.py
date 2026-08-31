@@ -72,6 +72,7 @@ _PROMPT_MANAGED_NODE_TYPES = tuple(
 _SOURCE_MANAGED_NODE_TYPES = tuple(
     ExactContractReference("node_type", contract_id)
     for contract_id in (
+        "protein_io.import_sequence",
         "protein_io.import_structure",
         "structure_transform.select_chains",
         "structure_transform.normalize_csh_parent_span",

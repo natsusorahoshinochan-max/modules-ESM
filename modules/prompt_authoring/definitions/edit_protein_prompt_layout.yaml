@@ -19,6 +19,11 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Complete exact source-to-target residue correspondence containing every match, insertion, and deletion.
+  - name: layout
+    port_type_id: residue.layout
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact target layout carried by the updated ProteinPrompt and complete residue map.
 parameter_groups:
   - id: layout_edit
     title: Whole-Prompt layout edit

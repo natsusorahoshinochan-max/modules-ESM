@@ -172,6 +172,17 @@
       "required": ["label", "start_residue_handle", "end_residue_handle"],
       "type": "object"
     },
+    "PromptFunctionAnnotationProjection": {
+      "additionalProperties": false,
+      "properties": {
+        "end_residue_handle": {"$ref": "#/$defs/Identifier"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 256},
+        "start_residue_handle": {"$ref": "#/$defs/Identifier"},
+        "state": {"enum": ["source", "current", "changed", "cleared", "inserted", "pending-delete"], "type": "string"}
+      },
+      "required": ["label", "start_residue_handle", "end_residue_handle", "state"],
+      "type": "object"
+    },
     "PromptRandomOperation": {
       "oneOf": [
         {
@@ -230,7 +241,6 @@
     "PromptAuthoringDocument": {
       "additionalProperties": false,
       "properties": {
-        "authoring_session_id": {"$ref": "#/$defs/Identifier"},
         "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationIntent"}},
         "overlap_policy": {"enum": ["allow", "reject"], "type": "string"},
         "random_operations": {"type": "array", "items": {"$ref": "#/$defs/PromptRandomOperation"}},
@@ -240,7 +250,7 @@
         "target_residues": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/PromptTargetResidue"}},
         "track_intents": {"type": "array", "items": {"$ref": "#/$defs/PromptTrackIntent"}}
       },
-      "required": ["authoring_session_id", "source", "target_residues", "track_intents", "function_annotations", "overlap_policy", "random_operations", "source_merges", "rigid_transforms"],
+      "required": ["source", "target_residues", "track_intents", "function_annotations", "overlap_policy", "random_operations", "source_merges", "rigid_transforms"],
       "type": "object"
     },
     "PromptAuthoringOpenRequest": {
@@ -285,7 +295,7 @@
       "additionalProperties": false,
       "properties": {
         "document": {"$ref": "#/$defs/PromptAuthoringDocument"},
-        "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationIntent"}},
+        "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationProjection"}},
         "residues": {"type": "array", "items": {"$ref": "#/$defs/PromptResidueProjection"}},
         "source": {"$ref": "#/$defs/PromptSourceFacts"},
         "tracks": {"$ref": "#/$defs/PromptTrackProjectionSet"}
@@ -338,7 +348,7 @@
       "properties": {
         "changes": {"type": "array", "items": {"$ref": "#/$defs/PromptAuthoringChange"}},
         "diagnostics": {"type": "array", "items": {"$ref": "#/$defs/PromptDiagnostic"}},
-        "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationIntent"}},
+        "function_annotations": {"type": "array", "items": {"$ref": "#/$defs/PromptFunctionAnnotationProjection"}},
         "normalized_document": {"$ref": "#/$defs/PromptAuthoringDocument"},
         "preview_digest": {"$ref": "#/$defs/Digest"},
         "random_selections": {"type": "array", "items": {"$ref": "#/$defs/PromptRandomSelection"}},

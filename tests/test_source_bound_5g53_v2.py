@@ -44,6 +44,13 @@ from modules.structure_transform.domain import (
     CandidateResolvedResidueAxisAssociations,
 )
 from tests.support.public_request import encode_project_input_content
+from tests.support.prompt_authoring import (
+    apply_prompt_document,
+    initialize_prompt_authoring_draft,
+    open_pdb_prompt_document,
+    preview_prompt_document,
+    save_ordinary_graph_on_prompt_draft,
+)
 from tests.support.workflow_stress import (
     StressRun,
     emit_stress_report,
@@ -66,16 +73,22 @@ ROOT = Path(__file__).resolve().parent.parent
 INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "5G53.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-5g53.workflow.json"
 INPUT_SHA256 = "a928fad49a755050d981bb9e02c94ca29e1ba09b92f129c71bb95e98a35e3537"
-BRANCH_LOOP_IDS = {
-    "shorter-8": tuple(f"A:gap211_224.short.{index:02d}" for index in range(1, 9)),
-    "numbering-implied-12": tuple(f"A:{index}" for index in range(212, 224)),
-    "longer-16": tuple(f"A:gap211_224.long.{index:02d}" for index in range(1, 17)),
-}
 BRANCHES = (
     ("shorter-8", 8, 5353008),
     ("numbering-implied-12", 12, 5353012),
     ("longer-16", 16, 5353016),
 )
+_WORKFLOW_FACTS = json.loads(WORKFLOW_PATH.read_text(encoding="utf-8"))
+BRANCH_LOOP_IDS = {
+    branch: tuple(
+        next(
+            node
+            for node in _WORKFLOW_FACTS["nodes"]
+            if node["node_id"] == f"evaluate-{branch}"
+        )["node_parameters"]["loop_residue_ids"]
+    )
+    for branch, _, _ in BRANCHES
+}
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
 
 
@@ -241,7 +254,15 @@ def test_source_bound_5g53_is_shipped_with_current_catalog_contracts() -> None:
             "strategy": "random",
             "temperature_annealing": True,
         }
-        insertions = nodes[f"insert-{branch}"].node_parameters["insertions"]
+        layout_edit = next(
+            node
+            for node in workflow.nodes
+            if node.node_type_id
+            == "prompt_authoring.edit_protein_prompt_layout"
+            and len(node.node_parameters["insertions"][0]["inserted_residue_ids"])
+            == loop_length
+        )
+        insertions = layout_edit.node_parameters["insertions"]
         assert len(insertions) == 1
         insertion = insertions[0]
         assert insertion["after_residue_id"] == "A:211"
@@ -299,6 +320,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         create_application(
             frozen_catalog_override=catalog,
             v2_environment_configuration=environment,
+            authoring_registrations=module_registrations(),
         )
     ) as client:
         project_id = client.post(
@@ -313,11 +335,54 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         )
         assert uploaded.status_code == 201
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
+        initialize_prompt_authoring_draft(client, project_id)
+        applied: dict[str, Any] | None = None
+        for branch, loop_length, _ in BRANCHES:
+            opened_prompt = open_pdb_prompt_document(
+                client,
+                project_id,
+                uploaded.json()["project_input_ref"],
+                chain_ids=["A"],
+            )
+            prompt_document = opened_prompt["document"]
+            insertion_index = next(
+                index
+                for index, residue in enumerate(opened_prompt["residues"])
+                if residue["residue_label"] == "224"
+            )
+            prompt_document["target_residues"][
+                insertion_index:insertion_index
+            ] = [
+                {
+                    "residue_handle": f"insert-{branch}-{index + 1:02d}",
+                    "origin": "insert",
+                    "chain_id": "A",
+                }
+                for index in range(loop_length)
+            ]
+            applied = apply_prompt_document(
+                client,
+                project_id,
+                preview_prompt_document(
+                    client,
+                    project_id,
+                    prompt_document,
+                ),
+            )
         payload = _payload()
         payload["workflow_id"] = project_id
-        next(node for node in payload["nodes"] if node["node_id"] == "import-input")[
-            "node_parameters"
-        ] = {"project_input_ref": uploaded.json()["project_input_ref"]}
+        for node in payload["nodes"]:
+            if node["node_type_id"] == "protein_io.import_structure":
+                node["node_parameters"] = {
+                    "project_input_ref": uploaded.json()["project_input_ref"]
+                }
+        assert applied is not None
+        payload = save_ordinary_graph_on_prompt_draft(
+            client,
+            project_id,
+            applied,
+            payload,
+        )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={"workflow": payload},
@@ -364,7 +429,11 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             if event["event"]["type"] == "engine_invocation_started"
             and "project_input_filename"
             in event["event"].get("invocation_provenance", {})
-        ] == [{"project_input_filename": "5G53.pdb"}]
+        ] == [
+            {"project_input_filename": "5G53.pdb"}
+            for node in payload["nodes"]
+            if node["node_type_id"] == "protein_io.import_structure"
+        ]
 
         imported_output = next(
             output
@@ -527,7 +596,14 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             insertion_node = next(
                 node
                 for node in payload["nodes"]
-                if node["node_id"] == f"insert-{branch}"
+                if node["node_type_id"]
+                == "prompt_authoring.edit_protein_prompt_layout"
+                and len(
+                    node["node_parameters"]["insertions"][0][
+                        "inserted_residue_ids"
+                    ]
+                )
+                == loop_length
             )
             insertions = insertion_node["node_parameters"]["insertions"]
             assert len(insertions) == 1
@@ -773,8 +849,12 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 "select-chain-a",
                 "resolve-reference",
                 "project-reference-axis",
-                "author-base-prompt",
             )
+        } == {"cache_replayed"}
+        assert {
+            replay_dispositions[node["node_id"]]
+            for node in payload["nodes"]
+            if node["node_type_id"].startswith("prompt_authoring.")
         } == {"cache_replayed"}
         assert replay_dispositions["import-input"] == "executed"
         assert all(

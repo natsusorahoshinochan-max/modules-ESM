@@ -37,38 +37,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "author-base-prompt",
-      "node_type_id": "prompt_authoring.prompt_from_structure",
-      "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "insert-shorter-8",
-      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
-      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
-      "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:211",
-            "before_residue_id": "A:224",
-            "inserted_residue_ids": [
-              "A:gap211_224.short.01",
-              "A:gap211_224.short.02",
-              "A:gap211_224.short.03",
-              "A:gap211_224.short.04",
-              "A:gap211_224.short.05",
-              "A:gap211_224.short.06",
-              "A:gap211_224.short.07",
-              "A:gap211_224.short.08"
-            ]
-          }
-        ],
-        "deleted_residue_ids": []
-      },
-      "binding_parameters": {}
-    },
-    {
       "node_id": "generate-shorter-8",
       "node_type_id": "esm3.generate_paired",
       "binding_id": "esm3.generate_paired.biohub_medium",
@@ -462,14 +430,14 @@
           "A:312"
         ],
         "loop_residue_ids": [
-          "A:gap211_224.short.01",
-          "A:gap211_224.short.02",
-          "A:gap211_224.short.03",
-          "A:gap211_224.short.04",
-          "A:gap211_224.short.05",
-          "A:gap211_224.short.06",
-          "A:gap211_224.short.07",
-          "A:gap211_224.short.08"
+          "A:inserted.245e2418360c7a47f44afade",
+          "A:inserted.ddce628f4ffea6fac3f7cfc7",
+          "A:inserted.d88e78eac1f5c25653088143",
+          "A:inserted.75de7e8a4d6eeb6cb6eeb678",
+          "A:inserted.f9c1799746e96de6ded9d6f2",
+          "A:inserted.bf056591adf99fd223819227",
+          "A:inserted.5d97acf062ff7b32b921a58b",
+          "A:inserted.fccd41523b36a70fcc2dd250"
         ],
         "left_junction_residue_id": "A:211",
         "right_junction_residue_id": "A:224",
@@ -481,35 +449,6 @@
         "junction_cn_distance_angstrom_minimum": 1.15,
         "junction_cn_distance_angstrom_maximum": 1.55,
         "loop_core_nonbonded_distance_angstrom_minimum": 2.0
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "insert-numbering-implied-12",
-      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
-      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
-      "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:211",
-            "before_residue_id": "A:224",
-            "inserted_residue_ids": [
-              "A:212",
-              "A:213",
-              "A:214",
-              "A:215",
-              "A:216",
-              "A:217",
-              "A:218",
-              "A:219",
-              "A:220",
-              "A:221",
-              "A:222",
-              "A:223"
-            ]
-          }
-        ],
-        "deleted_residue_ids": []
       },
       "binding_parameters": {}
     },
@@ -907,18 +846,18 @@
           "A:312"
         ],
         "loop_residue_ids": [
-          "A:212",
-          "A:213",
-          "A:214",
-          "A:215",
-          "A:216",
-          "A:217",
-          "A:218",
-          "A:219",
-          "A:220",
-          "A:221",
-          "A:222",
-          "A:223"
+          "A:inserted.05e51139d5f7d351bf09d725",
+          "A:inserted.03739068d2c3c7cda5991603",
+          "A:inserted.1a8616b1e7583a32059cb14f",
+          "A:inserted.a8b50d8342203b27dc19dce1",
+          "A:inserted.4da1003225f185fc68c0dd0b",
+          "A:inserted.cfab6fef9ebd1665c79e0f88",
+          "A:inserted.615325793d778fdbfa707621",
+          "A:inserted.dd1a947079e78ae90a8ac473",
+          "A:inserted.71061ec54e888944728e0d53",
+          "A:inserted.4a0c192b49d374e7946496a8",
+          "A:inserted.a798321f4f1dac52abf7cd44",
+          "A:inserted.75494a9bb7f7816999f40ccd"
         ],
         "left_junction_residue_id": "A:211",
         "right_junction_residue_id": "A:224",
@@ -930,39 +869,6 @@
         "junction_cn_distance_angstrom_minimum": 1.15,
         "junction_cn_distance_angstrom_maximum": 1.55,
         "loop_core_nonbonded_distance_angstrom_minimum": 2.0
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "insert-longer-16",
-      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
-      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
-      "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:211",
-            "before_residue_id": "A:224",
-            "inserted_residue_ids": [
-              "A:gap211_224.long.01",
-              "A:gap211_224.long.02",
-              "A:gap211_224.long.03",
-              "A:gap211_224.long.04",
-              "A:gap211_224.long.05",
-              "A:gap211_224.long.06",
-              "A:gap211_224.long.07",
-              "A:gap211_224.long.08",
-              "A:gap211_224.long.09",
-              "A:gap211_224.long.10",
-              "A:gap211_224.long.11",
-              "A:gap211_224.long.12",
-              "A:gap211_224.long.13",
-              "A:gap211_224.long.14",
-              "A:gap211_224.long.15",
-              "A:gap211_224.long.16"
-            ]
-          }
-        ],
-        "deleted_residue_ids": []
       },
       "binding_parameters": {}
     },
@@ -1360,22 +1266,22 @@
           "A:312"
         ],
         "loop_residue_ids": [
-          "A:gap211_224.long.01",
-          "A:gap211_224.long.02",
-          "A:gap211_224.long.03",
-          "A:gap211_224.long.04",
-          "A:gap211_224.long.05",
-          "A:gap211_224.long.06",
-          "A:gap211_224.long.07",
-          "A:gap211_224.long.08",
-          "A:gap211_224.long.09",
-          "A:gap211_224.long.10",
-          "A:gap211_224.long.11",
-          "A:gap211_224.long.12",
-          "A:gap211_224.long.13",
-          "A:gap211_224.long.14",
-          "A:gap211_224.long.15",
-          "A:gap211_224.long.16"
+          "A:inserted.c9c2ac08e22ad4fe87bc146b",
+          "A:inserted.06c934faa8447e6a02a86884",
+          "A:inserted.5a940c0a104ee5499c76e232",
+          "A:inserted.a2e44c023bc6dc4dc0e44446",
+          "A:inserted.a9dff7a58db53921475e00a3",
+          "A:inserted.c8e649df9fb178ed019e8014",
+          "A:inserted.0ba6431b662b47ca7eeb537a",
+          "A:inserted.025b46692a30601f2fdf5bdd",
+          "A:inserted.5a692366e314a11c7563842b",
+          "A:inserted.1a562f08fa6d35866edee40d",
+          "A:inserted.10324d953ecbfa92d7f95c23",
+          "A:inserted.f58ced362cf5b3b02accc47a",
+          "A:inserted.897997d5a24dc76872fb9f2a",
+          "A:inserted.68c0c9540104ed910ba2882b",
+          "A:inserted.a964a42aa545324afedcb772",
+          "A:inserted.214604790703b0395d7a3920"
         ],
         "left_junction_residue_id": "A:211",
         "right_junction_residue_id": "A:224",
@@ -1445,6 +1351,225 @@
       "binding_id": "protein_io.export_structure.direct",
       "node_parameters": {},
       "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "5G53.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.prompt",
+      "node_type_id": "prompt_authoring.prompt_from_structure",
+      "binding_id": "prompt_authoring.prompt_from_structure.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.0001.layout_edit",
+      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
+      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
+      "node_parameters": {
+        "deleted_residue_ids": [],
+        "insertions": [
+          {
+            "after_residue_id": "A:211",
+            "before_residue_id": "A:224",
+            "inserted_residue_ids": [
+              "A:inserted.245e2418360c7a47f44afade",
+              "A:inserted.ddce628f4ffea6fac3f7cfc7",
+              "A:inserted.d88e78eac1f5c25653088143",
+              "A:inserted.75de7e8a4d6eeb6cb6eeb678",
+              "A:inserted.f9c1799746e96de6ded9d6f2",
+              "A:inserted.bf056591adf99fd223819227",
+              "A:inserted.5d97acf062ff7b32b921a58b",
+              "A:inserted.fccd41523b36a70fcc2dd250"
+            ]
+          }
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.0002.annotations",
+      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
+      "node_parameters": {
+        "annotations": [],
+        "overlap_policy": "allow"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "5G53.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.prompt",
+      "node_type_id": "prompt_authoring.prompt_from_structure",
+      "binding_id": "prompt_authoring.prompt_from_structure.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.0001.layout_edit",
+      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
+      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
+      "node_parameters": {
+        "deleted_residue_ids": [],
+        "insertions": [
+          {
+            "after_residue_id": "A:211",
+            "before_residue_id": "A:224",
+            "inserted_residue_ids": [
+              "A:inserted.05e51139d5f7d351bf09d725",
+              "A:inserted.03739068d2c3c7cda5991603",
+              "A:inserted.1a8616b1e7583a32059cb14f",
+              "A:inserted.a8b50d8342203b27dc19dce1",
+              "A:inserted.4da1003225f185fc68c0dd0b",
+              "A:inserted.cfab6fef9ebd1665c79e0f88",
+              "A:inserted.615325793d778fdbfa707621",
+              "A:inserted.dd1a947079e78ae90a8ac473",
+              "A:inserted.71061ec54e888944728e0d53",
+              "A:inserted.4a0c192b49d374e7946496a8",
+              "A:inserted.a798321f4f1dac52abf7cd44",
+              "A:inserted.75494a9bb7f7816999f40ccd"
+            ]
+          }
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.0002.annotations",
+      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
+      "node_parameters": {
+        "annotations": [],
+        "overlap_policy": "allow"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.import_structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "5G53.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.select_chains",
+      "node_type_id": "structure_transform.select_chains",
+      "binding_id": "structure_transform.select_chains.direct",
+      "node_parameters": {
+        "chain_ids": [
+          "A"
+        ]
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.resolve_axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.prompt",
+      "node_type_id": "prompt_authoring.prompt_from_structure",
+      "binding_id": "prompt_authoring.prompt_from_structure.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.0001.layout_edit",
+      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
+      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
+      "node_parameters": {
+        "insertions": [
+          {
+            "inserted_residue_ids": [
+              "A:inserted.c9c2ac08e22ad4fe87bc146b",
+              "A:inserted.06c934faa8447e6a02a86884",
+              "A:inserted.5a940c0a104ee5499c76e232",
+              "A:inserted.a2e44c023bc6dc4dc0e44446",
+              "A:inserted.a9dff7a58db53921475e00a3",
+              "A:inserted.c8e649df9fb178ed019e8014",
+              "A:inserted.0ba6431b662b47ca7eeb537a",
+              "A:inserted.025b46692a30601f2fdf5bdd",
+              "A:inserted.5a692366e314a11c7563842b",
+              "A:inserted.1a562f08fa6d35866edee40d",
+              "A:inserted.10324d953ecbfa92d7f95c23",
+              "A:inserted.f58ced362cf5b3b02accc47a",
+              "A:inserted.897997d5a24dc76872fb9f2a",
+              "A:inserted.68c0c9540104ed910ba2882b",
+              "A:inserted.a964a42aa545324afedcb772",
+              "A:inserted.214604790703b0395d7a3920"
+            ],
+            "after_residue_id": "A:211",
+            "before_residue_id": "A:224"
+          }
+        ],
+        "deleted_residue_ids": []
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-c67f87f835a080d538ee16e3.0002.annotations",
+      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
+      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
+      "node_parameters": {
+        "annotations": [],
+        "overlap_policy": "allow"
+      },
+      "binding_parameters": {}
     }
   ],
   "edges": [
@@ -1473,19 +1598,7 @@
       "target_port": "residue_axes"
     },
     {
-      "source_node_id": "project-reference-axis",
-      "source_port": "residue_axis",
-      "target_node_id": "author-base-prompt",
-      "target_port": "residue_axis"
-    },
-    {
-      "source_node_id": "author-base-prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "insert-shorter-8",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "insert-shorter-8",
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.0002.annotations",
       "source_port": "protein_prompt",
       "target_node_id": "generate-shorter-8",
       "target_port": "protein_prompt"
@@ -1767,13 +1880,7 @@
       "target_port": "confidence_observations"
     },
     {
-      "source_node_id": "author-base-prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "insert-numbering-implied-12",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "insert-numbering-implied-12",
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.0002.annotations",
       "source_port": "protein_prompt",
       "target_node_id": "generate-numbering-implied-12",
       "target_port": "protein_prompt"
@@ -2055,13 +2162,7 @@
       "target_port": "confidence_observations"
     },
     {
-      "source_node_id": "author-base-prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "insert-longer-16",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "insert-longer-16",
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.0002.annotations",
       "source_port": "protein_prompt",
       "target_node_id": "generate-longer-16",
       "target_port": "protein_prompt"
@@ -2473,6 +2574,96 @@
       "source_port": "candidates",
       "target_node_id": "export-folds",
       "target_port": "structures"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.prompt",
+      "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.source.prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.0001.layout_edit",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.0001.layout_edit",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-ffbdba0e8a3aa6c37f65ecba.0002.annotations",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.prompt",
+      "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.source.prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.0001.layout_edit",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.0001.layout_edit",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-58f2785a259cff8d52fd4cbe.0002.annotations",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.import_structure",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.select_chains",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.select_chains",
+      "source_port": "structure",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.resolve_axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.prompt",
+      "target_port": "residue_axis"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.source.prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.0001.layout_edit",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-composition-c67f87f835a080d538ee16e3.0001.layout_edit",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.0002.annotations",
+      "target_port": "protein_prompt"
     }
   ],
   "observation_selectors": [],

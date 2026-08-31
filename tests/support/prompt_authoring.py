@@ -1,4 +1,4 @@
-"""Public Prompt authoring helpers for current source-bound acceptance workflows."""
+"""Public Prompt authoring helpers for acceptance workflows."""
 
 from __future__ import annotations
 
@@ -95,49 +95,51 @@ def apply_prompt_document(
     return response.json()
 
 
-def composition_output(
-    composition: Mapping[str, Any],
-    role: str,
-) -> Mapping[str, str]:
-    return next(
-        endpoint
-        for endpoint in composition["exposed_outputs"]
-        if endpoint["role"] == role
-    )
-
-
-def replace_prompt_managed_subgraph(
-    workflow: Mapping[str, Any],
-    materialized_draft: Mapping[str, Any],
-    superseded_managed_node_ids: set[str],
-    output_replacements: Mapping[tuple[str, str], Mapping[str, str]],
+def save_ordinary_graph_on_prompt_draft(
+    client: Any,
+    project_id: str,
+    applied: Mapping[str, Any],
+    fixture_workflow: Mapping[str, Any],
 ) -> dict[str, Any]:
-    nodes = [
-        node
-        for node in workflow["nodes"]
-        if node["node_id"] not in superseded_managed_node_ids
-    ]
-    nodes.extend(materialized_draft["nodes"])
-    edges: list[Mapping[str, Any]] = []
-    for edge in workflow["edges"]:
-        source_managed = (
-            edge["source_node_id"] in superseded_managed_node_ids
-        )
-        target_managed = (
-            edge["target_node_id"] in superseded_managed_node_ids
-        )
-        if source_managed and not target_managed:
-            endpoint = output_replacements[
-                (edge["source_node_id"], edge["source_port"])
-            ]
-            edges.append(
-                {
-                    **edge,
-                    "source_node_id": endpoint["node_id"],
-                    "source_port": endpoint["port_name"],
-                }
-            )
-        elif not source_managed and not target_managed:
-            edges.append(edge)
-    edges.extend(materialized_draft["edges"])
-    return {**workflow, "nodes": nodes, "edges": edges}
+    draft = applied["draft"]
+    materialized = draft["workflow"]
+    managed_node_ids = {
+        node_id
+        for composition in draft["authoring_compositions"]
+        for node_id in composition["managed_node_ids"]
+    }
+    workflow = {
+        "schema_version": materialized["schema_version"],
+        "workflow_id": project_id,
+        "nodes": [
+            *materialized["nodes"],
+            *(
+                node
+                for node in fixture_workflow["nodes"]
+                if node["node_id"] not in managed_node_ids
+            ),
+        ],
+        "edges": [
+            *materialized["edges"],
+            *(
+                edge
+                for edge in fixture_workflow["edges"]
+                if not (
+                    edge["source_node_id"] in managed_node_ids
+                    and edge["target_node_id"] in managed_node_ids
+                )
+            ),
+        ],
+        "observation_selectors": fixture_workflow[
+            "observation_selectors"
+        ],
+        "selection_objectives": fixture_workflow[
+            "selection_objectives"
+        ],
+    }
+    response = client.put(
+        f"/api/v2/projects/{project_id}/workflow/draft",
+        json={"workflow": workflow},
+    )
+    response.raise_for_status()
+    return workflow

@@ -13,7 +13,11 @@ from core.workflow.authoring import (
     WorkflowAuthoringError,
     WorkflowAuthoringService,
 )
-from core.workflow.document import WorkflowDocument
+from core.workflow.document import (
+    WorkflowDocument,
+    WorkflowEdge,
+    WorkflowNodeInstance,
+)
 from datatypes.prompt import (
     FunctionAnnotation,
     FunctionAnnotations,
@@ -358,6 +362,27 @@ def test_open_preview_apply_reopen_copy_delete_and_managed_ownership(
         record.composition_id != composition.composition_id
         for record in deleted.draft.authoring_compositions
     )
+    second_copy_preview = service.preview(
+        project.id,
+        preview.normalized_document,
+        composition_id=copied.composition.composition_id,
+    )
+    second_copy = service.apply(
+        project.id,
+        intent="copy",
+        normalized_document=second_copy_preview.normalized_document,
+        preview_digest=second_copy_preview.preview_digest,
+        composition_id=copied.composition.composition_id,
+    )
+
+    assert second_copy.composition.composition_id not in {
+        composition.composition_id,
+        copied.composition.composition_id,
+    }
+    assert len({
+        record.composition_id
+        for record in second_copy.draft.authoring_compositions
+    }) == 2
 
 
 def test_fasta_and_pdb_sources_open_without_public_layout_or_graph_facts(
@@ -456,6 +481,397 @@ def test_pdb_source_materializes_required_csh_normalization(
     assert structure_opened.tracks["structure"][0]["value"] is not None
 
 
+def test_fasta_source_materializes_project_input_provenance(tmp_path: Path) -> None:
+    _catalog, _projection, projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    fasta = projects.publish_input(
+        project.id,
+        "materialized-fasta",
+        b">first\nACD\n>second\nEF\n",
+        filename="source.fasta",
+    )
+    opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "fasta",
+                "project_input_ref": fasta.project_input_ref,
+                "chain_ids": ["A", "B"],
+            },
+        },
+    )
+    preview = service.preview(project.id, opened.document)
+    applied = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=preview.normalized_document,
+        preview_digest=preview.preview_digest,
+    )
+    managed = {
+        node.node_id: node
+        for node in applied.draft.workflow.nodes
+        if node.node_id in applied.composition.managed_node_ids
+    }
+    imported = next(
+        node
+        for node in managed.values()
+        if node.node_type_id == "protein_io.import_sequence"
+    )
+    updated = next(
+        node
+        for node in managed.values()
+        if node.node_type_id == "prompt_authoring.update_prompt_sequence"
+    )
+
+    assert imported.node_parameters == {
+        "project_input_ref": fasta.project_input_ref
+    }
+    assert {
+        (edge.source_node_id, edge.source_port, edge.target_port)
+        for edge in applied.draft.workflow.edges
+        if edge.target_node_id == updated.node_id
+    } == {
+        (imported.node_id, "sequence", "sequence"),
+        (
+            next(
+                node.node_id
+                for node in managed.values()
+                if node.node_type_id
+                == "prompt_authoring.assemble_protein_prompt"
+            ),
+            "protein_prompt",
+            "protein_prompt",
+        ),
+    }
+
+
+def test_pdb_merge_source_materializes_required_csh_normalization(
+    tmp_path: Path,
+) -> None:
+    _catalog, _projection, projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    source = projects.publish_input(
+        project.id,
+        "merge-csh-source",
+        (
+            Path(__file__).parent.parent
+            / "examples"
+            / "v2"
+            / "structures"
+            / "2EMO.pdb"
+        ).read_bytes(),
+        filename="2EMO.pdb",
+    )
+    opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "pdb",
+                "project_input_ref": source.project_input_ref,
+                "chain_ids": ["A"],
+            },
+        },
+    )
+    document = dict(opened.document)
+    document["source_merges"] = [
+        {
+            "source": {
+                "kind": "pdb",
+                "project_input_ref": source.project_input_ref,
+                "chain_ids": ["A"],
+            },
+            "correspondence": [
+                {
+                    "disposition": "match",
+                    "source_residue_handle": residue["residue_handle"],
+                    "target_residue_handle": residue["residue_handle"],
+                }
+                for residue in opened.residues
+            ],
+            "track_decisions": {
+                "sequence": "preserve",
+                "structure": "preserve",
+                "secondary_structure": "preserve",
+                "sasa": "preserve",
+                "function_annotations": "preserve",
+            },
+            "confirmed": True,
+        }
+    ]
+    preview = service.preview(project.id, document)
+    applied = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=preview.normalized_document,
+        preview_digest=preview.preview_digest,
+    )
+
+    assert any(
+        node.node_type_id
+        == "structure_transform.normalize_csh_parent_span"
+        and ".merge.0001.source.normalize_csh" in node.node_id
+        for node in applied.draft.workflow.nodes
+    )
+
+
+def test_preview_projects_all_six_track_change_states(tmp_path: Path) -> None:
+    _catalog, _projection, projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    fasta = projects.publish_input(
+        project.id,
+        "state-source",
+        b">source\nACDEG\n",
+        filename="states.fasta",
+    )
+    opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "fasta",
+                "project_input_ref": fasta.project_input_ref,
+                "chain_ids": ["A"],
+            },
+        },
+    )
+    handles = [item["residue_handle"] for item in opened.residues]
+    document = dict(opened.document)
+    document["target_residues"] = [
+        *document["target_residues"][:4],
+        {
+            "residue_handle": "insert-one",
+            "origin": "insert",
+            "chain_id": "A",
+        },
+    ]
+    document["track_intents"] = [
+        {
+            "track": "sequence",
+            "residue_handle": handles[1],
+            "action": "preserve",
+        },
+        {
+            "track": "sequence",
+            "residue_handle": handles[2],
+            "action": "specify",
+            "value": "F",
+        },
+        {
+            "track": "sequence",
+            "residue_handle": handles[3],
+            "action": "mask",
+        },
+        {
+            "track": "sequence",
+            "residue_handle": "insert-one",
+            "action": "specify",
+            "value": "H",
+        },
+    ]
+
+    preview = service.preview(project.id, document)
+
+    projected = {
+        item["residue_handle"]: (item["value"], item["state"])
+        for item in preview.tracks["sequence"]
+    }
+    assert projected == {
+        handles[0]: ("A", "source"),
+        handles[1]: ("C", "current"),
+        handles[2]: ("F", "changed"),
+        handles[3]: (None, "cleared"),
+        "insert-one": ("H", "inserted"),
+        handles[4]: ("G", "pending-delete"),
+    }
+    assert handles[4] in {
+        item["residue_handle"] for item in preview.residues
+    }
+
+
+def test_inserted_residue_identity_is_not_caller_authored(tmp_path: Path) -> None:
+    _catalog, _projection, _projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "blank",
+                "chains": [{"chain_id": "A", "length": 3}],
+            },
+        },
+    )
+    assert "authoring_session_id" not in opened.document
+    document = dict(opened.document)
+    document["target_residues"] = [
+        document["target_residues"][0],
+        {
+            "residue_handle": "caller-insert-label",
+            "origin": "insert",
+            "chain_id": "A",
+        },
+        document["target_residues"][1],
+    ]
+    preview = service.preview(project.id, document)
+    applied = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=preview.normalized_document,
+        preview_digest=preview.preview_digest,
+    )
+    layout_edit = next(
+        node
+        for node in applied.draft.workflow.nodes
+        if node.node_type_id == "prompt_authoring.edit_protein_prompt_layout"
+    )
+    inserted_id = layout_edit.node_parameters["insertions"][0][
+        "inserted_residue_ids"
+    ][0]
+
+    assert inserted_id != "A:caller-insert-label"
+    assert {
+        endpoint.role for endpoint in applied.composition.exposed_outputs
+    } == {"protein_prompt", "residue_layout"}
+    reopened = service.open(
+        project.id,
+        {
+            "mode": "reopen",
+            "composition_id": applied.composition.composition_id,
+        },
+    )
+    replacement_document = dict(reopened.document)
+    caller_position = next(
+        index
+        for index, residue in enumerate(
+            replacement_document["target_residues"]
+        )
+        if residue["residue_handle"] == "caller-insert-label"
+    )
+    replacement_document["target_residues"].insert(
+        caller_position,
+        {
+            "residue_handle": "insert-before-caller",
+            "origin": "insert",
+            "chain_id": "A",
+        },
+    )
+    replacement_preview = service.preview(
+        project.id,
+        replacement_document,
+        composition_id=applied.composition.composition_id,
+    )
+    replaced = service.apply(
+        project.id,
+        intent="replace",
+        normalized_document=replacement_preview.normalized_document,
+        preview_digest=replacement_preview.preview_digest,
+        composition_id=applied.composition.composition_id,
+    )
+    replaced_layout_edit = next(
+        node
+        for node in replaced.draft.workflow.nodes
+        if node.node_type_id == "prompt_authoring.edit_protein_prompt_layout"
+    )
+    assert replaced_layout_edit.node_parameters["insertions"][0][
+        "inserted_residue_ids"
+    ][1] == inserted_id
+
+
+def test_layout_consumer_reconnects_to_edited_target_layout(
+    tmp_path: Path,
+) -> None:
+    _catalog, _projection, _projects, project, workflows, service = _services(
+        tmp_path
+    )
+    document = dict(_blank_document(service, project.id))
+    preview = service.preview(project.id, document)
+    created = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=preview.normalized_document,
+        preview_digest=preview.preview_digest,
+    )
+    composition = created.composition
+    assert composition is not None
+    layout_endpoint = next(
+        endpoint
+        for endpoint in composition.exposed_outputs
+        if endpoint.role == "residue_layout"
+    )
+    consumer = WorkflowNodeInstance(
+        node_id="layout-consumer",
+        node_type_id="proteinmpnn.constraints",
+        binding_id="proteinmpnn.constraints.local",
+        node_parameters={
+            "designable_residue_ids": [],
+            "fixed_residue_ids": [],
+            "designed_chains": [],
+            "fixed_chains": [],
+            "omit_amino_acids": [],
+            "tied_residue_groups": [],
+            "bias_by_residue": [],
+        },
+        binding_parameters={},
+    )
+    workflows.save_draft(
+        project.id,
+        workflow=WorkflowDocument(
+            schema_version=created.draft.workflow.schema_version,
+            workflow_id=project.id,
+            nodes=(*created.draft.workflow.nodes, consumer),
+            edges=(
+                *created.draft.workflow.edges,
+                WorkflowEdge(
+                    layout_endpoint.node_id,
+                    layout_endpoint.port_name,
+                    consumer.node_id,
+                    "layout",
+                ),
+            ),
+        ),
+    )
+    document["target_residues"].insert(
+        1,
+        {
+            "residue_handle": "inserted-for-layout-consumer",
+            "origin": "insert",
+            "chain_id": "A",
+        },
+    )
+    replacement_preview = service.preview(
+        project.id,
+        document,
+        composition_id=composition.composition_id,
+    )
+    replaced = service.apply(
+        project.id,
+        intent="replace",
+        normalized_document=replacement_preview.normalized_document,
+        preview_digest=replacement_preview.preview_digest,
+        composition_id=composition.composition_id,
+    )
+    replaced_layout_endpoint = next(
+        endpoint
+        for endpoint in replaced.composition.exposed_outputs
+        if endpoint.role == "residue_layout"
+    )
+
+    assert replaced_layout_endpoint.node_id.endswith(".0001.layout_edit")
+    assert replaced_layout_endpoint.port_name == "layout"
+    assert WorkflowEdge(
+        replaced_layout_endpoint.node_id,
+        "layout",
+        consumer.node_id,
+        "layout",
+    ) in replaced.draft.workflow.edges
+
+
 def test_source_merge_diagnostics_and_explicit_materialization(
     tmp_path: Path,
 ) -> None:
@@ -464,7 +880,7 @@ def test_source_merge_diagnostics_and_explicit_materialization(
     )
     document = dict(_blank_document(service, project.id))
     target_handles = [
-        item["residue_handle"] for item in document["target_residues"][:3]
+        item["residue_handle"] for item in document["target_residues"]
     ]
     merge = {
         "source": {
@@ -472,12 +888,21 @@ def test_source_merge_diagnostics_and_explicit_materialization(
             "chains": [{"chain_id": "A", "length": 3}],
         },
         "correspondence": [
-            {
-                "disposition": "match",
-                "source_residue_handle": f"residue-{index + 1:08d}",
-                "target_residue_handle": handle,
-            }
-            for index, handle in enumerate(target_handles)
+            *[
+                {
+                    "disposition": "match",
+                    "source_residue_handle": f"residue-{index + 1:08d}",
+                    "target_residue_handle": handle,
+                }
+                for index, handle in enumerate(target_handles[:3])
+            ],
+            *[
+                {
+                    "disposition": "target_gap",
+                    "target_residue_handle": handle,
+                }
+                for handle in target_handles[3:]
+            ],
         ],
         "track_decisions": {
             "sequence": "preserve",
@@ -520,6 +945,241 @@ def test_source_merge_diagnostics_and_explicit_materialization(
         if edge.target_node_id == merge_node.node_id
     }
     assert merge_inputs == {"target_prompt", "source_prompt"}
+
+
+def test_source_merge_reports_duplicate_and_incomplete_correspondence(
+    tmp_path: Path,
+) -> None:
+    _catalog, _projection, _projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    document = dict(_blank_document(service, project.id))
+    handles = [item["residue_handle"] for item in document["target_residues"]]
+    document["source_merges"] = [
+        {
+            "source": {
+                "kind": "blank",
+                "chains": [{"chain_id": "A", "length": 3}],
+            },
+            "correspondence": [
+                {
+                    "disposition": "match",
+                    "source_residue_handle": handles[0],
+                    "target_residue_handle": handles[0],
+                },
+                {
+                    "disposition": "match",
+                    "source_residue_handle": handles[0],
+                    "target_residue_handle": handles[1],
+                },
+                {
+                    "disposition": "match",
+                    "source_residue_handle": handles[1],
+                    "target_residue_handle": handles[0],
+                },
+            ],
+            "track_decisions": {
+                "sequence": "preserve",
+                "structure": "preserve",
+                "secondary_structure": "preserve",
+                "sasa": "preserve",
+                "function_annotations": "preserve",
+            },
+            "confirmed": True,
+        }
+    ]
+
+    preview = service.preview(project.id, document)
+
+    assert {item.code for item in preview.diagnostics} == {
+        "correspondence_source_duplicate",
+        "correspondence_target_duplicate",
+        "correspondence_source_missing",
+        "correspondence_target_missing",
+    }
+
+
+def test_source_merge_reports_annotation_loss_before_materialization(
+    tmp_path: Path,
+) -> None:
+    _catalog, _projection, _projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    source_opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "blank",
+                "chains": [{"chain_id": "A", "length": 3}],
+            },
+        },
+    )
+    source_document = dict(source_opened.document)
+    source_document["function_annotations"] = [
+        {
+            "label": "domain",
+            "start_residue_handle": source_opened.residues[0]["residue_handle"],
+            "end_residue_handle": source_opened.residues[2]["residue_handle"],
+        }
+    ]
+    source_preview = service.preview(project.id, source_document)
+    assert source_preview.function_annotations[0]["state"] == "inserted"
+    source_applied = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=source_preview.normalized_document,
+        preview_digest=source_preview.preview_digest,
+    )
+    reopened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "protein_prompt",
+                "composition_id": source_applied.composition.composition_id,
+            },
+        },
+    )
+    deleted_annotation_document = dict(reopened.document)
+    deleted_annotation_document["function_annotations"] = []
+    deleted_annotation_preview = service.preview(
+        project.id,
+        deleted_annotation_document,
+    )
+    assert deleted_annotation_preview.function_annotations[0]["state"] == (
+        "pending-delete"
+    )
+    target_opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "blank",
+                "chains": [{"chain_id": "A", "length": 3}],
+            },
+        },
+    )
+    target_document = dict(target_opened.document)
+    target_document["source_merges"] = [
+        {
+            "source": {
+                "kind": "protein_prompt",
+                "composition_id": source_applied.composition.composition_id,
+            },
+            "correspondence": [
+                {
+                    "disposition": "match",
+                    "source_residue_handle": source_opened.residues[0]["residue_handle"],
+                    "target_residue_handle": target_opened.residues[0]["residue_handle"],
+                },
+                {
+                    "disposition": "source_gap",
+                    "source_residue_handle": source_opened.residues[1]["residue_handle"],
+                },
+                {
+                    "disposition": "match",
+                    "source_residue_handle": source_opened.residues[2]["residue_handle"],
+                    "target_residue_handle": target_opened.residues[2]["residue_handle"],
+                },
+                {
+                    "disposition": "target_gap",
+                    "target_residue_handle": target_opened.residues[1]["residue_handle"],
+                },
+            ],
+            "track_decisions": {
+                "sequence": "preserve",
+                "structure": "preserve",
+                "secondary_structure": "preserve",
+                "sasa": "preserve",
+                "function_annotations": "adopt",
+            },
+            "confirmed": True,
+        }
+    ]
+
+    preview = service.preview(project.id, target_document)
+
+    assert [item.code for item in preview.diagnostics] == [
+        "annotation_loss"
+    ]
+
+
+def test_source_merge_reports_missing_adopted_track(
+    tmp_path: Path,
+) -> None:
+    _catalog, _projection, _projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    source_opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "blank",
+                "chains": [{"chain_id": "A", "length": 1}],
+            },
+        },
+    )
+    source_preview = service.preview(project.id, source_opened.document)
+    source_applied = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=source_preview.normalized_document,
+        preview_digest=source_preview.preview_digest,
+    )
+    target_opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "blank",
+                "chains": [{"chain_id": "A", "length": 1}],
+            },
+        },
+    )
+    target_document = dict(target_opened.document)
+    target_document["track_intents"] = [
+        {
+            "track": "secondary_structure",
+            "residue_handle": target_opened.residues[0]["residue_handle"],
+            "action": "specify",
+            "value": "H",
+        }
+    ]
+    target_document["source_merges"] = [
+        {
+            "source": {
+                "kind": "protein_prompt",
+                "composition_id": source_applied.composition.composition_id,
+            },
+            "correspondence": [
+                {
+                    "disposition": "match",
+                    "source_residue_handle": source_opened.residues[0][
+                        "residue_handle"
+                    ],
+                    "target_residue_handle": target_opened.residues[0][
+                        "residue_handle"
+                    ],
+                }
+            ],
+            "track_decisions": {
+                "sequence": "preserve",
+                "structure": "preserve",
+                "secondary_structure": "adopt",
+                "sasa": "preserve",
+                "function_annotations": "preserve",
+            },
+            "confirmed": True,
+        }
+    ]
+
+    preview = service.preview(project.id, target_document)
+
+    assert [item.code for item in preview.diagnostics] == [
+        "merge_source_track_missing"
+    ]
 
 
 def test_random_diagnostic_and_rigid_transform_materialization(
@@ -596,6 +1256,48 @@ def test_random_diagnostic_and_rigid_transform_materialization(
             {"atom_name": "O", "coordinates": (4.0, 2.0, 3.0)},
         )
     }
+
+
+def test_rigid_transform_rejects_a_non_rotation_matrix(tmp_path: Path) -> None:
+    _catalog, _projection, projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    pdb = projects.publish_input(
+        project.id,
+        "non-rigid-source",
+        _ONE_RESIDUE_PDB,
+        filename="non-rigid.pdb",
+    )
+    opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "pdb",
+                "project_input_ref": pdb.project_input_ref,
+                "chain_ids": ["A"],
+            },
+        },
+    )
+    document = dict(opened.document)
+    document["rigid_transforms"] = [
+        {
+            "residue_handles": [opened.residues[0]["residue_handle"]],
+            "rotation_matrix": [
+                [2.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            "origin": [0.0, 0.0, 0.0],
+            "translation": [0.0, 0.0, 0.0],
+        }
+    ]
+
+    preview = service.preview(project.id, document)
+
+    assert [item.code for item in preview.diagnostics] == [
+        "rigid_rotation_invalid"
+    ]
 
 
 def test_random_insertion_preview_handles_can_author_inserted_tracks(

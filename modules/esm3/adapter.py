@@ -226,10 +226,7 @@ def _atom37_entries(
         for atom_name, raw_coordinate in residue.items():
             atom_index = _ATOM37_INDEX.get(atom_name)
             if atom_index is None:
-                raise ValueError(
-                    f"ESM-3 atom37 cannot represent atom {atom_name!r} "
-                    f"at residue {position}"
-                )
+                continue
             entries.append(
                 (
                     position,

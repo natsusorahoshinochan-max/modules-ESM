@@ -89,6 +89,12 @@ def test_masked_insertion_handles_repeated_chain_boundary_choices(
         projection,
         outputs["residue_map"],
     )
+    assert decoded_output(
+        catalog,
+        service,
+        projection,
+        outputs["layout"],
+    ) == inserted.target_layout
     assert residue_map.mappings == (
         (-1, 0, "insert"),
         (0, 1, "match"),

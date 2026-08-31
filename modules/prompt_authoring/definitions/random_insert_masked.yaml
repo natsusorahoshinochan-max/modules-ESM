@@ -19,6 +19,11 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Complete source-to-target map identifying every preserved and inserted residue.
+  - name: layout
+    port_type_id: residue.layout
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact target layout carried by the updated ProteinPrompt and complete residue map.
 parameter_groups:
   - id: randomness
     title: Effective randomness
