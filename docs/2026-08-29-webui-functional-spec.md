@@ -290,6 +290,24 @@ Function annotations 通过添加、修改、删除或拆分区间处理，不�
 
 整个 Prompt Studio 采用 Blender 风格的选择、快捷键、确认、取消与撤销习惯。所有快捷操作也必须能从可见按钮或菜单完成，不能要求用户记住快捷键才能使用功能。
 
+残基矩阵的键盘契约冻结如下：
+
+- 点击可编辑单元格后建立明确的键盘焦点；方向键在当前残基轴和可见轨道之间移动焦点。键盘焦点与残基选择分别可见，移动焦点时默认把选择收敛到新焦点残基。
+- Sequence 接受标准单字母氨基酸代码。焦点残基属于多选时，同一个字母应用于全部选中残基。字母 `I` 始终表示 isoleucine，不承担插入命令。
+- Coordinates 使用 `Space` 在 Assigned 与 Mask 之间切换。Assigned → Mask 总是可以进入预览；Mask → Assigned 只允许恢复当前编辑 session 中仍保留的精确原始 coordinates。完成 `apply(replace)` 或重新打开后，如果来源本身是 Mask，则不能用快捷键凭空恢复坐标，必须从结构或其他明确来源重新指定。
+- Secondary structure 接受冻结的 SS8 字符 `H/B/E/G/I/T/S/-`。
+- SASA 接受大于或等于 0 的数字或小数，编辑器持续显示固定单位 Å²。
+- 在已有 Function ribbon 上输入时，编辑完整 `(label, start, end)` tuple 的 `label` 并保持原 endpoints；旧 source tuple 进入 `pending-delete`，新 tuple 为 `inserted`。在空白位置输入前，必须先选择同一 chain 的连续区间作为 endpoints。Function 不退化为逐残基字符串编辑。
+- `+` 在键盘焦点残基之后建立插入草稿。数字设置插入数量；单个氨基酸字母可应用于全部新增残基；粘贴多字母序列时长度必须与数量一致。未输入 Sequence 时新增残基的 Sequence 为 Mask，Coordinates、SS8、SASA 和 Function 均为 Mask / 未指定。多选时只在键盘焦点锚点之后插入一次。opaque residue handles 仍只由 backend Preview 分配。
+- 用户操作立即建立并持续更新唯一的未应用 Preview，不存在独立“键盘草稿 → 请求 Preview”步骤，也不提供“预览指定 / 预览删除 / 预览插入”等按钮。`Backspace` 修改当前输入，`Enter` 应用已通过 diagnostics 的 Preview，`Esc` 取消 Preview，`Cmd/Ctrl+Z` 撤销已应用编辑。存在局部 Preview 时不能保存。
+- 快捷键对应的直接操作必须继续提供可见按钮或菜单入口。
+
+矩阵决定当前轨道上下文，右侧不重复提供 SEQ / XYZ / SS8 / SASA / FUNC 标签组。Sequence 行内的指定、Mask、插入和删除保留为当前局部操作的入口与状态参考；触发后立即显示矩阵差异和右侧影响范围。右侧在空闲时只解释当前操作，在 Preview 状态只显示参数、影响、diagnostics、应用和取消。
+
+顶部主操作显示为“保存”。点击保存时系统自动请求 normalized backend Preview，再显示最终确认；用户不需要先选择“Preview 保存”。
+
+六态说明默认收进矩阵控制条中的“状态图例”披露控件；选择摘要由上方选择条承担，不在矩阵底部重复。矩阵表面按轨道内容高度收拢，不为图例或重复选择文本保留整块空白区域。
+
 ### 3.9 残基布局变化
 
 - 用户可以在已经填写轨道内容后继续增加或删除残基、区间或链。
@@ -551,7 +569,7 @@ Prompt Studio 始终显示一个整份 Prompt 摘要：
 - 默认示例采用哪个具体 PDB、是否附带已完成结果，以及默认参数值。
 - 推荐模型的判定标准和用户如何理解“推荐”。
 - 节点类别的最终名称、顺序、颜色和图标。
-- Prompt Studio 的完整快捷键映射；目前只冻结 Blender 风格和结构模式的 `G`、`R`、轴约束、确认、取消与撤销。
+- 除本规范已冻结的残基矩阵直接编辑、插入、确认、取消、撤销与结构模式键位外，Prompt Studio 其余快捷键映射。
 - function annotation 标签的搜索、可选词表、别名和人类可读说明。
 - 结构边界问题采用哪些已定义科学检查和怎样展示；不得凭 UI 猜测结构是否合理。
 - Results Workbench 的默认分数列、允许同时比较的候选数量和三维视图布局细节。

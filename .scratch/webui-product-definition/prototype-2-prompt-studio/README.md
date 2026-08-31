@@ -45,13 +45,16 @@ Normal path:
 
 1. Start with `PDB · 1CRN（示意样本）`; the structure, locator matrix, and joint editor are synchronized.
 2. Choose `连续 12–20`, then click a locator in the structure and matrix.
-3. Use Specify, Mask, Insert, and Delete in the Sequence row. Each creates a backend-style preview before the in-memory apply.
+3. Use Specify, Mask, Insert, and Delete in the Sequence row. The operation immediately updates the matrix and right panel as an un-applied preview; there is no separate Preview button.
 4. Insert two residues. The preview owns the opaque handles; the UI only shows their current ordered chain/residue locators and marks them `inserted`.
 5. Preview deletion. Inspect the `pending-delete` projection, lost-track and Function-tuple consequences, and the complete localized diagnostics list; then apply or cancel. After applying deletion of a source residue, its source locator remains in the matrix as a read-only, struck-through `pending-delete` evidence column while the current Prompt count and ordered locators reflect the deletion. Session-inserted residues disappear without a tombstone when deleted. A Function tuple is tombstoned only when its exact start or end residue is deleted; deleting an interior residue preserves the tuple and recomputes its displayed locator.
 6. Open an existing Prompt to inspect all six residue/scalar-track states. In Function, apply replacement and verify that the old full tuple is retained as `pending-delete` while the new full tuple is `inserted`—there is no Function `changed` state. Function apply participates in Undo and dirty state.
-7. With no local operation preview open, click `Preview 保存`; inspect the normalized-document marker, digest, six-state counts, deleted-residue/track/Function tombstones, summary, and diagnostics from applied edits. Click `确认 preview 并 replace` to return the next Workflow Draft revision and clear the completed session tombstones.
-8. Cmd/Ctrl-select locators from two chains and try to add a Function tuple. The local preview returns a localized same-chain `error`, disables local apply, and blocks entry to `Preview 保存`. Close that un-applied proposal and verify that the unchanged document can be previewed and saved normally. A same-chain interval remains applicable.
+7. With no local operation preview open, click `保存`; the system automatically requests the normalized backend preview and displays its digest, six-state counts, tombstones, summary, and diagnostics. Confirm replace to return the next Workflow Draft revision and clear completed session tombstones.
+8. Cmd/Ctrl-select locators from two chains and try to add a Function tuple. The local preview returns a localized same-chain `error`, disables local apply, and blocks Save. Cancel that un-applied proposal and verify that the unchanged document can be saved normally. A same-chain interval remains applicable.
 9. With a save preview already open, create any local operation preview. Both save-confirmation controls are disabled until the local preview is applied or closed, so a stale digest cannot be confirmed.
+10. Click a matrix cell and use arrow keys to move the keyboard focus. Type a standard amino-acid letter in Sequence, an SS8 code in Secondary structure, a non-negative number in SASA, or a label over a Function ribbon. `Space` toggles Coordinates Mask/unmask when the exact source coordinates still exist in the current session. Every input immediately updates the un-applied preview; `Enter` applies and `Esc` cancels.
+11. Focus any current residue and press `+` to immediately preview an insertion after that anchor. Ghost columns appear in the shared matrix. Digits set the count. One amino-acid letter repeats across all inserted residues; a pasted multi-letter sequence must match the count. With no sequence text, the new Sequence values are Mask. Apply selects the inserted residues while all other tracks start as Mask.
+12. Open `状态图例` from the matrix control strip when needed. The former full-width legend/footer and duplicate selection readout were removed, so the matrix surface now ends at the track content instead of reserving the full workspace height.
 
 No-coordinate path:
 
@@ -71,9 +74,13 @@ The existing Variant B layout and all four entry paths were retained. The implem
 - an un-applied local proposal blocks both creating and confirming a save preview, so it neither leaks diagnostics into the normalized document nor permits a stale digest to be applied; after local apply, only applied-operation diagnostics appear in a newly generated save preview;
 - an `error` diagnostic disables the apply action for the preview that returned it;
 - save first displays backend preview output, then requires explicit confirmation before the mocked `apply(replace)` writes back to Workflow;
+- keyboard editing uses a visible focus ring and directly maintains the single un-applied preview; there is no separate keyboard-draft or request-Preview step;
+- direct-entry keys and visible row operations share the same immediate-preview/apply contract, including tuple-level Function replacement and backend-owned insertion handles;
+- Coordinates `Space` restores only exact source coordinates retained in the current edit session; after `apply(replace)` rebases a Mask value as source, the UI refuses to fabricate coordinates;
+- the six-state legend is a compact disclosure in the control strip and the duplicate matrix-footer selection text is removed;
 - old screenshot references were removed because those images contain superseded visible identities and four-state terminology.
 
-No backend, production datatype, Node, Adapter, test, `CONTEXT.md`, or functional-spec change is part of this prototype revision.
+No backend, production datatype, Node, Adapter, test, or `CONTEXT.md` change is part of this prototype revision. The functional specification records the settled keyboard contract.
 
 ## Remaining questions
 

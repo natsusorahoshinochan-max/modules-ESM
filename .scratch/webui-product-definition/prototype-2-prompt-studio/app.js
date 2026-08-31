@@ -79,6 +79,9 @@ const TRACKS = {
 };
 
 const CHANGE_STATES = ["source", "current", "changed", "cleared", "inserted", "pending-delete"];
+const AMINO_ACID_CODES = new Set("ACDEFGHIKLMNPQRSTVWY".split(""));
+const SS8_CODES = new Set(["H", "B", "E", "G", "I", "T", "S", "-"]);
+const MATRIX_TRACK_ORDER = ["axis", "sequence", "coordinates", "ss", "sasa", "function"];
 
 const SHOW_PROTOTYPE_CONTROLS = ["127.0.0.1", "localhost"].includes(location.hostname);
 const variantFromUrl = new URLSearchParams(location.search).get("variant")?.toUpperCase();
@@ -105,6 +108,8 @@ const state = {
   sequenceValue: "G",
   insertInitial: "mask",
   insertCount: 1,
+  keyboardFocus: null,
+  keyboardDraft: null,
   undoStack: [],
   draftPreview: null,
   savePreview: null,
@@ -257,6 +262,8 @@ function initializeEntry(entry, announce = false) {
   state.sequenceValue = "G";
   state.insertInitial = "mask";
   state.insertCount = 1;
+  state.keyboardFocus = null;
+  state.keyboardDraft = null;
   state.undoStack = [];
   state.draftPreview = null;
   state.savePreview = null;
@@ -286,6 +293,41 @@ function residueLocator(item) {
 
 function selectedResidues(ids = state.selected) {
   return state.residues.filter((item) => ids.has(item.id));
+}
+
+function keyboardTargetIds() {
+  const focusedId = state.keyboardFocus?.residueId;
+  if (!focusedId || !residueById(focusedId)) return selectedResidues().map((item) => item.id);
+  if (state.selected.has(focusedId)) return selectedResidues().map((item) => item.id);
+  return [focusedId];
+}
+
+function isKeyboardFocused(item, track) {
+  return state.keyboardFocus?.residueId === item.id && state.keyboardFocus?.track === track;
+}
+
+function keyboardDraftFor(item, track) {
+  let draft = state.keyboardDraft;
+  const preview = state.draftPreview;
+  if (!draft && preview?.track === track && preview.ids?.includes(item.id)) {
+    if (["track-specify", "track-mask", "track-restore"].includes(preview.kind)) {
+      draft = { track, ids: preview.ids, value: preview.value };
+    } else if (track === "sequence" && ["specify", "mask"].includes(preview.kind)) {
+      draft = { track, ids: preview.ids, value: preview.kind === "specify" ? preview.sequenceValue : null };
+    }
+  }
+  if (!draft || draft.track !== track || !draft.ids?.includes(item.id)) return null;
+  return draft;
+}
+
+function keyboardCellValue(item, track) {
+  const draft = keyboardDraftFor(item, track);
+  if (!draft) return cellValue(item, track);
+  if (track === "coordinates") return draft.value ? "●" : "MASK";
+  if (track === "sequence") return draft.value ?? "MASK";
+  if (track === "ss") return draft.value ?? "·";
+  if (track === "sasa") return draft.value || "0";
+  return draft.value;
 }
 
 function cloneResidues(items) {
@@ -326,6 +368,7 @@ function undoPromptEdit() {
   state.selected = new Set(previous.selected);
   state.anchor = previous.anchor;
   state.viewerHidden = new Set(previous.viewerHidden);
+  state.keyboardDraft = null;
   state.draftPreview = null;
   state.savePreview = null;
   state.dirty = previous.dirty;
@@ -341,14 +384,33 @@ function chainSummary() {
 }
 
 function projectedResidues() {
-  return [...state.residues, ...state.residueTombstones]
+  const preview = state.draftPreview?.kind === "insert" ? state.draftPreview : null;
+  const previewOrders = preview ? insertionProjectionOrders(preview.afterId, preview.count) : [];
+  const previewResidues = preview ? preview.backendResidues.map((projection, index) => ({
+    id: projection.handle,
+    chain: projection.chain,
+    sourceNumber: null,
+    sequence: preview.initialSequence === "assigned" ? (preview.sequenceValues?.[index] ?? preview.sequenceValue) : null,
+    coordinates: false,
+    ss: null,
+    sasa: null,
+    sourceValues: { sequence: null, coordinates: false, ss: null, sasa: null },
+    state: "inserted",
+    trackStates: { sequence: "inserted", coordinates: "inserted", ss: "inserted", sasa: "inserted" },
+    projectionOrder: previewOrders[index],
+    previewInserted: true,
+    previewOrdinal: index + 1,
+  })) : [];
+  return [...state.residues, ...state.residueTombstones, ...previewResidues]
     .sort((left, right) => left.projectionOrder - right.projectionOrder);
 }
 
 function insertionProjectionOrders(afterId, count) {
   const after = residueById(afterId);
   const lower = after.projectionOrder;
-  const upper = projectedResidues().find((item) => item.projectionOrder > lower)?.projectionOrder ?? lower + 1;
+  const upper = [...state.residues, ...state.residueTombstones]
+    .sort((left, right) => left.projectionOrder - right.projectionOrder)
+    .find((item) => item.projectionOrder > lower)?.projectionOrder ?? lower + 1;
   const step = (upper - lower) / (count + 1);
   return Array.from({ length: count }, (_, index) => lower + step * (index + 1));
 }
@@ -399,6 +461,7 @@ function setSelection(ids, source) {
   state.selected = new Set(ids.filter((id) => residueById(id)));
   state.anchor = ids.at(-1) ?? null;
   state.draftPreview = null;
+  state.keyboardDraft = null;
   state.lastAction = `${source}：${formatSelection()}`;
   render();
 }
@@ -462,6 +525,7 @@ function switchMode(mode) {
   }
   state.mode = mode;
   state.draftPreview = null;
+  state.keyboardDraft = null;
   state.lastAction = `切换到${MODES[mode].name}模式；轨道显示保持不变`;
   render();
 }
@@ -491,6 +555,7 @@ function setEntry(entry) {
 function setActiveTrack(track) {
   state.activeTrack = track;
   state.draftPreview = null;
+  state.keyboardDraft = null;
   state.lastAction = `当前编辑对象：${TRACKS[track].label}`;
   render();
 }
@@ -500,8 +565,27 @@ function setSequenceAction(action) {
   state.sequenceAction = action;
   state.mode = ["插入", "删除"].includes(action) ? "layout" : "condition";
   state.draftPreview = null;
+  state.keyboardDraft = null;
   state.lastAction = `Sequence 轨道直接操作：${action}`;
-  render();
+  if (state.selected.size === 0) {
+    addToast("请先选择要操作的残基", "warn");
+    render();
+    return;
+  }
+  if (action === "插入") {
+    beginKeyboardInsertion();
+    return;
+  }
+  if (action === "删除") {
+    createSequencePreview("delete");
+    return;
+  }
+  if (action === "Mask") {
+    createSequencePreview("mask");
+    return;
+  }
+  state.keyboardDraft = { kind: "track-value", track: "sequence", ids: keyboardTargetIds(), value: state.sequenceValue };
+  commitKeyboardDraftToPreview(true);
 }
 
 function toggleViewerSelected() {
@@ -643,7 +727,7 @@ function createSequencePreview(kind) {
       impact,
       diagnostics: deletionDiagnostics(items, impact),
     };
-    state.lastAction = `预览删除：${formatSelection()}`;
+    state.lastAction = `即时预览删除：${formatSelection()}`;
     render();
     return;
   }
@@ -658,9 +742,132 @@ function createSequencePreview(kind) {
   render();
 }
 
+function createTrackPreview(draft, keepDraft = false) {
+  const items = selectedResidues(new Set(draft.ids));
+  if (items.length === 0) {
+    addToast("当前预览中的残基已不存在，请重新选择", "warn");
+    state.keyboardDraft = null;
+    render();
+    return;
+  }
+  const numericValue = draft.track === "sasa" ? Number(draft.value) : draft.value;
+  if (draft.track === "sasa" && (!Number.isFinite(numericValue) || numericValue < 0)) {
+    addToast("SASA 必须是大于或等于 0 的数字（Å²）", "warn");
+    renderToasts();
+    return;
+  }
+  state.draftPreview = {
+    kind: draft.kind === "coordinates-toggle" ? (draft.value ? "track-restore" : "track-mask") : "track-specify",
+    track: draft.track,
+    ids: items.map((item) => item.id),
+    selection: formatSelection(new Set(items.map((item) => item.id))),
+    value: numericValue,
+  };
+  if (!keepDraft) state.keyboardDraft = null;
+  state.lastAction = `Backend preview：${TRACKS[draft.track].label} 键盘编辑`;
+  render();
+}
+
+function createKeyboardFunctionPreview(draft, keepDraft = false) {
+  const items = selectedResidues(new Set(draft.ids));
+  if (items.length === 0) {
+    addToast("请先选择 Function tuple 的 residue locator", "warn");
+    state.keyboardDraft = null;
+    render();
+    return;
+  }
+  const first = items[0];
+  const last = items.at(-1);
+  const existing = draft.annotation
+    ? state.annotations.find((annotation) => sameAnnotationTuple(annotation, draft.annotation))
+    : null;
+  const startHandle = existing?.startHandle ?? first.id;
+  const endHandle = existing?.endHandle ?? last.id;
+  const startItem = residueById(startHandle);
+  const endItem = residueById(endHandle);
+  const locator = locatorOnly([startHandle, endHandle]);
+  const sameChain = Boolean(startItem && endItem && startItem.chain === endItem.chain);
+  const contiguousSelection = existing || (sameChain && items.every((item, index) => index === 0 || indexById(item.id) === indexById(items[index - 1].id) + 1));
+  const diagnostics = [];
+  if (!draft.label.trim()) diagnostics.push({ severity: "error", locator, message: "Function tuple label 不可为空" });
+  if (!sameChain) diagnostics.push({ severity: "error", locator, message: "Function interval 的 endpoints 必须属于同一 chain" });
+  if (!contiguousSelection) diagnostics.push({ severity: "error", locator, message: "空白位置必须先选择同一 chain 的连续区间" });
+  if (sameChain && indexById(startHandle) > indexById(endHandle)) diagnostics.push({ severity: "error", locator, message: "Function interval 的 start locator 必须位于 end locator 之前" });
+  const pendingTuples = existing && isSourceAnnotation(existing) ? [{ ...existing }] : [];
+  pendingTuples.forEach((annotation) => diagnostics.push({
+    severity: "warning",
+    locator: annotationLocator(annotation),
+    message: `原 tuple ${annotationTuple(annotation)} 将进入 pending-delete`,
+  }));
+  state.draftPreview = {
+    kind: existing ? "function-replace" : "function-insert",
+    track: "function",
+    selection: existing ? annotationLocator(existing) : formatSelection(new Set(items.map((item) => item.id))),
+    functionRemovedTuples: existing ? [{ ...existing }] : [],
+    functionPendingTuples: pendingTuples,
+    functionInsertedTuples: [{
+      label: draft.label.trim(),
+      chain: startItem?.chain ?? first.chain,
+      startHandle,
+      endHandle,
+      locator,
+      state: "inserted",
+    }],
+    diagnostics,
+  };
+  if (!keepDraft) state.keyboardDraft = null;
+  state.lastAction = `Backend preview：Function ${existing ? "replace" : "insert"} 完整 tuple`;
+  render();
+}
+
+function createKeyboardInsertionPreview(draft, keepDraft = false) {
+  const after = residueById(draft.afterId);
+  if (!after) {
+    addToast("插入锚点已不存在，请重新选择", "warn");
+    state.keyboardDraft = null;
+    render();
+    return;
+  }
+  const count = Math.max(1, Math.min(12, draft.count));
+  const typed = draft.sequenceText.toUpperCase();
+  const validSequence = [...typed].every((letter) => AMINO_ACID_CODES.has(letter));
+  const sequenceValues = !typed ? [] : typed.length === 1 ? Array(count).fill(typed) : [...typed];
+  const diagnostics = [];
+  if (!validSequence) diagnostics.push({ severity: "error", locator: residueLocator(after), message: "插入序列只能包含标准单字母氨基酸代码" });
+  if (typed.length > 1 && typed.length !== count) diagnostics.push({ severity: "error", locator: residueLocator(after), message: `插入数量 ${count} 与输入序列长度 ${typed.length} 不一致` });
+  state.draftPreview = {
+    kind: "insert",
+    track: "sequence",
+    selection: formatSelection(new Set([after.id])),
+    afterId: after.id,
+    afterLocator: residueLocator(after),
+    chain: after.chain,
+    count,
+    backendResidues: backendPreviewInsertion(after, count),
+    initialSequence: typed ? "assigned" : "mask",
+    sequenceValue: typed.length === 1 ? typed : null,
+    sequenceValues,
+    beforeLength: state.residues.length,
+    afterLength: state.residues.length + count,
+    diagnostics,
+  };
+  if (!keepDraft) state.keyboardDraft = null;
+  state.lastAction = `Backend preview：在 ${residueLocator(after)} 后新增 ${count} 个残基`;
+  render();
+}
+
+function commitKeyboardDraftToPreview(keepDraft = false) {
+  const draft = state.keyboardDraft;
+  if (!draft) return;
+  if (draft.kind === "insert") createKeyboardInsertionPreview(draft, keepDraft);
+  else if (draft.kind === "function-label") createKeyboardFunctionPreview(draft, keepDraft);
+  else createTrackPreview(draft, keepDraft);
+}
+
 function applySequencePreview() {
   const preview = state.draftPreview;
   if (!preview || !["insert", "delete", "specify", "mask"].includes(preview.kind)) return;
+  if (hasBlockingDiagnostics(preview)) return;
 
   if (preview.kind === "insert") {
     const insertionIndex = indexById(preview.afterId);
@@ -671,7 +878,7 @@ function applySequencePreview() {
         handle: projection.handle,
         chain: projection.chain,
         sourceNumber: null,
-        sequence: preview.initialSequence === "assigned" ? preview.sequenceValue : null,
+        sequence: preview.initialSequence === "assigned" ? (preview.sequenceValues?.[index] ?? preview.sequenceValue) : null,
         state: "inserted",
       }),
       projectionOrder: projectionOrders[index],
@@ -679,7 +886,9 @@ function applySequencePreview() {
     state.residues.splice(insertionIndex + 1, 0, ...inserted);
     state.selected = new Set(inserted.map((item) => item.id));
     state.anchor = inserted.at(-1)?.id ?? null;
+    state.keyboardFocus = inserted.length ? { residueId: inserted.at(-1).id, track: "sequence" } : state.keyboardFocus;
     state.draftPreview = null;
+    state.keyboardDraft = null;
     state.savePreview = null;
     state.dirty = true;
     state.lastAction = `已应用 backend preview：插入 ${inserted.length} 个残基 · ${formatSelection()}`;
@@ -725,7 +934,9 @@ function applySequencePreview() {
     const neighbor = state.residues[Math.min(firstDeletedIndex, state.residues.length - 1)];
     state.selected = new Set(neighbor ? [neighbor.id] : []);
     state.anchor = neighbor?.id ?? null;
+    state.keyboardFocus = neighbor ? { residueId: neighbor.id, track: "axis" } : null;
     state.draftPreview = null;
+    state.keyboardDraft = null;
     state.savePreview = null;
     state.dirty = true;
     state.lastAction = `已删除 ${targetIds.size} 个残基；各轨道已按共享轴同步`;
@@ -751,9 +962,47 @@ function applySequencePreview() {
     };
   });
   state.draftPreview = null;
+  state.keyboardDraft = null;
   state.savePreview = null;
   state.dirty = true;
   state.lastAction = `已${preview.kind === "specify" ? `指定为 ${preview.sequenceValue}` : "Mask"} ${targetIds.size} 个 Sequence 值`;
+  addToast(`${state.lastAction}；可撤销`);
+  render();
+}
+
+function applyTrackPreview() {
+  const preview = state.draftPreview;
+  if (!preview || !["track-specify", "track-mask", "track-restore"].includes(preview.kind)) return;
+  const targetIds = new Set(preview.ids.filter((id) => residueById(id)));
+  if (targetIds.size === 0) {
+    addToast("预览中的残基已不存在，请重新选择", "warn");
+    state.draftPreview = null;
+    render();
+    return;
+  }
+  pushUndo(`键盘编辑 ${TRACKS[preview.track].label}`);
+  state.residues = state.residues.map((item) => {
+    if (!targetIds.has(item.id)) return item;
+    const nextValue = preview.track === "coordinates" ? Boolean(preview.value) : preview.value;
+    const sourceValue = item.sourceValues[preview.track];
+    const projectionState = item.state === "inserted"
+      ? "inserted"
+      : nextValue === sourceValue
+        ? "current"
+        : (nextValue === null || nextValue === false) && (sourceValue !== null && sourceValue !== false)
+          ? "cleared"
+          : "changed";
+    return {
+      ...item,
+      [preview.track]: nextValue,
+      trackStates: { ...item.trackStates, [preview.track]: projectionState },
+    };
+  });
+  state.draftPreview = null;
+  state.keyboardDraft = null;
+  state.savePreview = null;
+  state.dirty = true;
+  state.lastAction = `已应用 ${TRACKS[preview.track].label} 键盘编辑：${targetIds.size} 个残基`;
   addToast(`${state.lastAction}；可撤销`);
   render();
 }
@@ -822,16 +1071,18 @@ function createFunctionPreview(action) {
 
 function applyFunctionPreview() {
   const preview = state.draftPreview;
+  if (!preview || hasBlockingDiagnostics(preview)) return;
   pushUndo(`应用 ${preview.kind} tuple preview`);
   preview.functionPendingTuples.forEach((tuple) => {
     state.annotationTombstones.push(annotationTombstone(tuple));
   });
   state.annotations = state.annotations.filter((annotation) =>
-    !(annotation.state === "source" && preview.functionRemovedTuples.some((tuple) => sameAnnotationTuple(tuple, annotation))),
+    !preview.functionRemovedTuples.some((tuple) => sameAnnotationTuple(tuple, annotation)),
   );
   state.annotations.push(...preview.functionInsertedTuples.map((tuple) => ({ ...tuple })));
   state.operationDiagnostics.push(...preview.diagnostics.map((item) => ({ ...item })));
   state.draftPreview = null;
+  state.keyboardDraft = null;
   state.savePreview = null;
   state.dirty = true;
   state.lastAction = `已应用 Function tuple preview：${preview.kind.replace("function-", "")}`;
@@ -841,7 +1092,14 @@ function applyFunctionPreview() {
 
 function toggleTrack(track) {
   if (state.hiddenTracks.has(track)) state.hiddenTracks.delete(track);
-  else state.hiddenTracks.add(track);
+  else {
+    state.hiddenTracks.add(track);
+    if (state.keyboardFocus?.track === track) {
+      state.keyboardFocus = { residueId: state.keyboardFocus.residueId, track: "axis" };
+      state.keyboardDraft = null;
+      state.draftPreview = null;
+    }
+  }
   state.lastAction = `${state.hiddenTracks.has(track) ? "暂时隐藏" : "显示"}${TRACKS[track].label} 行`;
   render();
 }
@@ -862,7 +1120,7 @@ function projectionStateCounts() {
 }
 
 function hasBlockingDiagnostics(preview) {
-  return preview.diagnostics.some((item) => item.severity === "error");
+  return (preview.diagnostics ?? []).some((item) => item.severity === "error");
 }
 
 function buildSavePreview() {
@@ -898,8 +1156,8 @@ function rebaseAfterReplace() {
 }
 
 function savePrompt() {
-  if (state.draftPreview) {
-    state.lastAction = "请先应用或关闭局部 preview，再建立或确认保存 preview";
+  if (state.keyboardDraft || state.draftPreview) {
+    state.lastAction = "请先应用或取消当前即时预览，再保存";
     addToast(state.lastAction, "warn");
     render();
     return;
@@ -930,7 +1188,7 @@ function savePrompt() {
 function renderSavePreview() {
   const preview = state.savePreview;
   if (!preview) return "";
-  const localPreviewOpen = Boolean(state.draftPreview);
+  const localPreviewOpen = Boolean(state.keyboardDraft || state.draftPreview);
   const blocked = localPreviewOpen || hasBlockingDiagnostics(preview);
   const blockMessage = localPreviewOpen
     ? "存在未应用的局部 preview；当前 digest 不可确认"
@@ -942,13 +1200,13 @@ function renderSavePreview() {
       <div class="save-state-counts">${CHANGE_STATES.map((key) => `<span><b>${key}</b> ${preview.stateCounts[key]}</span>`).join("")}</div>
       <div class="save-tombstones"><b>pending-delete tombstones</b><span>residues：${preview.tombstones.residues.length ? preview.tombstones.residues.join("、") : "0"}</span><span>Function：${preview.tombstones.functionTuples.length ? preview.tombstones.functionTuples.join("、") : "0"}</span></div>
       ${renderDiagnostics(preview.diagnostics)}
-      <footer><span>${blocked ? blockMessage : "apply 接收此 normalized document + confirmed preview digest；intent = replace"}</span><div><button class="button ghost" data-action="clear-save-preview">返回编辑</button><button class="button primary" data-action="save" ${blocked ? "disabled" : ""}>确认 preview 并 replace</button></div></footer>
+      <footer><span>${blocked ? blockMessage : "apply 接收此 normalized document + confirmed preview digest；intent = replace"}</span><div><button class="button ghost" data-action="clear-save-preview">返回编辑</button><button class="button primary" data-action="save" ${blocked ? "disabled" : ""}>确认并写回 Workflow</button></div></footer>
     </section>
   `;
 }
 
 function renderTopbar() {
-  const localPreviewOpen = Boolean(state.draftPreview);
+  const localPreviewOpen = Boolean(state.keyboardDraft || state.draftPreview);
   const saveBlocked = localPreviewOpen || (state.savePreview && hasBlockingDiagnostics(state.savePreview));
   return `
     <header class="topbar">
@@ -963,7 +1221,7 @@ function renderTopbar() {
         <button class="button ghost" data-action="cancel">取消</button>
         <button class="button ghost" data-action="undo" ${state.undoStack.length ? "" : "disabled"}>撤销${state.undoStack.length ? ` (${state.undoStack.length})` : ""}</button>
         <button class="button" data-action="summary">整份 Prompt 摘要</button>
-        <button class="button primary" data-action="save" ${saveBlocked ? "disabled" : ""}>${localPreviewOpen ? "先应用/关闭局部 preview" : state.savePreview ? "确认 replace 写回 Workflow" : "Preview 保存"}</button>
+        <button class="button primary" data-action="save" ${saveBlocked ? "disabled" : ""}>${localPreviewOpen ? "先应用/取消当前操作" : state.savePreview ? "确认 replace 写回 Workflow" : "保存"}</button>
       </div>
     </header>
   `;
@@ -1080,7 +1338,8 @@ function annotationProjectionState(annotation) {
 }
 
 function annotationAt(item) {
-  return state.annotations.find((annotation) => annotationContains(annotation, item));
+  return state.draftPreview?.functionInsertedTuples?.find((annotation) => annotationContains(annotation, item))
+    ?? state.annotations.find((annotation) => annotationContains(annotation, item));
 }
 
 function isPendingDelete(id) {
@@ -1125,29 +1384,53 @@ function matrixChainStart(residues, index) {
 function renderAxisProjectionCell(item, index, residues) {
   const locator = residueLocator(item);
   const chainStart = matrixChainStart(residues, index);
+  if (item.previewInserted) {
+    return `<div class="axis-cell preview-inserted ${chainStart}" title="即时插入预览 · 尚未应用"><small>新增</small><strong>+${item.previewOrdinal}</strong></div>`;
+  }
   if (isResidueTombstone(item)) {
     return `<div class="axis-cell state-pending-delete tombstone-cell ${chainStart}" title="来源 ${locator} · pending-delete · 只读删除证据"><small>源 ${item.chain}</small><strong>${locator.split(":")[1]}</strong></div>`;
   }
-  return `<button class="axis-cell state-${residueProjectionState(item)} ${state.selected.has(item.id) ? "selected" : ""} ${chainStart}" data-residue="${item.id}" title="${locator}"><small>${item.chain}</small><strong>${locator.split(":")[1]}</strong></button>`;
+  return `<button class="axis-cell state-${residueProjectionState(item)} ${state.selected.has(item.id) ? "selected" : ""} ${isKeyboardFocused(item, "axis") ? "keyboard-focus" : ""} ${chainStart}" data-residue="${item.id}" title="${locator}"><small>${item.chain}</small><strong>${locator.split(":")[1]}</strong></button>`;
 }
 
 function renderFunctionProjectionCell(item, index, residues) {
   const chainStart = matrixChainStart(residues, index);
+  if (item.previewInserted) {
+    return `<div class="track-cell function-cell preview-inserted ${chainStart}" title="即时插入预览 · Function 未指定">·</div>`;
+  }
   if (isResidueTombstone(item)) {
     return `<div class="track-cell function-cell state-pending-delete tombstone-cell ${chainStart}" title="来源 ${residueLocator(item)} · Function annotations · pending-delete">×</div>`;
   }
   const annotation = annotationAt(item);
   const begins = annotation && item.id === annotation.startHandle;
+  const draft = keyboardDraftFor(item, "function");
+  const draftBegins = draft && (draft.annotation ? item.id === draft.annotation.startHandle : item.id === draft.ids[0]);
   const annotationState = annotation ? annotationProjectionState(annotation) : "source";
-  return `<button class="track-cell function-cell ${annotation ? `assigned ribbon annotation-${annotationState}` : "unassigned"} ${begins ? "ribbon-start" : ""} ${state.selected.has(item.id) ? "selected" : ""} ${isPendingDelete(item.id) ? "state-pending-delete" : ""} ${chainStart}" data-residue="${item.id}" data-track="function" title="${annotation ? `${annotationTuple(annotation)} · ${annotationState}` : "未指定 function tuple"}">${begins ? annotation.label : annotation ? "↔" : "·"}</button>`;
+  const assigned = annotation || draft;
+  const content = draft ? (draftBegins ? draft.label : "↔") : begins ? annotation.label : annotation ? "↔" : "·";
+  return `<button class="track-cell function-cell ${assigned ? `assigned ribbon annotation-${annotationState}` : "unassigned"} ${begins || draftBegins ? "ribbon-start" : ""} ${draft ? "keyboard-draft-cell" : ""} ${isKeyboardFocused(item, "function") ? "keyboard-focus" : ""} ${state.selected.has(item.id) ? "selected" : ""} ${isPendingDelete(item.id) ? "state-pending-delete" : ""} ${chainStart}" data-residue="${item.id}" data-track="function" title="${annotation ? `${annotationTuple(annotation)} · ${annotationState}` : "未指定 function tuple"}">${escapeHtml(content)}</button>`;
 }
 
 function renderTrackProjectionCell(item, track, index, residues) {
   const chainStart = matrixChainStart(residues, index);
+  if (item.previewInserted) {
+    return `<div class="track-cell ${isAssigned(item, track) ? "assigned" : "unassigned masked"} preview-inserted ${chainStart}" title="即时插入预览 · ${TRACKS[track].label}">${cellValue(item, track)}</div>`;
+  }
   if (isResidueTombstone(item)) {
     return `<div class="track-cell ${isAssigned(item, track) ? "assigned" : "unassigned masked"} state-pending-delete tombstone-cell ${chainStart}" title="来源 ${residueLocator(item)} · ${TRACKS[track].label} · pending-delete">${cellValue(item, track)}</div>`;
   }
-  return `<button class="track-cell ${isAssigned(item, track) ? "assigned" : "unassigned masked"} state-${trackProjectionState(item, track)} ${state.selected.has(item.id) ? "selected" : ""} ${chainStart}" data-residue="${item.id}" data-track="${track}" title="${residueLocator(item)} · ${TRACKS[track].label} · ${trackProjectionState(item, track)} · ${isAssigned(item, track) ? "已指定" : "Mask"}">${cellValue(item, track)}</button>`;
+  const draft = keyboardDraftFor(item, track);
+  const draftAssigned = draft ? !(draft.value === null || draft.value === false) : isAssigned(item, track);
+  return `<button class="track-cell ${draftAssigned ? "assigned" : "unassigned masked"} state-${trackProjectionState(item, track)} ${draft ? "keyboard-draft-cell" : ""} ${isKeyboardFocused(item, track) ? "keyboard-focus" : ""} ${state.selected.has(item.id) ? "selected" : ""} ${chainStart}" data-residue="${item.id}" data-track="${track}" title="${residueLocator(item)} · ${TRACKS[track].label} · ${trackProjectionState(item, track)} · ${isAssigned(item, track) ? "已指定" : "Mask"}">${keyboardCellValue(item, track)}</button>`;
+}
+
+function renderMatrixLegend() {
+  return `<details class="matrix-legend-popover"><summary>状态图例</summary><div>${CHANGE_STATES.map((key) => `<span><i class="legend-mark ${key}"></i>${key}</span>`).join("")}</div></details>`;
+}
+
+function renderKeyboardHint() {
+  if (!state.keyboardFocus) return `<span class="keyboard-hint">点击单元格后可使用键盘</span>`;
+  return `<span class="keyboard-hint active">方向键导航 · 直接输入 / Space / + 即时预览 · Enter 应用 · Esc 取消</span>`;
 }
 
 function renderMatrix({ focus = false, compact = false } = {}) {
@@ -1158,13 +1441,14 @@ function renderMatrix({ focus = false, compact = false } = {}) {
     <section class="surface matrix-surface ${focus ? "focus-matrix" : ""} ${compact ? "compact" : ""}" data-surface="matrix">
       <header class="surface-header matrix-header">
         <div><span class="surface-kicker">${focus ? "所选区域与邻近残基" : "下方 · 共享残基位置"}</span><h2>${focus ? "Selection lens" : "ProteinPrompt 残基矩阵"}</h2></div>
-        <div class="matrix-meta"><span>一列 = 当前 locator 或只读删除证据</span><strong>${chainSummary()} · ${state.residues.length} current${state.residueTombstones.length ? ` · ${state.residueTombstones.length} pending-delete` : ""}</strong></div>
+        <div class="matrix-meta"><span>一列 = 当前 locator、即时预览或只读删除证据</span><strong>${chainSummary()} · ${state.residues.length} current${state.draftPreview?.kind === "insert" ? ` · +${state.draftPreview.count} preview` : ""}${state.residueTombstones.length ? ` · ${state.residueTombstones.length} pending-delete` : ""}</strong></div>
       </header>
       ${!hasCoordinates() ? `<div class="coordinate-notice"><b>三维区已自动收起</b><span>此 Prompt 没有坐标；不是缺少必填模板。共享残基矩阵已获得更多空间。</span></div>` : ""}
       <div class="track-controls">
         <span>轨道行：</span>
         ${Object.entries(TRACKS).map(([key, track]) => `<button class="${state.hiddenTracks.has(key) ? "off" : "on"}" data-toggle-track="${key}">${track.short}</button>`).join("")}
-        <span class="track-rule">默认同时显示；手动隐藏不改变内容</span>
+        ${renderMatrixLegend()}
+        ${renderKeyboardHint()}
       </div>
       <div class="matrix-scroll">
         <div class="residue-grid axis-row" style="${gridStyle}">
@@ -1184,94 +1468,41 @@ function renderMatrix({ focus = false, compact = false } = {}) {
           </div>`;
         }).join("")}
       </div>
-      <footer class="matrix-legend">
-        <span><i class="legend-mark source"></i>source</span><span><i class="legend-mark current"></i>current</span><span><i class="legend-mark changed"></i>changed</span><span><i class="legend-mark cleared"></i>cleared</span><span><i class="legend-mark inserted"></i>inserted</span><span><i class="legend-mark pending-delete"></i>pending-delete</span><span class="matrix-selection-readout">矩阵选择：<b>${formatSelection()}</b></span>
-      </footer>
     </section>
   `;
 }
 
 function renderSequenceTools() {
-  const selection = formatSelection();
-  const action = state.sequenceAction;
-  if (action === "插入") {
-    return `
-      <div class="tool-section operation-detail">
-        <span class="section-label">Sequence · 直接插入</span>
-        <strong>在选择中的最后一个 chain/residue locator 后插入</strong>
-        <p>${selection}</p>
-        <label class="field"><span>插入数量</span><input type="number" min="1" max="12" value="${state.insertCount}" data-sequence-field="insert-count" /></label>
-        <span class="section-label inset">新增残基的 Sequence 初始状态</span>
-        <div class="insert-initial-options">
-          <button class="${state.insertInitial === "assigned" ? "active" : ""}" data-insert-initial="assigned">指定氨基酸</button>
-          <button class="${state.insertInitial === "mask" ? "active" : ""}" data-insert-initial="mask">Mask</button>
-        </div>
-        ${state.insertInitial === "assigned" ? `<label class="field"><span>氨基酸（示意）</span><select data-sequence-field="insert-value">${["G", "A", "S", "V"].map((value) => `<option ${state.sequenceValue === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>` : `<div class="mask-explanation">新增残基由 backend preview 分配身份；Sequence 值为 Mask。</div>`}
-        <button class="button wide" data-sequence-preview="insert">预览插入</button>
-      </div>
-    `;
-  }
-  if (action === "删除") {
-    return `
-      <div class="tool-section operation-detail danger-detail">
-        <span class="section-label">Sequence · 直接删除</span>
-        <strong>删除所选 chain/residue locator</strong>
-        <p>${selection}</p>
-        <div class="mask-explanation">删除会让后端重建有序残基投影并同步处理所有轨道；它不是 Sequence Mask。</div>
-        <button class="button wide danger" data-sequence-preview="delete">预览删除及受影响轨道</button>
-      </div>
-    `;
-  }
-  if (action === "Mask") {
-    return `
-      <div class="tool-section operation-detail">
-        <span class="section-label">Sequence · 直接 Mask</span>
-        <strong>保留残基位置，清除 Sequence 值</strong>
-        <p>${selection}</p>
-        <button class="button wide" data-sequence-preview="mask">预览 Sequence Mask</button>
-      </div>
-    `;
-  }
   return `
-    <div class="tool-section operation-detail">
-      <span class="section-label">Sequence · 直接指定</span>
-      <strong>为所选 chain/residue locator 指定氨基酸</strong>
-      <p>${selection}</p>
-      <label class="field"><span>氨基酸（示意）</span><select data-sequence-field="sequence-value">${["G", "A", "S", "V"].map((value) => `<option ${state.sequenceValue === value ? "selected" : ""}>${value}</option>`).join("")}</select></label>
-      <button class="button wide" data-sequence-preview="specify">预览指定</button>
+    <div class="tool-section operation-detail current-operation-reference">
+      <span class="section-label">Sequence · 当前操作参考</span>
+      <strong>${state.sequenceAction}</strong>
+      <p>${formatSelection()}</p>
+      <div class="mask-explanation">行内操作或键盘输入会立即显示预览；Enter 应用，Esc 取消。</div>
     </div>
   `;
 }
 
 function renderConditionTools() {
-  if (state.activeTrack === "function") {
-    return `
-      <div class="tool-section operation-detail">
-        <span class="section-label">Function annotations · 区间直接编辑</span>
-        <strong>Function 只按完整 (label, start, end) tuple 对应</strong>
-        <p>${formatSelection()}</p>
-        <div class="track-direct-actions"><button data-function-action="insert">添加 tuple</button><button data-function-action="replace">替换 / 拆分 tuple</button></div>
-        <button class="button wide danger" data-function-action="delete">删除 source tuple</button>
-        <p class="panel-note">替换不会产生 annotation changed：旧 tuple 为 pending-delete，新 tuple 为 inserted。</p>
-      </div>
-    `;
-  }
+  const hints = {
+    coordinates: "Space 切换 Mask / 恢复会话内原始 coordinates",
+    ss: "直接输入 H/B/E/G/I/T/S/-",
+    sasa: "直接输入大于或等于 0 的数值；单位 Å²",
+    function: "直接输入完整 tuple 的 label；现有 endpoints 保持不变",
+  };
   return `
-    <div class="tool-section operation-detail">
-      <span class="section-label">${TRACKS[state.activeTrack].label} · 轨道直接编辑</span>
-      <strong>此处不再经过通用操作意图面板</strong>
+    <div class="tool-section operation-detail current-operation-reference">
+      <span class="section-label">${TRACKS[state.activeTrack].label} · 当前操作参考</span>
+      <strong>${hints[state.activeTrack]}</strong>
       <p>${formatSelection()}</p>
-      <label class="field"><span>示意值</span>${state.activeTrack === "sasa" ? `<div><input value="32"/><em>Å²</em></div>` : `<select><option>选择示意值…</option><option>未裁决词表 / 值域</option></select>`}</label>
-      <div class="track-direct-actions"><button data-preview-intent="指定 ${TRACKS[state.activeTrack].label}">指定所选残基</button><button data-preview-intent="Mask ${TRACKS[state.activeTrack].label}">Mask 所选残基</button></div>
-      <p class="panel-note">未修改的其他轨道自动保持；本区只展示当前轨道的直接指定与 Mask。</p>
+      <div class="mask-explanation">操作会立即显示预览；Enter 应用，Esc 取消。未修改的其他轨道保持不变。</div>
     </div>
   `;
 }
 
 function renderLayoutTools() {
   return `
-    <div class="tool-section"><span class="section-label">有序残基操作</span><div class="intent-grid"><button class="intent active" data-layout-intent="插入残基">＋ 插入残基</button><button class="intent danger" data-layout-intent="删除残基">− 删除残基</button><button class="intent" data-layout-intent="编辑链">编辑链</button></div><p class="panel-note">用户只操作 chain/residue locator；backend preview 负责身份分配与全轨道重对齐。</p></div>
-    <div class="tool-section"><span class="section-label">当前有序残基</span><div class="layout-summary"><b>${chainSummary()}</b><span>${state.residues.length} residues · ${new Set(state.residues.map((item) => item.chain)).size} chains</span></div></div>
+    <div class="tool-section current-operation-reference"><span class="section-label">布局 · 当前操作参考</span><strong>请使用 Sequence 行内的插入 / 删除，或按 +</strong><p class="panel-note">操作会立即显示共享轴变化；Enter 应用，Esc 取消。</p></div>
   `;
 }
 
@@ -1285,13 +1516,15 @@ function renderDraftPreview() {
   const preview = state.draftPreview;
   if (!preview) return "";
   if (preview.kind === "insert") {
+    const blocked = hasBlockingDiagnostics(preview);
     return `
       <div class="draft-preview actionable-preview">
-        <span>未应用 · 插入预览</span>
+        <span>即时预览 · 插入</span>
         <strong>${preview.afterLocator} 后新增 ${preview.count} 个残基</strong>
         <div class="preview-axis-change"><b>${preview.beforeLength} residues</b><i>→</i><b>${preview.afterLength} residues</b></div>
-        <p>Sequence：${preview.initialSequence === "assigned" ? `指定为 ${preview.sequenceValue}` : "Mask"}；Coordinates、SS8、SASA 与 Function 均未指定。</p>
-        <div class="preview-actions"><button data-action="clear-preview">取消</button><button class="apply" data-action="apply-sequence-preview">应用插入</button></div>
+        <p>Sequence：${preview.initialSequence === "assigned" ? `指定为 ${escapeHtml((preview.sequenceValues ?? [preview.sequenceValue]).join(""))}` : "Mask"}；Coordinates、SS8、SASA 与 Function 均未指定。</p>
+        ${renderDiagnostics(preview.diagnostics)}
+        <div class="preview-actions"><button data-action="clear-preview">取消</button><button class="apply" data-action="apply-sequence-preview" ${blocked ? "disabled" : ""}>${blocked ? "先修正 diagnostics" : "应用插入"}</button></div>
       </div>
     `;
   }
@@ -1299,14 +1532,14 @@ function renderDraftPreview() {
     const impact = preview.impact;
     return `
       <div class="draft-preview actionable-preview delete-preview">
-        <span>Backend preview · 删除</span>
+        <span>即时预览 · 删除</span>
         <strong>待删除 ${preview.ids.length} 个 chain/residue locators</strong>
         <p>${preview.selection}</p>
         <div class="preview-axis-change"><b>${preview.beforeLength} residues</b><i>→</i><b>${preview.afterLength} residues</b></div>
         <div class="impact-counts"><span>SEQ ${impact.sequence}</span><span>XYZ ${impact.coordinates}</span><span>SS8 ${impact.ss}</span><span>SASA ${impact.sasa}</span></div>
         <p>受影响 Function tuples：${impact.functionTuples.length ? impact.functionTuples.map(annotationTuple).join("、") : "无"}${impact.viewerHidden ? `；另移除 ${impact.viewerHidden} 个临时 viewer hidden 状态` : ""}</p>
         ${renderDiagnostics(preview.diagnostics)}
-        <div class="preview-actions"><button data-action="clear-preview">取消</button><button class="apply danger" data-action="apply-sequence-preview">确认删除</button></div>
+        <div class="preview-actions"><button data-action="clear-preview">取消</button><button class="apply danger" data-action="apply-sequence-preview">应用删除</button></div>
       </div>
     `;
   }
@@ -1314,26 +1547,39 @@ function renderDraftPreview() {
     const blocked = hasBlockingDiagnostics(preview);
     return `
       <div class="draft-preview actionable-preview">
-        <span>Backend preview · Function tuple correspondence</span>
+        <span>即时预览 · Function tuple</span>
         <strong>${preview.selection}</strong>
         ${preview.functionPendingTuples.map((tuple) => `<p><b>pending-delete</b> ${annotationTuple(tuple)}</p>`).join("")}
         ${preview.functionInsertedTuples.map((tuple) => `<p><b>inserted</b> ${annotationTuple(tuple)}</p>`).join("")}
         ${renderDiagnostics(preview.diagnostics)}
-        <div class="preview-actions"><button data-action="clear-preview">关闭预览</button><button class="apply" data-action="apply-function-preview" ${blocked ? "disabled" : ""}>${blocked ? "先修正 diagnostics" : "应用 tuple preview"}</button></div>
+        <div class="preview-actions"><button data-action="clear-preview">取消</button><button class="apply" data-action="apply-function-preview" ${blocked ? "disabled" : ""}>${blocked ? "先修正 diagnostics" : "应用"}</button></div>
       </div>
     `;
   }
   if (["specify", "mask"].includes(preview.kind)) {
     return `
       <div class="draft-preview actionable-preview">
-        <span>未应用 · Sequence ${preview.kind === "specify" ? "指定" : "Mask"} 预览</span>
+        <span>即时预览 · Sequence ${preview.kind === "specify" ? "指定" : "Mask"}</span>
         <strong>${preview.selection}</strong>
         <p>${preview.kind === "specify" ? `Sequence 将指定为 ${preview.sequenceValue}` : "仅 Sequence 变为 Mask；其他轨道保持不变"}</p>
         <div class="preview-actions"><button data-action="clear-preview">取消</button><button class="apply" data-action="apply-sequence-preview">应用${preview.kind === "specify" ? "指定" : " Mask"}</button></div>
       </div>
     `;
   }
-  return `<div class="draft-preview"><span>未应用 · 示意预览</span><strong>${preview.intent} ${TRACKS[preview.track].label}</strong><p>${preview.selection}</p><button data-action="clear-preview">清除预览</button></div>`;
+  if (["track-specify", "track-mask", "track-restore"].includes(preview.kind)) {
+    const value = preview.track === "coordinates"
+      ? preview.value ? "恢复本次会话保留的原始 coordinates" : "Mask coordinates"
+      : `${preview.value}${preview.track === "sasa" ? " Å²" : ""}`;
+    return `
+      <div class="draft-preview actionable-preview">
+        <span>即时预览 · ${TRACKS[preview.track].label}</span>
+        <strong>${preview.selection}</strong>
+        <p>${escapeHtml(String(value))}；未修改的其他轨道保持不变。</p>
+        <div class="preview-actions"><button data-action="clear-preview">取消</button><button class="apply" data-action="apply-track-preview">应用</button></div>
+      </div>
+    `;
+  }
+  return `<div class="draft-preview"><span>即时预览</span><strong>${preview.intent} ${TRACKS[preview.track].label}</strong><p>${preview.selection}</p><button data-action="clear-preview">取消</button></div>`;
 }
 
 function renderDiagnostics(diagnostics = []) {
@@ -1356,9 +1602,6 @@ function renderEditor() {
       <div class="editor-selection">
         <div><small>${selectionKinds()} · 与三维/矩阵同步</small><strong>${formatSelection()}</strong></div>
         <span>${selectedItems.length}</span>
-      </div>
-      <div class="track-tabs" role="tablist">
-        ${Object.entries(TRACKS).map(([key, track]) => `<button class="${state.activeTrack === key ? "active" : ""}" data-track="${key}"><b>${track.short}</b><span>${countAssigned(key)} ${key === "function" ? "intervals" : "assigned"}</span></button>`).join("")}
       </div>
       <div class="editor-tools">
         ${state.mode === "structure" ? renderStructureTools() : state.activeTrack === "sequence" ? renderSequenceTools() : state.mode === "layout" ? renderLayoutTools() : renderConditionTools()}
@@ -1445,6 +1688,18 @@ function serializableState() {
     entry: `${state.entry} · ${ENTRIES[state.entry].source}`,
     mode: `${state.mode} · ${MODES[state.mode].name}`,
     activeTrack: state.activeTrack,
+    keyboardFocus: state.keyboardFocus ? {
+      locator: residueById(state.keyboardFocus.residueId) ? residueLocator(residueById(state.keyboardFocus.residueId)) : null,
+      track: state.keyboardFocus.track,
+    } : null,
+    previewInput: state.keyboardDraft ? {
+      kind: state.keyboardDraft.kind,
+      track: state.keyboardDraft.track,
+      locators: state.keyboardDraft.ids ? selectedResidues(new Set(state.keyboardDraft.ids)).map(residueLocator) : [],
+      afterLocator: state.keyboardDraft.afterId && residueById(state.keyboardDraft.afterId) ? residueLocator(residueById(state.keyboardDraft.afterId)) : null,
+      value: state.keyboardDraft.value ?? state.keyboardDraft.label ?? state.keyboardDraft.sequenceText ?? null,
+      count: state.keyboardDraft.count ?? null,
+    } : null,
     selectionKind: selectionKinds(),
     selectedLocators: state.residues.filter((item) => state.selected.has(item.id)).map(residueLocator),
     prompt: {
@@ -1530,6 +1785,165 @@ function escapeHtml(value) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function beginKeyboardInsertion() {
+  const after = residueById(state.keyboardFocus?.residueId) ?? selectedResidues().at(-1);
+  if (!after) return;
+  state.keyboardFocus = { residueId: after.id, track: "sequence" };
+  state.mode = "layout";
+  state.activeTrack = "sequence";
+  state.sequenceAction = "插入";
+  state.draftPreview = null;
+  state.keyboardDraft = {
+    kind: "insert",
+    track: "sequence",
+    afterId: after.id,
+    count: 1,
+    countText: "",
+    explicitCount: false,
+    sequenceText: "",
+  };
+  state.lastAction = `键盘插入草稿：${residueLocator(after)} 后 1 个 Mask residue`;
+  commitKeyboardDraftToPreview(true);
+}
+
+function beginCoordinateToggle() {
+  if (state.keyboardDraft?.kind === "coordinates-toggle" || (state.draftPreview?.track === "coordinates" && ["track-mask", "track-restore"].includes(state.draftPreview.kind))) {
+    state.keyboardDraft = null;
+    state.draftPreview = null;
+    state.lastAction = "取消 Coordinates mask/unmask 草稿";
+    render();
+    return;
+  }
+  const ids = keyboardTargetIds();
+  const items = selectedResidues(new Set(ids));
+  if (items.length === 0) return;
+  const shouldMask = items.every((item) => item.coordinates);
+  if (!shouldMask && items.some((item) => !item.sourceValues.coordinates)) {
+    addToast("这些残基没有可恢复的原始 coordinates；请从结构或其他来源重新指定", "warn");
+    renderToasts();
+    return;
+  }
+  state.mode = "condition";
+  state.activeTrack = "coordinates";
+  state.draftPreview = null;
+  state.keyboardDraft = { kind: "coordinates-toggle", track: "coordinates", ids, value: !shouldMask };
+  state.lastAction = `Coordinates 即时预览：${shouldMask ? "Mask" : "恢复会话内原始值"}`;
+  commitKeyboardDraftToPreview(true);
+}
+
+function beginTrackKeyboardDraft(track, key) {
+  const ids = keyboardTargetIds();
+  if (ids.length === 0) return false;
+  if (track === "sequence") {
+    const value = key.toUpperCase();
+    if (!AMINO_ACID_CODES.has(value)) return false;
+    state.keyboardDraft = { kind: "track-value", track, ids, value };
+  } else if (track === "ss") {
+    const value = key.toUpperCase();
+    if (!SS8_CODES.has(value)) return false;
+    state.keyboardDraft = { kind: "track-value", track, ids, value };
+  } else if (track === "sasa") {
+    if (!/[0-9.]/.test(key)) return false;
+    const current = state.keyboardDraft?.track === "sasa" ? String(state.keyboardDraft.value) : "";
+    if (key === "." && current.includes(".")) return true;
+    state.keyboardDraft = { kind: "track-value", track, ids, value: `${current}${key}` };
+  } else if (track === "function") {
+    if (key.length !== 1) return false;
+    const focused = residueById(state.keyboardFocus.residueId);
+    const existingDraft = state.keyboardDraft?.kind === "function-label" ? state.keyboardDraft : null;
+    const annotation = existingDraft?.annotation
+      ?? state.annotations.find((candidate) => annotationContains(candidate, focused));
+    const functionIds = existingDraft?.ids ?? (annotation
+      ? state.residues.filter((item) => annotationContains(annotation, item)).map((item) => item.id)
+      : ids);
+    const current = existingDraft?.label ?? "";
+    state.keyboardDraft = { kind: "function-label", track, ids: functionIds, label: `${current}${key}`, annotation: annotation ? { ...annotation } : null };
+  } else return false;
+  state.mode = "condition";
+  state.activeTrack = track;
+  state.draftPreview = null;
+  state.lastAction = `${TRACKS[track].label} 即时预览`;
+  commitKeyboardDraftToPreview(true);
+  return true;
+}
+
+function editKeyboardDraftWithBackspace() {
+  const draft = state.keyboardDraft;
+  if (!draft) return false;
+  if (draft.kind === "insert") {
+    if (draft.sequenceText) draft.sequenceText = draft.sequenceText.slice(0, -1);
+    else if (draft.countText) {
+      draft.countText = draft.countText.slice(0, -1);
+      draft.explicitCount = Boolean(draft.countText);
+      draft.count = draft.countText ? Math.max(1, Math.min(12, Number(draft.countText))) : Math.max(1, draft.sequenceText.length || 1);
+    } else state.keyboardDraft = null;
+  } else if (draft.kind === "function-label") {
+    draft.label = draft.label.slice(0, -1);
+    if (!draft.label) state.keyboardDraft = null;
+  } else if (draft.track === "sasa") {
+    draft.value = String(draft.value).slice(0, -1);
+    if (!draft.value) state.keyboardDraft = null;
+  } else state.keyboardDraft = null;
+  state.lastAction = "更新即时预览";
+  if (state.keyboardDraft) commitKeyboardDraftToPreview(true);
+  else {
+    state.draftPreview = null;
+    render();
+  }
+  return true;
+}
+
+function editKeyboardInsertion(key) {
+  const draft = state.keyboardDraft;
+  if (draft?.kind !== "insert") return false;
+  if (/^[0-9]$/.test(key)) {
+    draft.countText = `${draft.countText}${key}`.replace(/^0+/, "");
+    draft.explicitCount = true;
+    draft.count = Math.max(1, Math.min(12, Number(draft.countText) || 1));
+  } else {
+    const value = key.toUpperCase();
+    if (!AMINO_ACID_CODES.has(value)) return false;
+    draft.sequenceText += value;
+    if (!draft.explicitCount) draft.count = Math.min(12, draft.sequenceText.length);
+  }
+  state.lastAction = `键盘插入草稿：${draft.count} 个 residue`;
+  commitKeyboardDraftToPreview(true);
+  return true;
+}
+
+function moveKeyboardFocus(key) {
+  const focus = state.keyboardFocus;
+  if (!focus) return false;
+  const itemIndex = indexById(focus.residueId);
+  if (itemIndex < 0) return false;
+  const visibleTracks = MATRIX_TRACK_ORDER.filter((track) => track === "axis" || !state.hiddenTracks.has(track));
+  let nextItemIndex = itemIndex;
+  let nextTrackIndex = Math.max(0, visibleTracks.indexOf(focus.track));
+  if (key === "ArrowLeft") nextItemIndex = Math.max(0, itemIndex - 1);
+  if (key === "ArrowRight") nextItemIndex = Math.min(state.residues.length - 1, itemIndex + 1);
+  if (key === "ArrowUp") nextTrackIndex = Math.max(0, nextTrackIndex - 1);
+  if (key === "ArrowDown") nextTrackIndex = Math.min(visibleTracks.length - 1, nextTrackIndex + 1);
+  const next = state.residues[nextItemIndex];
+  state.keyboardFocus = { residueId: next.id, track: visibleTracks[nextTrackIndex] };
+  state.selected = new Set([next.id]);
+  state.anchor = next.id;
+  state.keyboardDraft = null;
+  state.draftPreview = null;
+  state.lastAction = `键盘导航：${residueLocator(next)} · ${visibleTracks[nextTrackIndex]}`;
+  render();
+  return true;
+}
+
+function applyCurrentPreviewFromKeyboard() {
+  const preview = state.draftPreview;
+  if (!preview || hasBlockingDiagnostics(preview)) return false;
+  if (["insert", "delete", "specify", "mask"].includes(preview.kind)) applySequencePreview();
+  else if (preview.kind.startsWith("function-")) applyFunctionPreview();
+  else if (["track-specify", "track-mask", "track-restore"].includes(preview.kind)) applyTrackPreview();
+  else return false;
+  return true;
+}
+
 function render() {
   document.querySelector("#app").innerHTML = `
     <div class="app-shell variant-${state.variant.toLowerCase()}">
@@ -1544,6 +1958,13 @@ function render() {
   bindEvents();
   renderToasts();
   if (state.draftPreview) document.querySelector(".draft-preview")?.scrollIntoView({ block: "nearest" });
+  const focus = state.keyboardFocus;
+  if (focus) {
+    const selector = focus.track === "axis"
+      ? `button.axis-cell[data-residue="${focus.residueId}"]`
+      : `button.track-cell[data-residue="${focus.residueId}"][data-track="${focus.track}"]`;
+    document.querySelector(selector)?.focus({ preventScroll: true });
+  }
 }
 
 function bindEvents() {
@@ -1552,6 +1973,7 @@ function bindEvents() {
   document.querySelectorAll("[data-select-preset]").forEach((button) => button.addEventListener("click", () => selectPreset(button.dataset.selectPreset)));
   document.querySelectorAll("[data-residue]").forEach((button) => button.addEventListener("click", (event) => {
     if (button.dataset.track) state.activeTrack = button.dataset.track;
+    state.keyboardFocus = { residueId: button.dataset.residue, track: button.dataset.track ?? "axis" };
     handleResidueClick(button.dataset.residue, event, button.closest("[data-surface=structure]") ? "三维结构" : "残基矩阵");
   }));
   document.querySelectorAll("[data-track]").forEach((button) => {
@@ -1597,6 +2019,7 @@ function bindEvents() {
     else if (action === "toggle-viewer-selected") toggleViewerSelected();
     else if (action === "apply-sequence-preview") applySequencePreview();
     else if (action === "apply-function-preview") applyFunctionPreview();
+    else if (action === "apply-track-preview") applyTrackPreview();
     else if (action === "undo") undoPromptEdit();
     else if (action === "clear-preview") {
       state.draftPreview = null;
@@ -1625,8 +2048,75 @@ document.addEventListener("keydown", (event) => {
     undoPromptEdit();
     return;
   }
-  if (event.key === "ArrowLeft") cycleVariant(-1);
-  if (event.key === "ArrowRight") cycleVariant(1);
+  if (event.key === "Escape") {
+    if (state.keyboardDraft || state.draftPreview) {
+      event.preventDefault();
+      state.keyboardDraft = null;
+      state.draftPreview = null;
+      state.lastAction = "取消即时预览";
+      render();
+    }
+    return;
+  }
+  if (!state.keyboardFocus) {
+    if (event.key === "ArrowLeft") cycleVariant(-1);
+    if (event.key === "ArrowRight") cycleVariant(1);
+    return;
+  }
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+    event.preventDefault();
+    moveKeyboardFocus(event.key);
+    return;
+  }
+  if (event.key === "Enter" && state.draftPreview) {
+    event.preventDefault();
+    applyCurrentPreviewFromKeyboard();
+    return;
+  }
+  if (event.key === "Backspace" && state.keyboardDraft) {
+    event.preventDefault();
+    editKeyboardDraftWithBackspace();
+    return;
+  }
+  if (event.key === "+") {
+    event.preventDefault();
+    beginKeyboardInsertion();
+    return;
+  }
+  if (state.keyboardDraft?.kind === "insert") {
+    if (editKeyboardInsertion(event.key)) event.preventDefault();
+    return;
+  }
+  const track = state.keyboardFocus.track;
+  if (track === "coordinates" && (event.key === " " || event.code === "Space")) {
+    event.preventDefault();
+    beginCoordinateToggle();
+    return;
+  }
+  if (beginTrackKeyboardDraft(track, event.key)) event.preventDefault();
+});
+
+document.addEventListener("paste", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable) return;
+  const draft = state.keyboardDraft;
+  if (draft?.kind !== "insert") return;
+  const text = event.clipboardData?.getData("text")?.replace(/\s+/g, "").toUpperCase() ?? "";
+  if (!text || ![...text].every((letter) => AMINO_ACID_CODES.has(letter))) {
+    addToast("粘贴的插入序列只能包含标准单字母氨基酸代码", "warn");
+    renderToasts();
+    return;
+  }
+  if (text.length > 12) {
+    addToast("此原型一次最多插入 12 个残基；请缩短粘贴序列", "warn");
+    renderToasts();
+    return;
+  }
+  event.preventDefault();
+  draft.sequenceText = text;
+  if (!draft.explicitCount) draft.count = draft.sequenceText.length;
+  state.lastAction = `粘贴插入序列：${draft.sequenceText.length} 个 residues`;
+  commitKeyboardDraftToPreview(true);
 });
 
 initializeEntry("pdb");
