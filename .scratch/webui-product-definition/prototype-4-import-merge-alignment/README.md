@@ -1,18 +1,25 @@
-# PROTOTYPE 4 — 导入、合并与手动残基对齐（一次性原型）
+# PROTOTYPE 4 — Import、correspondence 与 merge（一次性原型）
 
-> 在继承原型 2 的矩阵优先层级与原型 3 的变更账本语言下，用 `?variant=` 切换三种残基对应与合并工作区。
+> 当前原型直接对齐 Prompt Authoring contract。它是轻量、内存态、无后端连接的交互 stub；`?variant=` 仍可切换 A/B/C，方案 B「证据分屏」仍是已采用方向。
 
-## 决定 — 2026-08-30 采用方案 B
+## 已采用的界面方向
 
-**原型 4 采用方案 B「证据分屏」作为后续正式界面设计的导入、手动残基对齐与合并方向。** 可视化上下序列占据主要证据区，手动调整与精确残基对应表在相邻区域同步核对，逐轨道选择、冲突处理和统一合并预览保持为右侧独立 dossier。
+方案 B 保留三栏证据结构：
 
-这是用户的明确选择；未提供额外选择理由，因此本文不推断理由。方案 A「对应账本」与方案 C「关卡式确认」只作为一次性比较证据保留，不再是同等候选。本决定裁决整体信息层级，不裁决自动对齐算法、额外来源 residues 的不映射确认规则、精确表默认过滤、最终颜色或视觉密度。
+- 左栏放 source / target 的可见 chain + residue locator 证据；
+- 中栏放完整 correspondence editor，逐行列出 `match`、`source_gap`、`target_gap`；
+- 右栏放五个 track decision、Preview 和全部 diagnostics。
 
-## 唯一产品问题
+方案 A「对应账本」和方案 C「关卡式确认」只保留为同一状态模型的布局对照，不是新的产品版本。
 
-当导入来源与当前 ProteinPrompt 的长度、缺失区间和编号不一致时，用户是否明确知道按数组位置建立的只是尚未确认的临时草稿，并能验证每个来源残基最终对应到哪个目标残基？
+## 本次契约对齐
 
-本原型只对应 `docs/2026-08-29-webui-functional-spec.md` 第 3.10 节。它不裁决自动序列比对算法、PDB 解析规则、function vocabulary、正式科学冲突判断、生产协议或代码架构。
+- Open 只记录来源事实。初始与 Reset correspondence 都是明确标注 provenance 的 `prototype stub · chain + residue locator pairing` temporary suggestion；它仍未确认，且不能直接 Apply。
+- UI 只显示 `source/target + chain + residue` locator。内部 opaque handles 只用于原型内存状态，不作为字段、轨道或编辑控件出现。
+- correspondence 始终完整：每个 source residue 恰好出现在一个 `match` 或 `source_gap` row；每个 target residue 恰好出现在一个 `match` 或 `target_gap` row。`target_gap` 保留现有 target track values，source 在该 locator 不贡献值。把 source 改到已占用 target 时，被替换的 source 自动成为 `source_gap`，因此不会制造重复 target。
+- 五个 track 都有显式 state：`sequence`、`structure`、`secondary_structure`、`sasa`、`function_annotations`。只有 `adopt` 或 `preserve` 能成为 materialized track decision；`conflict` 只是未裁决 evidence state，始终 blocking。Conflict 卡只能把整个 track 收敛为 `all adopt` 或 `all preserve`，不能逐 locator 混合 Apply。
+- Function annotation 的 exact tuple 固定为 `(label, start residue, end residue)`；evidence 独立显示为 provenance，不是 tuple 成员。Source interval 必须按 correspondence 原顺序完整映射到同链、连续且顺序一致的 target interval，否则 Preview 返回可定位的 blocking `annotation loss`。
+- Preview 与 Apply 分离。未确认 correspondence 也可以生成 Preview，并在同一 diagnostics 集合中返回 blocking `correspondence_unconfirmed`。Preview 同时列出 missing adopted tracks、annotation loss、track conflicts、`source_gap` 和 `target_gap`；每条 diagnostic 都带可见 locator。Blocking diagnostics 未清除时不能 Apply。
 
 ## 运行
 
@@ -20,67 +27,37 @@
 .venv/bin/python .scratch/webui-product-definition/prototype-4-import-merge-alignment/serve.py
 ```
 
-打开 <http://127.0.0.1:4182/>。方案 B 现在是默认方案。
+打开 <http://127.0.0.1:4182/>。方案 B 默认打开。
 
-- `B` — **已采用。证据分屏**：对齐证据占据主区，精确表与冲突处理并排核对。
-- `A` — 仅供比较。**对应账本**：可视化上下序列、精确残基对应表和逐轨道合并账本同屏。
-- `C` — 仅供比较。**关卡式确认**：导入事实、残基对齐、轨道选择和最终合并分成四个必须显式通过的阶段。
+- `?variant=B` — **已采用：证据分屏**。
+- `?variant=A` — 对应账本布局对照。
+- `?variant=C` — Open → correspondence → track decisions → Preview / Apply 关卡布局对照。
 
-所有状态只存在内存中，刷新即重置。示例使用 ubiquitin N 端的真实 FASTA 序列；PDB 缺失区间、坐标内容、结构来源说明和已有局部 coordinates 均为交互示意，不形成科学或产品决定。普通 PDB 导入在本原型中只贡献 sequence 与 coordinates；SS8、SASA 和 function annotations 明确保留当前 Prompt，不暗示由 PDB 自动派生。
+所有状态只存在内存，刷新即重置。A/B/C 的底部箭头和键盘左右键会更新可分享的 `?variant=` 参数；输入控件聚焦时不会拦截方向键。
 
-## 走查路径
+## 推荐走查
 
-正常路径：
+### Correspondence
 
-1. 查看导入事实：当前 FASTA Prompt 为 30 residues；PDB 观察到 28 residues，缺少 PDB 编号 A:9 与 A:20。
-2. 核对醒目的“临时对齐草稿 · 未确认 · 仅按数组位置”标记；确认 A:10 起的来源残基被错误地映射到目标 A:9。
-3. 在 A:10 前插入 gap，再在 A:21 前插入 gap；观察上下序列和精确对应表同步更新。
-4. 也可重置后把 A:10–19 整段移动 +1，并在精确表里修改单个来源残基的目标对应。
-5. 点击“确认残基对应”，逐轨道选择是否采用 PDB Sequence 与 Coordinates，并解决每个冲突。
-6. 生成统一合并预览，核对新增、保留、替换和冲突计数后最终确认。
+1. 初始页面核对顶部 `TEMPORARY SUGGESTION · UNCONFIRMED` 和 suggestion provenance。
+2. 查看完整表：locator draft 有 28 个 `match`，target chain A residue 9 与 20 各有一个显式 `target_gap`；28 个 source 与 30 个 target 均各处置一次。
+3. 不确认 correspondence，直接点击 `Generate Preview`。确认 Preview 正常生成，并含 blocking `correspondence_unconfirmed`；Apply 仍禁用。
+4. 点击 `Regenerate chain + residue locator draft · still unconfirmed` 或 Reset，确认 provenance 保持 locator draft 且状态仍未确认。
+5. 在表格中把任一 source 设为 `source_gap`；或将它分配给某个 target gap。观察 coverage invariant 始终显示 source `28/28`、target `30/30` exactly once。
+6. 点击 `Confirm correspondence`。任何后续 correspondence edit 都会撤销确认与旧 Preview。
 
-容易误解的路径：
+### Track decisions、Preview 与 Apply
 
-1. 保持初始按位置草稿，直接尝试生成合并预览或最终确认；确认操作被残基对应关卡阻止。
-2. 把两个来源残基指定到同一个目标残基；确认碰撞同时出现在可视化对齐和精确表，无法确认对应。
-3. 取消采用 PDB Sequence，只采用 Coordinates；确认 Sequence 冲突从待处理集合消失，而当前 FASTA Sequence 全部保留。
-4. 对齐确认后再次移动一个来源残基；确认状态回到“临时草稿”，旧合并预览失效且必须重新核对。
+1. 默认 Sequence 和 Structure 为 `conflict`。生成 Preview，确认每个 conflict 都是 blocking，且 conflict rows 只有 evidence，没有逐 residue decision 按钮。
+2. 用 `all preserve · whole track` 或 `all adopt · whole track` 将 Sequence 和 Structure 收敛为 materialized decisions；把 SASA 改为 `preserve`。Secondary structure 保持 `preserve`，Function annotations 可保持 `adopt`。
+3. 确认 correspondence 后再次生成 Preview。五个 track 均为 adopt/preserve，blocking diagnostics 为 0；annotation pending-delete 与 target gaps 仍作为 warning 显示。
+4. 点击 `Apply merge`。结果只写入原型内存，不代表正式保存。
+5. Annotation failure 路径：Reset 后把 source chain A residue 5 映射到 target chain A residue 10，确认 correspondence，并把所有 conflict tracks 收敛为 adopt/preserve。Preview 必须显示原顺序 target residues `10, 6, 7` 和 blocking `annotation loss`，不能排序成连续区间。
 
 ## 原型边界
 
-- 临时草稿严格按来源观察数组的位置建立，不冒充序列比对或残基编号比对。
-- 对齐草稿只有在无重复目标映射并由用户显式确认后，才允许进入合并预览。
-- 合并不是“全部覆盖 / 只填空白”二选一；Sequence 与 Coordinates 独立采用，并对每个真实冲突选择保留当前值或采用 PDB 值。
-- 未出现在来源 PDB 中的 SS8、SASA 与 function annotations 保持当前值，不伪造来源数据。
-- 最终颜色、图标、视觉密度与正式自动对齐建议均未裁决。
-
-## 走查记录
-
-浏览器走查完成于 2026-08-30：
-
-- 初始按位置草稿把 PDB A:10 映射到目标 A:9，只得到 `8/28` 个来源编号与目标 identity 一致。页面顶部、对齐区和合并区同时显示“临时对齐草稿 · 未确认”，且在用户至少做过一次手动调整前禁用“确认残基对应”。
-- 在来源 A:10 前插入 gap 后，精确 identity 一致数变为 `18/28`；再在 A:21 前插入 gap 后变为 `28/28`。上下序列与精确表同步更新，问题表只剩 PDB A:17 `I` 对目标 A:17 `V` 的真实 sequence 分歧（示意）。
-- “移动区间”路径同样可用：A:10–19 右移 1，再把后续区间补足位移后恢复 `28/28` identity 对应。精确表可把单个来源 residue 改到任意目标 identity 或明确设为不映射。
-- 把 PDB A:17 与 A:18 同时映射到目标 A:18 时，可视化序列目标格和精确对应表同时显示“重复目标”，并禁用残基对应确认。修回一对一 mapping 后才可继续。
-- 确认对齐后共有 5 个逐轨道冲突：1 个 Sequence 分歧和 4 个已有 motif Coordinates 与 PDB Coordinates 的替换分歧。选择全部采用 PDB 后，统一账本显示：ResidueLayout 保留 30；Sequence 保留 29、替换 1；Coordinates 新增 24、替换 4、2 个目标位置无来源；SS8、SASA 和 function annotations 全部保留当前。
-- 取消采用 PDB Sequence 后，Sequence 冲突立即退出待处理集合，并明确显示当前 FASTA `30/30` 保留；Coordinates 仍可独立采用和解决。这验证了合并不是全局覆盖策略。
-- 合并预览明确写着“未应用”；只有最终确认后才变成“合并已确认”。对齐确认后再次修改任一 mapping，会回到临时草稿、撤销旧对齐确认、清除冲突选择并移除旧合并预览。
-- A/B/C 的浮动箭头和键盘方向键会更新可分享的 `?variant=` 参数；输入框聚焦时方向键不会切换方案。切换方案时完整 mapping、轨道选择和合并状态保持。最终浏览器 console 无错误。
-
-截图：
-
-- `variant-a-temporary-draft.png` — A 的初始按位置临时草稿，错误错位、双视图和禁用确认同屏。
-- `variant-a-merge-preview.png` — A 的对齐确认与逐轨道冲突解决后，统一合并账本仍标记为未应用。
-- `variant-b-evidence-split.png` — B 的证据分屏；截图中故意保留重复目标映射，验证碰撞不是仅靠颜色表达。
-- `variant-c-gated-alignment.png` — C 的第二关“残基对齐”；后续轨道和最终合并关卡仍锁定。
-
-## 采用后的观察与仍待裁决
-
-- 方案 B 已被采用：后续正式设计应保留“对齐证据主区 + 相邻精确对应区 + 右侧逐轨道合并 dossier”的整体层级。A、C 不再参与整体方案选择。
-- 三种方案都能阻止临时草稿直接成为 ProteinPrompt；B 给可视对齐和精确对应更多空间，同时让逐轨道冲突持续可见。此处只是原型观察，不补充用户未提供的选择理由。
-- 当来源含有目标轴外的额外 residues 时，“明确不映射”是否需要逐项确认或单独摘要，功能规格尚未裁决。本样本是来源缺失两个 residues，不需要用原型代码替用户决定该规则。
-- 精确表默认只显示问题行还是全部行、对齐区的最终视觉密度，以及正式自动对齐建议是否存在，仍属于后续产品或视觉决定。
-
-## 功能规格影响
-
-方案 B 的采用决定已经回写权威功能规格。本次走查没有发现其它需要立即改写第 3.10 节的功能缺口：现有“按位置只建临时草稿、手动调整并确认、上下序列与精确表同步、逐轨道统一合并”的基线足以支持这条用户旅程。若后续裁决额外来源 residues 的不映射确认规则，应回写第 3.10 节；在裁决前保持为未决点。原型代码是一次性验证材料，不成为生产实现基线。
+- chain + residue locator suggestion 只是可见 provenance 的 stub，不定义正式科学算法。
+- 示例 source 是 PDB structure 加一条 annotation sidecar tuple；Secondary structure 与 SASA 明确缺失，用于走查 missing adopted track。
+- 示例中的 structure values、annotation tuples 和 scientific conflicts 只服务于状态走查，不形成科学定义。
+- 不做持久化、错误恢复、生产级校验、provider parsing 或自动修复。
+- 目录中的旧 PNG 不再由本文引用；当前契约以可运行的 HTML 原型为准。

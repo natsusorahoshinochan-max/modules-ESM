@@ -28,6 +28,7 @@ const DEFAULT_WORKSPACE = {
   generationSteps: 80,
   promptRevision: 1,
   promptSummary: "链 A · 76 residues · coordinates 72/76（全部示意）",
+  promptApplyReceipt: null,
   canvasLayout: "空间画布 · 5 个 Node Instances",
   updatedAt: "干净默认值",
 };
@@ -172,6 +173,8 @@ const state = {
     dirty: false,
     editCount: 0,
     lastEditedTrack: null,
+    preview: null,
+    continueAfterApply: false,
   },
   lastAction: "已打开干净的默认示例；默认示例保持不变",
   toasts: [],
@@ -225,6 +228,13 @@ function record(text) {
 
 function saveStatus() {
   if (state.promptStudio.open && state.promptStudio.dirty) {
+    if (state.promptStudio.preview) {
+      return {
+        tone: "preview",
+        label: "Backend Preview 待确认",
+        detail: "preview 尚未保存 Draft；确认后以 replace 写回最新 Workflow Draft",
+      };
+    }
     return {
       tone: "warn",
       label: "Prompt Studio 有未保存更改",
@@ -432,8 +442,15 @@ function returnToProjectCurrent() {
 }
 
 function openPromptStudio() {
-  state.promptStudio = { open: true, dirty: false, editCount: 0, lastEditedTrack: null };
-  record("已打开 Prompt Studio；项目当前工作仍保持已保存状态");
+  state.promptStudio = {
+    open: true,
+    dirty: false,
+    editCount: 0,
+    lastEditedTrack: null,
+    preview: null,
+    continueAfterApply: false,
+  };
+  record("Backend open 已恢复 Prompt Authoring Document；项目当前工作仍保持已保存状态");
   render();
 }
 
@@ -441,30 +458,66 @@ function editPromptDraft(track = "所选 ProteinPrompt 内容") {
   state.promptStudio.dirty = true;
   state.promptStudio.editCount += 1;
   state.promptStudio.lastEditedTrack = track;
-  record(`${track} 的示意草稿已修改，但尚未写回 Workflow，也未进入项目自动保存`);
+  state.promptStudio.preview = null;
+  record(`${track} 的示意草稿已修改；需要重新 preview，尚未写回 Workflow，也未进入项目自动保存`);
   render();
 }
 
-function savePromptStudio(continueAfter = false) {
-  if (state.promptStudio.dirty) {
-    ensurePersonalCopy("保存 ProteinPrompt");
-    if (currentVersion()) beginBranchFromVersion("保存 ProteinPrompt");
-    state.workspace.promptRevision += 1;
-    state.workspace.revision += 1;
-    const summaryBase = state.workspace.promptSummary.replace(/ · Studio edit r\d+（示意）$/, "");
-    state.workspace.promptSummary = `${summaryBase} · Studio edit r${state.workspace.promptRevision}（示意）`;
-    state.promptStudio = { open: false, dirty: false, editCount: 0, lastEditedTrack: null };
-    scheduleAutosave("ProteinPrompt 已明确保存回 Workflow；项目当前工作正在自动保存");
-  } else {
-    state.promptStudio = { open: false, dirty: false, editCount: 0, lastEditedTrack: null };
-    record("已关闭 Prompt Studio；没有需要写回 Workflow 的修改");
-    render();
+function previewPromptStudio(continueAfterApply = state.promptStudio.continueAfterApply) {
+  const summaryBase = state.workspace.promptSummary.replace(/ · Studio edit r\d+（示意）$/, "");
+  state.promptStudio.preview = {
+    digest: `sha256:prototype-preview-r${state.workspace.promptRevision + 1}-${state.promptStudio.editCount}`,
+    summary: `${summaryBase} · ${state.promptStudio.editCount} 项 Studio 草稿修改（示意）`,
+    diagnostics: [],
+  };
+  state.promptStudio.continueAfterApply = continueAfterApply;
+  record("Backend preview 已返回完整 ProteinPrompt 摘要与全部可定位 diagnostics；preview 没有保存 Workflow Draft");
+  render();
+}
+
+function applyPromptStudio() {
+  const preview = state.promptStudio.preview;
+  const continueAfterApply = state.promptStudio.continueAfterApply;
+  const authoredSummaryBase = state.workspace.promptSummary.replace(/ · Studio edit r\d+（示意）$/, "");
+  ensurePersonalCopy("确认并应用 ProteinPrompt Preview");
+  if (currentVersion()) {
+    const latestDraft = clone(state.priorCurrentBeforeVersion ?? currentProject().current);
+    beginBranchFromVersion("确认并应用 ProteinPrompt Preview");
+    state.workspace = latestDraft;
   }
-  if (continueAfter) setTimeout(continuePendingTarget, 0);
+  state.workspace.promptRevision += 1;
+  state.workspace.revision += 1;
+  state.workspace.promptSummary = `${authoredSummaryBase} · Studio edit r${state.workspace.promptRevision}（示意）`;
+  state.workspace.promptApplyReceipt = {
+    intent: "replace",
+    confirmedPreview: preview.digest,
+    diagnostics: preview.diagnostics.length,
+    summary: preview.summary,
+    workflowRevision: state.workspace.revision,
+  };
+  state.promptStudio = {
+    open: false,
+    dirty: false,
+    editCount: 0,
+    lastEditedTrack: null,
+    preview: null,
+    continueAfterApply: false,
+  };
+  addToast("已确认 Preview；replace 已写回最新 Workflow Draft", "success");
+  scheduleAutosave("已确认 Backend Preview；apply intent=replace 已原子发布当前 Project 的最新 Workflow Draft，项目当前工作正在自动保存");
+  if (continueAfterApply) setTimeout(continuePendingTarget, 0);
 }
 
 function cancelPromptStudio(continueAfter = false) {
-  state.promptStudio = { open: false, dirty: false, editCount: 0, lastEditedTrack: null };
+  state.promptStudio = {
+    open: false,
+    dirty: false,
+    editCount: 0,
+    lastEditedTrack: null,
+    preview: null,
+    continueAfterApply: false,
+  };
+  if (!continueAfter) state.pendingProjectTarget = null;
   record("已放弃 Prompt Studio 草稿；Workflow 与项目自动保存内容保持不变");
   render();
   if (continueAfter) setTimeout(continuePendingTarget, 0);
@@ -761,7 +814,11 @@ function renderCanvas() {
       <footer class="canvas-footer">
         <span>Workflow v${state.workspace.revision}</span>
         <span>${escapeHtml(state.workspace.promptSummary)}</span>
-        <span>示意科学内容</span>
+        <span>${
+          state.workspace.promptApplyReceipt
+            ? `apply ${state.workspace.promptApplyReceipt.intent} · confirmed preview · diagnostics ${state.workspace.promptApplyReceipt.diagnostics}`
+            : "示意科学内容"
+        }</span>
       </footer>
     </section>`;
 }
@@ -971,16 +1028,25 @@ function renderSwitcher() {
 function renderPromptStudio() {
   if (!state.promptStudio.open) return "";
   const dirty = state.promptStudio.dirty;
+  const preview = state.promptStudio.preview;
+  const studioTone = preview ? "preview" : dirty ? "dirty" : "clean";
   return `
     <div class="studio-overlay">
       <section class="prompt-studio">
         <header class="studio-header">
           <div><span class="eyebrow">PROMPT STUDIO · EDIT SESSION</span><h2>ProteinPrompt</h2></div>
-          <div class="studio-status ${dirty ? "dirty" : "clean"}"><span class="save-dot"></span>${dirty ? "有未保存更改 · 尚未写回 Workflow" : "已载入 Workflow 中的 ProteinPrompt"}</div>
+          <div class="studio-status ${studioTone}"><span class="save-dot"></span>${preview ? "Backend Preview 已返回 · 等待确认" : dirty ? "有未保存更改 · 尚未写回 Workflow" : "Backend open 已恢复当前 ProteinPrompt"}</div>
         </header>
         <div class="studio-boundary-banner">
           <strong>这里使用明确保存边界</strong>
-          <span>个人项目自动保存只保存 Workflow 当前工作；本 Studio 草稿必须点击“保存 ProteinPrompt”才会写回。</span>
+          <span>项目自动保存只处理 Workflow 当前工作；Studio 草稿必须先 preview，再以 apply intent=replace 写回最新 Workflow Draft。</span>
+        </div>
+        <div class="authoring-flow" aria-label="Prompt authoring 保存流程">
+          <span class="done"><b>1 · OPEN</b><small>恢复 authoring document</small></span>
+          <i>→</i>
+          <span class="${preview ? "done" : dirty ? "active" : "waiting"}"><b>2 · PREVIEW</b><small>${preview ? "摘要与 diagnostics 已返回" : dirty ? "等待生成" : "编辑后生成"}</small></span>
+          <i>→</i>
+          <span class="${preview ? "active" : "waiting"}"><b>3 · APPLY</b><small>intent=replace · 最新 Draft</small></span>
         </div>
         <div class="studio-grid">
           <section class="structure-placeholder"><span>三维结构（示意）</span><div class="protein-sketch">⌁</div><small>coordinates track · 示意视图</small><em>显示/隐藏只改变界面状态，不清除 coordinate values</em></section>
@@ -1010,13 +1076,26 @@ function renderPromptStudio() {
               <button data-action="edit-prompt-draft" data-track="function annotations"><span><b>function annotations</b><small>interval collection · 1 interval</small></span><em>修改（示意）</em></button>
             </div>
             <p class="editor-caveat">仅作交互示意；具体残基值与 annotation 名称不构成科学或产品决定。</p>
+            ${
+              preview
+                ? `<section class="backend-preview">
+                    <div class="preview-heading"><span class="eyebrow">BACKEND PREVIEW</span><strong>请确认后应用</strong></div>
+                    <dl>
+                      <div><dt>ProteinPrompt summary</dt><dd>${escapeHtml(preview.summary)}</dd></div>
+                      <div><dt>Diagnostics</dt><dd class="diagnostics-clear">${preview.diagnostics.length} 条 · 没有需要修正的问题</dd></div>
+                      <div><dt>Apply</dt><dd><code>intent=replace</code> · 当前 Project 的最新 Workflow Draft</dd></div>
+                    </dl>
+                    <p>Preview 本身不保存 Draft、不执行 Nodes，也不进入项目自动保存；下方确认按钮会提交 normalized document 与这份 preview 的确认标识。</p>
+                  </section>`
+                : ""
+            }
           </section>
         </div>
         <footer class="studio-footer">
-          <span>${dirty ? "项目自动保存未包含这份草稿" : "没有未保存的 Studio 修改"}</span>
+          <span>${preview ? "Preview 已就绪；项目自动保存仍未包含这份 Studio 草稿" : dirty ? "项目自动保存未包含这份草稿" : "没有未保存的 Studio 修改"}</span>
           <div>
             <button class="button" data-action="cancel-prompt">取消</button>
-            <button class="button primary" data-action="save-prompt" ${dirty ? "" : "disabled"}>保存 ProteinPrompt</button>
+            <button class="button primary" data-action="${preview ? "apply-prompt-preview" : "preview-prompt"}" ${dirty ? "" : "disabled"}>${preview ? "确认 Preview 并保存" : "生成保存 Preview"}</button>
           </div>
         </footer>
       </section>
@@ -1044,7 +1123,7 @@ function renderDialog() {
   }
   if (state.dialog.type === "prompt-exit") {
     return `
-      <div class="dialog-backdrop"><section class="dialog"><span class="eyebrow danger-text">UNSAVED PROMPT STUDIO</span><h2>ProteinPrompt 尚未保存到 Workflow</h2><p>项目自动保存没有包含这份 Studio 草稿。切换项目之前请选择如何处理。</p><div class="save-choice"><button data-action="prompt-exit-save"><strong>保存 ProteinPrompt</strong><span>写回 Workflow，再继续切换</span></button><button data-action="prompt-exit-discard"><strong>放弃 Studio 草稿</strong><span>保持 Workflow 和项目当前工作不变</span></button><button data-action="prompt-exit-continue"><strong>继续编辑</strong><span>取消项目切换，返回 Prompt Studio</span></button></div></section></div>`;
+      <div class="dialog-backdrop"><section class="dialog"><span class="eyebrow danger-text">UNSAVED PROMPT STUDIO</span><h2>ProteinPrompt 尚未保存到 Workflow</h2><p>项目自动保存没有包含这份 Studio 草稿。切换项目之前请选择如何处理。</p><div class="save-choice"><button data-action="prompt-exit-save"><strong>预览并保存 ProteinPrompt</strong><span>先核对 backend preview，再以 replace 写回最新 Workflow Draft 后继续切换</span></button><button data-action="prompt-exit-discard"><strong>放弃 Studio 草稿</strong><span>保持 Workflow 和项目当前工作不变</span></button><button data-action="prompt-exit-continue"><strong>继续编辑</strong><span>取消项目切换，返回 Prompt Studio</span></button></div></section></div>`;
   }
   return "";
 }
@@ -1120,7 +1199,8 @@ document.addEventListener("click", (event) => {
   else if (action === "return-current") returnToProjectCurrent();
   else if (action === "open-prompt-studio") openPromptStudio();
   else if (action === "edit-prompt-draft") editPromptDraft(target.dataset.track);
-  else if (action === "save-prompt") savePromptStudio();
+  else if (action === "preview-prompt") previewPromptStudio();
+  else if (action === "apply-prompt-preview") applyPromptStudio();
   else if (action === "cancel-prompt") cancelPromptStudio();
   else if (action === "open-rename-dialog") {
     state.dialog = { type: "rename" };
@@ -1144,7 +1224,7 @@ document.addEventListener("click", (event) => {
   else if (action === "restore-project") restoreProject(target.dataset.projectId);
   else if (action === "prompt-exit-save") {
     state.dialog = null;
-    savePromptStudio(true);
+    previewPromptStudio(true);
   } else if (action === "prompt-exit-discard") {
     state.dialog = null;
     cancelPromptStudio(true);

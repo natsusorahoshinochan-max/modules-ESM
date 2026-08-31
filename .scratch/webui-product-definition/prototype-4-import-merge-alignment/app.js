@@ -1,127 +1,227 @@
 // THROWAWAY UI PROTOTYPE — not production code.
-// Three variants of the import / merge / manual residue-alignment workspace,
-// switchable via ?variant=. The prototype answers one question: can a
-// researcher verify every source-to-target residue correspondence before merge?
+// Three variants of one import / correspondence / merge workspace, switchable
+// via ?variant=. Variant B remains the adopted evidence-split direction.
 
 const VARIANTS = {
-  A: { name: "Mapping ledger", label: "A · 对应账本", question: "可视对齐、精确对应表与合并账本同屏，能否让临时草稿不被误认成科学对应？" },
-  B: { name: "Evidence split", label: "B · 证据分屏（已采用）", question: "把可视证据与精确对应并排放大，是否更容易发现错位和碰撞？", adopted: true },
-  C: { name: "Gated confirmation", label: "C · 关卡式确认", question: "把导入、对齐、轨道和最终合并分阶段，能否减少跳步误确认？" },
+  A: { label: "A · 对应账本", question: "把完整 correspondence 与逐轨道决策放在同一账本里，是否容易核对？" },
+  B: { label: "B · 证据分屏（已采用）", question: "证据、精确 correspondence 与 merge dossier 分屏，是否最容易定位问题？", adopted: true },
+  C: { label: "C · 关卡式确认", question: "用 Open → correspondence → track decisions → Preview / Apply 关卡，是否能减少误应用？" },
 };
 
 const SHOW_PROTOTYPE_CONTROLS = location.protocol === "file:" || ["127.0.0.1", "localhost"].includes(location.hostname);
 const variantFromUrl = new URLSearchParams(location.search).get("variant")?.toUpperCase();
 const TARGET_SEQUENCE = "MQIFVKTLTGKTITLEVEPSDTIENVKAKI";
-const MISSING_SOURCE_NUMBERS = new Set([9, 20]);
+const MISSING_SOURCE_POSITIONS = new Set([9, 20]);
 
-function buildTarget() {
+function opaqueHandle(scope, index) {
+  return `${scope}_${(((index + 11) * 2654435761) >>> 0).toString(36)}`;
+}
+
+function makeTargetResidues() {
   return [...TARGET_SEQUENCE].map((letter, index) => ({
-    id: `A:${index + 1}`,
-    number: index + 1,
+    handle: opaqueHandle("t", index),
+    chain: "A",
+    position: index + 1,
     letter,
-    currentCoordinates: [5, 6, 7, 17].includes(index + 1),
+    hasStructure: [5, 6, 7, 17].includes(index + 1),
   }));
 }
 
-function buildSource() {
+function makeSourceResidues() {
   return [...TARGET_SEQUENCE]
-    .map((letter, index) => ({ number: index + 1, letter }))
-    .filter((item) => !MISSING_SOURCE_NUMBERS.has(item.number))
+    .map((letter, index) => ({ chain: "A", position: index + 1, letter }))
+    .filter((item) => !MISSING_SOURCE_POSITIONS.has(item.position))
     .map((item, observedIndex) => ({
-      id: `pdb:A:${item.number}`,
-      number: item.number,
+      ...item,
+      handle: opaqueHandle("s", observedIndex),
       observedIndex,
-      // One real scientific disagreement is deliberately retained after the
-      // two missing intervals are aligned. The value is illustrative.
-      letter: item.number === 17 ? "I" : item.letter,
-      coordinates: `PDB coordinates A:${item.number}（示意）`,
+      letter: item.position === 17 ? "I" : item.letter,
     }));
 }
 
-const target = buildTarget();
-const source = buildSource();
+const target = makeTargetResidues();
+const source = makeSourceResidues();
 
-function positionalMapping() {
-  return Object.fromEntries(source.map((item, index) => [item.id, target[index]?.id ?? null]));
+function locatorDraftSuggestion() {
+  return Object.fromEntries(source.map((sourceItem) => [
+    sourceItem.handle,
+    target.find((targetItem) => targetItem.chain === sourceItem.chain && targetItem.position === sourceItem.position)?.handle ?? null,
+  ]));
 }
+
+const TRACKS = [
+  { key: "sequence", label: "Sequence", sourceAvailable: true, sourceDetail: "28 observed residues", currentDetail: "30 residues" },
+  { key: "structure", label: "Structure", sourceAvailable: true, sourceDetail: "28 residue coordinate sets", currentDetail: "4 local coordinate sets" },
+  { key: "secondary_structure", label: "Secondary structure", sourceAvailable: false, sourceDetail: "not provided", currentDetail: "current values present" },
+  { key: "sasa", label: "SASA", sourceAvailable: false, sourceDetail: "not provided", currentDetail: "current values present" },
+  { key: "function_annotations", label: "Function annotations", sourceAvailable: true, sourceDetail: "1 exact annotation tuple", currentDetail: "2 exact annotation tuples" },
+];
+
+const CURRENT_ANNOTATIONS = [
+  { key: "current_tuple_motif", label: "motif", startPosition: 5, endPosition: 7, provenance: "manual evidence" },
+  { key: "current_tuple_active", label: "active_site", startPosition: 17, endPosition: 17, provenance: "curated evidence" },
+];
+
+const SOURCE_ANNOTATION = {
+  key: "source_tuple_binding",
+  label: "binding_site",
+  startPosition: 5,
+  endPosition: 7,
+  provenance: "annotation sidecar · imported evidence",
+};
 
 const state = {
   variant: VARIANTS[variantFromUrl] ? variantFromUrl : "B",
-  mapping: positionalMapping(),
-  alignmentTouched: false,
-  selectedSourceId: "pdb:A:10",
-  tableFilter: "issues",
-  alignmentReviewed: false,
-  alignmentReviewNote: "",
-  includedTracks: { sequence: true, coordinates: true },
-  resolutions: { sequence: {}, coordinates: {} },
-  mergePreview: false,
-  mergeConfirmed: false,
+  correspondence: locatorDraftSuggestion(),
+  suggestionProvenance: "prototype stub · chain + residue locator pairing",
+  selectedSourceHandle: source.find((item) => item.position === 10).handle,
+  tableFilter: "diagnostics",
+  correspondenceReviewed: false,
+  correspondenceNote: "",
+  decisions: {
+    sequence: "conflict",
+    structure: "conflict",
+    secondary_structure: "preserve",
+    sasa: "adopt",
+    function_annotations: "adopt",
+  },
+  previewGenerated: false,
+  applied: false,
   step: 2,
-  moveStart: 10,
-  moveEnd: 19,
-  moveOffset: 1,
-  lastAction: "已导入 PDB；按来源观察数组位置建立临时草稿，尚未确认科学对应",
+  lastAction: "Open 完成；已生成 chain + residue locator temporary suggestion，尚未确认",
   toasts: [],
 };
 
-function targetById(id) {
-  return target.find((item) => item.id === id);
+function sourceByHandle(handle) {
+  return source.find((item) => item.handle === handle);
 }
 
-function sourceById(id) {
-  return source.find((item) => item.id === id);
+function targetByHandle(handle) {
+  return target.find((item) => item.handle === handle);
+}
+
+function sourceByPosition(position) {
+  return source.find((item) => item.position === position);
 }
 
 function mappedTarget(item) {
-  return targetById(state.mapping[item.id]);
+  return targetByHandle(state.correspondence[item.handle]);
 }
 
-function mappingIndex(item) {
-  return target.findIndex((candidate) => candidate.id === state.mapping[item.id]);
+function locator(item, side) {
+  return `${side} · chain ${item.chain} · residue ${item.position}`;
 }
 
-function mappingOccupants() {
-  const byTarget = new Map();
-  source.forEach((item) => {
-    const targetId = state.mapping[item.id];
-    if (!targetId) return;
-    const items = byTarget.get(targetId) ?? [];
-    items.push(item);
-    byTarget.set(targetId, items);
-  });
-  return byTarget;
+function shortLocator(item) {
+  return `${item.chain}·${item.position}`;
 }
 
-function collisionTargetIds() {
-  return new Set([...mappingOccupants()].filter(([, items]) => items.length > 1).map(([targetId]) => targetId));
+function residueSetLocator(items, side) {
+  const positions = items.map((item) => item.position);
+  const consecutive = positions.every((position, index) => index === 0 || position === positions[index - 1] + 1);
+  const positionLabel = positions.length === 1
+    ? `residue ${positions[0]}`
+    : consecutive
+      ? `residues ${positions[0]}–${positions.at(-1)}`
+      : `residues ${positions.join(", ")}`;
+  return `${side} · chain A · ${positionLabel}`;
 }
 
-function alignmentFacts() {
-  const collisions = collisionTargetIds();
-  const unmapped = source.filter((item) => !state.mapping[item.id]);
-  const letterMismatches = source.filter((item) => {
-    const mapped = mappedTarget(item);
-    return mapped && mapped.letter !== item.letter;
-  });
-  const exactNumber = source.filter((item) => mappedTarget(item)?.number === item.number);
+function exactAnnotationTuple(label, startItem, endItem, side) {
+  return `(${label}, ${locator(startItem, side)}, ${locator(endItem, side)})`;
+}
+
+function currentAnnotationView(annotation) {
+  const startItem = target.find((item) => item.position === annotation.startPosition);
+  const endItem = target.find((item) => item.position === annotation.endPosition);
   return {
-    collisions,
-    unmapped,
-    letterMismatches,
-    exactNumber,
-    mappedCount: source.length - unmapped.length,
-    canReview: collisions.size === 0 && state.alignmentTouched,
+    ...annotation,
+    locator: annotation.startPosition === annotation.endPosition
+      ? locator(startItem, "target")
+      : `${locator(startItem, "target")} → ${locator(endItem, "target")}`,
+    tuple: exactAnnotationTuple(annotation.label, startItem, endItem, "target"),
   };
 }
 
-function invalidateReview(message) {
-  state.alignmentReviewed = false;
-  state.alignmentReviewNote = "";
-  state.mergePreview = false;
-  state.mergeConfirmed = false;
-  state.resolutions = { sequence: {}, coordinates: {} };
+function annotationProjection() {
+  const sourceItems = source.filter((item) => item.position >= SOURCE_ANNOTATION.startPosition && item.position <= SOURCE_ANNOTATION.endPosition);
+  const mappedItems = sourceItems.map(mappedTarget);
+  const targetItems = mappedItems.filter(Boolean);
+  const sourceGaps = sourceItems.filter((item, index) => !mappedItems[index]);
+  const sameChain = targetItems.length === sourceItems.length && targetItems.every((item) => item.chain === targetItems[0].chain);
+  const orderedAndContinuous = sameChain && targetItems.every((item, index) => index === 0 || (
+    item.chain === targetItems[index - 1].chain && item.position === targetItems[index - 1].position + 1
+  ));
+  const sourceLocator = residueSetLocator(sourceItems, "source");
+  const targetLocator = targetItems.length ? residueSetLocator(targetItems, "target") : "target · no matched residues";
+  return {
+    sourceLocator,
+    targetLocator,
+    sourceGaps,
+    sameChain,
+    orderedAndContinuous,
+    valid: sourceGaps.length === 0 && sameChain && orderedAndContinuous,
+    locator: `${targetLocator} ← ${sourceLocator}`,
+    tuple: targetItems.length
+      ? exactAnnotationTuple(SOURCE_ANNOTATION.label, targetItems[0], targetItems.at(-1), "target")
+      : `(${SOURCE_ANNOTATION.label}, unresolved target start, unresolved target end)`,
+    sourceTuple: exactAnnotationTuple(SOURCE_ANNOTATION.label, sourceItems[0], sourceItems.at(-1), "source"),
+    provenance: SOURCE_ANNOTATION.provenance,
+  };
+}
+
+function correspondenceRows() {
+  const usedTargetHandles = new Set(Object.values(state.correspondence).filter(Boolean));
+  const sourceRows = source.map((sourceItem) => {
+    const targetItem = mappedTarget(sourceItem);
+    return targetItem
+      ? { kind: "match", source: sourceItem, target: targetItem }
+      : { kind: "source_gap", source: sourceItem, target: null };
+  });
+  const targetGapRows = target
+    .filter((targetItem) => !usedTargetHandles.has(targetItem.handle))
+    .map((targetItem) => ({ kind: "target_gap", source: null, target: targetItem }));
+  return [...sourceRows, ...targetGapRows];
+}
+
+function rowStatus(row) {
+  if (row.kind === "source_gap") return { cls: "source-gap", label: "source_gap · source explicitly unpaired" };
+  if (row.kind === "target_gap") return { cls: "target-gap", label: "target_gap · target explicitly has no source" };
+  if (row.source.position === row.target.position && row.source.letter === row.target.letter) return { cls: "exact", label: "match · locator + sequence agree" };
+  if (row.source.letter === row.target.letter) return { cls: "sequence", label: "match · sequence agrees; locators differ" };
+  return { cls: "mismatch", label: "match · sequence conflict" };
+}
+
+function correspondenceFacts() {
+  const rows = correspondenceRows();
+  const matches = rows.filter((row) => row.kind === "match");
+  const sourceGaps = rows.filter((row) => row.kind === "source_gap");
+  const targetGaps = rows.filter((row) => row.kind === "target_gap");
+  const locatorMatches = matches.filter((row) => row.source.position === row.target.position);
+  return {
+    rows,
+    matches,
+    sourceGaps,
+    targetGaps,
+    locatorMatches,
+    sourceDispositionCount: matches.length + sourceGaps.length,
+    targetDispositionCount: matches.length + targetGaps.length,
+  };
+}
+
+function invalidateAfterCorrespondenceChange(message) {
+  state.correspondenceReviewed = false;
+  state.correspondenceNote = "";
+  state.previewGenerated = false;
+  state.applied = false;
   if (state.step > 2) state.step = 2;
+  state.lastAction = message;
+}
+
+function invalidatePreview(message) {
+  state.previewGenerated = false;
+  state.applied = false;
+  if (state.step > 3) state.step = 3;
   state.lastAction = message;
 }
 
@@ -131,7 +231,7 @@ function addToast(text, tone = "") {
   setTimeout(() => {
     state.toasts = state.toasts.filter((item) => item.id !== id);
     renderToasts();
-  }, 3200);
+  }, 2800);
 }
 
 function renderToasts() {
@@ -140,196 +240,253 @@ function renderToasts() {
   root.innerHTML = state.toasts.map((item) => `<div class="toast ${item.tone}">${item.text}</div>`).join("");
 }
 
-function resetDraft() {
-  state.mapping = positionalMapping();
-  state.alignmentTouched = false;
-  state.selectedSourceId = "pdb:A:10";
-  invalidateReview("已重建按数组位置临时草稿；所有对齐与合并确认失效");
-  addToast("已重置临时草稿", "warn");
+function resetSuggestion() {
+  state.correspondence = locatorDraftSuggestion();
+  state.suggestionProvenance = "prototype stub · chain + residue locator pairing";
+  state.selectedSourceHandle = sourceByPosition(10).handle;
+  invalidateAfterCorrespondenceChange("已重建 chain + residue locator temporary suggestion；来源仍为 prototype stub，尚未确认");
+  addToast("临时建议已重置；不是科学对应", "warn");
   render();
 }
 
-function insertGapBefore(sourceId) {
-  const selected = sourceById(sourceId);
-  if (!selected) return;
-  const selectedIndex = source.findIndex((item) => item.id === sourceId);
-  for (let index = source.length - 1; index >= selectedIndex; index -= 1) {
-    const item = source[index];
-    const currentIndex = mappingIndex(item);
-    state.mapping[item.id] = currentIndex >= 0 && currentIndex + 1 < target.length ? target[currentIndex + 1].id : null;
+function applyLocatorSuggestion() {
+  state.correspondence = locatorDraftSuggestion();
+  state.suggestionProvenance = "prototype stub · chain + residue locator pairing";
+  invalidateAfterCorrespondenceChange("已按可见 chain + residue locator 生成修订建议；建议来源已标明，仍未确认");
+  addToast("locator-based suggestion 已生成；仍需逐行核对", "warn");
+  render();
+}
+
+function assignSourceToTarget(sourceHandle, targetHandle) {
+  if (targetHandle) {
+    const displaced = source.find((item) => item.handle !== sourceHandle && state.correspondence[item.handle] === targetHandle);
+    if (displaced) state.correspondence[displaced.handle] = null;
   }
-  state.alignmentTouched = true;
-  invalidateReview(`已在来源 A:${selected.number} 前插入 gap；其后对应整体右移 1`);
-  state.selectedSourceId = sourceId;
-  addToast(`来源 A:${selected.number} 前已插入 gap；对应需重新核对`);
-  render();
-}
-
-function moveInterval(startNumber, endNumber, offset) {
-  const affected = source.filter((item) => item.number >= startNumber && item.number <= endNumber);
-  affected.forEach((item) => {
-    const currentIndex = mappingIndex(item);
-    const nextIndex = currentIndex + offset;
-    state.mapping[item.id] = nextIndex >= 0 && nextIndex < target.length ? target[nextIndex].id : null;
-  });
-  state.alignmentTouched = true;
-  invalidateReview(`已移动来源 A:${startNumber}–${endNumber} 区间 ${offset > 0 ? "+" : ""}${offset}；对应需重新核对`);
-  addToast(`已移动 ${affected.length} 个来源残基`, "warn");
-  render();
-}
-
-function setPreciseMapping(sourceId, targetId) {
-  const item = sourceById(sourceId);
-  if (!item) return;
-  state.mapping[sourceId] = targetId || null;
-  state.alignmentTouched = true;
-  state.selectedSourceId = sourceId;
-  invalidateReview(`已精确指定来源 A:${item.number} → ${targetId ? `目标 ${targetId}` : "不映射"}`);
-  addToast("精确对应已修改；旧确认失效", "warn");
-  render();
-}
-
-function reviewAlignment() {
-  const facts = alignmentFacts();
-  if (!facts.canReview) {
-    addToast(facts.collisions.size ? `仍有 ${facts.collisions.size} 个目标残基被重复映射，不能确认` : "必须先手动调整临时草稿，再确认残基对应", "danger");
-    return;
-  }
-  state.alignmentReviewed = true;
-  state.alignmentReviewNote = `已显式核对 ${facts.mappedCount} 个来源对应；${facts.unmapped.length} 个来源残基不映射`;
-  state.mergePreview = false;
-  state.mergeConfirmed = false;
-  state.lastAction = state.alignmentReviewNote;
-  state.step = Math.max(state.step, 3);
-  addToast("残基对应已确认；合并尚未确认", "success");
-  render();
-}
-
-function trackConflict(trackKey, sourceItem) {
-  const mapped = mappedTarget(sourceItem);
-  if (!mapped || !state.includedTracks[trackKey]) return false;
-  if (trackKey === "sequence") return mapped.letter !== sourceItem.letter;
-  if (trackKey === "coordinates") return mapped.currentCoordinates;
-  return false;
-}
-
-function conflicts(trackKey) {
-  return source.filter((item) => trackConflict(trackKey, item));
-}
-
-function unresolvedConflicts() {
-  return ["sequence", "coordinates"].flatMap((trackKey) =>
-    conflicts(trackKey)
-      .filter((item) => !state.resolutions[trackKey][item.id])
-      .map((item) => ({ trackKey, item }))
+  state.correspondence[sourceHandle] = targetHandle || null;
+  state.suggestionProvenance = "manual correspondence edit";
+  state.selectedSourceHandle = sourceHandle;
+  const sourceItem = sourceByHandle(sourceHandle);
+  const targetItem = targetByHandle(targetHandle);
+  invalidateAfterCorrespondenceChange(
+    targetItem
+      ? `已指定 ${locator(sourceItem, "source")} ↔ ${locator(targetItem, "target")}；旧确认失效`
+      : `已把 ${locator(sourceItem, "source")} 明确设为 source_gap；旧确认失效`,
   );
-}
-
-function setResolution(trackKey, sourceId, choice) {
-  state.resolutions[trackKey][sourceId] = choice;
-  state.mergePreview = false;
-  state.mergeConfirmed = false;
-  if (state.step > 3) state.step = 3;
-  state.lastAction = `${trackKey === "sequence" ? "Sequence" : "Coordinates"} 冲突：${choice === "source" ? "采用 PDB" : "保留当前 Prompt"}`;
+  addToast("correspondence 已修改；每个 source / target 仍各处置一次", "warn");
   render();
 }
 
-function resolveAll(trackKey, choice) {
-  conflicts(trackKey).forEach((item) => { state.resolutions[trackKey][item.id] = choice; });
-  state.mergePreview = false;
-  state.mergeConfirmed = false;
-  state.lastAction = `${trackKey === "sequence" ? "Sequence" : "Coordinates"} 的全部冲突已选择${choice === "source" ? "采用 PDB" : "保留当前"}`;
-  addToast(state.lastAction);
-  render();
-}
-
-function mergeCounts(trackKey) {
-  const counts = { added: 0, retained: 0, replaced: 0, unresolved: 0, unavailable: 0 };
-  if (!state.includedTracks[trackKey]) {
-    counts.retained = target.length;
-    return counts;
+function insertTargetGapBefore(sourceHandle) {
+  const sourceItem = sourceByHandle(sourceHandle);
+  const currentTarget = mappedTarget(sourceItem);
+  const startIndex = target.findIndex((item) => item.handle === currentTarget.handle);
+  const occupants = new Map(source
+    .filter((item) => state.correspondence[item.handle])
+    .map((item) => [state.correspondence[item.handle], item]));
+  const nextGapIndex = target.findIndex((item, index) => index > startIndex && !occupants.has(item.handle));
+  if (nextGapIndex < 0) {
+    state.correspondence[sourceHandle] = null;
+  } else {
+    for (let index = nextGapIndex; index > startIndex; index -= 1) {
+      const displaced = occupants.get(target[index - 1].handle);
+      if (displaced) state.correspondence[displaced.handle] = target[index].handle;
+    }
   }
-  const mappedSourceIds = new Set();
-  source.forEach((item) => {
-    const mapped = mappedTarget(item);
-    if (!mapped) return;
-    mappedSourceIds.add(mapped.id);
-    if (trackKey === "sequence") {
-      if (mapped.letter === item.letter) counts.retained += 1;
-      else {
-        const choice = state.resolutions.sequence[item.id];
-        if (!choice) counts.unresolved += 1;
-        else if (choice === "source") counts.replaced += 1;
-        else counts.retained += 1;
-      }
-    } else if (trackKey === "coordinates") {
-      if (!mapped.currentCoordinates) counts.added += 1;
-      else {
-        const choice = state.resolutions.coordinates[item.id];
-        if (!choice) counts.unresolved += 1;
-        else if (choice === "source") counts.replaced += 1;
-        else counts.retained += 1;
-      }
+  state.suggestionProvenance = "manual correspondence edit";
+  state.selectedSourceHandle = sourceHandle;
+  invalidateAfterCorrespondenceChange(`已在 ${locator(sourceItem, "source")} 前声明 target_gap；后续临时 matches 右移 1`);
+  addToast("target_gap 已显式加入；correspondence 待重新核对", "warn");
+  render();
+}
+
+function reviewCorrespondence() {
+  const facts = correspondenceFacts();
+  state.correspondenceReviewed = true;
+  state.correspondenceNote = `已核对 ${facts.matches.length} match、${facts.sourceGaps.length} source_gap、${facts.targetGaps.length} target_gap；source ${facts.sourceDispositionCount}/${source.length}、target ${facts.targetDispositionCount}/${target.length} 各处置一次`;
+  state.previewGenerated = false;
+  state.applied = false;
+  state.step = Math.max(state.step, 3);
+  state.lastAction = state.correspondenceNote;
+  addToast("correspondence 已确认；尚未生成 Preview", "success");
+  render();
+}
+
+function trackByKey(key) {
+  return TRACKS.find((track) => track.key === key);
+}
+
+function trackConflicts(trackKey) {
+  if (trackKey === "sequence") {
+    return source
+      .filter((sourceItem) => mappedTarget(sourceItem) && mappedTarget(sourceItem).letter !== sourceItem.letter)
+      .map((sourceItem) => {
+        const targetItem = mappedTarget(sourceItem);
+        return {
+          key: sourceItem.handle,
+          locator: `${locator(targetItem, "target")} ↔ ${locator(sourceItem, "source")}`,
+          current: `Sequence ${targetItem.letter}`,
+          imported: `Sequence ${sourceItem.letter}`,
+        };
+      });
+  }
+  if (trackKey === "structure") {
+    return source
+      .filter((sourceItem) => mappedTarget(sourceItem)?.hasStructure)
+      .map((sourceItem) => ({
+        key: sourceItem.handle,
+        locator: `${locator(mappedTarget(sourceItem), "target")} ↔ ${locator(sourceItem, "source")}`,
+        current: "current local coordinates",
+        imported: "imported coordinates",
+      }));
+  }
+  if (trackKey === "function_annotations") {
+    const projection = annotationProjection();
+    const inserted = {
+      key: SOURCE_ANNOTATION.key,
+      locator: projection.locator,
+      current: `exclude exact source tuple ${projection.sourceTuple}; provenance: ${projection.provenance}`,
+      imported: !projection.valid
+        ? `cannot insert exact tuple ${projection.sourceTuple}: target projection is not same-chain, continuous, and order-preserving; provenance: ${projection.provenance}`
+        : `insert exact projected tuple ${projection.tuple}; provenance: ${projection.provenance}`,
+    };
+    const pendingDeletes = CURRENT_ANNOTATIONS.map(currentAnnotationView).map((annotation) => ({
+      key: annotation.key,
+      locator: annotation.locator,
+      current: `preserve exact tuple ${annotation.tuple}; provenance: ${annotation.provenance}`,
+      imported: `pending-delete exact tuple ${annotation.tuple}; provenance: ${annotation.provenance}`,
+    }));
+    return [inserted, ...pendingDeletes];
+  }
+  return [];
+}
+
+function setDecision(trackKey, decision) {
+  state.decisions[trackKey] = decision;
+  invalidatePreview(`${trackByKey(trackKey).label}: ${decision}`);
+  render();
+}
+
+function previewDiagnostics() {
+  const facts = correspondenceFacts();
+  const diagnostics = [];
+
+  if (!state.correspondenceReviewed) {
+    diagnostics.push({
+      severity: "error",
+      category: "correspondence_unconfirmed",
+      track: "Correspondence",
+      locator: "source · chain A ↔ target · chain A",
+      message: "Preview may inspect this temporary suggestion, but Apply requires explicit correspondence confirmation.",
+    });
+  }
+
+  TRACKS.forEach((track) => {
+    const decision = state.decisions[track.key];
+    if (decision === "adopt" && !track.sourceAvailable) {
+      diagnostics.push({
+        severity: "error",
+        category: "missing adopted track",
+        track: track.label,
+        locator: `source bundle · chain A · track ${track.label}`,
+        message: `${track.label} was selected for adopt, but the opened source does not provide it.`,
+      });
+    }
+    if (decision === "conflict") {
+      const conflicts = trackConflicts(track.key);
+      (conflicts.length ? conflicts : [{
+        locator: `source bundle · chain A · track ${track.label}`,
+        current: "preserve current track",
+        imported: "adopt source track",
+      }]).forEach((item) => {
+        diagnostics.push({
+          severity: "error",
+          category: "track conflict · decision unresolved",
+          track: track.label,
+          locator: item.locator,
+          message: `Conflict evidence — ${item.current} / ${item.imported}. Resolve the whole track to adopt or preserve before Apply.`,
+        });
+      });
     }
   });
-  target.filter((item) => !mappedSourceIds.has(item.id)).forEach((item) => {
-    if (trackKey === "sequence" || item.currentCoordinates) counts.retained += 1;
-    else counts.unavailable += 1;
-  });
-  return counts;
+
+  if (state.decisions.function_annotations === "adopt") {
+    const projection = annotationProjection();
+    diagnostics.push(!projection.valid ? {
+      severity: "error",
+      category: "annotation loss",
+      track: "Function annotations",
+      locator: projection.locator,
+      message: `Cannot insert exact tuple ${projection.sourceTuple}: its full interval does not project to one same-chain, continuous, order-preserving target interval. Provenance: ${projection.provenance}.`,
+    } : {
+      severity: "info",
+      category: "annotation inserted",
+      track: "Function annotations",
+      locator: projection.locator,
+      message: `Insert exact projected tuple ${projection.tuple}. Provenance: ${projection.provenance}.`,
+    });
+    CURRENT_ANNOTATIONS.map(currentAnnotationView).forEach((annotation) => diagnostics.push({
+      severity: "warning",
+      category: "annotation loss · pending-delete",
+      track: "Function annotations",
+      locator: annotation.locator,
+      message: `Pending-delete exact current tuple ${annotation.tuple}. Provenance: ${annotation.provenance}.`,
+    }));
+  }
+
+  facts.sourceGaps.forEach((row) => diagnostics.push({
+    severity: "warning",
+    category: "source_gap",
+    track: "Correspondence",
+    locator: locator(row.source, "source"),
+    message: "This source residue is explicitly not paired to a target residue.",
+  }));
+  facts.targetGaps.forEach((row) => diagnostics.push({
+    severity: "warning",
+    category: "target_gap",
+    track: "Correspondence",
+    locator: locator(row.target, "target"),
+    message: "This target residue has no matched source residue; existing target track values are preserved, and the source contributes no value at this locator.",
+  }));
+  return diagnostics;
 }
 
-function buildMergePreview() {
-  if (!state.alignmentReviewed) {
-    addToast("先显式确认残基对应；临时草稿不能直接合并", "danger");
-    return;
-  }
-  const unresolved = unresolvedConflicts();
-  if (unresolved.length) {
-    addToast(`仍有 ${unresolved.length} 个逐轨道冲突未处理`, "danger");
-    return;
-  }
-  state.mergePreview = true;
-  state.mergeConfirmed = false;
+function generatePreview() {
+  state.previewGenerated = true;
+  state.applied = false;
   state.step = 4;
-  state.lastAction = "统一合并预览已生成；ProteinPrompt 尚未改变";
-  addToast("合并预览已生成，尚未应用");
+  const blockers = previewDiagnostics().filter((item) => item.severity === "error").length;
+  state.lastAction = `Preview 已生成；${blockers} blocking diagnostics；ProteinPrompt 尚未改变`;
+  addToast(blockers ? `Preview 已生成：${blockers} 个 blocking diagnostics` : "Preview 已生成，可 Apply", blockers ? "warn" : "success");
   render();
 }
 
-function confirmMerge() {
-  if (!state.mergePreview || unresolvedConflicts().length || !state.alignmentReviewed) {
-    addToast("合并条件尚未满足", "danger");
+function applyMerge() {
+  const blockers = previewDiagnostics().filter((item) => item.severity === "error");
+  if (!state.previewGenerated || blockers.length) {
+    addToast(`不能 Apply：${blockers.length || "尚未生成"} blocking diagnostics`, "danger");
     return;
   }
-  state.mergeConfirmed = true;
-  state.lastAction = "已确认合并；本次结果只存在原型内存中";
-  addToast("合并已确认（原型内存状态）", "success");
+  state.applied = true;
+  state.lastAction = "Apply 完成；结果仅存在原型内存中";
+  addToast("Apply 完成（原型内存状态）", "success");
   render();
-}
-
-function statusTone(item) {
-  const targetItem = mappedTarget(item);
-  if (!targetItem) return { cls: "unmapped", label: "未映射" };
-  if (collisionTargetIds().has(targetItem.id)) return { cls: "collision", label: "重复目标" };
-  if (targetItem.number === item.number && targetItem.letter === item.letter) return { cls: "exact", label: "编号+序列一致" };
-  if (targetItem.letter === item.letter) return { cls: "sequence", label: "序列一致 / 编号不同" };
-  return { cls: "mismatch", label: "序列不一致" };
 }
 
 function renderTopbar() {
-  const facts = alignmentFacts();
-  const unresolved = unresolvedConflicts().length;
-  const banner = state.mergeConfirmed
-    ? { cls: "confirmed", eyebrow: "合并已确认", title: "最终 ProteinPrompt 合并结果仅存在原型内存中", text: "刷新页面会恢复初始导入；这不是生产保存。" }
-    : state.alignmentReviewed
-      ? { cls: "reviewed", eyebrow: "残基对应已核对 · 合并未确认", title: state.alignmentReviewNote, text: unresolved ? `仍有 ${unresolved} 个逐轨道冲突待处理。` : "可以生成统一合并预览；当前 ProteinPrompt 仍未改变。" }
-      : { cls: "draft", eyebrow: "临时对齐草稿 · 未确认", title: "仅按来源观察数组位置建立，不是最终科学对应关系", text: `PDB 观察到 28 residues；目标为 30 residues。${facts.collisions.size ? ` 另有 ${facts.collisions.size} 个重复目标映射。` : " 必须手动调整并确认。"}` };
+  const diagnostics = state.previewGenerated ? previewDiagnostics() : [];
+  const blockers = diagnostics.filter((item) => item.severity === "error").length;
+  const banner = state.applied
+    ? { cls: "confirmed", eyebrow: "APPLY COMPLETE · PROTOTYPE MEMORY ONLY", title: "完整 correspondence 与逐轨道决策已应用", text: "刷新即重置；这不是正式保存。" }
+    : state.previewGenerated
+      ? { cls: blockers ? "draft" : "reviewed", eyebrow: "PREVIEW · NOT APPLIED", title: `${diagnostics.length} diagnostics · ${blockers} blocking`, text: blockers ? "按 locator 解决 blocking diagnostics 后才能 Apply。" : "Preview 无 blocking diagnostics；Apply 前仍可返回修改。" }
+      : state.correspondenceReviewed
+        ? { cls: "reviewed", eyebrow: "CORRESPONDENCE REVIEWED · PREVIEW NOT GENERATED", title: state.correspondenceNote, text: "逐 track 选择 adopt / preserve / conflict，然后生成 Preview。" }
+        : { cls: "draft", eyebrow: "TEMPORARY SUGGESTION · UNCONFIRMED", title: `Proposal source: ${state.suggestionProvenance}`, text: "它不是已确认的科学对应。可先 Preview 查看 correspondence_unconfirmed 与其它 diagnostics；Apply 必须等待确认。" };
   return `
     <header class="topbar">
-      <div class="brand"><span class="brand-mark">PW</span><div><strong>Protein Workbench</strong><small>Prompt Studio · 一次性原型 4</small></div></div>
-      <div class="prompt-title"><span class="prototype-badge">THROWAWAY</span><strong>FASTA Prompt · ubiquitin N-terminal 30 residues（真实序列）</strong><span>导入 PDB 结构（缺失区间与坐标均为示意）</span></div>
-      <div class="top-actions"><button class="button ghost" data-action="reset">重置导入</button><button class="button" data-action="attempt-preview">生成统一合并预览</button><button class="button primary" data-action="confirm-merge" ${state.mergePreview && !state.mergeConfirmed ? "" : "disabled"}>确认最终合并</button></div>
+      <div class="brand"><span class="brand-mark">PW</span><div><strong>Protein Workbench</strong><small>Prompt Studio · prototype 4</small></div></div>
+      <div class="prompt-title"><span class="prototype-badge">THROWAWAY</span><strong>Import bundle · chain A correspondence</strong><span>internal opaque handles stay hidden</span></div>
+      <div class="top-actions"><button class="button ghost" data-action="reset">Reset suggestion</button><button class="button" data-action="preview">Generate Preview</button><button class="button primary" data-action="apply" ${state.previewGenerated && !blockers && !state.applied ? "" : "disabled"}>Apply merge</button></div>
     </header>
     <section class="draft-banner ${banner.cls}"><div><span>${banner.eyebrow}</span><strong>${banner.title}</strong></div><p>${banner.text}</p></section>
   `;
@@ -338,129 +495,137 @@ function renderTopbar() {
 function renderImportFacts(compact = false) {
   return `
     <section class="surface import-facts ${compact ? "compact" : ""}">
-      <div class="surface-header"><div><span class="surface-kicker">Import facts</span><h2>来源事实，不等于对应关系</h2></div><span class="surface-note">PDB 内容示意</span></div>
+      <div class="surface-header"><div><span class="surface-kicker">Open result</span><h2>来源事实与建议 provenance</h2></div><span class="surface-note">Open does not confirm correspondence</span></div>
       <div class="facts-body">
-        <article><span>当前目标</span><strong>FASTA · chain A · 30 residues</strong><small>Sequence 30 assigned；Coordinates 4 assigned（手工 motif，示意）；SS8 / SASA / functions 保留当前。</small></article>
-        <article><span>新来源</span><strong>PDB · chain A · 28 observed residues</strong><small>编号 A:1–30；未观察 A:9、A:20。来源提供 Sequence + Coordinates。</small></article>
-        <article class="warning"><span>初始规则</span><strong>只按 observed array position</strong><small>来源第 9 项 A:10 暂映射到目标 A:9。此草稿故意不使用编号或自动比对。</small></article>
+        <article><span>Target</span><strong>FASTA · chain A · 30 residues</strong><small>Sequence and current tracks are available. UI locates residues by chain + residue position.</small></article>
+        <article><span>Source</span><strong>Import bundle · chain A · 28 observed residues</strong><small>PDB structure plus one annotation sidecar tuple; residues 9 and 20 are not observed.</small></article>
+        <article class="warning"><span>Current correspondence provenance</span><strong>${state.suggestionProvenance}</strong><small>No suggestion or manual edit is silently promoted to scientific correspondence; every disposition still requires explicit review.</small></article>
       </div>
     </section>`;
 }
 
 function renderAlignmentStrip(extraClass = "") {
-  const occupants = mappingOccupants();
-  const selected = sourceById(state.selectedSourceId);
+  const facts = correspondenceFacts();
+  const sourceByTarget = new Map(facts.matches.map((row) => [row.target.handle, row.source]));
+  const selected = sourceByHandle(state.selectedSourceHandle);
   return `
     <section class="surface alignment-strip ${extraClass}">
-      <div class="surface-header"><div><span class="surface-kicker">Synchronized visual alignment</span><h2>上下序列对齐</h2></div><span class="surface-note">选中：${selected ? `来源 A:${selected.number}` : "无"}</span></div>
+      <div class="surface-header"><div><span class="surface-kicker">Synchronized evidence</span><h2>chain + residue locator 对照</h2></div><span class="surface-note">selected: ${selected ? locator(selected, "source") : "none"}</span></div>
       <div class="alignment-scroll">
         <div class="alignment-grid" style="--residue-count:${target.length}">
-          <div class="lane-label"><b>目标 FASTA</b><small>ResidueLayout</small></div>
-          ${target.map((item) => `<button class="residue-cell target-cell ${collisionTargetIds().has(item.id) ? "collision" : ""}" data-target-id="${item.id}"><small>A:${item.number}</small><strong>${item.letter}</strong></button>`).join("")}
-          <div class="lane-label source-label"><b>来源 PDB</b><small>observed residues</small></div>
+          <div class="lane-label"><b>Target</b><small>chain / residue</small></div>
+          ${target.map((item) => `<div class="residue-cell target-cell"><small>${shortLocator(item)}</small><strong>${item.letter}</strong></div>`).join("")}
+          <div class="lane-label source-label"><b>Source</b><small>observed chain / residue</small></div>
           ${target.map((targetItem) => {
-            const items = occupants.get(targetItem.id) ?? [];
-            if (!items.length) return `<div class="gap-cell"><span>gap</span></div>`;
-            return `<div class="source-stack">${items.map((item) => {
-              const status = statusTone(item);
-              return `<button class="residue-cell source-cell ${status.cls} ${state.selectedSourceId === item.id ? "selected" : ""}" data-source-id="${item.id}" title="${status.label}"><small>A:${item.number}</small><strong>${item.letter}</strong></button>`;
-            }).join("")}</div>`;
+            const sourceItem = sourceByTarget.get(targetItem.handle);
+            if (!sourceItem) return `<div class="gap-cell"><span>target_gap</span></div>`;
+            const status = rowStatus({ kind: "match", source: sourceItem, target: targetItem });
+            return `<button class="residue-cell source-cell ${status.cls} ${state.selectedSourceHandle === sourceItem.handle ? "selected" : ""}" data-source-handle="${sourceItem.handle}" title="${status.label}"><small>${shortLocator(sourceItem)}</small><strong>${sourceItem.letter}</strong></button>`;
           }).join("")}
-          <div class="lane-label"><b>对应证据</b><small>编号 / sequence</small></div>
+          <div class="lane-label"><b>Disposition</b><small>explicit row type</small></div>
           ${target.map((targetItem) => {
-            const items = occupants.get(targetItem.id) ?? [];
-            if (!items.length) return `<div class="evidence-cell missing">无来源</div>`;
-            if (items.length > 1) return `<div class="evidence-cell collision">${items.length}× 冲突</div>`;
-            const status = statusTone(items[0]);
-            return `<div class="evidence-cell ${status.cls}">${status.cls === "exact" ? "✓" : status.cls === "sequence" ? "SEQ✓" : "≠"}</div>`;
+            const sourceItem = sourceByTarget.get(targetItem.handle);
+            if (!sourceItem) return `<div class="evidence-cell target-gap">target_gap</div>`;
+            const status = rowStatus({ kind: "match", source: sourceItem, target: targetItem });
+            return `<div class="evidence-cell ${status.cls}">match${status.cls === "exact" ? " ✓" : status.cls === "sequence" ? " · SEQ✓" : " · ≠"}</div>`;
           }).join("")}
         </div>
       </div>
-      <div class="alignment-legend"><span><i class="exact"></i>编号+序列一致</span><span><i class="sequence"></i>仅序列一致</span><span><i class="mismatch"></i>序列不一致</span><span><i class="collision"></i>重复目标</span><b>颜色始终伴随文字/符号，不单独承载含义</b></div>
+      <div class="source-gap-rail ${facts.sourceGaps.length ? "" : "empty"}"><b>source_gap</b>${facts.sourceGaps.length ? facts.sourceGaps.map((row) => `<button data-source-handle="${row.source.handle}">${locator(row.source, "source")} · ${row.source.letter}</button>`).join("") : "<span>none</span>"}</div>
+      <div class="alignment-legend"><span><i class="exact"></i>match · locator + sequence agree</span><span><i class="sequence"></i>match · locator differs</span><span><i class="mismatch"></i>match · sequence conflict</span><span><i class="target-gap"></i>target_gap</span><b>三种 row type 始终显式显示</b></div>
     </section>`;
 }
 
 function renderAlignmentTools() {
-  const selected = sourceById(state.selectedSourceId);
-  const facts = alignmentFacts();
+  const selected = sourceByHandle(state.selectedSourceHandle);
+  const selectedTarget = selected ? mappedTarget(selected) : null;
+  const facts = correspondenceFacts();
   return `
     <section class="surface alignment-tools">
-      <div class="surface-header"><div><span class="surface-kicker">Manual alignment</span><h2>手动调整</h2></div><span class="surface-note">任何改动都会撤销旧确认</span></div>
+      <div class="surface-header"><div><span class="surface-kicker">Correspondence editor</span><h2>逐项处置 source 与 target</h2></div><span class="surface-note">one disposition each</span></div>
       <div class="tools-body">
-        <div class="selected-card"><span>当前来源残基</span><strong>${selected ? `PDB A:${selected.number} · ${selected.letter}` : "未选择"}</strong><small>暂对应 ${selected && mappedTarget(selected) ? `${mappedTarget(selected).id} · ${mappedTarget(selected).letter}` : "不映射"}</small></div>
-        <button class="button wide" data-action="insert-gap" ${selected ? "" : "disabled"}>在当前来源残基前插入 gap</button>
-        <div class="quick-actions"><button data-action="gap-10">在 A:10 前插入 gap</button><button data-action="gap-21">在 A:21 前插入 gap</button></div>
-        <div class="tool-group"><b>移动来源区间</b><div class="move-grid"><label>从<input type="number" value="${state.moveStart}" min="1" max="30" data-field="move-start"></label><label>到<input type="number" value="${state.moveEnd}" min="1" max="30" data-field="move-end"></label><label>位移<input type="number" value="${state.moveOffset}" min="-5" max="5" data-field="move-offset"></label></div><button class="button wide" data-action="move-interval">移动区间并同步两种视图</button></div>
-        <div class="issue-summary"><b>当前草稿</b><span>${facts.mappedCount}/28 mapped</span><span>${facts.unmapped.length} unmapped source</span><span class="${facts.collisions.size ? "danger" : ""}">${facts.collisions.size} duplicate targets</span><span>${facts.exactNumber.length}/28 source numbers match target identities</span><span class="${state.alignmentTouched ? "" : "danger"}">${state.alignmentTouched ? "已手动调整" : "尚未手动调整"}</span></div>
+        <div class="selected-card"><span>Selected source locator</span><strong>${selected ? `${locator(selected, "source")} · ${selected.letter}` : "none"}</strong><small>${selectedTarget ? `match ↔ ${locator(selectedTarget, "target")} · ${selectedTarget.letter}` : "source_gap · explicitly unpaired"}</small></div>
+        <button class="button wide" data-action="source-gap" ${selected ? "" : "disabled"}>Set selected source to source_gap</button>
+        <button class="button wide" data-action="target-gap-before" ${selected && selectedTarget ? "" : "disabled"}>Insert target_gap before selected source</button>
+        <div class="quick-actions"><button data-action="gap-10" ${mappedTarget(sourceByPosition(10)) ? "" : "disabled"}>target_gap before source A·10</button><button data-action="gap-21" ${mappedTarget(sourceByPosition(21)) ? "" : "disabled"}>target_gap before source A·21</button></div>
+        <div class="tool-group"><b>Explicit suggestion action</b><button class="button wide" data-action="locator-suggestion">Regenerate chain + residue locator draft · still unconfirmed</button></div>
+        <div class="issue-summary"><b>Coverage invariant</b><span>source ${facts.sourceDispositionCount}/${source.length} exactly once</span><span>target ${facts.targetDispositionCount}/${target.length} exactly once</span><span>${facts.matches.length} match</span><span>${facts.sourceGaps.length} source_gap</span><span>${facts.targetGaps.length} target_gap</span><span>${facts.locatorMatches.length}/${facts.matches.length} locator matches</span></div>
       </div>
-      <div class="surface-footer"><button class="button ghost" data-action="reset">恢复按位置草稿</button><button class="button primary" data-action="review-alignment" ${facts.canReview ? "" : "disabled"}>确认残基对应</button></div>
+      <div class="surface-footer"><button class="button ghost" data-action="reset">Reset temporary suggestion</button><button class="button primary" data-action="review">Confirm correspondence</button></div>
     </section>`;
 }
 
 function renderMappingTable() {
-  const facts = alignmentFacts();
-  const rows = source.filter((item) => {
-    if (state.tableFilter === "all") return true;
-    const status = statusTone(item).cls;
-    return status !== "exact";
-  });
+  const facts = correspondenceFacts();
+  const rows = facts.rows.filter((row) => state.tableFilter === "all" || rowStatus(row).cls !== "exact");
   return `
     <section class="surface mapping-table-surface">
-      <div class="surface-header"><div><span class="surface-kicker">Exact residue correspondence</span><h2>精确残基对应表</h2></div><div class="table-filter"><button class="${state.tableFilter === "issues" ? "active" : ""}" data-filter="issues">仅问题 ${source.length - facts.exactNumber.length}</button><button class="${state.tableFilter === "all" ? "active" : ""}" data-filter="all">全部 28</button></div></div>
-      <div class="table-scroll"><table><thead><tr><th>来源 PDB residue identity</th><th>来源值</th><th>目标 ResidueLayout identity</th><th>目标值</th><th>核对状态</th></tr></thead><tbody>
-        ${rows.map((item) => {
-          const mapped = mappedTarget(item);
-          const status = statusTone(item);
-          return `<tr class="${status.cls} ${state.selectedSourceId === item.id ? "selected" : ""}" data-row-source="${item.id}"><td><button class="row-select" data-source-id="${item.id}">PDB A:${item.number}</button></td><td class="mono">${item.letter}</td><td><select data-mapping-source="${item.id}"><option value="">— 不映射 —</option>${target.map((candidate) => `<option value="${candidate.id}" ${mapped?.id === candidate.id ? "selected" : ""}>${candidate.id}</option>`).join("")}</select></td><td class="mono">${mapped?.letter ?? "—"}</td><td><span class="status-chip ${status.cls}">${status.label}</span></td></tr>`;
+      <div class="surface-header"><div><span class="surface-kicker">Complete correspondence</span><h2>match / source_gap / target_gap</h2></div><div class="table-filter"><button class="${state.tableFilter === "diagnostics" ? "active" : ""}" data-filter="diagnostics">Needs attention ${facts.rows.length - facts.locatorMatches.length}</button><button class="${state.tableFilter === "all" ? "active" : ""}" data-filter="all">All ${facts.rows.length}</button></div></div>
+      <div class="table-scroll"><table><thead><tr><th>Row type</th><th>Source locator / value</th><th>Target locator</th><th>Target value</th><th>Evidence</th></tr></thead><tbody>
+        ${rows.map((row) => {
+          const status = rowStatus(row);
+          if (row.kind === "target_gap") {
+            return `<tr class="target-gap"><td><span class="row-kind target-gap">target_gap</span></td><td>—</td><td class="mono">${locator(row.target, "target")}</td><td class="mono">${row.target.letter}</td><td><button class="row-assign" data-assign-target="${row.target.handle}">Assign selected source</button></td></tr>`;
+          }
+          return `<tr class="${status.cls} ${state.selectedSourceHandle === row.source.handle ? "selected" : ""}" data-row-source="${row.source.handle}"><td><span class="row-kind ${row.kind === "match" ? "match" : "source-gap"}">${row.kind}</span></td><td><button class="row-select" data-source-handle="${row.source.handle}">${locator(row.source, "source")}</button><span class="mono value-cell">${row.source.letter}</span></td><td><select data-mapping-source="${row.source.handle}"><option value="" ${row.kind === "source_gap" ? "selected" : ""}>source_gap · no target</option>${target.map((candidate) => `<option value="${candidate.handle}" ${row.target?.handle === candidate.handle ? "selected" : ""}>${locator(candidate, "target")}</option>`).join("")}</select></td><td class="mono">${row.target?.letter ?? "—"}</td><td><span class="status-chip ${status.cls}">${status.label}</span></td></tr>`;
         }).join("")}
       </tbody></table></div>
-      <div class="table-note">上下序列与本表共享同一 mapping state；在任一处选择或修改都会同步另一处。来源 identity 与目标 identity 始终分别显示。</div>
+      <div class="table-note">Selecting an occupied target moves the displaced source to <b>source_gap</b>; the old target becomes <b>target_gap</b>. This keeps every source and every target represented exactly once.</div>
+    </section>`;
+}
+
+function renderDecisionButtons(track) {
+  const selected = state.decisions[track.key];
+  return `<div class="decision-buttons">${["adopt", "preserve", "conflict"].map((decision) => `<button class="${selected === decision ? "active" : ""}" data-decision="${track.key}|${decision}">${decision === "conflict" ? "conflict · unresolved" : decision}</button>`).join("")}</div>`;
+}
+
+function renderConflictEvidence(conflict) {
+  return `<div class="conflict-row evidence-only"><div><b>${conflict.locator}</b><small>evidence only · no per-locator materialization</small></div><div class="conflict-value preserve">preserve evidence · ${conflict.current}</div><div class="conflict-value adopt">adopt evidence · ${conflict.imported}</div></div>`;
+}
+
+function renderTrackCard(track) {
+  const decision = state.decisions[track.key];
+  const conflicts = trackConflicts(track.key);
+  const missingAdopt = decision === "adopt" && !track.sourceAvailable;
+  return `
+    <article class="track-card decision-${decision} ${missingAdopt ? "missing-track" : ""}">
+      <div class="track-title"><div><b>${track.label}</b><span>source: ${track.sourceDetail} · current: ${track.currentDetail}</span></div><span class="decision-chip ${decision}">${decision}</span></div>
+      ${renderDecisionButtons(track)}
+      ${missingAdopt ? `<div class="inline-diagnostic danger"><b>missing adopted track</b><span>source bundle · chain A · track ${track.label}</span></div>` : ""}
+      ${track.key === "function_annotations" ? `<p>Exact annotation tuple = (label, start residue, end residue). Evidence is separate provenance; no stable annotation ID implies “modified”.</p>` : `<p>${decision === "adopt" ? "Use source values where correspondence provides them." : decision === "preserve" ? "Keep the complete current track." : "Conflict is evidence only and cannot materialize; resolve the whole track to adopt or preserve."}</p>`}
+      ${decision === "conflict" ? `<div class="bulk-actions track-resolution"><button data-track-resolution="${track.key}|preserve">all preserve · whole track</button><button data-track-resolution="${track.key}|adopt">all adopt · whole track</button></div>${conflicts.length ? conflicts.map(renderConflictEvidence).join("") : `<div class="no-conflict">No value-level conflict evidence, but the top-level conflict state is still unresolved and blocking.</div>`}` : ""}
+      <div class="track-footer"><span>${track.sourceAvailable ? "source available" : "source missing"}</span><span class="${decision === "conflict" ? "danger" : ""}">${decision === "conflict" ? "blocking · choose whole-track adopt/preserve" : "materialized decision"}</span></div>
+    </article>`;
+}
+
+function renderPreviewPanel() {
+  if (!state.previewGenerated) return `<div class="preview-placeholder"><b>Preview not generated</b><span>Generate at any time; unconfirmed correspondence and conflict tracks return blocking diagnostics.</span></div>`;
+  const diagnostics = previewDiagnostics();
+  const blockers = diagnostics.filter((item) => item.severity === "error").length;
+  return `
+    <section class="preview-panel ${state.applied ? "applied" : ""}">
+      <div class="preview-heading"><div><span>${state.applied ? "APPLIED · PROTOTYPE MEMORY" : "PREVIEW · NOT APPLIED"}</span><strong>Unified merge result</strong></div><b class="${blockers ? "danger" : ""}">${diagnostics.length} diagnostics · ${blockers} blocking</b></div>
+      <div class="track-plan">${TRACKS.map((track) => `<span><b>${track.label}</b>${state.decisions[track.key]}</span>`).join("")}</div>
+      <div class="diagnostics-list">
+        ${diagnostics.length ? diagnostics.map((item) => `<article class="diagnostic ${item.severity}"><div><span>${item.category}</span><b>${item.track}</b></div><strong>${item.locator}</strong><p>${item.message}</p></article>`).join("") : `<div class="no-diagnostics">No diagnostics. Every preview issue has a locator and has been resolved.</div>`}
+      </div>
+      <p class="preview-note">${state.applied ? "Applied to prototype memory only." : blockers ? "Resolve every blocking diagnostic; warnings remain visible for informed Apply." : "No blockers. Apply remains an explicit separate action."}</p>
     </section>`;
 }
 
 function renderTrackMerge() {
-  const sequenceConflicts = conflicts("sequence");
-  const coordinateConflicts = conflicts("coordinates");
-  const unresolved = unresolvedConflicts();
-  const sequenceCounts = mergeCounts("sequence");
-  const coordinateCounts = mergeCounts("coordinates");
+  const diagnostics = state.previewGenerated ? previewDiagnostics() : [];
+  const blockers = diagnostics.filter((item) => item.severity === "error").length;
   return `
     <section class="surface merge-surface">
-      <div class="surface-header"><div><span class="surface-kicker">Unified merge preview</span><h2>按轨道选择与冲突处理</h2></div><span class="surface-note">不是“覆盖全部 / 只填空白”</span></div>
+      <div class="surface-header"><div><span class="surface-kicker">Track decisions + Preview</span><h2>逐 track adopt / preserve / conflict</h2></div><span class="surface-note">5 contract tracks</span></div>
       <div class="merge-body">
-        ${!state.alignmentReviewed ? `<div class="gate-message"><b>残基对应尚未确认</b><p>可以查看来源轨道，但不能生成或应用合并预览。</p></div>` : ""}
-        ${state.mergePreview ? renderFinalLedger() : ""}
-        <article class="track-card ${state.includedTracks.sequence ? "included" : "excluded"}">
-          <div class="track-title"><label><input type="checkbox" data-track="sequence" ${state.includedTracks.sequence ? "checked" : ""}>采用 PDB Sequence</label><span>来源存在 · 当前存在</span></div>
-          <p>相同值保留；不同值逐个选择当前 FASTA 或 PDB。关闭本轨道会保留全部当前 Sequence。</p>
-          <div class="count-strip"><span>新增 ${sequenceCounts.added}</span><span>保留 ${sequenceCounts.retained}</span><span>替换 ${sequenceCounts.replaced}</span><span class="${sequenceCounts.unresolved ? "danger" : ""}>冲突 ${sequenceCounts.unresolved}</span></div>
-          ${state.includedTracks.sequence && sequenceConflicts.length ? `<div class="bulk-actions"><button data-resolve-all="sequence:current">全部保留当前</button><button data-resolve-all="sequence:source">全部采用 PDB</button></div>${sequenceConflicts.map((item) => renderConflictRow("sequence", item)).join("")}` : `<div class="no-conflict">Sequence 来源未采用；当前 FASTA 30/30 保留。</div>`}
-        </article>
-        <article class="track-card ${state.includedTracks.coordinates ? "included" : "excluded"}">
-          <div class="track-title"><label><input type="checkbox" data-track="coordinates" ${state.includedTracks.coordinates ? "checked" : ""}>采用 PDB Coordinates</label><span>来源存在 · 当前局部存在</span></div>
-          <p>当前 Mask 位置可新增 coordinates；已有 motif coordinates 与 PDB 值逐个解决。</p>
-          <div class="count-strip"><span>新增 ${coordinateCounts.added}</span><span>保留 ${coordinateCounts.retained}</span><span>替换 ${coordinateCounts.replaced}</span><span class="${coordinateCounts.unresolved ? "danger" : ""}>冲突 ${coordinateCounts.unresolved}</span></div>
-          ${state.includedTracks.coordinates && coordinateConflicts.length ? `<div class="bulk-actions"><button data-resolve-all="coordinates:current">全部保留当前</button><button data-resolve-all="coordinates:source">全部采用 PDB</button></div>${coordinateConflicts.map((item) => renderConflictRow("coordinates", item)).join("")}` : `<div class="no-conflict">Coordinates 来源未采用；当前 coordinates 状态保留。</div>`}
-        </article>
-        <article class="track-card unavailable"><div class="track-title"><b>SS8 · SASA · Function annotations</b><span>本 PDB 来源未提供</span></div><p>这些内容保留当前 Prompt；界面不从 PDB 静默派生或清除。</p><div class="count-strip"><span>SS8 保留</span><span>SASA 保留</span><span>Functions 保留</span></div></article>
-        ${state.mergePreview ? "" : `<div class="preview-placeholder"><b>统一预览尚未生成</b><span>${state.alignmentReviewed ? unresolved.length ? `先处理 ${unresolved.length} 个冲突。` : "全部冲突已处理，可以生成预览。" : "临时草稿不能直接变成 ProteinPrompt。"}</span></div>`}
+        ${!state.correspondenceReviewed ? `<div class="gate-message"><b>Correspondence is unconfirmed</b><p>Preview is available and will include blocking correspondence_unconfirmed; Apply remains disabled.</p></div>` : ""}
+        ${TRACKS.map(renderTrackCard).join("")}
+        ${renderPreviewPanel()}
       </div>
-      <div class="surface-footer"><button class="button" data-action="attempt-preview" ${state.alignmentReviewed && !unresolved.length ? "" : "disabled"}>生成统一合并预览</button><button class="button primary" data-action="confirm-merge" ${state.mergePreview && !state.mergeConfirmed ? "" : "disabled"}>确认最终合并</button></div>
+      <div class="surface-footer"><button class="button" data-action="preview">Generate Preview</button><button class="button primary" data-action="apply" ${state.previewGenerated && !blockers && !state.applied ? "" : "disabled"}>Apply merge</button></div>
     </section>`;
-}
-
-function renderConflictRow(trackKey, item) {
-  const mapped = mappedTarget(item);
-  const choice = state.resolutions[trackKey][item.id];
-  const currentText = trackKey === "sequence" ? mapped?.letter : "当前 motif XYZ";
-  const sourceText = trackKey === "sequence" ? item.letter : `PDB A:${item.number} XYZ`;
-  return `<div class="conflict-row ${choice ? "resolved" : ""}"><div><b>${mapped?.id ?? "unmapped"} ← PDB A:${item.number}</b><small>${choice ? `已选择：${choice === "source" ? "采用 PDB" : "保留当前"}` : "冲突待处理"}</small></div><button class="${choice === "current" ? "active" : ""}" data-resolution="${trackKey}|${item.id}|current">当前 ${currentText}</button><button class="${choice === "source" ? "active" : ""}" data-resolution="${trackKey}|${item.id}|source">PDB ${sourceText}</button></div>`;
-}
-
-function renderFinalLedger() {
-  const seq = mergeCounts("sequence");
-  const xyz = mergeCounts("coordinates");
-  return `<div class="final-ledger ${state.mergeConfirmed ? "confirmed" : ""}"><div><span>${state.mergeConfirmed ? "已确认" : "未应用预览"}</span><strong>ProteinPrompt 合并账本</strong></div><ul><li><b>ResidueLayout</b><span>保留 30 identities；未新增、未删除</span></li><li><b>Sequence</b><span>新增 ${seq.added} · 保留 ${seq.retained} · 替换 ${seq.replaced} · 冲突 0</span></li><li><b>Coordinates</b><span>新增 ${xyz.added} · 保留 ${xyz.retained} · 替换 ${xyz.replaced} · 无来源 ${xyz.unavailable}</span></li><li><b>SS8 / SASA</b><span>来源未提供；保留当前</span></li><li><b>Function annotations</b><span>来源未提供；保留当前 intervals</span></li></ul><p>${state.mergeConfirmed ? "合并结果已写入原型内存；生产保存语义不在本原型范围。" : "确认前当前 ProteinPrompt 没有变化。"}</p></div>`;
 }
 
 function renderVariantA() {
@@ -472,21 +637,22 @@ function renderVariantB() {
 }
 
 function renderStageRail() {
-  const labels = ["导入事实", "残基对齐", "轨道与冲突", "最终合并"];
-  return `<aside class="stage-rail"><div><span class="surface-kicker">Gated workflow</span><h2>四个确认关卡</h2><p>后续关卡不会把前面的临时状态默认为正确。</p></div>${labels.map((label, index) => {
+  const labels = ["Open facts", "Correspondence", "Track decisions", "Preview / Apply"];
+  return `<aside class="stage-rail"><div><span class="surface-kicker">Gated workflow</span><h2>四个显式关卡</h2><p>临时建议、确认后的 correspondence、Preview 与 Apply 是不同状态。</p></div>${labels.map((label, index) => {
     const step = index + 1;
-    const done = step === 1 || (step === 2 && state.alignmentReviewed) || (step === 3 && state.mergePreview) || (step === 4 && state.mergeConfirmed);
-    const locked = step >= 3 && !state.alignmentReviewed;
-    return `<button class="stage-button ${state.step === step ? "active" : ""} ${done ? "done" : ""}" data-step="${step}" ${locked ? "disabled" : ""}><span>${done ? "✓" : step}</span><div><b>${label}</b><small>${step === 1 ? "30 vs 28" : step === 2 ? state.alignmentReviewed ? "对应已核对" : "临时草稿" : step === 3 ? state.mergePreview ? "预览已生成" : "待选择" : state.mergeConfirmed ? "合并已确认" : "尚未应用"}</small></div></button>`;
+    const done = step === 1 || (step === 2 && state.correspondenceReviewed) || (step === 3 && state.previewGenerated) || (step === 4 && state.applied);
+    const locked = (step === 3 && !state.correspondenceReviewed) || (step === 4 && !state.previewGenerated);
+    const detail = step === 1 ? "source opened" : step === 2 ? state.correspondenceReviewed ? "confirmed" : "temporary suggestion" : step === 3 ? state.previewGenerated ? "decisions previewed" : "five tracks" : state.applied ? "applied" : "not applied";
+    return `<button class="stage-button ${state.step === step ? "active" : ""} ${done ? "done" : ""}" data-step="${step}" ${locked ? "disabled" : ""}><span>${done ? "✓" : step}</span><div><b>${label}</b><small>${detail}</small></div></button>`;
   }).join("")}</aside>`;
 }
 
 function renderVariantC() {
   let stage;
-  if (state.step === 1) stage = `<div class="stage-content import-stage">${renderImportFacts()}<div class="stage-explainer"><b>此阶段只确认导入事实</b><p>来源长度、观察编号和缺失区间不会自动决定 target ResidueLayout 对应。</p><button class="button primary" data-step="2">建立按位置临时草稿</button></div></div>`;
+  if (state.step === 1) stage = `<div class="stage-content import-stage">${renderImportFacts()}<div class="stage-explainer"><div><b>Open only records source facts</b><p>The visible temporary suggestion names its stub provenance and cannot be applied.</p></div><button class="button primary" data-step="2">Inspect correspondence</button></div></div>`;
   else if (state.step === 2) stage = `<div class="stage-content alignment-stage">${renderAlignmentStrip()}<div class="stage-bottom">${renderAlignmentTools()}${renderMappingTable()}</div></div>`;
-  else if (state.step === 3) stage = `<div class="stage-content merge-stage">${renderTrackMerge()}<div class="stage-side-note"><b>已锁定的核对事实</b><p>${state.alignmentReviewNote}</p><button class="button" data-step="2">返回修改对应</button><small>修改任何 mapping 会撤销本关卡和旧预览。</small></div></div>`;
-  else stage = `<div class="stage-content final-stage"><section class="surface final-stage-card"><span class="surface-kicker">Final confirmation</span><h2>${state.mergeConfirmed ? "合并已确认" : "最终合并仍未应用"}</h2>${state.mergePreview ? renderFinalLedger() : "<p>先生成统一合并预览。</p>"}<div class="final-actions"><button class="button" data-step="3">返回轨道选择</button><button class="button primary" data-action="confirm-merge" ${state.mergePreview && !state.mergeConfirmed ? "" : "disabled"}>确认最终合并</button></div></section></div>`;
+  else if (state.step === 3) stage = `<div class="stage-content merge-stage">${renderTrackMerge()}<div class="stage-side-note"><b>Reviewed correspondence</b><p>${state.correspondenceNote}</p><button class="button" data-step="2">Return to edit</button><small>Any correspondence edit invalidates the review and Preview.</small></div></div>`;
+  else stage = `<div class="stage-content final-stage"><section class="surface final-stage-card"><span class="surface-kicker">Preview / Apply</span><h2>${state.applied ? "Applied in prototype memory" : "Review all locatable diagnostics"}</h2>${renderPreviewPanel()}<div class="final-actions"><button class="button" data-step="3">Back to track decisions</button><button class="button primary" data-action="apply" ${state.previewGenerated && !previewDiagnostics().some((item) => item.severity === "error") && !state.applied ? "" : "disabled"}>Apply merge</button></div></section></div>`;
   return `<main class="workspace variant-c">${renderStageRail()}${stage}</main>`;
 }
 
@@ -501,105 +667,86 @@ function renderPrototypeSwitcher() {
 
 function renderStateInspector() {
   if (!SHOW_PROTOTYPE_CONTROLS) return "";
-  const facts = alignmentFacts();
-  return `<details class="state-inspector"><summary>原型状态</summary><pre>${JSON.stringify({
+  const facts = correspondenceFacts();
+  return `<details class="state-inspector"><summary>Prototype state</summary><pre>${JSON.stringify({
     variant: state.variant,
-    draft: !state.alignmentReviewed,
-    alignmentReviewed: state.alignmentReviewed,
-    alignmentTouched: state.alignmentTouched,
-    mapped: facts.mappedCount,
-    collisions: [...facts.collisions],
-    exactIdentityMappings: facts.exactNumber.length,
-    includedTracks: state.includedTracks,
-    unresolvedConflicts: unresolvedConflicts().length,
-    mergePreview: state.mergePreview,
-    mergeConfirmed: state.mergeConfirmed,
+    suggestionProvenance: state.suggestionProvenance,
+    correspondenceReviewed: state.correspondenceReviewed,
+    correspondence: { match: facts.matches.length, source_gap: facts.sourceGaps.length, target_gap: facts.targetGaps.length },
+    sourceDisposition: `${facts.sourceDispositionCount}/${source.length}`,
+    targetDisposition: `${facts.targetDispositionCount}/${target.length}`,
+    decisions: state.decisions,
+    previewGenerated: state.previewGenerated,
+    diagnostics: state.previewGenerated ? previewDiagnostics().map(({ severity, category, track, locator }) => ({ severity, category, track, locator })) : [],
+    applied: state.applied,
     lastAction: state.lastAction,
   }, null, 2)}</pre></details>`;
 }
 
 function render() {
   const root = document.querySelector("#app");
-  const variantBody = state.variant === "A" ? renderVariantA() : state.variant === "B" ? renderVariantB() : renderVariantC();
-  root.innerHTML = `<div class="app-shell">${renderTopbar()}${variantBody}</div>${renderPrototypeSwitcher()}${renderStateInspector()}<div class="toasts"></div>`;
+  const body = state.variant === "A" ? renderVariantA() : state.variant === "B" ? renderVariantB() : renderVariantC();
+  root.innerHTML = `<div class="app-shell">${renderTopbar()}${body}</div>${renderPrototypeSwitcher()}${renderStateInspector()}<div class="toasts"></div>`;
   renderToasts();
-  requestAnimationFrame(() => {
-    document.querySelector(`tr[data-row-source="${state.selectedSourceId}"]`)?.scrollIntoView({ block: "nearest" });
-  });
 }
 
 function setVariant(key) {
-  if (!VARIANTS[key]) return;
   state.variant = key;
   const params = new URLSearchParams(location.search);
   params.set("variant", key);
   history.replaceState(null, "", `${location.pathname}?${params.toString()}`);
-  state.lastAction = `切换到 ${VARIANTS[key].label}；完整对齐与合并状态保持不变`;
+  state.lastAction = `切换到 ${VARIANTS[key].label}；完整原型状态保持`;
   render();
 }
 
 document.addEventListener("click", (event) => {
   const variantButton = event.target.closest("[data-variant]");
   if (variantButton) return setVariant(variantButton.dataset.variant);
-  const sourceButton = event.target.closest("[data-source-id]");
+  const sourceButton = event.target.closest("[data-source-handle]");
   if (sourceButton) {
-    state.selectedSourceId = sourceButton.dataset.sourceId;
-    state.lastAction = `已在同步视图中选择来源 ${sourceById(state.selectedSourceId)?.id}`;
+    state.selectedSourceHandle = sourceButton.dataset.sourceHandle;
+    state.lastAction = `selected ${locator(sourceByHandle(state.selectedSourceHandle), "source")}`;
     return render();
   }
+  const assignTargetButton = event.target.closest("[data-assign-target]");
+  if (assignTargetButton) return assignSourceToTarget(state.selectedSourceHandle, assignTargetButton.dataset.assignTarget);
   const filterButton = event.target.closest("[data-filter]");
   if (filterButton) { state.tableFilter = filterButton.dataset.filter; return render(); }
+  const decisionButton = event.target.closest("[data-decision]");
+  if (decisionButton) {
+    const [trackKey, decision] = decisionButton.dataset.decision.split("|");
+    return setDecision(trackKey, decision);
+  }
+  const trackResolutionButton = event.target.closest("[data-track-resolution]");
+  if (trackResolutionButton) {
+    const [trackKey, decision] = trackResolutionButton.dataset.trackResolution.split("|");
+    return setDecision(trackKey, decision);
+  }
   const stepButton = event.target.closest("[data-step]");
   if (stepButton) { state.step = Number(stepButton.dataset.step); state.lastAction = `进入关卡 ${state.step}`; return render(); }
-  const resolutionButton = event.target.closest("[data-resolution]");
-  if (resolutionButton) {
-    const [trackKey, sourceId, choice] = resolutionButton.dataset.resolution.split("|");
-    return setResolution(trackKey, sourceId, choice);
-  }
-  const resolveAllButton = event.target.closest("[data-resolve-all]");
-  if (resolveAllButton) {
-    const [trackKey, choice] = resolveAllButton.dataset.resolveAll.split(":");
-    return resolveAll(trackKey, choice);
-  }
   const action = event.target.closest("[data-action]")?.dataset.action;
   if (!action) return;
-  if (action === "reset") return resetDraft();
-  if (action === "insert-gap") return insertGapBefore(state.selectedSourceId);
-  if (action === "gap-10") return insertGapBefore("pdb:A:10");
-  if (action === "gap-21") return insertGapBefore("pdb:A:21");
-  if (action === "move-interval") return moveInterval(state.moveStart, state.moveEnd, state.moveOffset);
-  if (action === "review-alignment") return reviewAlignment();
-  if (action === "attempt-preview") return buildMergePreview();
-  if (action === "confirm-merge") return confirmMerge();
+  if (action === "reset") return resetSuggestion();
+  if (action === "locator-suggestion") return applyLocatorSuggestion();
+  if (action === "source-gap") return assignSourceToTarget(state.selectedSourceHandle, null);
+  if (action === "target-gap-before") return insertTargetGapBefore(state.selectedSourceHandle);
+  if (action === "gap-10") return insertTargetGapBefore(sourceByPosition(10).handle);
+  if (action === "gap-21") return insertTargetGapBefore(sourceByPosition(21).handle);
+  if (action === "review") return reviewCorrespondence();
+  if (action === "preview") return generatePreview();
+  if (action === "apply") return applyMerge();
 });
 
 document.addEventListener("change", (event) => {
-  if (event.target.matches("[data-mapping-source]")) return setPreciseMapping(event.target.dataset.mappingSource, event.target.value);
-  if (event.target.matches("[data-track]")) {
-    const trackKey = event.target.dataset.track;
-    state.includedTracks[trackKey] = event.target.checked;
-    state.resolutions[trackKey] = {};
-    state.mergePreview = false;
-    state.mergeConfirmed = false;
-    if (state.step > 3) state.step = 3;
-    state.lastAction = `${trackKey === "sequence" ? "Sequence" : "Coordinates"} 来源轨道：${event.target.checked ? "采用并逐项处理" : "不采用，保留当前"}`;
-    return render();
-  }
-});
-
-document.addEventListener("input", (event) => {
-  if (event.target.matches("[data-field='move-start']")) state.moveStart = Number(event.target.value);
-  if (event.target.matches("[data-field='move-end']")) state.moveEnd = Number(event.target.value);
-  if (event.target.matches("[data-field='move-offset']")) state.moveOffset = Number(event.target.value);
+  if (event.target.matches("[data-mapping-source]")) return assignSourceToTarget(event.target.dataset.mappingSource, event.target.value);
 });
 
 document.addEventListener("keydown", (event) => {
   if (!SHOW_PROTOTYPE_CONTROLS || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
-  const targetElement = event.target;
-  if (targetElement.matches("input, textarea, select, [contenteditable='true']")) return;
+  if (event.target.matches("input, textarea, select, [contenteditable='true']")) return;
   const keys = Object.keys(VARIANTS);
-  const current = keys.indexOf(state.variant);
-  setVariant(keys[(current + (event.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length]);
+  const index = keys.indexOf(state.variant);
+  setVariant(keys[(index + (event.key === "ArrowRight" ? 1 : -1) + keys.length) % keys.length]);
 });
 
 render();

@@ -1,6 +1,7 @@
 // THROWAWAY UI PROTOTYPE — not production code.
 // Three variants of the default Workflow and Blender-style node canvas,
-// switchable via ?variant= on this prototype-only page.
+// switchable via ?variant= on this prototype-only page. Each variant distinguishes
+// ordinary Nodes, the ProteinPrompt specialized composition, and read-only members.
 
 const VARIANTS = {
   A: { name: "Graph cards", note: "A · 传统空间画布 / 卡片边缘端口" },
@@ -12,6 +13,7 @@ const SHOW_PROTOTYPE_CONTROLS = ["127.0.0.1", "localhost"].includes(location.hos
 
 const CATALOG = {
   pdb: {
+    authoringRole: "ordinary_node",
     code: "PDB",
     name: "读取 PDB 结构",
     purpose: "输入",
@@ -28,27 +30,47 @@ const CATALOG = {
     ],
   },
   prompt: {
+    authoringRole: "specialized_composition",
     code: "PP",
     name: "编写 ProteinPrompt",
     purpose: "Prompt",
     provider: "Prompt Authoring",
-    inputs: [{ id: "structure", name: "结构（可选）", type: "ProteinStructure" }],
-    outputs: [{ id: "prompt", name: "ProteinPrompt", type: "ProteinPrompt" }],
-    models: [],
-    groups: [
+    inputs: [
       {
-        id: "prompt",
-        name: "Prompt 摘要",
-        fields: [{ id: "chains", label: "链", value: "A · 46 residues" }],
+        id: "sequence_source",
+        name: "Sequence source（可选）",
+        type: "protein.sequence",
+      },
+      {
+        id: "structure_source",
+        name: "Structure source（可选）",
+        type: "structure_transform.resolved_residue_axis",
+      },
+      {
+        id: "prompt_source",
+        name: "Prompt source（可选）",
+        type: "protein.prompt",
       },
     ],
+    outputs: [
+      { id: "protein_prompt", name: "ProteinPrompt", type: "protein.prompt" },
+      {
+        id: "residue_layout",
+        name: "Residue layout（只读角色）",
+        type: "residue.layout",
+      },
+    ],
+    models: [],
+    groups: [],
+    sourceKinds: ["blank", "fasta", "pdb", "protein_prompt"],
   },
   generate: {
+    authoringRole: "ordinary_node",
     code: "GEN",
     name: "生成候选蛋白质",
     purpose: "生成",
     provider: "ESM",
-    inputs: [{ id: "prompt", name: "ProteinPrompt", type: "ProteinPrompt" }],
+    inputs: [{ id: "protein_prompt", name: "ProteinPrompt", type: "protein.prompt" }],
     outputs: [{ id: "candidates", name: "候选", type: "CandidateCollection" }],
     models: ["ESM-3 Small（示意）", "ESM-3 Medium（示意）"],
     recommended: true,
@@ -69,6 +91,7 @@ const CATALOG = {
     ],
   },
   score: {
+    authoringRole: "ordinary_node",
     code: "SCR",
     name: "评分候选",
     purpose: "评分",
@@ -85,6 +108,7 @@ const CATALOG = {
     ],
   },
   filter: {
+    authoringRole: "ordinary_node",
     code: "FLT",
     name: "筛选候选",
     purpose: "筛选",
@@ -101,12 +125,13 @@ const CATALOG = {
     ],
   },
   fasta: {
+    authoringRole: "ordinary_node",
     code: "FA",
     name: "读取 FASTA 序列",
     purpose: "输入",
     provider: "Protein I/O",
     inputs: [],
-    outputs: [{ id: "candidates", name: "候选", type: "CandidateCollection" }],
+    outputs: [{ id: "sequence", name: "ProteinSequence", type: "protein.sequence" }],
     models: [],
     groups: [
       {
@@ -117,6 +142,7 @@ const CATALOG = {
     ],
   },
   fold: {
+    authoringRole: "ordinary_node",
     code: "3D",
     name: "预测蛋白质结构",
     purpose: "折叠",
@@ -139,6 +165,7 @@ const CATALOG = {
     ],
   },
   export: {
+    authoringRole: "ordinary_node",
     code: "ZIP",
     name: "导出候选",
     purpose: "导出",
@@ -157,11 +184,42 @@ const CATALOG = {
 };
 
 const START_POSITIONS = {
-  pdb: [90, 250],
-  prompt: [385, 250],
-  generate: [680, 250],
-  score: [975, 250],
-  filter: [1270, 250],
+  prompt: [120, 160],
+  generate: [430, 250],
+  score: [740, 250],
+  filter: [1050, 250],
+};
+
+const DEFAULT_PROMPT_PROJECTION = {
+  source: "PDB · Project input 1CRN · chain A",
+  summary: "A 链 · 46 residues · sequence + coordinates",
+  managedMembers: [
+    {
+      name: "导入 PDB 结构",
+      contract: "protein_io.import_structure",
+      parameters: 'project_input_ref = "1CRN"',
+    },
+    {
+      name: "选择链 A",
+      contract: "structure_transform.select_chains",
+      parameters: 'chain_ids = ["A"]',
+    },
+    {
+      name: "解析 residue axis",
+      contract: "structure_transform.resolve_residue_axis",
+      parameters: "{}",
+    },
+    {
+      name: "从结构建立 ProteinPrompt",
+      contract: "prompt_authoring.prompt_from_structure",
+      parameters: "{}",
+    },
+    {
+      name: "写入最终 function annotations",
+      contract: "prompt_authoring.replace_protein_prompt_annotations",
+      parameters: "annotations = [] · overlap_policy = allow",
+    },
+  ],
 };
 
 const variantFromUrl = new URLSearchParams(location.search).get("variant")?.toUpperCase();
@@ -207,6 +265,14 @@ function makeNode(type, x, y, id = `${type}-${state.idCounter++}`) {
     params: Object.fromEntries(
       spec.groups.flatMap((group) => group.fields.map((field) => [field.id, field.value])),
     ),
+    compositionProjection:
+      spec.authoringRole === "specialized_composition"
+        ? {
+            source: "尚未选择来源",
+            summary: "尚未编写 · 打开 Prompt Studio",
+            managedMembers: [],
+          }
+        : null,
     status: "ready",
   };
 }
@@ -215,11 +281,11 @@ function loadDefault() {
   state.nodes = Object.entries(START_POSITIONS).map(([type, [x, y]], index) =>
     makeNode(type, x, y, `${type}-${index + 1}`),
   );
+  nodeById("prompt-1").compositionProjection = structuredClone(DEFAULT_PROMPT_PROJECTION);
   state.edges = [
-    edge("pdb-1", "structure", "prompt-2", "structure"),
-    edge("prompt-2", "prompt", "generate-3", "prompt"),
-    edge("generate-3", "candidates", "score-4", "candidates"),
-    edge("score-4", "scored", "filter-5", "scored"),
+    edge("prompt-1", "protein_prompt", "generate-2", "protein_prompt"),
+    edge("generate-2", "candidates", "score-3", "candidates"),
+    edge("score-3", "scored", "filter-4", "scored"),
   ];
   state.selectedNodes.clear();
   state.selectedEdge = null;
@@ -306,7 +372,7 @@ function newBlank() {
   state.projectKind = "personal-copy";
   state.projectName = "未命名蛋白质实验";
   state.lastAction = "已新建空白 Workflow";
-  addToast("空白 Workflow 已建立；可拖入节点或在画布搜索");
+  addToast("空白 Workflow 已建立；可拖入 Palette 条目或在画布搜索");
   render();
 }
 
@@ -328,12 +394,36 @@ function specForNode(id) {
   return node ? CATALOG[node.type] : null;
 }
 
+function selectionFacts(nodes) {
+  const compositions = nodes.filter(
+    (node) => CATALOG[node.type].authoringRole === "specialized_composition",
+  );
+  return {
+    entries: nodes.length,
+    compositions: compositions.length,
+    managedMembers: compositions.reduce(
+      (total, node) => total + node.compositionProjection.managedMembers.length,
+      0,
+    ),
+  };
+}
+
+function selectionLabel() {
+  if (state.selectedEdge) return "已选连线 · Delete 断开";
+  if (!state.selectedNodes.size) return "Shift 点击可多选";
+  const facts = selectionFacts(
+    state.nodes.filter((node) => state.selectedNodes.has(node.id)),
+  );
+  if (!facts.compositions) return `已选 ${facts.entries} 个 ordinary Nodes`;
+  return `已选 ${facts.entries} 项 · ${facts.compositions} 个 composition 将整体操作`;
+}
+
 function selectNode(id, additive = false) {
   if (!additive) state.selectedNodes.clear();
   if (additive && state.selectedNodes.has(id)) state.selectedNodes.delete(id);
   else state.selectedNodes.add(id);
   state.selectedEdge = null;
-  state.lastAction = `选择了 ${state.selectedNodes.size} 个 Node Instance`;
+  state.lastAction = `更新画布选区：${selectionLabel()}`;
   render();
 }
 
@@ -348,32 +438,41 @@ function deleteSelection() {
   }
   if (!state.selectedNodes.size) return;
   const ids = new Set(state.selectedNodes);
+  const facts = selectionFacts(state.nodes.filter((node) => ids.has(node.id)));
   const removedEdges = state.edges.filter(
     (item) => ids.has(item.fromNode) || ids.has(item.toNode),
   ).length;
-  commit(`删除 ${ids.size} 个节点及 ${removedEdges} 条连线`, () => {
+  const compositionNote = facts.compositions
+    ? `；其中 ${facts.compositions} 个 specialized composition 连同 ${facts.managedMembers} 个 managed members 整体删除`
+    : "";
+  commit(`删除 ${facts.entries} 个画布条目及 ${removedEdges} 条连线${compositionNote}`, () => {
     state.nodes = state.nodes.filter((node) => !ids.has(node.id));
     state.edges = state.edges.filter(
       (item) => !ids.has(item.fromNode) && !ids.has(item.toNode),
     );
     state.selectedNodes.clear();
-  }, `已立即删除 ${ids.size} 个节点和 ${removedEdges} 条相关连线；可撤销`);
+  }, `已立即删除 ${facts.entries} 个画布条目和 ${removedEdges} 条相关连线${compositionNote}；可撤销`);
 }
 
 function copySelection() {
   if (!state.selectedNodes.size) {
-    addToast("请先选择要复制的节点", "warn");
+    addToast("请先选择要复制的画布条目", "warn");
     renderToasts();
     return;
   }
   const ids = new Set(state.selectedNodes);
+  const selected = state.nodes.filter((node) => ids.has(node.id));
+  const facts = selectionFacts(selected);
   state.clipboard = {
-    nodes: structuredClone(state.nodes.filter((node) => ids.has(node.id))),
+    nodes: structuredClone(selected),
     edges: structuredClone(
       state.edges.filter((item) => ids.has(item.fromNode) && ids.has(item.toNode)),
     ),
   };
-  state.lastAction = `复制 ${ids.size} 个节点；保留 ${state.clipboard.edges.length} 条内部连线`;
+  const compositionNote = facts.compositions
+    ? `；${facts.compositions} 个 specialized composition 连同 ${facts.managedMembers} 个 managed members 整体复制`
+    : "";
+  state.lastAction = `复制 ${facts.entries} 个画布条目；保留 ${state.clipboard.edges.length} 条内部连线${compositionNote}`;
   addToast(state.lastAction);
   render();
 }
@@ -385,8 +484,9 @@ function pasteSelection() {
     return;
   }
   const mapping = new Map();
+  const facts = selectionFacts(state.clipboard.nodes);
   commit(
-    `粘贴 ${state.clipboard.nodes.length} 个节点及 ${state.clipboard.edges.length} 条内部连线`,
+    `粘贴 ${facts.entries} 个画布条目及 ${state.clipboard.edges.length} 条内部连线`,
     () => {
       const copies = state.clipboard.nodes.map((source) => {
         const id = `${source.type}-${state.idCounter++}`;
@@ -403,7 +503,9 @@ function pasteSelection() {
       state.edges.push(...internalEdges);
       state.selectedNodes = new Set(copies.map((node) => node.id));
     },
-    "已粘贴独立流程片段；只复制两端均在选区内的连线",
+    facts.compositions
+      ? "已粘贴独立流程片段；完整 composition 由后端分配新的 opaque identity，managed members 不可拆分"
+      : "已粘贴独立流程片段；只复制两端均在选区内的连线",
   );
 }
 
@@ -443,6 +545,13 @@ function changeParameter(nodeId, fieldId, value) {
   commit(`修改参数 ${fieldId}：${old} → ${value}`, () => {
     node.params[fieldId] = value;
   });
+}
+
+function openPromptStudio(nodeId) {
+  const node = nodeById(nodeId);
+  state.lastAction = `从“${CATALOG[node.type].name}”打开专用 Prompt Studio；未通过通用参数表单修改 managed members`;
+  addToast("进入专用 Prompt Studio（本原型只验证画布入口）；保存或取消后返回此画布");
+  render();
 }
 
 function typesCompatible(outputType, inputType) {
@@ -517,15 +626,15 @@ function catalogGroups() {
 
 function renderLibrary() {
   return `
-    <aside class="library" aria-label="节点列表">
+    <aside class="library" aria-label="Authoring Palette">
       <div class="library-header">
-        <div class="eyebrow">Node Types</div>
-        <h2>添加科学操作</h2>
+        <div class="eyebrow">Authoring Palette</div>
+        <h2>添加操作或专用编辑器</h2>
         <div class="segmented" role="tablist" aria-label="节点分类方式">
           <button data-taxonomy="purpose" class="${state.taxonomy === "purpose" ? "active" : ""}">研究用途</button>
           <button data-taxonomy="provider" class="${state.taxonomy === "provider" ? "active" : ""}">模块 / 提供方</button>
         </div>
-        <p class="library-note">拖入画布添加。画布搜索始终覆盖全部 Node Types。</p>
+        <p class="library-note">只列 ordinary Nodes 与 specialized entries。composition 的 managed members 不在 Palette 或搜索中单独出现。</p>
       </div>
       <div class="catalog">
         ${Object.entries(catalogGroups())
@@ -538,7 +647,11 @@ function renderLibrary() {
                     ({ type, spec }) => `
                       <button class="catalog-item" data-catalog-type="${type}" title="拖入画布">
                         <span class="catalog-icon">${spec.code}</span>
-                        <span><span class="catalog-name">${spec.name}</span><span class="catalog-provider">${state.taxonomy === "purpose" ? spec.provider : spec.purpose}</span></span>
+                        <span class="catalog-copy">
+                          <span class="catalog-name">${spec.name}</span>
+                          <span class="catalog-provider">${state.taxonomy === "purpose" ? spec.provider : spec.purpose}</span>
+                          ${spec.authoringRole === "specialized_composition" ? '<span class="catalog-role">Specialized entry</span>' : ""}
+                        </span>
                         <span class="drag-handle">⠿</span>
                       </button>`,
                   )
@@ -552,8 +665,13 @@ function renderLibrary() {
 
 function nodeStyle(node) {
   let { x, y } = node;
-  if (state.variant === "B") y += (Number(node.id.match(/(\d+)$/)?.[1] ?? 0) % 2) * 92;
-  if (state.variant === "C") y += (Number(node.id.match(/(\d+)$/)?.[1] ?? 0) % 3) * 42;
+  const ordinary = CATALOG[node.type].authoringRole === "ordinary_node";
+  if (state.variant === "B" && ordinary) {
+    y += (Number(node.id.match(/(\d+)$/)?.[1] ?? 0) % 2) * 92;
+  }
+  if (state.variant === "C" && ordinary) {
+    y += (Number(node.id.match(/(\d+)$/)?.[1] ?? 0) % 3) * 42;
+  }
   return `left:${x}px;top:${y}px`;
 }
 
@@ -592,17 +710,64 @@ function renderField(node, field) {
     </label>`;
 }
 
+function renderSpecializedComposition(node, spec) {
+  const projection = node.compositionProjection;
+  const sourceDisposition = projection.managedMembers.length
+    ? `当前 ${projection.source} 已在 composition 内 materialize；三个 external source roles 保持可选。`
+    : "blank 无需 Port；尚未 materialize，可从三个 optional exposed input roles 或 Prompt Studio 开始。";
+  return `
+    <div class="composition-panel">
+      <div class="composition-role-row">
+        <span class="composition-role">Specialized composition</span>
+        <span>专用入口拥有完整 Prompt authoring</span>
+      </div>
+      <div class="composition-sources">
+        <span>Source disposition</span>
+        <small>${sourceDisposition}</small>
+      </div>
+      <div class="composition-summary">
+        <span>${projection.source}</span>
+        <strong>${projection.summary}</strong>
+      </div>
+      <button class="edit-composition" data-edit-composition="${node.id}">
+        <span>编辑 ProteinPrompt</span>
+        <small>打开 Prompt Studio →</small>
+      </button>
+      <section class="managed-members" aria-label="只读 managed members">
+        <div class="managed-heading">
+          <span>Materialized members</span>
+          <strong>只读 · ${projection.managedMembers.length}</strong>
+        </div>
+        ${
+          projection.managedMembers.length
+            ? projection.managedMembers
+                .map(
+                  (member) => `<div class="managed-member">
+                    <span class="managed-lock">⌁</span>
+                    <span><strong>${member.name}</strong><small>${member.contract}</small><em>${member.parameters}</em></span>
+                  </div>`,
+                )
+                .join("")
+            : '<div class="managed-empty">尚未 materialize；先在 Prompt Studio 完成 preview 与 apply。</div>'
+        }
+        <p>实例投影由此 composition 整体拥有；不可单独选择、修改、复制或删除。</p>
+      </section>
+    </div>`;
+}
+
 function renderNode(node, index) {
   const spec = CATALOG[node.type];
+  const specialized = spec.authoringRole === "specialized_composition";
+  const compositionMaterialized = specialized && node.compositionProjection.managedMembers.length > 0;
   return `
-    <article class="node ${node.collapsed ? "collapsed" : ""} ${state.selectedNodes.has(node.id) ? "selected" : ""}"
+    <article class="node role-${spec.authoringRole} ${node.collapsed ? "collapsed" : ""} ${state.selectedNodes.has(node.id) ? "selected" : ""}"
       style="${nodeStyle(node)}" data-node-id="${node.id}" aria-label="${spec.name}">
       <header class="node-header" data-drag-node="${node.id}">
         <span class="node-index">${String(index + 1).padStart(2, "0")}</span>
-        <span class="node-title"><strong>${spec.name}</strong><span>${spec.purpose} · ${spec.provider}</span></span>
+        <span class="node-title"><strong>${spec.name}</strong><span>${specialized ? "Specialized composition · 专用编辑" : `${spec.purpose} · ${spec.provider}`}</span></span>
         <span class="node-header-actions">
-          <span class="status-dot ${node.status}" title="可运行"></span>
-          <button class="collapse-button" data-collapse-node="${node.id}" title="${node.collapsed ? "展开节点" : "整体收起：只保留名称"}">${node.collapsed ? "+" : "−"}</button>
+          <span class="status-dot ${specialized ? (compositionMaterialized ? "materialized" : "pending") : node.status}" title="${specialized ? (compositionMaterialized ? "Composition 已 materialize" : "尚未 materialize") : "可运行"}"></span>
+          <button class="collapse-button" data-collapse-node="${node.id}" title="${node.collapsed ? "展开画布条目" : "整体收起：只保留名称"}">${node.collapsed ? "+" : "−"}</button>
         </span>
       </header>
       ${
@@ -623,18 +788,22 @@ function renderNode(node, index) {
                 <div class="port-stack input">${spec.inputs.map((port) => portMarkup(node, port, "input")).join("") || '<span class="port-type">无输入</span>'}</div>
                 <div class="port-stack output">${spec.outputs.map((port) => portMarkup(node, port, "output")).join("") || '<span class="port-type">无输出</span>'}</div>
               </div>
-              <div class="parameter-groups">
-                ${spec.groups
-                  .map(
-                    (group) => `<section class="parameter-group">
-                      <button class="group-toggle" data-group-node="${node.id}" data-group-id="${group.id}">
-                        <span>${group.name}</span><span>${node.openGroups[group.id] ? "▾" : "▸"}</span>
-                      </button>
-                      ${node.openGroups[group.id] ? `<div class="parameter-fields">${group.fields.map((field) => renderField(node, field)).join("")}</div>` : ""}
-                    </section>`,
-                  )
-                  .join("")}
-              </div>
+              ${
+                specialized
+                  ? renderSpecializedComposition(node, spec)
+                  : `<div class="parameter-groups">
+                      ${spec.groups
+                        .map(
+                          (group) => `<section class="parameter-group">
+                            <button class="group-toggle" data-group-node="${node.id}" data-group-id="${group.id}">
+                              <span>${group.name}</span><span>${node.openGroups[group.id] ? "▾" : "▸"}</span>
+                            </button>
+                            ${node.openGroups[group.id] ? `<div class="parameter-fields">${group.fields.map((field) => renderField(node, field)).join("")}</div>` : ""}
+                          </section>`,
+                        )
+                        .join("")}
+                    </div>`
+              }
             </div>`
       }
     </article>`;
@@ -647,14 +816,14 @@ function renderSearch() {
     `${spec.name} ${spec.purpose} ${spec.provider}`.toLowerCase().includes(query),
   );
   return `
-    <div class="search-popover" style="left:${state.search.screenX}px;top:${state.search.screenY}px" role="dialog" aria-label="搜索全部节点">
-      <input id="node-search" value="${state.search.query}" placeholder="搜索全部 Node Types…" autocomplete="off" />
+    <div class="search-popover" style="left:${state.search.screenX}px;top:${state.search.screenY}px" role="dialog" aria-label="搜索 Palette entries">
+      <input id="node-search" value="${state.search.query}" placeholder="搜索 ordinary Nodes 与 specialized entries…" autocomplete="off" />
       <div class="search-results">
         ${results
           .map(
-            ([type, spec]) => `<button class="search-result" data-search-add="${type}"><span>${spec.name}</span><small>${spec.purpose} · ${spec.provider}</small></button>`,
+            ([type, spec]) => `<button class="search-result" data-search-add="${type}"><span>${spec.name}</span><small>${spec.authoringRole === "specialized_composition" ? "Specialized entry" : "Ordinary Node"} · ${spec.provider}</small></button>`,
           )
-          .join("") || '<div class="state-callout">没有匹配的 Node Type</div>'}
+          .join("") || '<div class="state-callout">没有匹配的 Palette entry</div>'}
       </div>
     </div>`;
 }
@@ -663,6 +832,30 @@ function renderStateInspector() {
   const compactNodes = state.nodes.map((node) => ({
     id: node.id,
     type: node.type,
+    authoringRole: CATALOG[node.type].authoringRole,
+    capabilityProjection:
+      CATALOG[node.type].authoringRole === "specialized_composition"
+        ? {
+            sourceKinds: CATALOG[node.type].sourceKinds,
+            exposedInputs: CATALOG[node.type].inputs.map((port) => ({
+              role: port.id,
+              portType: port.type,
+            })),
+            exposedOutputs: CATALOG[node.type].outputs.map((port) => ({
+              role: port.id,
+              portType: port.type,
+            })),
+          }
+        : undefined,
+    compositionSource: node.compositionProjection?.source,
+    compositionSummary: node.compositionProjection?.summary,
+    managedMembers:
+      CATALOG[node.type].authoringRole === "specialized_composition"
+        ? node.compositionProjection.managedMembers.map((member) => ({
+            contract: member.contract,
+            parameters: member.parameters,
+          }))
+        : undefined,
     model: node.selectedModel,
     collapsed: node.collapsed,
     openGroups: Object.keys(node.openGroups).filter((key) => node.openGroups[key]),
@@ -670,9 +863,10 @@ function renderStateInspector() {
   const compactEdges = state.edges.map((item) =>
     `${item.fromNode}.${item.fromPort} → ${item.toNode}.${item.toPort}`,
   );
+  const clipboardFacts = state.clipboard ? selectionFacts(state.clipboard.nodes) : null;
   return `
     <details class="state-inspector" ${state.inspectorOpen ? "open" : ""}>
-      <summary><span>原型状态 · 每步可核对</span><span>${state.nodes.length}N / ${state.edges.length}E</span></summary>
+      <summary><span>原型状态 · 每步可核对</span><span>${state.nodes.length} entries / ${state.edges.length}E</span></summary>
       <div class="state-body">
         <div class="state-callout">${state.lastAction}</div>
         <div class="state-grid">
@@ -680,7 +874,7 @@ function renderStateInspector() {
           <span>分类</span><strong>${state.taxonomy === "purpose" ? "研究用途" : "模块 / 提供方"}</strong>
           <span>选区</span><strong>${state.selectedEdge ?? ([...state.selectedNodes].join(", ") || "无")}</strong>
           <span>撤销深度</span><strong>${state.history.length} 步</strong>
-          <span>剪贴板</span><strong>${state.clipboard ? `${state.clipboard.nodes.length}N / ${state.clipboard.edges.length}E` : "空"}</strong>
+          <span>剪贴板</span><strong>${clipboardFacts ? `${clipboardFacts.entries} entries${clipboardFacts.compositions ? ` / ${clipboardFacts.compositions} composition` : ""} / ${state.clipboard.edges.length}E` : "空"}</strong>
         </div>
         <pre class="state-json">${escapeHtml(JSON.stringify({ nodes: compactNodes, edges: compactEdges }, null, 2))}</pre>
       </div>
@@ -716,17 +910,17 @@ function render() {
       </header>
       <main class="main-grid">
         ${renderLibrary()}
-        <section class="canvas-shell" aria-label="Workflow 节点画布">
+        <section class="canvas-shell" aria-label="Workflow authoring 画布">
           <div class="canvas-toolbar">
             <div class="canvas-actions">
               <button class="icon-button" id="undo" title="撤销（Cmd/Ctrl+Z）" ${state.history.length ? "" : "disabled"}>↶</button>
-              <button class="icon-button" id="copy" title="复制所选节点（Cmd/Ctrl+C）" ${state.selectedNodes.size ? "" : "disabled"}>⧉</button>
+              <button class="icon-button" id="copy" title="复制所选画布条目；composition 始终整体复制（Cmd/Ctrl+C）" ${state.selectedNodes.size ? "" : "disabled"}>⧉</button>
               <button class="icon-button" id="paste" title="粘贴流程片段（Cmd/Ctrl+V）" ${state.clipboard ? "" : "disabled"}>▣</button>
-              <button class="icon-button" id="delete" title="立即删除（Delete/Backspace）" ${state.selectedNodes.size || state.selectedEdge ? "" : "disabled"}>⌫</button>
+              <button class="icon-button" id="delete" title="立即删除；composition 始终整体删除（Delete/Backspace）" ${state.selectedNodes.size || state.selectedEdge ? "" : "disabled"}>⌫</button>
             </div>
             <span class="toolbar-divider"></span>
-            <button class="button" id="open-search">⌕ 搜索全部节点</button>
-            <span class="selection-copy">${state.selectedNodes.size ? `已选 ${state.selectedNodes.size} 个节点` : state.selectedEdge ? "已选连线 · Delete 断开" : "Shift 点击可多选"}</span>
+            <button class="button" id="open-search">⌕ 搜索 Palette</button>
+            <span class="selection-copy">${selectionLabel()}</span>
           </div>
           <div class="canvas" id="canvas">
             <div class="canvas-world" id="canvas-world" data-variant-note="${VARIANTS[state.variant].note}">
@@ -735,7 +929,7 @@ function render() {
               ${
                 state.nodes.length
                   ? ""
-                  : `<div class="empty-state"><h3>空白 Workflow</h3><p>从左侧拖入科学操作，或在画布空白处双击搜索。两种入口使用同一个完整 Node Type 目录。</p><button class="button primary" id="empty-search">搜索并添加第一个节点</button></div>`
+                  : `<div class="empty-state"><h3>空白 Workflow</h3><p>从左侧拖入 ordinary Node 或 specialized entry，或在画布空白处双击搜索。managed members 只由 composition 建立。</p><button class="button primary" id="empty-search">搜索并添加第一个条目</button></div>`
               }
             </div>
           </div>
@@ -776,7 +970,7 @@ function openSearch(screenX, screenY, worldX, worldY) {
     worldY,
     query: "",
   };
-  state.lastAction = "打开覆盖全部 Node Types 的画布搜索";
+  state.lastAction = "打开 Palette 搜索；结果仅含 ordinary Nodes 与 specialized entries";
   render();
   document.querySelector("#node-search")?.focus();
 }
@@ -797,7 +991,7 @@ function bindEvents() {
   document.querySelectorAll("[data-taxonomy]").forEach((button) => {
     button.addEventListener("click", () => {
       state.taxonomy = button.dataset.taxonomy;
-      state.lastAction = `节点列表切换为${state.taxonomy === "purpose" ? "研究用途" : "模块 / 提供方"}分类`;
+      state.lastAction = `Palette 切换为${state.taxonomy === "purpose" ? "研究用途" : "模块 / 提供方"}分类`;
       render();
     });
   });
@@ -841,6 +1035,10 @@ function bindEvents() {
       event.stopPropagation();
       toggleCollapsed(button.dataset.collapseNode);
     });
+  });
+
+  document.querySelectorAll("[data-edit-composition]").forEach((button) => {
+    button.addEventListener("click", () => openPromptStudio(button.dataset.editComposition));
   });
 
   document.querySelectorAll("[data-group-node]").forEach((button) => {
@@ -957,14 +1155,14 @@ function moveNode(event) {
 function endNodeDrag(event) {
   document.removeEventListener("pointermove", moveNode);
   if (state.draggingNode?.moved) {
-    state.history.push({ action: "移动节点", snapshot: state.draggingNode.snapshot });
+    state.history.push({ action: "移动画布条目", snapshot: state.draggingNode.snapshot });
     if (state.projectKind === "default") {
       state.projectKind = "personal-copy";
       state.projectName = "我的实验 · 默认示例副本";
       addToast("已自动建立个人副本；默认示例保持不变");
     }
     state.lastAction = `移动“${CATALOG[nodeById(state.draggingNode.id).type].name}”`;
-    addToast("节点位置已更新；可撤销");
+    addToast("画布条目位置已更新；可撤销");
     state.draggingNode = null;
     render();
     return;

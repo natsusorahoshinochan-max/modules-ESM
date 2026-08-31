@@ -300,14 +300,33 @@ button {
 }
 
 .catalog-name {
+  display: block;
   font-size: 11px;
   font-weight: 650;
 }
 
 .catalog-provider {
+  display: block;
   margin-top: 2px;
   color: var(--muted);
   font-size: 9px;
+}
+
+.catalog-copy {
+  min-width: 0;
+}
+
+.catalog-role {
+  display: inline-flex;
+  margin-top: 5px;
+  padding: 2px 5px;
+  border: 1px solid #536d5d;
+  border-radius: 999px;
+  color: #bddc9d;
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .drag-handle {
@@ -446,6 +465,15 @@ button {
   box-shadow: 0 0 0 2px rgb(168 224 111 / 0.14), var(--shadow);
 }
 
+.node.role-specialized_composition {
+  border-color: #63794f;
+  background: #1d251d;
+}
+
+.node.role-specialized_composition .node-header {
+  background: linear-gradient(120deg, #34412d, #27332a);
+}
+
 .node.collapsed {
   width: 174px;
 }
@@ -530,6 +558,14 @@ button {
 
 .status-dot.ready {
   background: var(--accent);
+}
+
+.status-dot.materialized {
+  background: var(--accent-2);
+}
+
+.status-dot.pending {
+  background: var(--warn);
 }
 
 .collapse-button {
@@ -643,13 +679,224 @@ button {
 
 .port-type {
   display: block;
+  max-width: 96px;
+  overflow: hidden;
   color: #728178;
   font-size: 7px;
   font-family: ui-monospace, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.port > span:last-child {
+  min-width: 0;
+  overflow: hidden;
 }
 
 .parameter-groups {
   padding: 4px 7px 7px;
+}
+
+.composition-panel {
+  padding: 8px;
+}
+
+.composition-role-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.composition-role {
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid #5b764c;
+  border-radius: 999px;
+  color: #c9eaa7;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.composition-role-row > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.composition-summary {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 8px;
+  padding: 7px 8px;
+  border: 1px solid #3d4c3e;
+  border-radius: 7px;
+  background: #171d18;
+}
+
+.composition-sources {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 7px;
+  padding: 0 2px;
+  color: var(--muted);
+}
+
+.composition-sources span {
+  font-size: 7px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.composition-sources small {
+  color: #9baa9f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 6px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.composition-summary span {
+  color: var(--muted);
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.composition-summary strong {
+  font-size: 9px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.edit-composition {
+  display: flex;
+  width: 100%;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px;
+  border: 1px solid #7aa954;
+  border-radius: 7px;
+  background: #2f4227;
+  color: #e5f4d5;
+  font-size: 9px;
+  font-weight: 750;
+  text-align: left;
+}
+
+.edit-composition:hover {
+  background: #3a5130;
+}
+
+.edit-composition small {
+  min-width: 0;
+  color: #b7cf9f;
+  font-size: 7px;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.managed-members {
+  margin-top: 8px;
+  padding: 7px;
+  border: 1px dashed #536052;
+  border-radius: 7px;
+  background: #151a16;
+}
+
+.managed-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  color: #9dab9f;
+  font-size: 7px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.managed-heading strong {
+  color: #c7d0c8;
+  font-size: 7px;
+}
+
+.managed-member {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 2px;
+  border-top: 1px solid #2c342e;
+  color: #b4c0b7;
+}
+
+.managed-member > span:last-child {
+  min-width: 0;
+}
+
+.managed-member strong,
+.managed-member small,
+.managed-member em {
+  display: block;
+}
+
+.managed-member strong {
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.managed-member small {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #738078;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.managed-member em {
+  margin-top: 2px;
+  overflow: hidden;
+  color: #99a49c;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 6px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.managed-lock {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid #4a564d;
+  border-radius: 5px;
+  color: #8f9b93;
+  font-size: 8px;
+}
+
+.managed-members p {
+  margin: 5px 2px 0;
+  color: #7f8c83;
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.managed-empty {
+  padding: 9px 3px 7px;
+  border-top: 1px solid #2c342e;
+  color: #89958d;
+  font-size: 7px;
+  line-height: 1.45;
 }
 
 .parameter-group {
@@ -998,7 +1245,7 @@ button {
 
 .variant-B .node-body {
   display: grid;
-  grid-template-columns: 112px 1fr;
+  grid-template-columns: 112px minmax(0, 1fr);
 }
 
 .variant-B .model-row {
@@ -1030,6 +1277,22 @@ button {
 .variant-B .parameter-groups {
   grid-column: 2;
   border-left: 1px solid #35434d;
+}
+
+.variant-B .composition-panel {
+  grid-row: 1;
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  border-left: 1px solid #35434d;
+}
+
+.variant-B .role-specialized_composition .ports-row {
+  grid-row: 1;
+}
+
+.variant-B .role-specialized_composition {
+  border-color: #557557;
 }
 
 .variant-B .edge-line {
@@ -1086,6 +1349,20 @@ button {
 .variant-C .parameter-group {
   border-color: #4a4034;
   background: #1b1813;
+}
+
+.variant-C .role-specialized_composition {
+  border-color: #786342;
+}
+
+.variant-C .role-specialized_composition .node-header {
+  background: linear-gradient(180deg, #4a3d26, #342f22);
+}
+
+.variant-C .edit-composition {
+  border-color: #ae8a4f;
+  background: #493a23;
+  color: #f5e6c9;
 }
 
 .variant-C .edge-line {
