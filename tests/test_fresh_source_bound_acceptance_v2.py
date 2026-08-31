@@ -93,6 +93,14 @@ CONTRACTS = {
         "workflow": "source-bound-5g53.workflow.json",
     },
 }
+_FRESH_2EMO_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-6ebcc41c0a856414f4d9548c",
+)
+_FRESH_5G53_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-ffbdba0e8a3aa6c37f65ecba",
+    "prompt-composition-58f2785a259cff8d52fd4cbe",
+    "prompt-composition-c67f87f835a080d538ee16e3",
+)
 _FRESH_2EMO_PROVIDER_NODES = (
     "design-sequences",
     "score-protein-sol",
@@ -1309,7 +1317,7 @@ def _materialize_prompt_compositions(
     project_id: str,
     project_input_ref: str,
     base_tier_name: str,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any], ...] | None:
     if base_tier_name == "fresh-1pga":
         return
     initialize_prompt_authoring_draft(client, project_id)
@@ -1320,17 +1328,19 @@ def _materialize_prompt_compositions(
             project_input_ref,
             chain_ids=["A"],
         )
-        return apply_prompt_document(
-            client,
-            project_id,
-            preview_prompt_document(
+        return (
+            apply_prompt_document(
                 client,
                 project_id,
-                opened["document"],
+                preview_prompt_document(
+                    client,
+                    project_id,
+                    opened["document"],
+                ),
             ),
         )
 
-    applied: dict[str, Any] | None = None
+    applied_compositions = []
     for branch, count in (
         ("shorter-8", 8),
         ("numbering-implied-12", 12),
@@ -1356,12 +1366,14 @@ def _materialize_prompt_compositions(
             }
             for index in range(count)
         ]
-        applied = apply_prompt_document(
-            client,
-            project_id,
-            preview_prompt_document(client, project_id, document),
+        applied_compositions.append(
+            apply_prompt_document(
+                client,
+                project_id,
+                preview_prompt_document(client, project_id, document),
+            )
         )
-    return applied
+    return tuple(applied_compositions)
 
 
 def test_5g53_materialized_prompt_updates_loop_consumer_identities() -> None:
@@ -1437,18 +1449,53 @@ def test_fresh_source_bound_public_run() -> None:
                 node["node_parameters"] = {
                     "project_input_ref": uploaded.json()["project_input_ref"]
                 }
-        applied = _materialize_prompt_compositions(
+        applied_compositions = _materialize_prompt_compositions(
             client,
             project_id,
             uploaded.json()["project_input_ref"],
             base_tier_name,
         )
-        if applied is not None:
+        if applied_compositions is not None:
+            if base_tier_name == "fresh-2emo":
+                fixture_composition_ids = (
+                    _FRESH_2EMO_PROMPT_COMPOSITION_IDS
+                )
+                output_connections = (
+                    (
+                        applied_compositions[0]["composition"],
+                        "residue_layout",
+                        "author-constraints",
+                        "layout",
+                    ),
+                )
+            else:
+                fixture_composition_ids = (
+                    _FRESH_5G53_PROMPT_COMPOSITION_IDS
+                )
+                output_connections = tuple(
+                    (
+                        applied["composition"],
+                        "protein_prompt",
+                        f"generate-{branch}",
+                        "protein_prompt",
+                    )
+                    for applied, branch in zip(
+                        applied_compositions,
+                        (
+                            "shorter-8",
+                            "numbering-implied-12",
+                            "longer-16",
+                        ),
+                        strict=True,
+                    )
+                )
             workflow = save_ordinary_graph_on_prompt_draft(
                 client,
                 project_id,
-                applied,
+                applied_compositions,
                 workflow,
+                fixture_composition_ids=fixture_composition_ids,
+                output_connections=output_connections,
             )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",

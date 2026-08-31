@@ -84,6 +84,10 @@ _SECONDARY_STRUCTURE_PROMPT = (
     "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
     "EEEEEEEEEEEEEEEEEEEEEE_______________"
 )
+_CANONICAL_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-880d0182ba335a2141077fb2",
+    "prompt-composition-72d0f6197d8104e86d6484ca",
+)
 
 
 def _route_bindings(route: str) -> dict[str, dict[str, str]]:
@@ -125,7 +129,7 @@ def _materialize_local_prompt_compositions(
     client: Any,
     project_id: str,
     project_input_ref: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     initialize_prompt_authoring_draft(client, project_id)
     opened = open_pdb_prompt_document(
         client,
@@ -174,7 +178,7 @@ def _materialize_local_prompt_compositions(
         )
         if value != "_"
     ]
-    apply_prompt_document(
+    prompt_applied = apply_prompt_document(
         client,
         project_id,
         preview_prompt_document(client, project_id, document),
@@ -184,11 +188,12 @@ def _materialize_local_prompt_compositions(
         project_id,
         chains=[{"chain_id": "A", "length": 71}],
     )
-    return apply_prompt_document(
+    layout_applied = apply_prompt_document(
         client,
         project_id,
         preview_prompt_document(client, project_id, blank["document"]),
     )
+    return prompt_applied, layout_applied
 
 
 def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
@@ -260,7 +265,7 @@ def test_local_canonical_fixture_commits_with_materialized_ownership(
             workflow_id=project_id,
             project_input_ref=uploaded.json()["project_input_ref"],
         )
-        applied = _materialize_local_prompt_compositions(
+        applied_compositions = _materialize_local_prompt_compositions(
             client,
             project_id,
             uploaded.json()["project_input_ref"],
@@ -268,8 +273,23 @@ def test_local_canonical_fixture_commits_with_materialized_ownership(
         workflow = save_ordinary_graph_on_prompt_draft(
             client,
             project_id,
-            applied,
+            applied_compositions,
             workflow,
+            fixture_composition_ids=_CANONICAL_PROMPT_COMPOSITION_IDS,
+            output_connections=(
+                (
+                    applied_compositions[0]["composition"],
+                    "protein_prompt",
+                    "generate-paired",
+                    "protein_prompt",
+                ),
+                (
+                    applied_compositions[1]["composition"],
+                    "residue_layout",
+                    "fixed-positions",
+                    "layout",
+                ),
+            ),
         )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
@@ -772,7 +792,7 @@ def test_fresh_canonical_3gb1_public_run() -> None:
                 workflow_id=project_id,
                 project_input_ref=uploaded.json()["project_input_ref"],
             )
-            applied = _materialize_local_prompt_compositions(
+            applied_compositions = _materialize_local_prompt_compositions(
                 client,
                 project_id,
                 uploaded.json()["project_input_ref"],
@@ -780,8 +800,23 @@ def test_fresh_canonical_3gb1_public_run() -> None:
             workflow = save_ordinary_graph_on_prompt_draft(
                 client,
                 project_id,
-                applied,
+                applied_compositions,
                 workflow,
+                fixture_composition_ids=_CANONICAL_PROMPT_COMPOSITION_IDS,
+                output_connections=(
+                    (
+                        applied_compositions[0]["composition"],
+                        "protein_prompt",
+                        "generate-paired",
+                        "protein_prompt",
+                    ),
+                    (
+                        applied_compositions[1]["composition"],
+                        "residue_layout",
+                        "fixed-positions",
+                        "layout",
+                    ),
+                ),
             )
             committed = client.post(
                 f"/api/v2/projects/{project_id}/workflow:commit",

@@ -385,6 +385,45 @@ def test_open_preview_apply_reopen_copy_delete_and_managed_ownership(
     }) == 2
 
 
+def test_recreating_deleted_composition_allocates_a_new_identity(
+    tmp_path: Path,
+) -> None:
+    _catalog, _projection, _projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    document = _blank_document(service, project.id)
+    preview = service.preview(project.id, document)
+    created = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=preview.normalized_document,
+        preview_digest=preview.preview_digest,
+    )
+    deleted_preview = service.preview(
+        project.id,
+        preview.normalized_document,
+        composition_id=created.composition.composition_id,
+    )
+    service.apply(
+        project.id,
+        intent="delete",
+        normalized_document=deleted_preview.normalized_document,
+        preview_digest=deleted_preview.preview_digest,
+        composition_id=created.composition.composition_id,
+    )
+    recreated_preview = service.preview(project.id, document)
+    recreated = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=recreated_preview.normalized_document,
+        preview_digest=recreated_preview.preview_digest,
+    )
+
+    assert recreated.composition.composition_id != (
+        created.composition.composition_id
+    )
+
+
 def test_fasta_and_pdb_sources_open_without_public_layout_or_graph_facts(
     tmp_path: Path,
 ) -> None:
@@ -691,6 +730,72 @@ def test_preview_projects_all_six_track_change_states(tmp_path: Path) -> None:
     assert handles[4] in {
         item["residue_handle"] for item in preview.residues
     }
+
+
+def test_preview_marks_a_new_same_label_annotation_as_inserted(
+    tmp_path: Path,
+) -> None:
+    _catalog, _projection, _projects, project, _workflows, service = _services(
+        tmp_path
+    )
+    opened = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "blank",
+                "chains": [{"chain_id": "A", "length": 6}],
+            },
+        },
+    )
+    handles = [item["residue_handle"] for item in opened.residues]
+    source_document = dict(opened.document)
+    source_document["function_annotations"] = [
+        {
+            "label": "domain",
+            "start_residue_handle": handles[0],
+            "end_residue_handle": handles[1],
+        },
+        {
+            "label": "domain",
+            "start_residue_handle": handles[2],
+            "end_residue_handle": handles[3],
+        },
+    ]
+    source_preview = service.preview(project.id, source_document)
+    source = service.apply(
+        project.id,
+        intent="create",
+        normalized_document=source_preview.normalized_document,
+        preview_digest=source_preview.preview_digest,
+    )
+    sourced = service.open(
+        project.id,
+        {
+            "mode": "create",
+            "source": {
+                "kind": "protein_prompt",
+                "composition_id": source.composition.composition_id,
+            },
+        },
+    )
+    document = dict(sourced.document)
+    document["function_annotations"] = [
+        *document["function_annotations"],
+        {
+            "label": "domain",
+            "start_residue_handle": sourced.residues[4]["residue_handle"],
+            "end_residue_handle": sourced.residues[5]["residue_handle"],
+        },
+    ]
+
+    preview = service.preview(project.id, document)
+
+    assert [item["state"] for item in preview.function_annotations] == [
+        "source",
+        "source",
+        "inserted",
+    ]
 
 
 def test_inserted_residue_identity_is_not_caller_authored(tmp_path: Path) -> None:

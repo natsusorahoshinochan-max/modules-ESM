@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import hashlib
 import math
 import re
+import uuid
 from typing import Any, cast
 
 from core.catalog.canonical import canonical_json_bytes
@@ -1393,10 +1394,6 @@ class PromptAuthoringService:
             )
             for annotation in prompt.function_annotations.annotations
         }
-        source_labels = {
-            annotation.label
-            for annotation in source_prompt.function_annotations.annotations
-        }
         annotations: list[Mapping[str, Any]] = []
         for annotation in prompt.function_annotations.annotations:
             key = (
@@ -1414,11 +1411,7 @@ class PromptAuthoringService:
                     "state": (
                         "source"
                         if key in source_annotations
-                        else (
-                            "changed"
-                            if annotation.label in source_labels
-                            else "inserted"
-                        )
+                        else "inserted"
                     ),
                 }
             )
@@ -2279,36 +2272,8 @@ class PromptAuthoringService:
             )
             return PromptApplyResult(published, None)
 
-        evaluated = self._evaluate(project_id, normalized_document)
         if intent in {"create", "copy"}:
-            identity_document = _copy_document(evaluated.document)
-            if "project_input_ref" in identity_document["source"]:
-                identity_document["source"]["project_input_ref"] = (
-                    evaluated.source.facts["content_digest"]
-                )
-            token = hashlib.sha256(
-                canonical_json_bytes(identity_document)
-            ).hexdigest()[:24]
-            base_composition_id = f"prompt-composition-{token}"
-            matching_ordinals = tuple(
-                1
-                if record.composition_id == base_composition_id
-                else int(
-                    record.composition_id.removeprefix(
-                        f"{base_composition_id}-"
-                    )
-                )
-                for record in records
-                if record.composition_id == base_composition_id
-                or record.composition_id.startswith(
-                    f"{base_composition_id}-"
-                )
-            )
-            target_composition_id = (
-                base_composition_id
-                if not matching_ordinals
-                else f"{base_composition_id}-{max(matching_ordinals) + 1}"
-            )
+            target_composition_id = f"prompt-composition-{uuid.uuid4().hex}"
         else:
             if existing is None:
                 raise WorkflowAuthoringError(
@@ -2320,6 +2285,7 @@ class PromptAuthoringService:
                     },
                 )
             target_composition_id = existing.composition_id
+        evaluated = self._evaluate(project_id, normalized_document)
         nodes, internal_edges, record, source_external_edges = self._materialize(
             project_id,
             target_composition_id,

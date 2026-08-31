@@ -98,16 +98,39 @@ def apply_prompt_document(
 def save_ordinary_graph_on_prompt_draft(
     client: Any,
     project_id: str,
-    applied: Mapping[str, Any],
+    applied_compositions: tuple[Mapping[str, Any], ...],
     fixture_workflow: Mapping[str, Any],
+    *,
+    fixture_composition_ids: tuple[str, ...],
+    output_connections: tuple[
+        tuple[Mapping[str, Any], str, str, str], ...
+    ],
 ) -> dict[str, Any]:
-    draft = applied["draft"]
+    draft = applied_compositions[-1]["draft"]
     materialized = draft["workflow"]
-    managed_node_ids = {
-        node_id
-        for composition in draft["authoring_compositions"]
-        for node_id in composition["managed_node_ids"]
+    fixture_managed_node_ids = {
+        node["node_id"]
+        for node in fixture_workflow["nodes"]
+        if any(
+            node["node_id"].startswith(f"{composition_id}.")
+            for composition_id in fixture_composition_ids
+        )
     }
+    external_edges = []
+    for composition, role, target_node_id, target_port in output_connections:
+        endpoint = next(
+            endpoint
+            for endpoint in composition["exposed_outputs"]
+            if endpoint["role"] == role
+        )
+        external_edges.append(
+            {
+                "source_node_id": endpoint["node_id"],
+                "source_port": endpoint["port_name"],
+                "target_node_id": target_node_id,
+                "target_port": target_port,
+            }
+        )
     workflow = {
         "schema_version": materialized["schema_version"],
         "workflow_id": project_id,
@@ -116,7 +139,7 @@ def save_ordinary_graph_on_prompt_draft(
             *(
                 node
                 for node in fixture_workflow["nodes"]
-                if node["node_id"] not in managed_node_ids
+                if node["node_id"] not in fixture_managed_node_ids
             ),
         ],
         "edges": [
@@ -124,11 +147,10 @@ def save_ordinary_graph_on_prompt_draft(
             *(
                 edge
                 for edge in fixture_workflow["edges"]
-                if not (
-                    edge["source_node_id"] in managed_node_ids
-                    and edge["target_node_id"] in managed_node_ids
-                )
+                if edge["source_node_id"] not in fixture_managed_node_ids
+                and edge["target_node_id"] not in fixture_managed_node_ids
             ),
+            *external_edges,
         ],
         "observation_selectors": fixture_workflow[
             "observation_selectors"

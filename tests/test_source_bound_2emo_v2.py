@@ -78,6 +78,9 @@ from tests.fixtures.public_v2 import (
 
 
 ROOT = Path(__file__).resolve().parent.parent
+_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-6ebcc41c0a856414f4d9548c",
+)
 INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "2EMO.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-2emo.workflow.json"
 INPUT_SHA256 = "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
@@ -702,8 +705,17 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         payload = save_ordinary_graph_on_prompt_draft(
             client,
             project_id,
-            applied,
+            (applied,),
             payload,
+            fixture_composition_ids=_PROMPT_COMPOSITION_IDS,
+            output_connections=(
+                (
+                    applied["composition"],
+                    "residue_layout",
+                    "author-constraints",
+                    "layout",
+                ),
+            ),
         )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",

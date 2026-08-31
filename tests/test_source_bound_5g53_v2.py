@@ -78,17 +78,55 @@ BRANCHES = (
     ("numbering-implied-12", 12, 5353012),
     ("longer-16", 16, 5353016),
 )
-_WORKFLOW_FACTS = json.loads(WORKFLOW_PATH.read_text(encoding="utf-8"))
 BRANCH_LOOP_IDS = {
-    branch: tuple(
-        next(
-            node
-            for node in _WORKFLOW_FACTS["nodes"]
-            if node["node_id"] == f"evaluate-{branch}"
-        )["node_parameters"]["loop_residue_ids"]
-    )
-    for branch, _, _ in BRANCHES
+    "shorter-8": (
+        "A:inserted.245e2418360c7a47f44afade",
+        "A:inserted.ddce628f4ffea6fac3f7cfc7",
+        "A:inserted.d88e78eac1f5c25653088143",
+        "A:inserted.75de7e8a4d6eeb6cb6eeb678",
+        "A:inserted.f9c1799746e96de6ded9d6f2",
+        "A:inserted.bf056591adf99fd223819227",
+        "A:inserted.5d97acf062ff7b32b921a58b",
+        "A:inserted.fccd41523b36a70fcc2dd250",
+    ),
+    "numbering-implied-12": (
+        "A:inserted.05e51139d5f7d351bf09d725",
+        "A:inserted.03739068d2c3c7cda5991603",
+        "A:inserted.1a8616b1e7583a32059cb14f",
+        "A:inserted.a8b50d8342203b27dc19dce1",
+        "A:inserted.4da1003225f185fc68c0dd0b",
+        "A:inserted.cfab6fef9ebd1665c79e0f88",
+        "A:inserted.615325793d778fdbfa707621",
+        "A:inserted.dd1a947079e78ae90a8ac473",
+        "A:inserted.71061ec54e888944728e0d53",
+        "A:inserted.4a0c192b49d374e7946496a8",
+        "A:inserted.a798321f4f1dac52abf7cd44",
+        "A:inserted.75494a9bb7f7816999f40ccd",
+    ),
+    "longer-16": (
+        "A:inserted.c9c2ac08e22ad4fe87bc146b",
+        "A:inserted.06c934faa8447e6a02a86884",
+        "A:inserted.5a940c0a104ee5499c76e232",
+        "A:inserted.a2e44c023bc6dc4dc0e44446",
+        "A:inserted.a9dff7a58db53921475e00a3",
+        "A:inserted.c8e649df9fb178ed019e8014",
+        "A:inserted.0ba6431b662b47ca7eeb537a",
+        "A:inserted.025b46692a30601f2fdf5bdd",
+        "A:inserted.5a692366e314a11c7563842b",
+        "A:inserted.1a562f08fa6d35866edee40d",
+        "A:inserted.10324d953ecbfa92d7f95c23",
+        "A:inserted.f58ced362cf5b3b02accc47a",
+        "A:inserted.897997d5a24dc76872fb9f2a",
+        "A:inserted.68c0c9540104ed910ba2882b",
+        "A:inserted.a964a42aa545324afedcb772",
+        "A:inserted.214604790703b0395d7a3920",
+    ),
 }
+_PROMPT_COMPOSITION_IDS = (
+    "prompt-composition-ffbdba0e8a3aa6c37f65ecba",
+    "prompt-composition-58f2785a259cff8d52fd4cbe",
+    "prompt-composition-c67f87f835a080d538ee16e3",
+)
 _ALPHABET = "ACDEFGHIKLMNPQRSTVWY"
 
 
@@ -336,7 +374,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         assert uploaded.status_code == 201
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
         initialize_prompt_authoring_draft(client, project_id)
-        applied: dict[str, Any] | None = None
+        applied_by_branch: dict[str, dict[str, Any]] = {}
         for branch, loop_length, _ in BRANCHES:
             opened_prompt = open_pdb_prompt_document(
                 client,
@@ -360,7 +398,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 }
                 for index in range(loop_length)
             ]
-            applied = apply_prompt_document(
+            applied_by_branch[branch] = apply_prompt_document(
                 client,
                 project_id,
                 preview_prompt_document(
@@ -376,12 +414,21 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 node["node_parameters"] = {
                     "project_input_ref": uploaded.json()["project_input_ref"]
                 }
-        assert applied is not None
         payload = save_ordinary_graph_on_prompt_draft(
             client,
             project_id,
-            applied,
+            tuple(applied_by_branch.values()),
             payload,
+            fixture_composition_ids=_PROMPT_COMPOSITION_IDS,
+            output_connections=tuple(
+                (
+                    applied_by_branch[branch]["composition"],
+                    "protein_prompt",
+                    f"generate-{branch}",
+                    "protein_prompt",
+                )
+                for branch, _, _ in BRANCHES
+            ),
         )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
@@ -429,11 +476,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
             if event["event"]["type"] == "engine_invocation_started"
             and "project_input_filename"
             in event["event"].get("invocation_provenance", {})
-        ] == [
-            {"project_input_filename": "5G53.pdb"}
-            for node in payload["nodes"]
-            if node["node_type_id"] == "protein_io.import_structure"
-        ]
+        ] == [{"project_input_filename": "5G53.pdb"}] * 4
 
         imported_output = next(
             output
