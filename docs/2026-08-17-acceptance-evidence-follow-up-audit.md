@@ -2,8 +2,12 @@
 
 Date: 2026-08-17
 
-Status: complete; provider-free verification and the single real-Provider
-Acceptance Campaign passed
+Status: historical revision record for `21bd098`; provider-free verification
+and the then-current single real-Provider Acceptance Campaign passed
+
+Current verification commands and Campaign composition are defined by
+[`backend-verification.md`](backend-verification.md). The 15-tier counts below
+describe only revision `21bd098` and are not the current acceptance authority.
 
 This document supersedes the earlier follow-up checklist. That checklist found
 real scientific gaps, but its exact inventories, directory digests, two-stage
@@ -32,7 +36,7 @@ that this project does not have.
 6. Prefer one small owner over managers, registries, state machines, policy
    objects, and parallel compatibility paths.
 
-## Final design
+## Historical design for revision `21bd098`
 
 ### Acceptance Campaign
 

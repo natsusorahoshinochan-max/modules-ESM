@@ -8,9 +8,13 @@ status: accepted
 sequence, structure-coordinate, secondary-structure, absolute-SASA, and
 function-annotation values. Sequence and structure are always present nullable
 tracks; an all-null track is their sole fully masked representation. A concrete
-structure value means its named-atom coordinates condition the model, while a
-null value means that residue supplies no coordinates. Viewer hide/show state
-is opaque UI state and never a scientific Prompt track.
+structure value is the sole owner of the Prompt-side named-atom coordinates,
+while a null value means that residue supplies no Prompt-side coordinates.
+Provider Adapters translate only their provider-visible subset. For ESM-3
+structure conditioning, only the atom37 projection affects the provider call
+and functional-input digest; non-atom37 atoms remain in ProteinPrompt but are
+provider-invisible.
+Viewer hide/show state is opaque UI state and never a scientific Prompt track.
 
 Function annotations retain only the label, one-based inclusive interval, and
 chain-qualified endpoint provenance needed to interpret and reattach them.

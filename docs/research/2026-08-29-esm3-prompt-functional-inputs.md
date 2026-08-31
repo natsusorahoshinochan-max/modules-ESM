@@ -34,7 +34,7 @@ ESM-3 **允许没有模板 PDB**。严格由官方来源确认的起点包括：
 - authoring validation 与组装：[`modules/prompt_authoring/domain.py`](../../modules/prompt_authoring/domain.py)、[`modules/prompt_authoring/prompts.py`](../../modules/prompt_authoring/prompts.py)
 - provider translation 与 operation：[`modules/esm3/adapter.py`](../../modules/esm3/adapter.py)、[`modules/esm3/implementation.py`](../../modules/esm3/implementation.py)
 - Node contracts：[`modules/esm3/definitions/`](../../modules/esm3/definitions/)、[`modules/prompt_authoring/definitions/`](../../modules/prompt_authoring/definitions/)
-- 边界测试：[`tests/test_esm3_v2.py`](../../tests/test_esm3_v2.py)、[`tests/test_prompt_authoring_prompt_v2.py`](../../tests/test_prompt_authoring_prompt_v2.py)
+- 边界测试：[`tests/test_esm3_v2.py`](../../tests/test_esm3_v2.py)、[`tests/test_prompt_authoring_layer_v2.py`](../../tests/test_prompt_authoring_layer_v2.py)
 
 本文不会把论文中一次实验采用的 prompt engineering 做法提升为通用 provider 约束，也不会从当前 Workbench 限制反推 ESM-3 模型限制。
 
@@ -81,7 +81,7 @@ ESM-3 **允许没有模板 PDB**。严格由官方来源确认的起点包括：
 | 轨道 | provider 值域与 mask | 本项目值域与翻译 |
 |---|---|---|
 | Sequence | raw string；`_` 被转为 mask token。官方 tokenizer vocabulary 包含 20 个 canonical amino acids、`X/B/U/Z/O` 以及特殊符号；见 [constants](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/constants/esm3.py#L41-L64) 与 [encoding](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/encoding.py#L21-L45)。 | 每位置为 `ACDEFGHIKLMNPQRSTVWYBXZJUO` 或 `None`；Adapter 将 `None` 变为 `_`，但明确拒绝 provider 不可表示的 `J`。等长全-null track 是完整 sequence mask，翻译为全 `_`。见 [`domain.py`](../../modules/prompt_authoring/domain.py) 与 [`adapter.py`](../../modules/esm3/adapter.py)。 |
-| Coordinates / structure | raw atom37 tensor；局部缺失由非有限/NaN 坐标表示，整条缺失为 `None`。论文明确说 partially or fully masked coordinates 可输入。 | 每位置为非空 named-atom → finite Cartesian 3-vector map 或 `None`。concrete value 直接发送并成为该 residue 的结构 conditioning；`None` 发送 NaN。全-null structure track 翻译为 `coordinates=None`。Adapter 只接受 atom37 名称。 |
+| Coordinates / structure | raw atom37 tensor；局部缺失由非有限/NaN 坐标表示，整条缺失为 `None`。论文明确说 partially or fully masked coordinates 可输入。 | 每位置为非空 named-atom → finite Cartesian 3-vector map 或 `None`。ProteinPrompt 保留完整 named-atom map；Adapter 只把官方 atom37 可表示原子投影到 provider tensor，非 atom37 原子不进入 provider input 且不修改 Prompt。投影 tensor 的缺失槽为 NaN；没有任何可投影 atom37 时翻译为 `coordinates=None`。 |
 | Secondary structure | SS8：`G,H,I,T,E,B,S,C`；`_` 作为 raw mask。论文描述 canonical SS8、unknown、mask；官方 tokenizer 见 [`ss_tokenizer.py`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/tokenization/ss_tokenizer.py)。 | `G,H,I,T,E,B,S,-` 或 `None`；`-` 是 canonical coil，Adapter 变为 provider `C`，`None` 变为 `_`。 |
 | SASA | raw `list[float \| None]`；`None` 编码为 mask。论文将连续 SASA 离散为 16 bins；固定 SDK boundaries 见 [`constants/esm3.py`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/constants/esm3.py#L77-L95)。 | 每位置为 finite、`>= 0` 的绝对 SASA，单位 Å²，或 `None`；不归一化，Adapter 原值传递。 |
 | Function annotations | `FunctionAnnotation(label,start,end)`；区间为 one-based inclusive。label 必须能被官方 function keyword、InterPro 或 residue-annotation tokenizer 识别；见 [`types.py`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/types.py#L14-L33) 与 [`encode_decode.py`](https://github.com/Biohub/esm/blob/917af90b624535eed1e072d343c717e3ec11fef4/esm/utils/function/encode_decode.py#L13-L81)。`None` 表示没有 raw functional conditioning。 | 区间同为 one-based inclusive，另保存 chain 与端点 residue identity 以维持 layout 关联；Adapter 只把 label/start/end 交给 provider。overlap policy 只属于添加/编辑 operation，不进入 annotation value。空 collection 被转为 `None`。当前本地 validator 只验证一般字符串形状，不验证 label 是否属于 provider vocabulary；未知标签会在 provider 编码时报错。 |
@@ -149,7 +149,8 @@ Provider 的基本必要关系是共享 `L` 和同位置对齐；function interv
 - sequence track 的 null 位置 → `_`；等长全-null track → 全 `_`；
 - SS `-` → `C`，`None` → `_`；
 - SASA `None` 原样作为 provider mask；
-- structure track 的 null residue → atom37 NaN；全-null track → `coordinates=None`；
+- structure track 投影为 atom37；非 atom37 原子被省略，缺失 atom37 槽为 NaN；没有任何可投影
+  atom37 时为 `coordinates=None`；
 - function annotations → provider label/start/end。
 
 Generation config 还固定 `condition_on_coordinates_only=True`，意味着生成时使用 raw coordinates conditioning，并清除由其编码出的 structure-token conditioning；见 [`generation_config`](../../modules/esm3/adapter.py)。
@@ -159,7 +160,7 @@ Generation config 还固定 `condition_on_coordinates_only=True`，意味着生�
 1. **生成目标被缩窄**：只有 sequence、structure、固定 paired；provider 的 SS、SASA、function targets 未开放。
 2. **CoT 被缩窄**：只能单轨生成或 sequence → structure，不能用户编排任意 track 顺序。
 3. **structure generation 前置条件更严格**：当前 operation 要求完整 assigned sequence；ESM-3 官方 tensor workflow 和论文展示了 SS → structure → sequence。
-4. **只允许单链翻译**：`ProteinPrompt` 能保存多链 layout，但 Adapter 明确拒绝向 ESM SDK 翻译 multi-chain aligned tracks；见 [`adapter.py`](../../modules/esm3/adapter.py) 和 [`test_multichain_prompt_round_trip_preserves_explicit_esm3_refusal`](../../tests/test_prompt_authoring_prompt_v2.py)。
+4. **只允许单链翻译**：`ProteinPrompt` 能保存多链 layout，但 Adapter 明确拒绝向 ESM SDK 翻译 multi-chain aligned tracks；见 [`adapter.py`](../../modules/esm3/adapter.py)。
 5. **不开放 raw token tracks**：structure tokens、function tokens、residue-annotation tokens、pLDDT conditioning 不属于当前 authoring surface。
 6. **function label 可发现性缺失**：项目 authoring validator 接受一般合法字符串，官方 tokenizer 只接受已知 InterPro/function/residue labels。UI 不能暗示任意自然语言都一定可接受。
 7. **sequence 字母表存在边界差**：authoring 层允许 `J`，但 Adapter 明确拒绝；测试见 [`test_adapter_preserves_every_representable_prompt_track_and_symbol`](../../tests/test_esm3_v2.py)。

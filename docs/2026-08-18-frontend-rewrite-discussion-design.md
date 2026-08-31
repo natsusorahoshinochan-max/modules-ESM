@@ -10,6 +10,13 @@
 > **功能决策已迁移**：截至 2026-08-29 已确认的用户功能以
 > [`Protein Workbench WebUI 功能规格`](2026-08-29-webui-functional-spec.md) 为准。
 > 本文中的协议、架构与实施建议仍未接受，不能反向覆盖或限制该功能规格。
+>
+> **Prompt authoring 工程设计已迁移**：本文关于 Prompt authoring capability、public document、
+> preview/materialize、Composition Manifest、Materialization Receipt、managed-subgraph digest、
+> managed graph fallback、ResidueIdentity public address 和 named-atom XYZ 编辑的旧方案已废弃。
+> 当前唯一工程合同是
+> [`Prompt Authoring Layer and Parameter Ownership Spec`](2026-08-31-prompt-authoring-layer-and-parameter-ownership-spec.md)
+> 及当前 `protein-workbench-public/v2` protocol。
 
 ## 1. 文档定位
 
@@ -235,7 +242,7 @@ public protocol 明确配置 CORS exposed headers、WebSocket Origin 和 subprot
    application domain-digest field/header 比较；
 3. 建立生成的 operation table 和 runtime validators；
 4. 获取 active Catalog，并验证其 `protocol_digest`；
-5. 获取 Workbench Capability Manifest，并验证其引用的 protocol/Catalog digest；
+5. 获取 Workbench Capability Projection，并验证其引用的 protocol/Catalog digest；
 6. 检查前端 required capability set；
 7. 兼容后才进入 Project Home，否则显示明确的 incompatible backend 页面。
 
@@ -244,48 +251,18 @@ public protocol 明确配置 CORS exposed headers、WebSocket Origin 和 subprot
 编码 bytes 的客户端验证，或在该响应端到端明确使用 identity encoding 时验证。Workbench
 domain digest、transport `Content-Digest` 和 strong ETag 是三个不同类型的值。
 
-## 6. Workbench Capability Manifest
+## 6. Workbench Capability Projection
 
-本文建议新增独立的 **Workbench Capability Manifest**，而不是把 presentation 规则混入
-scientific Catalog。它由 public protocol 定义 schema，由 backend 在 startup 后发布，并引用
-当前 Catalog 的 exact contracts。
+当前 backend 在 startup 后发布独立的 **Authoring Capability Projection**，而不是把 presentation
+规则混入 scientific Catalog。Projection 按 exact Catalog references 发布：
 
-Manifest 至少包含四类 capability：
+- specialized composition capability、editor kind、source kinds 和 exposed roles；
+- capability 管理的 exact Node Types；
+- 每个 exact Node Type 的 `ordinary_node` 或 `managed_member` role。
 
-| Capability | 作用 | 不包含 |
-|---|---|---|
-| importer | accepted media type/extension、Project Input parameter role、produced Port contract、exact Node/Binding refs | 文件解析代码、React uploader |
-| authoring | source/output roles、edit document schema、preview/materialize operations | 内部 Python callable、Canvas 坐标 |
-| presentation | 某个 Port/Result role 可由哪个版本化 editor/viewer 展示 | 颜色、CSS、React component name |
-| export | accepted Candidate/data roles、format contracts、exact export Node refs | download button state |
-
-示意：
-
-```json
-{
-  "schema_version": "1.0.0",
-  "protocol_digest": "sha256:...",
-  "catalog_contract_digest": "sha256:...",
-  "authoring": [
-    {
-      "capability_id": "protein_prompt.authoring",
-      "capability_version": "1.0.0",
-      "editor_kind": "protein-prompt",
-      "source_roles": ["source_structure", "source_sequence"],
-      "output_role": "protein_prompt",
-      "document_schema_ref": "#/$defs/PromptEditDocument",
-      "preview_operation_id": "preview_protein_prompt_authoring",
-      "materialize_operation_id": "materialize_protein_prompt_authoring"
-    }
-  ]
-}
-```
-
-这份 Manifest 解决三个当前耦合点：上传不再把扩展名映射到 `protein_io.*`；Prompt Studio
-不再知道内部 `prompt_authoring.*` Node IDs；结构/结果 viewer 不再依赖偶然的 output name。
-
-普通新 Node Type 不需要 specialized capability。开发者增加符合现有 contracts 的 Module
-Package 后，它应自动出现在 Catalog、Node palette 和通用参数表单中，不修改前端源码。
+Public protocol 固定 `authoring_capability_projection`、`open_prompt_authoring`、
+`preview_prompt_authoring` 和 `apply_prompt_authoring` operations。普通 Palette 只显示 ordinary
+Nodes 和 specialized composition entry；managed members 只读显示，不进入通用参数表单。
 
 ## 7. 全新前端的 Module 结构
 
@@ -320,9 +297,9 @@ packages/
 |---|---|---|
 | `V2ProtocolAdapter` | 满足各 scoped backend Interfaces | HTTP/WS、headers、validators、errors、resume |
 | Catalog Projection | `loadCatalogView()`、exact ref lookup | wire schema、索引、展示标签、capability join |
-| Workflow Authoring | load/edit/save/commit Draft | dirty state、ETag、undo boundary、patch application |
+| Workflow Authoring | load/edit/save/commit Draft | dirty state、undo boundary、Draft projection |
 | Canvas | render/edit explicit graph | React Flow state、viewport、selection、group projection |
-| Prompt Studio | edit/preview/materialize one Prompt composition | residue selection、track tools、3D sync、normalized document |
+| Prompt Studio | open/preview/apply one Prompt composition | residue selection、track tools、3D sync、normalized document |
 | Run Monitor | observe/cancel/derive one Run | replay-to-live、event reduction、reconnect、graph projection |
 | Results Workbench | query/filter/compare/export published results | paging、virtualization、score association、lazy structures |
 
@@ -379,7 +356,7 @@ Readiness，不提供脱离 Run 的“readiness check”按钮或 summary endpoi
 Prompt Studio 是全屏或大尺寸专用工作区，而不是 Node inspector 中的 JSON textarea。它至少
 包含三个同步区域：
 
-1. **Residue Matrix**：每列对应一个 exact ResidueIdentity，每行对应一个 track；
+1. **Residue Matrix**：每列对应一个 opaque authoring residue handle 和可读定位信息，每行对应一个 track；
 2. **3D Structure View**：选择、hover、可见性和颜色与 Residue Matrix 双向同步；
 3. **Inspector/Toolbox**：对当前 residue/range 编辑值、mask、annotation 和坐标。
 
@@ -398,7 +375,8 @@ Prompt Studio 是全屏或大尺寸专用工作区，而不是 Node inspector �
 | deleted residue | gap/tombstone marker，仅存在于编辑 diff |
 | locally changed value | change indicator，区别 source 和 current preview |
 
-交互选择以 ResidueIdentity 为真值，不以 DOM index 或当前可见数组位置为真值。chain boundary、
+交互选择以 opaque authoring residue handle 为真值，不以 DOM index、canonical residue string 或
+当前可见数组位置为真值。chain boundary、
 gap、insert/delete 和 multi-chain structure 必须可见。
 
 ### 8.4 Run Monitor
@@ -442,120 +420,24 @@ capability，materialize 为显式 Selection Node 和参数。不能把当前表
 
 ## 9. Prompt authoring contract
 
-### 9.1 候选领域词汇
-
-以下词汇先留在本文，确认后再进入 `CONTEXT.md`：
-
-**Prompt Edit Document**：以 exact residue identities 和 role-labelled sources 描述目标布局、
-各 track 最终编辑与 function annotations 的声明式 authoring value；它本身不是 ProteinPrompt、
-Workflow 或 Run result。
-
-**Authoring Preview**：backend 对一个 Prompt Edit Document 产生的非发布、不可执行预览，
-包含规范化文档、residue/track projection 和定位诊断；它不能作为 Workflow 输入或科学证据。
-
-**Materialization Receipt**：backend-owned operation result，记录 materialized patch 的 exact
-base Draft revision/digest、Node/edge membership、exposed roles、capability/Catalog identity、
-normalized document digest 和 managed-subgraph digest；它证明 backend 针对哪个 Draft 返回了
-什么，但不表示 Draft/UI state 已保存。应用 patch 前 base Draft 不匹配时必须重新 materialize。
-
-**Composition Manifest**：frontend 在 materialized Draft 成功保存后根据 Materialization
-Receipt 与 Draft save receipt 创建的 UI-owned 描述；它绑定创建时的 exact Draft revision/digest、
-managed Node/edge membership 和 managed-subgraph digest，保存在 opaque UI state 中，不进入
-Workflow science。
-
-### 9.2 Prompt Edit Document 的语义
-
-文档必须是声明式最终意图，而不是依赖鼠标事件顺序的 command log。至少表达：
-
-- exact source roles，例如 source structure、source sequence 或现有 Workflow output；
-- identity-complete source/target layout；
-- anchored insertions 和 exact-identity deletions；
-- sequence、structure coordinates、secondary structure 和 SASA 的 exact-identity
-  replacements/clears/preserves；
-- function annotation 的 label、chain-qualified interval，以及 final annotation collection
-  materialization 使用的 operation-scoped overlap policy；
-- document schema version 和 capability version。
-
-插入 residue 的新身份由 backend authoring capability 规范化并返回；前端不得根据数组位置
-猜造 scientific identity。preview 返回的 normalized document 成为后续 materialize 输入。
-
-track 之间保持独立：
-
-- 清除 sequence 不得自动清除 structure；
-- concrete structure coordinate value 是该 residue 结构 conditioning 的唯一 owner；清除该值才移除 conditioning；
-- residue insertion/deletion 改变整个 layout，因此所有 present tracks 必须一起重新对齐；
-- SASA concrete value 始终是 absolute Å²，不做前端单位换算；
-- function annotation 是区间集合而不是 nullable scalar track。UI 的“mask annotation range”
-  应编译为最终 annotation 集合的删除或拆分，而不是发明一个 annotation null sentinel。
-- admitted annotation 不携带 `overlap_policy`。Prompt Edit Document 暴露一个 authoring
-  operation policy；materialize 时把它应用于完整 final collection，`reject` 不能只处理刚编辑的
-  interval。该 policy 不进入 `function.annotations` 或 `ProteinPrompt` 内容身份。
-
-### 9.3 支持的编辑动作
-
-| 对象 | 添加 | 编辑 | 删除/清除 | 掩码含义 |
-|---|---|---|---|---|
-| residue membership（由 backend 映射到内部科学身份轴） | 在相邻位置间插入 | 修改新插入 residue 的目标值 | 删除指定 residue | 无独立 mask |
-| sequence | 为 residue 指定氨基酸 | replace value | clear value | unspecified sequence conditioning |
-| structure coordinates | 从合法 source 添加或输入 named-atom XYZ | replace exact named-atom coordinates | clear coordinate value | coordinates unspecified |
-| secondary structure | set one/range | replace class | clear value | unspecified SS conditioning |
-| SASA | set one/range | replace finite Å² value | clear value | unspecified SASA conditioning |
-| function annotation | add labelled interval | edit label/endpoints；policy 在 collection level 修改 | remove/split interval | 从 conditioning annotation 集合排除 |
-
-首个坐标编辑器不必成为通用分子建模器，但必须允许通过 Inspector 精确编辑 backend contract
-已经支持的 named-atom coordinates。3D drag-to-edit geometry 是否进入首版仍是未决问题。
-
-### 9.4 preview 与 materialize
-
-建议 public capability 提供两个不同 operation：
+本节旧候选方案已由 2026-08-31 Prompt Authoring spec 原子取代。当前 contract 只有：
 
 ```text
-preview_protein_prompt_authoring(document, role_inputs)
-  -> normalized_document
-  -> preview_digest
-  -> ordered residue projection
-  -> all track projections
-  -> renderable structure projection
-  -> residue/range-addressed diagnostics
-
-materialize_protein_prompt_authoring(normalized_document, preview_digest, placement_context)
-  -> explicit Workflow node/edge patch
-  -> exposed input/output role mapping
-  -> backend-owned Materialization Receipt
+open -> preview -> apply
 ```
 
-preview 不是 partial Run，不产生 Candidate、Score、Cache publication、Artifact 或 Run Evidence。
-其 backend implementation 必须复用 canonical prompt authoring invariants，不能复制一套较宽松
-的 UI science。materialize 生成当前 active Catalog 的 exact Node/Binding refs 和参数；完整
-Draft 仍在 commit seam 被 authoritative validation。
-
-Prompt Studio 不解析 PDB 来建立 ResidueIdentity，也不自行计算二级结构、SASA 或 residue map。
-需要这些事实时，通过 role input 引用已有 Project Input/Workflow output，由 backend preview
-返回 projection。
-
-### 9.5 组合单元的生命周期
-
-1. 用户从 structure/sequence source 打开 Prompt Studio；
-2. frontend 保存 Prompt Edit Document 的本地 undo/redo state；
-3. backend preview 返回 normalized document 和 projection；
-4. 用户确认后 materialize explicit patch，backend 返回 Materialization Receipt；
-5. Workflow Authoring Module 将 patch 应用到当前 Draft，并先保存 Draft；
-6. Draft save receipt 返回 exact revision/digest 后，frontend 创建 Composition Manifest，将
-   Materialization Receipt、saved Draft identity 和 managed-subgraph digest 绑定；
-7. frontend 再把 Composition Manifest 和颜色/layout 写入 opaque UI state；
-8. commit/Run 只看到显式 Nodes/edges；
-9. 用户可选择“展开为普通 Nodes”，该动作删除 Composition Manifest，但不删除 Workflow Nodes。
-
-当 Composition Manifest 丢失或版本不受支持时，Workflow 仍可作为显式 graph 打开；UI 不应
-猜测一组 Node 是否原本属于 Prompt Studio。受管理组合内部 Node 在 group mode 下不可从普通
-Inspector 单独修改，避免 edit document 与 explicit subgraph 分叉。
-
-加载或每次 Draft 变更后，frontend 必须根据 exact member Node/edges 重算 managed-subgraph
-digest。若 membership、subgraph digest 或 capability version 与 Composition Manifest 不匹配，
-立即丢弃该 Manifest，并把 Nodes 展开为普通显式 graph；不得尝试从相似标题或 Node 类型修复。
-`materialized_draft_revision` 记录组合创建时的 revision，但之后只修改组合外 Nodes 时，可在
-managed-subgraph digest 仍相同的前提下保留 Manifest。Draft save 成功而 UI state save 失败时，
-结果也是可执行的显式 graph，而不是半保存的科学组合。
+- Public Prompt Authoring Document 只使用 opaque authoring residue handles，不暴露 canonical
+  residue strings、`ResidueLayout`、`ResidueMap`、Node/Binding/Port identities 或 raw graph patch。
+- 坐标编辑只接受 residue selection 和精确刚体变换，不接受 named-atom replacement arrays。
+- `preview` 返回 normalized document、preview digest、六态 projection、source correspondence 和
+  typed diagnostics，但不保存 Draft 或执行 Nodes。
+- `apply` 在 backend 内创建、替换、复制或删除完整 specialized composition，并原子发布完整新
+  Draft；caller 不提交 expected Draft revision。
+- `WorkflowDraft.authoring_compositions` 保存 backend-owned Managed Composition Records；frontend
+  opaque UI state 只保存 selection、hover、panel/layout 和 undo history。
+- Managed members 不能降级为 ordinary editable Nodes。Generic save 只能修改 ordinary graph 和
+  composition external edges；composition lifecycle 只经过 closed `apply` intent。
+- Materialized Workflow 仍保存完整 explicit scientific graph，供编译、执行、解释和证据使用。
 
 ## 10. 三个场景的 Workflow 形状
 
@@ -631,7 +513,7 @@ protocol diff 为准。
 |---|---|
 | `list_projects` | cursor page Project summaries |
 | `get_project` | exact Project metadata + ETag |
-| `update_project` | rename，要求 `If-Match` |
+| `update_project` | rename |
 | `delete_project` | 删除 exact Project scope，返回明确 terminal receipt |
 | `duplicate_project` | 按确定的 authoring-state copy 语义创建新 Project |
 | `get_project_ui_state` | 读取 frontend-owned opaque payload + ETag |
@@ -652,12 +534,13 @@ UI state envelope 只包含：
 ```
 
 backend 验证 envelope、I-JSON、size 和 durable write，不解释 `payload`。Canvas layout、viewport、
-panel sizes、Composition Manifest、Prompt Studio UI document、Results column layout 都在 payload。
+panel sizes、Prompt Studio selection/hover/panel/undo state 和 Results column layout 都在 payload。
+Normalized Prompt Authoring Document 和 managed membership 属于 Workflow Draft，不进入该 payload。
 
 ### 11.2 Project Inputs
 
 保留当前 immutable publication/get，新增 `list_project_inputs` cursor page。Importer 必须来自
-Capability Manifest；frontend 不按 `.fasta`/`.pdb` 硬编码 Node Type。
+Capability Projection；frontend 不按 `.fasta`/`.pdb` 硬编码 Node Type。
 
 当前 `protein_io.import_sequence` 只接受一个 FASTA record。场景 1 需要一个新 active Node
 contract，将 multi-record FASTA 发布为 ordered sequence Candidate Collection，并为每个 record
@@ -674,13 +557,9 @@ contract，将 multi-record FASTA 发布为 ordered sequence Candidate Collectio
 | `list_workflow_commits` | immutable Commits cursor page |
 | `get_workflow_commit` | 读取 exact Commit metadata/locked Workflow |
 
-读取 current Draft 返回 strong ETag；保存 current Draft 要求 `If-Match`。用户从历史 Draft
-“复制”时，frontend 读取 exact revision，再通过正常 save 产生新的 current revision，不需要
-restore 旁路。
-
-这项建议会收窄 ADR-0037 对 concurrency machinery 的拒绝：仍不引入多用户锁、retry state
-machine 或 caller-owned scientific revision，但在 public mutable resource seam 使用
-ETag/If-Match 防止两个浏览器 tab 意外覆盖。若接受，需要单独修订 ADR-0037。
+当前 public Draft save 不使用 `If-Match`。用户从历史 Draft“复制”时，frontend 读取 exact
+revision，再通过正常 save 产生新的 current revision，不需要 restore 旁路。Prompt `apply`
+始终在最新 Draft 上工作，caller 不提交 expected Draft revision。
 
 ### 11.4 Run history
 
@@ -749,11 +628,11 @@ Selection** 并运行 explicit export Node，保证导出集合可解释。后�
 | 状态 | Authority | frontend 行为 |
 |---|---|---|
 | Project/Draft/Commit/Run/Input | backend public resources | query cache，不自行发明 identity |
-| Catalog/Capability Manifest | backend startup snapshots | immutable view model，digest 校验 |
-| Canvas graph science | Workflow Draft | edit后 conditional save |
+| Catalog/Capability Projection | backend startup snapshots | immutable view model，digest 校验 |
+| Canvas graph science | Workflow Draft | 通过当前 Draft save contract 保存 |
 | Canvas layout/panels/groups | frontend opaque UI state | frontend 自己版本化和迁移/丢弃 |
-| Prompt normalized scientific edits | Prompt Edit Document + backend preview | 保存于 UI state，materialize 后以 explicit subgraph 为执行真值 |
-| Prompt materialization facts | backend Materialization Receipt | Draft save 后用于创建/核对 frontend Composition Manifest |
+| Prompt normalized scientific edits | Workflow Draft Managed Composition Record | 通过 `open -> preview -> apply` 读取和更新 |
+| Prompt materialization facts | Workflow Draft Managed Composition Record + explicit graph | backend 原子维护，frontend 只读 projection |
 | Prompt selection/hover/tool/undo | frontend memory | 可丢弃，不发给 backend |
 | Run progress | Run Projection + validated events | event reducer 的派生状态 |
 | Candidate/Score association | backend published values | 按 stable refs query，不自行 zip |
@@ -761,8 +640,8 @@ Selection** 并运行 explicit export Node，保证导出集合可解释。后�
 | saved selection | explicit Workflow Nodes/Objectives | normal Draft/commit/Run |
 
 Workflow Draft 和 UI state 是两个独立 mutable resource。保存其中一个失败时，不假装二者已原子
-成功；UI 显示各自 dirty/error 状态。只有 Draft save receipt 已存在时才保存新的 Composition
-Manifest。Manifest 丢失或 digest mismatch 只影响专用编辑体验，不影响 explicit Workflow 的
+成功；UI 显示各自 dirty/error 状态。Prompt scientific authoring state 和 managed membership 只
+由 Draft 拥有；UI state 丢失只影响交互状态，不影响 explicit Workflow 的
 科学可执行性。
 
 ## 13. 公共协议 reset 与冻结规则
@@ -776,7 +655,7 @@ reset 至少完成：
 2. 完整公开当前 parameter/value-contract grammar；
 3. 生成 TypeScript declarations、runtime validators 和 operation metadata；
 4. 加入上述最小 Project/UI/Input/Workflow/Run/Result operations；
-5. 加入 Capability Manifest 和 Prompt authoring contracts；
+5. 加入 Capability Projection 和 Prompt authoring contracts；
 6. 用 protocol-declared application field/header 传递 canonical Workbench domain digest；
    `Content-Digest` 只表达实际 HTTP message content，并和 domain digest、strong ETag 分开；
 7. 固定 cursor paging、WS subprotocol 和 resume contract；
@@ -809,8 +688,8 @@ fixtures 和 capability-specific InMemory Adapters 并行开发，但不能手�
 1. 逐项确认本文第 17 节问题；
 2. 写出精确 v2 protocol diff；
 3. 建立 protocol codegen、runtime validators 和 parity fixtures；
-4. 确认 Capability Manifest、domain/transport digest、ETag、pagination 和 WS resume；
-5. 删除冻结旧前端技术栈的 ADR-0016，并确认 ADR-0037 的修订范围；替代前端的技术选择
+4. 确认 Capability Projection、domain/transport digest、pagination 和 WS resume；
+5. 删除冻结旧前端技术栈的 ADR-0016；替代前端的技术选择
    仍需重新裁决。
 
 ### Phase 1：空目录前端与场景 1
@@ -829,8 +708,8 @@ Phase 1 先证明前后端独立、协议生成、项目生命周期、分页、
 
 ### Phase 2：Prompt Studio 与场景 2
 
-1. backend 完成 Prompt authoring capability、preview 和 materialize；
-2. frontend 完成 Residue Matrix、track tools、3D synchronization 和 Composition Manifest；
+1. backend 发布 Prompt authoring capability projection 和 `open -> preview -> apply`；
+2. frontend 完成 Residue Matrix、track tools 和 3D synchronization；
 3. 完成显式 lineage/role pairing 与 Structure Compare；
 4. 验收 ESM-3 -> refold -> compare -> selection -> export。
 
@@ -886,14 +765,14 @@ CI/lint 应阻止：
 - 1000-record FASTA 不一次加载 1000 个 structure viewer 或完整 structure bytes；
 - Candidate table 使用 cursor page 和 virtual rendering；
 - WS 断开后从最后 durable cursor 恢复，最终 projection 与未断开一致；
-- Prompt 的 residue matrix 与 3D selection 通过 exact ResidueIdentity 双向同步；
-- sequence/coordinates/SS/SASA/function annotations 的操作均能 preview、materialize、
-  save、commit 和 run；
+- Prompt 的 residue matrix 与 3D selection 通过 opaque authoring residue handle 双向同步；
+- sequence/coordinates/SS/SASA/function annotations 的操作均能 preview、apply、commit 和 run；
 - 场景 2 的结构比较和场景 3 的 ProteinMPNN child lineage 不按数组位置建立；
 - batch export 中每个文件和 score 都可回溯到 exact Candidate 和 Run evidence。
 
-后端 production code 修改后仍运行仓库规定的 Python 3.12 focused tests、routine verification、
-deterministic acceptance、Oxlint 和 `tsc`。只有实际修改 Provider/Adapter/科学合同时才要求针对
+后端 production code 修改后仍运行仓库规定的 Python 3.12 focused tests、routine verification和
+deterministic acceptance。只有实际存在且被修改的 frontend artifact 才运行其 own lint/type/build
+gate。只有实际修改 Provider/Adapter/科学合同时才要求针对
 变化重新形成对应 real-provider scientific acceptance；纯 UI 和 public projection 变化不能用
 mock 声称 Provider 已验收，也不应无理由重复昂贵 Provider campaign。
 
@@ -909,7 +788,6 @@ mock 声称 Provider 已验收，也不应无理由重复昂贵 Provider campaig
 - ADR-0034 的单一现行 Catalog 与无兼容路径规则继续适用。
 - ADR-0033 的 ResidueIdentity/Candidate lineage、ADR-0037 的 Draft/Commit、ADR-0038 的
   Candidate-associated values/structure pairing继续约束 UI。
-- ADR-0037 需要讨论 public ETag/If-Match 是否构成可接受的 accidental-overwrite protection。
 - `docs/protein_workbench_architecture.md` 的 UI 和 deployment 段落需要在设计冻结后更新。
 
 在此之前，本文只是候选设计，不修改这些规范性文档。
@@ -919,17 +797,13 @@ mock 声称 Provider 已验收，也不应无理由重复昂贵 Provider campaig
 建议按以下顺序继续，前四项会直接改变 protocol diff：
 
 1. **Project duplicate**：是否接受“Inputs + latest Draft + UI state，不复制 Commit/Run/Cache”默认语义？
-2. **Draft concurrency**：是否接受单用户多 tab 场景下 Draft/UI state 使用 ETag/If-Match，并修订
-   ADR-0037？
-3. **Prompt source roles**：Prompt Studio 首版只从 Project Input/已存在 Workflow output 开始，
+2. **Prompt source roles**：Prompt Studio 首版只从 Project Input/已存在 Workflow output 开始，
    还是也允许上传后立即进入临时 preview、稍后再 materialize importer Node？
-4. **坐标编辑深度**：首版支持 Inspector 中 named-atom XYZ 精确编辑是否足够，是否必须同时
-   支持 3D drag-to-edit？
-5. **function annotation mask**：是否接受“从最终 interval set 删除/拆分覆盖范围”，而不是
+3. **function annotation mask**：是否接受“从最终 interval set 删除/拆分覆盖范围”，而不是
    引入新的 nullable annotation track？
-6. **保存筛选**：Results filter 应 materialize 为阈值 filter、weighted Selection Objective，
+4. **保存筛选**：Results filter 应 materialize 为阈值 filter、weighted Selection Objective，
    还是由用户每次明确选择其中一种？本文建议明确选择，不能自动猜。
-7. **导出**：是否接受首版只导出 explicit Workflow Selection 的可复现 bundle，不支持临时
+5. **导出**：是否接受首版只导出 explicit Workflow Selection 的可复现 bundle，不支持临时
    table filter 的即时 ZIP？
 8. **结构 viewer 技术**：Mol* 或其他 viewer 的选择、large-structure 性能和 coordinate editing
    能力需要单独 prototype，不应由旧前端依赖决定。

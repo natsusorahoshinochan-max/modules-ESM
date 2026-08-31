@@ -182,22 +182,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt-authoring-merge-protein-prompt-source-direct",
-      "node_type_id": "prompt_authoring.merge_protein_prompt_source",
-      "binding_id": "prompt_authoring.merge_protein_prompt_source.direct",
-      "node_parameters": {
-        "correspondence": [],
-        "track_decisions": {
-          "sequence": "preserve",
-          "structure": "preserve",
-          "secondary_structure": "preserve",
-          "sasa": "preserve",
-          "function_annotations": "preserve"
-        }
-      },
-      "binding_parameters": {}
-    },
-    {
       "node_id": "prompt-authoring-random-insert-masked-direct",
       "node_type_id": "prompt_authoring.random_insert_masked",
       "binding_id": "prompt_authoring.random_insert_masked.direct",
@@ -639,18 +623,6 @@
       "source_port": "layout",
       "target_node_id": "prompt-authoring-assemble-protein-prompt-direct",
       "target_port": "layout"
-    },
-    {
-      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-merge-protein-prompt-source-direct",
-      "target_port": "target_prompt"
-    },
-    {
-      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-merge-protein-prompt-source-direct",
-      "target_port": "source_prompt"
     },
     {
       "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",

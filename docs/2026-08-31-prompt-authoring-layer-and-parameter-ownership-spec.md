@@ -40,6 +40,11 @@ Prompt Studio 中表达来源、残基选择、编辑动作和科学值。Backen
 权限、部署或其他 Module Package 的独立问题。跨 Module Package 的 Node 只能在它们是
 ProteinPrompt source resolution 或 materialization 的必要 current producer/consumer 时修改。
 
+本任务之后唯一获批的 Provider Adapter 例外是 ESM-3 atom37 translation：ProteinPrompt 保留
+完整 named-atom coordinates；ESM-3 Adapter 在 provider translation seam 只投影官方 atom37
+可表示的原子，并以同一投影计算 functional-input digest。非 atom37 原子不进入 provider input，
+但不会被拒绝或从 ProteinPrompt 删除。该例外不授权其他 Adapter 重构、校验、fallback 或兼容逻辑。
+
 不得建立面向假想 capability 的通用框架。Authoring Projection 的抽象深度只覆盖本规格要求的
 ordinary Node、specialized composition 和 managed member 三种已确认角色。
 
@@ -217,6 +222,11 @@ objects。
 - 所有可定位 diagnostics；
 - 完整 ProteinPrompt summary。
 
+Residue 和 track projection 按其 source/current value 归类为上述六态。Function annotation 没有
+独立 annotation identity，因此只按完整 `(label, start residue identity, end residue identity)`
+tuple 建立 exact correspondence：相同 tuple 是 `source`，新 tuple 是 `inserted`，被移除的 source
+tuple 是 `pending-delete`。不得按重复 label 猜测 annotation 的 `changed`、`current` 或 `cleared`。
+
 Preview 不保存 Draft，不执行 materialized Nodes，不建立 Execution Plan，不产生 Run、Candidate、
 Cache、Artifact 或 Evidence。
 
@@ -238,7 +248,10 @@ document、source facts 和 composition facts，不承担并发锁或历史版�
 删除和复制不增加另一套 interface：
 
 - 删除是一种 closed apply intent，移除完整 managed composition；
-- 复制使用现有 normalized document 创建新的 composition identity 和稳定 managed identities；
+- `create` 和复制每次分配新的 opaque composition identity；删除后使用相同 document 重新创建也不
+  复用旧 identity。identity 不由 normalized document、source facts、fixture identity 或 graph scan
+  推导；
+- `replace` 保留原 composition identity；同一 composition 内的 managed identities 在 replace 时稳定；
 - 编辑始终使用 `open -> preview -> apply`。
 
 ## 7. Prompt Authoring Document
@@ -366,7 +379,8 @@ materialized subgraph digest。Typed record、stable managed identities 和 Work
 - Generic Workflow save 可以修改 ordinary Nodes 和 composition external edges。
 - Generic Workflow save 不得部分修改、遗漏或伪造 managed Nodes 和 internal edges。
 - Workflow authoring owner 在 Draft admission seam 一次检查 managed membership；通过后不重复检查。
-- Materializer 以 `composition_id + logical role` 生成稳定 Node Instance IDs。
+- Materializer 以 `composition_id + logical role` 生成同一 composition 内稳定的 Node Instance IDs；
+  该稳定性不把 composition identity 变成 content-addressed identity。
 - Materializer 每次产生完整目标 managed subgraph；implementation 在一次 Draft write 中原子替换。
 - External edges 按 exposed role 自动重新连接，不按偶然 Node/Port locator 猜测。
 - Composition 删除移除全部 managed Nodes、internal edges 和 connected external edges。
@@ -551,8 +565,10 @@ retryable outcome。
 - 为三个新增 whole-Prompt Node Types 建立完整 contract/behavior tests；
 - 删除五个 superseded Node Types 的 tests；
 - 删除把手工 layout/map/track wiring 当作普通用户 authoring contract 的 tests；
-- repository examples 不再手工维护 superseded authoring graph，改为 materializer-owned fixtures 或
-  由同一 canonical materialization implementation 生成的 current graph。
+- checked-in complete examples 可以保存用于静态编译和说明的 current materialized graph；fresh public
+  journey acceptance 必须通过 `open -> preview -> apply` 获取当前 managed graph。Fixture 只贡献明确的
+  ordinary Nodes、ordinary internal edges、selectors/objectives 和 exposed-role connection intent；
+  科学期望值必须是独立 oracle，不得从被测 materialized graph 反推。
 
 测试不得为 trusted internal values 增加 defensive malformed-object permutations。Malformed public
 wire 只在 public protocol adapter tests 覆盖一次；scientific invariants 只在 owning module tests
@@ -566,6 +582,10 @@ wire 只在 public protocol adapter tests 覆盖一次；scientific invariants �
 .venv/bin/python -m verification.backend routine
 .venv/bin/python -m verification.backend deterministic-acceptance
 ```
+
+涉及实现的最终验收还必须在远端隔离副本中运行完整 repository matrix 和当前 canonical Acceptance
+Campaign。不得使用原部署目录。Campaign tier 数量以 `verification.acceptance_campaign` 的当前定义
+为准；host、临时目录和凭据只记录在运行证据或 handoff，不写入本规格。
 
 ## 15. 完成条件
 
@@ -587,4 +607,5 @@ wire 只在 public protocol adapter tests 覆盖一次；scientific invariants �
    不存在 dual path。
 9. 除本规格要求的 necessary producers、consumers、tests、examples 和 docs 外，没有修改其他问题。
 10. 实现没有增加防御性检查、fallback、兼容层、猜测、修复或重复 admission。
-11. Focused tests、routine verification 和 deterministic acceptance 全部通过。
+11. Focused tests、routine verification、deterministic acceptance、远端隔离 repository matrix 和
+    canonical Acceptance Campaign 全部通过。

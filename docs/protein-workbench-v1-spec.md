@@ -87,7 +87,7 @@ A modular, node-based protein design workbench for personal local use. The user 
 ### ProteinPrompt
 
 - Sequence, structure coordinates, secondary structure, and SASA use residue-aligned values of length equal to the target layout; function annotations use aligned intervals. Each position holds either a concrete value or a null meaning unspecified/masked.
-- Sequence and structure-coordinate conditioning remain independent. A concrete coordinate value conditions ESM-3; a null structure value does not. Viewer visibility is not a scientific track.
+- Sequence and structure-coordinate values remain independent. A concrete coordinate value owns the Prompt-side named-atom map; ESM-3 structure conditioning and functional identity use only its atom37 projection. A null structure value supplies no Prompt-side coordinates. Viewer visibility is not a scientific track.
 - A `ResidueMap` stores the correspondence between a template structure and the target layout, tracking insertions, deletions, and matched positions.
 - Supported edit operations: Insert, Delete, Set Residue, Mask Residue.
 

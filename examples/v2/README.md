@@ -1,10 +1,11 @@
 # Protein Workbench v2 examples
 
-`repository-capabilities.workflow.json` is a provider-free-to-verify authoring
-example. It fixes its production Execution Bindings by stable ID, separates Node
-and Binding parameters, and uses production scientific values. Verification
-parses and compiles the Workflow against the current Catalog without invoking a
-Provider or selecting a sibling Binding.
+`repository-capabilities.workflow.json` is a provider-free Catalog compilation
+fixture. It fixes its Execution Bindings by stable ID and separates Node and
+Binding parameters. Its materialized Prompt Nodes demonstrate current scientific
+contracts; they are not ordinary Palette entries or a public authoring surface.
+Verification parses and compiles the Workflow against the current Catalog without
+invoking a Provider or selecting a sibling Binding.
 
 The repository examples are representative scientific Workflows, not a
 mechanical inventory of every Catalog registration. Prediction and folding

@@ -430,7 +430,7 @@ function annotations
 ResidueMap provenance
 ```
 
-序列、结构坐标、二级结构、SASA、功能标记和 ProteinMPNN designability 是独立语义，不得用一个统一 mask 代替。sequence 与 structure 使用等长 nullable tracks，全-null 是其唯一的完整 mask；concrete structure value 是结构 conditioning 的唯一 owner。viewer hide/show 不进入科学 Prompt。
+序列、结构坐标、二级结构、SASA、功能标记和 ProteinMPNN designability 是独立语义，不得用一个统一 mask 代替。sequence 与 structure 使用等长 nullable tracks，全-null 是其唯一的完整 mask；concrete structure value 是 Prompt-side coordinates 的唯一 owner。Provider Adapter 只翻译 provider-visible subset；ESM-3 structure conditioning 仅使用 atom37 投影。viewer hide/show 不进入科学 Prompt。
 
 ### 8.3 Candidate identity 与 lineage
 

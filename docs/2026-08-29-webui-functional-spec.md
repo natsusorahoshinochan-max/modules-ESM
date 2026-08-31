@@ -60,8 +60,15 @@ PDB
 
 ## 2. Workflow 节点画布
 
+画布区分三种 authoring 角色：ordinary Node、specialized composition 和 managed member。普通
+Palette 只显示 ordinary Nodes 和一个“编写 ProteinPrompt”specialized entry。Prompt composition
+内部的 managed members 仍显示在 materialized Workflow 中供只读检查，但不能从 Palette 单独添加、
+不能通过通用参数表单修改，也不能脱离 composition 单独删除或复制。
+
 ### 2.1 Blender 风格的节点卡片
 
+- 本节的通用参数编辑规则适用于 ordinary Nodes；specialized composition 从专用入口编辑，managed
+  members 只读显示。
 - 参数直接在节点卡片内部编辑；右侧全局参数面板不是主要编辑入口。
 - 节点内部参数按功能分组。
 - 打开流程时，所有参数分组默认收起。
@@ -83,7 +90,8 @@ PDB
 - 按研究用途分类，例如输入、Prompt、生成、折叠、评分、筛选和导出；
 - 按软件模块或模型提供方分类。
 
-同一时间只显示一套分类，用户可以切换；搜索始终覆盖全部节点。
+同一时间只显示一套分类，用户可以切换；搜索覆盖全部 ordinary Nodes 和 specialized entries，
+不返回 managed members。
 
 ### 2.3 连接与断开
 
@@ -103,6 +111,8 @@ PDB
 - Workflow 画布保留连续、多步的编辑撤销记录。
 - 添加、删除或移动节点，连接或断开连线，修改参数以及切换模型都可以逐步撤销。
 - `Ctrl/Cmd+Z` 始终撤销最近一次画布编辑，不仅限于删除操作。
+- 删除“编写 ProteinPrompt”specialized composition 会整体删除其 managed members；managed member
+  不能单独删除。
 
 ### 2.5 复制流程片段
 
@@ -111,6 +121,8 @@ PDB
 - 如果一条连线的两端都在所选节点中，该内部连线随节点一起复制。
 - 所选节点与未选中节点之间的外部连线不复制。
 - 粘贴得到的流程片段可以独立移动、编辑和重新连接。
+- 复制 specialized composition 会产生新的完整 composition identity；managed member 不能脱离
+  composition 单独复制。
 
 ### 2.6 科学操作与模型选择
 
@@ -164,7 +176,7 @@ Prompt Studio 始终允许表达项目定义的完整 `ProteinPrompt`。连接�
 
 ### 3.2 打开方式
 
-- Workflow 中的“编写 ProteinPrompt”节点提供“编辑 ProteinPrompt”入口。
+- Workflow 中的“编写 ProteinPrompt”specialized composition 提供“编辑 ProteinPrompt”入口。
 - 点击后进入占据主要界面的专用 Prompt Studio，而不是把完整编辑器塞入节点卡片。
 - 用户保存或取消后返回原节点画布。
 
@@ -209,15 +221,19 @@ Prompt Studio 使用三个同步区域：
 
 ### 3.6 联合编辑与变化状态
 
-选中残基后，右侧在同一个面板中同时显示 sequence、coordinates、secondary structure、SASA 和 function annotations。用户可以组合修改多项内容，先预览，再一次应用。三维视图的 hide/show 只改变 opaque UI state；只有清除 coordinate value 才会移除该残基的结构 conditioning。
+选中残基后，右侧在同一个面板中同时显示 sequence、coordinates、secondary structure、SASA 和 function annotations。用户可以组合修改多项内容，先预览，再一次应用。三维视图的 hide/show 只改变 opaque UI state；只有清除 coordinate value 才会移除该残基的 Prompt-side coordinate value。连接 ESM-3 时，兼容性和 effective-input preview 只显示 atom37 投影；非 atom37 原子保留在 ProteinPrompt 中但不影响 ESM-3 provider input。
 
 从 FASTA、PDB 或已有 ProteinPrompt 开始时，编辑器区分：
 
 - 来源中的原始值；
+- 明确保留且与来源相同的当前值；
 - 用户修改后的值；
 - 已清除或设为未指定的位置；
 - 新增残基；
 - 待删除残基。
+
+协议对应的六态为 `source`、`current`、`changed`、`cleared`、`inserted` 和
+`pending-delete`。
 
 所有轨道使用一致的变化标记，并支持撤销。
 
@@ -289,7 +305,7 @@ Function annotations 通过添加、修改、删除或拆分区间处理，不�
 
 当新来源与当前 Prompt 的长度、缺失区间或残基编号不同：
 
-- 首先按数组位置建立临时对齐草稿；
+- implementation 可以提供明确标记为未确认的临时对齐草稿，但不得按数组位置猜测科学对应；
 - 临时草稿不会直接成为最终科学对应关系；
 - 用户必须手动调整并确认；
 - 手动对齐同时提供上下序列的可视化对齐视图和精确的残基对应表；
