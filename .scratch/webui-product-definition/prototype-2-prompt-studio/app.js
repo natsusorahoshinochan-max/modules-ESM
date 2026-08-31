@@ -241,7 +241,7 @@ function initializeEntry(entry, announce = false) {
   const prompt = buildPrompt(entry);
   state.entry = entry;
   state.mode = ENTRIES[entry].defaultMode;
-  state.residues = prompt.residues;
+  state.residues = prompt.residues.map((item, index) => ({ ...item, projectionOrder: index + 1 }));
   state.annotations = attachAnnotationHandles(prompt);
   state.sourceResidueHandles = new Set(state.residues.filter((item) => item.state !== "inserted").map((item) => item.id));
   state.sourceAnnotationTuples = cloneAnnotations(state.annotations.filter((annotation) => annotation.state === "source"));
@@ -279,6 +279,7 @@ function indexById(id) {
 }
 
 function residueLocator(item) {
+  if (item.state === "pending-delete" && item.locator) return item.locator;
   const chainItems = state.residues.filter((candidate) => candidate.chain === item.chain);
   return `${item.chain}:${chainItems.indexOf(item) + 1}`;
 }
@@ -337,6 +338,19 @@ function chainSummary() {
   const counts = new Map();
   state.residues.forEach((item) => counts.set(item.chain, (counts.get(item.chain) ?? 0) + 1));
   return [...counts.entries()].map(([chain, count]) => `${chain}${count}`).join(" + ");
+}
+
+function projectedResidues() {
+  return [...state.residues, ...state.residueTombstones]
+    .sort((left, right) => left.projectionOrder - right.projectionOrder);
+}
+
+function insertionProjectionOrders(afterId, count) {
+  const after = residueById(afterId);
+  const lower = after.projectionOrder;
+  const upper = projectedResidues().find((item) => item.projectionOrder > lower)?.projectionOrder ?? lower + 1;
+  const step = (upper - lower) / (count + 1);
+  return Array.from({ length: count }, (_, index) => lower + step * (index + 1));
 }
 
 function countAssigned(track) {
@@ -651,15 +665,17 @@ function applySequencePreview() {
   if (preview.kind === "insert") {
     const insertionIndex = indexById(preview.afterId);
     pushUndo(`插入 ${preview.count} 个残基`);
-    const inserted = preview.backendResidues.map((projection) =>
-      residue({
+    const projectionOrders = insertionProjectionOrders(preview.afterId, preview.count);
+    const inserted = preview.backendResidues.map((projection, index) => ({
+      ...residue({
         handle: projection.handle,
         chain: projection.chain,
         sourceNumber: null,
         sequence: preview.initialSequence === "assigned" ? preview.sequenceValue : null,
         state: "inserted",
       }),
-    );
+      projectionOrder: projectionOrders[index],
+    }));
     state.residues.splice(insertionIndex + 1, 0, ...inserted);
     state.selected = new Set(inserted.map((item) => item.id));
     state.anchor = inserted.at(-1)?.id ?? null;
@@ -1068,15 +1084,17 @@ function annotationAt(item) {
 }
 
 function isPendingDelete(id) {
-  return state.draftPreview?.kind === "delete" && state.draftPreview.ids.includes(id);
+  return state.residueTombstones.some((item) => item.id === id)
+    || (state.draftPreview?.kind === "delete" && state.draftPreview.ids.includes(id));
 }
 
 function visibleResidues(focus = false) {
-  if (!focus || state.selected.size === 0) return state.residues;
-  const indices = [...state.selected].map(indexById).filter((index) => index >= 0);
+  const residues = projectedResidues();
+  if (!focus || state.selected.size === 0) return residues;
+  const indices = [...state.selected].map((id) => residues.findIndex((item) => item.id === id)).filter((index) => index >= 0);
   const start = Math.max(0, Math.min(...indices) - 5);
-  const end = Math.min(state.residues.length, Math.max(...indices) + 6);
-  return state.residues.slice(start, end);
+  const end = Math.min(residues.length, Math.max(...indices) + 6);
+  return residues.slice(start, end);
 }
 
 function renderTrackLabel(track) {
@@ -1096,6 +1114,42 @@ function renderTrackLabel(track) {
   return `<button class="track-label sticky" data-track="${track}"><strong>${TRACKS[track].label}</strong><small>${countAssigned(track)} / ${state.residues.length} · ${TRACKS[track].unit}</small></button>`;
 }
 
+function isResidueTombstone(item) {
+  return item.state === "pending-delete";
+}
+
+function matrixChainStart(residues, index) {
+  return index > 0 && residues[index - 1].chain !== residues[index].chain ? "chain-start" : "";
+}
+
+function renderAxisProjectionCell(item, index, residues) {
+  const locator = residueLocator(item);
+  const chainStart = matrixChainStart(residues, index);
+  if (isResidueTombstone(item)) {
+    return `<div class="axis-cell state-pending-delete tombstone-cell ${chainStart}" title="来源 ${locator} · pending-delete · 只读删除证据"><small>源 ${item.chain}</small><strong>${locator.split(":")[1]}</strong></div>`;
+  }
+  return `<button class="axis-cell state-${residueProjectionState(item)} ${state.selected.has(item.id) ? "selected" : ""} ${chainStart}" data-residue="${item.id}" title="${locator}"><small>${item.chain}</small><strong>${locator.split(":")[1]}</strong></button>`;
+}
+
+function renderFunctionProjectionCell(item, index, residues) {
+  const chainStart = matrixChainStart(residues, index);
+  if (isResidueTombstone(item)) {
+    return `<div class="track-cell function-cell state-pending-delete tombstone-cell ${chainStart}" title="来源 ${residueLocator(item)} · Function annotations · pending-delete">×</div>`;
+  }
+  const annotation = annotationAt(item);
+  const begins = annotation && item.id === annotation.startHandle;
+  const annotationState = annotation ? annotationProjectionState(annotation) : "source";
+  return `<button class="track-cell function-cell ${annotation ? `assigned ribbon annotation-${annotationState}` : "unassigned"} ${begins ? "ribbon-start" : ""} ${state.selected.has(item.id) ? "selected" : ""} ${isPendingDelete(item.id) ? "state-pending-delete" : ""} ${chainStart}" data-residue="${item.id}" data-track="function" title="${annotation ? `${annotationTuple(annotation)} · ${annotationState}` : "未指定 function tuple"}">${begins ? annotation.label : annotation ? "↔" : "·"}</button>`;
+}
+
+function renderTrackProjectionCell(item, track, index, residues) {
+  const chainStart = matrixChainStart(residues, index);
+  if (isResidueTombstone(item)) {
+    return `<div class="track-cell ${isAssigned(item, track) ? "assigned" : "unassigned masked"} state-pending-delete tombstone-cell ${chainStart}" title="来源 ${residueLocator(item)} · ${TRACKS[track].label} · pending-delete">${cellValue(item, track)}</div>`;
+  }
+  return `<button class="track-cell ${isAssigned(item, track) ? "assigned" : "unassigned masked"} state-${trackProjectionState(item, track)} ${state.selected.has(item.id) ? "selected" : ""} ${chainStart}" data-residue="${item.id}" data-track="${track}" title="${residueLocator(item)} · ${TRACKS[track].label} · ${trackProjectionState(item, track)} · ${isAssigned(item, track) ? "已指定" : "Mask"}">${cellValue(item, track)}</button>`;
+}
+
 function renderMatrix({ focus = false, compact = false } = {}) {
   const residues = visibleResidues(focus);
   const gridStyle = `--residue-count:${residues.length}`;
@@ -1104,7 +1158,7 @@ function renderMatrix({ focus = false, compact = false } = {}) {
     <section class="surface matrix-surface ${focus ? "focus-matrix" : ""} ${compact ? "compact" : ""}" data-surface="matrix">
       <header class="surface-header matrix-header">
         <div><span class="surface-kicker">${focus ? "所选区域与邻近残基" : "下方 · 共享残基位置"}</span><h2>${focus ? "Selection lens" : "ProteinPrompt 残基矩阵"}</h2></div>
-        <div class="matrix-meta"><span>一列 = 一个 chain/residue locator</span><strong>${chainSummary()} · ${state.residues.length} total</strong></div>
+        <div class="matrix-meta"><span>一列 = 当前 locator 或只读删除证据</span><strong>${chainSummary()} · ${state.residues.length} current${state.residueTombstones.length ? ` · ${state.residueTombstones.length} pending-delete` : ""}</strong></div>
       </header>
       ${!hasCoordinates() ? `<div class="coordinate-notice"><b>三维区已自动收起</b><span>此 Prompt 没有坐标；不是缺少必填模板。共享残基矩阵已获得更多空间。</span></div>` : ""}
       <div class="track-controls">
@@ -1115,23 +1169,18 @@ function renderMatrix({ focus = false, compact = false } = {}) {
       <div class="matrix-scroll">
         <div class="residue-grid axis-row" style="${gridStyle}">
           <div class="track-label sticky"><strong>Residue locators</strong><small>chain : position</small></div>
-          ${residues.map((item, index) => `<button class="axis-cell state-${residueProjectionState(item)} ${state.selected.has(item.id) ? "selected" : ""} ${index > 0 && residues[index - 1].chain !== item.chain ? "chain-start" : ""}" data-residue="${item.id}" title="${residueLocator(item)}"><small>${item.chain}</small><strong>${residueLocator(item).split(":")[1]}</strong></button>`).join("")}
+          ${residues.map((item, index) => renderAxisProjectionCell(item, index, residues)).join("")}
         </div>
         ${tracks.map((track) => {
           if (track === "function") {
             return `<div class="residue-grid track-row ${state.activeTrack === track ? "active-track" : ""}" style="${gridStyle}">
               <button class="track-label sticky" data-track="${track}"><strong>${TRACKS[track].label}</strong><small>interval ribbons · 示意 label</small></button>
-              ${residues.map((item, index) => {
-                const annotation = annotationAt(item);
-                const begins = annotation && item.id === annotation.startHandle;
-                const annotationState = annotation ? annotationProjectionState(annotation) : "source";
-                return `<button class="track-cell function-cell ${annotation ? `assigned ribbon annotation-${annotationState}` : "unassigned"} ${begins ? "ribbon-start" : ""} ${state.selected.has(item.id) ? "selected" : ""} ${isPendingDelete(item.id) ? "state-pending-delete" : ""} ${index > 0 && residues[index - 1].chain !== item.chain ? "chain-start" : ""}" data-residue="${item.id}" data-track="function" title="${annotation ? `${annotationTuple(annotation)} · ${annotationState}` : "未指定 function tuple"}">${begins ? annotation.label : annotation ? "↔" : "·"}</button>`;
-              }).join("")}
+              ${residues.map((item, index) => renderFunctionProjectionCell(item, index, residues)).join("")}
             </div>`;
           }
           return `<div class="residue-grid track-row ${track === "sequence" ? "sequence-row" : ""} ${state.activeTrack === track ? "active-track" : ""}" style="${gridStyle}">
             ${renderTrackLabel(track)}
-            ${residues.map((item, index) => `<button class="track-cell ${isAssigned(item, track) ? "assigned" : "unassigned masked"} state-${trackProjectionState(item, track)} ${state.selected.has(item.id) ? "selected" : ""} ${index > 0 && residues[index - 1].chain !== item.chain ? "chain-start" : ""}" data-residue="${item.id}" data-track="${track}" title="${residueLocator(item)} · ${TRACKS[track].label} · ${trackProjectionState(item, track)} · ${isAssigned(item, track) ? "已指定" : "Mask"}">${cellValue(item, track)}</button>`).join("")}
+            ${residues.map((item, index) => renderTrackProjectionCell(item, track, index, residues)).join("")}
           </div>`;
         }).join("")}
       </div>

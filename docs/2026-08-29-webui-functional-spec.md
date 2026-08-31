@@ -237,6 +237,12 @@ Prompt Studio 使用三个同步区域：
 
 所有轨道使用一致的变化标记，并支持撤销。
 
+删除来源残基并应用局部 preview 后，当前 ProteinPrompt 的有序残基投影立即排除该残基，
+但 Prompt Studio 的残基矩阵必须把原来源 locator 作为只读 `pending-delete` 删除证据继续显示，
+并以明确的颜色或划线与当前残基区分。该证据不计入当前残基数，不能继续作为当前残基编辑；
+撤销删除时恢复为当前残基，确认 `apply(replace)` 写回 Workflow Draft 后随本次 session tombstones
+一起清除。删除本次 session 新增、因而没有来源对应的残基时，不创建 `pending-delete` 证据。
+
 ### 3.7 完整残基操作模型
 
 残基编辑分成“新增或删除残基”和“改变残基上的条件”两类。前端以领域操作表达前者，
