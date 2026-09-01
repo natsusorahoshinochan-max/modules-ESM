@@ -2055,6 +2055,12 @@ class PromptAuthoringService:
 
         if evaluated.edits:
             source_ids = set(evaluated.source.prompt.target_layout.residue_ids)
+            source_order = {
+                residue_id: index
+                for index, residue_id in enumerate(
+                    evaluated.source.prompt.target_layout.residue_ids
+                )
+            }
             target_ids = tuple(evaluated.target_layout.residue_ids)
             insertion_declarations: list[dict[str, Any]] = []
             position = 0
@@ -2068,10 +2074,18 @@ class PromptAuthoringService:
                 declaration: dict[str, Any] = {
                     "inserted_residue_ids": list(target_ids[start:position])
                 }
-                if start > 0:
-                    declaration["after_residue_id"] = target_ids[start - 1]
-                if position < len(target_ids):
-                    declaration["before_residue_id"] = target_ids[position]
+                after = target_ids[start - 1] if start > 0 else None
+                before = target_ids[position] if position < len(target_ids) else None
+                if after is not None:
+                    declaration["after_residue_id"] = after
+                if (
+                    before is not None
+                    and (
+                        after is None
+                        or source_order[before] == source_order[after] + 1
+                    )
+                ):
+                    declaration["before_residue_id"] = before
                 insertion_declarations.append(declaration)
             append_prompt_node(
                 "layout_edit",

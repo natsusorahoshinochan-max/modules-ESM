@@ -10,10 +10,16 @@ import uuid
 from fastapi import FastAPI, Request
 
 from core.project.manager import (
+    CANONICAL_3GB1_PROJECT_ID,
+    WEBUI_3GB1_PROJECT_ID,
     ProjectInputDescriptor,
     ProjectManager,
     ProjectMeta,
     ProtectedProjectError,
+)
+from core.workflow.authoring import (
+    WorkflowAuthoringError,
+    WorkflowAuthoringService,
 )
 from protein_workbench_public.http.errors import (
     protocol_error_response,
@@ -27,7 +33,10 @@ from protein_workbench_public.protocol import (
 )
 
 
-def _project_metadata_payload(meta: ProjectMeta) -> dict[str, Any]:
+def _project_metadata_payload(
+    meta: ProjectMeta,
+    projects: ProjectManager,
+) -> dict[str, Any]:
     return {
         "schema_namespace": "protein-workbench-public/v2",
         "id": meta.id,
@@ -35,6 +44,15 @@ def _project_metadata_payload(meta: ProjectMeta) -> dict[str, Any]:
         "created_at": meta.created_at,
         "modified_at": meta.modified_at,
         "seed": meta.seed,
+        "project_kind": (
+            "default_example"
+            if meta.id == WEBUI_3GB1_PROJECT_ID
+            else "canonical_verification"
+            if meta.id == CANONICAL_3GB1_PROJECT_ID
+            else "personal"
+        ),
+        "copied_from_project_id": meta.copied_from_project_id,
+        "latest_run_id": projects.latest_run_id(meta.id),
     }
 
 
@@ -55,8 +73,36 @@ def _project_input_payload(
 def register_project_routes(
     app: FastAPI,
     projects: ProjectManager,
+    authoring: WorkflowAuthoringService,
     rest_operations: Mapping[str, Any],
 ) -> None:
+    list_projects_operation = rest_operations["list_projects"]
+
+    @app.get(
+        list_projects_operation["route"].partition("?")[0],
+        include_in_schema=False,
+    )
+    async def public_list_projects(request: Request) -> Any:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "list_projects",
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        payload = {
+            "schema_namespace": "protein-workbench-public/v2",
+            "projects": [
+                _project_metadata_payload(meta, projects)
+                for meta in projects.list_projects(name=admitted.get("name"))
+            ],
+        }
+        return emit_rest_json_success("list_projects", payload)
+
     create_project_operation = rest_operations["create_project"]
 
     @app.post(create_project_operation["route"], include_in_schema=False)
@@ -73,8 +119,42 @@ def register_project_routes(
         except ProtocolValidationError as error:
             return protocol_error_response(error)
         meta = projects.create(admitted["name"])
-        payload = _project_metadata_payload(meta)
+        payload = _project_metadata_payload(meta, projects)
         return emit_rest_json_success("create_project", payload)
+
+    copy_project_operation = rest_operations["copy_example_project"]
+
+    @app.post(copy_project_operation["route"], include_in_schema=False)
+    async def public_copy_example_project(
+        request: Request,
+        project_id: str,
+    ) -> Any:
+        try:
+            query_parameters, json_body = await public_rest_wire_sources(
+                request
+            )
+            admitted = decode_rest_request(
+                "copy_example_project",
+                path_parameters={"project_id": project_id},
+                query_parameters=query_parameters,
+                json_body=json_body,
+            )
+            meta = authoring.copy_project(
+                admitted["project_id"],
+                name=admitted["name"],
+            )
+        except ProtocolValidationError as error:
+            return protocol_error_response(error)
+        except WorkflowAuthoringError as error:
+            from protein_workbench_public.http.errors import (
+                authoring_error_response,
+            )
+
+            return authoring_error_response(error)
+        return emit_rest_json_success(
+            "copy_example_project",
+            _project_metadata_payload(meta, projects),
+        )
 
     publish_input_operation = rest_operations["publish_project_input"]
 

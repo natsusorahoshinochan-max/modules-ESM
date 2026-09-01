@@ -65,6 +65,20 @@ class PairwiseCandidateMapping:
 
 
 @dataclass(frozen=True, slots=True)
+class DirectAncestorCandidateMapping:
+    """One exact ancestor reference per subject with shared references allowed."""
+
+    entries: tuple[PairwiseCandidateMatch, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "entries",
+            _ordered_list(self.entries, field_name="entries"),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PairwiseParticipant:
     """One role-labelled Candidate participating in a pairwise observation."""
 

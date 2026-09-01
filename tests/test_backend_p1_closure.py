@@ -11,7 +11,11 @@ from typing import Any
 import pytest
 
 from core.parameters.model import AdmittedParameterValues
-from core.project.manager import ProjectInputDescriptor, ProjectMeta
+from core.project.manager import (
+    ProjectInputDescriptor,
+    ProjectManager,
+    ProjectMeta,
+)
 from core.scoring.selection import UtilityParameterFacts
 from protein_workbench_public.http import emission
 from protein_workbench_public.http.errors import (
@@ -143,7 +147,7 @@ def test_all_json_routes_and_websocket_sends_use_the_single_emitters() -> None:
         ].items()
         if operation["response"]["kind"] == "json"
     }
-    assert len(expected) == 16
+    assert len(expected) == 18
     assert emitted_operations == expected
 
     websocket_paths = (
@@ -293,7 +297,7 @@ def test_structured_error_constructor_matches_bundle_without_emission_validation
     )
 
 
-def test_inline_public_response_constructors_match_bundle() -> None:
+def test_inline_public_response_constructors_match_bundle(tmp_path: Path) -> None:
     timestamp = "2026-08-26T00:00:00+00:00"
     project = _project_metadata_payload(
         ProjectMeta(
@@ -301,7 +305,8 @@ def test_inline_public_response_constructors_match_bundle() -> None:
             name="Project",
             created_at=timestamp,
             modified_at=timestamp,
-        )
+        ),
+        ProjectManager(tmp_path / "projects"),
     )
     protocol.validate_schema("#/$defs/ProjectMetadata", project)
 

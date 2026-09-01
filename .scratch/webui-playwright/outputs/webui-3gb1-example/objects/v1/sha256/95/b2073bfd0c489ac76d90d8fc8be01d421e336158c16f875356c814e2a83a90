@@ -1,0 +1,1 @@
+{"artifacts":[],"outputs":[{"output_port":"structure_candidates","value_manifest":{"content_digest":"sha256:149c7c0410c7c8bd5b8f0708bb3de34187adffb08f21498d7b4d5681c5fb1361","size":119}},{"output_port":"confidence_facts","value_manifest":{"content_digest":"sha256:23f561b52c092556b63a1ab9b1a462e82f9a3b429f9702f2308cdf0ec5b47f1a","size":119}}]}

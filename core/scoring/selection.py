@@ -58,6 +58,7 @@ class PairwiseContextSelector:
         if self.pairing_mode not in {
             "fixed_reference",
             "per_subject_counterpart",
+            "per_subject_direct_ancestor",
         }:
             raise SelectionError(
                 "Pairwise Context selector uses an unknown pairing mode"

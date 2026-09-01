@@ -1,0 +1,33 @@
+node_type_id: collection_ops.select_pairing_subjects
+title: Select paired subjects by exact references
+summary: Retains exact subject Candidates whose declared pairing reference is in the selected reference subset.
+category: collection
+inputs:
+  - name: subjects
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete subject Candidate collection named by the pairing.
+  - name: selected_references
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact selected reference Candidate subset.
+  - name: pairing
+    port_type_id: candidate.pairing
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact one-to-one subject-to-reference pairing.
+outputs:
+  - name: candidates
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Subject Candidates paired to selected references, preserving subject input order.
+  - name: pairing
+    port_type_id: candidate.pairing
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact selected subject-to-reference pairing in declared pairing order.
+parameter_groups: []
+node_parameters: {}

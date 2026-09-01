@@ -202,8 +202,10 @@ def _validate_produced_observation_relationships(
         )
     per_subject = (
         context_kind == "pairwise"
-        and observation.context_profile.get("pairing_mode")
-        == "per_subject_counterpart"
+        and observation.context_profile.get("pairing_mode") in {
+            "per_subject_counterpart",
+            "per_subject_direct_ancestor",
+        }
     )
     if per_subject != (observation.pairing_port is not None):
         raise CatalogBuildError(
@@ -736,18 +738,24 @@ def build_frozen_catalog(
                         if pairing_declaration is not None
                         else None
                     )
+                    expected_pairing_type = (
+                        "candidate.direct_ancestor_pairing"
+                        if observation.context_profile.get("pairing_mode")
+                        == "per_subject_direct_ancestor"
+                        else "candidate.pairing"
+                    )
                     if (
                         not isinstance(pairing_type, ContractIdentity)
                         or pairing_type.key
                         != (
                             "port_type",
-                            "candidate.pairing",
+                            expected_pairing_type,
                         )
                     ):
                         raise CatalogBuildError(
                             f"Binding {binding.binding_id} Produced "
                             "Observation pairing source must use "
-                            "candidate.pairing"
+                            f"{expected_pairing_type}"
                         )
             propagation = binding.observation_propagation
             if propagation is not None:

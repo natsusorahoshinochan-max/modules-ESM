@@ -19,6 +19,11 @@ outputs:
     required: false
     multiplicity: one
     scientific_meaning: Explicit one-to-one counterpart identities for the counterpart scenario; absent for single and fixed-reference scenarios.
+  - name: direct_ancestor_pairing
+    port_type_id: candidate.direct_ancestor_pairing
+    required: false
+    multiplicity: one
+    scientific_meaning: Explicit one-reference-per-subject mapping for the direct-ancestor scenario, with shared references allowed.
 parameter_groups: []
 node_parameters:
   scenario:
@@ -27,4 +32,4 @@ node_parameters:
     required: true
     value_contract:
       type: string
-      enum: [single, fixed_reference, per_subject_counterpart]
+      enum: [single, fixed_reference, per_subject_counterpart, per_subject_direct_ancestor]

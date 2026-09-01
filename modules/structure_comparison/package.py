@@ -204,14 +204,10 @@ def _binding(
                 reference_direction="input",
                 reference_port="references",
                 pairing_direction=(
-                    "input"
-                    if pairing_mode == "per_subject_counterpart"
-                    else None
+                    "input" if pairing_mode != "fixed_reference" else None
                 ),
                 pairing_port=(
-                    "pairing"
-                    if pairing_mode == "per_subject_counterpart"
-                    else None
+                    "pairing" if pairing_mode != "fixed_reference" else None
                 ),
                 guaranteed_multiplicity="one",
             ),
@@ -250,10 +246,12 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/align_single.yaml"),
         DefinitionResource("definitions/align_fixed_reference.yaml"),
         DefinitionResource("definitions/align_counterparts.yaml"),
+        DefinitionResource("definitions/align_direct_ancestors.yaml"),
         DefinitionResource("definitions/rmsd_fixed_reference.yaml"),
         DefinitionResource("definitions/rmsd_counterparts.yaml"),
         DefinitionResource("definitions/tm_score_fixed_reference.yaml"),
         DefinitionResource("definitions/tm_score_counterparts.yaml"),
+        DefinitionResource("definitions/tm_score_direct_ancestors.yaml"),
         DefinitionResource("definitions/classify_three_way_consistency.yaml"),
         DefinitionResource("definitions/evaluate_inserted_loop.yaml"),
     ),
@@ -265,6 +263,7 @@ MODULE_PACKAGE = ModulePackageRegistration(
     utility_transforms=(
         _tm_score_utility("fixed_reference"),
         _tm_score_utility("per_subject_counterpart"),
+        _tm_score_utility("per_subject_direct_ancestor"),
     ),
     bindings=(
         _binding(
@@ -294,6 +293,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
             pairing_mode="per_subject_counterpart",
         ),
         _binding(
+            node_name="align_direct_ancestors",
+            operation="align_pairwise",
+            suffix="sequence_primary_affine",
+            method=SEQUENCE_PRIMARY_AFFINE_METHOD,
+            pairing_mode="per_subject_direct_ancestor",
+        ),
+        _binding(
             node_name="rmsd_fixed_reference",
             operation="rmsd",
             suffix="from_alignment_evidence",
@@ -320,6 +326,13 @@ MODULE_PACKAGE = ModulePackageRegistration(
             suffix="from_alignment_evidence",
             method=TM_SCORE_FROM_EVIDENCE_METHOD,
             pairing_mode="per_subject_counterpart",
+        ),
+        _binding(
+            node_name="tm_score_direct_ancestors",
+            operation="tm_score",
+            suffix="from_alignment_evidence",
+            method=TM_SCORE_FROM_EVIDENCE_METHOD,
+            pairing_mode="per_subject_direct_ancestor",
         ),
         THREE_WAY_CONSISTENCY_BINDING,
         INSERTED_LOOP_BINDING,

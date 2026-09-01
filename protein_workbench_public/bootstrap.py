@@ -17,11 +17,17 @@ from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.results.cache import ProjectReplayIndex
 from core.execution.results.store import ResultStore
-from core.project.manager import ProjectManager
+from core.project.manager import ProjectManager, WEBUI_3GB1_RUN_ID
 from core.project.objects import ProjectObjectStore
 from core.execution.runtime import V2RunService
-from core.workflow.authoring import WorkflowAuthoringService
+from core.workflow.authoring import (
+    ManagedCompositionRecord,
+    WorkflowAuthoringService,
+)
 from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS
+from modules.confidence_selection.package import (
+    MODULE_PACKAGE as CONFIDENCE_SELECTION,
+)
 from modules.esm3.package import MODULE_PACKAGE as ESM3
 from modules.folding.package import MODULE_PACKAGE as FOLDING
 from modules.prompt_authoring.package import MODULE_PACKAGE as PROMPT_AUTHORING
@@ -53,6 +59,7 @@ from protein_workbench_public.workflow_codec import decode_workflow_document
 
 _MODULE_REGISTRATIONS = (
     COLLECTION_OPS,
+    CONFIDENCE_SELECTION,
     ESM3,
     FOLDING,
     PROMPT_AUTHORING,
@@ -122,6 +129,33 @@ def create_application(
         authoring.install_seed_commit(
             workflow=canonical_workflow,
             input_sources={"3GB1.pdb": canonical_structure},
+        )
+        webui_example_path = asset_stack.enter_context(
+            as_file(
+                files("examples").joinpath(
+                    "v2",
+                    "webui-3gb1.example.json",
+                )
+            )
+        )
+        webui_example = json.loads(
+            webui_example_path.read_text(encoding="utf-8")
+        )
+        authoring.install_webui_example_commit(
+            workflow=decode_workflow_document(webui_example["workflow"]),
+            authoring_compositions=tuple(
+                ManagedCompositionRecord.from_canonical(record)
+                for record in webui_example["authoring_compositions"]
+            ),
+            input_sources={"3GB1.pdb": canonical_structure},
+        )
+        webui_run_fixture = asset_stack.enter_context(
+            as_file(files("examples").joinpath("v2", "webui-3gb1-run"))
+        )
+        projects.install_webui_example_run(
+            run_id=WEBUI_3GB1_RUN_ID,
+            run_source=webui_run_fixture / "run",
+            objects_source=webui_run_fixture / "objects",
         )
     environment = admit_environment_configuration(
         catalog,

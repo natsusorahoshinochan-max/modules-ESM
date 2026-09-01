@@ -65,6 +65,25 @@
     kind: identity
   scale_contract:
     kind: identity
+- method_id: collection_ops.pair_by_two_hop_ancestor.method
+  algorithm_identity:
+    name: pair_by_two_hop_ancestor
+    input_partition_order:
+    - subjects
+    - intermediates
+    - ancestors
+    identity_policy: exact-input-identity
+    duplicate_policy: one-subject-per-intermediate-shared-ancestor-allowed
+    pairing_contract:
+      participant_identity: CandidateDataReference
+      join: exact-two-hop-lineage
+      cardinality: one-reference-per-subject-shared-reference-allowed
+  model_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  scale_contract:
+    kind: identity
 - method_id: collection_ops.rebind_candidate_pairing.method
   algorithm_identity:
     name: rebind_candidate_pairing
@@ -106,6 +125,21 @@
     - parents
     identity_policy: exact-input-identity
     duplicate_policy: exact-single-parent-membership
+  model_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  scale_contract:
+    kind: identity
+- method_id: collection_ops.select_pairing_subjects.method
+  algorithm_identity:
+    name: select_pairing_subjects
+    input_partition_order:
+    - subjects
+    - selected_references
+    - pairing
+    identity_policy: exact-candidate-data-reference
+    duplicate_policy: preserve-subject-input-order
   model_identity:
     kind: none
   featurization_identity:

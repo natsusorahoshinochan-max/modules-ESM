@@ -338,7 +338,11 @@ def test_every_bundle_bodyless_operation_rejects_any_explicit_json_body(
         decode_rest_request(
             operation_id,
             path_parameters={field: request[field] for field in path_fields},
-            query_parameters={field: request[field] for field in query_fields},
+            query_parameters={
+                field: request[field]
+                for field in query_fields
+                if field in request
+            },
             json_body=explicit_body,
         )
 

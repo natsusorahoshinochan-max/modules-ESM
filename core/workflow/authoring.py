@@ -13,6 +13,7 @@ from core.catalog.model import FrozenCatalog
 from core.catalog.authoring import AuthoringCapabilityProjection
 from core.project.manager import (
     CANONICAL_3GB1_PROJECT_ID,
+    WEBUI_3GB1_PROJECT_ID,
     ProjectManager,
     ProjectMeta,
     ProtectedProjectError,
@@ -495,6 +496,44 @@ class WorkflowAuthoringService:
             authoring_compositions,
         )
 
+    def copy_project(self, source_project_id: str, *, name: str) -> ProjectMeta:
+        """Create the first personal copy of one protected example Project."""
+        source = self._require_project(source_project_id)
+        if source_project_id != WEBUI_3GB1_PROJECT_ID or not source.seed:
+            raise WorkflowAuthoringError(
+                "cross_scope_access_denied",
+                "Only the immutable WebUI example Project can be copied",
+                details={"requested_project_id": source_project_id},
+            )
+        source_draft = self.load_draft(source_project_id)
+        target = self._projects.create(
+            name,
+            copied_from_project_id=source_project_id,
+        )
+        for input_reference in self._projects.stored_input_references(
+            source_project_id
+        ):
+            descriptor, payload = self._projects.read_input(
+                source_project_id,
+                input_reference,
+            )
+            self._projects.publish_input(
+                target.id,
+                input_reference,
+                payload,
+                filename=descriptor.filename,
+            )
+        workflow_projection = source_draft.workflow.canonical_projection()
+        workflow_projection["workflow_id"] = target.id
+        workflow = workflow_document_from_canonical(workflow_projection)
+        self._publish_draft(
+            target.id,
+            1,
+            workflow,
+            source_draft.authoring_compositions,
+        )
+        return target
+
     def _admit_managed_compositions(
         self,
         workflow: WorkflowDocument,
@@ -781,6 +820,59 @@ class WorkflowAuthoringService:
         self._verified_commits[
             (project_id, persisted.workflow_commit_id)
         ] = verified
+        return persisted
+
+    def install_webui_example_commit(
+        self,
+        *,
+        workflow: WorkflowDocument,
+        authoring_compositions: tuple[ManagedCompositionRecord, ...],
+        input_sources: Mapping[str, str | Path],
+    ) -> WorkflowCommit | None:
+        """Install the distinct protected WebUI example Draft and Commit."""
+        project_id = WEBUI_3GB1_PROJECT_ID
+        if workflow.workflow_id != project_id:
+            raise WorkflowAuthoringError(
+                "cross_scope_access_denied",
+                "WebUI example installation requires its fixed Project identity",
+                details={"requested_project_id": workflow.workflow_id},
+            )
+        self._admit_managed_compositions(workflow, authoring_compositions)
+        try:
+            plan = compile(CompilationRequest(workflow), self._catalog)
+        except WorkflowCompileError as error:
+            raise _commit_error(error) from error
+        project = self._projects.ensure_webui_example_project(
+            input_sources=input_sources,
+        )
+        if project is None:
+            return None
+        commit_revision = self._latest_record_revision(project_id, "commits")
+        if commit_revision == 0:
+            draft = self._publish_draft(
+                project_id,
+                1,
+                workflow,
+                authoring_compositions,
+            )
+            commit = self._commit_value(
+                project_id=project_id,
+                workflow=workflow,
+                plan=plan,
+                source_draft_revision=draft.draft_revision,
+            )
+            self._publish_commit(commit, plan, 1)
+            return commit
+        persisted = self._active_commit(project_id)
+        if persisted.workflow != workflow:
+            raise WorkflowAuthoringError(
+                "workflow_commit_identity_mismatch",
+                "WebUI example Commit does not match the shipped Workflow",
+                details={"workflow_commit_id": persisted.workflow_commit_id},
+            )
+        self._verified_commits[(project_id, persisted.workflow_commit_id)] = (
+            VerifiedWorkflowCommit(persisted, plan)
+        )
         return persisted
 
     def require_verified_commit(

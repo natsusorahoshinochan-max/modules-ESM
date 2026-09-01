@@ -330,6 +330,7 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
     }
     assert comparison_nodes == {
         "structure_comparison.align_counterparts",
+        "structure_comparison.align_direct_ancestors",
         "structure_comparison.align_fixed_reference",
         "structure_comparison.align_single",
         "structure_comparison.classify_three_way_consistency",
@@ -337,6 +338,7 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         "structure_comparison.rmsd_counterparts",
         "structure_comparison.rmsd_fixed_reference",
         "structure_comparison.tm_score_counterparts",
+        "structure_comparison.tm_score_direct_ancestors",
         "structure_comparison.tm_score_fixed_reference",
     }
     comparison_bindings = {
@@ -347,6 +349,7 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
     }
     assert comparison_bindings == {
         "structure_comparison.align_counterparts.sequence_primary_affine",
+        "structure_comparison.align_direct_ancestors.sequence_primary_affine",
         "structure_comparison.align_fixed_reference.sequence_primary_affine",
         "structure_comparison.align_single.sequence_primary_affine",
         "structure_comparison.align_single.structure_first_tm_align",
@@ -355,6 +358,7 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         "structure_comparison.rmsd_counterparts.from_alignment_evidence",
         "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
         "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+        "structure_comparison.tm_score_direct_ancestors.from_alignment_evidence",
         "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
     }
     comparison_scientific_contracts = {

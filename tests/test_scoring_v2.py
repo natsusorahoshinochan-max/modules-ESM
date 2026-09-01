@@ -2339,18 +2339,30 @@ def test_compiler_rejects_metric_not_guaranteed_by_selected_binding() -> None:
         )
 
 
-def test_compiler_rejects_weighting_across_different_candidate_inputs() -> None:
+def test_compiler_allows_separate_selection_stages_with_distinct_inputs() -> None:
     catalog, contracts = _scoring_catalog()
     payload = _workflow_payload(contracts)
-    second_node = {
+    second_source = {
         **payload["nodes"][0],
+        "node_id": "source-2",
+    }
+    second_producer = {
+        **payload["nodes"][1],
         "node_id": "producer-2",
+    }
+    second_selection = {
+        **payload["nodes"][2],
+        "node_id": "select-2",
+        "node_parameters": {
+            "objective_ids": ["quality-objective-2"],
+            "tie_policy": "candidate_id_ascending",
+        },
     }
     second_objective = {
         **payload["selection_objectives"][0],
         "objective_id": "quality-objective-2",
         "candidate_input": {
-            "node_id": "producer-2",
+            "node_id": "source-2",
             "output_port": "candidates",
         },
         "score_collection_input": {
@@ -2358,19 +2370,37 @@ def test_compiler_rejects_weighting_across_different_candidate_inputs() -> None:
             "output_port": "scores",
         },
     }
-    payload["nodes"].append(second_node)
+    payload["nodes"].extend(
+        (second_source, second_producer, second_selection)
+    )
+    payload["edges"].extend(
+        (
+            {
+                "source_node_id": "source-2",
+                "source_port": "candidates",
+                "target_node_id": "producer-2",
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": "source-2",
+                "source_port": "candidates",
+                "target_node_id": "select-2",
+                "target_port": "candidates",
+            },
+            {
+                "source_node_id": "producer-2",
+                "source_port": "scores",
+                "target_node_id": "select-2",
+                "target_port": "scores",
+            },
+        )
+    )
     payload["selection_objectives"].append(second_objective)
     workflow = decode_workflow_document(payload)
 
-    with pytest.raises(
-        WorkflowCompileError,
-        match="one exact Candidate input",
-    ):
-        compile(
-            CompilationRequest(
-                workflow),
-            catalog,
-        )
+    compiled = compile(CompilationRequest(workflow), catalog)
+
+    assert len(compiled.selection_objectives) == 2
 
 
 @pytest.mark.parametrize(

@@ -1,0 +1,33 @@
+node_type_id: structure_comparison.tm_score_direct_ancestors
+title: Project direct-ancestor normalized TM-score
+summary: Computes TM-score solely from immutable subject-to-direct-ancestor alignment evidence and each exact ancestor reference axis length.
+category: structure_comparison
+inputs:
+  - name: alignments
+    port_type_id: structure_comparison.alignment_evidence
+    required: true
+    multiplicity: many
+    scientific_meaning: Nonempty direct-ancestor alignment evidence whose residuals and reference axis counts determine every score.
+  - name: subjects
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact subject Candidate scope used only to close Observation provenance.
+  - name: references
+    port_type_id: candidate.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Exact ancestor Candidate scope used only to close Observation provenance; references may be shared by subjects.
+  - name: pairing
+    port_type_id: candidate.direct_ancestor_pairing
+    required: true
+    multiplicity: one
+    scientific_meaning: Complete mapping with exactly one exact protein.structure ancestor reference per subject and shared references allowed.
+outputs:
+  - name: scores
+    port_type_id: score.collection
+    required: true
+    multiplicity: one
+    scientific_meaning: Evidence-provenanced direct-ancestor-normalized TM-score Observations, one per subject.
+parameter_groups: []
+node_parameters: {}

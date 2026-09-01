@@ -42,7 +42,12 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.exact_reference import ExactContractReference
-from datatypes.observation import ScoreCollection
+from datatypes.observation import (
+    DirectAncestorCandidateMapping,
+    PairwiseCandidateMapping,
+    PairwiseCandidateMatch,
+    ScoreCollection,
+)
 from datatypes.structure import ProteinStructure
 from tests.fixtures.observation_admission import (
     admit_test_produced_score_collection,
@@ -1055,6 +1060,107 @@ def test_v5_alignment_and_v6_metric_preserve_admitted_references() -> None:
             )
 
 
+def test_direct_ancestor_tm_score_allows_one_reference_for_two_subjects() -> None:
+    catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
+    reference_structure = _multi_segment_structure(
+        (("R", "AA", ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0))),)
+    )
+    subject_structures = tuple(
+        _multi_segment_structure(
+            ((name, "AA", ((offset, 0.0, 0.0), (offset + 1, 0.0, 0.0))),)
+        )
+        for name, offset in (("A", 2.0), ("B", 4.0))
+    )
+    subject_references = tuple(
+        _candidate_reference(f"subject-{index}", structure)
+        for index, structure in enumerate(subject_structures)
+    )
+    ancestor_reference = _candidate_reference("ancestor", reference_structure)
+    subjects = CandidateCollection(
+        "subjects",
+        "protein.structure",
+        tuple(
+            Candidate(f"subject-{index}", structure)
+            for index, structure in enumerate(subject_structures)
+        ),
+    )
+    ancestors = CandidateCollection(
+        "ancestors",
+        "protein.structure",
+        (Candidate("ancestor", reference_structure),),
+    )
+    pairing = DirectAncestorCandidateMapping(tuple(
+        PairwiseCandidateMatch(reference, ancestor_reference)
+        for reference in subject_references
+    ))
+    subject_axes = CandidateResolvedResidueAxisAssociations(tuple(
+        CandidateResolvedResidueAxisAssociation(
+            reference,
+            resolve_residue_axis(structure),
+        )
+        for reference, structure in zip(
+            subject_references,
+            subject_structures,
+            strict=True,
+        )
+    ))
+    ancestor_axes = CandidateResolvedResidueAxisAssociations((
+        CandidateResolvedResidueAxisAssociation(
+            ancestor_reference,
+            resolve_residue_axis(reference_structure),
+        ),
+    ))
+    alignment_binding = (
+        "structure_comparison.align_direct_ancestors."
+        "sequence_primary_affine"
+    )
+    alignments = build_operation(
+        catalog,
+        alignment_binding,
+        _RunResources(),
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id=alignment_binding,
+        inputs={
+            "subjects": subjects,
+            "subject_residue_axes": subject_axes,
+            "references": ancestors,
+            "reference_residue_axes": ancestor_axes,
+            "pairing": pairing,
+        },
+        node_parameters={"pin_matching_chain_ids": False},
+    ))["alignments"]
+    metric_binding = (
+        "structure_comparison.tm_score_direct_ancestors."
+        "from_alignment_evidence"
+    )
+    scores = build_operation(
+        catalog,
+        metric_binding,
+        _RunResources(),
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id=metric_binding,
+        inputs={
+            "alignments": alignments,
+            "subjects": subjects,
+            "references": ancestors,
+            "pairing": pairing,
+        },
+    ))["scores"]
+
+    assert len(alignments) == 2
+    assert {entry.reference for entry in alignments} == {ancestor_reference}
+    assert [entry.subject for entry in scores.entries] == list(
+        subject_references
+    )
+    assert all(
+        entry.context.pairing_mode == "per_subject_direct_ancestor"
+        and entry.context.reference.candidate == ancestor_reference
+        for entry in scores.entries
+    )
+
+
 def test_structure_comparison_catalog_has_the_split_scientific_paths() -> None:
     catalog = build_frozen_catalog((TRANSFORM_PACKAGE, MODULE_PACKAGE))
     contracts = [
@@ -1072,12 +1178,14 @@ def test_structure_comparison_catalog_has_the_split_scientific_paths() -> None:
         "structure_comparison.align_single",
         "structure_comparison.align_fixed_reference",
         "structure_comparison.align_counterparts",
+        "structure_comparison.align_direct_ancestors",
         "structure_comparison.evaluate_inserted_loop",
         "structure_comparison.classify_three_way_consistency",
         "structure_comparison.rmsd_fixed_reference",
         "structure_comparison.rmsd_counterparts",
         "structure_comparison.tm_score_fixed_reference",
         "structure_comparison.tm_score_counterparts",
+        "structure_comparison.tm_score_direct_ancestors",
     }
     node_ids = {
         contract.contract_id
@@ -1088,12 +1196,14 @@ def test_structure_comparison_catalog_has_the_split_scientific_paths() -> None:
         "structure_comparison.align_single",
         "structure_comparison.align_fixed_reference",
         "structure_comparison.align_counterparts",
+        "structure_comparison.align_direct_ancestors",
         "structure_comparison.classify_three_way_consistency",
         "structure_comparison.evaluate_inserted_loop",
         "structure_comparison.rmsd_fixed_reference",
         "structure_comparison.rmsd_counterparts",
         "structure_comparison.tm_score_fixed_reference",
         "structure_comparison.tm_score_counterparts",
+        "structure_comparison.tm_score_direct_ancestors",
     }
     for operation in ("align", "rmsd", "tm_score"):
         fixed_name = (
@@ -1130,6 +1240,18 @@ def test_structure_comparison_catalog_has_the_split_scientific_paths() -> None:
                 assert scores["port_type"]["contract_id"] == (
                     "score.collection"
                 )
+    for name in (
+        "align_direct_ancestors",
+        "tm_score_direct_ancestors",
+    ):
+        direct = catalog.require_contract(
+            "node_type",
+            f"structure_comparison.{name}",
+        )
+        pairing = {
+            item["name"]: item for item in direct.descriptor["inputs"]
+        }["pairing"]
+        assert pairing["required"] is True
     score_bindings = [
         contract
         for contract in contracts
@@ -1227,7 +1349,7 @@ def _ctk_case(
         if operation == "align_single"
         else "fixed_reference"
         if pairing_mode == "fixed_reference"
-        else "per_subject_counterpart"
+        else pairing_mode
     )
     source = _source_node(scenario)
     axis_nodes = (_axis_node("subject-axis"), _axis_node("reference-axis"))
@@ -1236,20 +1358,31 @@ def _ctk_case(
         if operation == "align_single"
         else "align_fixed_reference"
         if operation == "align_pairwise" and pairing_mode == "fixed_reference"
+        else "align_direct_ancestors"
+        if (
+            operation == "align_pairwise"
+            and pairing_mode == "per_subject_direct_ancestor"
+        )
         else "align_counterparts"
         if operation == "align_pairwise"
         else f"{operation}_fixed_reference"
         if pairing_mode == "fixed_reference"
+        else f"{operation}_direct_ancestors"
+        if pairing_mode == "per_subject_direct_ancestor"
         else f"{operation}_counterparts"
     )
     if operation in {"align_single", "align_pairwise"}:
         edges = (*_axis_edges(), *_alignment_edges("contract-test-node"))
-        if pairing_mode == "per_subject_counterpart":
+        if pairing_mode != "fixed_reference" and pairing_mode is not None:
             edges = (
                 *edges,
                 WorkflowEdge(
                     "source",
-                    "pairing",
+                    (
+                        "direct_ancestor_pairing"
+                        if pairing_mode == "per_subject_direct_ancestor"
+                        else "pairing"
+                    ),
                     "contract-test-node",
                     "pairing",
                 ),
@@ -1261,6 +1394,8 @@ def _ctk_case(
         alignment_node_name = (
             "align_fixed_reference"
             if pairing_mode == "fixed_reference"
+            else "align_direct_ancestors"
+            if pairing_mode == "per_subject_direct_ancestor"
             else "align_counterparts"
         )
         alignment_binding = (
@@ -1296,13 +1431,26 @@ def _ctk_case(
                 "references",
             ),
         )
-        if pairing_mode == "per_subject_counterpart":
+        if pairing_mode != "fixed_reference":
             edges = (
                 *edges,
-                WorkflowEdge("source", "pairing", "alignment", "pairing"),
                 WorkflowEdge(
                     "source",
+                    (
+                        "direct_ancestor_pairing"
+                        if pairing_mode == "per_subject_direct_ancestor"
+                        else "pairing"
+                    ),
+                    "alignment",
                     "pairing",
+                ),
+                WorkflowEdge(
+                    "source",
+                    (
+                        "direct_ancestor_pairing"
+                        if pairing_mode == "per_subject_direct_ancestor"
+                        else "pairing"
+                    ),
                     "contract-test-node",
                     "pairing",
                 ),
@@ -2311,6 +2459,15 @@ def test_structure_comparison_contract_test_kit(
             ),
             pairing_mode="per_subject_counterpart",
         ),
+        _ctk_case(
+            case_id="align-pairwise-direct-ancestor",
+            operation="align_pairwise",
+            binding_id=(
+                "structure_comparison.align_direct_ancestors."
+                "sequence_primary_affine"
+            ),
+            pairing_mode="per_subject_direct_ancestor",
+        ),
         *tuple(
             _ctk_case(
                 case_id=f"{operation}-{pairing_mode}",
@@ -2326,6 +2483,15 @@ def test_structure_comparison_contract_test_kit(
                 ("fixed_reference", "fixed_reference"),
                 ("per_subject_counterpart", "counterparts"),
             )
+            ),
+            _ctk_case(
+                case_id="tm_score-per_subject_direct_ancestor",
+                operation="tm_score",
+                binding_id=(
+                    "structure_comparison.tm_score_direct_ancestors."
+                    "from_alignment_evidence"
+                ),
+                pairing_mode="per_subject_direct_ancestor",
             ),
             _three_way_ctk_case(),
             _three_way_ctk_case(
@@ -2486,5 +2652,5 @@ def test_structure_comparison_contract_test_kit(
         work_root=tmp_path,
     )
 
-    assert len(report.case_reports) == 12
+    assert len(report.case_reports) == 14
     assert {case.status for case in report.case_reports} == {"succeeded"}

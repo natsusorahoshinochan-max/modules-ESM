@@ -89,8 +89,10 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
         "authoring_capability_projection",
         "cancel_run",
         "catalog_snapshot",
-        "commit_project_workflow",
+            "commit_project_workflow",
+            "copy_example_project",
             "create_project",
+            "list_projects",
             "open_prompt_authoring",
             "preview_prompt_authoring",
             "publish_project_input",
@@ -131,6 +133,11 @@ def test_bundle_closes_every_supported_rest_operation() -> None:
             "/api/v2/projects/{project_id}/prompt-authoring:preview",
         ),
         "create_project": ("POST", "/api/v2/projects"),
+        "copy_example_project": (
+            "POST",
+            "/api/v2/projects/{project_id}:copy",
+        ),
+        "list_projects": ("GET", "/api/v2/projects?name={name}"),
         "commit_project_workflow": (
             "POST",
             "/api/v2/projects/{project_id}/workflow:commit",
@@ -1380,7 +1387,7 @@ def test_backend_rejects_undeclared_discovery_and_catalog_wire_sources(
 def test_backend_public_route_inventory_equals_the_bundle() -> None:
     bundle = load_bundle()
     expected_http = {
-        (operation["method"], operation["route"])
+        (operation["method"], operation["route"].partition("?")[0])
         for operation in bundle["rest_operations"].values()
     }
     discovery = bundle["bundle_discovery"]
@@ -1462,6 +1469,9 @@ def test_project_and_immutable_input_publication_use_only_bundle_operations(
         "created_at",
         "modified_at",
         "seed",
+        "project_kind",
+        "copied_from_project_id",
+        "latest_run_id",
     }
     assert project["name"] == "public project"
     assert project["seed"] is False
@@ -1938,6 +1948,9 @@ def test_acceptance_client_prepares_project_and_input_publication() -> None:
         "created_at": "2026-08-03T00:00:00+00:00",
         "modified_at": "2026-08-03T00:00:00+00:00",
         "seed": False,
+        "project_kind": "personal",
+        "copied_from_project_id": None,
+        "latest_run_id": None,
     }
     publication = {
         "schema_namespace": PUBLIC_PROTOCOL_NAMESPACE,

@@ -10,6 +10,7 @@ from core.operation import (
 )
 from datatypes.candidate import CandidateDataReference
 from datatypes.observation import (
+    DirectAncestorCandidateMapping,
     PairwiseCandidateMapping,
     ScoreCollection,
     ScoreObservation,
@@ -125,6 +126,44 @@ def _counterpart_pairs(
     return tuple(pairs)
 
 
+def _direct_ancestor_pairs(
+    value: DirectAncestorCandidateMapping,
+    subjects: tuple[CandidateDataReference, ...],
+    references: tuple[CandidateDataReference, ...],
+) -> tuple[tuple[CandidateDataReference, CandidateDataReference], ...]:
+    if not value.entries:
+        raise ValueError(
+            "direct-ancestor comparison requires exact Candidate pairing"
+        )
+    subjects_by_identity = {item: item for item in subjects}
+    references_by_identity = {item: item for item in references}
+    pairs: list[tuple[CandidateDataReference, CandidateDataReference]] = []
+    for entry in value.entries:
+        if (
+            entry.subject.data_type_id != "protein.structure"
+            or entry.reference.data_type_id != "protein.structure"
+        ):
+            raise ValueError(
+                "structure comparison pairing requires structure Candidate "
+                "references"
+            )
+        subject = subjects_by_identity.get(entry.subject)
+        reference = references_by_identity.get(entry.reference)
+        if subject is None or reference is None:
+            raise ValueError("Candidate pairing contradicts exact content")
+        pairs.append((subject, reference))
+    if (
+        len(pairs) != len(subjects)
+        or {subject for subject, _ in pairs} != set(subjects)
+        or {reference for _, reference in pairs} != set(references)
+    ):
+        raise ValueError(
+            "Candidate pairing must provide one reference per subject and "
+            "cover the reference scope"
+        )
+    return tuple(pairs)
+
+
 class StructureComparisonImplementation:
     """Execute only exact Candidate-associated v4 comparison contracts."""
 
@@ -183,6 +222,12 @@ class StructureComparisonImplementation:
             pairs = ((subjects[0], references[0]),)
         elif self._pairing_mode == "fixed_reference":
             pairs = _fixed_reference_pairs(subjects, references)
+        elif self._pairing_mode == "per_subject_direct_ancestor":
+            pairs = _direct_ancestor_pairs(
+                call.inputs["pairing"].value,
+                subjects,
+                references,
+            )
         else:
             pairs = _counterpart_pairs(
                 call.inputs["pairing"].value,
@@ -243,6 +288,12 @@ class StructureComparisonImplementation:
         reference_scope = _candidate_references(call, port_name="references")
         if self._pairing_mode == "fixed_reference":
             expected_pairs = _fixed_reference_pairs(
+                subject_scope,
+                reference_scope,
+            )
+        elif self._pairing_mode == "per_subject_direct_ancestor":
+            expected_pairs = _direct_ancestor_pairs(
+                call.inputs["pairing"].value,
                 subject_scope,
                 reference_scope,
             )

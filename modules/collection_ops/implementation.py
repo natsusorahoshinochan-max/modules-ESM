@@ -12,6 +12,7 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.observation import (
+    DirectAncestorCandidateMapping,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     ScoreCollection,
@@ -48,6 +49,8 @@ class CollectionOpsImplementation:
             return {"pairing": self._rebind_candidate_pairing(call)}
         if self._operation == "pair_siblings_by_parent":
             return {"pairing": self._pair_siblings_by_parent(call)}
+        if self._operation == "pair_by_two_hop_ancestor":
+            return {"pairing": self._pair_by_two_hop_ancestor(call)}
         if self._operation == "take_candidates":
             return {
                 "candidates": self._take_candidates(
@@ -59,7 +62,59 @@ class CollectionOpsImplementation:
             return {
                 "candidates": self._select_children_by_parent(call.inputs)
             }
+        if self._operation == "select_pairing_subjects":
+            candidates, pairing = self._select_pairing_subjects(call)
+            return {"candidates": candidates, "pairing": pairing}
         return {"candidates": self._intersect_candidates(call.inputs)}
+
+    def _select_pairing_subjects(
+        self,
+        call: OperationCall,
+    ) -> tuple[CandidateCollection, PairwiseCandidateMapping]:
+        subjects, subjects_by_id = self._candidate_references(
+            call,
+            call.inputs["subjects"].value,
+            port="subjects",
+        )
+        _references, references_by_id = self._candidate_references(
+            call,
+            call.inputs["selected_references"].value,
+            port="selected_references",
+        )
+        selected_references = {
+            reference for _candidate, reference in references_by_id.values()
+        }
+        subject_references = {
+            reference for _candidate, reference in subjects_by_id.values()
+        }
+        pairing_entries = call.inputs["pairing"].value.entries
+        if {entry.subject for entry in pairing_entries} != subject_references:
+            raise ValueError(
+                "pairing subjects must exactly cover the supplied subjects"
+            )
+        pairing_references = {entry.reference for entry in pairing_entries}
+        if not selected_references.issubset(pairing_references):
+            raise ValueError(
+                "selected references must be present in the supplied pairing"
+            )
+        selected_entries = tuple(
+            entry
+            for entry in pairing_entries
+            if entry.reference in selected_references
+        )
+        selected_subjects = {entry.subject for entry in selected_entries}
+        return (
+            CandidateCollection(
+                collection_id="collection-ops-selected-pairing-subjects",
+                item_type=subjects.item_type,
+                items=tuple(
+                    candidate
+                    for candidate, reference in subjects_by_id.values()
+                    if reference in selected_subjects
+                ),
+            ),
+            PairwiseCandidateMapping(selected_entries),
+        )
 
     @staticmethod
     def _select_children_by_parent(
@@ -297,6 +352,60 @@ class CollectionOpsImplementation:
             )
             for subject in subjects.items
         ])
+
+    def _pair_by_two_hop_ancestor(
+        self,
+        call: OperationCall,
+    ) -> DirectAncestorCandidateMapping:
+        subjects, subjects_by_id = self._candidate_references(
+            call,
+            call.inputs["subjects"].value,
+            port="subjects",
+        )
+        intermediates, intermediates_by_id = self._candidate_references(
+            call,
+            call.inputs["intermediates"].value,
+            port="intermediates",
+        )
+        ancestors, ancestors_by_id = self._candidate_references(
+            call,
+            call.inputs["ancestors"].value,
+            port="ancestors",
+        )
+        matches: list[PairwiseCandidateMatch] = []
+        used_intermediates: set[str] = set()
+        used_ancestors: set[str] = set()
+        for subject in subjects.items:
+            if (
+                len(subject.parent_ids) != 1
+                or subject.parent_ids[0] not in intermediates_by_id
+                or subject.parent_ids[0] in used_intermediates
+            ):
+                raise ValueError(
+                    "each subject must name exactly one distinct supplied "
+                    "intermediate parent"
+                )
+            intermediate_id = subject.parent_ids[0]
+            intermediate = intermediates_by_id[intermediate_id][0]
+            if (
+                len(intermediate.parent_ids) != 1
+                or intermediate.parent_ids[0] not in ancestors_by_id
+            ):
+                raise ValueError(
+                    "each intermediate must name exactly one supplied ancestor"
+                )
+            ancestor_id = intermediate.parent_ids[0]
+            used_intermediates.add(intermediate_id)
+            used_ancestors.add(ancestor_id)
+            matches.append(PairwiseCandidateMatch(
+                subject=subjects_by_id[subject.candidate_id][1],
+                reference=ancestors_by_id[ancestor_id][1],
+            ))
+        if used_intermediates != set(intermediates_by_id):
+            raise ValueError("subjects do not cover every supplied intermediate")
+        if used_ancestors != set(ancestors_by_id):
+            raise ValueError("intermediates do not cover every supplied ancestor")
+        return DirectAncestorCandidateMapping(matches)
 
     @staticmethod
     def _concat_candidates(

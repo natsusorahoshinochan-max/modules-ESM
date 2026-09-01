@@ -643,7 +643,10 @@ def admit_produced_observations(
                         "Pairwise Context reference source does not contain one "
                         "exact Candidate counterpart"
                     )
-                if context.pairing_mode != "per_subject_counterpart":
+                if context.pairing_mode not in {
+                    "per_subject_counterpart",
+                    "per_subject_direct_ancestor",
+                }:
                     continue
                 pairing_record = _directional_source_record(
                     inputs=inputs,

@@ -525,7 +525,11 @@ def _validate_selection_context(value: ContextSelectorEvidence) -> None:
             or value.reference_role != "reference"
             or type(value.pairing_mode) is not str
             or value.pairing_mode
-            not in {"fixed_reference", "per_subject_counterpart"}
+            not in {
+                "fixed_reference",
+                "per_subject_counterpart",
+                "per_subject_direct_ancestor",
+            }
             or not _valid_identifier(value.normalization)
         ):
             raise ValueError("Selection Context evidence is invalid")

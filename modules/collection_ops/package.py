@@ -28,9 +28,11 @@ _OPERATIONS = (
     "merge_scores",
     "concat_pairings",
     "pair_siblings_by_parent",
+    "pair_by_two_hop_ancestor",
     "rebind_candidate_pairing",
     "take_candidates",
     "select_children_by_parent",
+    "select_pairing_subjects",
     "intersect_candidates",
 )
 
@@ -99,9 +101,11 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/merge_scores.yaml"),
         DefinitionResource("definitions/concat_pairings.yaml"),
         DefinitionResource("definitions/pair_siblings_by_parent.yaml"),
+        DefinitionResource("definitions/pair_by_two_hop_ancestor.yaml"),
         DefinitionResource("definitions/rebind_candidate_pairing.yaml"),
         DefinitionResource("definitions/take_candidates.yaml"),
         DefinitionResource("definitions/select_children_by_parent.yaml"),
+        DefinitionResource("definitions/select_pairing_subjects.yaml"),
         DefinitionResource("definitions/intersect_candidates.yaml"),
     ),
     methods=load_method_definitions(

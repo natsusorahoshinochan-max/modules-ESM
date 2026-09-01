@@ -144,6 +144,72 @@ def test_candidate_intersection_and_child_selection_preserve_exact_candidates() 
     assert intersection.items == ()
 
 
+def test_pairing_subject_selection_uses_exact_reference_membership() -> None:
+    catalog = build_frozen_catalog(module_registrations())
+    subjects = CandidateCollection(
+        "subjects",
+        "protein.sequence",
+        tuple(
+            Candidate(f"subject-{index}", ProteinSequence("AAAA"))
+            for index in range(3)
+        ),
+    )
+    references = CandidateCollection(
+        "references",
+        "protein.sequence",
+        tuple(
+            Candidate(f"reference-{index}", ProteinSequence("AAAA"))
+            for index in range(3)
+        ),
+    )
+    sequence_type = catalog.require_port_type("protein.sequence")
+
+    def reference(candidate: Candidate) -> CandidateDataReference:
+        return CandidateDataReference(
+            candidate.candidate_id,
+            "protein.sequence",
+            sequence_type.content_digest(candidate.data),
+        )
+
+    pairing = PairwiseCandidateMapping(
+        tuple(
+            PairwiseCandidateMatch(
+                reference(subject),
+                reference(reference_candidate),
+            )
+            for subject, reference_candidate in zip(
+                subjects.items,
+                references.items,
+                strict=True,
+            )
+        )
+    )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="collection_ops.select_pairing_subjects.direct",
+        inputs={
+            "subjects": subjects,
+            "selected_references": CandidateCollection(
+                "selected-references",
+                "protein.sequence",
+                (references.items[2], references.items[0]),
+            ),
+            "pairing": pairing,
+        },
+    )
+
+    outputs = CollectionOpsImplementation(
+        "select_pairing_subjects"
+    ).execute(call)
+
+    assert [
+        item.candidate_id for item in outputs["candidates"].items
+    ] == ["subject-0", "subject-2"]
+    assert [
+        entry.reference.candidate_id for entry in outputs["pairing"].entries
+    ] == ["reference-0", "reference-2"]
+
+
 def test_score_merge_preserves_exact_i_json_value_types() -> None:
     from tests.fixtures.collection_ops_sources.package import (
         MODULE_PACKAGE as SOURCE_PACKAGE,
@@ -186,6 +252,112 @@ def test_score_merge_preserves_exact_i_json_value_types() -> None:
 
     with pytest.raises(ValueError, match="conflicting values"):
         CollectionOpsImplementation("merge_scores").execute(call)
+
+
+def _two_hop_lineage_collections() -> tuple[
+    CandidateCollection,
+    CandidateCollection,
+    CandidateCollection,
+]:
+    ancestors = CandidateCollection(
+        "ancestors",
+        "protein.sequence",
+        tuple(
+            Candidate(f"ancestor-{index}", ProteinSequence("AAAA"))
+            for index in range(2)
+        ),
+    )
+    intermediates = CandidateCollection(
+        "intermediates",
+        "protein.sequence",
+        tuple(
+            Candidate(
+                f"intermediate-{index}",
+                ProteinSequence("AAAA"),
+                (f"ancestor-{index // 3}",),
+            )
+            for index in range(6)
+        ),
+    )
+    subjects = CandidateCollection(
+        "subjects",
+        "protein.sequence",
+        tuple(
+            Candidate(
+                f"subject-{index}",
+                ProteinSequence("AAAA"),
+                (f"intermediate-{index}",),
+            )
+            for index in range(6)
+        ),
+    )
+    return subjects, intermediates, ancestors
+
+
+def test_two_hop_ancestor_pairing_allows_three_subjects_per_reference() -> None:
+    catalog = build_frozen_catalog(module_registrations())
+    subjects, intermediates, ancestors = _two_hop_lineage_collections()
+    call = operation_call(
+        catalog=catalog,
+        binding_id="collection_ops.pair_by_two_hop_ancestor.direct",
+        inputs={
+            "subjects": subjects,
+            "intermediates": intermediates,
+            "ancestors": ancestors,
+        },
+    )
+
+    pairing = CollectionOpsImplementation(
+        "pair_by_two_hop_ancestor"
+    ).execute(call)["pairing"]
+
+    assert [entry.subject.candidate_id for entry in pairing.entries] == [
+        f"subject-{index}" for index in range(6)
+    ]
+    assert [entry.reference.candidate_id for entry in pairing.entries] == [
+        "ancestor-0",
+        "ancestor-0",
+        "ancestor-0",
+        "ancestor-1",
+        "ancestor-1",
+        "ancestor-1",
+    ]
+
+
+@pytest.mark.parametrize("failure", ["unrelated", "ambiguous"])
+def test_two_hop_ancestor_pairing_rejects_unclosed_lineage(
+    failure: str,
+) -> None:
+    catalog = build_frozen_catalog(module_registrations())
+    subjects, intermediates, ancestors = _two_hop_lineage_collections()
+    if failure == "unrelated":
+        ancestors = CandidateCollection(
+            ancestors.collection_id,
+            ancestors.item_type,
+            (*ancestors.items, Candidate("unrelated", ProteinSequence("AAAA"))),
+        )
+    else:
+        first = intermediates.items[0]
+        intermediates = CandidateCollection(
+            intermediates.collection_id,
+            intermediates.item_type,
+            (
+                replace(first, parent_ids=("ancestor-0", "ancestor-1")),
+                *intermediates.items[1:],
+            ),
+        )
+    call = operation_call(
+        catalog=catalog,
+        binding_id="collection_ops.pair_by_two_hop_ancestor.direct",
+        inputs={
+            "subjects": subjects,
+            "intermediates": intermediates,
+            "ancestors": ancestors,
+        },
+    )
+
+    with pytest.raises(ValueError):
+        CollectionOpsImplementation("pair_by_two_hop_ancestor").execute(call)
 
 
 def _assert_workflow_commit_owner(
@@ -260,26 +432,32 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
         ("binding", "collection_ops.concat_pairings.direct"),
         ("binding", "collection_ops.merge_scores.direct"),
         ("binding", "collection_ops.pair_siblings_by_parent.direct"),
+        ("binding", "collection_ops.pair_by_two_hop_ancestor.direct"),
         ("binding", "collection_ops.rebind_candidate_pairing.direct"),
         ("binding", "collection_ops.take_candidates.direct"),
         ("binding", "collection_ops.intersect_candidates.direct"),
         ("binding", "collection_ops.select_children_by_parent.direct"),
+        ("binding", "collection_ops.select_pairing_subjects.direct"),
         ("method", "collection_ops.concat_candidates.method"),
         ("method", "collection_ops.concat_pairings.method"),
         ("method", "collection_ops.merge_scores.method"),
         ("method", "collection_ops.pair_siblings_by_parent.method"),
+        ("method", "collection_ops.pair_by_two_hop_ancestor.method"),
         ("method", "collection_ops.rebind_candidate_pairing.method"),
         ("method", "collection_ops.take_candidates.method"),
         ("method", "collection_ops.intersect_candidates.method"),
         ("method", "collection_ops.select_children_by_parent.method"),
+        ("method", "collection_ops.select_pairing_subjects.method"),
         ("node_type", "collection_ops.concat_candidates"),
         ("node_type", "collection_ops.concat_pairings"),
         ("node_type", "collection_ops.merge_scores"),
         ("node_type", "collection_ops.pair_siblings_by_parent"),
+        ("node_type", "collection_ops.pair_by_two_hop_ancestor"),
         ("node_type", "collection_ops.rebind_candidate_pairing"),
         ("node_type", "collection_ops.take_candidates"),
         ("node_type", "collection_ops.intersect_candidates"),
         ("node_type", "collection_ops.select_children_by_parent"),
+        ("node_type", "collection_ops.select_pairing_subjects"),
     }
     assert not any(
         "aggregate" in contract_id for _, contract_id in contracts
@@ -295,6 +473,16 @@ def test_public_catalog_has_exact_collection_operation_nodes() -> None:
             "join": "complete-reference-equality",
             "cardinality": "one-to-one",
         }
+    direct_ancestor_method = contracts[
+        ("method", "collection_ops.pair_by_two_hop_ancestor.method")
+    ]
+    assert direct_ancestor_method["algorithm_identity"][
+        "pairing_contract"
+    ] == {
+        "participant_identity": "CandidateDataReference",
+        "join": "exact-two-hop-lineage",
+        "cardinality": "one-reference-per-subject-shared-reference-allowed",
+    }
 
 
 def test_collection_ports_and_score_union_keep_stable_scientific_types() -> None:
@@ -310,6 +498,7 @@ def test_collection_ports_and_score_union_keep_stable_scientific_types() -> None
         "concat_candidates",
         "concat_pairings",
         "pair_siblings_by_parent",
+        "pair_by_two_hop_ancestor",
         "rebind_candidate_pairing",
         "take_candidates",
         "intersect_candidates",
@@ -326,6 +515,7 @@ def test_collection_ports_and_score_union_keep_stable_scientific_types() -> None
             port_type = port["port_type"]
             assert port_type["contract_id"] in {
                 "candidate.collection",
+                "candidate.direct_ancestor_pairing",
                 "candidate.pairing",
                 "score.collection",
             }

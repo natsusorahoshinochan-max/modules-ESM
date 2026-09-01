@@ -15,9 +15,7 @@ from core.catalog.definition_resource import (
     DefinitionResource,
     load_method_definitions,
 )
-from core.catalog.port_contract import (
-    BehaviorReference,
-)
+from core.catalog.port_contract import BehaviorReference
 from core.operation import (
     OperationContext,
     ScientificOperation,
@@ -27,10 +25,6 @@ from .port_types import (
     CONFIDENCE_FACTS_PORT_TYPE,
     PREDICTION_RESIDUE_AXIS_PORT_TYPE,
 )
-
-
-
-
 def _available() -> AvailabilityResult:
     return AvailabilityResult.available()
 

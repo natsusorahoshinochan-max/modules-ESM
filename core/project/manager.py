@@ -21,8 +21,11 @@ from core.project.storage import (
 )
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
+WEBUI_3GB1_PROJECT_ID = "webui-3gb1-example"
+WEBUI_3GB1_RUN_ID = "run-b2aaed46fb5248f2aa9dc9192420c13a"
 MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
 _CANONICAL_STAGING_PREFIX = ".canonical-3gb1-staging-"
+_WEBUI_STAGING_PREFIX = ".webui-3gb1-staging-"
 
 
 class CanonicalSeedError(RuntimeError):
@@ -42,6 +45,7 @@ class ProjectMeta:
     created_at: str = ""
     modified_at: str = ""
     seed: bool = False
+    copied_from_project_id: str | None = None
 
     def __post_init__(self) -> None:
         now = datetime.now(timezone.utc).isoformat()
@@ -289,6 +293,15 @@ class ProjectManager:
             stored.append(validate_identifier(path.name, "run_id"))
         return tuple(stored)
 
+    def latest_run_id(self, project_id: str) -> str | None:
+        """Return the most recently modified Run scope for one Project."""
+        run_root = self.run_storage_root(project_id)
+        runs = [path for path in run_root.iterdir()] if run_root.is_dir() else []
+        if not runs:
+            return None
+        latest = max(runs, key=lambda path: path.stat().st_mtime_ns)
+        return validate_identifier(latest.name, "run_id")
+
     def stored_project_ids(self) -> tuple[str, ...]:
         """List contained Project IDs that currently have local storage."""
         if not self._root_dir.is_dir():
@@ -297,10 +310,33 @@ class ProjectManager:
         for path in sorted(self._root_dir.iterdir()):
             if not path.is_dir() or path.name.startswith(
                 _CANONICAL_STAGING_PREFIX
-            ):
+            ) or path.name.startswith(_WEBUI_STAGING_PREFIX):
                 continue
             stored.append(validate_identifier(path.name, "project_id"))
         return tuple(stored)
+
+    def list_projects(self, *, name: str | None = None) -> tuple[ProjectMeta, ...]:
+        """List Projects, optionally matching a case-insensitive name fragment."""
+        projects = tuple(
+            meta
+            for project_id in self.stored_project_ids()
+            if (meta := self.load_meta(project_id)) is not None
+        )
+        if name is None:
+            return projects
+        query = name.casefold()
+        return tuple(meta for meta in projects if query in meta.name.casefold())
+
+    def stored_input_references(self, project_id: str) -> tuple[str, ...]:
+        """List immutable Project Input references in one Project scope."""
+        inputs_dir = self._project_storage_root(project_id) / "inputs"
+        if not inputs_dir.is_dir():
+            return ()
+        return tuple(
+            validate_identifier(path.name, "project_input_ref")
+            for path in sorted(inputs_dir.iterdir())
+            if path.is_dir()
+        )
 
     def _ensure_dir(self, project_id: str) -> Path:
         d = self._project_storage_root(project_id)
@@ -311,21 +347,33 @@ class ProjectManager:
 
     # ── create ────────────────────────────────────────────────────────
 
-    def create(self, name: str) -> ProjectMeta:
+    def create(
+        self,
+        name: str,
+        *,
+        copied_from_project_id: str | None = None,
+    ) -> ProjectMeta:
         """Create one empty v2 Project scope."""
         if not isinstance(name, str) or not 1 <= len(name) <= 256:
             raise ValueError("Project name is invalid")
         project_id = str(uuid.uuid4())
-        meta = ProjectMeta(id=project_id, name=name)
+        meta = ProjectMeta(
+            id=project_id,
+            name=name,
+            copied_from_project_id=copied_from_project_id,
+        )
         self._ensure_dir(project_id)
         self._save_meta(meta)
         return meta
 
     def assert_writable(self, project_id: str) -> None:
         """Reject ordinary content or metadata writes to the canonical ID."""
-        if project_id == CANONICAL_3GB1_PROJECT_ID:
+        if project_id in {
+            CANONICAL_3GB1_PROJECT_ID,
+            WEBUI_3GB1_PROJECT_ID,
+        }:
             raise ProtectedProjectError(
-                "The canonical 3GB1 project is read-only"
+                "Protected example Projects are read-only"
             )
 
     def ensure_seed_project_v2(
@@ -423,6 +471,91 @@ class ProjectManager:
                 shutil.rmtree(staging_dir)
         return meta
 
+    def ensure_webui_example_project(
+        self,
+        *,
+        input_sources: Mapping[str, str | Path],
+        name: str = "3GB1 Local Redesign Example",
+    ) -> ProjectMeta | None:
+        """Install the distinct immutable WebUI example Project and inputs."""
+        project_dir = self._project_storage_root(WEBUI_3GB1_PROJECT_ID)
+        metadata_path = project_dir / "project.json"
+        if project_dir.exists():
+            if not project_dir.is_dir() or not metadata_path.exists():
+                return None
+            meta = self.load_meta(WEBUI_3GB1_PROJECT_ID)
+            return meta if meta is not None and meta.seed else None
+
+        input_payloads: dict[str, tuple[str, bytes]] = {}
+        for reference, source_value in input_sources.items():
+            safe_reference = validate_identifier(reference, "webui_example_input")
+            source = Path(source_value)
+            if not source.is_file():
+                raise CanonicalSeedError(
+                    f"WebUI example input source is unavailable: {reference}"
+                )
+            input_payloads[safe_reference] = (source.name, source.read_bytes())
+
+        meta = ProjectMeta(
+            id=WEBUI_3GB1_PROJECT_ID,
+            name=name,
+            seed=True,
+        )
+        self._root_dir.mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(
+            tempfile.mkdtemp(prefix=_WEBUI_STAGING_PREFIX, dir=self._root_dir)
+        ).resolve()
+        try:
+            (staging_dir / "inputs").mkdir(mode=0o700)
+            write_new_file(
+                staging_dir,
+                ("project.json",),
+                json.dumps(
+                    self._meta_data(meta),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                    allow_nan=False,
+                ).encode("utf-8"),
+            )
+            for reference, (filename, payload) in input_payloads.items():
+                self._publish_input_snapshot(
+                    staging_dir,
+                    reference,
+                    payload,
+                    filename=filename,
+                )
+            staging_dir.rename(project_dir)
+        except (OSError, StoragePathError, ValueError) as error:
+            raise CanonicalSeedError(
+                "WebUI example Project cannot be installed safely"
+            ) from error
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir)
+        return meta
+
+    def install_webui_example_run(
+        self,
+        *,
+        run_id: str,
+        run_source: str | Path,
+        objects_source: str | Path,
+    ) -> None:
+        """Install the shipped real Run ledger and referenced result objects."""
+        if self.stored_run_ids(WEBUI_3GB1_PROJECT_ID):
+            return
+        safe_run_id = validate_identifier(run_id, "run_id")
+        run_destination = self.run_storage_directory(
+            WEBUI_3GB1_PROJECT_ID,
+            safe_run_id,
+        )
+        objects_destination = self._object_storage_root(WEBUI_3GB1_PROJECT_ID)
+        run_destination.parent.mkdir(parents=True, exist_ok=True)
+        objects_destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(Path(run_source), run_destination)
+        shutil.copytree(Path(objects_source), objects_destination)
+
     def load_meta(self, project_id: str) -> ProjectMeta | None:
         """Load one Project metadata document."""
         path = self._project_storage_root(project_id) / "project.json"
@@ -448,6 +581,10 @@ class ProjectManager:
             or not isinstance(raw["created_at"], str)
             or not isinstance(raw["modified_at"], str)
             or type(raw["seed"]) is not bool
+            or (
+                raw.get("copied_from_project_id") is not None
+                and not isinstance(raw.get("copied_from_project_id"), str)
+            )
         ):
             raise ValueError("Project metadata is invalid")
         return ProjectMeta(
@@ -456,6 +593,7 @@ class ProjectManager:
             created_at=raw["created_at"],
             modified_at=raw["modified_at"],
             seed=raw["seed"],
+            copied_from_project_id=raw.get("copied_from_project_id"),
         )
 
     @staticmethod
@@ -466,6 +604,7 @@ class ProjectManager:
             "created_at": meta.created_at,
             "modified_at": meta.modified_at,
             "seed": meta.seed,
+            "copied_from_project_id": meta.copied_from_project_id,
         }
 
     def _save_meta(self, meta: ProjectMeta) -> None:

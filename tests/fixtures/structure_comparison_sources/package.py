@@ -286,6 +286,10 @@ class _Source:
             subject_values = (("beta", beta), ("alpha", alpha))
             reference_values = (("other", other), ("fixed", fixed))
             pairs = (("alpha", "fixed"), ("beta", "other"))
+        elif scenario == "per_subject_direct_ancestor":
+            subject_values = (("beta", beta), ("alpha", alpha))
+            reference_values = (("fixed", fixed),)
+            pairs = (("alpha", "fixed"), ("beta", "fixed"))
         else:
             raise ValueError("unknown comparison source scenario")
         subjects = CandidateCollection(
@@ -310,7 +314,12 @@ class _Source:
                 "references": references,
             }
             if pairs is not None:
-                outputs["pairing"] = CandidatePairingIntent(
+                output_port = (
+                    "direct_ancestor_pairing"
+                    if scenario == "per_subject_direct_ancestor"
+                    else "pairing"
+                )
+                outputs[output_port] = CandidatePairingIntent(
                     entries=tuple(
                         CandidatePairingIntentEntry(subject_id, reference_id)
                         for subject_id, reference_id in pairs

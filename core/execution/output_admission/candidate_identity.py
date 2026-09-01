@@ -29,6 +29,7 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.observation import (
+    DirectAncestorCandidateMapping,
     PairwiseCandidateMapping,
     PairwiseCandidateMatch,
     PairwiseObservationContext,
@@ -183,6 +184,7 @@ def _normalize_candidate_outputs(
     outputs: Mapping[str, tuple[Any, ...]],
     candidate_data_port_types: Mapping[str, Any],
     identity_encoder: _FreshOutputIdentityEncoder,
+    direct_ancestor_pairing_ports: frozenset[str] = frozenset(),
     candidate_metadata: tuple[CandidateMetadataIdentity, ...] = (),
     observation_propagation: ObservationPropagationPlan | None = None,
 ) -> _NormalizedCandidateOutputs:
@@ -200,7 +202,10 @@ def _normalize_candidate_outputs(
     input_pairing_references: dict[str, CandidateDataReference] = {}
     for admitted in inputs.values():
         value = admitted.value
-        if type(value) is not PairwiseCandidateMapping:
+        if type(value) not in {
+            PairwiseCandidateMapping,
+            DirectAncestorCandidateMapping,
+        }:
             continue
         for entry in value.entries:
             for reference in (entry.subject, entry.reference):
@@ -438,7 +443,9 @@ def _normalize_candidate_outputs(
 
     def project_pairing_intent(
         value: CandidatePairingIntent,
-    ) -> PairwiseCandidateMapping:
+        *,
+        direct_ancestor: bool,
+    ) -> PairwiseCandidateMapping | DirectAncestorCandidateMapping:
         entries: list[PairwiseCandidateMatch] = []
         for entry in value.entries:
             if type(entry) is not CandidatePairingIntentEntry:
@@ -466,6 +473,8 @@ def _normalize_candidate_outputs(
                     reference=reference,
                 )
             )
+        if direct_ancestor:
+            return DirectAncestorCandidateMapping(entries)
         return PairwiseCandidateMapping(entries)
 
     def normalize_value(
@@ -512,8 +521,27 @@ def _normalize_candidate_outputs(
                     for entry in value.entries
                 ]
             )
+        if type(value) is DirectAncestorCandidateMapping:
+            return DirectAncestorCandidateMapping(
+                entries=[
+                    PairwiseCandidateMatch(
+                        subject=require_exact_input_candidate_reference(
+                            entry.subject
+                        ),
+                        reference=require_exact_input_candidate_reference(
+                            entry.reference
+                        ),
+                    )
+                    for entry in value.entries
+                ]
+            )
         if type(value) is CandidatePairingIntent:
-            return project_pairing_intent(value)
+            return project_pairing_intent(
+                value,
+                direct_ancestor=(
+                    output_port in direct_ancestor_pairing_ports
+                ),
+            )
         if type(value) is ScoreCollection:
             require_subject = (
                 require_exact_propagated_subject

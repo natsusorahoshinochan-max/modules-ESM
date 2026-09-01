@@ -11,6 +11,9 @@ keys/
 build/
 dist/
 frontend/node_modules/
+webui/node_modules/
+webui/test-results/
+webui/playwright-report/
 __pycache__/
 *.py[cod]
 .pytest_cache/
