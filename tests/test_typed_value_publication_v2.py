@@ -289,7 +289,6 @@ def test_registered_esm3_large_paired_values_round_trip_exactly(
     assert {
         "sequence_candidates",
         "structure_candidates",
-        "counterpart_pairs",
         "confidence_facts",
         "sequence_reconstruction_candidates",
         "sequence_reconstruction_confidence_facts",
@@ -324,7 +323,6 @@ def test_registered_esm3_large_paired_values_round_trip_exactly(
     sequences = decoded["sequence_candidates"]
     structures = decoded["structure_candidates"]
     reconstructions = decoded["sequence_reconstruction_candidates"]
-    pairs = decoded["counterpart_pairs"]
     confidence = decoded["confidence_facts"]
     reconstruction_confidence = decoded[
         "sequence_reconstruction_confidence_facts"
@@ -332,7 +330,6 @@ def test_registered_esm3_large_paired_values_round_trip_exactly(
     assert len(sequences.items) == 2
     assert len(structures.items) == 2
     assert len(reconstructions.items) == 2
-    assert len(pairs.entries) == 2
     assert len(confidence.entries) == 2
     assert len(reconstruction_confidence.entries) == 2
     assert [item.parent_ids for item in structures.items] == [

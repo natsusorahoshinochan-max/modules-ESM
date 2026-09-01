@@ -22,8 +22,8 @@ from core.catalog.port_contract import (
     BehaviorReference,
 )
 from core.operation import (
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
+    CandidateRelationIntent,
+    CandidateRelationIntentEntry,
     OperationCall,
     OperationContext,
     ReadinessResult,
@@ -207,8 +207,8 @@ class _InsertedLoopSource:
                 "sequence_parents": CandidateCollection(
                     "inserted-loop-sequences", "protein.sequence", (sequence,)
                 ),
-                "pairing": CandidatePairingIntent(
-                    entries=(CandidatePairingIntentEntry("subject", "counterpart"),)
+                "pairing": CandidateRelationIntent(
+                    entries=(CandidateRelationIntentEntry("subject", "counterpart"),)
                 ),
             }
 
@@ -282,11 +282,11 @@ class _Source:
             subject_values = (("beta", beta), ("alpha", alpha))
             reference_values = (("fixed", fixed),)
             pairs = None
-        elif scenario == "per_subject_counterpart":
+        elif scenario == "explicit_relation":
             subject_values = (("beta", beta), ("alpha", alpha))
             reference_values = (("other", other), ("fixed", fixed))
             pairs = (("alpha", "fixed"), ("beta", "other"))
-        elif scenario == "per_subject_direct_ancestor":
+        elif scenario == "explicit_relation":
             subject_values = (("beta", beta), ("alpha", alpha))
             reference_values = (("fixed", fixed),)
             pairs = (("alpha", "fixed"), ("beta", "fixed"))
@@ -314,14 +314,9 @@ class _Source:
                 "references": references,
             }
             if pairs is not None:
-                output_port = (
-                    "direct_ancestor_pairing"
-                    if scenario == "per_subject_direct_ancestor"
-                    else "pairing"
-                )
-                outputs[output_port] = CandidatePairingIntent(
+                outputs["pairing"] = CandidateRelationIntent(
                     entries=tuple(
-                        CandidatePairingIntentEntry(subject_id, reference_id)
+                        CandidateRelationIntentEntry(subject_id, reference_id)
                         for subject_id, reference_id in pairs
                     )
                 )

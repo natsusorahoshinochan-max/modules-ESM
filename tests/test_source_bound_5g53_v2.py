@@ -33,7 +33,7 @@ from datatypes.candidate import (
     CandidateCollection,
 )
 from datatypes.exact_reference import ExactContractReference
-from datatypes.observation import PairwiseCandidateMapping
+from datatypes.observation import CandidateRelation
 from datatypes.structure import ProteinStructure
 from modules.structure_comparison.domain import InsertedLoopEvaluationCollection
 from datatypes.prediction import prediction_key
@@ -566,14 +566,14 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         )
         merged_folds = _decode(client, catalog, projection, "merge-folds", "candidates")
         merged_pairing = _decode(
-            client, catalog, projection, "merge-counterpart-pairings", "pairing"
+            client, catalog, projection, "merge-counterpart-pairings", "relation"
         )
         merged_fold_pairing = _decode(
             client,
             catalog,
             projection,
             "merge-fold-counterpart-pairings",
-            "pairing",
+            "relation",
         )
         passing = _decode(client, catalog, projection, "merge-passing", "candidates")
         assert all(
@@ -590,7 +590,7 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
         assert len(merged_counterparts.items) == 6
         assert len(merged_reconstructions.items) == 6
         assert len(merged_folds.items) == 6
-        assert type(merged_pairing) is PairwiseCandidateMapping
+        assert type(merged_pairing) is CandidateRelation
         assert len(merged_pairing.entries) == 6
         assert tuple(
             (entry.subject, entry.reference) for entry in merged_pairing.entries
@@ -691,8 +691,8 @@ def test_source_bound_5g53_public_journey_closes_large_scientific_evidence(
                 client,
                 catalog,
                 projection,
-                f"generate-{branch}",
-                "counterpart_pairs",
+                f"relate-generated-pairs-{branch}",
+                "relation",
             )
             confidence_facts = _decode(
                 client,

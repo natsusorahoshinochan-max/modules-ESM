@@ -22,7 +22,7 @@ from core.project.storage import (
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
 WEBUI_3GB1_PROJECT_ID = "webui-3gb1-example"
-WEBUI_3GB1_RUN_ID = "run-b2aaed46fb5248f2aa9dc9192420c13a"
+WEBUI_3GB1_RUN_ID = "run-29cd5f76ce43448b8f5b4a924d9ef58d"
 MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
 _CANONICAL_STAGING_PREFIX = ".canonical-3gb1-staging-"
 _WEBUI_STAGING_PREFIX = ".webui-3gb1-staging-"

@@ -1,0 +1,1 @@
+{"project_id":"webui-3gb1-example","run_id":"run-0b5969e74a1c4ff7b0bc1278cda50afc","transaction_sequence":25,"first_fact_sequence":25,"last_fact_sequence":25,"committed_at":"2026-09-01T10:41:46.411140+00:00","facts":[{"sequence":25,"recorded_at":"2026-09-01T10:41:46.411136+00:00","fact_type":"run_started","payload":{"started_at":"2026-09-01T10:41:46.411133+00:00"}}]}

@@ -20,7 +20,8 @@ export type NodeDisposition =
   | NodeDispositionBase & { outcome: 'succeeded'; blocked_by: []; resolution: 'executed' | 'cache_replayed' }
   | NodeDispositionBase & { outcome: 'blocked'; blocked_by: string[] }
   | NodeDispositionBase & { outcome: 'failed' | 'cancelled' | 'interrupted'; blocked_by: [] }
-export type RunProjection = { project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: JsonObject[]; artifact_index: JsonObject[]; selection_results?: Array<{ status: string; selection_node_id: string; selected_candidate_ids: string[]; objectives: JsonObject[] }> }
+type SelectionInput = { node_id: string; output_port: string; content_digest: string; result_identity: string }
+export type RunProjection = { project_id: string; run_id: string; workflow_commit_id: string; status: RunStatus; ledger_cursor: string; node_dispositions: NodeDisposition[]; outputs: JsonObject[]; artifact_index: JsonObject[]; selection_results?: Array<{ status: string; selection_node_id: string; candidate_input: SelectionInput; selected_candidate_ids: string[]; objectives: Array<JsonObject & { score_collection_input: SelectionInput }> }> }
 export type RunEvent =
   | { type: 'run_admitted'; workflow_commit_id: string }
   | { type: 'run_started'; started_at: string }

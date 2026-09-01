@@ -3632,8 +3632,7 @@
         "pairing_mode": {
           "enum": [
             "fixed_reference",
-            "per_subject_counterpart",
-            "per_subject_direct_ancestor"
+            "explicit_relation"
           ]
         },
         "reference_role": {

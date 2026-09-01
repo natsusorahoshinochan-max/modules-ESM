@@ -164,6 +164,8 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
 .parameter-group summary span { margin-left: auto; font: 8px 'DM Mono'; border: 1px solid #353a34; min-width: 17px; height: 17px; display: grid; place-items: center; border-radius: 9px; }
 .parameter-fields { padding: 2px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
 .parameter-fields label { display: grid; grid-template-columns: 1fr 118px; align-items: center; gap: 8px; font-size: 8px; color: #727a72; }
+.managed-member-list { display: grid; gap: 5px; padding: 8px 10px 10px; }
+.managed-member-list code { color: #aeb8b1; font-size: 8px; overflow: hidden; text-overflow: ellipsis; }
 .field-control { display: flex; align-items: center; background: #121511; border: 1px solid #333933; border-radius: 3px; height: 25px; }
 .field-control input, .field-control select { width: 100%; height: 100%; border: 0; outline: 0; color: #c9d0c9; background: transparent; font: 8px 'DM Mono'; padding: 0 6px; min-width: 0; }
 .field-control em { font: 8px 'DM Mono'; color: #7b847c; padding-right: 6px; font-style: normal; }
@@ -179,7 +181,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
 .structure-viewer { width: 100%; height: 100%; position: relative; }
 .run-peek-visual > span, .mini-viewer > span { position: absolute; bottom: 7px; left: 8px; font: 8px 'DM Mono'; color: #858e85; background: rgba(15,18,15,.72); padding: 4px 6px; border-radius: 3px; }
 .run-funnel { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #2d322d; border-bottom: 1px solid #2d322d; padding: 9px 2px; }
-.run-funnel span { display: flex; flex-direction: column; font: 7px 'DM Mono'; color: #6f786f; gap: 2px; }
+.run-funnel span { display: flex; align-items: center; font: 7px 'DM Mono'; color: #6f786f; gap: 5px; }
 .run-funnel strong { font-size: 13px; color: #d9ded8; }
 .run-funnel svg { color: #555d56; }
 .old-result-note { display: flex; gap: 8px; color: #8a928a; background: #20251f; border: 1px solid #363c35; padding: 9px; border-radius: 5px; font-size: 8px; line-height: 1.55; }

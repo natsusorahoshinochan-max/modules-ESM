@@ -38,7 +38,7 @@ from protein_workbench_public.workflow_codec import decode_workflow_document
 from tests.support.application import create_application
 from datatypes.candidate import CandidateCollection
 from datatypes.observation import (
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
 )
 from datatypes.structure import ProteinStructure
@@ -481,9 +481,9 @@ def test_source_bound_1pga_public_journey_closes_complete_evidence(
         )
 
         pairing = _decoded_output(
-            client, catalog, projection, "pair-methods", "pairing"
+            client, catalog, projection, "pair-methods", "relation"
         )
-        assert type(pairing) is PairwiseCandidateMapping
+        assert type(pairing) is CandidateRelation
         assert len(pairing.entries) == 1
         assert pairing.entries[0].subject.candidate_id == (
             esmfold2_structures.items[0].candidate_id

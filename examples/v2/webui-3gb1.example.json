@@ -168,9 +168,23 @@
         "binding_parameters": {}
       },
       {
+        "node_id": "relation-generated-structure-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-generated-pairs",
+        "node_type_id": "collection_ops.invert_relation",
+        "binding_id": "collection_ops.invert_relation.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
         "node_id": "select-paired-sequences",
-        "node_type_id": "collection_ops.select_pairing_subjects",
-        "binding_id": "collection_ops.select_pairing_subjects.direct",
+        "node_type_id": "collection_ops.select_related_subjects",
+        "binding_id": "collection_ops.select_related_subjects.direct",
         "node_parameters": {},
         "binding_parameters": {}
       },
@@ -192,9 +206,16 @@
         "binding_parameters": {}
       },
       {
-        "node_id": "pair-stage-one",
-        "node_type_id": "collection_ops.rebind_candidate_pairing",
-        "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+        "node_id": "relation-stage-one-fold-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-stage-one",
+        "node_type_id": "collection_ops.compose_relations",
+        "binding_id": "collection_ops.compose_relations.direct",
         "node_parameters": {},
         "binding_parameters": {}
       },
@@ -214,15 +235,15 @@
       },
       {
         "node_id": "align-stage-one",
-        "node_type_id": "structure_comparison.align_counterparts",
-        "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+        "node_type_id": "structure_comparison.align_pairs",
+        "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
         "node_parameters": {},
         "binding_parameters": {}
       },
       {
         "node_id": "tm-stage-one",
-        "node_type_id": "structure_comparison.tm_score_counterparts",
-        "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+        "node_type_id": "structure_comparison.tm_score_from_alignments",
+        "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
         "node_parameters": {},
         "binding_parameters": {}
       },
@@ -290,9 +311,23 @@
         "binding_parameters": {}
       },
       {
-        "node_id": "pair-final-ancestors",
-        "node_type_id": "collection_ops.pair_by_two_hop_ancestor",
-        "binding_id": "collection_ops.pair_by_two_hop_ancestor.direct",
+        "node_id": "relation-final-fold-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-design-parent",
+        "node_type_id": "collection_ops.relate_by_parent",
+        "binding_id": "collection_ops.relate_by_parent.direct",
+        "node_parameters": {},
+        "binding_parameters": {}
+      },
+      {
+        "node_id": "relation-final",
+        "node_type_id": "collection_ops.compose_relations",
+        "binding_id": "collection_ops.compose_relations.direct",
         "node_parameters": {},
         "binding_parameters": {}
       },
@@ -305,15 +340,15 @@
       },
       {
         "node_id": "align-final",
-        "node_type_id": "structure_comparison.align_direct_ancestors",
-        "binding_id": "structure_comparison.align_direct_ancestors.sequence_primary_affine",
+        "node_type_id": "structure_comparison.align_pairs",
+        "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
         "node_parameters": {},
         "binding_parameters": {}
       },
       {
         "node_id": "tm-final",
-        "node_type_id": "structure_comparison.tm_score_direct_ancestors",
-        "binding_id": "structure_comparison.tm_score_direct_ancestors.from_alignment_evidence",
+        "node_type_id": "structure_comparison.tm_score_from_alignments",
+        "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
         "node_parameters": {},
         "binding_parameters": {}
       },
@@ -435,6 +470,24 @@
       },
       {
         "source_node_id": "generate-paired",
+        "source_port": "structure_candidates",
+        "target_node_id": "relation-generated-structure-parent",
+        "target_port": "subjects"
+      },
+      {
+        "source_node_id": "generate-paired",
+        "source_port": "sequence_candidates",
+        "target_node_id": "relation-generated-structure-parent",
+        "target_port": "parents"
+      },
+      {
+        "source_node_id": "relation-generated-structure-parent",
+        "source_port": "relation",
+        "target_node_id": "relation-generated-pairs",
+        "target_port": "relation"
+      },
+      {
+        "source_node_id": "generate-paired",
         "source_port": "sequence_candidates",
         "target_node_id": "select-paired-sequences",
         "target_port": "subjects"
@@ -446,10 +499,10 @@
         "target_port": "selected_references"
       },
       {
-        "source_node_id": "generate-paired",
-        "source_port": "counterpart_pairs",
+        "source_node_id": "relation-generated-pairs",
+        "source_port": "relation",
         "target_node_id": "select-paired-sequences",
-        "target_port": "pairing"
+        "target_port": "relation"
       },
       {
         "source_node_id": "select-paired-sequences",
@@ -472,26 +525,26 @@
       {
         "source_node_id": "fold-stage-one",
         "source_port": "structure_candidates",
-        "target_node_id": "pair-stage-one",
+        "target_node_id": "relation-stage-one-fold-parent",
         "target_port": "subjects"
       },
       {
         "source_node_id": "select-paired-sequences",
         "source_port": "candidates",
-        "target_node_id": "pair-stage-one",
+        "target_node_id": "relation-stage-one-fold-parent",
         "target_port": "parents"
       },
       {
-        "source_node_id": "take-top-four",
-        "source_port": "candidates",
-        "target_node_id": "pair-stage-one",
-        "target_port": "references"
+        "source_node_id": "relation-stage-one-fold-parent",
+        "source_port": "relation",
+        "target_node_id": "relation-stage-one",
+        "target_port": "left_relation"
       },
       {
         "source_node_id": "select-paired-sequences",
-        "source_port": "pairing",
-        "target_node_id": "pair-stage-one",
-        "target_port": "parent_pairing"
+        "source_port": "relation",
+        "target_node_id": "relation-stage-one",
+        "target_port": "right_relation"
       },
       {
         "source_node_id": "fold-stage-one",
@@ -530,10 +583,10 @@
         "target_port": "reference_residue_axes"
       },
       {
-        "source_node_id": "pair-stage-one",
-        "source_port": "pairing",
+        "source_node_id": "relation-stage-one",
+        "source_port": "relation",
         "target_node_id": "align-stage-one",
-        "target_port": "pairing"
+        "target_port": "relation"
       },
       {
         "source_node_id": "align-stage-one",
@@ -554,10 +607,10 @@
         "target_port": "references"
       },
       {
-        "source_node_id": "pair-stage-one",
-        "source_port": "pairing",
+        "source_node_id": "relation-stage-one",
+        "source_port": "relation",
         "target_node_id": "tm-stage-one",
-        "target_port": "pairing"
+        "target_port": "relation"
       },
       {
         "source_node_id": "confidence-stage-one",
@@ -628,20 +681,38 @@
       {
         "source_node_id": "fold-final",
         "source_port": "structure_candidates",
-        "target_node_id": "pair-final-ancestors",
+        "target_node_id": "relation-final-fold-parent",
         "target_port": "subjects"
       },
       {
         "source_node_id": "design-children",
         "source_port": "sequence_candidates",
-        "target_node_id": "pair-final-ancestors",
-        "target_port": "intermediates"
+        "target_node_id": "relation-final-fold-parent",
+        "target_port": "parents"
+      },
+      {
+        "source_node_id": "design-children",
+        "source_port": "sequence_candidates",
+        "target_node_id": "relation-design-parent",
+        "target_port": "subjects"
       },
       {
         "source_node_id": "take-top-two",
         "source_port": "candidates",
-        "target_node_id": "pair-final-ancestors",
-        "target_port": "ancestors"
+        "target_node_id": "relation-design-parent",
+        "target_port": "parents"
+      },
+      {
+        "source_node_id": "relation-final-fold-parent",
+        "source_port": "relation",
+        "target_node_id": "relation-final",
+        "target_port": "left_relation"
+      },
+      {
+        "source_node_id": "relation-design-parent",
+        "source_port": "relation",
+        "target_node_id": "relation-final",
+        "target_port": "right_relation"
       },
       {
         "source_node_id": "fold-final",
@@ -674,10 +745,10 @@
         "target_port": "reference_residue_axes"
       },
       {
-        "source_node_id": "pair-final-ancestors",
-        "source_port": "pairing",
+        "source_node_id": "relation-final",
+        "source_port": "relation",
         "target_node_id": "align-final",
-        "target_port": "pairing"
+        "target_port": "relation"
       },
       {
         "source_node_id": "align-final",
@@ -698,10 +769,10 @@
         "target_port": "references"
       },
       {
-        "source_node_id": "pair-final-ancestors",
-        "source_port": "pairing",
+        "source_node_id": "relation-final",
+        "source_port": "relation",
         "target_node_id": "tm-final",
-        "target_port": "pairing"
+        "target_port": "relation"
       },
       {
         "source_node_id": "confidence-final",
@@ -814,7 +885,7 @@
           "node_id": "scores-stage-one",
           "output_port": "scores"
         },
-        "source_partition": "structure_comparison.tm_score.per_subject_counterpart",
+        "source_partition": "structure_comparison.tm_score.explicit_relation",
         "metric": {
           "contract_kind": "metric",
           "contract_id": "structure_comparison.tm_score"
@@ -827,12 +898,12 @@
           "kind": "pairwise",
           "subject_role": "subject",
           "reference_role": "reference",
-          "pairing_mode": "per_subject_counterpart",
+          "pairing_mode": "explicit_relation",
           "normalization": "reference-axis-residue-count"
         },
         "utility_transform": {
           "contract_kind": "utility_transform",
-          "contract_id": "structure_comparison.tm_score.per_subject_counterpart.identity"
+          "contract_id": "structure_comparison.tm_score.explicit_relation.identity"
         },
         "utility_parameters": {},
         "weight": 0.5,
@@ -880,7 +951,7 @@
           "node_id": "scores-final",
           "output_port": "scores"
         },
-        "source_partition": "structure_comparison.tm_score.per_subject_direct_ancestor",
+        "source_partition": "structure_comparison.tm_score.explicit_relation",
         "metric": {
           "contract_kind": "metric",
           "contract_id": "structure_comparison.tm_score"
@@ -893,12 +964,12 @@
           "kind": "pairwise",
           "subject_role": "subject",
           "reference_role": "reference",
-          "pairing_mode": "per_subject_direct_ancestor",
+          "pairing_mode": "explicit_relation",
           "normalization": "reference-axis-residue-count"
         },
         "utility_transform": {
           "contract_kind": "utility_transform",
-          "contract_id": "structure_comparison.tm_score.per_subject_direct_ancestor.identity"
+          "contract_id": "structure_comparison.tm_score.explicit_relation.identity"
         },
         "utility_parameters": {},
         "weight": 0.5,

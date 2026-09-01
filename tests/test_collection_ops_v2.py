@@ -39,8 +39,8 @@ from datatypes.candidate import (
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     ScoreCollection,
     ScoreObservation,
 )
@@ -80,10 +80,13 @@ def _application_roots(
 
 
 def test_candidate_intersection_and_child_selection_preserve_exact_candidates() -> None:
-    parents = CandidateCollection(
-        "passing-parents",
+    all_parents = CandidateCollection(
+        "parents",
         "protein.sequence",
-        (Candidate("parent-a", ProteinSequence("AAAA")),),
+        (
+            Candidate("parent-a", ProteinSequence("AAAA")),
+            Candidate("parent-b", ProteinSequence("AAAA")),
+        ),
     )
     children = CandidateCollection(
         "children",
@@ -93,22 +96,41 @@ def test_candidate_intersection_and_child_selection_preserve_exact_candidates() 
             Candidate("child-b", ProteinSequence("AAAA"), ("parent-b",)),
         ),
     )
-    selected = CollectionOpsImplementation("select_children_by_parent").execute(
-        OperationCall(
+    catalog = build_frozen_catalog(module_registrations())
+    relation = CollectionOpsImplementation("relate_by_parent").execute(
+        operation_call(
+            catalog=catalog,
+            binding_id="collection_ops.relate_by_parent.direct",
+            inputs={"subjects": children, "parents": all_parents},
+        )
+    )["relation"]
+    inverted = CollectionOpsImplementation("invert_relation").execute(
+        operation_call(
+            catalog=catalog,
+            binding_id="collection_ops.invert_relation.direct",
+            inputs={"relation": relation},
+        )
+    )["relation"]
+    assert tuple(
+        (entry.subject, entry.reference)
+        for entry in inverted.entries
+    ) == tuple(
+        (entry.reference, entry.subject)
+        for entry in relation.entries
+    )
+    selected = CollectionOpsImplementation("select_related_subjects").execute(
+        operation_call(
+            catalog=catalog,
+            binding_id="collection_ops.select_related_subjects.direct",
             inputs={
-                name: admitted_port_fixture(
-                    value,
-                    port_type_id="candidate.collection",
-                    value_content_digests=("sha256:" + digit * 64,),
-                )
-                for name, value, digit in (
-                    ("candidates", children, "a"),
-                    ("parents", parents, "b"),
-                )
+                "subjects": children,
+                "selected_references": CandidateCollection(
+                    "passing-parents",
+                    "protein.sequence",
+                    (all_parents.items[0],),
+                ),
+                "relation": relation,
             },
-            node_parameters={},
-            binding_parameters={},
-            effective_randomness={},
         )
     )["candidates"]
     assert tuple(item.candidate_id for item in selected.items) == ("child-a",)
@@ -171,9 +193,9 @@ def test_pairing_subject_selection_uses_exact_reference_membership() -> None:
             sequence_type.content_digest(candidate.data),
         )
 
-    pairing = PairwiseCandidateMapping(
+    pairing = CandidateRelation(
         tuple(
-            PairwiseCandidateMatch(
+            CandidateRelationEntry(
                 reference(subject),
                 reference(reference_candidate),
             )
@@ -186,7 +208,7 @@ def test_pairing_subject_selection_uses_exact_reference_membership() -> None:
     )
     call = operation_call(
         catalog=catalog,
-        binding_id="collection_ops.select_pairing_subjects.direct",
+        binding_id="collection_ops.select_related_subjects.direct",
         inputs={
             "subjects": subjects,
             "selected_references": CandidateCollection(
@@ -194,19 +216,19 @@ def test_pairing_subject_selection_uses_exact_reference_membership() -> None:
                 "protein.sequence",
                 (references.items[2], references.items[0]),
             ),
-            "pairing": pairing,
+            "relation": pairing,
         },
     )
 
     outputs = CollectionOpsImplementation(
-        "select_pairing_subjects"
+        "select_related_subjects"
     ).execute(call)
 
     assert [
         item.candidate_id for item in outputs["candidates"].items
     ] == ["subject-0", "subject-2"]
     assert [
-        entry.reference.candidate_id for entry in outputs["pairing"].entries
+        entry.reference.candidate_id for entry in outputs["relation"].entries
     ] == ["reference-0", "reference-2"]
 
 
@@ -297,19 +319,30 @@ def _two_hop_lineage_collections() -> tuple[
 def test_two_hop_ancestor_pairing_allows_three_subjects_per_reference() -> None:
     catalog = build_frozen_catalog(module_registrations())
     subjects, intermediates, ancestors = _two_hop_lineage_collections()
-    call = operation_call(
+    subject_to_intermediate = CollectionOpsImplementation(
+        "relate_by_parent"
+    ).execute(operation_call(
         catalog=catalog,
-        binding_id="collection_ops.pair_by_two_hop_ancestor.direct",
-        inputs={
-            "subjects": subjects,
-            "intermediates": intermediates,
-            "ancestors": ancestors,
-        },
-    )
-
-    pairing = CollectionOpsImplementation(
-        "pair_by_two_hop_ancestor"
-    ).execute(call)["pairing"]
+        binding_id="collection_ops.relate_by_parent.direct",
+        inputs={"subjects": subjects, "parents": intermediates},
+    ))["relation"]
+    intermediate_to_ancestor = CollectionOpsImplementation(
+        "relate_by_parent"
+    ).execute(operation_call(
+        catalog=catalog,
+        binding_id="collection_ops.relate_by_parent.direct",
+        inputs={"subjects": intermediates, "parents": ancestors},
+    ))["relation"]
+    pairing = CollectionOpsImplementation("compose_relations").execute(
+        operation_call(
+            catalog=catalog,
+            binding_id="collection_ops.compose_relations.direct",
+            inputs={
+                "left_relation": subject_to_intermediate,
+                "right_relation": intermediate_to_ancestor,
+            },
+        )
+    )["relation"]
 
     assert [entry.subject.candidate_id for entry in pairing.entries] == [
         f"subject-{index}" for index in range(6)
@@ -346,18 +379,14 @@ def test_two_hop_ancestor_pairing_rejects_unclosed_lineage(
                 *intermediates.items[1:],
             ),
         )
-    call = operation_call(
-        catalog=catalog,
-        binding_id="collection_ops.pair_by_two_hop_ancestor.direct",
-        inputs={
-            "subjects": subjects,
-            "intermediates": intermediates,
-            "ancestors": ancestors,
-        },
-    )
-
     with pytest.raises(ValueError):
-        CollectionOpsImplementation("pair_by_two_hop_ancestor").execute(call)
+        CollectionOpsImplementation("relate_by_parent").execute(
+            operation_call(
+                catalog=catalog,
+                binding_id="collection_ops.relate_by_parent.direct",
+                inputs={"subjects": intermediates, "parents": ancestors},
+            )
+        )
 
 
 def _assert_workflow_commit_owner(
@@ -426,61 +455,36 @@ def _public_collection_contracts() -> dict[tuple[str, str], dict]:
 
 def test_public_catalog_has_exact_collection_operation_nodes() -> None:
     contracts = _public_collection_contracts()
-
+    operations = {
+        "concat_candidates",
+        "merge_scores",
+        "concat_relations",
+        "relate_by_parent",
+        "relate_to_single_reference",
+        "compose_relations",
+        "invert_relation",
+        "join_relation_subjects",
+        "take_candidates",
+        "select_related_subjects",
+        "intersect_candidates",
+    }
     assert set(contracts) == {
-        ("binding", "collection_ops.concat_candidates.direct"),
-        ("binding", "collection_ops.concat_pairings.direct"),
-        ("binding", "collection_ops.merge_scores.direct"),
-        ("binding", "collection_ops.pair_siblings_by_parent.direct"),
-        ("binding", "collection_ops.pair_by_two_hop_ancestor.direct"),
-        ("binding", "collection_ops.rebind_candidate_pairing.direct"),
-        ("binding", "collection_ops.take_candidates.direct"),
-        ("binding", "collection_ops.intersect_candidates.direct"),
-        ("binding", "collection_ops.select_children_by_parent.direct"),
-        ("binding", "collection_ops.select_pairing_subjects.direct"),
-        ("method", "collection_ops.concat_candidates.method"),
-        ("method", "collection_ops.concat_pairings.method"),
-        ("method", "collection_ops.merge_scores.method"),
-        ("method", "collection_ops.pair_siblings_by_parent.method"),
-        ("method", "collection_ops.pair_by_two_hop_ancestor.method"),
-        ("method", "collection_ops.rebind_candidate_pairing.method"),
-        ("method", "collection_ops.take_candidates.method"),
-        ("method", "collection_ops.intersect_candidates.method"),
-        ("method", "collection_ops.select_children_by_parent.method"),
-        ("method", "collection_ops.select_pairing_subjects.method"),
-        ("node_type", "collection_ops.concat_candidates"),
-        ("node_type", "collection_ops.concat_pairings"),
-        ("node_type", "collection_ops.merge_scores"),
-        ("node_type", "collection_ops.pair_siblings_by_parent"),
-        ("node_type", "collection_ops.pair_by_two_hop_ancestor"),
-        ("node_type", "collection_ops.rebind_candidate_pairing"),
-        ("node_type", "collection_ops.take_candidates"),
-        ("node_type", "collection_ops.intersect_candidates"),
-        ("node_type", "collection_ops.select_children_by_parent"),
-        ("node_type", "collection_ops.select_pairing_subjects"),
+        (kind, f"collection_ops.{operation}{suffix}")
+        for operation in operations
+        for kind, suffix in (
+            ("binding", ".direct"),
+            ("method", ".method"),
+            ("node_type", ""),
+        )
     }
     assert not any(
         "aggregate" in contract_id for _, contract_id in contracts
     )
-    for operation in (
-        "concat_pairings",
-        "pair_siblings_by_parent",
-        "rebind_candidate_pairing",
-    ):
-        method = contracts[("method", f"collection_ops.{operation}.method")]
-        assert method["algorithm_identity"]["pairing_contract"] == {
-            "participant_identity": "CandidateDataReference",
-            "join": "complete-reference-equality",
-            "cardinality": "one-to-one",
-        }
-    direct_ancestor_method = contracts[
-        ("method", "collection_ops.pair_by_two_hop_ancestor.method")
-    ]
-    assert direct_ancestor_method["algorithm_identity"][
-        "pairing_contract"
-    ] == {
-        "participant_identity": "CandidateDataReference",
-        "join": "exact-two-hop-lineage",
+    assert contracts[
+        ("method", "collection_ops.compose_relations.method")
+    ]["algorithm_identity"] == {
+        "name": "compose_relations",
+        "join": "left-reference-equals-right-subject",
         "cardinality": "one-reference-per-subject-shared-reference-allowed",
     }
 
@@ -494,17 +498,18 @@ def test_collection_ports_and_score_union_keep_stable_scientific_types() -> None
     score_binding = contracts[
         ("binding", "collection_ops.merge_scores.direct")
     ]
-    candidate_only_operations = {
+    operations = {
         "concat_candidates",
-        "concat_pairings",
-        "pair_siblings_by_parent",
-        "pair_by_two_hop_ancestor",
-        "rebind_candidate_pairing",
+        "concat_relations",
+        "relate_by_parent",
+        "relate_to_single_reference",
+        "compose_relations",
+        "join_relation_subjects",
         "take_candidates",
         "intersect_candidates",
-        "select_children_by_parent",
+        "select_related_subjects",
     }
-    for operation in candidate_only_operations:
+    for operation in operations:
         node = contracts[("node_type", f"collection_ops.{operation}")]
         assert node["contract_id"] == f"collection_ops.{operation}"
 
@@ -515,8 +520,7 @@ def test_collection_ports_and_score_union_keep_stable_scientific_types() -> None
             port_type = port["port_type"]
             assert port_type["contract_id"] in {
                 "candidate.collection",
-                "candidate.direct_ancestor_pairing",
-                "candidate.pairing",
+                "candidate.relation",
                 "score.collection",
             }
 
@@ -712,10 +716,27 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         ),
         expected_candidate_counts={"candidates": 1},
     )
-    rebind_case = ModulePackageContractCase(
-        case_id="collection-ops-rebind-candidate-pairing",
-        node_type_id="collection_ops.rebind_candidate_pairing",
-        binding_id="collection_ops.rebind_candidate_pairing.direct",
+    concat_relations_case = ModulePackageContractCase(
+        case_id="collection-ops-concat-relations",
+        node_type_id="collection_ops.concat_relations",
+        binding_id="collection_ops.concat_relations.direct",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(lineage_source,),
+        workflow_edges=(
+            WorkflowEdge(
+                "lineage-source",
+                "parent_pairing",
+                "contract-test-node",
+                "relation_a",
+            ),
+        ),
+    )
+    relate_by_parent_case = ModulePackageContractCase(
+        case_id="collection-ops-relate-by-parent",
+        node_type_id="collection_ops.relate_by_parent",
+        binding_id="collection_ops.relate_by_parent.direct",
         node_parameters={},
         binding_parameters={},
         environment_values={},
@@ -733,80 +754,139 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
                 "contract-test-node",
                 "parents",
             ),
-            WorkflowEdge(
-                "lineage-source",
-                "references",
-                "contract-test-node",
-                "references",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "parent_pairing",
-            ),
         ),
     )
-    concat_pairings_case = ModulePackageContractCase(
-        case_id="collection-ops-concat-pairings",
-        node_type_id="collection_ops.concat_pairings",
-        binding_id="collection_ops.concat_pairings.direct",
+    relate_single_case = ModulePackageContractCase(
+        case_id="collection-ops-relate-to-single-reference",
+        node_type_id="collection_ops.relate_to_single_reference",
+        binding_id="collection_ops.relate_to_single_reference.direct",
         node_parameters={},
         binding_parameters={},
         environment_values={},
-        workflow_nodes=(lineage_source,),
+        workflow_nodes=(source_a, source_b),
         workflow_edges=(
             WorkflowEdge(
-                "lineage-source",
-                "parent_pairing",
-                "contract-test-node",
-                "pairing_a",
-            ),
-        ),
-    )
-    pair_case = ModulePackageContractCase(
-        case_id="collection-ops-pair-siblings-by-parent",
-        node_type_id="collection_ops.pair_siblings_by_parent",
-        binding_id="collection_ops.pair_siblings_by_parent.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source,),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "subjects",
-                "contract-test-node",
-                "subjects",
-            ),
-            WorkflowEdge(
-                "lineage-source",
-                "references",
-                "contract-test-node",
-                "references",
-            ),
-        ),
-    )
-    select_children_case = ModulePackageContractCase(
-        case_id="collection-ops-select-children-by-parent",
-        node_type_id="collection_ops.select_children_by_parent",
-        binding_id="collection_ops.select_children_by_parent.direct",
-        node_parameters={},
-        binding_parameters={},
-        environment_values={},
-        workflow_nodes=(lineage_source,),
-        workflow_edges=(
-            WorkflowEdge(
-                "lineage-source",
-                "subjects",
-                "contract-test-node",
+                "source-a",
                 "candidates",
+                "contract-test-node",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "source-b",
+                "candidates",
+                "contract-test-node",
+                "references",
+            ),
+        ),
+    )
+    parent_relation_node = WorkflowNodeInstance(
+        node_id="parent-relation",
+        node_type_id="collection_ops.relate_by_parent",
+        binding_id="collection_ops.relate_by_parent.direct",
+        node_parameters={},
+        binding_parameters={},
+    )
+    compose_case = ModulePackageContractCase(
+        case_id="collection-ops-compose-relations",
+        node_type_id="collection_ops.compose_relations",
+        binding_id="collection_ops.compose_relations.direct",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(lineage_source, parent_relation_node),
+        workflow_edges=(
+            WorkflowEdge(
+                "lineage-source",
+                "subjects",
+                "parent-relation",
+                "subjects",
             ),
             WorkflowEdge(
                 "lineage-source",
                 "parents",
-                "contract-test-node",
+                "parent-relation",
                 "parents",
+            ),
+            WorkflowEdge(
+                "parent-relation",
+                "relation",
+                "contract-test-node",
+                "left_relation",
+            ),
+            WorkflowEdge(
+                "lineage-source",
+                "parent_pairing",
+                "contract-test-node",
+                "right_relation",
+            ),
+        ),
+    )
+    invert_case = ModulePackageContractCase(
+        case_id="collection-ops-invert-relation",
+        node_type_id="collection_ops.invert_relation",
+        binding_id="collection_ops.invert_relation.direct",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(lineage_source,),
+        workflow_edges=(
+            WorkflowEdge(
+                "lineage-source",
+                "parent_pairing",
+                "contract-test-node",
+                "relation",
+            ),
+        ),
+    )
+    join_case = ModulePackageContractCase(
+        case_id="collection-ops-join-relation-subjects",
+        node_type_id="collection_ops.join_relation_subjects",
+        binding_id="collection_ops.join_relation_subjects.direct",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(lineage_source,),
+        workflow_edges=(
+            WorkflowEdge(
+                "lineage-source",
+                "parent_pairing",
+                "contract-test-node",
+                "left_relation",
+            ),
+            WorkflowEdge(
+                "lineage-source",
+                "parent_pairing",
+                "contract-test-node",
+                "right_relation",
+            ),
+        ),
+    )
+    select_related_case = ModulePackageContractCase(
+        case_id="collection-ops-select-related-subjects",
+        node_type_id="collection_ops.select_related_subjects",
+        binding_id="collection_ops.select_related_subjects.direct",
+        node_parameters={},
+        binding_parameters={},
+        environment_values={},
+        workflow_nodes=(lineage_source,),
+        workflow_edges=(
+            WorkflowEdge(
+                "lineage-source",
+                "parents",
+                "contract-test-node",
+                "subjects",
+            ),
+            WorkflowEdge(
+                "lineage-source",
+                "references",
+                "contract-test-node",
+                "selected_references",
+            ),
+            WorkflowEdge(
+                "lineage-source",
+                "parent_pairing",
+                "contract-test-node",
+                "relation",
             ),
         ),
         expected_candidate_counts={"candidates": 2},
@@ -841,11 +921,14 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         execution_cases=(
             candidate_case,
             score_case,
-            concat_pairings_case,
-            pair_case,
-            rebind_case,
+            concat_relations_case,
+            relate_by_parent_case,
+            relate_single_case,
+            compose_case,
+            invert_case,
+            join_case,
             take_case,
-            select_children_case,
+            select_related_case,
             intersect_case,
         ),
         supporting_registrations=(SOURCE_PACKAGE,),
@@ -861,39 +944,37 @@ def test_all_collection_nodes_pass_the_shared_contract_test_kit(
         "succeeded",
         "succeeded",
         "succeeded",
+        "succeeded",
+        "succeeded",
+        "succeeded",
     ]
 
 
 @pytest.mark.parametrize(
     (
         "subject_parent_ids",
-        "include_surplus_reference",
+        "include_surplus_parent",
         "expected_message",
     ),
     (
         (
             ["parent", "unexpected-parent"],
             False,
-            "exactly one total parent",
+            "exactly one supplied parent",
         ),
-        (["parent"], True, "not complete for all references"),
+        (["parent"], True, "do not cover every supplied parent"),
     ),
 )
-def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
+def test_relate_by_parent_rejects_nonexact_lineage_and_parent_sets(
     subject_parent_ids: list[str],
-    include_surplus_reference: bool,
+    include_surplus_parent: bool,
     expected_message: str,
 ) -> None:
     catalog = build_frozen_catalog(module_registrations())
-    sequence_codec = catalog.require_port_type("protein.sequence")
-    parent_data = ProteinSequence("AA")
-    reference_data = ProteinSequence("CC")
-    parent = Candidate("parent", parent_data)
-    reference = Candidate("reference", reference_data)
-    references = [reference]
-    if include_surplus_reference:
-        references.append(
-            Candidate("surplus-reference", ProteinSequence("DD"))
+    parents = [Candidate("parent", ProteinSequence("AA"))]
+    if include_surplus_parent:
+        parents.append(
+            Candidate("surplus-parent", ProteinSequence("DD"))
         )
     inputs = {
         "subjects": CandidateCollection(
@@ -910,38 +991,17 @@ def test_pairing_rebinding_rejects_nonexact_lineage_and_reference_sets(
         "parents": CandidateCollection(
             "parents",
             "protein.sequence",
-            [parent],
+            parents,
         ),
-        "references": CandidateCollection(
-            "references",
-            "protein.sequence",
-            references,
-        ),
-        "parent_pairing": PairwiseCandidateMapping([
-            PairwiseCandidateMatch(
-                subject=CandidateDataReference(
-                    candidate_id=parent.candidate_id,
-                    data_type_id="protein.sequence",
-                    content_digest=sequence_codec.content_digest(parent_data),
-                ),
-                reference=CandidateDataReference(
-                    candidate_id=reference.candidate_id,
-                    data_type_id="protein.sequence",
-                    content_digest=sequence_codec.content_digest(
-                        reference_data
-                    ),
-                ),
-            )
-        ]),
     }
 
     with pytest.raises(ValueError, match=expected_message):
         build_operation(
             catalog,
-            "collection_ops.rebind_candidate_pairing.direct",
+            "collection_ops.relate_by_parent.direct",
             None).execute(operation_call(
             catalog=catalog,
-            binding_id="collection_ops.rebind_candidate_pairing.direct",
+            binding_id="collection_ops.relate_by_parent.direct",
             inputs=inputs,
             node_parameters={},
             binding_parameters={},
@@ -969,7 +1029,7 @@ def _run_public_collection_workflow(
         node_parameters={},
         binding_parameters={},
     )
-    if operation == "pair_siblings_by_parent":
+    if operation == "relate_by_parent":
         workflow_nodes = (
             _lineage_source(candidate_count=counts[0]),
             collection_op,
@@ -983,9 +1043,9 @@ def _run_public_collection_workflow(
             ),
             WorkflowEdge(
                 "lineage-source",
-                "references",
+                "parents",
                 "collection-op",
-                "references",
+                "parents",
             ),
         )
     elif operation == "merge_scores":
@@ -1104,38 +1164,34 @@ def _decoded_outputs(
     }
 
 
-def test_public_pairing_uses_common_parent_not_collection_order(
+def test_public_relation_uses_exact_parent_identity_not_collection_order(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service, catalog, first, _, _ = _run_public_collection_workflow(
         tmp_path,
         monkeypatch,
-        operation="pair_siblings_by_parent",
+        operation="relate_by_parent",
         counts=(2, 1),
     )
     decoded = _decoded_outputs(service, catalog, first)
     subjects = decoded[("lineage-source", "subjects")]
-    references = decoded[("lineage-source", "references")]
-    pairing = decoded[("collection-op", "pairing")]
+    parents = decoded[("lineage-source", "parents")]
+    relation = decoded[("collection-op", "relation")]
 
     assert type(subjects) is CandidateCollection
-    assert type(references) is CandidateCollection
-    assert type(pairing) is PairwiseCandidateMapping
-    reference_by_parent = {
-        reference.parent_ids[0]: reference.candidate_id
-        for reference in reversed(references.items)
-    }
+    assert type(parents) is CandidateCollection
+    assert type(relation) is CandidateRelation
     assert [
         (
             entry.subject.candidate_id,
             entry.reference.candidate_id,
         )
-        for entry in pairing.entries
+        for entry in relation.entries
     ] == [
         (
             subject.candidate_id,
-            reference_by_parent[subject.parent_ids[0]],
+            subject.parent_ids[0],
         )
         for subject in subjects.items
     ]

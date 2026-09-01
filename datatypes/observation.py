@@ -33,7 +33,7 @@ class CalibrationObservationContext:
     kind: str = "calibration"
 
 @dataclass(frozen=True, slots=True)
-class PairwiseCandidateMatch:
+class CandidateRelationEntry:
     """One explicit subject-to-reference Candidate relationship."""
 
     subject: CandidateDataReference
@@ -51,24 +51,10 @@ class PairwiseCandidateMatch:
 
 
 @dataclass(frozen=True, slots=True)
-class PairwiseCandidateMapping:
-    """Closed per-subject counterpart mapping carried through a typed Port."""
+class CandidateRelation:
+    """One exact reference per subject with reference reuse allowed."""
 
-    entries: tuple[PairwiseCandidateMatch, ...] = ()
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "entries",
-            _ordered_list(self.entries, field_name="entries"),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class DirectAncestorCandidateMapping:
-    """One exact ancestor reference per subject with shared references allowed."""
-
-    entries: tuple[PairwiseCandidateMatch, ...] = ()
+    entries: tuple[CandidateRelationEntry, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -76,7 +62,6 @@ class DirectAncestorCandidateMapping:
             "entries",
             _ordered_list(self.entries, field_name="entries"),
         )
-
 
 @dataclass(frozen=True, slots=True)
 class PairwiseParticipant:

@@ -29,8 +29,8 @@ from core.catalog.port_contract import (
     observation_context_canonical,
 )
 from core.operation import (
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
+    CandidateRelationIntent,
+    CandidateRelationIntentEntry,
     ReadinessResult,
 )
 from core.parameters.contract import admit_declarations
@@ -70,8 +70,8 @@ from tests.fixtures.observation_admission import (
 )
 from datatypes.observation import (
     PairwiseObservationContext,
-    PairwiseCandidateMatch,
-    PairwiseCandidateMapping,
+    CandidateRelationEntry,
+    CandidateRelation,
     PairwiseParticipant,
     ScoreCollection,
     ScoreObservation,
@@ -128,7 +128,7 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 {
                     "name": name,
                     "port_type": builtin.require_port_type(
-                        "candidate.pairing"
+                        "candidate.relation"
                         if name == "pairings"
                         else "score.collection"
                         if name in {"left", "right", "source"}
@@ -184,7 +184,7 @@ def _pairwise_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                 "method": method.reference(),
                 "context_profile": context_selector_canonical(
                     PairwiseContextSelector(
-                        pairing_mode="per_subject_counterpart",
+                        pairing_mode="explicit_relation",
                         normalization="tm-score/reference-length",
                     )
                 ),
@@ -396,11 +396,11 @@ def _pairwise_observation(
 def _pairing_map(
     catalog: FrozenCatalog,
     pairs: list[tuple[Candidate, Candidate]],
-) -> PairwiseCandidateMapping:
+) -> CandidateRelation:
     candidate_type = catalog.require_port_type("protein.sequence")
-    return PairwiseCandidateMapping(
+    return CandidateRelation(
         entries=[
-            PairwiseCandidateMatch(
+            CandidateRelationEntry(
                 subject=CandidateDataReference(
                     candidate_id=subject.candidate_id,
                     data_type_id="protein.sequence",
@@ -419,18 +419,18 @@ def _pairing_map(
     )
 
 
-def test_candidate_pairing_port_is_canonical_and_one_to_one() -> None:
+def test_candidate_relation_is_canonical_and_unique_by_subject() -> None:
     catalog, _ = _pairwise_catalog()
     subject = Candidate("subject-a", ProteinSequence("AA"))
     reference = Candidate("reference-a", ProteinSequence("AT"))
-    pairing_type = catalog.require_port_type("candidate.pairing")
+    pairing_type = catalog.require_port_type("candidate.relation")
     mapping = _pairing_map(catalog, [(subject, reference)])
 
     assert pairing_type.decode(pairing_type.encode(mapping)) == mapping
 
-    with pytest.raises(PortValueError, match="multiple counterparts"):
+    with pytest.raises(PortValueError, match="multiple references"):
         pairing_type.encode(
-            PairwiseCandidateMapping(
+            CandidateRelation(
                 entries=[mapping.entries[0], mapping.entries[0]]
             )
         )
@@ -530,7 +530,7 @@ def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
                 contracts=contracts,
                 subject=subject_a,
                 reference=reference_a,
-                pairing_mode="per_subject_counterpart",
+                pairing_mode="explicit_relation",
                 source_partition="per-subject",
                 value=0.1,
             ),
@@ -539,7 +539,7 @@ def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
                 contracts=contracts,
                 subject=subject_b,
                 reference=reference_b,
-                pairing_mode="per_subject_counterpart",
+                pairing_mode="explicit_relation",
                 source_partition="per-subject",
                 value=0.9,
             ),
@@ -575,7 +575,7 @@ def test_fixed_and_per_subject_partitions_never_cross_match() -> None:
                 contracts,
                 objective_id="paired",
                 partition="per-subject",
-                pairing_mode="per_subject_counterpart",
+                pairing_mode="explicit_relation",
                 utility="tm-score.paired",
             ),
         ),
@@ -605,7 +605,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
         contracts,
         objective_id="paired",
         partition="per-subject",
-        pairing_mode="per_subject_counterpart",
+        pairing_mode="explicit_relation",
         utility="tm-score.paired",
     )
     candidates = CandidateCollection(
@@ -628,7 +628,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
                             contracts=contracts,
                             subject=subject,
                             reference=reference_a,
-                            pairing_mode="per_subject_counterpart",
+                            pairing_mode="explicit_relation",
                             source_partition="other",
                             value=0.5,
                         )
@@ -652,7 +652,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
                             contracts=contracts,
                             subject=subject,
                             reference=reference_a,
-                            pairing_mode="per_subject_counterpart",
+                            pairing_mode="explicit_relation",
                             source_partition="per-subject",
                             value=0.5,
                         ),
@@ -661,7 +661,7 @@ def test_pairwise_selection_fails_closed_on_zero_or_multiple_counterparts() -> N
                             contracts=contracts,
                             subject=subject,
                             reference=reference_b,
-                            pairing_mode="per_subject_counterpart",
+                            pairing_mode="explicit_relation",
                             source_partition="per-subject",
                             value=0.5,
                         ),
@@ -690,7 +690,7 @@ def _pairwise_binding(
                     "metric": contracts["structure.tm_score"].reference(),
                     "context_profile": context_selector_canonical(
                         PairwiseContextSelector(
-                            pairing_mode="per_subject_counterpart",
+                            pairing_mode="explicit_relation",
                             normalization="tm-score/reference-length",
                         )
                     ),
@@ -720,7 +720,7 @@ def test_pairwise_output_requires_exact_subject_and_reference_candidates() -> No
         contracts=contracts,
         subject=subject,
         reference=reference,
-        pairing_mode="per_subject_counterpart",
+        pairing_mode="explicit_relation",
         source_partition="per-subject",
         value=0.7,
     )
@@ -766,7 +766,7 @@ def test_pairwise_output_requires_exact_subject_and_reference_candidates() -> No
         )
 
 
-def test_per_subject_pairing_rejects_one_global_implicit_reference() -> None:
+def test_explicit_relation_allows_one_shared_reference() -> None:
     catalog, contracts = _pairwise_catalog()
     subject_a = Candidate("subject-a", ProteinSequence("AA"))
     subject_b = Candidate("subject-b", ProteinSequence("GG"))
@@ -779,7 +779,7 @@ def test_per_subject_pairing_rejects_one_global_implicit_reference() -> None:
                 contracts=contracts,
                 subject=subject,
                 reference=shared_reference,
-                pairing_mode="per_subject_counterpart",
+                pairing_mode="explicit_relation",
                 source_partition="per-subject",
                 value=value,
             )
@@ -787,33 +787,32 @@ def test_per_subject_pairing_rejects_one_global_implicit_reference() -> None:
         ],
     )
 
-    with pytest.raises(PortValueError, match="reuses one counterpart"):
-        admit_test_produced_score_collection(
-            catalog=catalog,
-            binding=_pairwise_binding(contracts),
-            output_port="scores",
-            collection=scores,
-            inputs={
-                "subjects": CandidateCollection(
-                    "subjects",
-                    "protein.sequence",
-                    [subject_a, subject_b],
-                ),
-                "counterparts": CandidateCollection(
-                    "counterparts",
-                    "protein.sequence",
-                    [shared_reference],
-                ),
-                "pairings": _pairing_map(
-                    catalog,
-                    [
-                        (subject_a, shared_reference),
-                        (subject_b, shared_reference),
-                    ],
-                ),
-            },
-            outputs={},
-        )
+    admit_test_produced_score_collection(
+        catalog=catalog,
+        binding=_pairwise_binding(contracts),
+        output_port="scores",
+        collection=scores,
+        inputs={
+            "subjects": CandidateCollection(
+                "subjects",
+                "protein.sequence",
+                [subject_a, subject_b],
+            ),
+            "counterparts": CandidateCollection(
+                "counterparts",
+                "protein.sequence",
+                [shared_reference],
+            ),
+            "pairings": _pairing_map(
+                catalog,
+                [
+                    (subject_a, shared_reference),
+                    (subject_b, shared_reference),
+                ],
+            ),
+        },
+        outputs={},
+    )
 
 
 def test_per_subject_pairing_rejects_a_swapped_bijection() -> None:
@@ -830,7 +829,7 @@ def test_per_subject_pairing_rejects_a_swapped_bijection() -> None:
                 contracts=contracts,
                 subject=subject,
                 reference=reference,
-                pairing_mode="per_subject_counterpart",
+                pairing_mode="explicit_relation",
                 source_partition="per-subject",
                 value=value,
             )
@@ -887,7 +886,7 @@ def test_controlled_union_preserves_partitions_and_rejects_invented_entries() ->
         fixed,
         context=replace(
             fixed.context,
-            pairing_mode="per_subject_counterpart",
+            pairing_mode="explicit_relation",
         ),
         source_partition="per-subject",
         value=0.8,
@@ -1002,7 +1001,7 @@ def test_controlled_filter_publishes_every_exact_matching_observation() -> None:
         fixed,
         context=replace(
             fixed.context,
-            pairing_mode="per_subject_counterpart",
+            pairing_mode="explicit_relation",
         ),
         source_partition="per-subject",
         value=0.8,
@@ -1055,7 +1054,7 @@ def test_produced_pairwise_and_propagation_contracts_are_closed_descriptors() ->
             "kind": "pairwise",
             "subject_role": "subject",
             "reference_role": "reference",
-            "pairing_mode": "per_subject_counterpart",
+            "pairing_mode": "explicit_relation",
             "normalization": "tm-score/reference-length",
         },
         subject_grain="candidate",
@@ -1111,7 +1110,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
     base, scoring = _pairwise_catalog()
     selection_catalog = build_frozen_catalog((SELECTION_PACKAGE,))
     candidate_type = base.require_port_type("candidate.collection")
-    pairing_type = base.require_port_type("candidate.pairing")
+    pairing_type = base.require_port_type("candidate.relation")
     score_type = base.require_port_type(
         "score.collection")
     producer_node = _contract(
@@ -1217,7 +1216,7 @@ def _compiler_catalog() -> tuple[FrozenCatalog, dict[str, CatalogContract]]:
                     "metric": scoring["structure.tm_score"].reference(),
                     "context_profile": context_selector_canonical(
                         PairwiseContextSelector(
-                            pairing_mode="per_subject_counterpart",
+                            pairing_mode="explicit_relation",
                             normalization="tm-score/reference-length",
                         )
                     ),
@@ -1424,7 +1423,7 @@ def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
         contracts=contracts,
         subject=subject,
         reference=reference,
-        pairing_mode="per_subject_counterpart",
+        pairing_mode="explicit_relation",
         source_partition="per-subject",
         value=0.8,
     )
@@ -1439,9 +1438,9 @@ def test_output_score_cannot_claim_a_future_candidate_reference() -> None:
             "protein.sequence",
             [reference],
         ),
-        "pairings": CandidatePairingIntent(
+        "pairings": CandidateRelationIntent(
             (
-                CandidatePairingIntentEntry(
+                CandidateRelationIntentEntry(
                     subject_candidate_id=subject.candidate_id,
                     reference_candidate_id=reference.candidate_id,
                 ),

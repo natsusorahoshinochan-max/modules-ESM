@@ -4,13 +4,15 @@ import { unzipSync } from 'fflate'
 test('default 3GB1 workflow remains connected from authoring through export', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '3GB1 Local Redesign Example' })).toBeVisible()
-  await expect(page.getByText(/35 MATERIALIZED NODES/)).toBeVisible()
+  await expect(page.getByText(/33 GRAPH NODES/)).toBeVisible()
   await expect(page.getByText('只读示例')).toBeVisible()
-  await expect(page.getByText(/A37–A41.*7 → 4 → 4 → 2 → 6 → 6 → 3/)).toBeVisible()
+  await expect(page.getByText(/70 persisted edges/)).toBeVisible()
+  await expect(page.getByTestId('rf__node-relation-generated-structure-parent').getByRole('heading', { name: 'Relate Candidates to their parents' })).toBeVisible()
+  await expect(page.getByTestId('rf__node-relation-generated-pairs').getByRole('heading', { name: 'Invert a Candidate relation' })).toBeVisible()
 
   await page.getByRole('button', { name: /Results 3/ }).click()
   await expect(page.getByRole('heading', { name: /最终候选/ })).toBeVisible()
-  await expect(page.getByText('per_subject_direct_ancestor', { exact: true })).toBeVisible()
+  await expect(page.getByText('explicit_relation', { exact: true })).toBeVisible()
   await expect(page.getByText('Mean-residue pLDDT').first()).toBeVisible()
   await expect(page.getByText('Template modelling score').first()).toBeVisible()
   const download = page.waitForEvent('download')
@@ -29,10 +31,22 @@ test('default 3GB1 workflow remains connected from authoring through export', as
   await expect(page.getByText('personal', { exact: true })).toBeVisible()
   await expect(page.getByText('来自修改前的流程')).toBeVisible()
 
-  await page.getByRole('group', { name: 'Edge from generate-paired to take-top-four' }).click()
+  const persistedEdge = { source_node_id: 'rank-generated', source_port: 'candidates', target_node_id: 'take-top-four', target_port: 'candidates' }
+  const edge = page.getByRole('group', { name: 'Edge from rank-generated to take-top-four' })
+  await edge.locator('.react-flow__edge-interaction').evaluate((element) => element.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  await expect(edge).toHaveClass(/selected/)
+  await edge.focus()
+  const deletionSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft') && !JSON.parse(response.request().postData()!).workflow.edges.some((item: typeof persistedEdge) => JSON.stringify(item) === JSON.stringify(persistedEdge)))
   await page.keyboard.press('Delete')
-  await expect(page.getByText('画布连接已修改')).toBeVisible()
+  const deletedDraft = await (await deletionSave).json()
+  expect(deletedDraft.workflow.edges).not.toContainEqual(persistedEdge)
+  const undoSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft') && JSON.parse(response.request().postData()!).workflow.edges.some((item: typeof persistedEdge) => JSON.stringify(item) === JSON.stringify(persistedEdge)))
   await page.getByRole('button', { name: '撤销画布修改' }).click()
+  const undoResponse = await undoSave
+  const restoredDraft = await undoResponse.json()
+  expect(restoredDraft.workflow.edges).toContainEqual(persistedEdge)
+  const fetchedDraft = await page.request.get(undoResponse.url())
+  expect((await fetchedDraft.json()).workflow.edges).toContainEqual(persistedEdge)
   await expect(page.getByText('已撤销画布修改')).toBeVisible()
 
   await page.getByRole('button', { name: /打开 Prompt Studio/ }).click()
@@ -48,7 +62,7 @@ test('default 3GB1 workflow remains connected from authoring through export', as
 
   await page.getByRole('button', { name: '运行完整流程' }).click()
   await expect(page.getByRole('heading', { name: '确认运行完整流程' })).toBeVisible()
-  await expect(page.getByText('35 个 materialized Node Instances')).toBeVisible()
+  await expect(page.getByText('40 个 materialized Node Instances')).toBeVisible()
   await expect(page.getByText('7 → 4 → 4 → 2 → 6 → 6 → 3', { exact: true })).toBeVisible()
 })
 
@@ -56,7 +70,7 @@ test('the Palette switches between research-purpose and provider classifications
   await page.goto('/')
 
   await expect(page.getByRole('button', { name: '按研究目的' })).toHaveClass(/active/)
-  await expect(page.locator('.palette-item')).toHaveCount(62)
+  await expect(page.locator('.palette-item')).toHaveCount(57)
   await expect(page.getByText('collection', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: '按包 / 模型' }).click()
@@ -72,12 +86,12 @@ test('Catalog parameter schemas expose required and Binding-specific fields', as
 
   await page.getByPlaceholder('搜索 active Catalog…').fill('Take an ordered Candidate prefix')
   await page.getByRole('button', { name: 'Take an ordered Candidate prefix collection' }).dragTo(page.locator('.react-flow__pane'), { targetPosition: { x: 520, y: 620 } })
-  const prefixNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: 'Take an ordered Candidate prefix' }) })
+  const prefixNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: 'Take an ordered Candidate prefix' }) }).last()
   await prefixNode.locator('summary[aria-label="编辑参数"]').click()
   await expect(prefixNode.getByLabel('保留数量')).toHaveValue('')
 
-  const foldNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: '预测蛋白质结构' }) }).first()
-  const foldModel = foldNode.getByRole('combobox', { name: '预测蛋白质结构的执行模型' })
+  const foldNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: 'Fold protein sequences' }) }).first()
+  const foldModel = foldNode.getByRole('combobox', { name: 'Fold protein sequences的执行模型' })
   await foldModel.selectOption('folding.fold.simplefold_local')
   await foldNode.locator('summary[aria-label="编辑参数"]').click()
   const samplingSteps = foldNode.getByLabel('模型参数 · num_steps')
@@ -105,7 +119,7 @@ test('an unavailable Binding remains visible but cannot be selected', async ({ p
   })
   await page.goto('/')
 
-  const option = page.getByRole('combobox', { name: '生成候选蛋白质的执行模型' }).locator('option[value="esm3.generate_paired.biohub_open"]')
+  const option = page.getByRole('combobox', { name: 'Generate paired sequences and structures with remote ESM-3的执行模型' }).locator('option[value="esm3.generate_paired.biohub_open"]')
   await expect(option).toBeDisabled()
   await expect(option).toHaveText('esm3-open-2024-03（不可用）')
 })
@@ -113,14 +127,14 @@ test('an unavailable Binding remains visible but cannot be selected', async ({ p
 test('a model selector changes the pinned Execution Binding on an ordinary Node Instance', async ({ page }) => {
   await page.goto('/')
 
-  const generationModel = page.getByRole('combobox', { name: '生成候选蛋白质的执行模型' })
+  const generationModel = page.getByRole('combobox', { name: 'Generate paired sequences and structures with remote ESM-3的执行模型' })
   await expect(generationModel).toHaveValue('esm3.generate_paired.biohub_medium')
   await expect(generationModel.locator('option')).toHaveText([
     'esm3-medium-2024-08',
     'esm3-open-2024-03',
     'esm3_sm_open_v1',
   ])
-  await expect(page.getByRole('combobox', { name: '预测蛋白质结构的执行模型' }).locator('option')).toHaveText([
+  await expect(page.getByRole('combobox', { name: 'Fold protein sequences的执行模型' }).first().locator('option')).toHaveText([
     'biohub/ESMFold2',
     'esmfold2-fast-2026-05',
     'simplefold_100M',
@@ -131,19 +145,49 @@ test('a model selector changes the pinned Execution Binding on an ordinary Node 
   await expect(generationModel).toHaveValue('esm3.generate_paired.biohub_open')
   await expect(page.getByText('已自动保存')).toBeVisible()
   await expect(page.getByText('personal', { exact: true })).toBeVisible()
+
+  const undoSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await page.keyboard.press('Meta+z')
+  const restored = await (await undoSave).json()
+  expect(restored.workflow.nodes.find((node: { node_id: string }) => node.node_id === 'generate-paired').binding_id).toBe('esm3.generate_paired.biohub_medium')
+  await expect(generationModel).toHaveValue('esm3.generate_paired.biohub_medium')
 })
 
 test('dragging an ordinary Palette operation adds and saves a Node Instance', async ({ page }) => {
   await page.goto('/')
 
-  const operation = page.getByRole('button', { name: 'Concatenate exact Candidate pairings collection_ops' })
+  const operation = page.getByRole('button', { name: 'Invert a Candidate relation collection_ops' })
   const canvas = page.locator('.react-flow__pane')
   await operation.dragTo(canvas, { targetPosition: { x: 520, y: 620 } })
 
-  await expect(page.getByRole('heading', { name: 'Concatenate exact Candidate pairings' })).toBeVisible()
-  await expect(page.getByText(/36 MATERIALIZED NODES/)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Invert a Candidate relation' })).toBeVisible()
+  await expect(page.getByText(/34 GRAPH NODES/)).toBeVisible()
   await expect(page.getByText('已自动保存')).toBeVisible()
   await expect(page.getByText('personal', { exact: true })).toBeVisible()
+
+  const undoSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await page.keyboard.press('Meta+z')
+  const restored = await (await undoSave).json()
+  expect(restored.workflow.nodes.some((node: { node_type_id: string }) => node.node_type_id === 'collection_ops.invert_relation' && node.node_id.startsWith('collection_ops-invert_relation-'))).toBe(false)
+  await expect(page.getByText(/33 GRAPH NODES/)).toBeVisible()
+})
+
+test('a committed parameter edit can be undone with the keyboard', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('编辑参数').first().click()
+  const seed = page.getByLabel('有效种子').first()
+  await expect(seed).toHaveValue('1603')
+  await seed.fill('1604')
+  const parameterSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await seed.press('Tab')
+  await parameterSave
+
+  await page.locator('.react-flow__pane').click({ force: true, position: { x: 1100, y: 800 } })
+  const undoSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await page.keyboard.press('Meta+z')
+  const restored = await (await undoSave).json()
+  expect(restored.workflow.nodes.find((node: { node_id: string }) => node.node_id === 'generate-paired').node_parameters.effective_seed).toBe(1603)
+  await expect(seed).toHaveValue('1603')
 })
 
 test('Prompt Studio edits the backend projection and shows every prompt track', async ({ page }) => {
@@ -198,25 +242,85 @@ test('Prompt Studio edits the backend projection and shows every prompt track', 
   await expect(page.getByRole('dialog')).toContainText('changed')
 })
 
-test('dragging an edge endpoint to empty canvas disconnects the edge', async ({ page }) => {
+test('deleting a Node Instance persists and undo restores the backend Draft', async ({ page }) => {
   await page.goto('/')
-  const edge = page.getByRole('group', { name: 'Edge from generate-paired to take-top-four' })
-  await edge.click()
+  const nodeId = 'relation-generated-pairs'
+  const initial = await (await page.request.get('/api/v2/projects/webui-3gb1-example/workflow/draft')).json()
+  const incidentEdges = initial.workflow.edges.filter((edge: { source_node_id: string; target_node_id: string }) => edge.source_node_id === nodeId || edge.target_node_id === nodeId)
+  expect(incidentEdges.length).toBeGreaterThan(0)
+  const connectedNode = page.getByTestId(`rf__node-${nodeId}`)
+  await connectedNode.click({ force: true })
+  await expect(connectedNode).toHaveClass(/selected/)
+  await connectedNode.focus()
+  const deletionSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft') && !JSON.parse(response.request().postData()!).workflow.nodes.some((node: { node_id: string }) => node.node_id === nodeId))
+  await page.keyboard.press('Delete')
+  const deletedDraft = await (await deletionSave).json()
+  expect(deletedDraft.workflow.nodes.map((node: { node_id: string }) => node.node_id)).not.toContain(nodeId)
+  expect(deletedDraft.workflow.edges).not.toEqual(expect.arrayContaining(incidentEdges))
+  const undoSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await page.keyboard.press('Meta+z')
+  const restoredDraft = await (await undoSave).json()
+  expect(restoredDraft.workflow.nodes.map((node: { node_id: string }) => node.node_id)).toContain(nodeId)
+  expect(restoredDraft.workflow.edges).toEqual(expect.arrayContaining(incidentEdges))
+})
 
-  const endpoint = edge.locator('.react-flow__edgeupdater-target')
-  await expect(endpoint).toBeVisible()
-  const endpointBox = await endpoint.boundingBox()
-  const paneBox = await page.locator('.react-flow__pane').boundingBox()
-  expect(endpointBox).not.toBeNull()
-  expect(paneBox).not.toBeNull()
+test('starting a run waits for the latest autosaved Workflow revision', async ({ page }) => {
+  let releaseSave!: () => void
+  let markSaveStarted!: () => void
+  const saveRelease = new Promise<void>((resolve) => { releaseSave = resolve })
+  const saveStarted = new Promise<void>((resolve) => { markSaveStarted = resolve })
+  let committedSeed: number | undefined
 
-  await page.mouse.move(endpointBox!.x + endpointBox!.width / 2, endpointBox!.y + endpointBox!.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(paneBox!.x + 80, paneBox!.y + 180, { steps: 8 })
-  await page.mouse.up()
+  await page.route('**/workflow/draft', async (route) => {
+    if (route.request().method() === 'PUT') {
+      markSaveStarted()
+      await saveRelease
+    }
+    await route.continue()
+  })
+  await page.route('**/workflow:commit', async (route) => {
+    const body = JSON.parse(route.request().postData()!)
+    committedSeed = body.workflow.nodes.find((node: { node_id: string }) => node.node_id === 'generate-paired').node_parameters.effective_seed
+    await route.fulfill({ json: { workflow_commit_id: 'workflow-commit-current-draft' } })
+  })
+  await page.route('**/api/v2/projects/*/runs', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    await route.fulfill({ json: {
+      project_id: 'project-current-draft',
+      run_id: 'run-current-draft',
+      workflow_commit_id: 'workflow-commit-current-draft',
+      admitted_sequence: 1,
+      event_cursor: 'cursor-current-draft',
+    } })
+  })
 
-  await expect(edge).toHaveCount(0)
-  await expect(page.getByText('画布连接已修改')).toBeVisible()
+  await page.goto('/')
+  await page.getByLabel('编辑参数').first().click()
+  const seed = page.getByLabel('有效种子').first()
+  await seed.fill('1604')
+  await seed.press('Tab')
+  await saveStarted
+  await page.getByRole('button', { name: '运行完整流程' }).click()
+  await page.getByRole('button', { name: '开始运行' }).click()
+  await page.waitForTimeout(150)
+  expect(committedSeed).toBeUndefined()
+
+  releaseSave()
+  await expect.poll(() => committedSeed).toBe(1604)
+})
+
+test('Results use the terminal Candidate output independently of Artifacts', async ({ page }) => {
+  await page.route(/\/api\/v2\/projects\/webui-3gb1-example\/runs\/run-[^/]+$/, async (route) => {
+    const response = await route.fetch()
+    const projection = await response.json()
+    projection.artifact_index = []
+    await route.fulfill({ response, json: projection })
+  })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: /Results 3/ })).toBeEnabled()
+  await page.getByRole('button', { name: /Results 3/ }).click()
+  await expect(page.locator('.candidate-row')).toHaveCount(3)
 })
 
 test('a started workflow reports its live status and current stage', async ({ page }) => {
@@ -370,30 +474,30 @@ test('a started workflow reports its live status and current stage', async ({ pa
   await expect(page.getByRole('status')).toContainText('正在运行')
   await expect(page.getByRole('status')).toContainText('当前阶段')
   await expect(page.getByRole('status')).toContainText('generate-paired')
-  await expect(page.getByLabel('生成候选蛋白质：运行中')).toBeVisible()
-  await expect(page.getByLabel('生成候选蛋白质：成功')).toBeVisible()
+  await expect(page.getByTestId('rf__node-generate-paired').getByLabel('Generate paired sequences and structures with remote ESM-3：运行中')).toBeVisible()
+  await expect(page.getByTestId('rf__node-generate-paired').getByLabel('Generate paired sequences and structures with remote ESM-3：成功')).toBeVisible()
   await expect(page.getByRole('status')).toContainText('confidence-generated')
-  await expect(page.getByLabel('保留高置信候选：运行中')).toBeVisible()
+  await expect(page.getByTestId('rf__node-confidence-generated').getByLabel('Materialize structure-prediction confidence：运行中')).toBeVisible()
   await expect(page.getByRole('status')).toContainText('运行失败')
-  await expect(page.getByLabel('保留高置信候选：失败')).toBeVisible()
-  await expect(page.getByLabel('预测蛋白质结构：未执行')).toBeVisible()
-  await expect(page.getByRole('status')).toContainText('3 / 35 Nodes')
+  await expect(page.getByTestId('rf__node-confidence-generated').getByLabel('Materialize structure-prediction confidence：失败')).toBeVisible()
+  await expect(page.getByTestId('rf__node-select-paired-sequences').getByLabel('Select related subjects by reference：未执行')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('3 / 40 Nodes')
 })
 
 test('the latest run projection restores status on every visible workflow stage', async ({ page }) => {
   await page.goto('/')
 
-  for (const title of [
-    '编写 ProteinPrompt',
-    '生成候选蛋白质',
-    '保留高置信候选',
-    '预测蛋白质结构',
-    '选择折叠候选',
-    '设计蛋白质序列',
-    '重折叠子序列',
-    '最终候选',
+  for (const [nodeId, title] of [
+    ['prompt-composition-webui-3gb1', 'protein_prompt.authoring'],
+    ['generate-paired', 'Generate paired sequences and structures with remote ESM-3'],
+    ['confidence-generated', 'Materialize structure-prediction confidence'],
+    ['fold-stage-one', 'Fold protein sequences'],
+    ['rank-stage-one', 'Rank Candidates by explicit weighted Utilities'],
+    ['design-children', 'Design sequences with ProteinMPNN'],
+    ['fold-final', 'Fold protein sequences'],
+    ['take-top-three', 'Take an ordered Candidate prefix'],
   ]) {
-    await expect(page.getByLabel(`${title}：成功`)).toBeVisible()
+    await expect(page.getByTestId(`rf__node-${nodeId}`).getByLabel(`${title}：成功`)).toBeVisible()
   }
 })
 
@@ -442,7 +546,7 @@ test('an active run reload restores waiting stages and replays the current node'
 
   await page.goto('/')
 
-  await expect(page.getByLabel('生成候选蛋白质：成功')).toBeVisible()
-  await expect(page.getByLabel('保留高置信候选：等待')).toBeVisible()
-  await expect(page.getByLabel('保留高置信候选：运行中')).toBeVisible()
+  await expect(page.getByTestId('rf__node-generate-paired').getByLabel('Generate paired sequences and structures with remote ESM-3：成功')).toBeVisible()
+  await expect(page.getByTestId('rf__node-confidence-generated').getByLabel('Materialize structure-prediction confidence：等待')).toBeVisible()
+  await expect(page.getByTestId('rf__node-confidence-generated').getByLabel('Materialize structure-prediction confidence：运行中')).toBeVisible()
 })

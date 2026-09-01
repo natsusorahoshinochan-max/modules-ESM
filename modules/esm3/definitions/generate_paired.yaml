@@ -19,11 +19,6 @@ outputs:
     required: true
     multiplicity: one
     scientific_meaning: Ordered complete structure Candidates with exact sequence-Candidate parents at the same sample slot.
-  - name: counterpart_pairs
-    port_type_id: candidate.pairing
-    required: true
-    multiplicity: one
-    scientific_meaning: Explicit one-to-one sequence-to-structure identity and content-digest mapping independent of collection order.
   - name: confidence_facts
     port_type_id: structure_prediction.confidence_facts
     required: true

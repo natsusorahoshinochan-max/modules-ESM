@@ -24,7 +24,7 @@ from datatypes.candidate import (
 )
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
 )
 from modules.structure_comparison.contracts import (
@@ -493,7 +493,7 @@ def _assert_1pga_science(
     assert sequence.items[0].parent_ids == (
         input_candidates.items[0].candidate_id,
     )
-    assert type(pairing) is PairwiseCandidateMapping
+    assert type(pairing) is CandidateRelation
     assert len(pairing.entries) == 1
     assert esmfold2.items[0].parent_ids == simplefold.items[0].parent_ids == (
         sequence.items[0].candidate_id,
@@ -1009,8 +1009,8 @@ def _assert_5g53_science(
             service,
             catalog,
             projection,
-            f"generate-{branch}",
-            "counterpart_pairs",
+            f"relate-generated-pairs-{branch}",
+            "relation",
         )
         branch_folds = _one(
             service,
@@ -1028,7 +1028,7 @@ def _assert_5g53_science(
                 branch_folds,
             )
         )
-        assert type(branch_pairing) is PairwiseCandidateMapping
+        assert type(branch_pairing) is CandidateRelation
         assert len(branch_sequences.items) == len(branch_pairing.entries) == 2
         expected_seed = {
             "shorter-8": 5353008,

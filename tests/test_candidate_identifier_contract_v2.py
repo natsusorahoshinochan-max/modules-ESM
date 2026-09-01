@@ -24,8 +24,8 @@ from datatypes.identifier import validate_canonical_identifier
 from datatypes.observation import (
     CalibrationObservationContext,
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     PairwiseObservationContext,
     PairwiseParticipant,
     ScoreCollection,
@@ -109,7 +109,7 @@ def test_candidate_ports_resolve_by_stable_identifier() -> None:
 
     for type_id in (
         "candidate.collection",
-        "candidate.pairing",
+        "candidate.relation",
         "score.collection",
     ):
         assert catalog.require_port_type(type_id).type_id == type_id
@@ -154,8 +154,8 @@ def test_candidate_collection_v3_closes_all_candidate_identifiers() -> None:
 
 def test_candidate_pairing_v3_closes_both_participant_identifiers() -> None:
     port_type = builtin_frozen_catalog().require_port_type(
-        "candidate.pairing")
-    valid_match = PairwiseCandidateMatch(
+        "candidate.relation")
+    valid_match = CandidateRelationEntry(
         subject=CandidateDataReference(
             candidate_id="subject/a:b+c",
             data_type_id="protein.sequence",
@@ -167,7 +167,7 @@ def test_candidate_pairing_v3_closes_both_participant_identifiers() -> None:
             content_digest=_DIGEST_2,
         ),
     )
-    valid = PairwiseCandidateMapping((valid_match,))
+    valid = CandidateRelation((valid_match,))
 
     encoded = port_type.encode(valid)
 
@@ -200,7 +200,7 @@ def test_candidate_pairing_v3_closes_both_participant_identifiers() -> None:
             "data_type_id",
             "content_digest",
         ],
-        "cardinality": "one-to-one",
+        "cardinality": "one-reference-per-subject-shared-reference-allowed",
     }
 
 

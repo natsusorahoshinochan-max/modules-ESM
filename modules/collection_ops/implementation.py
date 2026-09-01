@@ -6,34 +6,22 @@ from collections.abc import Mapping
 from typing import Any
 
 from core.operation import AdmittedPort, OperationCall
-from datatypes.candidate import (
-    Candidate,
-    CandidateCollection,
-    CandidateDataReference,
-)
+from datatypes.candidate import Candidate, CandidateCollection, CandidateDataReference
 from datatypes.observation import (
-    DirectAncestorCandidateMapping,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     ScoreCollection,
 )
 
 
-_CONCAT_CANDIDATE_PORTS = (
-    "candidates_a",
-    "candidates_b",
-    "candidates_c",
-)
-_INTERSECTION_PORTS = (
-    *_CONCAT_CANDIDATE_PORTS,
-    "candidates_d",
-)
+_CONCAT_CANDIDATE_PORTS = ("candidates_a", "candidates_b", "candidates_c")
+_INTERSECTION_PORTS = (*_CONCAT_CANDIDATE_PORTS, "candidates_d")
 _SCORE_PORTS = ("scores_a", "scores_b", "scores_c")
-_PAIRING_PORTS = ("pairing_a", "pairing_b", "pairing_c")
+_RELATION_PORTS = ("relation_a", "relation_b", "relation_c")
 
 
 class CollectionOpsImplementation:
-    """Execute one deterministic, identity-preserving collection operation."""
+    """Execute one deterministic collection or Candidate-relation operation."""
 
     def __init__(self, operation: str) -> None:
         self._operation = operation
@@ -43,14 +31,21 @@ class CollectionOpsImplementation:
             return {"candidates": self._concat_candidates(call.inputs)}
         if self._operation == "merge_scores":
             return {"scores": self._merge_scores(call.inputs)}
-        if self._operation == "concat_pairings":
-            return {"pairing": self._concat_pairings(call.inputs)}
-        if self._operation == "rebind_candidate_pairing":
-            return {"pairing": self._rebind_candidate_pairing(call)}
-        if self._operation == "pair_siblings_by_parent":
-            return {"pairing": self._pair_siblings_by_parent(call)}
-        if self._operation == "pair_by_two_hop_ancestor":
-            return {"pairing": self._pair_by_two_hop_ancestor(call)}
+        if self._operation == "concat_relations":
+            return {"relation": self._concat_relations(call.inputs)}
+        if self._operation == "relate_by_parent":
+            return {"relation": self._relate_by_parent(call)}
+        if self._operation == "relate_to_single_reference":
+            return {"relation": self._relate_to_single_reference(call)}
+        if self._operation == "compose_relations":
+            return {"relation": self._compose_relations(call.inputs)}
+        if self._operation == "invert_relation":
+            return {"relation": self._invert_relation(call.inputs)}
+        if self._operation == "join_relation_subjects":
+            return {"relation": self._join_relation_subjects(call.inputs)}
+        if self._operation == "select_related_subjects":
+            candidates, relation = self._select_related_subjects(call)
+            return {"candidates": candidates, "relation": relation}
         if self._operation == "take_candidates":
             return {
                 "candidates": self._take_candidates(
@@ -58,135 +53,7 @@ class CollectionOpsImplementation:
                     call.node_parameters,
                 )
             }
-        if self._operation == "select_children_by_parent":
-            return {
-                "candidates": self._select_children_by_parent(call.inputs)
-            }
-        if self._operation == "select_pairing_subjects":
-            candidates, pairing = self._select_pairing_subjects(call)
-            return {"candidates": candidates, "pairing": pairing}
         return {"candidates": self._intersect_candidates(call.inputs)}
-
-    def _select_pairing_subjects(
-        self,
-        call: OperationCall,
-    ) -> tuple[CandidateCollection, PairwiseCandidateMapping]:
-        subjects, subjects_by_id = self._candidate_references(
-            call,
-            call.inputs["subjects"].value,
-            port="subjects",
-        )
-        _references, references_by_id = self._candidate_references(
-            call,
-            call.inputs["selected_references"].value,
-            port="selected_references",
-        )
-        selected_references = {
-            reference for _candidate, reference in references_by_id.values()
-        }
-        subject_references = {
-            reference for _candidate, reference in subjects_by_id.values()
-        }
-        pairing_entries = call.inputs["pairing"].value.entries
-        if {entry.subject for entry in pairing_entries} != subject_references:
-            raise ValueError(
-                "pairing subjects must exactly cover the supplied subjects"
-            )
-        pairing_references = {entry.reference for entry in pairing_entries}
-        if not selected_references.issubset(pairing_references):
-            raise ValueError(
-                "selected references must be present in the supplied pairing"
-            )
-        selected_entries = tuple(
-            entry
-            for entry in pairing_entries
-            if entry.reference in selected_references
-        )
-        selected_subjects = {entry.subject for entry in selected_entries}
-        return (
-            CandidateCollection(
-                collection_id="collection-ops-selected-pairing-subjects",
-                item_type=subjects.item_type,
-                items=tuple(
-                    candidate
-                    for candidate, reference in subjects_by_id.values()
-                    if reference in selected_subjects
-                ),
-            ),
-            PairwiseCandidateMapping(selected_entries),
-        )
-
-    @staticmethod
-    def _select_children_by_parent(
-        inputs: Mapping[str, AdmittedPort],
-    ) -> CandidateCollection:
-        candidates = inputs["candidates"].value
-        parents = inputs["parents"].value
-        parent_ids = {candidate.candidate_id for candidate in parents.items}
-        selected = []
-        for candidate in candidates.items:
-            if len(candidate.parent_ids) != 1:
-                raise ValueError(
-                    "each child Candidate must have exactly one parent"
-                )
-            if candidate.parent_ids[0] in parent_ids:
-                selected.append(candidate)
-        return CandidateCollection(
-            collection_id="collection-ops-children-of-selected-parents",
-            item_type=candidates.item_type,
-            items=tuple(selected),
-        )
-
-    @staticmethod
-    def _intersect_candidates(
-        inputs: Mapping[str, AdmittedPort],
-    ) -> CandidateCollection:
-        supplied = [
-            inputs[port].value
-            for port in _INTERSECTION_PORTS
-            if port in inputs
-        ]
-        if len(supplied) < 2:
-            raise ValueError(
-                "Candidate intersection requires at least two connected inputs"
-            )
-        first = supplied[0]
-        if any(value.item_type != first.item_type for value in supplied[1:]):
-            raise ValueError("Candidate intersection requires one exact item type")
-        identities = [
-            {candidate.candidate_id: candidate for candidate in value.items}
-            for value in supplied
-        ]
-        selected = [
-            candidate
-            for candidate in first.items
-            if all(
-                index.get(candidate.candidate_id) == candidate
-                for index in identities[1:]
-            )
-        ]
-        return CandidateCollection(
-            collection_id="collection-ops-intersected-candidates",
-            item_type=first.item_type,
-            items=tuple(selected),
-        )
-
-    @staticmethod
-    def _take_candidates(
-        inputs: Mapping[str, AdmittedPort],
-        node_parameters: Mapping[str, Any],
-    ) -> CandidateCollection:
-        candidates = inputs["candidates"].value
-        k = node_parameters["k"]
-        if k > len(candidates.items):
-            raise ValueError(
-                "k cannot exceed Candidate input cardinality"
-            )
-        return CandidateCollection(
-            collection_id=f"{candidates.collection_id}-first-{k}",
-            item_type=candidates.item_type,
-            items=list(candidates.items[:k]),
-        )
 
     def _candidate_references(
         self,
@@ -200,212 +67,230 @@ class CollectionOpsImplementation:
     ]:
         if not value.items:
             raise ValueError(f"{port} must be a non-empty Candidate Collection")
-        admitted = call.inputs[port]
         admitted_by_id = {
-            entry.candidate_id: entry
-            for entry in admitted.candidate_data
+            entry.candidate_id: entry for entry in call.inputs[port].candidate_data
         }
-        by_id = {
+        return value, {
             candidate.candidate_id: (
                 candidate,
                 admitted_by_id[candidate.candidate_id],
             )
             for candidate in value.items
         }
-        return value, by_id
 
-    def _rebind_candidate_pairing(
-        self,
-        call: OperationCall,
-    ) -> PairwiseCandidateMapping:
-        inputs = call.inputs
-        subjects, subjects_by_id = self._candidate_references(
-            call,
-            inputs["subjects"].value,
-            port="subjects",
-        )
-        parents, parents_by_id = self._candidate_references(
-            call,
-            inputs["parents"].value,
-            port="parents",
-        )
-        references, references_by_id = self._candidate_references(
-            call,
-            inputs["references"].value,
-            port="references",
-        )
-        pairing = inputs["parent_pairing"].value
-        parent_to_reference: dict[
-            str, CandidateDataReference
-        ] = {}
-        seen_references: set[CandidateDataReference] = set()
-        for entry in pairing.entries:
-            parent = parents_by_id.get(entry.subject.candidate_id)
-            reference = references_by_id.get(entry.reference.candidate_id)
-            if (
-                parent is None
-                or reference is None
-                or parent[1] != entry.subject
-                or reference[1] != entry.reference
-                or entry.subject.candidate_id in parent_to_reference
-                or entry.reference in seen_references
-            ):
-                raise ValueError(
-                    "parent_pairing contradicts exact Candidate identities "
-                    "or content"
-                )
-            parent_to_reference[entry.subject.candidate_id] = entry.reference
-            seen_references.add(entry.reference)
-        if set(parent_to_reference) != set(parents_by_id):
-            raise ValueError("parent_pairing is not complete for all parents")
-        if seen_references != {
-            reference for _, reference in references_by_id.values()
-        }:
-            raise ValueError(
-                "parent_pairing is not complete for all references"
-            )
-        rebound: list[PairwiseCandidateMatch] = []
-        used_parents: set[str] = set()
-        used_references: set[str] = set()
-        for subject in subjects.items:
-            matching_parents = [
-                parent_id
-                for parent_id in subject.parent_ids
-                if parent_id in parents_by_id
-            ]
-            if len(matching_parents) != 1:
-                raise ValueError(
-                    "each subject must name exactly one supplied parent"
-                )
-            parent_id = matching_parents[0]
-            if subject.parent_ids != (parent_id,):
-                raise ValueError(
-                    "each subject must have exactly one total parent"
-                )
-            reference = parent_to_reference[parent_id]
-            if (
-                parent_id in used_parents
-                or reference.candidate_id in used_references
-            ):
-                raise ValueError(
-                    "pairing rebinding requires one subject per exact parent"
-                )
-            used_parents.add(parent_id)
-            used_references.add(reference.candidate_id)
-            rebound.append(PairwiseCandidateMatch(
-                subject=subjects_by_id[subject.candidate_id][1],
-                reference=reference,
-            ))
-        if used_parents != set(parents_by_id):
-            raise ValueError("subjects do not cover every exact parent")
-        return PairwiseCandidateMapping(rebound)
-
-    def _pair_siblings_by_parent(
-        self,
-        call: OperationCall,
-    ) -> PairwiseCandidateMapping:
-        inputs = call.inputs
-        subjects, subjects_by_id = self._candidate_references(
-            call,
-            inputs["subjects"].value,
-            port="subjects",
-        )
-        references, references_by_id = self._candidate_references(
-            call,
-            inputs["references"].value,
-            port="references",
-        )
-
-        def by_parent(
-            collection: CandidateCollection,
-            *,
-            port: str,
-        ) -> dict[str, Candidate]:
-            indexed: dict[str, Candidate] = {}
-            for candidate in collection.items:
-                if len(candidate.parent_ids) != 1:
-                    raise ValueError(
-                        f"each {port} Candidate must have exactly one parent"
-                    )
-                parent_id = candidate.parent_ids[0]
-                if not parent_id or parent_id in indexed:
-                    raise ValueError(
-                        f"{port} must contain exactly one Candidate per parent"
-                    )
-                indexed[parent_id] = candidate
-            return indexed
-
-        subjects_by_parent = by_parent(subjects, port="subjects")
-        references_by_parent = by_parent(references, port="references")
-        if set(subjects_by_parent) != set(references_by_parent):
-            raise ValueError(
-                "subject and reference Candidates must cover the same parents"
-            )
-        return PairwiseCandidateMapping([
-            PairwiseCandidateMatch(
-                subject=subjects_by_id[subject.candidate_id][1],
-                reference=references_by_id[
-                    references_by_parent[
-                        subject.parent_ids[0]
-                    ].candidate_id
-                ][1],
-            )
-            for subject in subjects.items
-        ])
-
-    def _pair_by_two_hop_ancestor(
-        self,
-        call: OperationCall,
-    ) -> DirectAncestorCandidateMapping:
+    def _relate_by_parent(self, call: OperationCall) -> CandidateRelation:
         subjects, subjects_by_id = self._candidate_references(
             call,
             call.inputs["subjects"].value,
             port="subjects",
         )
-        intermediates, intermediates_by_id = self._candidate_references(
+        _parents, parents_by_id = self._candidate_references(
             call,
-            call.inputs["intermediates"].value,
-            port="intermediates",
+            call.inputs["parents"].value,
+            port="parents",
         )
-        ancestors, ancestors_by_id = self._candidate_references(
-            call,
-            call.inputs["ancestors"].value,
-            port="ancestors",
-        )
-        matches: list[PairwiseCandidateMatch] = []
-        used_intermediates: set[str] = set()
-        used_ancestors: set[str] = set()
+        used_parents: set[str] = set()
+        entries: list[CandidateRelationEntry] = []
         for subject in subjects.items:
             if (
                 len(subject.parent_ids) != 1
-                or subject.parent_ids[0] not in intermediates_by_id
-                or subject.parent_ids[0] in used_intermediates
+                or subject.parent_ids[0] not in parents_by_id
             ):
                 raise ValueError(
-                    "each subject must name exactly one distinct supplied "
-                    "intermediate parent"
+                    "each subject must name exactly one supplied parent"
                 )
-            intermediate_id = subject.parent_ids[0]
-            intermediate = intermediates_by_id[intermediate_id][0]
-            if (
-                len(intermediate.parent_ids) != 1
-                or intermediate.parent_ids[0] not in ancestors_by_id
-            ):
-                raise ValueError(
-                    "each intermediate must name exactly one supplied ancestor"
+            parent_id = subject.parent_ids[0]
+            used_parents.add(parent_id)
+            entries.append(
+                CandidateRelationEntry(
+                    subject=subjects_by_id[subject.candidate_id][1],
+                    reference=parents_by_id[parent_id][1],
                 )
-            ancestor_id = intermediate.parent_ids[0]
-            used_intermediates.add(intermediate_id)
-            used_ancestors.add(ancestor_id)
-            matches.append(PairwiseCandidateMatch(
+            )
+        if used_parents != set(parents_by_id):
+            raise ValueError("subjects do not cover every supplied parent")
+        return CandidateRelation(entries)
+
+    def _relate_to_single_reference(
+        self,
+        call: OperationCall,
+    ) -> CandidateRelation:
+        subjects, subjects_by_id = self._candidate_references(
+            call,
+            call.inputs["subjects"].value,
+            port="subjects",
+        )
+        references, references_by_id = self._candidate_references(
+            call,
+            call.inputs["references"].value,
+            port="references",
+        )
+        if len(references.items) != 1:
+            raise ValueError("reference relation requires exactly one reference")
+        reference = references_by_id[references.items[0].candidate_id][1]
+        return CandidateRelation(tuple(
+            CandidateRelationEntry(
                 subject=subjects_by_id[subject.candidate_id][1],
-                reference=ancestors_by_id[ancestor_id][1],
-            ))
-        if used_intermediates != set(intermediates_by_id):
-            raise ValueError("subjects do not cover every supplied intermediate")
-        if used_ancestors != set(ancestors_by_id):
-            raise ValueError("intermediates do not cover every supplied ancestor")
-        return DirectAncestorCandidateMapping(matches)
+                reference=reference,
+            )
+            for subject in subjects.items
+        ))
+
+    @staticmethod
+    def _compose_relations(
+        inputs: Mapping[str, AdmittedPort],
+    ) -> CandidateRelation:
+        left = inputs["left_relation"].value
+        right = inputs["right_relation"].value
+        right_by_subject = {entry.subject: entry.reference for entry in right.entries}
+        entries: list[CandidateRelationEntry] = []
+        for entry in left.entries:
+            reference = right_by_subject.get(entry.reference)
+            if reference is None:
+                raise ValueError(
+                    "every left reference must match one exact right subject"
+                )
+            entries.append(
+                CandidateRelationEntry(
+                    subject=entry.subject,
+                    reference=reference,
+                )
+            )
+        return CandidateRelation(entries)
+
+    @staticmethod
+    def _invert_relation(
+        inputs: Mapping[str, AdmittedPort],
+    ) -> CandidateRelation:
+        return CandidateRelation(tuple(
+            CandidateRelationEntry(
+                subject=entry.reference,
+                reference=entry.subject,
+            )
+            for entry in inputs["relation"].value.entries
+        ))
+
+    @staticmethod
+    def _join_relation_subjects(
+        inputs: Mapping[str, AdmittedPort],
+    ) -> CandidateRelation:
+        left = inputs["left_relation"].value
+        right = inputs["right_relation"].value
+        right_subject_by_reference: dict[
+            CandidateDataReference,
+            CandidateDataReference,
+        ] = {}
+        for entry in right.entries:
+            if entry.reference in right_subject_by_reference:
+                raise ValueError(
+                    "right relation must contain one subject per shared reference"
+                )
+            right_subject_by_reference[entry.reference] = entry.subject
+        entries: list[CandidateRelationEntry] = []
+        for entry in left.entries:
+            reference = right_subject_by_reference.get(entry.reference)
+            if reference is None:
+                raise ValueError(
+                    "every left reference must match one right relation reference"
+                )
+            entries.append(
+                CandidateRelationEntry(
+                    subject=entry.subject,
+                    reference=reference,
+                )
+            )
+        return CandidateRelation(entries)
+
+    def _select_related_subjects(
+        self,
+        call: OperationCall,
+    ) -> tuple[CandidateCollection, CandidateRelation]:
+        subjects, subjects_by_id = self._candidate_references(
+            call,
+            call.inputs["subjects"].value,
+            port="subjects",
+        )
+        selected_references = set(
+            call.inputs["selected_references"].candidate_data
+        )
+        subject_references = {
+            reference for _candidate, reference in subjects_by_id.values()
+        }
+        relation_entries = call.inputs["relation"].value.entries
+        if {entry.subject for entry in relation_entries} != subject_references:
+            raise ValueError(
+                "relation subjects must exactly cover the supplied subjects"
+            )
+        if not selected_references.issubset(
+            {entry.reference for entry in relation_entries}
+        ):
+            raise ValueError(
+                "selected references must occur in the supplied relation"
+            )
+        selected_entries = tuple(
+            entry
+            for entry in relation_entries
+            if entry.reference in selected_references
+        )
+        selected_subjects = {entry.subject for entry in selected_entries}
+        return (
+            CandidateCollection(
+                collection_id="collection-ops-selected-related-subjects",
+                item_type=subjects.item_type,
+                items=tuple(
+                    candidate
+                    for candidate, reference in subjects_by_id.values()
+                    if reference in selected_subjects
+                ),
+            ),
+            CandidateRelation(selected_entries),
+        )
+
+    @staticmethod
+    def _intersect_candidates(
+        inputs: Mapping[str, AdmittedPort],
+    ) -> CandidateCollection:
+        supplied = [
+            inputs[port].value for port in _INTERSECTION_PORTS if port in inputs
+        ]
+        if len(supplied) < 2:
+            raise ValueError(
+                "Candidate intersection requires at least two connected inputs"
+            )
+        first = supplied[0]
+        if any(value.item_type != first.item_type for value in supplied[1:]):
+            raise ValueError("Candidate intersection requires one exact item type")
+        identities = [
+            {candidate.candidate_id: candidate for candidate in value.items}
+            for value in supplied
+        ]
+        return CandidateCollection(
+            collection_id="collection-ops-intersected-candidates",
+            item_type=first.item_type,
+            items=tuple(
+                candidate
+                for candidate in first.items
+                if all(
+                    index.get(candidate.candidate_id) == candidate
+                    for index in identities[1:]
+                )
+            ),
+        )
+
+    @staticmethod
+    def _take_candidates(
+        inputs: Mapping[str, AdmittedPort],
+        node_parameters: Mapping[str, Any],
+    ) -> CandidateCollection:
+        candidates = inputs["candidates"].value
+        k = node_parameters["k"]
+        if k > len(candidates.items):
+            raise ValueError("k cannot exceed Candidate input cardinality")
+        return CandidateCollection(
+            collection_id=f"{candidates.collection_id}-first-{k}",
+            item_type=candidates.item_type,
+            items=list(candidates.items[:k]),
+        )
 
     @staticmethod
     def _concat_candidates(
@@ -452,30 +337,21 @@ class CollectionOpsImplementation:
         )
 
     @staticmethod
-    def _concat_pairings(
+    def _concat_relations(
         inputs: Mapping[str, AdmittedPort],
-    ) -> PairwiseCandidateMapping:
-        supplied = [
-            (port, inputs[port].value)
-            for port in _PAIRING_PORTS
-            if port in inputs
-        ]
-        entries: list[PairwiseCandidateMatch] = []
+    ) -> CandidateRelation:
+        entries: list[CandidateRelationEntry] = []
         subject_sources: dict[CandidateDataReference, str] = {}
-        reference_sources: dict[CandidateDataReference, str] = {}
-        for port, pairing in supplied:
-            for entry in pairing.entries:
-                if entry.subject in subject_sources:
+        for port in _RELATION_PORTS:
+            if port not in inputs:
+                continue
+            for entry in inputs[port].value.entries:
+                previous = subject_sources.get(entry.subject)
+                if previous is not None:
                     raise ValueError(
-                        "Candidate pairing subject occurs in more than one "
-                        f"input partition: {subject_sources[entry.subject]}, {port}"
-                    )
-                if entry.reference in reference_sources:
-                    raise ValueError(
-                        "Candidate pairing reference occurs in more than one "
-                        f"input partition: {reference_sources[entry.reference]}, {port}"
+                        "Candidate relation subject occurs in more than one "
+                        f"input partition: {previous}, {port}"
                     )
                 subject_sources[entry.subject] = port
-                reference_sources[entry.reference] = port
                 entries.append(entry)
-        return PairwiseCandidateMapping(tuple(entries))
+        return CandidateRelation(entries)

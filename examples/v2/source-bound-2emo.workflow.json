@@ -327,22 +327,22 @@
     },
     {
       "node_id": "align-folds",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-tm",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "score-rmsd",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -407,8 +407,8 @@
     },
     {
       "node_id": "select-soluble-folds",
-      "node_type_id": "collection_ops.select_children_by_parent",
-      "binding_id": "collection_ops.select_children_by_parent.direct",
+      "node_type_id": "collection_ops.select_related_subjects",
+      "binding_id": "collection_ops.select_related_subjects.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -468,6 +468,34 @@
         "annotations": [],
         "overlap_policy": "allow"
       },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "select-soluble-folds-parent-relation",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-folds-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "score-tm-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "score-rmsd-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
       "binding_parameters": {}
     }
   ],
@@ -692,13 +720,19 @@
       "source_node_id": "fold-esmfold2",
       "source_port": "structure_candidates",
       "target_node_id": "select-soluble-folds",
-      "target_port": "candidates"
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "select-soluble-folds-parent-relation",
+      "target_port": "subjects"
     },
     {
       "source_node_id": "filter-protein-sol",
       "source_port": "candidates",
       "target_node_id": "select-soluble-folds",
-      "target_port": "parents"
+      "target_port": "selected_references"
     },
     {
       "source_node_id": "filter-tm",
@@ -759,6 +793,72 @@
       "source_port": "protein_prompt",
       "target_node_id": "prompt-composition-6ebcc41c0a856414f4d9548c.0001.annotations",
       "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "design-sequences",
+      "source_port": "sequence_candidates",
+      "target_node_id": "select-soluble-folds-parent-relation",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "select-soluble-folds-parent-relation",
+      "source_port": "relation",
+      "target_node_id": "select-soluble-folds",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-folds-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "normalize-reference",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-folds-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-folds-relation",
+      "source_port": "relation",
+      "target_node_id": "align-folds",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-tm-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "normalize-reference",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-tm-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "score-tm-relation",
+      "source_port": "relation",
+      "target_node_id": "score-tm",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-esmfold2",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-rmsd-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "normalize-reference",
+      "source_port": "structure_candidates",
+      "target_node_id": "score-rmsd-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "score-rmsd-relation",
+      "source_port": "relation",
+      "target_node_id": "score-rmsd",
+      "target_port": "relation"
     }
   ],
   "observation_selectors": [
@@ -772,7 +872,7 @@
         "node_id": "score-tm",
         "output_port": "scores"
       },
-      "source_partition": "structure_comparison.tm_score.fixed_reference",
+      "source_partition": "structure_comparison.tm_score.explicit_relation",
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.tm_score"
@@ -785,7 +885,7 @@
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
-        "pairing_mode": "fixed_reference",
+        "pairing_mode": "explicit_relation",
         "normalization": "reference-axis-residue-count"
       },
       "match_cardinality": "exactly_one",
@@ -801,7 +901,7 @@
         "node_id": "score-rmsd",
         "output_port": "scores"
       },
-      "source_partition": "structure_comparison.rmsd.fixed_reference",
+      "source_partition": "structure_comparison.rmsd.explicit_relation",
       "metric": {
         "contract_kind": "metric",
         "contract_id": "structure_comparison.rmsd"
@@ -814,7 +914,7 @@
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
-        "pairing_mode": "fixed_reference",
+        "pairing_mode": "explicit_relation",
         "normalization": "aligned-CA-mean-square-distance"
       },
       "match_cardinality": "exactly_one",

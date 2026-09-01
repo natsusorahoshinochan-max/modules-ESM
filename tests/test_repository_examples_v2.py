@@ -258,7 +258,7 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
     assert {
         objective.context_selector.pairing_mode
         for objective in workflow.selection_objectives
-    } == {"fixed_reference", "per_subject_counterpart"}
+    } == {"fixed_reference", "explicit_relation"}
     assert all(
         objective.metric.contract_id
         == "contract_test.multi_objective_selection_score"
@@ -329,17 +329,11 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         and contract.contract_id.startswith("structure_comparison.")
     }
     assert comparison_nodes == {
-        "structure_comparison.align_counterparts",
-        "structure_comparison.align_direct_ancestors",
-        "structure_comparison.align_fixed_reference",
-        "structure_comparison.align_single",
+        "structure_comparison.align_pairs",
         "structure_comparison.classify_three_way_consistency",
         "structure_comparison.evaluate_inserted_loop",
-        "structure_comparison.rmsd_counterparts",
-        "structure_comparison.rmsd_fixed_reference",
-        "structure_comparison.tm_score_counterparts",
-        "structure_comparison.tm_score_direct_ancestors",
-        "structure_comparison.tm_score_fixed_reference",
+        "structure_comparison.rmsd_from_alignments",
+        "structure_comparison.tm_score_from_alignments",
     }
     comparison_bindings = {
         contract.contract_id
@@ -348,18 +342,12 @@ def test_production_catalog_advertises_only_cohesive_v2_capabilities() -> None:
         and contract.contract_id.startswith("structure_comparison.")
     }
     assert comparison_bindings == {
-        "structure_comparison.align_counterparts.sequence_primary_affine",
-        "structure_comparison.align_direct_ancestors.sequence_primary_affine",
-        "structure_comparison.align_fixed_reference.sequence_primary_affine",
-        "structure_comparison.align_single.sequence_primary_affine",
-        "structure_comparison.align_single.structure_first_tm_align",
+        "structure_comparison.align_pairs.sequence_primary_affine",
+        "structure_comparison.align_pairs.structure_first_tm_align",
         "structure_comparison.classify_three_way_consistency.direct",
         "structure_comparison.evaluate_inserted_loop.direct",
-        "structure_comparison.rmsd_counterparts.from_alignment_evidence",
-        "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
-        "structure_comparison.tm_score_counterparts.from_alignment_evidence",
-        "structure_comparison.tm_score_direct_ancestors.from_alignment_evidence",
-        "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+        "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
+        "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
     }
     comparison_scientific_contracts = {
         (contract.contract_kind, contract.contract_id)

@@ -865,17 +865,8 @@ def test_local_execution_preserves_remote_scientific_contracts(
             projection,
             outputs["structure_candidates"],
         )
-        pairing = decode_output(
-            service, catalog, projection, outputs["counterpart_pairs"]
-        )
         assert structures.items[0].parent_ids == (
             primary.items[0].candidate_id,
-        )
-        assert pairing.entries[0].subject.candidate_id == (
-            primary.items[0].candidate_id
-        )
-        assert pairing.entries[0].reference.candidate_id == (
-            structures.items[0].candidate_id
         )
     readiness = [
         event["event"]

@@ -26,10 +26,9 @@ from datatypes.identifier import validate_canonical_identifier
 from datatypes.i_json import FrozenList
 from datatypes.observation import (
     CalibrationObservationContext,
-    DirectAncestorCandidateMapping,
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     PairwiseObservationContext,
     PairwiseParticipant,
     ScoreCollection,
@@ -60,12 +59,11 @@ _DATACLASS_BY_TAG = {
     "candidate": Candidate,
     "candidate_collection": CandidateCollection,
     "candidate_data_reference": CandidateDataReference,
-    "direct_ancestor_candidate_mapping": DirectAncestorCandidateMapping,
     "exact_contract_reference": ExactContractReference,
     "exact_port_value_reference": ExactPortValueReference,
     "intrinsic_observation_context": IntrinsicObservationContext,
-    "pairwise_candidate_mapping": PairwiseCandidateMapping,
-    "pairwise_candidate_match": PairwiseCandidateMatch,
+    "candidate_relation": CandidateRelation,
+    "candidate_relation_entry": CandidateRelationEntry,
     "pairwise_observation_context": PairwiseObservationContext,
     "pairwise_participant": PairwiseParticipant,
     "protein_sequence": ProteinSequence,
@@ -82,8 +80,7 @@ _TAG_BY_DATACLASS = {
 }
 _VALUE_TYPE_BY_KIND = {
     "candidate_collection": CandidateCollection,
-    "direct_ancestor_candidate_mapping": DirectAncestorCandidateMapping,
-    "pairwise_candidate_mapping": PairwiseCandidateMapping,
+    "candidate_relation": CandidateRelation,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
     "residue_layout": ResidueLayout,
@@ -209,37 +206,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             )
         return
 
-    if type(value) is PairwiseCandidateMapping:
-        subjects: set[CandidateDataReference] = set()
-        references: set[CandidateDataReference] = set()
-        candidate_references: dict[str, CandidateDataReference] = {}
-        for entry in value.entries:
-            for participant in (entry.subject, entry.reference):
-                known_reference = candidate_references.get(
-                    participant.candidate_id
-                )
-                if (
-                    known_reference is not None
-                    and known_reference != participant
-                ):
-                    raise _errors.PortValueError(
-                        f"{path} reuses one Candidate identity with "
-                        "conflicting exact data reference"
-                    )
-                candidate_references[participant.candidate_id] = participant
-            if entry.subject in subjects:
-                raise _errors.PortValueError(
-                    f"{path} contains multiple counterparts for one subject"
-                )
-            subjects.add(entry.subject)
-            if entry.reference in references:
-                raise _errors.PortValueError(
-                    f"{path} reuses one counterpart for multiple subjects"
-                )
-            references.add(entry.reference)
-        return
-
-    if type(value) is DirectAncestorCandidateMapping:
+    if type(value) is CandidateRelation:
         subjects: set[CandidateDataReference] = set()
         candidate_references: dict[str, CandidateDataReference] = {}
         for entry in value.entries:
@@ -258,7 +225,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
                 candidate_references[participant.candidate_id] = participant
             if entry.subject in subjects:
                 raise _errors.PortValueError(
-                    f"{path} contains multiple ancestors for one subject"
+                    f"{path} contains multiple references for one subject"
                 )
             subjects.add(entry.subject)
         return
@@ -280,8 +247,7 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
             )
         if value.pairing_mode not in {
             "fixed_reference",
-            "per_subject_counterpart",
-            "per_subject_direct_ancestor",
+            "explicit_relation",
         }:
             raise _errors.PortValueError(
                 f"{path}.pairing_mode is not a controlled pairing mode"

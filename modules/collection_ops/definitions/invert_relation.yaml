@@ -1,0 +1,10 @@
+node_type_id: collection_ops.invert_relation
+title: Invert a Candidate relation
+summary: Reverses every exact subject-to-reference relation entry.
+category: collection_ops
+inputs:
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Relation whose subject and reference roles are reversed.}
+outputs:
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Reference-to-subject relation in input entry order.}
+parameter_groups: []
+node_parameters: {}

@@ -741,6 +741,42 @@ def test_required_input_evidence_produces_exact_blocker(tmp_path: Path) -> None:
     assert ledger.projection().node_dispositions[-1].blocked_by == ("upstream",)
 
 
+def test_required_many_input_evidence_preserves_repeated_source_on_reload(
+    tmp_path: Path,
+) -> None:
+    upstream = _plan_node(node_id="upstream")
+    repeated_source = PlanValueSourceEvidence("upstream", "scores")
+    downstream = PlanNodeEvidence(
+        node_id="downstream",
+        dependencies=("upstream",),
+        required_input_sources=(
+            PlanRequiredInputEvidence(
+                input_port="scores",
+                sources=(repeated_source, repeated_source),
+            ),
+        ),
+        node_type=_reference("node_type", "fixture.downstream"),
+        binding=_reference(contract_id="fixture.downstream"),
+        method=_reference("method", "fixture.downstream-method"),
+        execution_route="direct",
+    )
+    ledger, projects, store = _admitted_ledger(
+        tmp_path,
+        plan_nodes=(upstream, downstream),
+    )
+
+    reloaded = Ledger.load(projects, "project-1", "run-1", store)
+
+    assert reloaded is not None
+    assert reloaded.cursor == ledger.cursor
+    scope = _durable_facts(store, projects)[0].payload
+    assert isinstance(scope, RunScopeBound)
+    assert scope.plan_nodes[1].required_input_sources[0].sources == (
+        repeated_source,
+        repeated_source,
+    )
+
+
 def test_failed_durable_ack_does_not_install_staged_facts(tmp_path: Path) -> None:
     class ControlledStore:
         def __init__(self) -> None:

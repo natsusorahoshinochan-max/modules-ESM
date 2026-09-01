@@ -5,8 +5,8 @@ import pytest
 
 from core.operation import (
     AdmittedPort,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
+    CandidateRelationIntent,
+    CandidateRelationIntentEntry,
     OperationCall,
 )
 from core.catalog.errors import (
@@ -45,8 +45,8 @@ from datatypes.exact_reference import (
 )
 from datatypes.observation import (
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     PairwiseObservationContext,
     PairwiseParticipant,
     ScoreCollection,
@@ -359,7 +359,7 @@ def test_produced_observation_method_uses_declared_projection_or_binding_default
         validate(provider_method, dynamic=False, projected=(provider_method,))
 
 
-def _candidate_outputs(pairing: CandidatePairingIntent) -> dict[str, object]:
+def _candidate_outputs(pairing: CandidateRelationIntent) -> dict[str, object]:
     return {
         "subjects": CandidateCollection(
             "raw-subjects",
@@ -633,9 +633,9 @@ def test_pairing_intent_projects_normalized_exact_candidate_content() -> None:
         result_identity="sha256:" + ("c" * 64),
         inputs={},
         outputs=_candidate_outputs(
-            CandidatePairingIntent(
+            CandidateRelationIntent(
                 (
-                    CandidatePairingIntentEntry(
+                    CandidateRelationIntentEntry(
                         subject_candidate_id="raw-subject",
                         reference_candidate_id="raw-reference",
                     ),
@@ -652,9 +652,9 @@ def test_pairing_intent_projects_normalized_exact_candidate_content() -> None:
     subject = normalized["subjects"].items[0]
     reference = normalized["references"].items[0]
     pairing = normalized["pairing"]
-    assert type(pairing) is PairwiseCandidateMapping
+    assert type(pairing) is CandidateRelation
     assert pairing.entries == (
-        PairwiseCandidateMatch(
+        CandidateRelationEntry(
             subject=CandidateDataReference(
                 candidate_id=subject.candidate_id,
                 data_type_id="protein.sequence",
@@ -759,8 +759,8 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
             result_identity="sha256:" + ("4" * 64),
             inputs=inputs,
             outputs={
-                "pairing": PairwiseCandidateMapping(
-                    (PairwiseCandidateMatch(subject, reference),)
+                "pairing": CandidateRelation(
+                    (CandidateRelationEntry(subject, reference),)
                 )
             },
             candidate_content_digest=lambda candidate: {
@@ -775,7 +775,7 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
     (
         (
             (
-                CandidatePairingIntentEntry(
+                CandidateRelationIntentEntry(
                     "unknown-subject",
                     "raw-reference",
                 ),
@@ -784,11 +784,11 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
         ),
         (
             (
-                CandidatePairingIntentEntry(
+                CandidateRelationIntentEntry(
                     "raw-subject",
                     "raw-reference",
                 ),
-                CandidatePairingIntentEntry(
+                CandidateRelationIntentEntry(
                     "raw-subject",
                     "raw-subject",
                 ),
@@ -798,7 +798,7 @@ def test_direct_candidate_pairing_requires_exact_admitted_input_references(
     ),
 )
 def test_pairing_intent_requires_known_distinct_candidates(
-    entries: tuple[CandidatePairingIntentEntry, ...],
+    entries: tuple[CandidateRelationIntentEntry, ...],
     message: str,
 ) -> None:
     with pytest.raises(PortValueError, match=message):
@@ -806,7 +806,7 @@ def test_pairing_intent_requires_known_distinct_candidates(
             node_id="source",
             result_identity="sha256:" + ("c" * 64),
             inputs={},
-            outputs=_candidate_outputs(CandidatePairingIntent(entries)),
+            outputs=_candidate_outputs(CandidateRelationIntent(entries)),
             candidate_content_digest=lambda candidate: (
                 "sha256:" + ("a" * 64)
             ),

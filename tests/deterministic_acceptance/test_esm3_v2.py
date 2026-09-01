@@ -111,14 +111,22 @@ def test_remote_esm3_all_modes_and_ten_pairs_are_stable_across_runs(
         for output in paired_projection["outputs"]
         if output["node_id"] == "generate"
     }
-    pairs = decode_output(
+    sequences = decode_output(
         paired_service,
         paired_catalog,
         paired_projection,
-        paired_outputs["counterpart_pairs"],
+        paired_outputs["sequence_candidates"],
+    )
+    structures = decode_output(
+        paired_service,
+        paired_catalog,
+        paired_projection,
+        paired_outputs["structure_candidates"],
     )
     assert paired_projection["status"] == "succeeded"
-    assert len(pairs.entries) == 10
+    assert [item.parent_ids for item in structures.items] == [
+        (item.candidate_id,) for item in sequences.items
+    ]
     assert [call[1].track for call in paired_client.calls] == [
         track
         for _ in range(10)

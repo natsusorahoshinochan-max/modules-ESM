@@ -53,6 +53,20 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "relate-generated-structures-shorter-8",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-pairs-shorter-8",
+      "node_type_id": "collection_ops.invert_relation",
+      "binding_id": "collection_ops.invert_relation.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "materialize-generation-confidence-shorter-8",
       "node_type_id": "structure_prediction.materialize_confidence",
       "binding_id": "structure_prediction.materialize_confidence.direct",
@@ -92,50 +106,50 @@
     },
     {
       "node_id": "align-core-shorter-8",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-shorter-8",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-shorter-8",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-shorter-8",
-      "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "node_type_id": "collection_ops.compose_relations",
+      "binding_id": "collection_ops.compose_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-shorter-8",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-shorter-8",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-shorter-8",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -469,6 +483,20 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "relate-generated-structures-numbering-implied-12",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-pairs-numbering-implied-12",
+      "node_type_id": "collection_ops.invert_relation",
+      "binding_id": "collection_ops.invert_relation.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "materialize-generation-confidence-numbering-implied-12",
       "node_type_id": "structure_prediction.materialize_confidence",
       "binding_id": "structure_prediction.materialize_confidence.direct",
@@ -508,50 +536,50 @@
     },
     {
       "node_id": "align-core-numbering-implied-12",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-numbering-implied-12",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-numbering-implied-12",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-numbering-implied-12",
-      "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "node_type_id": "collection_ops.compose_relations",
+      "binding_id": "collection_ops.compose_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-numbering-implied-12",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-numbering-implied-12",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-numbering-implied-12",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -889,6 +917,20 @@
       "binding_parameters": {}
     },
     {
+      "node_id": "relate-generated-structures-longer-16",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "relate-generated-pairs-longer-16",
+      "node_type_id": "collection_ops.invert_relation",
+      "binding_id": "collection_ops.invert_relation.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
       "node_id": "materialize-generation-confidence-longer-16",
       "node_type_id": "structure_prediction.materialize_confidence",
       "binding_id": "structure_prediction.materialize_confidence.direct",
@@ -928,50 +970,50 @@
     },
     {
       "node_id": "align-core-longer-16",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-core-longer-16",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-core-longer-16",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "pair-fold-counterpart-longer-16",
-      "node_type_id": "collection_ops.rebind_candidate_pairing",
-      "binding_id": "collection_ops.rebind_candidate_pairing.direct",
+      "node_type_id": "collection_ops.compose_relations",
+      "binding_id": "collection_ops.compose_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "align-counterpart-longer-16",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "tm-counterpart-longer-16",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "rmsd-counterpart-longer-16",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -1333,15 +1375,15 @@
     },
     {
       "node_id": "merge-counterpart-pairings",
-      "node_type_id": "collection_ops.concat_pairings",
-      "binding_id": "collection_ops.concat_pairings.direct",
+      "node_type_id": "collection_ops.concat_relations",
+      "binding_id": "collection_ops.concat_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "merge-fold-counterpart-pairings",
-      "node_type_id": "collection_ops.concat_pairings",
-      "binding_id": "collection_ops.concat_pairings.direct",
+      "node_type_id": "collection_ops.concat_relations",
+      "binding_id": "collection_ops.concat_relations.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -1570,6 +1612,90 @@
         "overlap_policy": "allow"
       },
       "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-shorter-8-subject-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-longer-16-subject-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-shorter-8-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-shorter-8-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-shorter-8-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-numbering-implied-12-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-numbering-implied-12-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-numbering-implied-12-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "align-core-longer-16-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "tm-core-longer-16-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "rmsd-core-longer-16-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
     }
   ],
   "edges": [
@@ -1708,26 +1834,20 @@
     {
       "source_node_id": "fold-shorter-8",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_node_id": "pair-fold-counterpart-shorter-8-subject-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "generate-shorter-8",
       "source_port": "sequence_candidates",
-      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_node_id": "pair-fold-counterpart-shorter-8-subject-parent",
       "target_port": "parents"
     },
     {
-      "source_node_id": "generate-shorter-8",
-      "source_port": "structure_candidates",
+      "source_node_id": "relate-generated-pairs-shorter-8",
+      "source_port": "relation",
       "target_node_id": "pair-fold-counterpart-shorter-8",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "generate-shorter-8",
-      "source_port": "counterpart_pairs",
-      "target_node_id": "pair-fold-counterpart-shorter-8",
-      "target_port": "parent_pairing"
+      "target_port": "right_relation"
     },
     {
       "source_node_id": "fold-shorter-8",
@@ -1755,9 +1875,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "align-counterpart-shorter-8",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-shorter-8",
@@ -1779,9 +1899,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "tm-counterpart-shorter-8",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-shorter-8",
@@ -1803,9 +1923,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "rmsd-counterpart-shorter-8",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "fold-shorter-8",
@@ -1833,7 +1953,7 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "evaluate-shorter-8",
       "target_port": "counterpart_pairing"
     },
@@ -1990,26 +2110,20 @@
     {
       "source_node_id": "fold-numbering-implied-12",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "generate-numbering-implied-12",
       "source_port": "sequence_candidates",
-      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
       "target_port": "parents"
     },
     {
-      "source_node_id": "generate-numbering-implied-12",
-      "source_port": "structure_candidates",
+      "source_node_id": "relate-generated-pairs-numbering-implied-12",
+      "source_port": "relation",
       "target_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "generate-numbering-implied-12",
-      "source_port": "counterpart_pairs",
-      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "target_port": "parent_pairing"
+      "target_port": "right_relation"
     },
     {
       "source_node_id": "fold-numbering-implied-12",
@@ -2037,9 +2151,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "align-counterpart-numbering-implied-12",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-numbering-implied-12",
@@ -2061,9 +2175,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "tm-counterpart-numbering-implied-12",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-numbering-implied-12",
@@ -2085,9 +2199,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "rmsd-counterpart-numbering-implied-12",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "fold-numbering-implied-12",
@@ -2115,7 +2229,7 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "evaluate-numbering-implied-12",
       "target_port": "counterpart_pairing"
     },
@@ -2272,26 +2386,20 @@
     {
       "source_node_id": "fold-longer-16",
       "source_port": "structure_candidates",
-      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_node_id": "pair-fold-counterpart-longer-16-subject-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "generate-longer-16",
       "source_port": "sequence_candidates",
-      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_node_id": "pair-fold-counterpart-longer-16-subject-parent",
       "target_port": "parents"
     },
     {
-      "source_node_id": "generate-longer-16",
-      "source_port": "structure_candidates",
+      "source_node_id": "relate-generated-pairs-longer-16",
+      "source_port": "relation",
       "target_node_id": "pair-fold-counterpart-longer-16",
-      "target_port": "references"
-    },
-    {
-      "source_node_id": "generate-longer-16",
-      "source_port": "counterpart_pairs",
-      "target_node_id": "pair-fold-counterpart-longer-16",
-      "target_port": "parent_pairing"
+      "target_port": "right_relation"
     },
     {
       "source_node_id": "fold-longer-16",
@@ -2319,9 +2427,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "align-counterpart-longer-16",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-longer-16",
@@ -2343,9 +2451,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "tm-counterpart-longer-16",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "align-counterpart-longer-16",
@@ -2367,9 +2475,9 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "rmsd-counterpart-longer-16",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "fold-longer-16",
@@ -2397,7 +2505,7 @@
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "evaluate-longer-16",
       "target_port": "counterpart_pairing"
     },
@@ -2534,40 +2642,40 @@
       "target_port": "candidates_c"
     },
     {
-      "source_node_id": "generate-shorter-8",
-      "source_port": "counterpart_pairs",
+      "source_node_id": "relate-generated-pairs-shorter-8",
+      "source_port": "relation",
       "target_node_id": "merge-counterpart-pairings",
-      "target_port": "pairing_a"
+      "target_port": "relation_a"
     },
     {
       "source_node_id": "pair-fold-counterpart-shorter-8",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "merge-fold-counterpart-pairings",
-      "target_port": "pairing_a"
+      "target_port": "relation_a"
     },
     {
-      "source_node_id": "generate-numbering-implied-12",
-      "source_port": "counterpart_pairs",
+      "source_node_id": "relate-generated-pairs-numbering-implied-12",
+      "source_port": "relation",
       "target_node_id": "merge-counterpart-pairings",
-      "target_port": "pairing_b"
+      "target_port": "relation_b"
     },
     {
       "source_node_id": "pair-fold-counterpart-numbering-implied-12",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "merge-fold-counterpart-pairings",
-      "target_port": "pairing_b"
+      "target_port": "relation_b"
     },
     {
-      "source_node_id": "generate-longer-16",
-      "source_port": "counterpart_pairs",
+      "source_node_id": "relate-generated-pairs-longer-16",
+      "source_port": "relation",
       "target_node_id": "merge-counterpart-pairings",
-      "target_port": "pairing_c"
+      "target_port": "relation_c"
     },
     {
       "source_node_id": "pair-fold-counterpart-longer-16",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "merge-fold-counterpart-pairings",
-      "target_port": "pairing_c"
+      "target_port": "relation_c"
     },
     {
       "source_node_id": "merge-folds",
@@ -2664,6 +2772,240 @@
       "source_port": "protein_prompt",
       "target_node_id": "prompt-composition-c67f87f835a080d538ee16e3.0002.annotations",
       "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-shorter-8-subject-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-fold-counterpart-shorter-8",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-longer-16-subject-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-fold-counterpart-longer-16",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "pair-fold-counterpart-numbering-implied-12-subject-parent",
+      "source_port": "relation",
+      "target_node_id": "pair-fold-counterpart-numbering-implied-12",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-shorter-8-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-shorter-8-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-shorter-8-relation",
+      "source_port": "relation",
+      "target_node_id": "align-core-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-shorter-8-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-shorter-8-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-core-shorter-8-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-core-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-shorter-8-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-shorter-8-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-core-shorter-8-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-core-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-numbering-implied-12-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-numbering-implied-12-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-numbering-implied-12-relation",
+      "source_port": "relation",
+      "target_node_id": "align-core-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-numbering-implied-12-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-numbering-implied-12-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-core-numbering-implied-12-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-core-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-numbering-implied-12-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-numbering-implied-12-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-core-numbering-implied-12-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-core-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-longer-16-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "align-core-longer-16-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "align-core-longer-16-relation",
+      "source_port": "relation",
+      "target_node_id": "align-core-longer-16",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-longer-16-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "tm-core-longer-16-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "tm-core-longer-16-relation",
+      "source_port": "relation",
+      "target_node_id": "tm-core-longer-16",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "fold-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-longer-16-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "select-chain-a",
+      "source_port": "structure_candidates",
+      "target_node_id": "rmsd-core-longer-16-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "rmsd-core-longer-16-relation",
+      "source_port": "relation",
+      "target_node_id": "rmsd-core-longer-16",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "structure_candidates",
+      "target_node_id": "relate-generated-structures-shorter-8",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-shorter-8",
+      "source_port": "sequence_candidates",
+      "target_node_id": "relate-generated-structures-shorter-8",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "relate-generated-structures-shorter-8",
+      "source_port": "relation",
+      "target_node_id": "relate-generated-pairs-shorter-8",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "structure_candidates",
+      "target_node_id": "relate-generated-structures-numbering-implied-12",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-numbering-implied-12",
+      "source_port": "sequence_candidates",
+      "target_node_id": "relate-generated-structures-numbering-implied-12",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "relate-generated-structures-numbering-implied-12",
+      "source_port": "relation",
+      "target_node_id": "relate-generated-pairs-numbering-implied-12",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "structure_candidates",
+      "target_node_id": "relate-generated-structures-longer-16",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "generate-longer-16",
+      "source_port": "sequence_candidates",
+      "target_node_id": "relate-generated-structures-longer-16",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "relate-generated-structures-longer-16",
+      "source_port": "relation",
+      "target_node_id": "relate-generated-pairs-longer-16",
+      "target_port": "relation"
     }
   ],
   "observation_selectors": [],

@@ -250,16 +250,14 @@ sequence、coordinates、secondary structure、absolute SASA 和 function annota
   range guessing or a frontend-only normalization.
 - Declare both Selection Objective weights as 0.5 by default. The backend normalizes declared non-negative weights by their sum; the UI displays the effective percentages and allows both declared weights to be changed.
 - A missing required Score Observation follows the explicit Selection Objective missing-value policy and is not silently imputed by the frontend.
-- Candidate pairing, Score subject identity, and Structure Alignment Evidence join by exact Candidate Data Reference and role-labelled lineage, never by list position.
-- The existing one-to-one counterpart comparison is sufficient for the second selection. The final selection
-  requires one explicit direct-ancestor comparison contract because three ProteinMPNN descendants share each
-  selected parent structure. Add the smallest collection operation that derives each final folded Candidate's
-  exact ProteinMPNN input ancestor from its two-hop lineage, plus a distinct structure-comparison Node/Binding
-  whose pairing contract requires exactly one reference per subject while allowing several subjects to share
-  the same reference. Do not weaken or overload the existing one-to-one counterpart contract.
-- The new direct-ancestor structure comparison emits normal Structure Alignment Evidence and TM-score Score
-  Observations with a distinct `per_subject_direct_ancestor` Observation Context. Register a matching identity
-  Utility Transform for that exact TM-score Method/Context.
+- Candidate relations, Score subject identity, and Structure Alignment Evidence join by exact Candidate Data Reference and role-labelled lineage, never by list position.
+- Build parent, fixed-reference, counterpart, sibling, and ancestor associations by composing generic Candidate
+  relation Nodes. A relation has exactly one reference per subject and permits several subjects to share one
+  reference. Do not add effect-specific pairing or direct-ancestor Node Types.
+- Structure comparison consumes an explicit Candidate relation: a generic alignment Node produces normal
+  Structure Alignment Evidence, and generic TM-score or RMSD Nodes consume that evidence. The resulting
+  pairwise Score Observations use the `explicit_relation` Observation Context and matching exact Utility
+  Transforms.
 - All other ESM-3, ESMFold2, and ProteinMPNN parameters use the selected backend Binding/Method defaults and remain editable when their public parameter contract permits editing.
 - Bundle one completed result produced through the real current Workflow and public/backend owners. Do not fabricate Candidate, Score, lineage, Artifact, or evidence payloads in frontend fixtures.
 - The bundled result records the exact resolved Prompt, parameters, Method identities, randomness, lineage, Metric Definitions, Selection Objectives, and Run provenance used to produce it.

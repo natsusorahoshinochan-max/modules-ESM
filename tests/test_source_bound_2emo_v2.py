@@ -427,7 +427,7 @@ def _assert_closed_scientific_acceptance(
             assert context.subject.candidate == alignment.subject
             assert context.reference.role == "reference"
             assert context.reference.candidate == alignment.reference
-            assert context.pairing_mode == "fixed_reference"
+            assert context.pairing_mode == "explicit_relation"
             assert context.normalization == normalization
             assert context.evidence_content_digest == evidence_digest
             assert context.evidence_method == alignment.method

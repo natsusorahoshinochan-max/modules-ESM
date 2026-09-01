@@ -25,8 +25,8 @@ from core.catalog.port_contract import (
 )
 from core.operation import (
     BindingEnvironment,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
+    CandidateRelationIntent,
+    CandidateRelationIntentEntry,
     OperationCall,
     OperationContext,
     ReadinessResult,
@@ -152,9 +152,9 @@ class _LineageSource:
                 item_type="protein.sequence",
                 items=subjects,
             ),
-            "parent_pairing": CandidatePairingIntent(
+            "parent_pairing": CandidateRelationIntent(
                 tuple(
-                    CandidatePairingIntentEntry(
+                    CandidateRelationIntentEntry(
                         subject_candidate_id=parent.candidate_id,
                         reference_candidate_id=reference.candidate_id,
                     )

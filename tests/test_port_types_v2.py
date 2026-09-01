@@ -37,8 +37,8 @@ from datatypes.candidate import (
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     ScoreCollection,
     ScoreObservation,
 )
@@ -64,7 +64,7 @@ from tests.support.protocol import validate_response
 
 EXPECTED_PORT_TYPE_IDS = {
     "candidate.collection",
-    "candidate.pairing",
+    "candidate.relation",
     "function.annotations",
     "protein.prompt",
     "protein.sequence",
@@ -186,7 +186,7 @@ def test_catalog_snapshot_publishes_exact_port_type_contracts() -> None:
         }
         if descriptor["contract_id"] in {
             "candidate.collection",
-            "candidate.pairing",
+            "candidate.relation",
             "score.collection",
         }:
             expected_descriptor_fields.add("candidate_data_projection")
@@ -404,8 +404,8 @@ def test_canonical_scientific_values_are_deeply_immutable() -> None:
     observation = _typed_observation({"values": score_values})
     scores = ScoreCollection("scores", [observation])
     residue_map = ResidueMap(layout, layout, mappings)
-    pairing = PairwiseCandidateMapping([
-        PairwiseCandidateMatch(
+    pairing = CandidateRelation([
+        CandidateRelationEntry(
             CandidateDataReference(
                 "candidate-1",
                 "protein.sequence",
@@ -514,9 +514,9 @@ def test_every_builtin_port_type_round_trips_its_runtime_value() -> None:
             "scores",
             [_typed_observation(83.5)],
         ),
-        "candidate.pairing": PairwiseCandidateMapping(
+        "candidate.relation": CandidateRelation(
             entries=[
-                PairwiseCandidateMatch(
+                CandidateRelationEntry(
                     subject=CandidateDataReference(
                         "candidate-1",
                         "protein.sequence",

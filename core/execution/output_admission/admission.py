@@ -219,12 +219,6 @@ def admit_node_output(
         outputs=materialized.values,
         candidate_data_port_types=node_plan.candidate_data_port_types,
         identity_encoder=identity_encoder,
-        direct_ancestor_pairing_ports=frozenset(
-            name
-            for name, declaration in declarations.items()
-            if declaration.port_type.type_id
-            == "candidate.direct_ancestor_pairing"
-        ),
         candidate_metadata=materialized.candidate_metadata,
         observation_propagation=node_plan.produced_observations.propagation,
     )

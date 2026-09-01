@@ -516,7 +516,14 @@ def test_utility_selection_joins_by_complete_admitted_cdr(
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id=f"selection.{operation}.direct",
-            inputs={"candidates": candidates, "scores": mismatched},
+            inputs={
+                "candidates": candidates,
+                "scores": (
+                    (mismatched,)
+                    if operation == "weighted_rank"
+                    else mismatched
+                ),
+            },
             node_parameters=_selection_node(operation).node_parameters,
             binding_parameters={},
         ))

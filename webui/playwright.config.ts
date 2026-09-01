@@ -1,7 +1,9 @@
 import { defineConfig } from '@playwright/test'
-import { fileURLToPath } from 'node:url'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
-const repositoryRoot = fileURLToPath(new URL('../', import.meta.url))
+const testDataRoot = mkdtempSync(join(tmpdir(), 'protein-workbench-webui-playwright-'))
 
 export default defineConfig({
   testDir: './tests',
@@ -12,7 +14,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `PYTHONPATH=.. PROTEIN_WORKBENCH_DATA_ROOT=${repositoryRoot}.scratch/webui-playwright ../.venv/bin/python -m uvicorn protein_workbench_public.bootstrap:create_application --factory --host 127.0.0.1 --port 8000`,
+      command: `PYTHONPATH=.. PROTEIN_WORKBENCH_DATA_ROOT=${testDataRoot} ../.venv/bin/python -m uvicorn protein_workbench_public.bootstrap:create_application --factory --host 127.0.0.1 --port 8000`,
       port: 8000,
       reuseExistingServer: true,
       timeout: 60_000,

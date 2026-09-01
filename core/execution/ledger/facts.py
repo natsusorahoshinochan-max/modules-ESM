@@ -391,7 +391,7 @@ def validate_plan_evidence(nodes: tuple[PlanNodeEvidence, ...]) -> None:
                 or required_input.sources
                 != tuple(
                     sorted(
-                        set(required_input.sources),
+                        required_input.sources,
                         key=lambda item: (item.node_id, item.output_port),
                     )
                 )
@@ -527,8 +527,7 @@ def _validate_selection_context(value: ContextSelectorEvidence) -> None:
             or value.pairing_mode
             not in {
                 "fixed_reference",
-                "per_subject_counterpart",
-                "per_subject_direct_ancestor",
+                "explicit_relation",
             }
             or not _valid_identifier(value.normalization)
         ):

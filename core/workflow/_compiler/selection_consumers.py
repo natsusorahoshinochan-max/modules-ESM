@@ -150,50 +150,73 @@ def _compile_selection_consumers(
                     parameter_name,
                 ),
             )
-        for label, port_name, reference_name in (
-            (
-                "Candidate",
-                consumption.candidate_input_port,
-                "candidate_input",
-            ),
-            (
-                "Score Collection",
-                consumption.score_collection_input_port,
-                "score_collection_input",
-            ),
+        candidate_sources = {
+            objective.candidate_input for objective in selected_objectives
+        }
+        connected_candidate = _connected_source(
+            graph,
+            node_id=node_id,
+            input_port=consumption.candidate_input_port,
+        )
+        if (
+            len(candidate_sources) != 1
+            or connected_candidate not in candidate_sources
         ):
-            connected = _connected_source(
-                graph,
-                node_id=node_id,
-                input_port=port_name,
-            )
-            expected_sources = {
-                getattr(objective, reference_name)
-                for objective in selected_objectives
-            }
-            if len(expected_sources) != 1 or connected not in expected_sources:
-                field_path = (
-                    (
-                        "nodes",
-                        node_index,
-                        "node_parameters",
-                        parameter_name,
-                    )
-                    if len(expected_sources) != 1
-                    else _connected_source_field_path(
-                        graph,
-                        node_id=node_id,
-                        input_port=port_name,
-                        expected_node_id=next(iter(expected_sources)).node_id,
-                    )
+            candidate_field_path = (
+                (
+                    "nodes",
+                    node_index,
+                    "node_parameters",
+                    parameter_name,
                 )
-                raise WorkflowCompileError(
-                    "unsatisfied_selector",
-                    f"Selection {label} input does not match the exact "
-                    "Workflow Selection Objective sources",
+                if len(candidate_sources) != 1
+                else _connected_source_field_path(
+                    graph,
                     node_id=node_id,
-                    field_path=field_path,
+                    input_port=consumption.candidate_input_port,
+                    expected_node_id=next(iter(candidate_sources)).node_id,
                 )
+            )
+            raise WorkflowCompileError(
+                "unsatisfied_selector",
+                "Selection Candidate input does not match the exact Workflow "
+                "Selection Objective sources",
+                node_id=node_id,
+                field_path=candidate_field_path,
+            )
+        connected_scores = {
+            source
+            for _, source in graph.input_sources[node_id][
+                consumption.score_collection_input_port
+            ]
+        }
+        expected_scores = {
+            objective.score_collection_input
+            for objective in selected_objectives
+        }
+        if connected_scores != expected_scores:
+            score_field_path = (
+                _connected_source_field_path(
+                    graph,
+                    node_id=node_id,
+                    input_port=consumption.score_collection_input_port,
+                    expected_node_id=next(iter(expected_scores)).node_id,
+                )
+                if len(expected_scores) == 1 and len(connected_scores) == 1
+                else (
+                    "nodes",
+                    node_index,
+                    "node_parameters",
+                    parameter_name,
+                )
+            )
+            raise WorkflowCompileError(
+                "unsatisfied_selector",
+                "Selection Score Collection input does not match the exact "
+                "Workflow Selection Objective sources",
+                node_id=node_id,
+                field_path=score_field_path,
+            )
         objectives_by_node[node_id] = selected_objectives
         for objective in selected_objectives:
             objective_consumers[objective.objective_id].append(node_id)

@@ -19,7 +19,6 @@ from core.operation import BindingEnvironment, ReadinessResult
 from core.workflow.compiler import CompilationRequest, compile
 from datatypes.candidate import CandidateCollection
 from datatypes.observation import (
-    PairwiseCandidateMapping,
     PairwiseObservationContext,
     ScoreCollection,
 )
@@ -241,7 +240,7 @@ def test_user_can_compare_selection_strategies_and_change_only_top_k(
         )
         assert {
             entry.context.pairing_mode for entry in scores.entries
-        } == {"fixed_reference", "per_subject_counterpart"}
+        } == {"fixed_reference", "explicit_relation"}
         assert {
             entry.source_partition for entry in scores.entries
         } == {
@@ -380,13 +379,6 @@ def test_user_can_condition_function_tracks_generate_and_replay(
             "generate-paired",
             "structure_candidates",
         )
-        paired_mapping = decode_one(
-            client,
-            catalog,
-            first.projection,
-            "generate-paired",
-            "counterpart_pairs",
-        )
         sequence_only = decode_one(
             client,
             catalog,
@@ -402,15 +394,6 @@ def test_user_can_condition_function_tracks_generate_and_replay(
         assert len(sequence_only.items) == 1
         assert paired_structures.items[0].parent_ids == (
             paired_sequences.items[0].candidate_id,
-        )
-        assert type(paired_mapping) is PairwiseCandidateMapping
-        assert len(paired_mapping.entries) == 1
-        assert (
-            paired_mapping.entries[0].subject.candidate_id,
-            paired_mapping.entries[0].reference.candidate_id,
-        ) == (
-            paired_sequences.items[0].candidate_id,
-            paired_structures.items[0].candidate_id,
         )
 
     assert len(esm3.sequence_prompts) == 4

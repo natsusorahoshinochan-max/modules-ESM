@@ -15,7 +15,7 @@ outputs:
     multiplicity: one
     scientific_meaning: One fixed 3GB1 reference and one exact ESM3 counterpart per subject.
   - name: pairing
-    port_type_id: candidate.pairing
+    port_type_id: candidate.relation
     required: true
     multiplicity: one
     scientific_meaning: Exact subject-to-paired-ESM3 counterpart mapping.

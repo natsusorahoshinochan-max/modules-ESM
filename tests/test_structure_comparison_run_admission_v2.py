@@ -35,54 +35,38 @@ from tests.test_tm_score_observations_v2 import _evidence
 def _execution_cases() -> tuple[ModulePackageContractCase, ...]:
     return (
         _ctk_case(
-            case_id="runtime-align-single-sequence",
-            operation="align_single",
+            case_id="runtime-align-pairs-sequence",
+            operation="align_pairs",
             binding_id=(
-                "structure_comparison.align_single.sequence_primary_affine"
+                "structure_comparison.align_pairs.sequence_primary_affine"
             ),
-            pairing_mode=None,
+            pairing_mode="explicit_relation",
         ),
         _ctk_case(
-            case_id="runtime-align-single-tm",
-            operation="align_single",
+            case_id="runtime-align-pairs-tm",
+            operation="align_pairs",
             binding_id=(
-                "structure_comparison.align_single.structure_first_tm_align"
+                "structure_comparison.align_pairs.structure_first_tm_align"
             ),
-            pairing_mode=None,
+            pairing_mode="explicit_relation",
         ),
         _ctk_case(
-            case_id="runtime-align-fixed",
-            operation="align_pairwise",
+            case_id="runtime-rmsd-from-alignments",
+            operation="rmsd",
             binding_id=(
-                "structure_comparison.align_fixed_reference."
-                "sequence_primary_affine"
+                "structure_comparison.rmsd_from_alignments."
+                "from_alignment_evidence"
             ),
-            pairing_mode="fixed_reference",
+            pairing_mode="explicit_relation",
         ),
         _ctk_case(
-            case_id="runtime-align-counterpart",
-            operation="align_pairwise",
+            case_id="runtime-tm-score-from-alignments",
+            operation="tm_score",
             binding_id=(
-                "structure_comparison.align_counterparts."
-                "sequence_primary_affine"
+                "structure_comparison.tm_score_from_alignments."
+                "from_alignment_evidence"
             ),
-            pairing_mode="per_subject_counterpart",
-        ),
-        *tuple(
-            _ctk_case(
-                case_id=f"runtime-{operation}-{pairing_mode}",
-                operation=operation,
-                binding_id=(
-                    f"structure_comparison.{operation}_{node_suffix}."
-                    "from_alignment_evidence"
-                ),
-                pairing_mode=pairing_mode,
-            )
-            for operation in ("rmsd", "tm_score")
-            for pairing_mode, node_suffix in (
-                ("fixed_reference", "fixed_reference"),
-                ("per_subject_counterpart", "counterparts"),
-            )
+            pairing_mode="explicit_relation",
         ),
         _three_way_ctk_case(),
         _inserted_loop_ctk_case(),
@@ -130,7 +114,7 @@ def test_real_v2_run_admits_exact_structure_alignment_evidence(
 ) -> None:
     report = _verify_comparison_package(tmp_path)
 
-    assert len(report.case_reports) == 10
+    assert len(report.case_reports) == 6
     assert {case.status for case in report.case_reports} == {"succeeded"}
 
 

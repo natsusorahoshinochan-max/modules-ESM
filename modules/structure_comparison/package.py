@@ -47,16 +47,9 @@ _RMSD_NORMALIZATION = "aligned-CA-mean-square-distance"
 _TM_NORMALIZATION = "reference-axis-residue-count"
 
 
-def _build(
-    operation: str,
-    pairing_mode: str | None = None,
-) -> Callable[[OperationContext], ScientificOperation]:
+def _build(operation: str) -> Callable[[OperationContext], ScientificOperation]:
     def factory(context: OperationContext) -> ScientificOperation:
-        return StructureComparisonImplementation(
-            context,
-            operation,
-            pairing_mode,
-        )
+        return StructureComparisonImplementation(context, operation)
 
     return factory
 
@@ -134,12 +127,9 @@ THREE_WAY_CONSISTENCY_BINDING = ExecutionBindingDefinition(
 )
 
 
-def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
+def _tm_score_utility() -> UtilityTransformDefinition:
     return UtilityTransformDefinition(
-        transform_id=(
-            "structure_comparison.tm_score."
-            f"{pairing_mode}.identity"
-        ),
+        transform_id="structure_comparison.tm_score.explicit_relation.identity",
         compatible_input_contract={
             "metric": ContractIdentity(
                 "metric",
@@ -150,7 +140,7 @@ def _tm_score_utility(pairing_mode: str) -> UtilityTransformDefinition:
                 "kind": "pairwise",
                 "subject_role": "subject",
                 "reference_role": "reference",
-                "pairing_mode": pairing_mode,
+                "pairing_mode": "explicit_relation",
                 "normalization": _TM_NORMALIZATION,
             },
         },
@@ -169,7 +159,6 @@ def _binding(
     operation: str,
     suffix: str,
     method: Any,
-    pairing_mode: str | None = None,
 ) -> ExecutionBindingDefinition:
     node_id = f"structure_comparison.{node_name}"
     binding_id = f"{node_id}.{suffix}"
@@ -184,7 +173,7 @@ def _binding(
             ProducedObservationDefinition(
                 output_port="scores",
                 output_partition=(
-                    f"structure_comparison.{operation}.{pairing_mode}"
+                    f"structure_comparison.{operation}.explicit_relation"
                 ),
                 metric=ContractIdentity(
                     "metric",
@@ -194,7 +183,7 @@ def _binding(
                     "kind": "pairwise",
                     "subject_role": "subject",
                     "reference_role": "reference",
-                    "pairing_mode": pairing_mode,
+                    "pairing_mode": "explicit_relation",
                     "normalization": normalization,
                 },
                 subject_grain="candidate",
@@ -203,12 +192,8 @@ def _binding(
                 subject_port="subjects",
                 reference_direction="input",
                 reference_port="references",
-                pairing_direction=(
-                    "input" if pairing_mode != "fixed_reference" else None
-                ),
-                pairing_port=(
-                    "pairing" if pairing_mode != "fixed_reference" else None
-                ),
+                pairing_direction="input",
+                pairing_port="relation",
                 guaranteed_multiplicity="one",
             ),
         )
@@ -223,7 +208,7 @@ def _binding(
                 f"{binding_id}/factory",
                 {"execution_route": "direct"},
             ),
-            build=_build(operation, pairing_mode),
+            build=_build(operation),
         ),
         availability=AvailabilityDeclaration(
             behavior=BehaviorReference(
@@ -243,15 +228,9 @@ MODULE_PACKAGE = ModulePackageRegistration(
     package_id="structure_comparison",
     package_module=__package__,
     node_definitions=(
-        DefinitionResource("definitions/align_single.yaml"),
-        DefinitionResource("definitions/align_fixed_reference.yaml"),
-        DefinitionResource("definitions/align_counterparts.yaml"),
-        DefinitionResource("definitions/align_direct_ancestors.yaml"),
-        DefinitionResource("definitions/rmsd_fixed_reference.yaml"),
-        DefinitionResource("definitions/rmsd_counterparts.yaml"),
-        DefinitionResource("definitions/tm_score_fixed_reference.yaml"),
-        DefinitionResource("definitions/tm_score_counterparts.yaml"),
-        DefinitionResource("definitions/tm_score_direct_ancestors.yaml"),
+        DefinitionResource("definitions/align_pairs.yaml"),
+        DefinitionResource("definitions/rmsd_from_alignments.yaml"),
+        DefinitionResource("definitions/tm_score_from_alignments.yaml"),
         DefinitionResource("definitions/classify_three_way_consistency.yaml"),
         DefinitionResource("definitions/evaluate_inserted_loop.yaml"),
     ),
@@ -260,79 +239,31 @@ MODULE_PACKAGE = ModulePackageRegistration(
         DefinitionResource("definitions/tm_score_metric.yaml"),
     ),
     methods=(*ALIGNMENT_METHODS, *STATIC_METHODS),
-    utility_transforms=(
-        _tm_score_utility("fixed_reference"),
-        _tm_score_utility("per_subject_counterpart"),
-        _tm_score_utility("per_subject_direct_ancestor"),
-    ),
+    utility_transforms=(_tm_score_utility(),),
     bindings=(
         _binding(
-            node_name="align_single",
-            operation="align_single",
+            node_name="align_pairs",
+            operation="align_pairs",
             suffix="sequence_primary_affine",
             method=SEQUENCE_PRIMARY_AFFINE_METHOD,
         ),
         _binding(
-            node_name="align_single",
-            operation="align_single",
+            node_name="align_pairs",
+            operation="align_pairs",
             suffix="structure_first_tm_align",
             method=STRUCTURE_FIRST_TM_ALIGN_METHOD,
         ),
         _binding(
-            node_name="align_fixed_reference",
-            operation="align_pairwise",
-            suffix="sequence_primary_affine",
-            method=SEQUENCE_PRIMARY_AFFINE_METHOD,
-            pairing_mode="fixed_reference",
-        ),
-        _binding(
-            node_name="align_counterparts",
-            operation="align_pairwise",
-            suffix="sequence_primary_affine",
-            method=SEQUENCE_PRIMARY_AFFINE_METHOD,
-            pairing_mode="per_subject_counterpart",
-        ),
-        _binding(
-            node_name="align_direct_ancestors",
-            operation="align_pairwise",
-            suffix="sequence_primary_affine",
-            method=SEQUENCE_PRIMARY_AFFINE_METHOD,
-            pairing_mode="per_subject_direct_ancestor",
-        ),
-        _binding(
-            node_name="rmsd_fixed_reference",
+            node_name="rmsd_from_alignments",
             operation="rmsd",
             suffix="from_alignment_evidence",
             method=RMSD_FROM_EVIDENCE_METHOD,
-            pairing_mode="fixed_reference",
         ),
         _binding(
-            node_name="rmsd_counterparts",
-            operation="rmsd",
-            suffix="from_alignment_evidence",
-            method=RMSD_FROM_EVIDENCE_METHOD,
-            pairing_mode="per_subject_counterpart",
-        ),
-        _binding(
-            node_name="tm_score_fixed_reference",
+            node_name="tm_score_from_alignments",
             operation="tm_score",
             suffix="from_alignment_evidence",
             method=TM_SCORE_FROM_EVIDENCE_METHOD,
-            pairing_mode="fixed_reference",
-        ),
-        _binding(
-            node_name="tm_score_counterparts",
-            operation="tm_score",
-            suffix="from_alignment_evidence",
-            method=TM_SCORE_FROM_EVIDENCE_METHOD,
-            pairing_mode="per_subject_counterpart",
-        ),
-        _binding(
-            node_name="tm_score_direct_ancestors",
-            operation="tm_score",
-            suffix="from_alignment_evidence",
-            method=TM_SCORE_FROM_EVIDENCE_METHOD,
-            pairing_mode="per_subject_direct_ancestor",
         ),
         THREE_WAY_CONSISTENCY_BINDING,
         INSERTED_LOOP_BINDING,

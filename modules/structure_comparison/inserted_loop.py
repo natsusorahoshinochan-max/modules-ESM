@@ -20,7 +20,7 @@ from datatypes.exact_reference import (
 )
 from datatypes.observation import (
     IntrinsicObservationContext,
-    PairwiseCandidateMapping,
+    CandidateRelation,
     PairwiseObservationContext,
     ScoreCollection,
     ScoreObservation,
@@ -138,7 +138,7 @@ def _paired_counterparts(
     subjects: dict[str, CandidateDataReference],
     counterparts: dict[str, CandidateDataReference],
 ) -> dict[CandidateDataReference, CandidateDataReference]:
-    pairing = cast(PairwiseCandidateMapping, value)
+    pairing = cast(CandidateRelation, value)
     result = {entry.subject: entry.reference for entry in pairing.entries}
     if set(result) != set(subjects.values()) or set(result.values()) != set(
         counterparts.values()

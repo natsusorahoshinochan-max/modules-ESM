@@ -202,6 +202,14 @@ scientific values use it to name their subject without relying on collection
 position.
 _Avoid_: Candidate, list index, Node Instance locator
 
+**Candidate Relation**:
+An ordered collection of explicit subject and reference Candidate Data
+Reference pairs. Generic relation operations derive, invert, compose, and join
+these exact associations; each consuming Node Type or Method declares the
+cardinality it requires instead of inferring relationships from collection
+position.
+_Avoid_: Pairing mode, positional zip, effect-specific mapping
+
 **Metric Definition**:
 The canonical scientific meaning of a measured quantity, including its value
 shape, unit, direction, range, granularity, and aggregation semantics.

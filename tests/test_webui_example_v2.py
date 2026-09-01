@@ -57,7 +57,7 @@ def test_webui_example_public_journey_and_scientific_contracts(
         assert draft_response.status_code == 200
         draft = draft_response.json()
         workflow = draft["workflow"]
-        assert len(workflow["nodes"]) == 35
+        assert len(workflow["nodes"]) == 40
         nodes = {node["node_id"]: node for node in workflow["nodes"]}
         assert nodes["generate-paired"]["binding_id"] == (
             "esm3.generate_paired.biohub_medium"
@@ -76,14 +76,20 @@ def test_webui_example_public_journey_and_scientific_contracts(
             "effective_seed": 1603,
             "num_sequences": 3,
         }
-        assert nodes["pair-final-ancestors"]["node_type_id"] == (
-            "collection_ops.pair_by_two_hop_ancestor"
+        assert nodes["relation-final"]["node_type_id"] == (
+            "collection_ops.compose_relations"
+        )
+        assert nodes["relation-generated-structure-parent"]["node_type_id"] == (
+            "collection_ops.relate_by_parent"
+        )
+        assert nodes["relation-generated-pairs"]["node_type_id"] == (
+            "collection_ops.invert_relation"
         )
         assert nodes["align-final"]["node_type_id"] == (
-            "structure_comparison.align_direct_ancestors"
+            "structure_comparison.align_pairs"
         )
         assert nodes["tm-final"]["node_type_id"] == (
-            "structure_comparison.tm_score_direct_ancestors"
+            "structure_comparison.tm_score_from_alignments"
         )
 
         objectives = {
@@ -103,7 +109,7 @@ def test_webui_example_public_journey_and_scientific_contracts(
             "contract_id"
         ] == (
             "structure_comparison.tm_score."
-            "per_subject_direct_ancestor.identity"
+            "explicit_relation.identity"
         )
 
         counts = {
@@ -134,8 +140,8 @@ def test_webui_example_public_journey_and_scientific_contracts(
         folded = typed_candidates[("fold-final", "structure_candidates")]
         assert {item["parent_ids"][0] for item in folded} == designed_ids
 
-        pairing = _fields(_typed(http, "pair-final-ancestors", "pairing"))
-        pair_entries = [_fields(item) for item in pairing["entries"]]
+        relation = _fields(_typed(http, "relation-final", "relation"))
+        pair_entries = [_fields(item) for item in relation["entries"]]
         assert len(pair_entries) == 6
         reference_ids = [
             _fields(item["reference"])["candidate_id"]
@@ -153,7 +159,7 @@ def test_webui_example_public_journey_and_scientific_contracts(
                 "structure_comparison.tm_score"
             )
             context = _fields(observation["context"])
-            assert context["pairing_mode"] == "per_subject_direct_ancestor"
+            assert context["pairing_mode"] == "explicit_relation"
             assert _fields(_fields(context["subject"])["candidate"])[
                 "candidate_id"
             ] == _fields(observation["subject"])["candidate_id"]
@@ -166,9 +172,40 @@ def test_webui_example_public_journey_and_scientific_contracts(
             f"{WEBUI_3GB1_RUN_ID}"
         )
         assert run_response.status_code == 200
+        run_projection = run_response.json()
+        generated_outputs = [
+            output
+            for output in run_projection["outputs"]
+            if output["node_id"] == "generate-paired"
+        ]
+        assert {output["output_port"] for output in generated_outputs} == {
+            "sequence_candidates",
+            "structure_candidates",
+            "confidence_facts",
+            "sequence_reconstruction_candidates",
+            "sequence_reconstruction_confidence_facts",
+        }
+        relation_outputs = [
+            output
+            for output in run_projection["outputs"]
+            if output["node_id"] in {
+                "relation-generated-structure-parent",
+                "relation-generated-pairs",
+            }
+        ]
+        assert len(relation_outputs) == 2
+        assert all(
+            output["materialization"] == {
+                "run_id": WEBUI_3GB1_RUN_ID,
+                "resolution": "executed",
+            }
+            and output["producer_provenance"]["producer_run_id"]
+            == WEBUI_3GB1_RUN_ID
+            for output in relation_outputs
+        )
         final_selection = next(
             item
-            for item in run_response.json()["selection_results"]
+            for item in run_projection["selection_results"]
             if item["selection_node_id"] == "rank-final"
         )
         assert [item["effective_weight"] for item in final_selection["objectives"]] == [
@@ -177,7 +214,7 @@ def test_webui_example_public_journey_and_scientific_contracts(
         ]
         assert final_selection["objectives"][1]["context_selector"][
             "pairing_mode"
-        ] == "per_subject_direct_ancestor"
+        ] == "explicit_relation"
 
         copy_response = http.post(
             f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}:copy",
@@ -280,7 +317,7 @@ def test_webui_example_public_journey_and_scientific_contracts(
         )
         assert apply_response.status_code == 200
         applied = apply_response.json()["draft"]
-        assert len(applied["workflow"]["nodes"]) == 35
+        assert len(applied["workflow"]["nodes"]) == 40
         assert applied["draft_revision"] > draft["draft_revision"]
 
         unchanged_example = http.get(

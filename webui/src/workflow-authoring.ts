@@ -25,6 +25,9 @@ export type NodeTypePresentation = {
   category: string
   inputs: string[]
   outputs: string[]
+  inputPortTypes: Record<string, string>
+  inputMultiplicities: Record<string, string>
+  outputPortTypes: Record<string, string>
 }
 
 export type ParameterPresentation = {
@@ -119,8 +122,22 @@ export function parameterPresentations(catalog: CatalogSnapshot, node: WorkflowN
 export function nodeTypePresentation(catalog: CatalogSnapshot, nodeTypeId: string): NodeTypePresentation {
   const descriptor = catalog.contracts.find((contract) => contract.reference.contract_kind === 'node_type' && contract.reference.contract_id === nodeTypeId)?.descriptor
   if (!descriptor) throw new Error(`Node Type ${nodeTypeId} is absent from the active Catalog`)
-  const portNames = (field: 'inputs' | 'outputs') => ((descriptor[field] as JsonObject[] | undefined) ?? []).map((port) => String(port.name))
-  return { title: String(descriptor.title), category: String(descriptor.category), inputs: portNames('inputs'), outputs: portNames('outputs') }
+  const ports = (field: 'inputs' | 'outputs') => ((descriptor[field] as JsonObject[] | undefined) ?? []).map((port) => ({
+    name: String(port.name),
+    portTypeId: String((port.port_type as JsonObject).contract_id),
+    multiplicity: String(port.multiplicity),
+  }))
+  const inputs = ports('inputs')
+  const outputs = ports('outputs')
+  return {
+    title: String(descriptor.title),
+    category: String(descriptor.category),
+    inputs: inputs.map((port) => port.name),
+    outputs: outputs.map((port) => port.name),
+    inputPortTypes: Object.fromEntries(inputs.map((port) => [port.name, port.portTypeId])),
+    inputMultiplicities: Object.fromEntries(inputs.map((port) => [port.name, port.multiplicity])),
+    outputPortTypes: Object.fromEntries(outputs.map((port) => [port.name, port.portTypeId])),
+  }
 }
 
 export function insertOrdinaryNode(workflow: Workflow, nodeId: string, nodeTypeId: string, bindingId: string, catalog: CatalogSnapshot): Workflow {

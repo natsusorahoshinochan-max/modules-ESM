@@ -16,8 +16,8 @@ from core.catalog.port_contract import (
 from core.operation import (
     AdmittedPort,
     CandidateMetadataIdentity,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
+    CandidateRelationIntent,
+    CandidateRelationIntentEntry,
 )
 from core.execution.output_admission.identity import (
     _FreshOutputIdentityEncoder,
@@ -29,9 +29,8 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.observation import (
-    DirectAncestorCandidateMapping,
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     PairwiseObservationContext,
     ScoreCollection,
     ScoreObservation,
@@ -184,7 +183,6 @@ def _normalize_candidate_outputs(
     outputs: Mapping[str, tuple[Any, ...]],
     candidate_data_port_types: Mapping[str, Any],
     identity_encoder: _FreshOutputIdentityEncoder,
-    direct_ancestor_pairing_ports: frozenset[str] = frozenset(),
     candidate_metadata: tuple[CandidateMetadataIdentity, ...] = (),
     observation_propagation: ObservationPropagationPlan | None = None,
 ) -> _NormalizedCandidateOutputs:
@@ -202,10 +200,7 @@ def _normalize_candidate_outputs(
     input_pairing_references: dict[str, CandidateDataReference] = {}
     for admitted in inputs.values():
         value = admitted.value
-        if type(value) not in {
-            PairwiseCandidateMapping,
-            DirectAncestorCandidateMapping,
-        }:
+        if type(value) is not CandidateRelation:
             continue
         for entry in value.entries:
             for reference in (entry.subject, entry.reference):
@@ -442,13 +437,11 @@ def _normalize_candidate_outputs(
         return normalized_candidate_references[raw_candidate_id]
 
     def project_pairing_intent(
-        value: CandidatePairingIntent,
-        *,
-        direct_ancestor: bool,
-    ) -> PairwiseCandidateMapping | DirectAncestorCandidateMapping:
-        entries: list[PairwiseCandidateMatch] = []
+        value: CandidateRelationIntent,
+    ) -> CandidateRelation:
+        entries: list[CandidateRelationEntry] = []
         for entry in value.entries:
-            if type(entry) is not CandidatePairingIntentEntry:
+            if type(entry) is not CandidateRelationIntentEntry:
                 raise PortValueError(
                     "Candidate pairing intent contains an unsupported entry"
                 )
@@ -468,14 +461,12 @@ def _normalize_candidate_outputs(
                     "Candidate pairing intent declares a conflicting counterpart"
                 )
             entries.append(
-                PairwiseCandidateMatch(
+                CandidateRelationEntry(
                     subject=subject,
                     reference=reference,
                 )
             )
-        if direct_ancestor:
-            return DirectAncestorCandidateMapping(entries)
-        return PairwiseCandidateMapping(entries)
+        return CandidateRelation(entries)
 
     def normalize_value(
         output_port: str,
@@ -507,10 +498,10 @@ def _normalize_candidate_outputs(
                 item_type=value.item_type,
                 items=list(items),
             )
-        if type(value) is PairwiseCandidateMapping:
-            return PairwiseCandidateMapping(
+        if type(value) is CandidateRelation:
+            return CandidateRelation(
                 entries=[
-                    PairwiseCandidateMatch(
+                    CandidateRelationEntry(
                         subject=require_exact_input_candidate_reference(
                             entry.subject
                         ),
@@ -521,27 +512,8 @@ def _normalize_candidate_outputs(
                     for entry in value.entries
                 ]
             )
-        if type(value) is DirectAncestorCandidateMapping:
-            return DirectAncestorCandidateMapping(
-                entries=[
-                    PairwiseCandidateMatch(
-                        subject=require_exact_input_candidate_reference(
-                            entry.subject
-                        ),
-                        reference=require_exact_input_candidate_reference(
-                            entry.reference
-                        ),
-                    )
-                    for entry in value.entries
-                ]
-            )
-        if type(value) is CandidatePairingIntent:
-            return project_pairing_intent(
-                value,
-                direct_ancestor=(
-                    output_port in direct_ancestor_pairing_ports
-                ),
-            )
+        if type(value) is CandidateRelationIntent:
+            return project_pairing_intent(value)
         if type(value) is ScoreCollection:
             require_subject = (
                 require_exact_propagated_subject

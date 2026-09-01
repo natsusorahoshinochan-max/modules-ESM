@@ -25,9 +25,6 @@ from core.workflow.authoring import (
     WorkflowAuthoringService,
 )
 from modules.collection_ops.package import MODULE_PACKAGE as COLLECTION_OPS
-from modules.confidence_selection.package import (
-    MODULE_PACKAGE as CONFIDENCE_SELECTION,
-)
 from modules.esm3.package import MODULE_PACKAGE as ESM3
 from modules.folding.package import MODULE_PACKAGE as FOLDING
 from modules.prompt_authoring.package import MODULE_PACKAGE as PROMPT_AUTHORING
@@ -59,7 +56,6 @@ from protein_workbench_public.workflow_codec import decode_workflow_document
 
 _MODULE_REGISTRATIONS = (
     COLLECTION_OPS,
-    CONFIDENCE_SELECTION,
     ESM3,
     FOLDING,
     PROMPT_AUTHORING,

@@ -1,26 +1,20 @@
-"""Candidate-associated v4 structure-comparison operations."""
+"""Candidate-associated structure-comparison operations."""
 
 from __future__ import annotations
 
 from typing import Any, Protocol, cast
 
-from core.operation import (
-    OperationCall,
-    OperationContext,
-)
+from core.operation import OperationCall, OperationContext
 from datatypes.candidate import CandidateDataReference
 from datatypes.observation import (
-    DirectAncestorCandidateMapping,
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
     ScoreObservation,
 )
 from datatypes.structure import ResolvedStructureResidueAxis
 
 from .alignment import align_resolved_axes
-from .contracts import (
-    SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE,
-)
+from .contracts import SEQUENCE_PRIMARY_AFFINE_METHOD_REFERENCE
 from .domain import StructureAlignmentEvidence
 from .metrics import (
     evidence_metric_context,
@@ -30,15 +24,11 @@ from .metrics import (
 
 
 class _ResolvedAxisAssociation(Protocol):
-    """Structural view of one admitted resolved-axis association."""
-
     subject: CandidateDataReference
     residue_axis: ResolvedStructureResidueAxis
 
 
 class _ResolvedAxisAssociations(Protocol):
-    """Structural view of the resolved-axis capability collection."""
-
     entries: tuple[_ResolvedAxisAssociation, ...]
 
 
@@ -73,9 +63,7 @@ def _axis_associations(
     role: str,
 ) -> dict[CandidateDataReference, _ResolvedAxisAssociation]:
     associations = cast(_ResolvedAxisAssociations, value)
-    by_reference = {
-        entry.subject: entry for entry in associations.entries
-    }
+    by_reference = {entry.subject: entry for entry in associations.entries}
     if set(by_reference) != set(references):
         raise ValueError(
             f"{role} residue axes must cover exact Candidate references"
@@ -83,24 +71,15 @@ def _axis_associations(
     return by_reference
 
 
-def _fixed_reference_pairs(
-    subjects: tuple[CandidateDataReference, ...],
-    references: tuple[CandidateDataReference, ...],
-) -> tuple[tuple[CandidateDataReference, CandidateDataReference], ...]:
-    if len(references) != 1:
-        raise ValueError("fixed-reference comparison requires one reference")
-    return tuple((subject, references[0]) for subject in subjects)
-
-
-def _counterpart_pairs(
-    value: PairwiseCandidateMapping,
+def _relation_pairs(
+    value: CandidateRelation,
     subjects: tuple[CandidateDataReference, ...],
     references: tuple[CandidateDataReference, ...],
 ) -> tuple[tuple[CandidateDataReference, CandidateDataReference], ...]:
     if not value.entries:
-        raise ValueError("counterpart comparison requires exact Candidate pairing")
-    subjects_by_identity = {item: item for item in subjects}
-    references_by_identity = {item: item for item in references}
+        raise ValueError("structure comparison requires a non-empty relation")
+    subject_scope = set(subjects)
+    reference_scope = set(references)
     pairs: list[tuple[CandidateDataReference, CandidateDataReference]] = []
     for entry in value.entries:
         if (
@@ -108,79 +87,37 @@ def _counterpart_pairs(
             or entry.reference.data_type_id != "protein.structure"
         ):
             raise ValueError(
-                "structure comparison pairing requires structure Candidate "
+                "structure comparison relation requires structure Candidate "
                 "references"
             )
-        subject = subjects_by_identity.get(entry.subject)
-        reference = references_by_identity.get(entry.reference)
-        if subject is None or reference is None:
-            raise ValueError("Candidate pairing contradicts exact content")
-        pairs.append((subject, reference))
+        if entry.subject not in subject_scope or entry.reference not in reference_scope:
+            raise ValueError("Candidate relation contradicts exact content")
+        pairs.append((entry.subject, entry.reference))
     if (
-        len(pairs) != len(subjects)
-        or len(pairs) != len(references)
-        or {subject for subject, _ in pairs} != set(subjects)
-        or {reference for _, reference in pairs} != set(references)
-    ):
-        raise ValueError("Candidate pairing must be complete and one-to-one")
-    return tuple(pairs)
-
-
-def _direct_ancestor_pairs(
-    value: DirectAncestorCandidateMapping,
-    subjects: tuple[CandidateDataReference, ...],
-    references: tuple[CandidateDataReference, ...],
-) -> tuple[tuple[CandidateDataReference, CandidateDataReference], ...]:
-    if not value.entries:
-        raise ValueError(
-            "direct-ancestor comparison requires exact Candidate pairing"
-        )
-    subjects_by_identity = {item: item for item in subjects}
-    references_by_identity = {item: item for item in references}
-    pairs: list[tuple[CandidateDataReference, CandidateDataReference]] = []
-    for entry in value.entries:
-        if (
-            entry.subject.data_type_id != "protein.structure"
-            or entry.reference.data_type_id != "protein.structure"
-        ):
-            raise ValueError(
-                "structure comparison pairing requires structure Candidate "
-                "references"
-            )
-        subject = subjects_by_identity.get(entry.subject)
-        reference = references_by_identity.get(entry.reference)
-        if subject is None or reference is None:
-            raise ValueError("Candidate pairing contradicts exact content")
-        pairs.append((subject, reference))
-    if (
-        len(pairs) != len(subjects)
-        or {subject for subject, _ in pairs} != set(subjects)
-        or {reference for _, reference in pairs} != set(references)
+        {subject for subject, _reference in pairs} != subject_scope
+        or {reference for _subject, reference in pairs} != reference_scope
     ):
         raise ValueError(
-            "Candidate pairing must provide one reference per subject and "
-            "cover the reference scope"
+            "Candidate relation must cover every subject and reference"
         )
     return tuple(pairs)
 
 
 class StructureComparisonImplementation:
-    """Execute only exact Candidate-associated v4 comparison contracts."""
+    """Execute relation-driven structure alignment and metric projection."""
 
     def __init__(
         self,
         context: OperationContext,
         operation: str,
-        pairing_mode: str | None = None,
     ) -> None:
         self._run_resources = context.resources
         self._method = context.method
         self._produced_observations = context.produced_observations
         self._operation = operation
-        self._pairing_mode = pairing_mode
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        if self._operation in {"align_single", "align_pairwise"}:
+        if self._operation == "align_pairs":
             return self._align(call)
         return self._observe(call)
 
@@ -190,12 +127,13 @@ class StructureComparisonImplementation:
         return "structure_first_tm_align"
 
     def _align(self, call: OperationCall) -> dict[str, Any]:
-        pin_matching_chain_ids = call.node_parameters[
-            "pin_matching_chain_ids"
-        ]
-
         subjects = _candidate_references(call, port_name="subjects")
         references = _candidate_references(call, port_name="references")
+        pairs = _relation_pairs(
+            call.inputs["relation"].value,
+            subjects,
+            references,
+        )
         subject_axes = _axis_associations(
             call.inputs["subject_residue_axes"].value,
             subjects,
@@ -214,55 +152,30 @@ class StructureComparisonImplementation:
             axis.source: axis
             for axis in call.inputs["reference_residue_axes"].scientific_axes
         }
-        if self._operation == "align_single":
-            if len(subjects) != 1 or len(references) != 1:
-                raise ValueError(
-                    "single alignment requires one subject and one reference"
-                )
-            pairs = ((subjects[0], references[0]),)
-        elif self._pairing_mode == "fixed_reference":
-            pairs = _fixed_reference_pairs(subjects, references)
-        elif self._pairing_mode == "per_subject_direct_ancestor":
-            pairs = _direct_ancestor_pairs(
-                call.inputs["pairing"].value,
-                subjects,
-                references,
-            )
-        else:
-            pairs = _counterpart_pairs(
-                call.inputs["pairing"].value,
-                subjects,
-                references,
-            )
-
         method = self._alignment_method()
         alignments: list[StructureAlignmentEvidence] = []
         for subject, reference in pairs:
             subject_association = subject_axes[subject]
             reference_association = reference_axes[reference]
-            with self._run_resources.engine_invocation(
-                engine_role=method,
-            ):
+            with self._run_resources.engine_invocation(engine_role=method):
                 resolved = align_resolved_axes(
                     subject_association.residue_axis,
                     reference_association.residue_axis,
                     correspondence_method=method,
-                    pin_matching_chain_ids=pin_matching_chain_ids,
+                    pin_matching_chain_ids=call.node_parameters[
+                        "pin_matching_chain_ids"
+                    ],
                 )
             alignments.append(
                 StructureAlignmentEvidence(
                     subject=subject_association.subject,
                     reference=reference_association.subject,
-                    subject_axis_content_digest=(
-                        admitted_subject_axes[
-                            subject_association.subject
-                        ].axis_content_digest
-                    ),
-                    reference_axis_content_digest=(
-                        admitted_reference_axes[
-                            reference_association.subject
-                        ].axis_content_digest
-                    ),
+                    subject_axis_content_digest=admitted_subject_axes[
+                        subject_association.subject
+                    ].axis_content_digest,
+                    reference_axis_content_digest=admitted_reference_axes[
+                        reference_association.subject
+                    ].axis_content_digest,
                     segment_map=resolved.segment_map,
                     policy=resolved.policy,
                     correspondence=resolved.correspondence,
@@ -280,37 +193,18 @@ class StructureComparisonImplementation:
         alignments = admitted_alignments.value
         if not alignments:
             raise ValueError("structure metrics require alignment evidence")
-        subjects = [alignment.subject for alignment in alignments]
-        references = [alignment.reference for alignment in alignments]
-        if len(set(subjects)) != len(subjects):
-            raise ValueError("alignment evidence repeats a subject")
-        subject_scope = _candidate_references(call, port_name="subjects")
-        reference_scope = _candidate_references(call, port_name="references")
-        if self._pairing_mode == "fixed_reference":
-            expected_pairs = _fixed_reference_pairs(
-                subject_scope,
-                reference_scope,
-            )
-        elif self._pairing_mode == "per_subject_direct_ancestor":
-            expected_pairs = _direct_ancestor_pairs(
-                call.inputs["pairing"].value,
-                subject_scope,
-                reference_scope,
-            )
-        else:
-            expected_pairs = _counterpart_pairs(
-                call.inputs["pairing"].value,
-                subject_scope,
-                reference_scope,
-            )
-        evidence_pairs = {
+        expected_pairs = _relation_pairs(
+            call.inputs["relation"].value,
+            _candidate_references(call, port_name="subjects"),
+            _candidate_references(call, port_name="references"),
+        )
+        evidence_pairs = tuple(
             (alignment.subject, alignment.reference)
             for alignment in alignments
-        }
-        scoped_pairs = set(expected_pairs)
-        if evidence_pairs != scoped_pairs:
+        )
+        if evidence_pairs != expected_pairs:
             raise ValueError(
-                "alignment evidence contradicts exact Candidate scope"
+                "alignment evidence contradicts the ordered Candidate relation"
             )
 
         produced = self._produced_observations[0]
@@ -336,7 +230,7 @@ class StructureComparisonImplementation:
                         context=evidence_metric_context(
                             alignment,
                             evidence_content_digest=evidence_content_digest,
-                            pairing_mode=self._pairing_mode,
+                            pairing_mode="explicit_relation",
                             metric_kind=self._operation,
                         ),
                         value=value,
@@ -347,7 +241,7 @@ class StructureComparisonImplementation:
             "scores": ScoreCollection(
                 collection_id=(
                     f"structure-comparison-{self._operation}-"
-                    f"{self._pairing_mode}"
+                    "explicit-relation"
                 ),
                 entries=tuple(entries),
             )

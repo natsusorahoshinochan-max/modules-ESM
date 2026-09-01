@@ -1952,9 +1952,6 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
     structures = decode_output(
         service, catalog, projection, outputs["structure_candidates"]
     )
-    pairing = decode_output(
-        service, catalog, projection, outputs["counterpart_pairs"]
-    )
     confidence_facts = decode_output(
         service,
         catalog,
@@ -1962,7 +1959,6 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         outputs["confidence_facts"],
     )
     assert len(sequences.items) == len(structures.items) == 10
-    assert len(pairing.entries) == 10
     assert len(confidence_facts.entries) == 10
     assert {
         candidate.metadata["prediction_key"]
@@ -1975,20 +1971,6 @@ def test_paired_generation_publishes_ten_exact_counterparts_and_real_calls(
         structure.parent_ids
         for structure in structures.items
     ] == [(sequence.candidate_id,) for sequence in sequences.items]
-    assert [
-        (
-            entry.subject.candidate_id,
-            entry.reference.candidate_id,
-        )
-        for entry in pairing.entries
-    ] == [
-        (sequence.candidate_id, structure.candidate_id)
-        for sequence, structure in zip(
-            sequences.items,
-            structures.items,
-            strict=True,
-        )
-    ]
     assert [
         candidate.metadata["sample_index"]
         for candidate in sequences.items

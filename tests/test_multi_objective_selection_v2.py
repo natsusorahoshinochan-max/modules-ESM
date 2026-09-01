@@ -50,8 +50,8 @@ from core.workflow.document import WorkflowEdge
 from datatypes.candidate import CandidateDataReference
 from datatypes.exact_reference import ExactContractReference
 from datatypes.observation import (
-    PairwiseCandidateMapping,
-    PairwiseCandidateMatch,
+    CandidateRelation,
+    CandidateRelationEntry,
     ScoreCollection,
 )
 from tests.support.catalog import catalog_contract, install_runtime
@@ -303,7 +303,7 @@ def _objectives(catalog) -> tuple[SelectionObjective, SelectionObjective]:
         SelectionObjective(
             objective_id="paired-esm3",
             context_selector=PairwiseContextSelector(
-                pairing_mode="per_subject_counterpart",
+                pairing_mode="explicit_relation",
                 normalization=NORMALIZATION,
             ),
             utility_transform=_reference(
@@ -360,9 +360,9 @@ def _direct_fixture_values(catalog) -> dict[str, Any]:
         candidate.candidate_id: candidate
         for candidate in source_values["references"].items
     }
-    pairing = PairwiseCandidateMapping(
+    pairing = CandidateRelation(
         tuple(
-            PairwiseCandidateMatch(
+            CandidateRelationEntry(
                 subject=CandidateDataReference(
                     candidate_id=entry.subject_candidate_id,
                     data_type_id="protein.structure",
@@ -455,7 +455,7 @@ def test_fixture_scores_only_already_admitted_candidate_data_references() -> Non
     ] == [
         ("candidates", "candidate.collection"),
         ("references", "candidate.collection"),
-        ("pairing", "candidate.pairing"),
+        ("pairing", "candidate.relation"),
     ]
     assert [
         (
@@ -747,7 +747,7 @@ def test_canonical_scopes_yield_accepted_weighted_top_three() -> None:
         binding_id="selection.weighted_rank.direct",
         inputs={
             "candidates": values["candidates"],
-            "scores": values["scores"],
+            "scores": (values["scores"], values["scores"]),
         },
         node_parameters=_selection("weighted_rank").node_parameters,
         binding_parameters={},
@@ -784,7 +784,7 @@ def test_pareto_and_exact_diversity_method_are_deterministic() -> None:
             binding_id=f"selection.{operation}.direct",
             inputs={
                 "candidates": values["candidates"],
-                "scores": values["scores"],
+                "scores": (values["scores"], values["scores"]),
             },
             node_parameters=_selection(operation).node_parameters,
             binding_parameters={},
@@ -1061,7 +1061,7 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
     )
     common = {
         "candidates": values["candidates"],
-        "scores": values["scores"],
+        "scores": (values["scores"], values["scores"]),
     }
 
     missing = ScoreCollection(
@@ -1072,7 +1072,7 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id="selection.weighted_rank.direct",
-            inputs={**common, "scores": missing},
+            inputs={**common, "scores": (missing, missing)},
             node_parameters=_selection("weighted_rank").node_parameters,
             binding_parameters={},
         ))
@@ -1101,7 +1101,7 @@ def test_missing_conflicting_and_cross_scope_observations_fail_closed() -> None:
         implementation.execute(operation_call(
             catalog=catalog,
             binding_id="selection.weighted_rank.direct",
-            inputs={**common, "scores": cross_scope},
+            inputs={**common, "scores": (cross_scope, cross_scope)},
             node_parameters=_selection("weighted_rank").node_parameters,
             binding_parameters={},
         ))

@@ -16,6 +16,7 @@ from core.catalog.declarations import (
     ProducedObservationDefinition,
     ReadinessDeclaration,
     ScientificOperationFactory,
+    UtilityTransformDefinition,
 )
 from core.catalog.definition_resource import (
     DefinitionResource,
@@ -89,6 +90,38 @@ _SIMPLEFOLD_ENVIRONMENT_FIELDS = (
     EnvironmentFieldDeclaration("model_root", "filesystem_path"),
     EnvironmentFieldDeclaration("esm2_source_root", "filesystem_path"),
     EnvironmentFieldDeclaration("esm2_model_root", "filesystem_path"),
+)
+
+
+def _plddt_percent_to_unit(
+    value: float,
+    _parameters: Mapping[str, Any],
+) -> float:
+    return value / 100.0
+
+
+ESMFOLD2_MEAN_PLDDT_UTILITY = UtilityTransformDefinition(
+    transform_id=(
+        "structure.plddt.mean_residue."
+        "esmfold2_fast_biohub_2026_05.percent_to_unit"
+    ),
+    compatible_input_contract={
+        "metric": ContractIdentity(
+            "metric",
+            "structure.plddt.mean_residue",
+        ),
+        "method": ContractIdentity(
+            "method",
+            "folding.fold.esmfold2_fast_biohub_2026_05",
+        ),
+        "context_profile": {"kind": "intrinsic"},
+    },
+    parameters={},
+    behavior=BehaviorReference(
+        "folding.fold.esmfold2_remote/mean-plddt-percent-to-unit",
+        {"mapping": "x / 100"},
+    ),
+    transform=_plddt_percent_to_unit,
 )
 
 
@@ -588,4 +621,5 @@ MODULE_PACKAGE = ModulePackageRegistration(
         _simplefold_binding(),
         _simplefold_confidence_binding(),
     ),
+    utility_transforms=(ESMFOLD2_MEAN_PLDDT_UTILITY,),
 )

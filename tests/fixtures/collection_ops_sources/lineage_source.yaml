@@ -20,7 +20,7 @@ outputs:
     multiplicity: one
     scientific_meaning: Exact children for pairing-composition conformance.
   - name: parent_pairing
-    port_type_id: candidate.pairing
+    port_type_id: candidate.relation
     required: true
     multiplicity: one
     scientific_meaning: Exact parent-to-reference pairing for composition.

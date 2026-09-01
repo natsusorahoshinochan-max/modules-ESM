@@ -20,7 +20,7 @@ observation_context_schema:
     reference_role:
       const: reference
     pairing_mode:
-      enum: [fixed_reference, per_subject_counterpart, per_subject_direct_ancestor]
+      const: explicit_relation
     normalization:
       const: reference-axis-residue-count
     evidence_content_digest:

@@ -200,14 +200,12 @@ def _validate_produced_observation_relationships(
         raise CatalogBuildError(
             "Produced Observation reference contradicts its Context"
         )
-    per_subject = (
+    explicit_relation = (
         context_kind == "pairwise"
-        and observation.context_profile.get("pairing_mode") in {
-            "per_subject_counterpart",
-            "per_subject_direct_ancestor",
-        }
+        and observation.context_profile.get("pairing_mode")
+        == "explicit_relation"
     )
-    if per_subject != (observation.pairing_port is not None):
+    if explicit_relation != (observation.pairing_port is not None):
         raise CatalogBuildError(
             "Produced Observation pairing contradicts its Context"
         )
@@ -494,7 +492,7 @@ def build_frozen_catalog(
                         "consumption requires one declared string selector or "
                         "one non-empty unique ordered string-list selector"
                     )
-                for field_name, port_name, expected_type in (
+                    for field_name, port_name, expected_type in (
                     (
                         "candidate_input_port",
                         consumption.candidate_input_port,
@@ -506,22 +504,29 @@ def build_frozen_catalog(
                         "score.collection",
                     ),
                 ):
-                    port = inputs_by_name.get(port_name)
-                    reference = port.port_type if port is not None else None
-                    if (
-                        not isinstance(reference, ContractIdentity)
+                        port = inputs_by_name.get(port_name)
+                        reference = port.port_type if port is not None else None
+                        expected_multiplicity = (
+                            "many"
+                            if field_name == "score_collection_input_port"
+                            and consumption.objective_ids_parameter is not None
+                            else "one"
+                        )
+                        if (
+                            not isinstance(reference, ContractIdentity)
                         or reference.key
                         != (
                             "port_type",
                             expected_type,
                         )
-                        or port.multiplicity != "one"
-                        or port.required is not True
-                    ):
-                        raise CatalogBuildError(
-                            f"Binding {binding.binding_id} {field_name} must "
-                            f"name one required {expected_type} input Port"
-                        )
+                            or port.multiplicity != expected_multiplicity
+                            or port.required is not True
+                        ):
+                            raise CatalogBuildError(
+                                f"Binding {binding.binding_id} {field_name} must "
+                                f"name one required {expected_multiplicity}-valued "
+                                f"{expected_type} input Port"
+                            )
                 output = outputs_by_name.get(
                     consumption.candidate_output_port
                 )
@@ -738,18 +743,12 @@ def build_frozen_catalog(
                         if pairing_declaration is not None
                         else None
                     )
-                    expected_pairing_type = (
-                        "candidate.direct_ancestor_pairing"
-                        if observation.context_profile.get("pairing_mode")
-                        == "per_subject_direct_ancestor"
-                        else "candidate.pairing"
-                    )
                     if (
                         not isinstance(pairing_type, ContractIdentity)
                         or pairing_type.key
                         != (
                             "port_type",
-                            expected_pairing_type,
+                            "candidate.relation",
                         )
                     ):
                         raise CatalogBuildError(

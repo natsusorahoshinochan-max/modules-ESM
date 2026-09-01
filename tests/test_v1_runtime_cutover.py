@@ -18,7 +18,6 @@ import protein_workbench_public.bootstrap as bootstrap
 
 ACCEPTED_MODULE_PACKAGES = {
     "collection_ops",
-    "confidence_selection",
     "esm3",
     "folding",
     "prompt_authoring",
@@ -38,7 +37,7 @@ def test_production_discovery_is_exactly_the_accepted_package_surface() -> None:
     assert {registration.package_id for registration in registrations} == (
         ACCEPTED_MODULE_PACKAGES
     )
-    assert len(registrations) == 13
+    assert len(registrations) == 12
 
     catalog = build_frozen_catalog(module_registrations())
     node_ids = {

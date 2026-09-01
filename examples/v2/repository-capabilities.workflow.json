@@ -369,57 +369,57 @@
     },
     {
       "node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
-      "node_type_id": "structure_comparison.align_counterparts",
-      "binding_id": "structure_comparison.align_counterparts.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
-      "node_type_id": "structure_comparison.align_fixed_reference",
-      "binding_id": "structure_comparison.align_fixed_reference.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-align-single-sequence-primary-affine",
-      "node_type_id": "structure_comparison.align_single",
-      "binding_id": "structure_comparison.align_single.sequence_primary_affine",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.sequence_primary_affine",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-align-single-structure-first-tm-align",
-      "node_type_id": "structure_comparison.align_single",
-      "binding_id": "structure_comparison.align_single.structure_first_tm_align",
+      "node_type_id": "structure_comparison.align_pairs",
+      "binding_id": "structure_comparison.align_pairs.structure_first_tm_align",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-tm-score-counterparts",
-      "node_type_id": "structure_comparison.tm_score_counterparts",
-      "binding_id": "structure_comparison.tm_score_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-rmsd-fixed-reference",
-      "node_type_id": "structure_comparison.rmsd_fixed_reference",
-      "binding_id": "structure_comparison.rmsd_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-rmsd-counterparts",
-      "node_type_id": "structure_comparison.rmsd_counterparts",
-      "binding_id": "structure_comparison.rmsd_counterparts.from_alignment_evidence",
+      "node_type_id": "structure_comparison.rmsd_from_alignments",
+      "binding_id": "structure_comparison.rmsd_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
     {
       "node_id": "structure-comparison-tm-score-fixed-reference",
-      "node_type_id": "structure_comparison.tm_score_fixed_reference",
-      "binding_id": "structure_comparison.tm_score_fixed_reference.from_alignment_evidence",
+      "node_type_id": "structure_comparison.tm_score_from_alignments",
+      "binding_id": "structure_comparison.tm_score_from_alignments.from_alignment_evidence",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -499,8 +499,8 @@
     },
     {
       "node_id": "collection-ops-pair-siblings-by-parent-direct",
-      "node_type_id": "collection_ops.pair_siblings_by_parent",
-      "binding_id": "collection_ops.pair_siblings_by_parent.direct",
+      "node_type_id": "collection_ops.join_relation_subjects",
+      "binding_id": "collection_ops.join_relation_subjects.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -607,6 +607,55 @@
       "node_id": "materialize-confidence-folding-fold-simplefold-local",
       "node_type_id": "structure_prediction.materialize_confidence",
       "binding_id": "structure_prediction.materialize_confidence.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "collection-ops-pair-siblings-by-parent-direct-left-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "collection-ops-pair-siblings-by-parent-direct-right-parent",
+      "node_type_id": "collection_ops.relate_by_parent",
+      "binding_id": "collection_ops.relate_by_parent.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-align-single-sequence-primary-affine-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-align-single-structure-first-tm-align-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-rmsd-fixed-reference-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "structure-comparison-tm-score-fixed-reference-relation",
+      "node_type_id": "collection_ops.relate_to_single_reference",
+      "binding_id": "collection_ops.relate_to_single_reference.direct",
       "node_parameters": {},
       "binding_parameters": {}
     }
@@ -1016,9 +1065,9 @@
     },
     {
       "source_node_id": "collection-ops-pair-siblings-by-parent-direct",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "structure-comparison-align-counterparts-sequence-primary-affine",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
@@ -1058,9 +1107,9 @@
     },
     {
       "source_node_id": "collection-ops-pair-siblings-by-parent-direct",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "structure-comparison-rmsd-counterparts",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "structure-comparison-align-single-sequence-primary-affine",
@@ -1100,9 +1149,9 @@
     },
     {
       "source_node_id": "collection-ops-pair-siblings-by-parent-direct",
-      "source_port": "pairing",
+      "source_port": "relation",
       "target_node_id": "structure-comparison-tm-score-counterparts",
-      "target_port": "pairing"
+      "target_port": "relation"
     },
     {
       "source_node_id": "esm3-generate-sequence-biohub-open",
@@ -1161,14 +1210,14 @@
     {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
-      "target_node_id": "collection-ops-pair-siblings-by-parent-direct",
+      "target_node_id": "collection-ops-pair-siblings-by-parent-direct-left-parent",
       "target_port": "subjects"
     },
     {
       "source_node_id": "folding-fold-simplefold-local",
       "source_port": "structure_candidates",
-      "target_node_id": "collection-ops-pair-siblings-by-parent-direct",
-      "target_port": "references"
+      "target_node_id": "collection-ops-pair-siblings-by-parent-direct-right-parent",
+      "target_port": "subjects"
     },
     {
       "source_node_id": "prompt-authoring-update-prompt-sequence-direct",
@@ -1343,6 +1392,120 @@
       "source_port": "confidence_facts",
       "target_node_id": "materialize-confidence-folding-fold-simplefold-local",
       "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "collection-ops-pair-siblings-by-parent-direct-left-parent",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "esm3-generate-sequence-biohub-open",
+      "source_port": "sequence_candidates",
+      "target_node_id": "collection-ops-pair-siblings-by-parent-direct-right-parent",
+      "target_port": "parents"
+    },
+    {
+      "source_node_id": "collection-ops-pair-siblings-by-parent-direct-left-parent",
+      "source_port": "relation",
+      "target_node_id": "collection-ops-pair-siblings-by-parent-direct",
+      "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "collection-ops-pair-siblings-by-parent-direct-right-parent",
+      "source_port": "relation",
+      "target_node_id": "collection-ops-pair-siblings-by-parent-direct",
+      "target_port": "right_relation"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine-relation",
+      "source_port": "relation",
+      "target_node_id": "structure-comparison-align-fixed-reference-sequence-primary-affine",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-single-sequence-primary-affine-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-single-sequence-primary-affine-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-single-sequence-primary-affine-relation",
+      "source_port": "relation",
+      "target_node_id": "structure-comparison-align-single-sequence-primary-affine",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-single-structure-first-tm-align-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-align-single-structure-first-tm-align-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-align-single-structure-first-tm-align-relation",
+      "source_port": "relation",
+      "target_node_id": "structure-comparison-align-single-structure-first-tm-align",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-rmsd-fixed-reference-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-rmsd-fixed-reference-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-rmsd-fixed-reference-relation",
+      "source_port": "relation",
+      "target_node_id": "structure-comparison-rmsd-fixed-reference",
+      "target_port": "relation"
+    },
+    {
+      "source_node_id": "folding-fold-esmfold2-remote",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference-relation",
+      "target_port": "subjects"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure_candidates",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference-relation",
+      "target_port": "references"
+    },
+    {
+      "source_node_id": "structure-comparison-tm-score-fixed-reference-relation",
+      "source_port": "relation",
+      "target_node_id": "structure-comparison-tm-score-fixed-reference",
+      "target_port": "relation"
     }
   ],
   "observation_selectors": [],

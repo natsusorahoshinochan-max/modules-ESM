@@ -35,7 +35,7 @@ from datatypes.candidate import (
     CandidateDataReference,
 )
 from datatypes.observation import (
-    PairwiseCandidateMapping,
+    CandidateRelation,
     ScoreCollection,
 )
 from modules.structure_transform.domain import (
@@ -156,14 +156,18 @@ def test_canonical_seed_is_compilable_v2() -> None:
     }
     assert set(objectives) == {"fixed-3gb1", "paired-esm3"}
     assert objectives["fixed-3gb1"].context_selector.pairing_mode == (
-        "fixed_reference"
+        "explicit_relation"
     )
     assert objectives["paired-esm3"].context_selector.pairing_mode == (
-        "per_subject_counterpart"
+        "explicit_relation"
     )
-    assert objectives["fixed-3gb1"].source_partition != (
-        objectives["paired-esm3"].source_partition
-    )
+    assert {
+        objective.source_partition for objective in objectives.values()
+    } == {"structure_comparison.tm_score.explicit_relation"}
+    assert {
+        objective.score_collection_input.node_id
+        for objective in objectives.values()
+    } == {"score-fixed", "score-paired"}
     assert {
         objective.weight for objective in objectives.values()
     } == {0.7, 0.3}
@@ -500,19 +504,19 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             "generate-paired",
             "structure_candidates",
         )
-        counterpart_pairs = _decoded_output(
+        counterpart_relation = _decoded_output(
             client,
             catalog,
             first,
-            "generate-paired",
-            "counterpart_pairs",
+            "relate-generated-sequences-to-structures",
+            "relation",
         )
         assert type(sequence_candidates) is CandidateCollection
         assert type(structure_candidates) is CandidateCollection
-        assert type(counterpart_pairs) is PairwiseCandidateMapping
+        assert type(counterpart_relation) is CandidateRelation
         assert len(sequence_candidates.items) == 10
         assert len(structure_candidates.items) == 10
-        assert len(counterpart_pairs.entries) == 10
+        assert len(counterpart_relation.entries) == 10
         assert [
             item.parent_ids for item in structure_candidates.items
         ] == [
@@ -524,7 +528,7 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
                 pair.subject.candidate_id,
                 pair.reference.candidate_id,
             )
-            for pair in counterpart_pairs.entries
+            for pair in counterpart_relation.entries
         ] == [
             (sequence.candidate_id, structure.candidate_id)
             for sequence, structure in zip(
@@ -563,8 +567,8 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
             client,
             catalog,
             first,
-            "rebind-counterparts",
-            "pairing",
+            "compose-folds-to-generated",
+            "relation",
         )
         canonical_references = _decoded_output(
             client,
@@ -739,20 +743,20 @@ def test_canonical_v2_public_protocol_reproduces_scientific_intent(
         ] == [
             (
                 "fixed-3gb1",
-                "structure_comparison.tm_score.fixed_reference",
+                "structure_comparison.tm_score.explicit_relation",
                 (
                     "structure_comparison.tm_score."
-                    "fixed_reference.identity"
+                    "explicit_relation.identity"
                 ),
                 0.7,
                 0.7,
             ),
             (
                 "paired-esm3",
-                "structure_comparison.tm_score.per_subject_counterpart",
+                "structure_comparison.tm_score.explicit_relation",
                 (
                     "structure_comparison.tm_score."
-                    "per_subject_counterpart.identity"
+                    "explicit_relation.identity"
                 ),
                 0.3,
                 0.3,

@@ -153,10 +153,7 @@ def _validate_selection_objectives(
             )
             and (
                 requested_context.get("pairing_mode")
-                not in {
-                    "per_subject_counterpart",
-                    "per_subject_direct_ancestor",
-                }
+                != "explicit_relation"
                 or capability.pairing_source is not None
             )
         ]

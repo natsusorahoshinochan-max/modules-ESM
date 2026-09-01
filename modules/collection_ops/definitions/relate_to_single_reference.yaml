@@ -1,0 +1,11 @@
+node_type_id: collection_ops.relate_to_single_reference
+title: Relate Candidates to one reference
+summary: Relates every subject to the one exact Candidate supplied as the common reference.
+category: collection_ops
+inputs:
+  - {name: subjects, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Ordered subject Candidates.}
+  - {name: references, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Collection containing exactly one common reference Candidate.}
+outputs:
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Ordered subject-to-common-reference relation.}
+parameter_groups: []
+node_parameters: {}

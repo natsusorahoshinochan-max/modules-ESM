@@ -345,7 +345,7 @@
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
-        "pairing_mode": "per_subject_counterpart",
+        "pairing_mode": "explicit_relation",
         "normalization": "literal-unit-interval"
       },
       "utility_transform": {
@@ -415,7 +415,7 @@
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
-        "pairing_mode": "per_subject_counterpart",
+        "pairing_mode": "explicit_relation",
         "normalization": "literal-unit-interval"
       },
       "utility_transform": {
@@ -485,7 +485,7 @@
         "kind": "pairwise",
         "subject_role": "subject",
         "reference_role": "reference",
-        "pairing_mode": "per_subject_counterpart",
+        "pairing_mode": "explicit_relation",
         "normalization": "literal-unit-interval"
       },
       "utility_transform": {

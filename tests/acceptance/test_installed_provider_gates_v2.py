@@ -412,12 +412,6 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                     projection,
                     outputs["structure_candidates"],
                 )
-                pairing = decode_output(
-                    service,
-                    catalog,
-                    projection,
-                    outputs["counterpart_pairs"],
-                )
                 facts = decode_output(
                     service,
                     catalog,
@@ -431,12 +425,6 @@ def test_biohub_esm3_all_remote_bindings_execute_exact_methods(
                 )
                 assert facts.observation_method.contract_id == (
                     method.contract_id
-                )
-                assert pairing.entries[0].subject.candidate_id == (
-                    sequences.items[0].candidate_id
-                )
-                assert pairing.entries[0].reference.candidate_id == (
-                    structures.items[0].candidate_id
                 )
                 assert structures.items[0].metadata[
                     "requested_generation_parameters"

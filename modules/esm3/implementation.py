@@ -7,8 +7,6 @@ from typing import Any, cast
 
 from core.operation import (
     AdmittedPort,
-    CandidatePairingIntent,
-    CandidatePairingIntentEntry,
     OperationCall,
 )
 from datatypes.candidate import (
@@ -377,7 +375,6 @@ class ESM3GenerationOperation:
         self._require_sequence_mask(prompt)
         sequence_candidates: list[Candidate] = []
         structure_candidates: list[Candidate] = []
-        pairing_entries: list[CandidatePairingIntentEntry] = []
         confidence_facts: list[PendingConfidenceFact] = []
         reconstruction_candidates: list[Candidate] = []
         reconstruction_facts: list[PendingConfidenceFact] = []
@@ -486,12 +483,6 @@ class ESM3GenerationOperation:
             )
             sequence_candidates.append(sequence_candidate)
             structure_candidates.append(structure_candidate)
-            pairing_entries.append(
-                CandidatePairingIntentEntry(
-                    subject_candidate_id=sequence_candidate.candidate_id,
-                    reference_candidate_id=structure_candidate.candidate_id,
-                )
-            )
             confidence_facts.append(structure_fact)
         outputs: dict[str, Any] = {
             "sequence_candidates": CandidateCollection(
@@ -504,7 +495,6 @@ class ESM3GenerationOperation:
                 "protein.structure",
                 structure_candidates,
             ),
-            "counterpart_pairs": CandidatePairingIntent(tuple(pairing_entries)),
             "confidence_facts": confidence_output_identity_intent(
                 observation_method=self._method,
                 pending_facts=tuple(confidence_facts),

@@ -166,21 +166,9 @@ def test_local_esm3_all_generation_modes(
         paired_projection,
         paired_outputs["structure_candidates"],
     )
-    pairing = decode_output(
-        paired_service,
-        paired_catalog,
-        paired_projection,
-        paired_outputs["counterpart_pairs"],
-    )
     assert len(sequences.items) == len(structures.items) == 1
     assert structures.items[0].parent_ids == (
         sequences.items[0].candidate_id,
-    )
-    assert pairing.entries[0].subject.candidate_id == (
-        sequences.items[0].candidate_id
-    )
-    assert pairing.entries[0].reference.candidate_id == (
-        structures.items[0].candidate_id
     )
     for operation in (
         "generate_paired",

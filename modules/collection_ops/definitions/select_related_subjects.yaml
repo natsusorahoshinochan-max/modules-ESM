@@ -1,0 +1,13 @@
+node_type_id: collection_ops.select_related_subjects
+title: Select related subjects by reference
+summary: Retains exact subjects whose relation reference occurs in the selected reference subset.
+category: collection_ops
+inputs:
+  - {name: subjects, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Complete subject Candidate collection named by the relation.}
+  - {name: selected_references, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Exact selected reference Candidate subset.}
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Exact subject-to-reference relation.}
+outputs:
+  - {name: candidates, port_type_id: candidate.collection, required: true, multiplicity: one, scientific_meaning: Related subjects preserving subject input order.}
+  - {name: relation, port_type_id: candidate.relation, required: true, multiplicity: one, scientific_meaning: Selected relation entries in declared relation order.}
+parameter_groups: []
+node_parameters: {}

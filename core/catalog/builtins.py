@@ -22,11 +22,7 @@ from .port_contract import (
 
 _BUILTIN_VALUE_KINDS = (
     ("candidate.collection", "candidate_collection"),
-    (
-        "candidate.direct_ancestor_pairing",
-        "direct_ancestor_candidate_mapping",
-    ),
-    ("candidate.pairing", "pairwise_candidate_mapping"),
+    ("candidate.relation", "candidate_relation"),
     ("protein.sequence", "protein_sequence"),
     ("protein.structure", "protein_structure"),
     ("residue.layout", "residue_layout"),
@@ -136,10 +132,7 @@ def _builtin_port_type(
                 "self_parent": "rejected",
             },
         }
-    if type_id in {
-        "candidate.pairing",
-        "candidate.direct_ancestor_pairing",
-    }:
+    if type_id == "candidate.relation":
         participant_fields = [
             "candidate_id",
             "data_type_id",
@@ -149,11 +142,7 @@ def _builtin_port_type(
             "entry_fields": ["subject", "reference"],
             "participant": "CandidateDataReference",
             "participant_fields": participant_fields,
-            "cardinality": (
-                "one-to-one"
-                if type_id == "candidate.pairing"
-                else "one-reference-per-subject-shared-reference-allowed"
-            ),
+            "cardinality": "one-reference-per-subject-shared-reference-allowed",
         }
         codec_parameters["entry_wire_shape"] = {
             "subject": participant_fields,
@@ -161,10 +150,7 @@ def _builtin_port_type(
         }
     candidate_projection = {
         "candidate.collection": _candidate_collection_data_references,
-        "candidate.direct_ancestor_pairing": (
-            _candidate_pairing_data_references
-        ),
-        "candidate.pairing": _candidate_pairing_data_references,
+        "candidate.relation": _candidate_pairing_data_references,
         "score.collection": _score_collection_data_references,
     }.get(type_id)
     return PortTypeDefinition(

@@ -25,7 +25,7 @@ import pytest
 
 from protein_workbench_public.workflow_codec import decode_workflow_document
 from datatypes.candidate import CandidateCollection
-from datatypes.observation import PairwiseCandidateMapping
+from datatypes.observation import CandidateRelation
 from tests.acceptance.retained_evidence import (
     require_retained_evidence,
     retain_service_run,
@@ -585,10 +585,14 @@ def _assert_science(
         service, catalog, projection, "fold-sequences", "structure_candidates"
     )
     counterparts = _one(
-        service, catalog, projection, "generate-paired", "counterpart_pairs"
+        service,
+        catalog,
+        projection,
+        "relate-generated-sequences-to-structures",
+        "relation",
     )
     rebound_counterparts = _one(
-        service, catalog, projection, "rebind-counterparts", "pairing"
+        service, catalog, projection, "compose-folds-to-generated", "relation"
     )
     prompt_node_id = next(
         node["node_id"]
@@ -626,8 +630,8 @@ def _assert_science(
     assert type(paired_sequences) is CandidateCollection
     assert type(paired_structures) is CandidateCollection
     assert type(folded_structures) is CandidateCollection
-    assert type(counterparts) is PairwiseCandidateMapping
-    assert type(rebound_counterparts) is PairwiseCandidateMapping
+    assert type(counterparts) is CandidateRelation
+    assert type(rebound_counterparts) is CandidateRelation
     assert len(paired_sequences.items) == len(paired_structures.items) == 10
     assert len(folded_structures.items) == 10
     assert len(counterparts.entries) == 10
