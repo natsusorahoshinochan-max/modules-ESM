@@ -23,7 +23,7 @@
 .ps-selectionbar strong { font: 500 10px 'DM Mono', monospace; color: #e2bd63; }
 .ps-selectionbar small { color: #737d74; font-size: 8px; }
 .ps-selectionbar button { margin-left: auto; border: 0; background: transparent; color: #8b958c; font-size: 8px; }
-.ps-workgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: 205px minmax(0, 1fr) 320px; gap: 10px; }
+.ps-workgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: 410px minmax(0, 1fr) 320px; gap: 10px; }
 .ps-workgrid.without-structure { grid-template-columns: minmax(0, 1fr) 320px; }
 .ps-structure-card, .ps-ledger, .ps-editor { min-height: 0; border: 1px solid #303630; border-radius: 7px; background: #171a16; overflow: hidden; }
 .ps-structure-card { display: grid; grid-template-rows: 54px minmax(0, 1fr) 34px; }

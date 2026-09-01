@@ -52,6 +52,100 @@ test('default 3GB1 workflow remains connected from authoring through export', as
   await expect(page.getByText('7 → 4 → 4 → 2 → 6 → 6 → 3', { exact: true })).toBeVisible()
 })
 
+test('the Palette switches between research-purpose and provider classifications', async ({ page }) => {
+  await page.goto('/')
+
+  await expect(page.getByRole('button', { name: '按研究目的' })).toHaveClass(/active/)
+  await expect(page.locator('.palette-item')).toHaveCount(62)
+  await expect(page.getByText('collection', { exact: true }).first()).toBeVisible()
+
+  await page.getByRole('button', { name: '按包 / 模型' }).click()
+
+  await expect(page.getByRole('button', { name: '按包 / 模型' })).toHaveClass(/active/)
+  await expect(page.getByRole('button', { name: '按研究目的' })).not.toHaveClass(/active/)
+  await expect(page.getByText('collection_ops', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('simplefold_100M', { exact: true }).first()).toBeVisible()
+})
+
+test('Catalog parameter schemas expose required and Binding-specific fields', async ({ page }) => {
+  await page.goto('/')
+
+  await page.getByPlaceholder('搜索 active Catalog…').fill('Take an ordered Candidate prefix')
+  await page.getByRole('button', { name: 'Take an ordered Candidate prefix collection' }).dragTo(page.locator('.react-flow__pane'), { targetPosition: { x: 520, y: 620 } })
+  const prefixNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: 'Take an ordered Candidate prefix' }) })
+  await prefixNode.locator('summary[aria-label="编辑参数"]').click()
+  await expect(prefixNode.getByLabel('保留数量')).toHaveValue('')
+
+  const foldNode = page.locator('article.workflow-node').filter({ has: page.getByRole('heading', { name: '预测蛋白质结构' }) }).first()
+  const foldModel = foldNode.getByRole('combobox', { name: '预测蛋白质结构的执行模型' })
+  await foldModel.selectOption('folding.fold.simplefold_local')
+  await foldNode.locator('summary[aria-label="编辑参数"]').click()
+  const samplingSteps = foldNode.getByLabel('模型参数 · num_steps')
+  await expect(samplingSteps).toHaveValue('50')
+  await samplingSteps.fill('42')
+  const parameterSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await samplingSteps.blur()
+  await parameterSave
+  const remoteSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await foldModel.selectOption('folding.fold.esmfold2_remote')
+  await remoteSave
+  const simpleFoldSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
+  await foldModel.selectOption('folding.fold.simplefold_local')
+  await simpleFoldSave
+  await expect(foldNode.getByLabel('模型参数 · num_steps')).toHaveValue('42')
+})
+
+test('an unavailable Binding remains visible but cannot be selected', async ({ page }) => {
+  await page.route('**/api/v2/catalog', async (route) => {
+    const response = await route.fetch()
+    const catalog = await response.json()
+    const unavailable = catalog.availability.find((item: { binding: { contract_id: string } }) => item.binding.contract_id === 'esm3.generate_paired.biohub_open')
+    unavailable.available = false
+    await route.fulfill({ response, json: catalog })
+  })
+  await page.goto('/')
+
+  const option = page.getByRole('combobox', { name: '生成候选蛋白质的执行模型' }).locator('option[value="esm3.generate_paired.biohub_open"]')
+  await expect(option).toBeDisabled()
+  await expect(option).toHaveText('esm3-open-2024-03（不可用）')
+})
+
+test('a model selector changes the pinned Execution Binding on an ordinary Node Instance', async ({ page }) => {
+  await page.goto('/')
+
+  const generationModel = page.getByRole('combobox', { name: '生成候选蛋白质的执行模型' })
+  await expect(generationModel).toHaveValue('esm3.generate_paired.biohub_medium')
+  await expect(generationModel.locator('option')).toHaveText([
+    'esm3-medium-2024-08',
+    'esm3-open-2024-03',
+    'esm3_sm_open_v1',
+  ])
+  await expect(page.getByRole('combobox', { name: '预测蛋白质结构的执行模型' }).locator('option')).toHaveText([
+    'biohub/ESMFold2',
+    'esmfold2-fast-2026-05',
+    'simplefold_100M',
+  ])
+
+  await generationModel.selectOption('esm3.generate_paired.biohub_open')
+
+  await expect(generationModel).toHaveValue('esm3.generate_paired.biohub_open')
+  await expect(page.getByText('已自动保存')).toBeVisible()
+  await expect(page.getByText('personal', { exact: true })).toBeVisible()
+})
+
+test('dragging an ordinary Palette operation adds and saves a Node Instance', async ({ page }) => {
+  await page.goto('/')
+
+  const operation = page.getByRole('button', { name: 'Concatenate exact Candidate pairings collection_ops' })
+  const canvas = page.locator('.react-flow__pane')
+  await operation.dragTo(canvas, { targetPosition: { x: 520, y: 620 } })
+
+  await expect(page.getByRole('heading', { name: 'Concatenate exact Candidate pairings' })).toBeVisible()
+  await expect(page.getByText(/36 MATERIALIZED NODES/)).toBeVisible()
+  await expect(page.getByText('已自动保存')).toBeVisible()
+  await expect(page.getByText('personal', { exact: true })).toBeVisible()
+})
+
 test('Prompt Studio edits the backend projection and shows every prompt track', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: '打开 Prompt Studio' }).click()

@@ -1,9 +1,11 @@
 export type JsonObject = Record<string, unknown>
+export type ContractReference = { contract_kind: string; contract_id: string }
+export type AuthoringCapabilities = { node_roles: Array<{ node_type: ContractReference; role: 'ordinary_node' | 'managed_member' }>; capabilities: JsonObject[]; protocol_digest: string; schema_namespace: string }
 export type ProjectMetadata = { id: string; name: string; seed: boolean; project_kind: 'default_example' | 'canonical_verification' | 'personal'; copied_from_project_id: string | null; latest_run_id: string | null }
 export type WorkflowNode = { node_id: string; node_type_id: string; binding_id: string; node_parameters: Record<string, unknown>; binding_parameters: Record<string, unknown> }
 export type Workflow = { schema_version: string; workflow_id: string; nodes: WorkflowNode[]; edges: Array<{ source_node_id: string; source_port: string; target_node_id: string; target_port: string }>; observation_selectors: JsonObject[]; selection_objectives: JsonObject[] }
 export type WorkflowDraft = { project_id: string; draft_revision: number; workflow: Workflow; authoring_compositions: Array<{ composition_id: string; capability_id: string; normalized_document: JsonObject; managed_node_ids: string[]; exposed_outputs: Array<{ role: string; node_id: string; port_name: string }> }> }
-export type CatalogSnapshot = { contracts: Array<{ reference: { contract_kind: string; contract_id: string }; descriptor: JsonObject }>; availability: JsonObject[] }
+export type CatalogSnapshot = { contracts: Array<{ reference: ContractReference; descriptor: JsonObject }>; availability: JsonObject[] }
 export type PromptProjectionState = 'source' | 'current' | 'changed' | 'cleared' | 'inserted' | 'pending-delete'
 export type PromptResidue = { residue_handle: string; chain_id: string; residue_label: string; position: number }
 export type PromptTrackValue = { residue_handle: string; value: null | string | number | { atoms: Array<{ atom_handle: string; atom_label: string; coordinates: [number, number, number] }> }; state: PromptProjectionState }
@@ -36,7 +38,7 @@ export class PublicV2Client {
     return response.json() as Promise<T>
   }
   catalog() { return this.json<CatalogSnapshot>('/api/v2/catalog') }
-  authoringCapabilities() { return this.json<JsonObject>('/api/v2/authoring-capabilities') }
+  authoringCapabilities() { return this.json<AuthoringCapabilities>('/api/v2/authoring-capabilities') }
   projects(name?: string) { return this.json<{ projects: ProjectMetadata[] }>(`/api/v2/projects${name ? `?name=${encodeURIComponent(name)}` : ''}`) }
   createProject(name: string) { return this.json<ProjectMetadata>('/api/v2/projects', { method: 'POST', body: JSON.stringify({ name }) }) }
   copyExample(projectId: string, name: string) { return this.json<ProjectMetadata>(`/api/v2/projects/${projectId}:copy`, { method: 'POST', body: JSON.stringify({ name }) }) }
