@@ -7,7 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from tools.bundle_webui_example_run import _object_path, _reachable_objects
+from tools.bundle_webui_example_run import SOURCE, _object_path, _reachable_objects
+
+
+def test_source_uses_ignored_local_run_data() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+
+    assert SOURCE == repository_root / ".local" / "webui-example-run-generation"
 
 
 def _write_json(path: Path, value: object) -> None:

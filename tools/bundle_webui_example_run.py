@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / ".scratch" / "webui-example-run-generation-14"
+SOURCE = ROOT / ".local" / "webui-example-run-generation"
 RUN_ID = "run-29cd5f76ce43448b8f5b4a924d9ef58d"
 DESTINATION = ROOT / "examples" / "v2" / "webui-3gb1-run"
 

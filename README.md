@@ -24,6 +24,12 @@ workspace.
 - `tests/` and `verification/` own repository tests and verification tooling.
 - `repositories/` contains pinned Provider sources, including the maintained
   SoluProt-next port.
+- `.scratch/webui-product-definition/` contains tracked WebUI interaction-design
+  evidence; other test, Run, diagnostic, and fixture-generation data does not
+  belong under `.scratch/`.
+- `.local/` contains ignored backend Run data, temporary generation results, and
+  fixture-production intermediates.
+- `webui/test-results/` contains ignored Playwright test results.
 
 Before launching the server, configure one stable absolute application data root:
 
