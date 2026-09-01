@@ -125,13 +125,27 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
 .workflow-node { width: 275px; background: #1b1f1a; border: 1px solid #3a4039; border-radius: 7px; overflow: visible; color: #dfe3dd; box-shadow: 0 12px 28px rgba(0,0,0,.26); transition: border .15s, box-shadow .15s; }
 .workflow-node:before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--node-accent); border-radius: 7px 0 0 7px; opacity: .8; }
 .workflow-node.is-selected { border-color: color-mix(in srgb, var(--node-accent) 70%, #fff); box-shadow: 0 0 0 1px color-mix(in srgb, var(--node-accent) 40%, transparent), 0 14px 30px rgba(0,0,0,.3); }
+.workflow-node.run-status-running { border-color: #7199d2; box-shadow: 0 0 0 1px rgba(113,153,210,.2), 0 14px 30px rgba(0,0,0,.3); }
+.workflow-node.run-status-succeeded { border-color: #5f8c68; }
+.workflow-node.run-status-failed { border-color: #9b5a55; background: #231918; }
+.workflow-node.run-status-blocked { border-color: #665d72; }
+.workflow-node.run-status-cancelled, .workflow-node.run-status-interrupted { border-color: #806a48; }
 .workflow-node.is-collapsed { width: 245px; }
-.node-header { min-height: 60px; display: grid; grid-template-columns: 27px 1fr 24px 25px; align-items: center; gap: 7px; padding: 7px 7px 7px 11px; border-bottom: 1px solid #2e332e; background: linear-gradient(105deg, color-mix(in srgb, var(--node-accent) 8%, #1d211c), #1b1f1a 42%); border-radius: 7px 7px 0 0; }
+.node-header { min-height: 60px; display: grid; grid-template-columns: 27px minmax(0, 1fr) auto 24px 25px; align-items: center; gap: 7px; padding: 7px 7px 7px 11px; border-bottom: 1px solid #2e332e; background: linear-gradient(105deg, color-mix(in srgb, var(--node-accent) 8%, #1d211c), #1b1f1a 42%); border-radius: 7px 7px 0 0; }
 .is-collapsed .node-header { min-height: 52px; border: 0; border-radius: 7px; }
 .node-icon { width: 26px; height: 26px; display: grid; place-items: center; background: color-mix(in srgb, var(--node-accent) 10%, #1b1f1a); border: 1px solid color-mix(in srgb, var(--node-accent) 35%, #343a34); color: var(--node-accent); border-radius: 4px; }
 .node-header > div { min-width: 0; }
 .node-eyebrow { display: block; font: 500 7px 'DM Mono'; letter-spacing: .11em; color: color-mix(in srgb, var(--node-accent) 76%, #899188); margin-bottom: 3px; }
 .node-header h3 { margin: 0; font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-run-status { min-height: 20px; padding: 0 6px; border: 1px solid #4b524b; border-radius: 10px; display: inline-flex; align-items: center; gap: 4px; font: 7px 'DM Mono'; color: #aab1aa; white-space: nowrap; }
+.node-run-status > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.node-run-status.waiting { color: #c3aa70; }
+.node-run-status.running { border-color: #526e9e; color: #9bbbed; }
+.node-run-status.running svg { animation: run-spin 1s linear infinite; }
+.node-run-status.succeeded { border-color: #4c7255; color: #8fc29a; }
+.node-run-status.failed { border-color: #7c4d49; color: #dc8179; }
+.node-run-status.blocked { border-color: #5f566d; color: #b6a5ca; }
+.node-run-status.cancelled, .node-run-status.interrupted { border-color: #715d3e; color: #d0ae75; }
 .node-index { font: 9px 'DM Mono'; color: #555e56; }
 .node-meta { height: 31px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; font: 8px 'DM Mono'; color: #777f78; border-bottom: 1px solid #292e29; }
 .node-meta strong { font-weight: 500; color: var(--node-accent); }

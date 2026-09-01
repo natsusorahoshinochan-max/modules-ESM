@@ -148,14 +148,15 @@ test('a started workflow reports its live status and current stage', async ({ pa
         project_id: 'project-ui-progress',
         run_id: 'run-ui-progress',
         sequence: 3,
-        cursor: 'cursor-node-failed',
+        cursor: 'cursor-node-succeeded',
         emitted_at: '2026-09-01T00:00:01Z',
         event: {
           type: 'node_disposition',
           disposition: {
             node_id: 'generate-paired',
-            outcome: 'failed',
+            outcome: 'succeeded',
             blocked_by: [],
+            resolution: 'executed',
             terminal_sequence: 3,
           },
         },
@@ -165,11 +166,60 @@ test('a started workflow reports its live status and current stage', async ({ pa
         project_id: 'project-ui-progress',
         run_id: 'run-ui-progress',
         sequence: 4,
-        cursor: 'cursor-run-failed',
-        emitted_at: '2026-09-01T00:00:02Z',
-        event: { type: 'run_terminal', status: 'failed' },
+        cursor: 'cursor-internal-node-started',
+        emitted_at: '2026-09-01T00:00:01Z',
+        event: {
+          type: 'node_attempt_started',
+          node_id: 'confidence-generated',
+          node_attempt_id: 'attempt-confidence-generated',
+        },
       }))
     }, 1000)
+    setTimeout(() => {
+      webSocket.send(JSON.stringify({
+        schema_namespace: 'protein-workbench-public/v2',
+        project_id: 'project-ui-progress',
+        run_id: 'run-ui-progress',
+        sequence: 5,
+        cursor: 'cursor-internal-node-failed',
+        emitted_at: '2026-09-01T00:00:02Z',
+        event: {
+          type: 'node_disposition',
+          disposition: {
+            node_id: 'confidence-generated',
+            outcome: 'failed',
+            blocked_by: [],
+            terminal_sequence: 5,
+          },
+        },
+      }))
+      webSocket.send(JSON.stringify({
+        schema_namespace: 'protein-workbench-public/v2',
+        project_id: 'project-ui-progress',
+        run_id: 'run-ui-progress',
+        sequence: 6,
+        cursor: 'cursor-downstream-blocked',
+        emitted_at: '2026-09-01T00:00:03Z',
+        event: {
+          type: 'node_disposition',
+          disposition: {
+            node_id: 'select-paired-sequences',
+            outcome: 'blocked',
+            blocked_by: ['confidence-generated'],
+            terminal_sequence: 6,
+          },
+        },
+      }))
+      webSocket.send(JSON.stringify({
+        schema_namespace: 'protein-workbench-public/v2',
+        project_id: 'project-ui-progress',
+        run_id: 'run-ui-progress',
+        sequence: 7,
+        cursor: 'cursor-run-failed',
+        emitted_at: '2026-09-01T00:00:04Z',
+        event: { type: 'run_terminal', status: 'failed' },
+      }))
+    }, 2200)
   })
   await page.route('**/api/v2/projects/*/runs', async (route) => {
     if (route.request().method() === 'POST') {
@@ -192,7 +242,27 @@ test('a started workflow reports its live status and current stage', async ({ pa
         workflow_commit_id: 'commit-ui-progress',
         status: 'failed',
         ledger_cursor: '0',
-        node_dispositions: [],
+        node_dispositions: [
+          {
+            node_id: 'generate-paired',
+            outcome: 'succeeded',
+            blocked_by: [],
+            resolution: 'executed',
+            terminal_sequence: 3,
+          },
+          {
+            node_id: 'confidence-generated',
+            outcome: 'failed',
+            blocked_by: [],
+            terminal_sequence: 5,
+          },
+          {
+            node_id: 'select-paired-sequences',
+            outcome: 'blocked',
+            blocked_by: ['confidence-generated'],
+            terminal_sequence: 6,
+          },
+        ],
         outputs: [],
         artifact_index: [],
       },
@@ -206,6 +276,79 @@ test('a started workflow reports its live status and current stage', async ({ pa
   await expect(page.getByRole('status')).toContainText('正在运行')
   await expect(page.getByRole('status')).toContainText('当前阶段')
   await expect(page.getByRole('status')).toContainText('generate-paired')
+  await expect(page.getByLabel('生成候选蛋白质：运行中')).toBeVisible()
+  await expect(page.getByLabel('生成候选蛋白质：成功')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('confidence-generated')
+  await expect(page.getByLabel('保留高置信候选：运行中')).toBeVisible()
   await expect(page.getByRole('status')).toContainText('运行失败')
-  await expect(page.getByRole('status')).toContainText('1 / 35 Nodes')
+  await expect(page.getByLabel('保留高置信候选：失败')).toBeVisible()
+  await expect(page.getByLabel('预测蛋白质结构：未执行')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('3 / 35 Nodes')
+})
+
+test('the latest run projection restores status on every visible workflow stage', async ({ page }) => {
+  await page.goto('/')
+
+  for (const title of [
+    '编写 ProteinPrompt',
+    '生成候选蛋白质',
+    '保留高置信候选',
+    '预测蛋白质结构',
+    '选择折叠候选',
+    '设计蛋白质序列',
+    '重折叠子序列',
+    '最终候选',
+  ]) {
+    await expect(page.getByLabel(`${title}：成功`)).toBeVisible()
+  }
+})
+
+test('an active run reload restores waiting stages and replays the current node', async ({ page }) => {
+  await page.route(/\/api\/v2\/projects\/[^/]+\/runs\/[^/]+$/, async (route) => {
+    const parts = new URL(route.request().url()).pathname.split('/')
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        project_id: parts[4],
+        run_id: parts[6],
+        workflow_commit_id: 'commit-active-reload',
+        status: 'running',
+        ledger_cursor: 'cursor-after-generate',
+        node_dispositions: [{
+          node_id: 'generate-paired',
+          outcome: 'succeeded',
+          blocked_by: [],
+          resolution: 'executed',
+          terminal_sequence: 3,
+        }],
+        outputs: [],
+        artifact_index: [],
+      }),
+    })
+  })
+  await page.routeWebSocket(/\/runs\/[^/]+\/events/, (webSocket) => {
+    expect(webSocket.url()).not.toContain('after_sequence')
+    setTimeout(() => {
+      webSocket.send(JSON.stringify({
+        schema_namespace: 'protein-workbench-public/v2',
+        project_id: 'default-example',
+        run_id: 'active-run',
+        sequence: 4,
+        cursor: 'cursor-confidence-started',
+        emitted_at: '2026-09-01T00:00:01Z',
+        event: {
+          type: 'node_attempt_started',
+          node_id: 'confidence-generated',
+          node_attempt_id: 'attempt-confidence-generated',
+        },
+      }))
+    }, 1000)
+  })
+
+  await page.goto('/')
+
+  await expect(page.getByLabel('生成候选蛋白质：成功')).toBeVisible()
+  await expect(page.getByLabel('保留高置信候选：等待')).toBeVisible()
+  await expect(page.getByLabel('保留高置信候选：运行中')).toBeVisible()
 })

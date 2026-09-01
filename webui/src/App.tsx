@@ -3,26 +3,28 @@ import { Background, BackgroundVariant, Controls, Handle, MiniMap, Panel, Positi
 import { Activity, Atom, Braces, Check, ChevronDown, ChevronLeft, ChevronRight, CircleHelp, Download, FolderOpen, GitBranch, Info, Layers3, LoaderCircle, Menu, MoreHorizontal, Network, PanelLeftClose, Play, Plus, RotateCcw, Search, SlidersHorizontal, Sparkles, Target, TestTubeDiagonal, X, Zap } from 'lucide-react'
 import { strToU8, zipSync } from 'fflate'
 import { PromptStudio } from './PromptStudio'
-import { PublicV2Client, type CatalogSnapshot, type JsonObject, type ProjectMetadata, type PromptSnapshot, type RunEventEnvelope, type RunProjection, type RunStatus, type Workflow, type WorkflowDraft, type WorkflowNode } from './protocol/client'
+import { PublicV2Client, type CatalogSnapshot, type JsonObject, type NodeDisposition, type ProjectMetadata, type PromptSnapshot, type RunEventEnvelope, type RunProjection, type RunStatus, type Workflow, type WorkflowDraft, type WorkflowNode } from './protocol/client'
 import { StructureViewer } from './StructureViewer'
 
 const client = new PublicV2Client()
 type Parameter = { key: string; label: string; value: string; suffix?: string }
-type WorkflowNodeData = Record<string, unknown> & { kind: 'prompt' | 'generate' | 'select' | 'fold' | 'design'; eyebrow: string; title: string; subtitle: string; index: string; inputs: string[]; outputs: string[]; parameters: Parameter[]; accent: string; count: string; collapsed?: boolean; onToggle?: (id: string) => void; onEditPrompt?: () => void; onParameter?: (id: string, key: string, value: string, commit: boolean) => void }
+type NodeRunStatus = 'waiting' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'cancelled' | 'interrupted'
+type NodeRunState = { status: NodeRunStatus; blockedBy?: string[]; resolution?: 'executed' | 'cache_replayed' }
+type WorkflowNodeData = Record<string, unknown> & { kind: 'prompt' | 'generate' | 'select' | 'fold' | 'design'; eyebrow: string; title: string; subtitle: string; index: string; inputs: string[]; outputs: string[]; parameters: Parameter[]; accent: string; count: string; runMemberNodeIds: string[]; collapsed?: boolean; runState?: NodeRunState; onToggle?: (id: string) => void; onEditPrompt?: () => void; onParameter?: (id: string, key: string, value: string, commit: boolean) => void }
 type FlowNode = Node<WorkflowNodeData>
 type CandidateView = { id: string; parent: string; pdb: string; sequence: string; metadata: JsonObject }
 type ScoreView = { candidateId: string; metricId: string; methodId: string; context: JsonObject; value: number }
-type RunProgress = { status: 'committing' | 'starting' | RunStatus; totalNodes: number; completedNodeIds: string[]; currentNodeId?: string; lastNodeId?: string; projectId?: string; runId?: string; workflowCommitId?: string; eventCursor?: string; resultsReady?: boolean }
+type RunProgress = { status: 'committing' | 'starting' | RunStatus; totalNodes: number; completedNodeIds: string[]; nodeStates: Record<string, NodeRunState>; currentNodeId?: string; lastNodeId?: string; projectId?: string; runId?: string; workflowCommitId?: string; eventCursor?: string; resultsReady?: boolean }
 
 const visibleSteps = [
-  { id: 'prompt-composition-webui-3gb1', source: '', kind: 'prompt', eyebrow: 'SPECIALIZED COMPOSITION', title: '编写 ProteinPrompt', subtitle: '3GB1 · chain A', accent: '#ae9cff', count: '56 → 57 aa', inputs: [], outputs: ['protein.prompt'] },
-  { id: 'generate-paired', source: 'generate-paired', kind: 'generate', eyebrow: 'GENERATE', title: '生成候选蛋白质', subtitle: 'ESM-3', accent: '#55c8b7', count: '7 candidates', inputs: ['protein.prompt'], outputs: ['candidate.collection'] },
-  { id: 'take-top-four', source: 'take-top-four', kind: 'select', eyebrow: 'SELECTION', title: '保留高置信候选', subtitle: 'mean-residue pLDDT', accent: '#e7b75f', count: 'Top 4', inputs: ['Candidates', 'Scores'], outputs: ['Selected'] },
-  { id: 'fold-stage-one', source: 'fold-stage-one', kind: 'fold', eyebrow: 'STRUCTURE PREDICTION', title: '预测蛋白质结构', subtitle: 'ESMFold2', accent: '#71a8ff', count: '4 structures', inputs: ['Selected'], outputs: ['Structures', 'pLDDT'] },
-  { id: 'take-top-two', source: 'take-top-two', kind: 'select', eyebrow: 'MULTI-OBJECTIVE', title: '选择折叠候选', subtitle: 'parent-normalized', accent: '#e7b75f', count: 'Top 2', inputs: ['Structures', 'Scores'], outputs: ['Selected'] },
-  { id: 'design-children', source: 'design-children', kind: 'design', eyebrow: 'SEQUENCE DESIGN', title: '设计蛋白质序列', subtitle: 'ProteinMPNN', accent: '#ec8fb0', count: '2 × 3 = 6', inputs: ['Parents'], outputs: ['Sequences'] },
-  { id: 'fold-final', source: 'fold-final', kind: 'fold', eyebrow: 'STRUCTURE PREDICTION', title: '重折叠子序列', subtitle: 'ESMFold2', accent: '#71a8ff', count: '6 structures', inputs: ['Sequences'], outputs: ['Structures', 'pLDDT'] },
-  { id: 'take-top-three', source: 'take-top-three', kind: 'select', eyebrow: 'FINAL SELECTION', title: '最终候选', subtitle: 'direct-ancestor comparison', accent: '#e7b75f', count: 'Top 3', inputs: ['Structures', 'Scores'], outputs: ['Final candidates'] },
+  { id: 'prompt-composition-webui-3gb1', source: '', members: [], kind: 'prompt', eyebrow: 'SPECIALIZED COMPOSITION', title: '编写 ProteinPrompt', subtitle: '3GB1 · chain A', accent: '#ae9cff', count: '56 → 57 aa', inputs: [], outputs: ['protein.prompt'] },
+  { id: 'generate-paired', source: 'generate-paired', members: ['generate-paired'], kind: 'generate', eyebrow: 'GENERATE', title: '生成候选蛋白质', subtitle: 'ESM-3', accent: '#55c8b7', count: '7 candidates', inputs: ['protein.prompt'], outputs: ['candidate.collection'] },
+  { id: 'take-top-four', source: 'take-top-four', members: ['confidence-generated', 'rank-generated', 'take-top-four'], kind: 'select', eyebrow: 'SELECTION', title: '保留高置信候选', subtitle: 'mean-residue pLDDT', accent: '#e7b75f', count: 'Top 4', inputs: ['Candidates', 'Scores'], outputs: ['Selected'] },
+  { id: 'fold-stage-one', source: 'fold-stage-one', members: ['select-paired-sequences', 'fold-stage-one', 'confidence-stage-one', 'pair-stage-one', 'axes-stage-one', 'axes-generated-top-four', 'align-stage-one', 'tm-stage-one'], kind: 'fold', eyebrow: 'STRUCTURE PREDICTION', title: '预测蛋白质结构', subtitle: 'ESMFold2', accent: '#71a8ff', count: '4 structures', inputs: ['Selected'], outputs: ['Structures', 'pLDDT'] },
+  { id: 'take-top-two', source: 'take-top-two', members: ['scores-stage-one', 'rank-stage-one', 'take-top-two', 'axes-top-two'], kind: 'select', eyebrow: 'MULTI-OBJECTIVE', title: '选择折叠候选', subtitle: 'parent-normalized', accent: '#e7b75f', count: 'Top 2', inputs: ['Structures', 'Scores'], outputs: ['Selected'] },
+  { id: 'design-children', source: 'design-children', members: ['design-children'], kind: 'design', eyebrow: 'SEQUENCE DESIGN', title: '设计蛋白质序列', subtitle: 'ProteinMPNN', accent: '#ec8fb0', count: '2 × 3 = 6', inputs: ['Parents'], outputs: ['Sequences'] },
+  { id: 'fold-final', source: 'fold-final', members: ['fold-final', 'confidence-final', 'pair-final-ancestors', 'axes-final', 'align-final', 'tm-final'], kind: 'fold', eyebrow: 'STRUCTURE PREDICTION', title: '重折叠子序列', subtitle: 'ESMFold2', accent: '#71a8ff', count: '6 structures', inputs: ['Sequences'], outputs: ['Structures', 'pLDDT'] },
+  { id: 'take-top-three', source: 'take-top-three', members: ['scores-final', 'rank-final', 'take-top-three', 'export-final'], kind: 'select', eyebrow: 'FINAL SELECTION', title: '最终候选', subtitle: 'direct-ancestor comparison', accent: '#e7b75f', count: 'Top 3', inputs: ['Structures', 'Scores'], outputs: ['Final candidates'] },
 ] as const
 const positions = [{ x: 60, y: 170 }, { x: 390, y: 170 }, { x: 720, y: 70 }, { x: 1050, y: 170 }, { x: 60, y: 520 }, { x: 390, y: 520 }, { x: 720, y: 420 }, { x: 1050, y: 520 }]
 
@@ -35,17 +37,46 @@ function nodeParameters(stepId: string, workflow: Workflow): Parameter[] {
 
 function flowFromDraft(draft: WorkflowDraft): { nodes: FlowNode[]; edges: Edge[] } {
   if (draft.workflow.nodes.length === 0) return { nodes: [], edges: [] }
-  const nodes = visibleSteps.map((step, index): FlowNode => ({ id: step.id, type: 'workflow', position: positions[index], data: { kind: step.kind, eyebrow: step.eyebrow, title: step.title, subtitle: step.subtitle, index: String(index + 1).padStart(2, '0'), inputs: [...step.inputs], outputs: [...step.outputs], parameters: nodeParameters(step.source, draft.workflow), accent: step.accent, count: step.count } }))
+  const promptComposition = draft.authoring_compositions.find((composition) => composition.composition_id === 'prompt-composition-webui-3gb1')
+  const nodes = visibleSteps.map((step, index): FlowNode => ({ id: step.id, type: 'workflow', position: positions[index], data: { kind: step.kind, eyebrow: step.eyebrow, title: step.title, subtitle: step.subtitle, index: String(index + 1).padStart(2, '0'), inputs: [...step.inputs], outputs: [...step.outputs], parameters: nodeParameters(step.source, draft.workflow), accent: step.accent, count: step.count, runMemberNodeIds: step.kind === 'prompt' ? [...(promptComposition?.managed_node_ids ?? [])] : [...step.members] } }))
   const edges = visibleSteps.slice(0, -1).map((step, index): Edge => ({ id: `visible-edge-${index}`, source: step.id, target: visibleSteps[index + 1].id, type: 'smoothstep', style: { stroke: '#637168', strokeWidth: 1.6 } }))
   return { nodes, edges }
 }
 
+function nodeRunStateFromDisposition(disposition: NodeDisposition): NodeRunState {
+  if (disposition.outcome === 'succeeded') return { status: 'succeeded', resolution: disposition.resolution }
+  if (disposition.outcome === 'blocked') return { status: 'blocked', blockedBy: disposition.blocked_by }
+  return { status: disposition.outcome }
+}
+
+function nodeStatesFromProjection(projection: RunProjection, workflowNodeIds: string[] = []): Record<string, NodeRunState> {
+  return Object.fromEntries([
+    ...workflowNodeIds.map((nodeId): [string, NodeRunState] => [nodeId, { status: 'waiting' }]),
+    ...projection.node_dispositions.map((disposition): [string, NodeRunState] => [disposition.node_id, nodeRunStateFromDisposition(disposition)]),
+  ])
+}
+
+function aggregateNodeRunState(memberNodeIds: string[], nodeStates: Record<string, NodeRunState> | undefined): NodeRunState | undefined {
+  if (!nodeStates) return undefined
+  const states = memberNodeIds.flatMap((nodeId) => nodeStates[nodeId] ? [nodeStates[nodeId]] : [])
+  if (states.length === 0) return undefined
+  for (const status of ['running', 'failed', 'interrupted', 'cancelled'] as const) {
+    const state = states.find((item) => item.status === status)
+    if (state) return state
+  }
+  if (states.every((state) => state.status === 'succeeded')) return { status: 'succeeded' }
+  const blocked = states.find((state) => state.status === 'blocked')
+  if (blocked) return blocked
+  return { status: 'waiting' }
+}
+
 function WorkflowCard({ id, data, selected }: NodeProps<FlowNode>) {
   const Icon = data.kind === 'prompt' ? Braces : data.kind === 'generate' ? Sparkles : data.kind === 'select' ? Target : data.kind === 'fold' ? Atom : TestTubeDiagonal
-  return <article className={`workflow-node ${selected ? 'is-selected' : ''} ${data.collapsed ? 'is-collapsed' : ''}`} style={{ '--node-accent': data.accent } as React.CSSProperties}>
+  const runStatusLabel: Record<NodeRunStatus, string> = { waiting: '等待', running: '运行中', succeeded: '成功', failed: '失败', blocked: '未执行', cancelled: '已取消', interrupted: '已中断' }
+  return <article className={`workflow-node ${selected ? 'is-selected' : ''} ${data.collapsed ? 'is-collapsed' : ''} ${data.runState ? `run-status-${data.runState.status}` : ''}`} style={{ '--node-accent': data.accent } as React.CSSProperties}>
     {data.inputs.map((port, index) => <Handle key={port} id={`in-${index}`} type="target" position={Position.Left} style={{ top: data.collapsed ? 31 : 112 + index * 26 }} className="node-handle input-handle" />)}
     {data.outputs.map((port, index) => <Handle key={port} id={`out-${index}`} type="source" position={Position.Right} style={{ top: data.collapsed ? 31 : 112 + index * 26 }} className="node-handle output-handle" />)}
-    <header className="node-header"><span className="node-icon"><Icon size={15} /></span><div><span className="node-eyebrow">{data.eyebrow}</span><h3>{data.title}</h3></div><span className="node-index">{data.index}</span><button className="icon-button nodrag" onClick={() => data.onToggle?.(id)}><ChevronDown size={15} /></button></header>
+    <header className="node-header"><span className="node-icon"><Icon size={15} /></span><div><span className="node-eyebrow">{data.eyebrow}</span><h3>{data.title}</h3></div>{data.runState && <span className={`node-run-status ${data.runState.status}`} aria-label={`${data.title}：${runStatusLabel[data.runState.status]}`}>{data.runState.status === 'running' ? <LoaderCircle size={11} /> : data.runState.status === 'succeeded' ? <Check size={11} /> : data.runState.status === 'failed' ? <X size={11} /> : <span />}{runStatusLabel[data.runState.status]}</span>}<span className="node-index">{data.index}</span><button className="icon-button nodrag" onClick={() => data.onToggle?.(id)}><ChevronDown size={15} /></button></header>
     {!data.collapsed && <><div className="node-meta"><span>{data.subtitle}</span><strong>{data.count}</strong></div><div className="ports-block"><div>{data.inputs.map((port) => <span key={port} className="port input-port">{port}</span>)}</div><div>{data.outputs.map((port) => <span key={port} className="port output-port">{port}</span>)}</div></div>
       {data.kind === 'prompt' ? <button className="prompt-edit-button nodrag" onClick={data.onEditPrompt}><Braces size={14} /> 打开 Prompt Studio <ChevronRight size={14} /></button> : <details className="parameter-group nodrag"><summary aria-label="编辑参数"><SlidersHorizontal size={13} /> 参数 <span>{data.parameters.length}</span></summary><div className="parameter-fields">{data.parameters.map((parameter) => <label key={parameter.key}><span>{parameter.label}</span><span className="field-control"><input value={parameter.value} onChange={(event) => data.onParameter?.(id, parameter.key, event.target.value, false)} onBlur={(event) => data.onParameter?.(id, parameter.key, event.target.value, true)} />{parameter.suffix && <em>{parameter.suffix}</em>}</span></label>)}</div></details>}
     </>}
@@ -168,23 +199,24 @@ function App() {
       setScores(nextScores)
     }
     setProject((current) => current?.id === projectId ? { ...current, latest_run_id: runId } : current)
-    setRunProgress((current) => current?.projectId === projectId && current.runId === runId ? { ...current, resultsReady: true } : current)
+    setRunProgress((current) => current?.projectId === projectId && current.runId === runId ? { ...current, status: projection.status, completedNodeIds: projection.node_dispositions.map((disposition) => disposition.node_id), nodeStates: nodeStatesFromProjection(projection, Object.keys(current.nodeStates)), resultsReady: projection.status === 'succeeded' } : current)
   }, [])
 
   useEffect(() => {
-    if (!runProgress?.projectId || !runProgress.runId || !runProgress.eventCursor) return
+    if (!runProgress?.projectId || !runProgress.runId || (runProgress.status !== 'admitted' && runProgress.status !== 'running')) return
     const projectId = runProgress.projectId
     const runId = runProgress.runId
-    const socket = client.runEvents(projectId, runId, runProgress.eventCursor)
+    const socket = client.runEvents(projectId, runId, runProgress.eventCursor || undefined)
     socket.onmessage = (message) => {
       const envelope = JSON.parse(message.data as string) as RunEventEnvelope
       const event = envelope.event
       if (event.type === 'run_started') setRunProgress((current) => current?.runId === runId ? { ...current, status: 'running' } : current)
-      if (event.type === 'node_attempt_started') setRunProgress((current) => current?.runId === runId ? { ...current, status: 'running', currentNodeId: event.node_id } : current)
+      if (event.type === 'node_attempt_started') setRunProgress((current) => current?.runId === runId ? { ...current, status: 'running', currentNodeId: event.node_id, nodeStates: { ...current.nodeStates, [event.node_id]: { status: 'running' } } } : current)
       if (event.type === 'node_disposition') setRunProgress((current) => {
         if (current?.runId !== runId) return current
         const completedNodeIds = current.completedNodeIds.includes(event.disposition.node_id) ? current.completedNodeIds : [...current.completedNodeIds, event.disposition.node_id]
-        return { ...current, completedNodeIds, lastNodeId: event.disposition.node_id, currentNodeId: current.currentNodeId === event.disposition.node_id ? undefined : current.currentNodeId }
+        const nodeState = nodeRunStateFromDisposition(event.disposition)
+        return { ...current, completedNodeIds, nodeStates: { ...current.nodeStates, [event.disposition.node_id]: nodeState }, lastNodeId: event.disposition.node_id, currentNodeId: current.currentNodeId === event.disposition.node_id ? undefined : current.currentNodeId }
       })
       if (event.type === 'run_terminal') {
         setRunProgress((current) => current?.runId === runId ? { ...current, status: event.status, currentNodeId: undefined } : current)
@@ -192,16 +224,65 @@ function App() {
       }
     }
     return () => socket.close()
-  }, [loadCompletedRun, runProgress?.eventCursor, runProgress?.projectId, runProgress?.runId])
+  }, [loadCompletedRun, runProgress?.eventCursor, runProgress?.projectId, runProgress?.runId, runProgress?.status])
 
-  useEffect(() => { void (async () => { const [catalogValue, capabilityValue, projects] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects()]); const example = projects.projects.find((item) => item.project_kind === 'default_example'); if (!example) throw new Error('Default example Project is absent'); const draftValue = await client.workflowDraft(example.id); const flow = flowFromDraft(draftValue); setCatalog(catalogValue); setCapabilities(capabilityValue); setProject(example); setDraft(draftValue); setNodes(flow.nodes); setEdges(flow.edges); if (example.latest_run_id) { const runValue = await client.runProjection(example.id, example.latest_run_id); if (runValue.status === 'succeeded') { const [typed, scoreValue] = await Promise.all([client.typedValue(example.id, example.latest_run_id, 'take-top-three', 'candidates'), client.typedValue(example.id, example.latest_run_id, 'scores-final', 'scores')]); setRun(runValue); setCandidates(decodeCandidates(typed.value)); setScores(decodeScores(scoreValue.value)) } } setSaveState('示例已加载') })() }, [])
+  useEffect(() => { void (async () => {
+    const [catalogValue, capabilityValue, projects] = await Promise.all([client.catalog(), client.authoringCapabilities(), client.projects()])
+    const example = projects.projects.find((item) => item.project_kind === 'default_example')
+    if (!example) throw new Error('Default example Project is absent')
+    const draftValue = await client.workflowDraft(example.id)
+    const flow = flowFromDraft(draftValue)
+    setCatalog(catalogValue)
+    setCapabilities(capabilityValue)
+    setProject(example)
+    setDraft(draftValue)
+    setNodes(flow.nodes)
+    setEdges(flow.edges)
+    if (example.latest_run_id) {
+      const runValue = await client.runProjection(example.id, example.latest_run_id)
+      activeRunKey.current = `${example.id}/${example.latest_run_id}`
+      setRunProgress({ status: runValue.status, totalNodes: draftValue.workflow.nodes.length, completedNodeIds: runValue.node_dispositions.map((disposition) => disposition.node_id), nodeStates: nodeStatesFromProjection(runValue, draftValue.workflow.nodes.map((node) => node.node_id)), projectId: example.id, runId: example.latest_run_id, workflowCommitId: runValue.workflow_commit_id, eventCursor: runValue.status === 'admitted' || runValue.status === 'running' ? '' : undefined, resultsReady: runValue.status === 'succeeded' })
+      if (runValue.status === 'succeeded') {
+        const [typed, scoreValue] = await Promise.all([client.typedValue(example.id, example.latest_run_id, 'take-top-three', 'candidates'), client.typedValue(example.id, example.latest_run_id, 'scores-final', 'scores')])
+        setRun(runValue)
+        setCandidates(decodeCandidates(typed.value))
+        setScores(decodeScores(scoreValue.value))
+      }
+    }
+    setSaveState('示例已加载')
+  })() }, [])
 
   const ensurePersonal = useCallback(async () => { if (!project || !draft) throw new Error('Project is not loaded'); if (project.project_kind === 'personal') return { project, draft }; if (!personalization.current) { setSaveState('正在创建个人副本…'); personalization.current = client.copyExample(project.id, `${project.name} · 我的副本`).then(async (copy) => { const copyDraft = await client.workflowDraft(copy.id); setProject(copy); setDraft(copyDraft); setSaveState('个人副本已保存'); return { project: copy, draft: copyDraft } }) } return personalization.current }, [project, draft])
-  const openProject = useCallback(async (selected: ProjectMetadata) => { activeRunKey.current = undefined; setRunProgress(undefined); setRun(undefined); setCandidates([]); setScores([]); const selectedDraft = await client.workflowDraft(selected.id); const flow = flowFromDraft(selectedDraft); setProject(selected); setDraft(selectedDraft); setNodes(flow.nodes); setEdges(flow.edges); setProjectsOpen(false); setSaveState('项目已打开'); if (selected.latest_run_id) { const selectedRun = await client.runProjection(selected.id, selected.latest_run_id); if (selectedRun.status === 'succeeded') { const [typed, scoreValue] = await Promise.all([client.typedValue(selected.id, selected.latest_run_id, 'take-top-three', 'candidates'), client.typedValue(selected.id, selected.latest_run_id, 'scores-final', 'scores')]); setRun(selectedRun); setCandidates(decodeCandidates(typed.value)); setScores(decodeScores(scoreValue.value)) } } }, [])
+  const openProject = useCallback(async (selected: ProjectMetadata) => {
+    activeRunKey.current = undefined
+    setRunProgress(undefined)
+    setRun(undefined)
+    setCandidates([])
+    setScores([])
+    const selectedDraft = await client.workflowDraft(selected.id)
+    const flow = flowFromDraft(selectedDraft)
+    setProject(selected)
+    setDraft(selectedDraft)
+    setNodes(flow.nodes)
+    setEdges(flow.edges)
+    setProjectsOpen(false)
+    setSaveState('项目已打开')
+    if (selected.latest_run_id) {
+      const selectedRun = await client.runProjection(selected.id, selected.latest_run_id)
+      activeRunKey.current = `${selected.id}/${selected.latest_run_id}`
+      setRunProgress({ status: selectedRun.status, totalNodes: selectedDraft.workflow.nodes.length, completedNodeIds: selectedRun.node_dispositions.map((disposition) => disposition.node_id), nodeStates: nodeStatesFromProjection(selectedRun, selectedDraft.workflow.nodes.map((node) => node.node_id)), projectId: selected.id, runId: selected.latest_run_id, workflowCommitId: selectedRun.workflow_commit_id, eventCursor: selectedRun.status === 'admitted' || selectedRun.status === 'running' ? '' : undefined, resultsReady: selectedRun.status === 'succeeded' })
+      if (selectedRun.status === 'succeeded') {
+        const [typed, scoreValue] = await Promise.all([client.typedValue(selected.id, selected.latest_run_id, 'take-top-three', 'candidates'), client.typedValue(selected.id, selected.latest_run_id, 'scores-final', 'scores')])
+        setRun(selectedRun)
+        setCandidates(decodeCandidates(typed.value))
+        setScores(decodeScores(scoreValue.value))
+      }
+    }
+  }, [])
   const saveParameter = useCallback(async (nodeId: string, key: string, raw: string) => { const personal = await ensurePersonal(); const source = personal.draft.workflow.nodes.find((item) => item.node_id === nodeId); if (!source) return; const current = source.node_parameters[key]; const value = typeof current === 'number' ? Number(raw) : typeof current === 'boolean' ? raw === 'true' : raw; const workflow = { ...personal.draft.workflow, nodes: personal.draft.workflow.nodes.map((item): WorkflowNode => item.node_id === nodeId ? { ...item, node_parameters: { ...item.node_parameters, [key]: value } } : item) }; setSaveState('自动保存中…'); const saved = await client.saveWorkflowDraft(personal.project.id, workflow); setDraft(saved); const flow = flowFromDraft(saved); setNodes(flow.nodes); setSaveState('已自动保存') }, [ensurePersonal])
   const undo = useCallback(() => { const previous = history.current.pop(); if (previous) { setNodes(previous.nodes); setEdges(previous.edges); setSaveState('已撤销画布修改') } }, [])
   const remember = useCallback(() => history.current.push({ nodes: structuredClone(nodes), edges: structuredClone(edges) }), [nodes, edges])
-  const displayed = useMemo(() => nodes.map((node) => ({ ...node, data: { ...node.data, onToggle: (id: string) => setNodes((current) => current.map((item) => item.id === id ? { ...item, data: { ...item.data, collapsed: !item.data.collapsed } } : item)), onEditPrompt: async () => { if (!project || !draft) return; const composition = draft.authoring_compositions[0]; setPrompt(await client.openPrompt(project.id, composition.composition_id)) }, onParameter: (id: string, key: string, value: string, commit: boolean) => { setNodes((current) => current.map((item) => item.id === id ? { ...item, data: { ...item.data, parameters: item.data.parameters.map((parameter) => parameter.key === key ? { ...parameter, value } : parameter) } } : item)); if (commit) void saveParameter(id, key, value) } } })), [nodes, project, draft, saveParameter])
+  const displayed = useMemo(() => nodes.map((node) => ({ ...node, data: { ...node.data, runState: aggregateNodeRunState(node.data.runMemberNodeIds, runProgress?.nodeStates), onToggle: (id: string) => setNodes((current) => current.map((item) => item.id === id ? { ...item, data: { ...item.data, collapsed: !item.data.collapsed } } : item)), onEditPrompt: async () => { if (!project || !draft) return; const composition = draft.authoring_compositions[0]; setPrompt(await client.openPrompt(project.id, composition.composition_id)) }, onParameter: (id: string, key: string, value: string, commit: boolean) => { setNodes((current) => current.map((item) => item.id === id ? { ...item, data: { ...item.data, parameters: item.data.parameters.map((parameter) => parameter.key === key ? { ...parameter, value } : parameter) } } : item)); if (commit) void saveParameter(id, key, value) } } })), [nodes, project, draft, runProgress?.nodeStates, saveParameter])
   const palette = useMemo(() => { if (!catalog || !capabilities) return []; const roles = capabilities.node_roles as Array<{ node_type: { contract_id: string }; role: string }>; const ordinary = new Set(roles.filter((item) => item.role === 'ordinary_node').map((item) => item.node_type.contract_id)); return catalog.contracts.filter((item) => item.reference.contract_kind === 'node_type' && ordinary.has(item.reference.contract_id)).map((item) => ({ id: item.reference.contract_id, title: String(item.descriptor.title), category: String(item.descriptor.category) })).filter((item) => `${item.title}${item.id}`.toLowerCase().includes(search.toLowerCase())).slice(0, 12) }, [catalog, capabilities, search])
   const progressNodeTitle = useMemo(() => {
     if (!runProgress?.currentNodeId || !draft || !catalog) return ''
@@ -219,7 +300,7 @@ function App() {
     <div className="workspace-shell"><aside className={`palette ${sidebarOpen ? '' : 'closed'}`}><header><div><span className="page-kicker">OPERATION PALETTE</span><h2>研究操作</h2></div><button className="icon-button" onClick={() => setSidebarOpen(false)}><PanelLeftClose size={16} /></button></header><div className="palette-search"><Search size={15} /><input placeholder="搜索 active Catalog…" value={search} onChange={(event) => setSearch(event.target.value)} /></div><div className="taxonomy-switch"><button className="active">按研究目的</button><button>按包 / 模型</button></div><div className="palette-section"><span className="section-label">ACTIVE CATALOG</span>{palette.map((item) => <button className="palette-item" key={item.id} draggable><span className="palette-icon"><Atom size={16} /></span><span><strong>{item.title}</strong><small>{item.category}</small></span><Plus size={14} /></button>)}</div><div className="catalog-status"><span className="status-light" /><div><strong>Active Catalog</strong><small>{catalog?.contracts.length} contracts</small></div><CircleHelp size={14} /></div></aside>
       <main className="flow-canvas">{!sidebarOpen && <button className="floating-open" onClick={() => setSidebarOpen(true)}><ChevronRight size={16} /></button>}<ReactFlow nodes={displayed} edges={edges} nodeTypes={{ workflow: WorkflowCard }} onNodesChange={(changes: NodeChange<FlowNode>[]) => { if (changes.some((change) => change.type === 'position' && change.dragging === false)) { remember(); void ensurePersonal(); setSaveState('画布位置已保存') } setNodes((current) => applyNodeChanges(changes, current)) }} onEdgesChange={(changes: EdgeChange<Edge>[]) => { if (changes.some((change) => change.type === 'remove')) { remember(); void ensurePersonal(); setSaveState('画布连接已修改') } setEdges((current) => applyEdgeChanges(changes, current)) }} onConnect={(connection: Connection) => { remember(); void ensurePersonal(); setSaveState('画布连接已修改'); setEdges((current) => addEdge({ ...connection, type: 'smoothstep' }, current)) }} onReconnectStart={() => { reconnectSucceeded.current = false }} onReconnect={(edge, connection) => { reconnectSucceeded.current = true; remember(); void ensurePersonal(); setSaveState('画布连接已修改'); setEdges((current) => reconnectEdge(edge, connection, current)) }} onReconnectEnd={(_, edge) => { if (!reconnectSucceeded.current) { remember(); void ensurePersonal(); setSaveState('画布连接已修改'); setEdges((current) => current.filter((item) => item.id !== edge.id)) } reconnectSucceeded.current = false }} fitView fitViewOptions={{ padding: 0.16 }} minZoom={0.28} maxZoom={1.5} deleteKeyCode={['Backspace', 'Delete']} selectionOnDrag><Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#39413b" /><MiniMap nodeColor={(node) => String(node.data.accent)} maskColor="rgba(14,16,14,.72)" /><Controls showInteractive={false} /><Panel position="top-left" className="canvas-heading"><span className="page-kicker">WORKFLOW DRAFT · 8 VISIBLE STEPS / {draft.workflow.nodes.length} MATERIALIZED NODES</span><h1>{project.name}</h1><p>A37–A41 sequence + coordinates redesign · 7 → 4 → 4 → 2 → 6 → 6 → 3</p></Panel><Panel position="top-right" className="canvas-tools"><button><Search size={14} /> 搜索画布</button><button><Layers3 size={14} /> 适合视图</button></Panel><Panel position="bottom-center" className="canvas-hint"><Zap size={13} /> 拖动端口以重新连接 · Delete 删除 · ⌘Z 撤销</Panel></ReactFlow></main>
       <aside className="run-peek"><header><div><span className="page-kicker">BUNDLED RESULT</span><h3>最近结果</h3></div><span className="success-dot"><Check size={11} /></span></header><div className="run-peek-visual"><StructureViewer pdb={candidates[0]?.pdb} /><span>{run?.run_id}</span></div><div className="run-funnel"><span>ESM-3<strong>7</strong></span><ChevronRight size={13} /><span>Fold<strong>4</strong></span><ChevronRight size={13} /><span>MPNN<strong>6</strong></span><ChevronRight size={13} /><span>Final<strong>{candidates.length}</strong></span></div>{project.copied_from_project_id && <div className="old-result-note"><Info size={14} /><span>来自修改前的流程</span></div>}<button className="view-results-button" disabled={!run || candidates.length === 0} onClick={() => setView('results')}><Activity size={14} /> 打开 Results Workbench <ChevronRight size={14} /></button></aside></div>
-    {runOpen && <RunDialog draft={draft} onClose={() => setRunOpen(false)} onStart={async () => { const personal = await ensurePersonal(); const commit = await client.commitWorkflow(personal.project.id, personal.draft.workflow); const receipt = await client.startRun(personal.project.id, commit.workflow_commit_id); activeRunKey.current = `${receipt.project_id}/${receipt.run_id}`; setRunProgress({ status: 'admitted', totalNodes: personal.draft.workflow.nodes.length, completedNodeIds: [], projectId: receipt.project_id, runId: receipt.run_id, workflowCommitId: receipt.workflow_commit_id, eventCursor: receipt.event_cursor, resultsReady: false }); setRunOpen(false) }} />}
+    {runOpen && <RunDialog draft={draft} onClose={() => setRunOpen(false)} onStart={async () => { const personal = await ensurePersonal(); const commit = await client.commitWorkflow(personal.project.id, personal.draft.workflow); const receipt = await client.startRun(personal.project.id, commit.workflow_commit_id); activeRunKey.current = `${receipt.project_id}/${receipt.run_id}`; setRunProgress({ status: 'admitted', totalNodes: personal.draft.workflow.nodes.length, completedNodeIds: [], nodeStates: Object.fromEntries(personal.draft.workflow.nodes.map((node) => [node.node_id, { status: 'waiting' as const }])), projectId: receipt.project_id, runId: receipt.run_id, workflowCommitId: receipt.workflow_commit_id, eventCursor: receipt.event_cursor, resultsReady: false }); setRunOpen(false) }} />}
     {projectsOpen && <ProjectDialog projects={projectChoices} query={projectQuery} onQuery={setProjectQuery} onSearch={async () => setProjectChoices((await client.projects(projectQuery)).projects)} onOpen={openProject} onCreate={async () => { activeRunKey.current = undefined; const created = await client.createProject(`Untitled Project ${new Date().toLocaleString()}`); const empty: Workflow = { schema_version: draft.workflow.schema_version, workflow_id: created.id, nodes: [], edges: [], observation_selectors: [], selection_objectives: [] }; const saved = await client.saveWorkflowDraft(created.id, empty); const flow = flowFromDraft(saved); setProject(created); setDraft(saved); setNodes(flow.nodes); setEdges(flow.edges); setRun(undefined); setRunProgress(undefined); setCandidates([]); setScores([]); setProjectsOpen(false); setSaveState('空白项目已创建') }} onClose={() => setProjectsOpen(false)} />}
   </div>
 }
