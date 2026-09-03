@@ -6,14 +6,12 @@ from collections.abc import Mapping
 from typing import Any
 
 from core.catalog.authoring import AuthoringCapabilityProjection
-from core.workflow.authoring import ManagedRoleEndpoint
 from datatypes.exact_reference import ExactContractReference
 from datatypes.i_json import thaw_i_json
 from modules.prompt_authoring.authoring import (
     PromptApplyResult,
     PromptAuthoringPreview,
     PromptAuthoringSnapshot,
-    PromptCompositionProjection,
 )
 from protein_workbench_public.workflow_codec import encode_workflow_draft
 
@@ -37,7 +35,7 @@ def encode_authoring_capability_projection(
         "capabilities": [
             {
                 "capability_id": capability.capability_id,
-                "role": "specialized_composition",
+                "role": "ordinary_node",
                 "title": capability.title,
                 "summary": capability.summary,
                 "category": capability.category,
@@ -67,10 +65,6 @@ def encode_authoring_capability_projection(
                     }
                     for endpoint in capability.exposed_outputs
                 ],
-                "managed_node_types": [
-                    _reference(reference)
-                    for reference in capability.managed_node_types
-                ],
             }
             for capability in projection.capabilities
         ],
@@ -85,26 +79,6 @@ def encode_authoring_capability_projection(
                 ),
             }
             for role in projection.node_roles
-        ],
-    }
-
-
-def _endpoint(endpoint: ManagedRoleEndpoint) -> dict[str, str]:
-    return endpoint.canonical_projection()
-
-
-def encode_composition_projection(
-    composition: PromptCompositionProjection,
-) -> dict[str, Any]:
-    return {
-        "composition_id": composition.composition_id,
-        "capability_id": composition.capability_id,
-        "managed_node_ids": list(composition.managed_node_ids),
-        "exposed_inputs": [
-            _endpoint(endpoint) for endpoint in composition.exposed_inputs
-        ],
-        "exposed_outputs": [
-            _endpoint(endpoint) for endpoint in composition.exposed_outputs
         ],
     }
 
@@ -157,9 +131,4 @@ def encode_prompt_preview(
 def encode_prompt_apply_result(result: PromptApplyResult) -> dict[str, Any]:
     return {
         "draft": encode_workflow_draft(result.draft),
-        "composition": (
-            None
-            if result.composition is None
-            else encode_composition_projection(result.composition)
-        ),
     }

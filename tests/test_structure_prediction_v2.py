@@ -71,7 +71,7 @@ def test_prediction_residue_axis_requires_exact_sequence_layout_identity() -> No
         data_type_id="protein.sequence",
         content_digest=_DIGEST,
     )
-    layout = ResidueLayout("A", 2, ("A:1", "A:2"))
+    layout = ResidueLayout(("A:1", "A:2"))
 
     axis = PredictionResidueAxis(
         source=source,
@@ -135,7 +135,7 @@ def test_confidence_fact_is_exactly_aligned_and_keeps_explicit_nulls() -> None:
             "protein.sequence",
             _DIGEST,
         ),
-        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
 
@@ -167,7 +167,7 @@ def test_confidence_fact_collection_has_one_method_and_canonical_unique_keys() -
             "protein.sequence",
             _DIGEST,
         ),
-        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
     first = ConfidenceFact(
@@ -203,7 +203,7 @@ def test_prediction_residue_axis_port_round_trips() -> None:
             "protein.sequence",
             _DIGEST,
         ),
-        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
 
@@ -222,7 +222,7 @@ def test_prediction_residue_axis_allows_exact_prompt_port_source() -> None:
     )
     axis = PredictionResidueAxis(
         source=prompt_source,
-        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
 
@@ -242,7 +242,7 @@ def test_prediction_residue_axis_rejects_wrong_source_port() -> None:
 
     axis = PredictionResidueAxis(
         source=wrong_source,
-        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
 
@@ -257,7 +257,7 @@ def test_confidence_facts_port_round_trips_and_projects_unique_axis_and_method()
             "protein.sequence",
             _DIGEST,
         ),
-        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
     first = ConfidenceFact(
@@ -330,7 +330,7 @@ def test_materializer_joins_exact_facts_and_preserves_method_axis_and_partition(
             "protein.sequence",
             _DIGEST,
         ),
-        layout=ResidueLayout("A", 2, ("A:1", "A:2")),
+        layout=ResidueLayout(("A:1", "A:2")),
         sequence=ProteinSequence("AC", ("A:1", "A:2")),
     )
     structure_digest = "sha256:" + "b" * 64
@@ -479,7 +479,7 @@ def test_materializer_rejects_metadata_or_key_that_contradicts_exact_slot_facts(
             "protein.sequence",
             _DIGEST,
         ),
-        layout=ResidueLayout("A", 1, ("A:1",)),
+        layout=ResidueLayout(("A:1",)),
         sequence=ProteinSequence("A", ("A:1",)),
     )
     structure_digest = "sha256:" + "b" * 64

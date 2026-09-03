@@ -248,7 +248,7 @@ def validate_proteinmpnn_constraints(
                     f"bias_by_residue {residue_id} targets globally "
                     f"omitted amino acid {amino_acid}"
                 )
-    known_chains = set(layout.chain_id.split(","))
+    known_chains = set(layout.chain_ids)
     requested_designed = set(designed_chains)
     requested_fixed = set(fixed_chains)
     unknown = sorted((requested_designed | requested_fixed) - known_chains)

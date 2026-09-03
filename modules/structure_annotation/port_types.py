@@ -1,204 +1,123 @@
-"""Nominal annotation Ports owned by structure annotation."""
+"""Nominal observation Port Types owned by structure annotation.
+
+Both surviving Ports carry one residue track observed for exactly one
+structure Candidate. The track owns its authoritative ResidueLayout; the
+subject CandidateDataReference is preserved for candidate-data projection.
+"""
+
+from __future__ import annotations
 
 from collections.abc import Mapping
 import math
 from typing import Any, cast
 
-from core.catalog.builtins import builtin_frozen_catalog
+from core.catalog import _port_value_codec as _value_codec
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
-    _candidate_data_reference_from_canonical,
-    _candidate_data_reference_to_canonical,
 )
 from datatypes.candidate import CandidateDataReference
 from datatypes.residue import (
-    ResidueLayout,
+    CandidateResidueTrack,
     ResidueTrack,
     validate_residue_layout,
 )
-
-from .domain import DSSPAnnotation, StructureAnnotationTrack
-
-
-_ANNOTATION_SECONDARY_SYMBOLS = frozenset("GHITEBSPC_")
-_SECONDARY_SYMBOLS = frozenset("GHITEBSC_")
-_BUILTINS = builtin_frozen_catalog()
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
-_TRACK_CODEC = _BUILTINS.require_port_type("residue.track")
-_ABSOLUTE_SASA_QUANTITY_CONTRACT = {
-    "quantity": "solvent_accessible_surface_area",
-    "measure": "absolute",
-    "unit": "angstrom_squared",
-    "granularity": "per_residue",
-    "normalization": "none",
-}
+from modules.residue_data.port_types import (
+    ABSOLUTE_SASA_QUANTITY_CONTRACT,
+    CANONICAL_SS8,
+)
 
 
-def _validate_layout(layout: object) -> ResidueLayout:
-    return validate_residue_layout(layout, subject="annotation layout")
+def _sasa_observed_from_wire(value: Any) -> Any:
+    """Decode one observed SASA port value, normalizing JSON ints to floats."""
+    track = _value_codec._wire_to_value(value)
+    if type(track) is CandidateResidueTrack and type(track.track) is ResidueTrack:
+        values = tuple(
+            float(item) if type(item) is int else item
+            for item in track.track.values
+        )
+        return CandidateResidueTrack(
+            track.subject,
+            ResidueTrack(track.track.layout, values),
+        )
+    return track
 
 
 def _validate_subject(subject: object) -> None:
     if type(subject) is not CandidateDataReference:
         raise ValueError(
-            "annotation subject must be a CandidateDataReference"
+            "observed annotation subject must be a CandidateDataReference"
         )
 
 
-def _validate_secondary(
-    values: object,
-    *,
-    length: int,
-    symbols: frozenset[str] = _SECONDARY_SYMBOLS,
-) -> None:
-    if (
-        not isinstance(values, tuple)
-        or len(values) != length
-        or any(
-            type(value) is not str or value not in symbols
-            for value in values
-        )
-    ):
+def _validate_observed_secondary(value: object) -> None:
+    if type(value) is not CandidateResidueTrack:
         raise ValueError(
-            "secondary-structure values use an unsupported alphabet"
+            "secondary-structure observed value must be a CandidateResidueTrack"
         )
+    _validate_subject(value.subject)
+    layout = validate_residue_layout(
+        value.track.layout,
+        subject="observed secondary-structure layout",
+    )
+    for index, item in enumerate(value.track.values):
+        if item is None:
+            continue
+        if type(item) is not str or item not in CANONICAL_SS8:
+            raise ValueError(
+                "secondary-structure observed values["
+                f"{index}] must be one canonical SS8 state"
+            )
 
 
-def _validate_sasa(values: object, *, length: int) -> None:
-    if not isinstance(values, tuple) or len(values) != length:
-        raise ValueError("SASA values must match the exact residue layout")
-    for value in values:
-        if value is None:
+def _validate_observed_sasa(value: object) -> None:
+    if type(value) is not CandidateResidueTrack:
+        raise ValueError(
+            "SASA observed value must be a CandidateResidueTrack"
+        )
+    _validate_subject(value.subject)
+    layout = validate_residue_layout(
+        value.track.layout,
+        subject="observed SASA layout",
+    )
+    for index, item in enumerate(value.track.values):
+        if item is None:
             continue
         if (
-            type(value) is not float
-            or not math.isfinite(value)
-            or value < 0
+            isinstance(item, bool)
+            or type(item) is not float
+            or not math.isfinite(item)
+            or item < 0
         ):
-            raise ValueError("SASA values must be nullable non-negative numbers")
+            raise ValueError(
+                "SASA observed values["
+                f"{index}] must be absolute non-negative square angstroms"
+            )
 
 
-def _validate_annotation(value: object) -> None:
-    if type(value) is not DSSPAnnotation:
-        raise ValueError("DSSP annotation has the wrong runtime type")
-    _validate_subject(value.subject)
-    layout = _validate_layout(value.layout)
-    _validate_secondary(
-        value.secondary_structure,
-        length=layout.length,
-        symbols=_ANNOTATION_SECONDARY_SYMBOLS,
-    )
-    _validate_sasa(value.sasa, length=layout.length)
+def _candidate_data_references(
+    value: object,
+    _port_types: object,
+) -> tuple[CandidateDataReference, ...]:
+    return (cast(Any, value).subject,)
 
 
-def _annotation_to_wire(value: DSSPAnnotation) -> object:
-    return {
-        "subject": _candidate_data_reference_to_canonical(value.subject),
-        "layout": _LAYOUT_CODEC.to_wire(value.layout),
-        "secondary_structure": list(value.secondary_structure),
-        "sasa": list(value.sasa),
-    }
-
-
-def _annotation_from_wire(value: object) -> object:
-    if (
-        not isinstance(value, dict)
-        or set(value)
-        != {"subject", "layout", "secondary_structure", "sasa"}
-        or not isinstance(value["secondary_structure"], list)
-        or not isinstance(value["sasa"], list)
-    ):
-        raise ValueError("DSSP annotation wire value is not closed")
-    layout = _LAYOUT_CODEC.from_wire(value["layout"])
-    return DSSPAnnotation(
-        subject=_candidate_data_reference_from_canonical(value["subject"]),
-        layout=layout,
-        secondary_structure=tuple(value["secondary_structure"]),
-        sasa=tuple(
-            float(item) if type(item) is int else item
-            for item in value["sasa"]
-        ),
-    )
-
-
-def _validate_secondary_track(value: object) -> None:
-    if type(value) is not StructureAnnotationTrack:
-        raise ValueError("secondary-structure track has the wrong runtime type")
-    _validate_subject(value.subject)
-    layout = _validate_layout(value.layout)
-    _validate_secondary(value.values, length=layout.length)
-
-
-def _validate_sasa_track(value: object) -> None:
-    if type(value) is not StructureAnnotationTrack:
-        raise ValueError("SASA track has the wrong runtime type")
-    _validate_subject(value.subject)
-    layout = _validate_layout(value.layout)
-    _validate_sasa(value.values, length=layout.length)
-
-
-def _track_to_wire(value: StructureAnnotationTrack) -> object:
-    return {
-        "subject": _candidate_data_reference_to_canonical(value.subject),
-        "layout": _LAYOUT_CODEC.to_wire(value.layout),
-        "track": _TRACK_CODEC.to_wire(
-            ResidueTrack(list(value.values), None),
-        ),
-    }
-
-
-def _track_from_wire(value: object, *, sasa: bool = False) -> object:
-    if (
-        not isinstance(value, dict)
-        or set(value) != {"subject", "layout", "track"}
-    ):
-        raise ValueError("annotation track wire value is not closed")
-    track = _TRACK_CODEC.from_wire(value["track"])
-    values = tuple(track.values)
-    if sasa:
-        values = tuple(
-            float(item) if type(item) is int else item for item in values
-        )
-    return StructureAnnotationTrack(
-        subject=_candidate_data_reference_from_canonical(value["subject"]),
-        layout=_LAYOUT_CODEC.from_wire(value["layout"]),
-        values=values,
-    )
-
-
-def _sasa_track_from_wire(value: object) -> object:
-    return _track_from_wire(value, sasa=True)
-
-
-def _port_type(
+def _observed_port_type(
     *,
     type_id: str,
-    kind: str,
     validator: Any,
-    to_wire: Any,
-    from_wire: Any,
     quantity_contract: Mapping[str, str] | None = None,
+    from_wire: Any = None,
 ) -> PortTypeDefinition:
-    def candidate_data_references(
-        value: object,
-        _candidate_data_port_types: object,
-    ) -> tuple[CandidateDataReference, ...]:
-        return (cast(Any, value).subject,)
-
     return PortTypeDefinition(
         type_id=type_id,
         validator=BehaviorReference(
             f"{type_id}/validate",
             {
-                "accepted_value_kind": kind,
+                "accepted_value_kind": "candidate_residue_track",
                 "subject_reference_required": True,
                 "layout_identity_required": True,
-                "nullable_semantics": (
-                    "underscore_absent"
-                    if kind == "secondary_structure_track"
-                    else "JSON null means unavailable"
-                ),
+                "nullable_semantics": "JSON null means unavailable",
                 **(
                     {"quantity_contract": quantity_contract}
                     if quantity_contract is not None
@@ -207,10 +126,10 @@ def _port_type(
             },
         ),
         codec=BehaviorReference(
-            f"{type_id}/codec",
+            f"{type_id}/canonical-json-codec",
             {
                 "canonicalization": "RFC 8785",
-                "embedded_layout_contract": "residue.layout",
+                "embedded_layout_contract": "residue_layout",
                 "subject_wire": (
                     "exact CandidateDataReference candidate_id, "
                     "data_type_id, content_digest"
@@ -225,37 +144,29 @@ def _port_type(
             },
         ),
         runtime_validator=validator,
-        runtime_to_wire=to_wire,
-        runtime_from_wire=from_wire,
+        runtime_to_wire=_value_codec._value_to_wire,
+        runtime_from_wire=(
+            from_wire
+            if from_wire is not None
+            else _value_codec._wire_to_value
+        ),
         candidate_data_projection=BehaviorReference(
             f"{type_id}/candidate_data_projection",
             {"fields": ["subject"]},
         ),
-        runtime_candidate_data_projection=candidate_data_references,
+        runtime_candidate_data_projection=_candidate_data_references,
     )
 
 
 STRUCTURE_ANNOTATION_PORT_TYPES = (
-    _port_type(
-        type_id="structure_annotation.dssp_annotations",
-        kind="dssp_annotation",
-        validator=_validate_annotation,
-        to_wire=_annotation_to_wire,
-        from_wire=_annotation_from_wire,
+    _observed_port_type(
+        type_id="structure_annotation.secondary_structure.observed",
+        validator=_validate_observed_secondary,
     ),
-    _port_type(
-        type_id="structure_annotation.secondary_structure_track",
-        kind="secondary_structure_track",
-        validator=_validate_secondary_track,
-        to_wire=_track_to_wire,
-        from_wire=_track_from_wire,
-    ),
-    _port_type(
-        type_id="structure_annotation.sasa_track",
-        kind="sasa_track",
-        validator=_validate_sasa_track,
-        to_wire=_track_to_wire,
-        from_wire=_sasa_track_from_wire,
-        quantity_contract=_ABSOLUTE_SASA_QUANTITY_CONTRACT,
+    _observed_port_type(
+        type_id="structure_annotation.sasa.observed",
+        validator=_validate_observed_sasa,
+        quantity_contract=ABSOLUTE_SASA_QUANTITY_CONTRACT,
+        from_wire=_sasa_observed_from_wire,
     ),
 )

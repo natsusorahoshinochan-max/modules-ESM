@@ -34,15 +34,23 @@ from datatypes.observation import (
     ScoreCollection,
     ScoreObservation,
 )
+from datatypes.prompt import (
+    FunctionAnnotation,
+    FunctionAnnotationTrack,
+    ProteinPrompt,
+)
 from datatypes.residue import (
+    CandidateResidueTrack,
     ResidueLayout,
-    ResidueMap,
     ResidueTrack,
     validate_residue_layout,
-    validate_residue_map,
 )
 from datatypes.sequence import ProteinSequence, validate_protein_sequence
-from datatypes.structure import ProteinStructure, validate_protein_structure
+from datatypes.structure import (
+    NamedAtomCoordinates,
+    ProteinStructure,
+    validate_protein_structure,
+)
 
 
 def _validate_runtime_identifier(value: object, *, path: str) -> None:
@@ -59,18 +67,22 @@ _DATACLASS_BY_TAG = {
     "candidate": Candidate,
     "candidate_collection": CandidateCollection,
     "candidate_data_reference": CandidateDataReference,
+    "candidate_residue_track": CandidateResidueTrack,
     "exact_contract_reference": ExactContractReference,
     "exact_port_value_reference": ExactPortValueReference,
+    "function_annotation": FunctionAnnotation,
+    "function_annotation_track": FunctionAnnotationTrack,
     "intrinsic_observation_context": IntrinsicObservationContext,
     "candidate_relation": CandidateRelation,
     "candidate_relation_entry": CandidateRelationEntry,
+    "named_atom_coordinates": NamedAtomCoordinates,
     "pairwise_observation_context": PairwiseObservationContext,
     "pairwise_participant": PairwiseParticipant,
+    "protein_prompt": ProteinPrompt,
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
     "residue_layout": ResidueLayout,
     "residue_axis_reference": ResidueAxisReference,
-    "residue_map": ResidueMap,
     "residue_track": ResidueTrack,
     "score_collection": ScoreCollection,
     "score_observation": ScoreObservation,
@@ -84,10 +96,6 @@ _VALUE_TYPE_BY_KIND = {
     "protein_sequence": ProteinSequence,
     "protein_structure": ProteinStructure,
     "residue_layout": ResidueLayout,
-    "residue_map": ResidueMap,
-    "residue_track": ResidueTrack,
-    "sasa_residue_track": ResidueTrack,
-    "secondary_structure_residue_track": ResidueTrack,
     "score_collection": ScoreCollection,
     "text": str,
 }
@@ -115,13 +123,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
     if type(value) is ResidueLayout:
         try:
             validate_residue_layout(value, subject=path)
-        except (TypeError, ValueError) as error:
-            raise _errors.PortValueError(str(error)) from error
-        return
-
-    if type(value) is ResidueMap:
-        try:
-            validate_residue_map(value, subject=path)
         except (TypeError, ValueError) as error:
             raise _errors.PortValueError(str(error)) from error
         return
@@ -298,32 +299,6 @@ def _validate_domain_value(value: Any, *, path: str) -> None:
 
 def _validate_builtin_semantics(value_kind: str, value: Any) -> None:
     _validate_domain_value(value, path="$.value")
-
-    if value_kind == "sasa_residue_track":
-        for index, item in enumerate(value.values):
-            if item is value.sentinel:
-                continue
-            if isinstance(item, bool) or not isinstance(item, (int, float)):
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be numeric or the sentinel"
-                )
-            if item < 0:
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be non-negative"
-                )
-
-    if value_kind == "secondary_structure_residue_track":
-        for index, item in enumerate(value.values):
-            if item is value.sentinel:
-                continue
-            if type(item) is not str:
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be text or the sentinel"
-                )
-            if len(item) != 1:
-                raise _errors.PortValueError(
-                    f"$.value.values[{index}] must be one canonical code"
-                )
 
 
 def _value_to_wire(value: Any) -> Any:

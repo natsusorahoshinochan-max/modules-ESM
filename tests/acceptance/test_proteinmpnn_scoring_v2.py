@@ -90,7 +90,7 @@ def _run(
         run_root=tmp_path / "runs",
     )
     project = projects.create("ProteinMPNN v2 real-model gate")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(

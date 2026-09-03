@@ -277,7 +277,7 @@ def _verify_case(
             payload,
             filename=reference,
         )
-    authoring = WorkflowAuthoringService(project_manager, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(project_manager, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

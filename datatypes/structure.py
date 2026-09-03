@@ -2,11 +2,75 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import isfinite
 import re
 
 from datatypes.residue import ModifiedResidueNormalizationCollection, ResidueLayout
+
+
+@dataclass(frozen=True, slots=True)
+class NamedAtomCoordinates:
+    """Provider-independent named-atom coordinates for one residue.
+
+    Atoms are stored as an ordered tuple of ``(atom_name, (x, y, z))``
+    entries in canonical atom-name order. The carrier is provider
+    independent: it never restricts atoms to one provider vocabulary.
+    """
+
+    atoms: tuple[tuple[str, tuple[float, float, float]], ...]
+
+    def __post_init__(self) -> None:
+        atoms = tuple(self.atoms)
+        normalized: list[tuple[str, tuple[float, float, float]]] = []
+        names: set[str] = set()
+        for atom_name, coordinate in atoms:
+            if (
+                type(atom_name) is not str
+                or not atom_name
+                or atom_name in names
+            ):
+                raise ValueError(
+                    "NamedAtomCoordinates atom names must be unique text"
+                )
+            if (
+                type(coordinate) not in (tuple, list)
+                or len(coordinate) != 3
+                or any(
+                    isinstance(item, bool)
+                    or not isinstance(item, (int, float))
+                    or not isfinite(item)
+                    for item in coordinate
+                )
+            ):
+                raise ValueError(
+                    "NamedAtomCoordinates coordinate must be one finite "
+                    "Cartesian 3-vector"
+                )
+            names.add(atom_name)
+            normalized.append(
+                (atom_name, tuple(float(item) for item in coordinate))
+            )
+        normalized.sort(key=lambda item: item[0])
+        object.__setattr__(self, "atoms", tuple(normalized))
+
+    @property
+    def atom_names(self) -> tuple[str, ...]:
+        return tuple(atom_name for atom_name, _ in self.atoms)
+
+    def coordinate_for(self, atom_name: str) -> tuple[float, float, float]:
+        for name, coordinate in self.atoms:
+            if name == atom_name:
+                return coordinate
+        raise KeyError(f"no named atom {atom_name}")
+
+    @classmethod
+    def from_mapping(
+        cls,
+        mapping: Mapping[str, tuple[float, float, float]],
+    ) -> NamedAtomCoordinates:
+        return cls(tuple(mapping.items()))
 
 
 _PDB_RECORD_NAMES = frozenset({

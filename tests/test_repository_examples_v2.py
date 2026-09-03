@@ -33,6 +33,9 @@ from examples.v2_suite import (
 from modules.prompt_authoring.package import (
     MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
 )
+from modules.residue_data.package import (
+    MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+)
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from modules.structure_comparison.package import (
     MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
@@ -282,7 +285,7 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
 def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
     catalog = build_frozen_catalog(
         (
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
             PROMPT_AUTHORING_SOURCE_PACKAGE,
         )
@@ -299,8 +302,8 @@ def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
         for node in workflow.nodes
         if node.binding_id.startswith("prompt_authoring.")
     } == {
-        "prompt_authoring.edit_protein_prompt_layout.direct",
-        "prompt_authoring.override_protein_prompt_track.direct",
+        "prompt_authoring.author.direct",
+        "prompt_authoring.author.direct",
     }
 
 

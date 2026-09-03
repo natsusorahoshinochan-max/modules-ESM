@@ -1,0 +1,12 @@
+- method_id: residue_data.materialize_sequence.method
+  algorithm_identity:
+    name: identity-sequence-projection
+    input_contract: complete-single-chain-residue.condition.sequence
+    residue_identity_policy: preserve-exact-input-identities
+    candidate_lineage: root-candidate
+  model_identity:
+    kind: none
+  featurization_identity:
+    kind: identity
+  scale_contract:
+    kind: identity

@@ -45,7 +45,12 @@ class AuthoringRoleEndpoint:
 
 @dataclass(frozen=True, slots=True)
 class AuthoringCapabilityDefinition:
-    """One Module Package contribution to the authoring projection."""
+    """One Module Package contribution to the authoring projection.
+
+    Authoring capabilities are plain editor descriptors over one ordinary
+    Node Type. The managed-subgraph / specialized-composition machinery was
+    removed (see the 2026-09-02 clean refactor spec §12.3).
+    """
 
     capability_id: str
     title: str
@@ -55,16 +60,12 @@ class AuthoringCapabilityDefinition:
     source_kinds: tuple[AuthoringSourceKind, ...]
     exposed_inputs: tuple[AuthoringRoleEndpoint, ...]
     exposed_outputs: tuple[AuthoringRoleEndpoint, ...]
-    managed_node_types: tuple[ExactContractReference, ...]
-    materialized_node_types: tuple[ExactContractReference, ...]
 
     def __post_init__(self) -> None:
         for field_name in (
             "source_kinds",
             "exposed_inputs",
             "exposed_outputs",
-            "managed_node_types",
-            "materialized_node_types",
         ):
             object.__setattr__(
                 self,
@@ -138,10 +139,13 @@ def build_authoring_capability_projection(
     registrations: Sequence[object],
     catalog: FrozenCatalog,
 ) -> AuthoringCapabilityProjection:
-    """Admit authoring-owned relationships once against one Catalog."""
+    """Admit plain authoring capability descriptors once against one Catalog.
+
+    The managed-subgraph specialization was removed; every contributed Node
+    Type is now an ordinary authoring node.
+    """
     capabilities: list[AuthoringCapabilityDefinition] = []
     capability_ids: set[str] = set()
-    managed_by_node_type: dict[str, str] = {}
     for registration in registrations:
         for capability in registration.authoring_capabilities:
             if capability.capability_id in capability_ids:
@@ -150,36 +154,6 @@ def build_authoring_capability_projection(
                     f"{capability.capability_id}"
                 )
             capability_ids.add(capability.capability_id)
-            allowed = {
-                reference.contract_id
-                for reference in capability.materialized_node_types
-            }
-            for reference in capability.materialized_node_types:
-                _require_exact_reference(
-                    catalog,
-                    reference,
-                    contract_kind="node_type",
-                )
-            for reference in capability.managed_node_types:
-                _require_exact_reference(
-                    catalog,
-                    reference,
-                    contract_kind="node_type",
-                )
-                if reference.contract_id not in allowed:
-                    raise CatalogBuildError(
-                        f"managed Node Type {reference.contract_id} is not "
-                        "allowed by its Authoring Capability"
-                    )
-                previous = managed_by_node_type.get(reference.contract_id)
-                if previous is not None:
-                    raise CatalogBuildError(
-                        f"managed Node Type {reference.contract_id} belongs "
-                        f"to both {previous} and {capability.capability_id}"
-                    )
-                managed_by_node_type[reference.contract_id] = (
-                    capability.capability_id
-                )
             for source in capability.source_kinds:
                 for reference in source.accepted_port_types:
                     _require_exact_reference(
@@ -201,12 +175,8 @@ def build_authoring_capability_projection(
     node_roles = tuple(
         AuthoringNodeProjection(
             node_type=ExactContractReference("node_type", contract.contract_id),
-            role=(
-                "managed_member"
-                if contract.contract_id in managed_by_node_type
-                else "ordinary_node"
-            ),
-            capability_id=managed_by_node_type.get(contract.contract_id),
+            role="ordinary_node",
+            capability_id=None,
         )
         for contract in catalog.contracts
         if contract.contract_kind == "node_type"

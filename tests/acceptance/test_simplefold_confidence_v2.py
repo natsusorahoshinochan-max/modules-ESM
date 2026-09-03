@@ -96,7 +96,7 @@ def test_simplefold_confidence_v2_evaluates_3gb1_exact_assets_without_refold(
         run_root=tmp_path / "runs",
     )
     project = projects.create("SimpleFold confidence v2 3GB1")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

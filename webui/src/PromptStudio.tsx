@@ -1,25 +1,25 @@
 import { useCallback, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { Check, ChevronLeft, Eye, EyeOff, Info, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react'
-import type { JsonObject, PromptDiagnostic, PromptFunctionAnnotation, PromptPreview, PromptSnapshot, PromptTrackValue } from './protocol/client'
+import type { JsonObject, PromptAuthoringDocument, PromptDiagnostic, PromptDocumentFunctionAnnotation, PromptFunctionAnnotation, PromptPreview, PromptSnapshot, PromptTrackEdit, PromptTrackKey, PromptTrackValue } from './protocol/client'
 import { StructureViewer } from './StructureViewer'
 import './prompt-studio.css'
 
-type ScalarTrack = 'sequence' | 'structure' | 'secondary_structure' | 'sasa'
+type ScalarTrack = 'sequence' | 'coordinates' | 'secondary_structure' | 'sasa'
 type Track = ScalarTrack | 'function'
-type TrackAction = 'preserve' | 'mask' | 'specify'
+type TrackAction = 'preserve' | 'clear' | 'replace'
 type Projection = Pick<PromptSnapshot, 'residues' | 'tracks' | 'function_annotations'>
 type LocalPreview = { title: string; preview: PromptPreview; insertedHandles: string[]; insertAnchor?: string }
-type UndoEntry = { document: JsonObject; projection: Projection; selection: string[]; anchor: string; focus: { handle: string; track: Track }; axisOrder: string[] }
+type UndoEntry = { document: PromptAuthoringDocument; projection: Projection; selection: string[]; anchor: string; focus: { handle: string; track: Track }; axisOrder: string[] }
 type PromptStudioProps = {
   snapshot: PromptSnapshot
   onCancel: () => void
-  onPreview: (document: JsonObject) => Promise<PromptPreview>
+  onPreview: (document: PromptAuthoringDocument) => Promise<PromptPreview>
   onApply: (preview: PromptPreview) => Promise<void>
 }
 
 const trackRows: Array<{ key: Track; label: string; unit: string }> = [
   { key: 'sequence', label: 'Sequence', unit: 'amino acid' },
-  { key: 'structure', label: 'Coordinates', unit: 'named atoms' },
+  { key: 'coordinates', label: 'Coordinates', unit: 'named atoms' },
   { key: 'secondary_structure', label: 'Secondary structure', unit: 'SS8' },
   { key: 'sasa', label: 'SASA', unit: 'Å²' },
   { key: 'function', label: 'Function annotations', unit: 'tuple interval' },
@@ -30,9 +30,9 @@ const ss8Codes = new Set('HBEGITS-'.split(''))
 const states = ['source', 'current', 'changed', 'cleared', 'inserted', 'pending-delete'] as const
 const residueNames: Record<string, string> = { A: 'ALA', C: 'CYS', D: 'ASP', E: 'GLU', F: 'PHE', G: 'GLY', H: 'HIS', I: 'ILE', K: 'LYS', L: 'LEU', M: 'MET', N: 'ASN', P: 'PRO', Q: 'GLN', R: 'ARG', S: 'SER', T: 'THR', V: 'VAL', W: 'TRP', Y: 'TYR' }
 
-function intents(document: JsonObject) { return document.track_intents as JsonObject[] }
-function targets(document: JsonObject) { return document.target_residues as JsonObject[] }
-function annotations(document: JsonObject) { return document.function_annotations as JsonObject[] }
+function trackEdits(document: PromptAuthoringDocument) { return document.track_edits ?? [] }
+function targets(document: PromptAuthoringDocument) { return document.target_residues ?? [] }
+function annotations(document: PromptAuthoringDocument) { return document.function_annotations ?? [] }
 
 function extendAxisOrder(base: string[], targetOrder: string[]) {
   const result = [...base]
@@ -49,10 +49,10 @@ function extendAxisOrder(base: string[], targetOrder: string[]) {
   return result
 }
 
-function removeOneAnnotation(document: JsonObject, annotation: PromptFunctionAnnotation) {
+function removeOneAnnotation(document: PromptAuthoringDocument, annotation: PromptDocumentFunctionAnnotation) {
   let removed = false
   return annotations(document).filter((item) => {
-    if (!removed && item.label === annotation.label && item.start_residue_handle === annotation.start_residue_handle && item.end_residue_handle === annotation.end_residue_handle) {
+    if (!removed && item.label === annotation.label && item.start_residue_id === annotation.start_residue_id && item.end_residue_id === annotation.end_residue_id) {
       removed = true
       return false
     }
@@ -62,22 +62,22 @@ function removeOneAnnotation(document: JsonObject, annotation: PromptFunctionAnn
 
 function displayValue(track: ScalarTrack, item: PromptTrackValue) {
   if (item.value == null) return 'Mask'
-  if (track === 'structure') return `${(item.value as { atoms: unknown[] }).atoms.length} atoms`
+  if (track === 'coordinates') return `${(item.value as { atoms: unknown[] }).atoms.length} atoms`
   return String(item.value)
 }
 
 function selectionText(handles: string[], projection: Projection, locators: Map<string, string>) {
-  const selected = projection.residues.filter((residue) => handles.includes(residue.residue_handle) && residue.position > 0)
+  const selected = projection.residues.filter((residue) => handles.includes(residue.residue_id) && residue.position > 0)
   if (!selected.length) return '未选择残基'
-  const labels = selected.map((residue) => locators.get(residue.residue_handle)!)
+  const labels = selected.map((residue) => locators.get(residue.residue_id)!)
   if (labels.length <= 6) return labels.join(' + ')
   return `${labels[0]}–${labels.at(-1)} · ${labels.length} residues`
 }
 
-function trackDocument(document: JsonObject, selected: string[], track: ScalarTrack, action: TrackAction, value?: string | number) {
-  const retained = intents(document).filter((intent) => String(intent.track) !== track || !selected.includes(String(intent.residue_handle)))
-  const additions = selected.map((residue_handle) => ({ track, residue_handle, action, ...(action === 'specify' ? { value } : {}) }))
-  return { ...document, track_intents: [...retained, ...additions] }
+function trackDocument(document: PromptAuthoringDocument, selected: string[], track: PromptTrackKey, action: TrackAction, value?: string | number) {
+  const retained = trackEdits(document).filter((edit) => edit.track !== track || !selected.includes(edit.residue_id))
+  const additions = selected.map((residue_id) => ({ track, residue_id, action, ...(action === 'replace' ? { value } : {}) }) as PromptTrackEdit)
+  return { ...document, track_edits: [...retained, ...additions] }
 }
 
 function diagnosticsHaveError(preview: PromptPreview) {
@@ -85,32 +85,32 @@ function diagnosticsHaveError(preview: PromptPreview) {
 }
 
 function diagnosticText(diagnostic: PromptDiagnostic, locators: Map<string, string>) {
-  return `${diagnostic.residue_handle ? `${locators.get(diagnostic.residue_handle)} · ` : ''}${String(diagnostic.message)}`
+  return `${diagnostic.residue_id ? `${locators.get(diagnostic.residue_id)} · ` : ''}${String(diagnostic.message)}`
 }
 
 function previewChangeText(change: JsonObject, before: Projection, after: PromptPreview, locators: Map<string, string>) {
   if (change.kind === 'layout') return `Ordered residues · ${String(change.source_length)} → ${String(change.target_length)} · +${String(change.inserted_count)} / −${String(change.deleted_count)}`
   const track = String(change.track) as ScalarTrack
-  const handle = String(change.residue_handle)
-  const previous = before.tracks[track].find((item) => item.residue_handle === handle)
-  const next = after.tracks[track].find((item) => item.residue_handle === handle)!
+  const handle = String(change.residue_id)
+  const previous = before.tracks[track]?.find((item) => item.residue_id === handle)
+  const next = after.tracks[track]?.find((item) => item.residue_id === handle)!
   return `${locators.get(handle)} · ${track} · ${previous ? displayValue(track, previous) : 'not present'} → ${displayValue(track, next)} · ${String(change.action)}`
 }
 
 export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptStudioProps) {
-  const initialTargetHandles = new Set(targets(snapshot.document).map((item) => String(item.residue_handle)))
-  const initiallyEdited = snapshot.residues.filter((residue) => initialTargetHandles.has(residue.residue_handle) && scalarTracks.some(({ key }) => {
-    const item = snapshot.tracks[key].find((value) => value.residue_handle === residue.residue_handle)
+  const initialTargetHandles = new Set(targets(snapshot.document).map((item) => String(item.residue_id)))
+  const initiallyEdited = snapshot.residues.filter((residue) => initialTargetHandles.has(residue.residue_id) && scalarTracks.some(({ key }) => {
+    const item = snapshot.tracks[key].find((value) => value.residue_id === residue.residue_id)
     return item && !['source', 'current'].includes(item.state)
-  })).map((residue) => residue.residue_handle)
-  const [document, setDocument] = useState(snapshot.document)
+  })).map((residue) => residue.residue_id)
+  const [document, setDocument] = useState<PromptAuthoringDocument>(snapshot.document)
   const [committedProjection, setCommittedProjection] = useState<Projection>(snapshot)
-  const [axisOrder, setAxisOrder] = useState(snapshot.residues.map((item, index) => ({ handle: item.residue_handle, chain: item.chain_id, position: item.position, index })).sort((left, right) => left.chain.localeCompare(right.chain) || left.position - right.position || left.index - right.index).map((item) => item.handle))
+  const [axisOrder, setAxisOrder] = useState(snapshot.residues.map((item, index) => ({ handle: item.residue_id, chain: item.chain_id, position: item.position, index })).sort((left, right) => left.chain.localeCompare(right.chain) || left.position - right.position || left.index - right.index).map((item) => item.handle))
   const [localPreview, setLocalPreview] = useState<LocalPreview>()
   const [savePreview, setSavePreview] = useState<PromptPreview>()
   const [selection, setSelection] = useState<string[]>(initiallyEdited)
-  const [anchor, setAnchor] = useState(initiallyEdited[0] ?? snapshot.residues[0].residue_handle)
-  const [focus, setFocus] = useState<{ handle: string; track: Track }>({ handle: initiallyEdited[0] ?? snapshot.residues[0].residue_handle, track: 'sequence' })
+  const [anchor, setAnchor] = useState(initiallyEdited[0] ?? snapshot.residues[0].residue_id)
+  const [focus, setFocus] = useState<{ handle: string; track: Track }>({ handle: initiallyEdited[0] ?? snapshot.residues[0].residue_id, track: 'sequence' })
   const [activeTrack, setActiveTrack] = useState<Track>('sequence')
   const [mode, setMode] = useState<'layout' | 'condition' | 'structure'>('condition')
   const [hiddenTracks, setHiddenTracks] = useState<Set<Track>>(new Set())
@@ -129,79 +129,79 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
   const previewRequest = useRef(0)
 
   const projection: Projection = localPreview?.preview ?? committedProjection
-  const committedHandles = useMemo(() => new Set(targets(document).map((item) => String(item.residue_handle))), [document])
+  const committedHandles = useMemo(() => new Set(targets(document).map((item) => String(item.residue_id))), [document])
   const visibleDocument = localPreview?.preview.normalized_document ?? document
-  const currentHandles = useMemo(() => new Set(targets(visibleDocument).map((item) => String(item.residue_handle))), [visibleDocument])
-  const visibleAxisOrder = useMemo(() => extendAxisOrder(axisOrder, targets(visibleDocument).map((item) => String(item.residue_handle))), [axisOrder, visibleDocument])
-  const orderedResidues = useMemo(() => [...projection.residues].sort((left, right) => visibleAxisOrder.indexOf(left.residue_handle) - visibleAxisOrder.indexOf(right.residue_handle)), [projection.residues, visibleAxisOrder])
-  const committedOrderedResidues = useMemo(() => [...committedProjection.residues].sort((left, right) => axisOrder.indexOf(left.residue_handle) - axisOrder.indexOf(right.residue_handle)), [axisOrder, committedProjection.residues])
+  const currentHandles = useMemo(() => new Set(targets(visibleDocument).map((item) => String(item.residue_id))), [visibleDocument])
+  const visibleAxisOrder = useMemo(() => extendAxisOrder(axisOrder, targets(visibleDocument).map((item) => String(item.residue_id))), [axisOrder, visibleDocument])
+  const orderedResidues = useMemo(() => [...projection.residues].sort((left, right) => visibleAxisOrder.indexOf(left.residue_id) - visibleAxisOrder.indexOf(right.residue_id)), [projection.residues, visibleAxisOrder])
+  const committedOrderedResidues = useMemo(() => [...committedProjection.residues].sort((left, right) => axisOrder.indexOf(left.residue_id) - axisOrder.indexOf(right.residue_id)), [axisOrder, committedProjection.residues])
   const displayLocators = useMemo(() => {
-    const origin = new Map(targets(visibleDocument).map((item) => [String(item.residue_handle), String(item.origin)]))
+    const origin = new Map(targets(visibleDocument).map((item) => [String(item.residue_id), String(item.origin)]))
     const lastSource = new Map<string, string>()
     const insertCounts = new Map<string, number>()
     const locators = new Map<string, string>()
     for (const residue of orderedResidues) {
-      if (!currentHandles.has(residue.residue_handle) || origin.get(residue.residue_handle) !== 'insert') {
-        locators.set(residue.residue_handle, `${residue.chain_id}${residue.residue_label}`)
-        if (currentHandles.has(residue.residue_handle)) { lastSource.set(residue.chain_id, residue.residue_label); insertCounts.set(residue.chain_id, 0) }
+      if (!currentHandles.has(residue.residue_id) || origin.get(residue.residue_id) !== 'insert') {
+        locators.set(residue.residue_id, `${residue.chain_id}${residue.residue_label}`)
+        if (currentHandles.has(residue.residue_id)) { lastSource.set(residue.chain_id, residue.residue_label); insertCounts.set(residue.chain_id, 0) }
         continue
       }
       const count = (insertCounts.get(residue.chain_id) ?? 0) + 1
       insertCounts.set(residue.chain_id, count)
-      locators.set(residue.residue_handle, `${residue.chain_id}${lastSource.get(residue.chain_id) ?? 'N-term'}+${count}`)
+      locators.set(residue.residue_id, `${residue.chain_id}${lastSource.get(residue.chain_id) ?? 'N-term'}+${count}`)
     }
     return locators
   }, [currentHandles, orderedResidues, visibleDocument])
   const visibleRows = trackRows.filter(({ key }) => !hiddenTracks.has(key))
-  const trackMaps = useMemo(() => new Map(scalarTracks.map(({ key }) => [key, new Map(projection.tracks[key].map((item) => [item.residue_handle, item]))])), [projection])
-  const rowIndex = useMemo(() => new Map(orderedResidues.map((item, index) => [item.residue_handle, index])), [orderedResidues])
-  const committedRowIndex = useMemo(() => new Map(committedOrderedResidues.map((item, index) => [item.residue_handle, index])), [committedOrderedResidues])
+  const trackMaps = useMemo(() => new Map(scalarTracks.map(({ key }) => [key, new Map(projection.tracks[key].map((item) => [item.residue_id, item]))])), [projection])
+  const rowIndex = useMemo(() => new Map(orderedResidues.map((item, index) => [item.residue_id, index])), [orderedResidues])
+  const committedRowIndex = useMemo(() => new Map(committedOrderedResidues.map((item, index) => [item.residue_id, index])), [committedOrderedResidues])
   const functionCells = useMemo(() => {
     const cells = new Map<string, PromptFunctionAnnotation[]>()
     for (const annotation of projection.function_annotations) {
-      const start = rowIndex.get(annotation.start_residue_handle)!
-      const end = rowIndex.get(annotation.end_residue_handle)!
+      const start = rowIndex.get(annotation.start_residue_id)!
+      const end = rowIndex.get(annotation.end_residue_id)!
       const covered = Array.from({ length: end - start + 1 }, (_, index) => start + index)
       for (const index of covered) {
-        const handle = orderedResidues[index].residue_handle
+        const handle = orderedResidues[index].residue_id
         cells.set(handle, [...(cells.get(handle) ?? []), annotation])
       }
     }
     return cells
   }, [orderedResidues, projection.function_annotations, rowIndex])
-  const focusedFunctionOptions = useMemo(() => committedProjection.function_annotations.map((annotation, index) => ({ annotation, key: `${annotation.label}:${annotation.start_residue_handle}:${annotation.end_residue_handle}:${index}` })).filter(({ annotation }) => {
+  const focusedFunctionOptions = useMemo(() => committedProjection.function_annotations.map((annotation, index) => ({ annotation, key: `${annotation.label}:${annotation.start_residue_id}:${annotation.end_residue_id}:${index}` })).filter(({ annotation }) => {
     const index = committedRowIndex.get(focus.handle)!
-    return annotation.state !== 'pending-delete' && committedRowIndex.get(annotation.start_residue_handle)! <= index && index <= committedRowIndex.get(annotation.end_residue_handle)!
+    return annotation.state !== 'pending-delete' && committedRowIndex.get(annotation.start_residue_id)! <= index && index <= committedRowIndex.get(annotation.end_residue_id)!
   }), [committedProjection.function_annotations, committedRowIndex, focus.handle])
   const focusedFunction = focusedFunctionOptions.find((item) => item.key === functionTargetKey)?.annotation ?? focusedFunctionOptions[0]?.annotation
-  const orderedFunctionSelection = committedProjection.residues.filter((item) => selection.includes(item.residue_handle) && committedHandles.has(item.residue_handle))
+  const orderedFunctionSelection = committedProjection.residues.filter((item) => selection.includes(item.residue_id) && committedHandles.has(item.residue_id))
   const functionSelectionValid = orderedFunctionSelection.length === selection.length && orderedFunctionSelection.every((item, index) => index === 0 || (item.chain_id === orderedFunctionSelection[index - 1].chain_id && item.position === orderedFunctionSelection[index - 1].position + 1))
   const selectedText = selectionText(selection, { ...projection, residues: orderedResidues }, displayLocators)
-  const hasCoordinates = projection.tracks.structure.some((item) => item.value != null && item.state !== 'pending-delete')
-  const selectedPositions = useMemo(() => projection.residues.filter((item) => selection.includes(item.residue_handle) && currentHandles.has(item.residue_handle)).map((item) => ({ chain: item.chain_id, resi: item.position })), [currentHandles, projection.residues, selection])
+  const hasCoordinates = projection.tracks.coordinates.some((item) => item.value != null && item.state !== 'pending-delete')
+  const selectedPositions = useMemo(() => projection.residues.filter((item) => selection.includes(item.residue_id) && currentHandles.has(item.residue_id)).map((item) => ({ chain: item.chain_id, resi: item.position })), [currentHandles, projection.residues, selection])
   const projectionPdb = useMemo(() => {
-    const sequence = new Map(projection.tracks.sequence.map((item) => [item.residue_handle, typeof item.value === 'string' ? item.value : 'G']))
+    const sequence = new Map(projection.tracks.sequence.map((item) => [item.residue_id, typeof item.value === 'string' ? item.value : 'G']))
     let serial = 1
     const lines: string[] = []
     for (const residue of projection.residues) {
-      const structure = projection.tracks.structure.find((item) => item.residue_handle === residue.residue_handle)
+      const structure = projection.tracks.coordinates.find((item) => item.residue_id === residue.residue_id)
       if (!structure || structure.state === 'pending-delete' || structure.value == null || typeof structure.value !== 'object') continue
       for (const atom of structure.value.atoms) {
         const [x, y, z] = atom.coordinates
-        const atomName = atom.atom_label.slice(0, 4)
+        const atomName = atom.atom_name.slice(0, 4)
         const element = atomName.replace(/[^A-Za-z]/g, '').slice(0, 1).toUpperCase()
-        lines.push(`ATOM  ${String(serial).padStart(5)} ${atomName.padStart(4)} ${residueNames[sequence.get(residue.residue_handle)!] ?? 'GLY'} ${residue.chain_id}${String(residue.position).padStart(4)}    ${x.toFixed(3).padStart(8)}${y.toFixed(3).padStart(8)}${z.toFixed(3).padStart(8)}  1.00  0.00          ${element.padStart(2)}`)
+        lines.push(`ATOM  ${String(serial).padStart(5)} ${atomName.padStart(4)} ${residueNames[sequence.get(residue.residue_id)!] ?? 'GLY'} ${residue.chain_id}${String(residue.position).padStart(4)}    ${x.toFixed(3).padStart(8)}${y.toFixed(3).padStart(8)}${z.toFixed(3).padStart(8)}  1.00  0.00          ${element.padStart(2)}`)
         serial += 1
       }
     }
     return `${lines.join('\n')}\nEND\n`
-  }, [projection.residues, projection.tracks.sequence, projection.tracks.structure])
+  }, [projection.residues, projection.tracks.sequence, projection.tracks.coordinates])
   const operationBlocked = busy || Boolean(localPreview)
   const insertionCount = Number(insertCount)
   const insertionInputValid = Number.isInteger(insertionCount) && insertionCount > 0 && (insertSequence.length === 0 || insertSequence.length === 1 || insertSequence.length === insertionCount) && [...insertSequence].every((letter) => aminoAcids.has(letter))
   const sasaInputValid = sasaValue.trim() !== '' && Number(sasaValue) >= 0
 
-  const propose = async (nextDocument: JsonObject, title: string, insertedHandles: string[] = [], insertAnchor?: string) => {
+  const propose = async (nextDocument: PromptAuthoringDocument, title: string, insertedHandles: string[] = [], insertAnchor?: string) => {
     const requestId = ++previewRequest.current
     setBusy(true)
     setSavePreview(undefined)
@@ -216,7 +216,7 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
     setBusy(false)
     setLocalPreview(undefined)
     if (!committedHandles.has(focus.handle)) {
-      const nextHandle = selection.find((handle) => committedHandles.has(handle)) ?? committedProjection.residues.find((item) => committedHandles.has(item.residue_handle))!.residue_handle
+      const nextHandle = selection.find((handle) => committedHandles.has(handle)) ?? committedProjection.residues.find((item) => committedHandles.has(item.residue_id))!.residue_id
       setSelection((current) => current.filter((handle) => committedHandles.has(handle)))
       setAnchor(nextHandle)
       setFocus((current) => ({ ...current, handle: nextHandle }))
@@ -224,12 +224,12 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
   }, [committedHandles, committedProjection.residues, focus.handle, selection])
 
   const selectFromStructure = useCallback((picked: { chain: string; resi: number }) => {
-    const residue = committedProjection.residues.find((item) => item.chain_id === picked.chain && item.position === picked.resi && committedHandles.has(item.residue_handle))
+    const residue = committedProjection.residues.find((item) => item.chain_id === picked.chain && item.position === picked.resi && committedHandles.has(item.residue_id))
     if (!residue) return
     cancelLocalPreview()
-    setSelection([residue.residue_handle])
-    setAnchor(residue.residue_handle)
-    setFocus((current) => ({ ...current, handle: residue.residue_handle }))
+    setSelection([residue.residue_id])
+    setAnchor(residue.residue_id)
+    setFocus((current) => ({ ...current, handle: residue.residue_id }))
   }, [cancelLocalPreview, committedHandles, committedProjection.residues])
 
   const applyLocalPreview = () => {
@@ -239,7 +239,7 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
     setDocument(pending.preview.normalized_document)
     setCommittedProjection(pending.preview)
     setAxisOrder(visibleAxisOrder)
-    const nextTargets = targets(pending.preview.normalized_document).map((item) => String(item.residue_handle))
+    const nextTargets = targets(pending.preview.normalized_document).map((item) => String(item.residue_id))
     if (pending.insertedHandles.length) {
       setSelection(pending.insertedHandles)
       setAnchor(pending.insertedHandles[0])
@@ -277,7 +277,7 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
       return
     }
     if (!committedHandles.has(handle)) return
-    const current = committedProjection.residues.filter((item) => committedHandles.has(item.residue_handle)).map((item) => item.residue_handle)
+    const current = committedProjection.residues.filter((item) => committedHandles.has(item.residue_id)).map((item) => item.residue_id)
     if (event.shiftKey) {
       const from = current.indexOf(anchor)
       const to = current.indexOf(handle)
@@ -299,9 +299,9 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
   }
 
   const deleteSelection = () => {
-    const nextTargets = targets(document).filter((item) => !selection.includes(String(item.residue_handle)))
-    const nextAnnotations = annotations(document).filter((item) => !selection.includes(String(item.start_residue_handle)) && !selection.includes(String(item.end_residue_handle)))
-    const next = { ...document, target_residues: nextTargets, track_intents: intents(document).filter((item) => !selection.includes(String(item.residue_handle))), function_annotations: nextAnnotations }
+    const nextTargets = targets(document).filter((item) => !selection.includes(String(item.residue_id)))
+    const nextAnnotations = annotations(document).filter((item) => !selection.includes(String(item.start_residue_id)) && !selection.includes(String(item.end_residue_id)))
+    const next = { ...document, target_residues: nextTargets, track_edits: trackEdits(document).filter((item) => !selection.includes(String(item.residue_id))), function_annotations: nextAnnotations }
     void propose(next, `删除 ${selection.length} 个残基`)
   }
 
@@ -310,23 +310,22 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
     if (!Number.isInteger(count) || count < 1 || ![0, 1, count].includes(sequence.length) || ![...sequence].every((letter) => aminoAcids.has(letter))) return
     const anchorHandle = anchorOverride ?? focus.handle ?? selection.at(-1)!
     const nextTargets = [...targets(document)]
-    const anchorIndex = nextTargets.findIndex((item) => item.residue_handle === anchorHandle)
-    const chainId = String(nextTargets[anchorIndex].chain_id)
+    const anchorIndex = nextTargets.findIndex((item) => item.residue_id === anchorHandle)
     const insertedHandles = Array.from({ length: count }, () => `insert-${crypto.randomUUID()}`)
-    nextTargets.splice(anchorIndex + 1, 0, ...insertedHandles.map((residue_handle) => ({ residue_handle, origin: 'insert', chain_id: chainId })))
+    nextTargets.splice(anchorIndex + 1, 0, ...insertedHandles.map((residue_id) => ({ residue_id, origin: 'inserted' as const })))
     const letters = sequence.length === 1 ? Array(count).fill(sequence) : sequence.split('')
-    const sequenceIntents = insertedHandles.map((residue_handle, index) => letters[index] ? { track: 'sequence', residue_handle, action: 'specify', value: letters[index] } : { track: 'sequence', residue_handle, action: 'mask' })
-    void propose({ ...document, target_residues: nextTargets, track_intents: [...intents(document), ...sequenceIntents] }, `插入 ${count} 个残基`, insertedHandles, anchorHandle)
+    const sequenceEdits = insertedHandles.map((residue_id, index) => letters[index] ? { track: 'sequence' as const, residue_id, action: 'replace' as const, value: letters[index] } : { track: 'sequence' as const, residue_id, action: 'clear' as const })
+    void propose({ ...document, target_residues: nextTargets, track_edits: [...trackEdits(document), ...sequenceEdits] }, `插入 ${count} 个残基`, insertedHandles, anchorHandle)
   }
 
   const addFunction = (label = functionValue) => {
     if (!selection.length) return
     const replaceExisting = selection.length === 1 ? focusedFunction : undefined
     if (!replaceExisting && !functionSelectionValid) return
-    const start_residue_handle = replaceExisting?.start_residue_handle ?? orderedFunctionSelection[0].residue_handle
-    const end_residue_handle = replaceExisting?.end_residue_handle ?? orderedFunctionSelection.at(-1)!.residue_handle
+    const start_residue_id = replaceExisting?.start_residue_id ?? orderedFunctionSelection[0].residue_id
+    const end_residue_id = replaceExisting?.end_residue_id ?? orderedFunctionSelection.at(-1)!.residue_id
     const retained = replaceExisting ? removeOneAnnotation(document, replaceExisting) : annotations(document)
-    const nextAnnotation = { label, start_residue_handle, end_residue_handle }
+    const nextAnnotation: PromptDocumentFunctionAnnotation = { label, start_residue_id, end_residue_id }
     void propose({ ...document, function_annotations: [...retained, nextAnnotation] }, `${replaceExisting ? '替换' : '新增'} Function · ${label}`)
   }
 
@@ -338,7 +337,7 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
 
   const moveFocus = (residueDelta: number, trackDelta: number) => {
     cancelLocalPreview()
-    const handles = committedProjection.residues.filter((item) => committedHandles.has(item.residue_handle)).map((item) => item.residue_handle)
+    const handles = committedProjection.residues.filter((item) => committedHandles.has(item.residue_id)).map((item) => item.residue_id)
     const tracks = visibleRows.map((item) => item.key)
     if (!tracks.length) return
     const nextHandle = handles[Math.max(0, Math.min(handles.length - 1, handles.indexOf(focus.handle) + residueDelta))]
@@ -363,7 +362,7 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
     if (event.key === 'ArrowRight') { event.preventDefault(); moveFocus(1, 0); return }
     if (event.key === 'ArrowUp') { event.preventDefault(); moveFocus(0, -1); return }
     if (event.key === 'ArrowDown') { event.preventDefault(); moveFocus(0, 1); return }
-    if (event.key === 'Backspace' && activeTrack === 'sequence' && localPreview?.insertedHandles.length) { event.preventDefault(); setInsertSequence(''); void propose(trackDocument(localPreview.preview.normalized_document, localPreview.insertedHandles, 'sequence', 'mask'), `插入 ${localPreview.insertedHandles.length} 个残基`, localPreview.insertedHandles, localPreview.insertAnchor); return }
+    if (event.key === 'Backspace' && activeTrack === 'sequence' && localPreview?.insertedHandles.length) { event.preventDefault(); setInsertSequence(''); void propose(trackDocument(localPreview.preview.normalized_document, localPreview.insertedHandles, 'sequence', 'clear'), `插入 ${localPreview.insertedHandles.length} 个残基`, localPreview.insertedHandles, localPreview.insertAnchor); return }
     if (event.key === '+') { event.preventDefault(); insertResidues(insertionCount, insertSequence, localPreview?.insertAnchor); return }
     if (/^[1-9]$/.test(event.key) && activeTrack !== 'sasa' && activeTrack !== 'function') { event.preventDefault(); const count = Number(event.key); setInsertCount(event.key); if (localPreview?.insertedHandles.length) insertResidues(count, insertSequence, localPreview.insertAnchor); return }
     if (activeTrack === 'sequence' && aminoAcids.has(event.key.toUpperCase())) {
@@ -371,20 +370,20 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
       const value = event.key.toUpperCase()
       if (localPreview?.insertedHandles.length) {
         setInsertSequence(value)
-        void propose(trackDocument(localPreview.preview.normalized_document, localPreview.insertedHandles, 'sequence', 'specify', value), `插入 ${localPreview.insertedHandles.length} 个残基`, localPreview.insertedHandles, localPreview.insertAnchor)
+        void propose(trackDocument(localPreview.preview.normalized_document, localPreview.insertedHandles, 'sequence', 'replace', value), `插入 ${localPreview.insertedHandles.length} 个残基`, localPreview.insertedHandles, localPreview.insertAnchor)
       } else {
         setSequenceValue(value)
-        updateTrack('sequence', 'specify', value)
+        updateTrack('sequence', 'replace', value)
       }
       return
     }
-    if (activeTrack === 'secondary_structure' && ss8Codes.has(event.key.toUpperCase())) { event.preventDefault(); updateTrack('secondary_structure', 'specify', event.key.toUpperCase()); return }
-    if (activeTrack === 'sasa' && /^[0-9]$/.test(event.key)) { event.preventDefault(); const value = localPreview ? `${sasaValue}${event.key}` : event.key; setSasaValue(value); updateTrack('sasa', 'specify', Number(value)); return }
+    if (activeTrack === 'secondary_structure' && ss8Codes.has(event.key.toUpperCase())) { event.preventDefault(); updateTrack('secondary_structure', 'replace', event.key.toUpperCase()); return }
+    if (activeTrack === 'sasa' && /^[0-9]$/.test(event.key)) { event.preventDefault(); const value = localPreview ? `${sasaValue}${event.key}` : event.key; setSasaValue(value); updateTrack('sasa', 'replace', Number(value)); return }
     if (activeTrack === 'function' && /^[A-Za-z0-9_-]$/.test(event.key)) { event.preventDefault(); const value = localPreview ? `${functionValue}${event.key}` : event.key; if (value.length > 256) return; setFunctionValue(value); addFunction(value); return }
-    if (activeTrack === 'structure' && event.key === ' ') {
+    if (activeTrack === 'coordinates' && event.key === ' ') {
       event.preventDefault()
-      const value = trackMaps.get('structure')!.get(focus.handle)!.value
-      updateTrack('structure', value == null ? 'preserve' : 'mask')
+      const value = trackMaps.get('coordinates')!.get(focus.handle)!.value
+      updateTrack('coordinates', value == null ? 'preserve' : 'clear')
     }
   }
 
@@ -398,7 +397,7 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
       event.preventDefault()
       const base = localPreview?.insertedHandles.length ? localPreview.preview.normalized_document : document
       let next = base
-      handles.forEach((handle, index) => { next = trackDocument(next, [handle], 'sequence', 'specify', value[index]) })
+      handles.forEach((handle, index) => { next = trackDocument(next, [handle], 'sequence', 'replace', value[index]) })
       if (localPreview?.insertedHandles.length) setInsertSequence(value)
       else if (value.length === 1) setSequenceValue(value)
       void propose(next, localPreview?.insertedHandles.length ? `插入 ${handles.length} 个残基` : `Sequence · ${value}`, localPreview?.insertedHandles ?? [], localPreview?.insertAnchor)
@@ -429,8 +428,8 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
   const stateCounts = savePreview ? states.map((state) => ({ state, count: [...Object.values(savePreview.tracks).flat(), ...savePreview.function_annotations].filter((item) => item.state === state).length })) : []
   const localImpact = localPreview ? {
     current: targets(localPreview.preview.normalized_document).length,
-    inserted: localPreview.preview.residues.filter((item) => localPreview.preview.tracks.sequence.find((value) => value.residue_handle === item.residue_handle)?.state === 'inserted').length,
-    deleted: localPreview.preview.residues.filter((item) => localPreview.preview.tracks.sequence.find((value) => value.residue_handle === item.residue_handle)?.state === 'pending-delete').length,
+    inserted: localPreview.preview.residues.filter((item) => localPreview.preview.tracks.sequence.find((value) => value.residue_id === item.residue_id)?.state === 'inserted').length,
+    deleted: localPreview.preview.residues.filter((item) => localPreview.preview.tracks.sequence.find((value) => value.residue_id === item.residue_id)?.state === 'pending-delete').length,
     cleared: Object.values(localPreview.preview.tracks).flat().filter((item) => item.state === 'cleared').length,
   } : undefined
 
@@ -446,7 +445,7 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
     <nav className="ps-modebar" aria-label="Prompt Studio 模式">
       <button className={mode === 'layout' ? 'active' : ''} onClick={() => { setMode('layout'); setActiveTrack('sequence') }}>布局</button>
       <button className={mode === 'condition' ? 'active' : ''} onClick={() => { setMode('condition'); setActiveTrack('sequence') }}>条件</button>
-      <button className={mode === 'structure' ? 'active' : ''} disabled={!hasCoordinates} title={hasCoordinates ? '' : '当前 Prompt 没有 Coordinates'} onClick={() => { setMode('structure'); setActiveTrack('structure') }}>结构</button>
+      <button className={mode === 'structure' ? 'active' : ''} disabled={!hasCoordinates} title={hasCoordinates ? '' : '当前 Prompt 没有 Coordinates'} onClick={() => { setMode('structure'); setActiveTrack('coordinates') }}>结构</button>
       <span>有序残基、条件轨道与结构定位共享同一 residue axis</span>
     </nav>
 
@@ -483,23 +482,23 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
             </div>
             <div className="ps-matrix-scroll">
               {orderedResidues.map((residue) => {
-                const isCurrent = currentHandles.has(residue.residue_handle)
-                return <div className={`ps-residue-column ${selection.includes(residue.residue_handle) ? 'selected' : ''} ${isCurrent ? '' : 'tombstone'}`} key={residue.residue_handle}>
-                  <button aria-label={`${displayLocators.get(residue.residue_handle)} residue`} disabled={!isCurrent || busy} onClick={(event) => selectResidue(residue.residue_handle, event)}><strong>{displayLocators.get(residue.residue_handle)}</strong><small>{isCurrent ? `#${residue.position}` : 'deleted'}</small></button>
+                const isCurrent = currentHandles.has(residue.residue_id)
+                return <div className={`ps-residue-column ${selection.includes(residue.residue_id) ? 'selected' : ''} ${isCurrent ? '' : 'tombstone'}`} key={residue.residue_id}>
+                  <button aria-label={`${displayLocators.get(residue.residue_id)} residue`} disabled={!isCurrent || busy} onClick={(event) => selectResidue(residue.residue_id, event)}><strong>{displayLocators.get(residue.residue_id)}</strong><small>{isCurrent ? `#${residue.position}` : 'deleted'}</small></button>
                   {trackRows.map(({ key, label }) => {
                     if (hiddenTracks.has(key)) return <span className="ps-cell-hidden" key={key} />
                     if (key === 'function') {
-                      const values = functionCells.get(residue.residue_handle) ?? []
+                      const values = functionCells.get(residue.residue_id) ?? []
                       const cellStates = [...new Set(values.map((item) => item.state))]
                       const state = cellStates.length > 1 ? 'mixed' : cellStates[0] ?? 'empty'
-                      const starting = values.filter((item) => item.start_residue_handle === residue.residue_handle)
+                      const starting = values.filter((item) => item.start_residue_id === residue.residue_id)
                       const value = starting.map((item) => item.label).join(' · ') || (values.length ? '━' : '—')
-                      const ribbonClass = values.length ? `function-ribbon ${starting.length ? 'ribbon-start' : ''} ${values.some((item) => item.end_residue_handle === residue.residue_handle) ? 'ribbon-end' : ''}` : ''
+                      const ribbonClass = values.length ? `function-ribbon ${starting.length ? 'ribbon-start' : ''} ${values.some((item) => item.end_residue_id === residue.residue_id) ? 'ribbon-end' : ''}` : ''
                       const fullValue = values.map((item) => item.label).join(' · ') || '—'
-                      return <button key={key} data-cell={`${residue.residue_handle}:${key}`} aria-label={`${displayLocators.get(residue.residue_handle)} ${label} ${fullValue} ${state}`} disabled={!isCurrent || busy} className={`ps-cell ${ribbonClass} state-${state} ${focus.handle === residue.residue_handle && focus.track === key ? 'focused' : ''}`} onClick={(event) => { selectResidue(residue.residue_handle, event); setActiveTrack(key); setFunctionTargetKey(''); setFocus({ handle: residue.residue_handle, track: key }) }}><strong>{value}</strong><small>{state}</small></button>
+                      return <button key={key} data-cell={`${residue.residue_id}:${key}`} aria-label={`${displayLocators.get(residue.residue_id)} ${label} ${fullValue} ${state}`} disabled={!isCurrent || busy} className={`ps-cell ${ribbonClass} state-${state} ${focus.handle === residue.residue_id && focus.track === key ? 'focused' : ''}`} onClick={(event) => { selectResidue(residue.residue_id, event); setActiveTrack(key); setFunctionTargetKey(''); setFocus({ handle: residue.residue_id, track: key }) }}><strong>{value}</strong><small>{state}</small></button>
                     }
-                    const item = trackMaps.get(key)!.get(residue.residue_handle)!
-                    return <button key={key} data-cell={`${residue.residue_handle}:${key}`} aria-label={`${displayLocators.get(residue.residue_handle)} ${label} ${displayValue(key, item)} ${item.state}`} disabled={!isCurrent || busy} className={`ps-cell state-${item.state} ${focus.handle === residue.residue_handle && focus.track === key ? 'focused' : ''}`} onClick={(event) => { selectResidue(residue.residue_handle, event); setActiveTrack(key); setFocus({ handle: residue.residue_handle, track: key }) }}><strong>{displayValue(key, item)}</strong><small>{item.state}</small></button>
+                    const item = trackMaps.get(key)!.get(residue.residue_id)!
+                    return <button key={key} data-cell={`${residue.residue_id}:${key}`} aria-label={`${displayLocators.get(residue.residue_id)} ${label} ${displayValue(key, item)} ${item.state}`} disabled={!isCurrent || busy} className={`ps-cell state-${item.state} ${focus.handle === residue.residue_id && focus.track === key ? 'focused' : ''}`} onClick={(event) => { selectResidue(residue.residue_id, event); setActiveTrack(key); setFocus({ handle: residue.residue_id, track: key }) }}><strong>{displayValue(key, item)}</strong><small>{item.state}</small></button>
                   })}
                 </div>
               })}
@@ -512,19 +511,19 @@ export function PromptStudio({ snapshot, onCancel, onPreview, onApply }: PromptS
           <div className="ps-track-tabs">{trackRows.map(({ key, label }) => <button key={key} className={activeTrack === key ? 'active' : ''} onClick={() => setActiveTrack(key)}>{label.replace('Secondary structure', 'SS8').replace('Function annotations', 'Function')}</button>)}</div>
           {activeTrack !== 'function' && <div className="ps-editor-section">
             <span className="ps-kicker">TRACK ACTION</span>
-            <div className="ps-action-row"><button disabled={!selection.length || operationBlocked} onClick={() => updateTrack(activeTrack, 'preserve')}>Preserve</button><button disabled={!selection.length || operationBlocked} onClick={() => updateTrack(activeTrack, 'mask')}>Mask</button></div>
-            {activeTrack === 'sequence' && <label><span>氨基酸</span><input aria-label="指定氨基酸" maxLength={1} value={sequenceValue} onChange={(event) => setSequenceValue(event.target.value.toUpperCase())} /><button disabled={!selection.length || operationBlocked || !aminoAcids.has(sequenceValue)} onClick={() => updateTrack('sequence', 'specify', sequenceValue)}>Specify</button></label>}
-            {activeTrack === 'secondary_structure' && <label><span>SS8</span><input aria-label="指定二级结构" maxLength={1} value={ssValue} onChange={(event) => setSsValue(event.target.value.toUpperCase())} /><button disabled={!selection.length || operationBlocked || !ss8Codes.has(ssValue)} onClick={() => updateTrack('secondary_structure', 'specify', ssValue)}>Specify</button></label>}
-            {activeTrack === 'sasa' && <label><span>SASA Å²</span><input aria-label="指定 SASA" type="number" min="0" value={sasaValue} onChange={(event) => setSasaValue(event.target.value)} /><button disabled={!selection.length || operationBlocked || !sasaInputValid} onClick={() => updateTrack('sasa', 'specify', Number(sasaValue))}>Specify</button></label>}
-            {activeTrack === 'structure' && <p className="ps-help"><Info size={13} /> Coordinates 仅支持 Preserve 或 Mask；空格键切换。</p>}
+            <div className="ps-action-row"><button disabled={!selection.length || operationBlocked} onClick={() => updateTrack(activeTrack, 'preserve')}>Preserve</button><button disabled={!selection.length || operationBlocked} onClick={() => updateTrack(activeTrack, 'clear')}>Clear</button></div>
+            {activeTrack === 'sequence' && <label><span>氨基酸</span><input aria-label="指定氨基酸" maxLength={1} value={sequenceValue} onChange={(event) => setSequenceValue(event.target.value.toUpperCase())} /><button disabled={!selection.length || operationBlocked || !aminoAcids.has(sequenceValue)} onClick={() => updateTrack('sequence', 'replace', sequenceValue)}>Specify</button></label>}
+            {activeTrack === 'secondary_structure' && <label><span>SS8</span><input aria-label="指定二级结构" maxLength={1} value={ssValue} onChange={(event) => setSsValue(event.target.value.toUpperCase())} /><button disabled={!selection.length || operationBlocked || !ss8Codes.has(ssValue)} onClick={() => updateTrack('secondary_structure', 'replace', ssValue)}>Specify</button></label>}
+            {activeTrack === 'sasa' && <label><span>SASA Å²</span><input aria-label="指定 SASA" type="number" min="0" value={sasaValue} onChange={(event) => setSasaValue(event.target.value)} /><button disabled={!selection.length || operationBlocked || !sasaInputValid} onClick={() => updateTrack('sasa', 'replace', Number(sasaValue))}>Specify</button></label>}
+            {activeTrack === 'coordinates' && <p className="ps-help"><Info size={13} /> Coordinates 仅支持 Preserve 或 Clear；空格键切换。</p>}
           </div>}
-          {activeTrack === 'function' && <div className="ps-editor-section"><span className="ps-kicker">FUNCTION TUPLE</span>{focusedFunctionOptions.length > 0 && <div className="ps-function-options">{focusedFunctionOptions.map(({ annotation, key }) => <button key={key} className={focusedFunction === annotation ? 'active' : ''} onClick={() => { setFunctionTargetKey(key); setFunctionValue(annotation.label) }}><strong>{annotation.label}</strong><small>{displayLocators.get(annotation.start_residue_handle)}–{displayLocators.get(annotation.end_residue_handle)}</small></button>)}</div>}<label><span>Label</span><input aria-label="Function label" maxLength={256} value={functionValue} onChange={(event) => setFunctionValue(event.target.value)} /><button disabled={!selection.length || operationBlocked || !functionValue.trim() || functionValue.length > 256 || (!focusedFunction && !functionSelectionValid)} onClick={() => addFunction()}>{focusedFunction && selection.length === 1 ? 'Replace' : 'Add'}</button></label>{!focusedFunction && selection.length > 1 && !functionSelectionValid && <p className="ps-help"><Info size={13} /> Function 区间必须是同一条链上的连续残基。</p>}<button className="ps-danger-wide" disabled={!focusedFunction || operationBlocked} onClick={deleteFunction}><Trash2 size={13} /> Delete exact tuple</button></div>}
+          {activeTrack === 'function' && <div className="ps-editor-section"><span className="ps-kicker">FUNCTION TUPLE</span>{focusedFunctionOptions.length > 0 && <div className="ps-function-options">{focusedFunctionOptions.map(({ annotation, key }) => <button key={key} className={focusedFunction === annotation ? 'active' : ''} onClick={() => { setFunctionTargetKey(key); setFunctionValue(annotation.label) }}><strong>{annotation.label}</strong><small>{displayLocators.get(annotation.start_residue_id)}–{displayLocators.get(annotation.end_residue_id)}</small></button>)}</div>}<label><span>Label</span><input aria-label="Function label" maxLength={256} value={functionValue} onChange={(event) => setFunctionValue(event.target.value)} /><button disabled={!selection.length || operationBlocked || !functionValue.trim() || functionValue.length > 256 || (!focusedFunction && !functionSelectionValid)} onClick={() => addFunction()}>{focusedFunction && selection.length === 1 ? 'Replace' : 'Add'}</button></label>{!focusedFunction && selection.length > 1 && !functionSelectionValid && <p className="ps-help"><Info size={13} /> Function 区间必须是同一条链上的连续残基。</p>}<button className="ps-danger-wide" disabled={!focusedFunction || operationBlocked} onClick={deleteFunction}><Trash2 size={13} /> Delete exact tuple</button></div>}
           <div className="ps-editor-section ps-layout-actions"><span className="ps-kicker">ORDERED RESIDUES</span><div className="ps-insert-fields"><input aria-label="插入数量" type="number" min="1" value={insertCount} onChange={(event) => setInsertCount(event.target.value)} /><input aria-label="插入序列" placeholder="Mask 或等长序列" value={insertSequence} onChange={(event) => setInsertSequence(event.target.value.toUpperCase())} /></div>{!insertionInputValid && <p className="ps-help"><Info size={13} /> 序列必须为空、单字母，或与插入数量等长。</p>}<button disabled={!selection.length || operationBlocked || !insertionInputValid} onClick={() => insertResidues()}><Plus size={13} /> Insert after focus</button><button className="danger" disabled={!selection.length || operationBlocked || targets(document).length === selection.length} onClick={deleteSelection}><Trash2 size={13} /> Delete selected</button></div>
 
           {localPreview && <section className="ps-local-preview" aria-label="即时预览">
             <span className="ps-kicker">UNAPPLIED PREVIEW</span><h3>即时预览 · {localPreview.title}</h3><p>矩阵显示后端返回的未应用投影。Enter 应用，Esc 取消。</p>
             <div className="ps-impact"><span>Current<strong>{localImpact!.current}</strong></span><span>Inserted<strong>{localImpact!.inserted}</strong></span><span>Tombstones<strong>{localImpact!.deleted}</strong></span><span>Cleared tracks<strong>{localImpact!.cleared}</strong></span></div>
-            <ul>{localPreview.preview.changes.map((change, index) => <li key={`change-${index}`}>{previewChangeText(change, committedProjection, localPreview.preview, displayLocators)}</li>)}{localPreview.preview.function_annotations.filter((item) => ['inserted', 'pending-delete'].includes(item.state)).map((item, index) => <li key={`function-${index}`}>Function · {item.label} · {displayLocators.get(item.start_residue_handle)}–{displayLocators.get(item.end_residue_handle)} · {item.state}</li>)}</ul>
+            <ul>{localPreview.preview.changes.map((change, index) => <li key={`change-${index}`}>{previewChangeText(change, committedProjection, localPreview.preview, displayLocators)}</li>)}{localPreview.preview.function_annotations.filter((item) => ['inserted', 'pending-delete'].includes(item.state)).map((item, index) => <li key={`function-${index}`}>Function · {item.label} · {displayLocators.get(item.start_residue_id)}–{displayLocators.get(item.end_residue_id)} · {item.state}</li>)}</ul>
             <ul>{localPreview.preview.diagnostics.map((item, index) => <li key={index}>{diagnosticText(item, displayLocators)}</li>)}</ul>
             <div><button onClick={cancelLocalPreview}><X size={13} /> 取消</button><button className="apply" disabled={busy || diagnosticsHaveError(localPreview.preview)} onClick={applyLocalPreview}><Check size={13} /> 应用操作</button></div>
           </section>}

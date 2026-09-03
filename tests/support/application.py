@@ -50,7 +50,6 @@ def create_application(
     authoring = WorkflowAuthoringService(
         projects,
         catalog,
-        authoring_projection,
     )
     environment = admit_environment_configuration(
         catalog,

@@ -174,7 +174,7 @@ class ESM3GenerationOperation:
     ) -> PendingConfidenceFact:
         prediction_axis = PredictionResidueAxis(
             source=prompt_reference,
-            layout=prompt.target_layout,
+            layout=prompt.layout,
             sequence=sequence,
         )
         return PendingConfidenceFact(
@@ -190,16 +190,14 @@ class ESM3GenerationOperation:
 
     @staticmethod
     def _require_assigned_prompt_sequence(prompt: ProteinPrompt) -> None:
-        track = prompt.sequence_track
-        if track is None or None in track.values:
+        if None in prompt.sequence:
             raise ValueError(
                 "structure generation requires a complete assigned sequence"
             )
 
     @staticmethod
     def _require_sequence_mask(prompt: ProteinPrompt) -> None:
-        track = prompt.sequence_track
-        if track is not None and None not in track.values:
+        if None not in prompt.sequence:
             raise ValueError(
                 "ESM-3 sequence generation requires at least one masked residue"
             )

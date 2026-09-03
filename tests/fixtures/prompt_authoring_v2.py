@@ -154,7 +154,7 @@ def prepare_operation(
             ),
         ),
         edges=source_edges)
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
         workflow=workflow,

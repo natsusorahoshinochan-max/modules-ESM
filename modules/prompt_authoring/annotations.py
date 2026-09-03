@@ -4,13 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from datatypes.prompt import (
-    FunctionAnnotation,
-    FunctionAnnotations,
-)
+from datatypes.prompt import FunctionAnnotation
 from datatypes.residue import ResidueLayout
-
-from .domain import residue_chain
 
 
 def _interval_positions(
@@ -35,58 +30,38 @@ def _interval_positions(
 
 
 def require_function_annotation_layout(
-    annotations: FunctionAnnotations,
+    annotations: Sequence[FunctionAnnotation],
     layout: ResidueLayout,
-) -> FunctionAnnotations:
+) -> tuple[FunctionAnnotation, ...]:
     """Require only the cross-value annotation-to-layout relationship."""
     residue_index = {
         residue_id: index
         for index, residue_id in enumerate(layout.residue_ids)
     }
-    for index, annotation in enumerate(annotations.annotations):
-        subject = f"function_annotations[{index}]"
-        start_position, end_position = _interval_positions(
+    for index, annotation in enumerate(annotations):
+        _interval_positions(
             residue_index,
             annotation.start_residue_id,
             annotation.end_residue_id,
-            subject=subject,
+            subject=f"function_annotations[{index}]",
         )
-        if (
-            annotation.start != start_position + 1
-            or annotation.end != end_position + 1
-        ):
-            raise ValueError(
-                f"{subject} interval contradicts residue provenance"
-            )
-    return annotations
+    return tuple(annotations)
 
 
 def add_function_annotation(
     layout: ResidueLayout,
-    existing: FunctionAnnotations | None,
+    existing: Sequence[FunctionAnnotation] | None,
     annotation: Mapping[str, str],
     *,
     overlap_policy: str,
-) -> FunctionAnnotations:
-    """Add one chain-qualified annotation and canonicalize its ordering."""
-    if existing is None:
-        current = FunctionAnnotations()
-    else:
-        current = require_function_annotation_layout(existing, layout)
+) -> tuple[FunctionAnnotation, ...]:
+    """Add one identity-addressed annotation and canonicalize ordering."""
     residue_index = {
         residue_id: index
         for index, residue_id in enumerate(layout.residue_ids)
     }
     start_residue_id = annotation["start_residue_id"]
     end_residue_id = annotation["end_residue_id"]
-    chain_id = annotation["chain_id"]
-    if (
-        residue_chain(start_residue_id) != chain_id
-        or residue_chain(end_residue_id) != chain_id
-    ):
-        raise ValueError(
-            "function_annotation endpoints do not correspond to its chain"
-        )
     start_position, end_position = _interval_positions(
         residue_index,
         start_residue_id,
@@ -95,34 +70,28 @@ def add_function_annotation(
     )
     candidate = FunctionAnnotation(
         label=annotation["label"],
-        start=start_position + 1,
-        end=end_position + 1,
-        chain_id=chain_id,
         start_residue_id=start_residue_id,
         end_residue_id=end_residue_id,
     )
-    appended = FunctionAnnotations(
-        sorted(
-            [*current.annotations, candidate],
-            key=lambda item: (
-                item.start,
-                item.end,
-                item.label,
-                item.chain_id,
-                item.start_residue_id,
-                item.end_residue_id,
-            ),
-        )
+    ordered = sorted(
+        [*(existing if existing is not None else ()), candidate],
+        key=lambda item: (
+            residue_index[item.start_residue_id],
+            residue_index[item.end_residue_id],
+            item.label,
+        ),
     )
     if overlap_policy == "reject":
-        previous_end = 0
-        for item in appended.annotations:
-            if item.start <= previous_end:
+        previous_end_position = -1
+        for item in ordered:
+            item_start = residue_index[item.start_residue_id]
+            item_end = residue_index[item.end_residue_id]
+            if item_start <= previous_end_position:
                 raise ValueError(
                     "function annotations overlap under the reject policy"
                 )
-            previous_end = item.end
-    return appended
+            previous_end_position = item_end
+    return tuple(ordered)
 
 
 def replace_function_annotations(
@@ -130,9 +99,9 @@ def replace_function_annotations(
     annotations: Sequence[Mapping[str, str]],
     *,
     overlap_policy: str,
-) -> FunctionAnnotations:
+) -> tuple[FunctionAnnotation, ...]:
     """Materialize one complete final annotation collection."""
-    result = FunctionAnnotations()
+    result: tuple[FunctionAnnotation, ...] = ()
     for annotation in annotations:
         result = add_function_annotation(
             layout,
@@ -141,11 +110,17 @@ def replace_function_annotations(
             overlap_policy="allow",
         )
     if overlap_policy == "reject":
-        previous_end = 0
-        for item in result.annotations:
-            if item.start <= previous_end:
+        residue_index = {
+            residue_id: index
+            for index, residue_id in enumerate(layout.residue_ids)
+        }
+        previous_end_position = -1
+        for item in result:
+            item_start = residue_index[item.start_residue_id]
+            item_end = residue_index[item.end_residue_id]
+            if item_start <= previous_end_position:
                 raise ValueError(
                     "function annotations overlap under the reject policy"
                 )
-            previous_end = item.end
+            previous_end_position = item_end
     return result

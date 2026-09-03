@@ -105,27 +105,28 @@ def test_canonical_seed_is_compilable_v2() -> None:
     assert set(nodes) == {
         node["node_id"] for node in _workflow_payload()["nodes"]
     }
-    prompt_nodes = tuple(nodes.values())
-    sequence_mask = next(
+    author_node = next(
         node
-        for node in prompt_nodes
-        if node.node_type_id == "prompt_authoring.random_mask"
-        and node.node_parameters["track"] == "sequence"
+        for node in nodes.values()
+        if node.node_type_id == "prompt_authoring.author"
+    )
+    random_operations = author_node.node_parameters["document"][
+        "random_operations"
+    ]
+    sequence_mask = next(
+        op
+        for op in random_operations
+        if op["kind"] == "mask" and op["track"] == "sequence"
     )
     structure_mask = next(
-        node
-        for node in prompt_nodes
-        if node.node_type_id == "prompt_authoring.random_mask"
-        and node.node_parameters["track"] == "structure"
+        op
+        for op in random_operations
+        if op["kind"] == "mask" and op["track"] == "coordinates"
     )
-    insertion = next(
-        node
-        for node in prompt_nodes
-        if node.node_type_id == "prompt_authoring.random_insert_masked"
-    )
-    assert sequence_mask.node_parameters["effective_seed"] == 1603
-    assert structure_mask.node_parameters["effective_seed"] == 1603
-    assert insertion.node_parameters["effective_seed"] == 1603
+    insertion = next(op for op in random_operations if op["kind"] == "insert")
+    assert sequence_mask["seed"] == 1603
+    assert structure_mask["seed"] == 1603
+    assert insertion["seed"] == 1603
     assert nodes["generate-paired"].node_parameters == {
         "effective_seed": 1603,
         "num_samples": 10,
@@ -171,42 +172,6 @@ def test_canonical_seed_is_compilable_v2() -> None:
     assert {
         objective.weight for objective in objectives.values()
     } == {0.7, 0.3}
-
-
-def test_generic_canonical_prompt_graph_is_rejected_before_provider_calls(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    monkeypatch.setenv("PROTEIN_WORKBENCH_DATA_ROOT", str(tmp_path))
-    esm3 = ControlledESM3Client()
-    folding = ControlledFoldingClient()
-    workflow = _workflow_payload()
-    app = create_application(
-        v2_environment_configuration=controlled_environment(
-            monkeypatch,
-            esm3,
-            folding,
-        ),
-    )
-
-    with TestClient(app) as client:
-        project_id = client.post(
-            "/api/v2/projects",
-            json={"name": "invalid canonical workflow"},
-        ).json()["id"]
-        workflow["workflow_id"] = project_id
-        rejected = client.post(
-            f"/api/v2/projects/{project_id}/workflow:commit",
-            json={
-                "workflow": workflow,
-            },
-        )
-
-    assert rejected.status_code == 400
-    assert rejected.json()["error"]["code"] == "malformed_request"
-    assert not esm3.sequence_prompts
-    assert not esm3.structure_prompts
-    assert not folding.calls
 
 
 def _decoded_output(

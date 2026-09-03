@@ -1,6 +1,6 @@
 node_type_id: structure_annotation.dssp_compute
 title: Compute DSSP annotations
-summary: Runs the exact bound DSSP binary and reconciles its annotations to the authoritative resolved structure residue axis.
+summary: Runs the exact bound DSSP binary and reconciles its annotations to the authoritative resolved structure residue axis, emitting two observed tracks.
 category: structure_annotation
 inputs:
   - name: structure_candidates
@@ -14,10 +14,15 @@ inputs:
     multiplicity: one
     scientific_meaning: Exactly one authoritative resolved residue axis associated by the complete admitted ProteinStructure Candidate reference; this axis alone defines residue identity, order, and layout, while its embedded exact structure is the sole mkdssp request value.
 outputs:
-  - name: annotations
-    port_type_id: structure_annotation.dssp_annotations
+  - name: secondary_structure
+    port_type_id: structure_annotation.secondary_structure.observed
     required: true
     multiplicity: one
-    scientific_meaning: DSSP secondary structure and SASA for the complete authoritative axis, with each provider label_asym_id and label_seq_id pair joined through atom_site auth_asym_id, auth_seq_id, and pdbx_PDB_ins_code to the exact authored chain, signed residue number, and insertion code; explicitly associated with the admitted ProteinStructure Candidate reference.
+    scientific_meaning: Observed canonical SS8 secondary structure (HBEGITSC) with per-residue null for missing residues, carrying the authoritative residue layout and the exact admitted ProteinStructure Candidate reference.
+  - name: sasa
+    port_type_id: structure_annotation.sasa.observed
+    required: true
+    multiplicity: one
+    scientific_meaning: Observed absolute per-residue solvent-accessible surface area in square angstroms with per-residue null for unavailable residues, carrying the authoritative residue layout and the exact admitted ProteinStructure Candidate reference.
 parameter_groups: []
 node_parameters: {}

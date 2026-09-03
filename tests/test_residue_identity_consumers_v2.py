@@ -15,7 +15,7 @@ from core.workflow.document import (
 from core.parameters.contract import ParameterValueAdmissionError, admit_values
 from datatypes.prompt import (
     FunctionAnnotation,
-    FunctionAnnotations,
+    FunctionAnnotationTrack,
     validate_canonical_function_annotations,
 )
 from datatypes.residue import ResidueLayout
@@ -29,11 +29,7 @@ from modules.prompt_authoring.annotations import (
 
 
 def test_signed_residue_identities_address_constraints_and_annotations() -> None:
-    layout = ResidueLayout(
-        "A",
-        4,
-        ("A:-3", "A:-3A", "A:1", "A:2"),
-    )
+    layout = ResidueLayout(("A:-3", "A:-3A", "A:1", "A:2"))
     constraints = ProteinMPNNConstraints(
         layout=layout,
         designable_residue_ids=("A:-3", "A:-3A", "A:1"),
@@ -41,16 +37,13 @@ def test_signed_residue_identities_address_constraints_and_annotations() -> None
         tied_residue_groups=(("A:-3", "A:-3A"),),
         bias_by_residue={"A:1": {"G": 0.5}},
     )
-    annotations = FunctionAnnotations((
+    annotations = (
         FunctionAnnotation(
             label="signed_region",
-            start=1,
-            end=2,
-            chain_id="A",
             start_residue_id="A:-3",
             end_residue_id="A:-3A",
         ),
-    ))
+    )
 
     validate_canonical_function_annotations(annotations)
     assert require_function_annotation_layout(annotations, layout) == annotations
@@ -60,20 +53,20 @@ def test_signed_residue_identities_address_constraints_and_annotations() -> None
         "proteinmpnn.constraints",
     )
     annotations_type = catalog.require_port_type(
-        "function.annotations",
+        "residue.condition.function_annotations",
     )
+    track = FunctionAnnotationTrack(layout, annotations)
     assert (
         constraints_type.decode(constraints_type.encode(constraints))
         == constraints
     )
     assert (
-        annotations_type.decode(annotations_type.encode(annotations))
-        == annotations
+        annotations_type.decode(annotations_type.encode(track)) == track
     )
 
 
 def test_constraint_addresses_remain_closed_and_layout_bound() -> None:
-    layout = ResidueLayout("A", 1, ("A:-3",))
+    layout = ResidueLayout(("A:-3",))
 
     with pytest.raises(ValueError, match="'<chain>:<label>'"):
         validate_proteinmpnn_constraints(
@@ -92,31 +85,25 @@ def test_constraint_addresses_remain_closed_and_layout_bound() -> None:
 
 
 def test_function_annotation_provenance_remains_closed_and_layout_bound() -> None:
-    layout = ResidueLayout("A", 1, ("A:-3",))
+    layout = ResidueLayout(("A:-3",))
 
-    invalid = FunctionAnnotations((
+    invalid = (
         FunctionAnnotation(
             label="invalid",
-            start=1,
-            end=1,
-            chain_id="A",
             start_residue_id="A:-1234",
             end_residue_id="A:-1234",
         ),
-    ))
+    )
     with pytest.raises(ValueError, match="'<chain>:<label>'"):
         validate_canonical_function_annotations(invalid)
 
-    absent = FunctionAnnotations((
+    absent = (
         FunctionAnnotation(
             label="absent",
-            start=1,
-            end=1,
-            chain_id="A",
             start_residue_id="A:-4",
             end_residue_id="A:-4",
         ),
-    ))
+    )
     validate_canonical_function_annotations(absent)
     with pytest.raises(ValueError, match="do not correspond"):
         require_function_annotation_layout(absent, layout)
@@ -146,27 +133,6 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
                 },
                 binding_parameters={},
             ),
-            WorkflowNodeInstance(
-                node_id="annotation",
-                node_type_id=(
-                    "prompt_authoring.replace_protein_prompt_annotations"
-                ),
-                binding_id=(
-                    "prompt_authoring.replace_protein_prompt_annotations.direct"
-                ),
-                node_parameters={
-                    "annotations": [
-                        {
-                            "label": "signed_region",
-                            "chain_id": "A",
-                            "start_residue_id": "A:-3",
-                            "end_residue_id": "A:-3A",
-                        }
-                    ],
-                    "overlap_policy": "reject",
-                },
-                binding_parameters={},
-            ),
         ),
         edges=(),
     )
@@ -178,12 +144,22 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
         ).definition.parameter_contract,
         workflow.nodes[0].node_parameters,
     )
-    admit_values(
-        catalog.require_contract(
-            "node_type",
-            workflow.nodes[1].node_type_id,
-        ).definition.parameter_contract,
-        workflow.nodes[1].node_parameters,
+
+    annotations_type = catalog.require_port_type(
+        "residue.condition.function_annotations",
+    )
+    track = FunctionAnnotationTrack(
+        ResidueLayout(("A:-3", "A:-3A")),
+        (
+            FunctionAnnotation(
+                label="signed_region",
+                start_residue_id="A:-3",
+                end_residue_id="A:-3A",
+            ),
+        ),
+    )
+    assert (
+        annotations_type.decode(annotations_type.encode(track)) == track
     )
 
     invalid = WorkflowDocument(
@@ -191,23 +167,11 @@ def test_signed_residue_identities_are_admitted_by_current_node_contracts() -> N
         workflow_id=workflow.workflow_id,
         nodes=(
             WorkflowNodeInstance(
-                node_id="annotation",
-                node_type_id=(
-                    "prompt_authoring.replace_protein_prompt_annotations"
-                ),
-                binding_id=(
-                    "prompt_authoring.replace_protein_prompt_annotations.direct"
-                ),
+                node_id="constraints",
+                node_type_id="proteinmpnn.constraints",
+                binding_id="proteinmpnn.constraints.local",
                 node_parameters={
-                    "annotations": [
-                        {
-                            "label": "invalid",
-                            "chain_id": "A",
-                            "start_residue_id": "A:-1234",
-                            "end_residue_id": "A:-1234",
-                        }
-                    ],
-                    "overlap_policy": "reject",
+                    "fixed_residue_ids": ["A:-1234"],
                 },
                 binding_parameters={},
             ),

@@ -544,11 +544,7 @@ class _PredictionAxisSource:
             return {
                 "prediction_axis": PredictionResidueAxis(
                     source=reference,
-                    layout=ResidueLayout(
-                        "A",
-                        len(candidate.data),
-                        residue_ids,
-                    ),
+                    layout=ResidueLayout(residue_ids),
                     sequence=candidate.data,
                 )
             }

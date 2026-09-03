@@ -48,35 +48,47 @@ def _prompt_conditioning() -> dict[str, Any]:
             },
             {
                 "node_id": "replace-functions",
-                "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
-                "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
+                "node_type_id": "prompt_authoring.author",
+                "binding_id": "prompt_authoring.author.direct",
                 "node_parameters": {
-                    "annotations": [{
-                        "label": "binding_site",
-                        "chain_id": "A",
-                        "start_residue_id": "A:10",
-                        "end_residue_id": "A:12",
-                    }],
-                    "overlap_policy": "reject",
+                    "document": {
+                        "function_annotations": [{
+                            "label": "binding_site",
+                            "start_residue_id": "A:10",
+                            "end_residue_id": "A:12",
+                        }],
+                        "overlap_policy": "reject",
+                    }
                 },
                 "binding_parameters": {},
             },
             {
                 "node_id": "assemble-prompt",
-                "node_type_id": "prompt_authoring.assemble_protein_prompt",
-                "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
+                "node_type_id": "prompt_authoring.assemble",
+                "binding_id": "prompt_authoring.assemble.direct",
                 "node_parameters": {},
                 "binding_parameters": {},
             },
             {
                 "node_id": "mask-sequence",
-                "node_type_id": "prompt_authoring.random_mask",
-                "binding_id": "prompt_authoring.random_mask.direct",
+                "node_type_id": "prompt_authoring.author",
+                "binding_id": "prompt_authoring.author.direct",
                 "node_parameters": {
-                    "effective_seed": 1603,
-                    "count": 3,
-                    "track": "sequence",
-                    "eligible_residue_ids": ["A:20", "A:21", "A:22"],
+                    "document": {
+                        "random_operations": [
+                            {
+                                "kind": "mask",
+                                "seed": 1603,
+                                "count": 3,
+                                "track": "sequence",
+                                "eligible_residue_ids": [
+                                    "A:20",
+                                    "A:21",
+                                    "A:22",
+                                ],
+                            }
+                        ]
+                    }
                 },
                 "binding_parameters": {},
             },
@@ -98,45 +110,45 @@ def _prompt_conditioning() -> dict[str, Any]:
         "edges": [
             {
                 "source_node_id": "prompt-values",
-                "source_port": "source_layout",
-                "target_node_id": "assemble-prompt",
-                "target_port": "layout",
-            },
-            {
-                "source_node_id": "prompt-values",
                 "source_port": "source_sequence_track",
                 "target_node_id": "assemble-prompt",
-                "target_port": "sequence_track",
+                "target_port": "sequence",
             },
             {
                 "source_node_id": "prompt-values",
                 "source_port": "source_structure_track",
                 "target_node_id": "assemble-prompt",
-                "target_port": "structure_track",
+                "target_port": "coordinates",
             },
             {
                 "source_node_id": "prompt-values",
                 "source_port": "source_secondary_structure_track",
                 "target_node_id": "assemble-prompt",
-                "target_port": "secondary_structure_track",
+                "target_port": "secondary_structure",
             },
             {
                 "source_node_id": "prompt-values",
                 "source_port": "source_sasa_track",
                 "target_node_id": "assemble-prompt",
-                "target_port": "sasa_track",
+                "target_port": "sasa",
+            },
+            {
+                "source_node_id": "prompt-values",
+                "source_port": "function_annotations",
+                "target_node_id": "assemble-prompt",
+                "target_port": "function_annotations",
             },
             {
                 "source_node_id": "assemble-prompt",
                 "source_port": "protein_prompt",
                 "target_node_id": "replace-functions",
-                "target_port": "protein_prompt",
+                "target_port": "prompt_source",
             },
             {
                 "source_node_id": "replace-functions",
                 "source_port": "protein_prompt",
                 "target_node_id": "mask-sequence",
-                "target_port": "protein_prompt",
+                "target_port": "prompt_source",
             },
             {
                 "source_node_id": "mask-sequence",

@@ -1597,7 +1597,7 @@ def _run_inserted_loop_failure_case(
         run_root=tmp_path / "runs",
     )
     project = manager.create(case.case_id)
-    authoring = WorkflowAuthoringService(manager, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(manager, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

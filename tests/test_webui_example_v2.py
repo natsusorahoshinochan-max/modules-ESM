@@ -57,7 +57,7 @@ def test_webui_example_public_journey_and_scientific_contracts(
         assert draft_response.status_code == 200
         draft = draft_response.json()
         workflow = draft["workflow"]
-        assert len(workflow["nodes"]) == 40
+        assert len(workflow["nodes"]) == 36
         nodes = {node["node_id"]: node for node in workflow["nodes"]}
         assert nodes["generate-paired"]["binding_id"] == (
             "esm3.generate_paired.biohub_medium"
@@ -240,17 +240,20 @@ def test_webui_example_public_journey_and_scientific_contracts(
             "cross_scope_access_denied"
         )
 
-        composition_id = draft["authoring_compositions"][0][
-            "composition_id"
-        ]
+        author_node_id = next(
+            node["node_id"]
+            for node in draft["workflow"]["nodes"]
+            if node["node_type_id"] == "prompt_authoring.author"
+        )
         opened_response = http.post(
             f"/api/v2/projects/{copied['id']}/prompt-authoring:open",
-            json={"mode": "reopen", "composition_id": composition_id},
+            json={"node_id": author_node_id},
         )
         assert opened_response.status_code == 200
         opened = opened_response.json()
         residues = opened["residues"]
-        assert len(residues) == 58
+        assert len(residues) == 56
+        assert any(item["residue_label"] == "39" for item in residues)
         labels = {
             item["residue_handle"]: item["residue_label"] for item in residues
         }
@@ -262,28 +265,8 @@ def test_webui_example_public_journey_and_scientific_contracts(
             labels[item["residue_handle"]]: item
             for item in opened["tracks"]["structure"]
         }
-        for label in ("37", "38", "40", "41"):
-            assert sequence[label]["value"] is None
-            assert structure[label]["value"] is None
-        assert sequence["39"]["state"] == "pending-delete"
-        inserted = [
-            item
-            for item in residues
-            if item["residue_label"].startswith("inserted.")
-        ]
-        assert len(inserted) == 2
-        for item in inserted:
-            handle = item["residue_handle"]
-            assert next(
-                track
-                for track in opened["tracks"]["sequence"]
-                if track["residue_handle"] == handle
-            )["value"] is None
-            assert next(
-                track
-                for track in opened["tracks"]["structure"]
-                if track["residue_handle"] == handle
-            )["value"] is None
+        assert sequence["39"]["value"] is not None
+        assert structure["39"]["value"] is not None
         assert all(
             item["value"] is None
             for item in opened["tracks"]["secondary_structure"]
@@ -296,7 +279,7 @@ def test_webui_example_public_journey_and_scientific_contracts(
         preview_response = http.post(
             f"/api/v2/projects/{copied['id']}/prompt-authoring:preview",
             json={
-                "composition_id": composition_id,
+                "node_id": author_node_id,
                 "document": opened["document"],
             },
         )
@@ -305,19 +288,32 @@ def test_webui_example_public_journey_and_scientific_contracts(
         assert preview["summary"]["chains"] == [
             {"chain_id": "A", "length": 57}
         ]
+        assert len(preview["residues"]) == 57
+        assert not any(
+            item["residue_label"] == "39" for item in preview["residues"]
+        )
+        assert (
+            len(
+                [
+                    item
+                    for item in preview["residues"]
+                    if item["residue_label"].startswith("inserted.")
+                ]
+            )
+            == 2
+        )
         assert preview["diagnostics"] == []
         apply_response = http.post(
             f"/api/v2/projects/{copied['id']}/prompt-authoring:apply",
             json={
-                "intent": "replace",
-                "composition_id": composition_id,
-                "normalized_document": preview["normalized_document"],
+                "node_id": author_node_id,
+                "document": preview["normalized_document"],
                 "preview_digest": preview["preview_digest"],
             },
         )
         assert apply_response.status_code == 200
         applied = apply_response.json()["draft"]
-        assert len(applied["workflow"]["nodes"]) == 40
+        assert len(applied["workflow"]["nodes"]) == 36
         assert applied["draft_revision"] > draft["draft_revision"]
 
         unchanged_example = http.get(

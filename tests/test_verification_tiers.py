@@ -417,6 +417,9 @@ def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.structure_annotation.package import (
         MODULE_PACKAGE as STRUCTURE_ANNOTATION_PACKAGE,
     )
@@ -427,7 +430,7 @@ def test_mkdssp_gate_catalog_closure_is_buildable() -> None:
     catalog = build_frozen_catalog(
         (
             PROTEIN_IO_PACKAGE,
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_ANNOTATION_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         )

@@ -1,0 +1,323 @@
+node_type_id: prompt_authoring.author
+title: Author ProteinPrompt
+summary: Applies one closed authoring document to resolved sequence, structure, Prompt, and merge sources to produce one validated ProteinPrompt.
+category: prompt_authoring
+inputs:
+  - name: sequence_source
+    port_type_id: protein.sequence
+    required: false
+    multiplicity: one
+    scientific_meaning: Optional complete amino-acid sequence baseline for blank or sequence authoring.
+  - name: structure_source
+    port_type_id: structure_transform.resolved_residue_axis
+    required: false
+    multiplicity: one
+    scientific_meaning: Optional resolved structure residue axis whose authoritative layout and coordinates seed the Prompt.
+  - name: prompt_source
+    port_type_id: protein.prompt
+    required: false
+    multiplicity: one
+    scientific_meaning: Optional complete baseline ProteinPrompt carried forward and edited.
+  - name: merge_sources
+    port_type_id: protein.prompt
+    required: false
+    multiplicity: many
+    scientific_meaning: Optional additional Prompt sources merged through per-track adopt or preserve intent.
+outputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    required: true
+    multiplicity: one
+    scientific_meaning: Validated residue-aligned ProteinPrompt after applying the authoring document.
+parameter_groups:
+  - id: authoring_document
+    title: Authoring document
+    parameters: [document]
+node_parameters:
+  document:
+    parameter_scope: scientific
+    scientific_meaning: Closed authoring document carrying chain declarations, target residue identities, sparse track edits, rigid transforms, function annotations, seeded random operations, and merge intents.
+    required: true
+    value_contract:
+      type: object
+      additionalProperties: false
+      properties:
+        chains:
+          field_scope: scientific
+          scientific_meaning: Explicit blank-authoring chain declarations.
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              chain_id:
+                field_scope: scientific
+                scientific_meaning: Chain identity.
+                type: string
+              length:
+                field_scope: scientific
+                scientific_meaning: Chain residue count.
+                type: integer
+                minimum: 1
+        target_residues:
+          field_scope: scientific
+          scientific_meaning: Ordered target residue identities relative to the source layout.
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              residue_id:
+                field_scope: scientific
+                scientific_meaning: Exact residue identity.
+                type: string
+              origin:
+                field_scope: scientific
+                scientific_meaning: Whether the residue is sourced or inserted.
+                type: string
+                enum: [source, inserted]
+        track_edits:
+          field_scope: scientific
+          scientific_meaning: Sparse identity-addressed track overrides.
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              track:
+                field_scope: scientific
+                scientific_meaning: Target track.
+                type: string
+                enum: [sequence, coordinates, secondary_structure, sasa]
+              action:
+                field_scope: scientific
+                scientific_meaning: Override action.
+                type: string
+                enum: [clear, preserve, replace]
+              residue_id:
+                field_scope: scientific
+                scientific_meaning: Exact target residue identity.
+                type: string
+              value:
+                field_scope: scientific
+                scientific_meaning: Replacement value for replace actions; SS8 admits '-' (C) and '_' (missing).
+                oneOf:
+                  - type: string
+                  - type: number
+                  - type: object
+                    additionalProperties: false
+                    properties:
+                      atom_coordinates:
+                        field_scope: scientific
+                        scientific_meaning: Named-atom coordinate replacement.
+                        type: array
+                        items:
+                          type: object
+                          additionalProperties: false
+                          properties:
+                            atom_name:
+                              field_scope: scientific
+                              scientific_meaning: Atom name.
+                              type: string
+                            coordinates:
+                              field_scope: scientific
+                              scientific_meaning: Cartesian 3-vector.
+                              type: array
+                              items: {type: number}
+                              minItems: 3
+                              maxItems: 3
+        rigid_transforms:
+          field_scope: scientific
+          scientific_meaning: Rigid rotation-translation coordinate overrides.
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              rotation_matrix:
+                field_scope: scientific
+                scientific_meaning: 3x3 proper rotation matrix.
+                type: array
+                items:
+                  type: array
+                  items: {type: number}
+                  minItems: 3
+                  maxItems: 3
+                minItems: 3
+                maxItems: 3
+              origin:
+                field_scope: scientific
+                scientific_meaning: Rotation origin 3-vector.
+                type: array
+                items: {type: number}
+                minItems: 3
+                maxItems: 3
+              translation:
+                field_scope: scientific
+                scientific_meaning: Translation 3-vector.
+                type: array
+                items: {type: number}
+                minItems: 3
+                maxItems: 3
+              residue_ids:
+                field_scope: scientific
+                scientific_meaning: Affected residue identities.
+                type: array
+                items: {type: string}
+                uniqueItems: true
+        function_annotations:
+          field_scope: scientific
+          scientific_meaning: Identity-addressed function annotation intervals.
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            properties:
+              label:
+                field_scope: scientific
+                scientific_meaning: Annotation label.
+                type: string
+              start_residue_id:
+                field_scope: scientific
+                scientific_meaning: Interval start residue identity.
+                type: string
+              end_residue_id:
+                field_scope: scientific
+                scientific_meaning: Interval end residue identity.
+                type: string
+        overlap_policy:
+          field_scope: scientific
+          scientific_meaning: Function annotation overlap policy.
+          type: string
+          enum: [allow, reject]
+        random_operations:
+          field_scope: scientific
+          scientific_meaning: Seeded random mask or insertion operations.
+          type: array
+          items:
+            oneOf:
+              - type: object
+                additionalProperties: false
+                required: [kind, seed, count, track]
+                properties:
+                  kind:
+                    field_scope: scientific
+                    scientific_meaning: Operation kind.
+                    type: string
+                    const: mask
+                  seed:
+                    field_scope: scientific
+                    scientific_meaning: Explicit reproducible seed.
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  count:
+                    field_scope: scientific
+                    scientific_meaning: Number of residues to affect.
+                    type: integer
+                    minimum: 0
+                  track:
+                    field_scope: scientific
+                    scientific_meaning: Target track.
+                    type: string
+                    enum: [sequence, coordinates, secondary_structure, sasa]
+                  eligible_residue_ids:
+                    field_scope: scientific
+                    scientific_meaning: Optional eligible residue subset; empty means every assigned value.
+                    type: array
+                    items: {type: string}
+                    uniqueItems: true
+              - type: object
+                additionalProperties: false
+                required: [kind, seed, count]
+                properties:
+                  kind:
+                    field_scope: scientific
+                    scientific_meaning: Operation kind.
+                    type: string
+                    const: insert
+                  seed:
+                    field_scope: scientific
+                    scientific_meaning: Explicit reproducible seed.
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  count:
+                    field_scope: scientific
+                    scientific_meaning: Number of insertions.
+                    type: integer
+                    minimum: 0
+                  eligible_chain_ids:
+                    field_scope: scientific
+                    scientific_meaning: Optional eligible chain subset; empty means every populated chain.
+                    type: array
+                    items: {type: string}
+                    uniqueItems: true
+        source_merges:
+          field_scope: scientific
+          scientific_meaning: Per-source merge intents with correspondence and per-track decisions.
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [source_index, correspondence, track_decisions]
+            properties:
+              source_index:
+                field_scope: scientific
+                scientific_meaning: Index into merge_sources.
+                type: integer
+                minimum: 0
+              correspondence:
+                field_scope: scientific
+                scientific_meaning: Source-to-target residue correspondence.
+                type: array
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [disposition]
+                  properties:
+                    disposition:
+                      field_scope: scientific
+                      scientific_meaning: Correspondence disposition.
+                      type: string
+                      enum: [match, source_gap, target_gap]
+                    source_residue_id:
+                      field_scope: scientific
+                      scientific_meaning: Source residue identity.
+                      type: string
+                    target_residue_id:
+                      field_scope: scientific
+                      scientific_meaning: Target residue identity.
+                      type: string
+              track_decisions:
+                field_scope: scientific
+                scientific_meaning: Per-track adopt or preserve decision.
+                type: object
+                additionalProperties: false
+                required: [sequence, coordinates, secondary_structure, sasa, function_annotations]
+                properties:
+                  sequence:
+                    field_scope: scientific
+                    scientific_meaning: Sequence decision.
+                    type: string
+                    enum: [adopt, preserve]
+                  coordinates:
+                    field_scope: scientific
+                    scientific_meaning: Coordinates decision.
+                    type: string
+                    enum: [adopt, preserve]
+                  secondary_structure:
+                    field_scope: scientific
+                    scientific_meaning: Secondary structure decision.
+                    type: string
+                    enum: [adopt, preserve]
+                  sasa:
+                    field_scope: scientific
+                    scientific_meaning: SASA decision.
+                    type: string
+                    enum: [adopt, preserve]
+                  function_annotations:
+                    field_scope: scientific
+                    scientific_meaning: Annotation decision.
+                    type: string
+                    enum: [adopt, preserve]

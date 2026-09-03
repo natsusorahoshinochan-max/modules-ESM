@@ -36,11 +36,9 @@ from tests.acceptance.biohub_environment import (
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 from tests.support.prompt_authoring import (
     apply_prompt_document,
-    initialize_prompt_authoring_draft,
-    open_blank_prompt_document,
+    install_prompt_authoring_workflow,
     open_pdb_prompt_document,
     preview_prompt_document,
-    save_ordinary_graph_on_prompt_draft,
 )
 from tests.acceptance.installed_harness import (
     InstalledArtifact,
@@ -80,15 +78,6 @@ _LOCAL_BINDING_REPLACEMENTS = {
     "esm3.generate_paired.biohub_medium": "esm3.generate_paired.local_open",
     "folding.fold.esmfold2_remote": "folding.fold.esmfold2_local",
 }
-_SECONDARY_STRUCTURE_PROMPT = (
-    "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____"
-    "EEEEEEEEEEEEEEEEEEEEEE_______________"
-)
-_CANONICAL_PROMPT_COMPOSITION_IDS = (
-    "prompt-composition-880d0182ba335a2141077fb2",
-    "prompt-composition-72d0f6197d8104e86d6484ca",
-)
-
 
 def _route_bindings(route: str) -> dict[str, dict[str, str]]:
     return {"biohub": REMOTE_BINDINGS, "local": LOCAL_BINDINGS}[route]
@@ -129,71 +118,23 @@ def _materialize_local_prompt_compositions(
     client: Any,
     project_id: str,
     project_input_ref: str,
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    initialize_prompt_authoring_draft(client, project_id)
-    opened = open_pdb_prompt_document(
-        client,
-        project_id,
-        project_input_ref,
-        chain_ids=["A"],
+    workflow: dict[str, Any],
+) -> dict[str, Any]:
+    _ = project_input_ref
+    install_prompt_authoring_workflow(client, project_id, workflow)
+    author_node_id = (
+        "prompt-composition-880d0182ba335a2141077fb2.source.author"
     )
+    opened = open_pdb_prompt_document(client, project_id, author_node_id)
     document = opened["document"]
-    document["random_operations"] = [
-        {
-            "operation_id": "mask-sequence",
-            "kind": "mask",
-            "track": "sequence",
-            "count": 20,
-            "eligible_residue_handles": [],
-            "seed": 1603,
-        },
-        {
-            "operation_id": "mask-structure",
-            "kind": "mask",
-            "track": "structure",
-            "count": 10,
-            "eligible_residue_handles": [],
-            "seed": 1603,
-        },
-        {
-            "operation_id": "insert-masked",
-            "kind": "insert",
-            "count": 15,
-            "eligible_chain_ids": ["A"],
-            "seed": 1603,
-        },
-    ]
-    random_preview = preview_prompt_document(client, project_id, document)
-    document["track_intents"] = [
-        {
-            "track": "secondary_structure",
-            "residue_handle": residue["residue_handle"],
-            "action": "specify",
-            "value": value,
-        }
-        for residue, value in zip(
-            random_preview["residues"],
-            _SECONDARY_STRUCTURE_PROMPT,
-            strict=True,
-        )
-        if value != "_"
-    ]
-    prompt_applied = apply_prompt_document(
+    assert document["random_operations"], "fixture document must seed randomness"
+    assert document["track_edits"], "fixture document must edit tracks"
+    return apply_prompt_document(
         client,
         project_id,
-        preview_prompt_document(client, project_id, document),
+        author_node_id,
+        preview_prompt_document(client, project_id, author_node_id, document),
     )
-    blank = open_blank_prompt_document(
-        client,
-        project_id,
-        chains=[{"chain_id": "A", "length": 71}],
-    )
-    layout_applied = apply_prompt_document(
-        client,
-        project_id,
-        preview_prompt_document(client, project_id, blank["document"]),
-    )
-    return prompt_applied, layout_applied
 
 
 def test_local_authoring_retargets_the_packaged_canonical_workflow() -> None:
@@ -265,31 +206,11 @@ def test_local_canonical_fixture_commits_with_materialized_ownership(
             workflow_id=project_id,
             project_input_ref=uploaded.json()["project_input_ref"],
         )
-        applied_compositions = _materialize_local_prompt_compositions(
+        _materialize_local_prompt_compositions(
             client,
             project_id,
             uploaded.json()["project_input_ref"],
-        )
-        workflow = save_ordinary_graph_on_prompt_draft(
-            client,
-            project_id,
-            applied_compositions,
             workflow,
-            fixture_composition_ids=_CANONICAL_PROMPT_COMPOSITION_IDS,
-            output_connections=(
-                (
-                    applied_compositions[0]["composition"],
-                    "protein_prompt",
-                    "generate-paired",
-                    "protein_prompt",
-                ),
-                (
-                    applied_compositions[1]["composition"],
-                    "residue_layout",
-                    "fixed-positions",
-                    "layout",
-                ),
-            ),
         )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
@@ -598,7 +519,7 @@ def _assert_science(
         node["node_id"]
         for node in workflow["nodes"]
         if node["node_type_id"]
-        == "prompt_authoring.override_protein_prompt_track"
+        == "prompt_authoring.author"
         and node["node_parameters"]["track"] == "secondary_structure"
     )
     prompt = _one(
@@ -699,29 +620,29 @@ def _assert_science(
     conditioned_backbones = sum(
         value is not None
         and all(
-            atom in value
+            atom in value.atom_names
             and all(
                 isinstance(coordinate, (int, float))
                 and math.isfinite(coordinate)
-                for coordinate in value[atom]
+                for coordinate in value.coordinate_for(atom)
             )
             for atom in ("N", "CA", "C")
         )
-        for value in prompt.structure_track.values
+        for value in prompt.coordinates
     )
     assert prompt.num_residues == 71
-    assert sum(value is None for value in prompt.sequence_track.values) == 35
-    assert len(prompt.secondary_structure_track.values) == 71
+    assert sum(value is None for value in prompt.sequence) == 35
+    assert len(prompt.secondary_structure) == 71
     assert conditioned_backbones == 46
     assert "".join(
         value if value is not None else "_"
-        for value in prompt.sequence_track.values
+        for value in prompt.sequence
     ) == (
         "____Y_KL__N_GKT___G__TT__AVDA_T_E_KV_KQ_Y_A_D_N_GVD_G__W_YD_____TF_V_TE"
     )
     assert "".join(
         value if value is not None else "_"
-        for value in prompt.secondary_structure_track.values
+        for value in prompt.secondary_structure
     ) == (
         "EEEEEEEEEEEEEEEEEEE___HHHHHHHH____EEEEEEEEEEEEEEEEEEEEEE_______________"
     )
@@ -796,31 +717,11 @@ def test_fresh_canonical_3gb1_public_run() -> None:
                 workflow_id=project_id,
                 project_input_ref=uploaded.json()["project_input_ref"],
             )
-            applied_compositions = _materialize_local_prompt_compositions(
+            _materialize_local_prompt_compositions(
                 client,
                 project_id,
                 uploaded.json()["project_input_ref"],
-            )
-            workflow = save_ordinary_graph_on_prompt_draft(
-                client,
-                project_id,
-                applied_compositions,
                 workflow,
-                fixture_composition_ids=_CANONICAL_PROMPT_COMPOSITION_IDS,
-                output_connections=(
-                    (
-                        applied_compositions[0]["composition"],
-                        "protein_prompt",
-                        "generate-paired",
-                        "protein_prompt",
-                    ),
-                    (
-                        applied_compositions[1]["composition"],
-                        "residue_layout",
-                        "fixed-positions",
-                        "layout",
-                    ),
-                ),
             )
             committed = client.post(
                 f"/api/v2/projects/{project_id}/workflow:commit",

@@ -22,8 +22,8 @@ from datatypes.prediction import (
     PredictionResidueAxis,
     prediction_axis_reference,
 )
-from datatypes.prompt import FunctionAnnotation, FunctionAnnotations, ProteinPrompt
-from datatypes.residue import ResidueLayout, ResidueMap, ResidueTrack
+from datatypes.prompt import FunctionAnnotation, ProteinPrompt
+from datatypes.residue import ResidueLayout, ResidueTrack
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure, ResolvedStructureResidueAxis
 
@@ -42,10 +42,8 @@ def test_datatype_package_is_a_marker_with_exact_value_owners() -> None:
         ConfidenceFactCollection,
         PredictionResidueAxis,
         FunctionAnnotation,
-        FunctionAnnotations,
         ProteinPrompt,
         ResidueLayout,
-        ResidueMap,
         ResidueTrack,
         ProteinSequence,
         ProteinStructure,

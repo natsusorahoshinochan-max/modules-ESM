@@ -3,11 +3,11 @@ title: Author ProteinMPNN constraints
 summary: Authors one complete ProteinMPNN constraint value against an explicit identity-complete residue layout.
 category: protein_design
 inputs:
-  - name: layout
-    port_type_id: residue.layout
+  - name: structure_residue_axis
+    port_type_id: structure_transform.resolved_residue_axis
     required: true
     multiplicity: one
-    scientific_meaning: Exact ordered residue and chain layout against which every position and chain constraint is validated.
+    scientific_meaning: The authoritative resolved structure residue axis whose layout every position and chain constraint addresses.
 outputs:
   - name: constraints
     port_type_id: proteinmpnn.constraints

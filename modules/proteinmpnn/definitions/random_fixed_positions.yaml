@@ -3,11 +3,11 @@ title: Choose random fixed positions
 summary: Reproducibly chooses a fixed fraction of an explicit residue layout without process-global randomness.
 category: protein_design
 inputs:
-  - name: layout
-    port_type_id: residue.layout
+  - name: structure_residue_axis
+    port_type_id: structure_transform.resolved_residue_axis
     required: true
     multiplicity: one
-    scientific_meaning: Exact identity-complete residue layout defining the eligible fixed-position population.
+    scientific_meaning: The authoritative resolved structure residue axis whose layout defines the eligible fixed-position population.
 outputs:
   - name: constraints
     port_type_id: proteinmpnn.constraints

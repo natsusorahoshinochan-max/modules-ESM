@@ -1,4 +1,4 @@
-"""Provider-independent ProteinPrompt assembly and sequence updates."""
+"""Provider-independent ProteinPrompt assembly and track updates."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from typing import cast
 
 from datatypes.prompt import (
-    FunctionAnnotations,
+    FunctionAnnotation,
     ProteinPrompt,
     validate_canonical_function_annotations,
 )
@@ -15,121 +15,150 @@ from datatypes.residue import (
     ResidueTrack,
 )
 from datatypes.sequence import ProteinSequence
+from datatypes.structure import NamedAtomCoordinates
 
-from .annotations import require_function_annotation_layout
 from .domain import (
-    _validate_track_values,
-    AlignedResidueTrack,
     TrackOverrideDeclaration,
-    TrackKind,
-    override_track,
+    override_values,
     validate_layout,
+    validate_track_values,
 )
 
 
-_TRACK_KINDS = {
-    "sequence_track": TrackKind.SEQUENCE,
-    "structure_track": TrackKind.STRUCTURE,
-    "secondary_structure_track": TrackKind.SECONDARY_STRUCTURE,
-    "sasa_track": TrackKind.SASA,
+_PROMPT_TRACK_KINDS = {
+    "sequence": "sequence",
+    "coordinates": "coordinates",
+    "secondary_structure": "secondary_structure",
+    "sasa": "sasa",
 }
-
-_PROMPT_TRACK_ATTRIBUTES = {
-    "sequence": ("sequence_track", TrackKind.SEQUENCE),
-    "structure": ("structure_track", TrackKind.STRUCTURE),
-    "secondary_structure": (
-        "secondary_structure_track",
-        TrackKind.SECONDARY_STRUCTURE,
-    ),
-    "sasa": ("sasa_track", TrackKind.SASA),
-}
-
-
-def _copy_track(track: ResidueTrack | None) -> ResidueTrack | None:
-    return (
-        None
-        if track is None
-        else ResidueTrack(list(track.values), None)
-    )
 
 
 def assemble_protein_prompt(
     layout: ResidueLayout,
-    tracks: Mapping[str, AlignedResidueTrack],
-    function_annotations: FunctionAnnotations | None,
+    tracks: Mapping[str, ResidueTrack | None],
+    function_annotations: Sequence[FunctionAnnotation] | None,
 ) -> ProteinPrompt:
-    """Assemble only explicit aligned values into one validated Prompt."""
-    normalized: dict[str, ResidueTrack | None] = {
-        "sequence_track": ResidueTrack([None] * layout.length, None),
-        "structure_track": ResidueTrack([None] * layout.length, None),
-        "secondary_structure_track": None,
-        "sasa_track": None,
+    """Assemble only explicit layout-bound values into one Prompt.
+
+    ``tracks`` keys are ``sequence``, ``coordinates``,
+    ``secondary_structure``, and ``sasa``. Sequence and coordinates are
+    always present in the aggregate (all-null allowed); secondary
+    structure and SASA may be whole-track absent (``None``). Every
+    present track must address exactly the given layout.
+    """
+    validate_layout(layout, subject="protein_prompt layout")
+    normalized: dict[str, tuple | None] = {
+        "sequence": tuple([None] * layout.length),
+        "coordinates": tuple([None] * layout.length),
+        "secondary_structure": None,
+        "sasa": None,
     }
     for name, track in tracks.items():
+        if name not in _PROMPT_TRACK_KINDS:
+            raise ValueError(f"unknown prompt track {name!r}")
+        if track is None:
+            if name in {"sequence", "coordinates"}:
+                raise ValueError(
+                    f"{name} conditioning is always present on a Prompt"
+                )
+            normalized[name] = None
+            continue
+        if type(track) is not ResidueTrack:
+            raise ValueError(f"{name} must be a ResidueTrack")
         if track.layout != layout:
             raise ValueError(
                 f"{name} residue identities do not match the prompt layout"
             )
-        normalized[name] = ResidueTrack(list(track.values), None)
+        validate_track_values(
+            track.values,
+            kind=_PROMPT_TRACK_KINDS[name],
+            subject=f"protein_prompt {name}",
+            length=layout.length,
+        )
+        normalized[name] = tuple(track.values)
     annotations = (
-        FunctionAnnotations()
+        ()
         if function_annotations is None
-        else require_function_annotation_layout(
-            function_annotations,
-            layout,
+        else validate_canonical_function_annotations(
+            tuple(function_annotations)
         )
     )
+    addressed = {
+        residue_id
+        for annotation in annotations
+        for residue_id in (
+            annotation.start_residue_id,
+            annotation.end_residue_id,
+        )
+    }
+    unknown = addressed - set(layout.residue_ids)
+    if unknown:
+        raise ValueError(
+            "function annotations address residue identities outside the "
+            "prompt layout"
+        )
     return ProteinPrompt(
-        target_layout=layout,
-        sequence_track=cast(ResidueTrack, normalized["sequence_track"]),
-        structure_track=cast(ResidueTrack, normalized["structure_track"]),
-        secondary_structure_track=normalized[
-            "secondary_structure_track"
-        ],
-        sasa_track=normalized["sasa_track"],
-        function_annotations=FunctionAnnotations(
-            list(annotations.annotations)
+        layout=layout,
+        sequence=cast("tuple[str | None, ...]", normalized["sequence"]),
+        coordinates=cast(
+            "tuple[NamedAtomCoordinates | None, ...]",
+            normalized["coordinates"],
         ),
+        secondary_structure=cast(
+            "tuple[str | None, ...] | None",
+            normalized["secondary_structure"],
+        ),
+        sasa=cast("tuple[float | None, ...] | None", normalized["sasa"]),
+        function_annotations=tuple(annotations),
     )
 
 
 def validate_protein_prompt(value: object) -> ProteinPrompt:
     """Validate one canonical Prompt independent of any provider Adapter."""
-    if type(value) is not ProteinPrompt or value.target_layout is None:
-        raise ValueError(
-            "protein_prompt must carry one identity-complete target layout"
-        )
-    target = validate_layout(
-        value.target_layout,
-        subject="protein_prompt target layout",
+    if type(value) is not ProteinPrompt:
+        raise ValueError("protein_prompt must be a ProteinPrompt")
+    layout = validate_layout(value.layout, subject="protein_prompt layout")
+    validate_track_values(
+        value.sequence,
+        kind="sequence",
+        subject="protein_prompt sequence",
+        length=layout.length,
     )
-    prompt_tracks = {
-        "sequence_track": (value.sequence_track, TrackKind.SEQUENCE),
-        "structure_track": (value.structure_track, TrackKind.STRUCTURE),
-        "secondary_structure_track": (
-            value.secondary_structure_track,
-            TrackKind.SECONDARY_STRUCTURE,
-        ),
-        "sasa_track": (value.sasa_track, TrackKind.SASA),
-    }
-    for name, (track, kind) in prompt_tracks.items():
-        if track is None and name in {
-            "secondary_structure_track",
-            "sasa_track",
-        }:
-            continue
-        if type(track) is not ResidueTrack:
-            raise ValueError(
-                f"protein_prompt {name} must be a ResidueTrack"
-            )
-        _validate_track_values(
-            track.values,
-            layout=target,
-            kind=kind,
-            subject=f"protein_prompt {name}",
+    validate_track_values(
+        value.coordinates,
+        kind="coordinates",
+        subject="protein_prompt coordinates",
+        length=layout.length,
+    )
+    if value.secondary_structure is not None:
+        validate_track_values(
+            value.secondary_structure,
+            kind="secondary_structure",
+            subject="protein_prompt secondary_structure",
+            length=layout.length,
+        )
+    if value.sasa is not None:
+        validate_track_values(
+            value.sasa,
+            kind="sasa",
+            subject="protein_prompt sasa",
+            length=layout.length,
         )
     validate_canonical_function_annotations(value.function_annotations)
-    require_function_annotation_layout(value.function_annotations, target)
+    addressed = {
+        residue_id
+        for annotation in value.function_annotations
+        for residue_id in (
+            annotation.start_residue_id,
+            annotation.end_residue_id,
+        )
+    }
+    unknown = addressed - set(layout.residue_ids)
+    if unknown:
+        raise ValueError(
+            "function annotations address residue identities outside the "
+            "prompt layout"
+        )
     return value
 
 
@@ -138,33 +167,26 @@ def update_prompt_sequence(
     sequence: ProteinSequence,
 ) -> ProteinPrompt:
     """Replace only sequence assignments on one canonical Prompt layout."""
-    source = prompt
-    target = cast(ResidueLayout, prompt.target_layout)
-    if len(sequence.sequence) != target.length:
+    layout = prompt.layout
+    if len(sequence.sequence) != layout.length:
         raise ValueError(
-            "sequence length must equal the protein_prompt target layout"
+            "sequence length must equal the protein_prompt layout"
         )
     if (
         sequence.residue_ids is not None
-        and tuple(sequence.residue_ids)
-        != tuple(target.residue_ids)
+        and tuple(sequence.residue_ids) != tuple(layout.residue_ids)
     ):
         raise ValueError(
             "sequence residue identities must equal the protein_prompt layout"
         )
-    updated = ProteinPrompt(
-        target_layout=target,
-        sequence_track=ResidueTrack(list(sequence.sequence), None),
-        structure_track=cast(ResidueTrack, _copy_track(source.structure_track)),
-        secondary_structure_track=_copy_track(
-            source.secondary_structure_track
-        ),
-        sasa_track=_copy_track(source.sasa_track),
-        function_annotations=FunctionAnnotations(
-            list(source.function_annotations.annotations)
-        ),
+    return ProteinPrompt(
+        layout=layout,
+        sequence=tuple(sequence.sequence),
+        coordinates=prompt.coordinates,
+        secondary_structure=prompt.secondary_structure,
+        sasa=prompt.sasa,
+        function_annotations=prompt.function_annotations,
     )
-    return updated
 
 
 def override_protein_prompt_track(
@@ -174,35 +196,50 @@ def override_protein_prompt_track(
     overrides: Sequence[TrackOverrideDeclaration],
 ) -> ProteinPrompt:
     """Override one declared Prompt track and preserve every other track."""
-    source = prompt
-    attribute, kind = _PROMPT_TRACK_ATTRIBUTES[track]
-    selected = getattr(source, attribute)
-    if selected is None:
-        selected = ResidueTrack([None] * source.target_layout.length, None)
-    layout = cast(ResidueLayout, source.target_layout)
-    changed = override_track(
-        AlignedResidueTrack(layout, tuple(selected.values)),
+    if track not in _PROMPT_TRACK_KINDS:
+        raise ValueError(f"unknown prompt track {track!r}")
+    layout = prompt.layout
+    if track in {"sequence", "coordinates"}:
+        current: tuple | None = getattr(prompt, track)
+    else:
+        current = getattr(prompt, track)
+        if current is None:
+            current = tuple([None] * layout.length)
+    changed = override_values(
+        current,
         layout,
         overrides,
-        kind=kind,
+        kind=_PROMPT_TRACK_KINDS[track],
     )
-
-    tracks = {
-        "sequence_track": _copy_track(source.sequence_track),
-        "structure_track": _copy_track(source.structure_track),
-        "secondary_structure_track": _copy_track(
-            source.secondary_structure_track
-        ),
-        "sasa_track": _copy_track(source.sasa_track),
+    validate_track_values(
+        changed,
+        kind=_PROMPT_TRACK_KINDS[track],
+        subject=f"protein_prompt {track}",
+        length=layout.length,
+    )
+    fields: dict[str, object] = {
+        "sequence": prompt.sequence,
+        "coordinates": prompt.coordinates,
+        "secondary_structure": prompt.secondary_structure,
+        "sasa": prompt.sasa,
     }
-    tracks[attribute] = ResidueTrack(list(changed.values), None)
+    if track in {"secondary_structure", "sasa"} and fields[track] is None:
+        fields[track] = tuple([None] * layout.length)
+    fields[track] = changed
     return ProteinPrompt(
-        target_layout=layout,
-        sequence_track=cast(ResidueTrack, tracks["sequence_track"]),
-        structure_track=cast(ResidueTrack, tracks["structure_track"]),
-        secondary_structure_track=tracks["secondary_structure_track"],
-        sasa_track=tracks["sasa_track"],
-        function_annotations=FunctionAnnotations(
-            list(source.function_annotations.annotations)
+        layout=layout,
+        sequence=cast("tuple[str | None, ...]", fields["sequence"]),
+        coordinates=cast(
+            "tuple[NamedAtomCoordinates | None, ...]",
+            fields["coordinates"],
         ),
+        secondary_structure=cast(
+            "tuple[str | None, ...] | None",
+            fields["secondary_structure"],
+        ),
+        sasa=cast(
+            "tuple[float | None, ...] | None",
+            fields["sasa"],
+        ),
+        function_annotations=prompt.function_annotations,
     )

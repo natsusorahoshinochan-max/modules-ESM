@@ -64,7 +64,7 @@ def _run_import_export(
         payload,
         filename=f"{value_kind}-input",
     )
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     nodes = tuple(
         WorkflowNodeInstance(
             node_id=role,
@@ -258,7 +258,7 @@ def test_fifteen_candidate_pdbs_keep_identity_slots_and_cache_rematerialize(
         run_root=tmp_path / "runs",
     )
     project = projects.create("fifteen PDB artifact acceptance")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

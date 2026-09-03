@@ -1,129 +1,44 @@
-- method_id: prompt_authoring.assemble_protein_prompt.method
+- method_id: prompt_authoring.author.method
+  algorithm_identity:
+    name: document-driven-protein-prompt-authoring
+    baseline: one-of-sequence-source-structure-source-prompt-source-or-blank-chains
+    structure_layout: authoritative-resolved-axis-layout
+    identity_reindex: insert-delete-preserving-shared-residue-identities
+    track_edits: identity-addressed-clear-preserve-replace
+    secondary_structure_admission: dash-to-C-underscore-to-missing-P-invalid
+    rigid_transforms: proper-rotation-application-per-residue
+    function_annotations: replace-with-overlap-policy
+    random: seed-and-layout-derived-deterministic-selection
+    merges: per-track-adopt-or-preserve-through-confirmed-correspondence
+    final_validation: validate_protein_prompt
+  model_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.decompose.method
+  algorithm_identity:
+    name: canonical-protein-prompt-decomposition
+    tracks: sequence-coordinates-secondary_structure-sasa-as-ResidueTrack
+    function_annotations: FunctionAnnotationTrack-on-authoritative-layout
+    value_changes: none
+    identity_changes: none
+  model_identity:
+    kind: none
+  featurization_identity:
+    residue_identity: <chain>:<label>
+    chain_boundary: contiguous
+  scale_contract:
+    kind: identity
+- method_id: prompt_authoring.assemble.method
   algorithm_identity:
     name: validated-residue-aligned-protein-prompt-assembly
-    track_layout: exact-effective-residue-layout
-    sequence_and_structure_masks: explicit-all-null-residue-tracks
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.build_residue_layout.method
-  algorithm_identity:
-    name: canonical-residue-layout-construction
-    residue_identity: <chain>:<one-based-generated-label>
-    chain_boundary: ordered-contiguous-chain-blocks
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.edit_protein_prompt_layout.method
-  algorithm_identity:
-    name: whole-protein-prompt-layout-edit
-    mapping_operations:
-    - delete
-    - insert
-    - match
-    track_effect: synchronous-all-present-tracks
-    annotation_effect: exact-endpoint-remap
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.merge_protein_prompt_source.method
-  algorithm_identity:
-    name: confirmed-correspondence-protein-prompt-source-merge
-    correspondence: exact-residue-identities-with-gap-dispositions
-    conflicts: explicit-per-track-decisions
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.override_protein_prompt_track.method
-  algorithm_identity:
-    name: identity-addressed-protein-prompt-track-override
-    actions:
-    - clear
-    - preserve
-    - replace
-    unaffected_tracks: byte-equivalent-canonical-values
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.prompt_from_structure.method
-  algorithm_identity:
-    name: canonical-resolved-axis-to-protein-prompt
-    residue_identity: resolved-axis-layout-order
-    coordinates: resolved-axis-selected-named-atoms
-    component_policy: consume-resolver-admitted-polymer-axis
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.random_insert_masked.method
-  algorithm_identity:
-    name: seeded-chain-local-masked-residue-insertion
-    sampling: sha256-boundary-set-digest-counter-modulo-v1
-    replacement: with-replacement-across-eligible-boundaries
-    eligibility: canonical-unordered-effective-chain-set-v1
-    inserted_values: explicit-null-on-every-present-track
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.random_mask.method
-  algorithm_identity:
-    name: seeded-assigned-residue-masking
-    sampling: sha256-residue-ranking-v1
-    replacement: without-replacement
-    eligibility: canonical-unordered-assigned-residue-set-v1
-    masked_value: explicit-null
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.replace_protein_prompt_annotations.method
-  algorithm_identity:
-    name: complete-function-annotation-collection-replacement
-    interval_indexing: one-based-inclusive-provider-axis
-    ordering: global-start-global-end-label-and-provenance
-    overlap_policy: operation-scoped-workflow-choice
-  model_identity:
-    kind: none
-  featurization_identity:
-    residue_identity: <chain>:<label>
-    chain_boundary: contiguous
-  scale_contract:
-    kind: identity
-- method_id: prompt_authoring.update_prompt_sequence.method
-  algorithm_identity:
-    name: generic-protein-prompt-sequence-replacement
-    preservation: layout-and-all-unaffected-tracks
-    residue_identity: exact-layout-order
+    layout_contract: all-present-inputs-share-one-exact-ResidueLayout
+    sequence_and_structure: always-present-all-null-residue-tracks
+    secondary_structure_sasa: whole-track-absent-distinct-from-all-null
+    function_annotations: FunctionAnnotationTrack-on-same-layout
   model_identity:
     kind: none
   featurization_identity:

@@ -205,7 +205,7 @@ def _run_fold(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"folding {route}")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,
@@ -401,7 +401,7 @@ def test_remote_base_seed_is_ordinary_but_local_seed_is_declared_randomness(
         )
     )
     projects = ProjectManager(tmp_path / "projects")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     parents = CandidateCollection(
         "parents",
         "protein.sequence",

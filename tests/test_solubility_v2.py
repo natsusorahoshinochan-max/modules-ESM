@@ -1071,7 +1071,7 @@ def _run_soluprot(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"SoluProt {mode}")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(
