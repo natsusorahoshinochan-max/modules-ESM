@@ -5,7 +5,7 @@
     structure_layout: authoritative-resolved-axis-layout
     identity_reindex: insert-delete-preserving-shared-residue-identities
     track_edits: identity-addressed-clear-preserve-replace
-    secondary_structure_admission: dash-to-C-underscore-to-missing-P-invalid
+    secondary_structure_admission: dash-to-C-underscore-and-P-invalid
     rigid_transforms: proper-rotation-application-per-residue
     function_annotations: replace-with-overlap-policy
     random: seed-and-layout-derived-deterministic-selection

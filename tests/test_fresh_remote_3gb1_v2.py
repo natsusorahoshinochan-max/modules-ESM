@@ -518,9 +518,7 @@ def _assert_science(
     prompt_node_id = next(
         node["node_id"]
         for node in workflow["nodes"]
-        if node["node_type_id"]
-        == "prompt_authoring.author"
-        and node["node_parameters"]["track"] == "secondary_structure"
+        if node["node_type_id"] == "prompt_authoring.author"
     )
     prompt = _one(
         service,

@@ -403,7 +403,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.11",
+              "residue_id": "A:masked.1603.2.11",
               "value": "E"
             },
             {
@@ -415,7 +415,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.15",
+              "residue_id": "A:masked.1603.2.15",
               "value": "E"
             },
             {
@@ -427,7 +427,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.8",
+              "residue_id": "A:masked.1603.2.8",
               "value": "E"
             },
             {
@@ -463,7 +463,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.10",
+              "residue_id": "A:masked.1603.2.10",
               "value": "E"
             },
             {
@@ -493,7 +493,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.12",
+              "residue_id": "A:masked.1603.2.12",
               "value": "E"
             },
             {
@@ -589,7 +589,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.2",
+              "residue_id": "A:masked.1603.2.2",
               "value": "E"
             },
             {
@@ -601,7 +601,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.4",
+              "residue_id": "A:masked.1603.2.4",
               "value": "E"
             },
             {
@@ -625,7 +625,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.7",
+              "residue_id": "A:masked.1603.2.7",
               "value": "E"
             },
             {
@@ -637,7 +637,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.3",
+              "residue_id": "A:masked.1603.2.3",
               "value": "E"
             },
             {
@@ -661,7 +661,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.1",
+              "residue_id": "A:masked.1603.2.1",
               "value": "E"
             },
             {
@@ -679,7 +679,7 @@
             {
               "track": "secondary_structure",
               "action": "replace",
-              "residue_id": "A:masked.1603.9",
+              "residue_id": "A:masked.1603.2.9",
               "value": "E"
             },
             {

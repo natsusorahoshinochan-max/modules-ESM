@@ -258,7 +258,7 @@ def test_workflow_stress_tier_includes_nonpositional_association_probes() -> Non
     assert "-s" in targets
     assert (
         "tests/test_collection_ops_v2.py::"
-        "test_public_pairing_uses_common_parent_not_collection_order"
+        "test_public_relation_uses_exact_parent_identity_not_collection_order"
     ) in targets
     assert (
         "tests/test_collection_ops_v2.py::"

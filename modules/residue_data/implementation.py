@@ -3,9 +3,30 @@
 from __future__ import annotations
 
 from datatypes.candidate import Candidate, CandidateCollection
+from datatypes.residue import ResidueTrack
 from datatypes.sequence import ProteinSequence
 
 from core.operation import OperationCall
+
+
+def materialize_sequence(track: ResidueTrack[str]) -> ProteinSequence:
+    """Project complete single-chain conditioning to one exact sequence."""
+    for index, value in enumerate(track.values):
+        if value is None:
+            raise ValueError(
+                "materialize_sequence requires complete sequence "
+                f"conditioning; residue index {index} is missing"
+            )
+    chain_ids = track.layout.chain_ids
+    if len(chain_ids) != 1:
+        raise ValueError(
+            "materialize_sequence requires single-chain sequence "
+            f"conditioning; found chains {', '.join(chain_ids)}"
+        )
+    return ProteinSequence(
+        "".join(track.values),
+        residue_ids=tuple(track.layout.residue_ids),
+    )
 
 
 class MaterializeSequenceImplementation:
@@ -18,22 +39,7 @@ class MaterializeSequenceImplementation:
 
     def execute(self, call: OperationCall) -> dict[str, object]:
         track = call.inputs["sequence"].value
-        for index, value in enumerate(track.values):
-            if value is None:
-                raise ValueError(
-                    "materialize_sequence requires complete sequence "
-                    f"conditioning; residue index {index} is missing"
-                )
-        chain_ids = track.layout.chain_ids
-        if len(chain_ids) != 1:
-            raise ValueError(
-                "materialize_sequence requires single-chain sequence "
-                f"conditioning; found chains {', '.join(chain_ids)}"
-            )
-        sequence = ProteinSequence(
-            "".join(track.values),
-            residue_ids=tuple(track.layout.residue_ids),
-        )
+        sequence = materialize_sequence(track)
         candidate = Candidate(
             "materialized-sequence",
             sequence,

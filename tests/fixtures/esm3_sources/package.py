@@ -90,7 +90,6 @@ class _Source:
                     (
                         FunctionAnnotation(
                             label="binding site",
-                            start=1,
                             start_residue_id="A:1",
                             end_residue_id="A:2",
                         ),

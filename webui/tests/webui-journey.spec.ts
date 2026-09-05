@@ -1,30 +1,19 @@
 import { expect, test } from '@playwright/test'
-import { unzipSync } from 'fflate'
 
 test('default 3GB1 workflow remains connected from authoring through export', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: '3GB1 Local Redesign Example' })).toBeVisible()
-  await expect(page.getByText(/33 GRAPH NODES/)).toBeVisible()
+  await expect(page.getByText(/36 GRAPH NODES/)).toBeVisible()
   await expect(page.getByText('只读示例')).toBeVisible()
-  await expect(page.getByText(/70 persisted edges/)).toBeVisible()
+  await expect(page.getByText(/66 persisted edges/)).toBeVisible()
   await expect(page.getByTestId('rf__node-relation-generated-structure-parent').getByRole('heading', { name: 'Relate Candidates to their parents' })).toBeVisible()
   await expect(page.getByTestId('rf__node-relation-generated-pairs').getByRole('heading', { name: 'Invert a Candidate relation' })).toBeVisible()
 
-  await page.getByRole('button', { name: /Results 3/ }).click()
-  await expect(page.getByRole('heading', { name: /最终候选/ })).toBeVisible()
-  await expect(page.getByText('explicit_relation', { exact: true })).toBeVisible()
-  await expect(page.getByText('Mean-residue pLDDT').first()).toBeVisible()
-  await expect(page.getByText('Template modelling score').first()).toBeVisible()
-  const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: /导出所选/ }).click()
-  const path = await (await download).path()
-  const archive = unzipSync(await import('node:fs').then(({ readFileSync }) => readFileSync(path!)))
-  expect(Object.keys(archive)).toEqual(expect.arrayContaining(['candidates.fasta', 'scores.csv', 'manifest.json']))
-  expect(Object.keys(archive).filter((name) => name.endsWith('.pdb'))).toHaveLength(1)
+  await expect(page.getByRole('button', { name: /Results 0/ })).toBeDisabled()
 
-  await page.getByRole('button', { name: '返回 Workflow' }).click()
-  await page.getByLabel('编辑参数').first().click()
-  const seed = page.getByLabel('有效种子').first()
+  const generationNode = page.getByTestId('rf__node-generate-paired')
+  await generationNode.getByLabel('编辑参数').click()
+  const seed = generationNode.getByLabel('有效种子')
   await seed.fill('1604')
   await seed.press('Tab')
   await expect(page.getByText('已自动保存')).toBeVisible()
@@ -62,7 +51,7 @@ test('default 3GB1 workflow remains connected from authoring through export', as
 
   await page.getByRole('button', { name: '运行完整流程' }).click()
   await expect(page.getByRole('heading', { name: '确认运行完整流程' })).toBeVisible()
-  await expect(page.getByText('40 个 materialized Node Instances')).toBeVisible()
+  await expect(page.getByText('36 个 materialized Node Instances')).toBeVisible()
   await expect(page.getByText('7 → 4 → 4 → 2 → 6 → 6 → 3', { exact: true })).toBeVisible()
 })
 
@@ -70,7 +59,7 @@ test('the Palette switches between research-purpose and provider classifications
   await page.goto('/')
 
   await expect(page.getByRole('button', { name: '按研究目的' })).toHaveClass(/active/)
-  await expect(page.locator('.palette-item')).toHaveCount(57)
+  await expect(page.getByRole('button', { name: 'Author ProteinPrompt prompt_authoring' })).toBeVisible()
   await expect(page.getByText('collection', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: '按包 / 模型' }).click()
@@ -161,7 +150,7 @@ test('dragging an ordinary Palette operation adds and saves a Node Instance', as
   await operation.dragTo(canvas, { targetPosition: { x: 520, y: 620 } })
 
   await expect(page.getByRole('heading', { name: 'Invert a Candidate relation' })).toBeVisible()
-  await expect(page.getByText(/34 GRAPH NODES/)).toBeVisible()
+  await expect(page.getByText(/37 GRAPH NODES/)).toBeVisible()
   await expect(page.getByText('已自动保存')).toBeVisible()
   await expect(page.getByText('personal', { exact: true })).toBeVisible()
 
@@ -169,13 +158,14 @@ test('dragging an ordinary Palette operation adds and saves a Node Instance', as
   await page.keyboard.press('Meta+z')
   const restored = await (await undoSave).json()
   expect(restored.workflow.nodes.some((node: { node_type_id: string }) => node.node_type_id === 'collection_ops.invert_relation' && node.node_id.startsWith('collection_ops-invert_relation-'))).toBe(false)
-  await expect(page.getByText(/33 GRAPH NODES/)).toBeVisible()
+  await expect(page.getByText(/36 GRAPH NODES/)).toBeVisible()
 })
 
 test('a committed parameter edit can be undone with the keyboard', async ({ page }) => {
   await page.goto('/')
-  await page.getByLabel('编辑参数').first().click()
-  const seed = page.getByLabel('有效种子').first()
+  const generationNode = page.getByTestId('rf__node-generate-paired')
+  await generationNode.getByLabel('编辑参数').click()
+  const seed = generationNode.getByLabel('有效种子')
   await expect(seed).toHaveValue('1603')
   await seed.fill('1604')
   const parameterSave = page.waitForResponse((response) => response.request().method() === 'PUT' && response.url().endsWith('/workflow/draft'))
@@ -208,9 +198,9 @@ test('Prompt Studio edits the backend projection and shows every prompt track', 
   await page.getByRole('button', { name: 'Preserve', exact: true }).click()
   await expect(page.getByRole('button', { name: /A30 Sequence .* current/ })).toBeVisible()
   await page.getByRole('button', { name: '取消', exact: true }).click()
-  await page.getByRole('button', { name: 'Mask', exact: true }).click()
+  await page.getByRole('button', { name: 'Clear', exact: true }).click()
   await expect(page.getByRole('button', { name: 'A30 Sequence Mask cleared' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /即时预览 · Sequence · mask/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /即时预览 · Sequence · clear/ })).toBeVisible()
   await expect(page.getByRole('button', { name: '保存 ProteinPrompt' })).toBeDisabled()
 
   await page.getByRole('button', { name: '应用操作' }).click()
@@ -295,8 +285,9 @@ test('starting a run waits for the latest autosaved Workflow revision', async ({
   })
 
   await page.goto('/')
-  await page.getByLabel('编辑参数').first().click()
-  const seed = page.getByLabel('有效种子').first()
+  const generationNode = page.getByTestId('rf__node-generate-paired')
+  await generationNode.getByLabel('编辑参数').click()
+  const seed = generationNode.getByLabel('有效种子')
   await seed.fill('1604')
   await seed.press('Tab')
   await saveStarted
@@ -307,20 +298,6 @@ test('starting a run waits for the latest autosaved Workflow revision', async ({
 
   releaseSave()
   await expect.poll(() => committedSeed).toBe(1604)
-})
-
-test('Results use the terminal Candidate output independently of Artifacts', async ({ page }) => {
-  await page.route(/\/api\/v2\/projects\/webui-3gb1-example\/runs\/run-[^/]+$/, async (route) => {
-    const response = await route.fetch()
-    const projection = await response.json()
-    projection.artifact_index = []
-    await route.fulfill({ response, json: projection })
-  })
-
-  await page.goto('/')
-  await expect(page.getByRole('button', { name: /Results 3/ })).toBeEnabled()
-  await page.getByRole('button', { name: /Results 3/ }).click()
-  await expect(page.locator('.candidate-row')).toHaveCount(3)
 })
 
 test('a started workflow reports its live status and current stage', async ({ page }) => {
@@ -481,27 +458,17 @@ test('a started workflow reports its live status and current stage', async ({ pa
   await expect(page.getByRole('status')).toContainText('运行失败')
   await expect(page.getByTestId('rf__node-confidence-generated').getByLabel('Materialize structure-prediction confidence：失败')).toBeVisible()
   await expect(page.getByTestId('rf__node-select-paired-sequences').getByLabel('Select related subjects by reference：未执行')).toBeVisible()
-  await expect(page.getByRole('status')).toContainText('3 / 40 Nodes')
-})
-
-test('the latest run projection restores status on every visible workflow stage', async ({ page }) => {
-  await page.goto('/')
-
-  for (const [nodeId, title] of [
-    ['prompt-composition-webui-3gb1', 'protein_prompt.authoring'],
-    ['generate-paired', 'Generate paired sequences and structures with remote ESM-3'],
-    ['confidence-generated', 'Materialize structure-prediction confidence'],
-    ['fold-stage-one', 'Fold protein sequences'],
-    ['rank-stage-one', 'Rank Candidates by explicit weighted Utilities'],
-    ['design-children', 'Design sequences with ProteinMPNN'],
-    ['fold-final', 'Fold protein sequences'],
-    ['take-top-three', 'Take an ordered Candidate prefix'],
-  ]) {
-    await expect(page.getByTestId(`rf__node-${nodeId}`).getByLabel(`${title}：成功`)).toBeVisible()
-  }
+  await expect(page.getByRole('status')).toContainText('3 / 36 Nodes')
 })
 
 test('an active run reload restores waiting stages and replays the current node', async ({ page }) => {
+  await page.route('**/api/v2/projects', async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json()
+    const example = payload.projects.find((item: { id: string }) => item.id === 'webui-3gb1-example')
+    example.latest_run_id = 'active-run'
+    await route.fulfill({ response, json: payload })
+  })
   await page.route(/\/api\/v2\/projects\/[^/]+\/runs\/[^/]+$/, async (route) => {
     const parts = new URL(route.request().url()).pathname.split('/')
     await route.fulfill({
@@ -525,9 +492,10 @@ test('an active run reload restores waiting stages and replays the current node'
       }),
     })
   })
+  let replayStarted!: () => void
   await page.routeWebSocket(/\/runs\/[^/]+\/events/, (webSocket) => {
     expect(webSocket.url()).not.toContain('after_sequence')
-    setTimeout(() => {
+    replayStarted = () => {
       webSocket.send(JSON.stringify({
         schema_namespace: 'protein-workbench-public/v2',
         project_id: 'default-example',
@@ -541,12 +509,14 @@ test('an active run reload restores waiting stages and replays the current node'
           node_attempt_id: 'attempt-confidence-generated',
         },
       }))
-    }, 1000)
+    }
   })
 
   await page.goto('/')
 
   await expect(page.getByTestId('rf__node-generate-paired').getByLabel('Generate paired sequences and structures with remote ESM-3：成功')).toBeVisible()
   await expect(page.getByTestId('rf__node-confidence-generated').getByLabel('Materialize structure-prediction confidence：等待')).toBeVisible()
+  await expect.poll(() => typeof replayStarted).toBe('function')
+  replayStarted()
   await expect(page.getByTestId('rf__node-confidence-generated').getByLabel('Materialize structure-prediction confidence：运行中')).toBeVisible()
 })

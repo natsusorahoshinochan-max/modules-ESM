@@ -18,17 +18,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import hashlib
 import math
-from typing import Any, Literal
+from typing import Any
 
 from core.catalog.canonical import canonical_json_bytes
 from datatypes.prompt import (
     FunctionAnnotation,
-    FunctionAnnotationTrack,
     ProteinPrompt,
 )
 from datatypes.residue import (
     ResidueLayout,
-    ResidueTrack,
     residue_identity_chain,
 )
 from datatypes.sequence import ProteinSequence
@@ -41,10 +39,9 @@ from modules.residue_data.port_types import CANONICAL_SS8
 from .annotations import replace_function_annotations
 from .domain import (
     build_layout,
-    normalize_replacement,
     override_values,
 )
-from .prompts import assemble_protein_prompt, validate_protein_prompt
+from .prompts import validate_protein_prompt
 
 
 _TRACK_FIELDS: dict[str, str] = {
@@ -68,12 +65,17 @@ def _baseline_prompt(
     document: Mapping[str, Any],
 ) -> ProteinPrompt:
     """Resolve the starting Prompt from exactly one admissible source."""
+    sources = (sequence_source, structure_source, prompt_source)
+    if sum(source is not None for source in sources) > 1:
+        raise ValueError(
+            "prompt authoring accepts at most one primary source"
+        )
     if prompt_source is not None:
         return prompt_source
     if structure_source is not None:
         return _prompt_from_structure(structure_source)
     if sequence_source is not None:
-        return _prompt_from_sequence(sequence_source)
+        return _prompt_from_sequence(sequence_source, document)
     chains = document.get("chains")
     if not chains:
         raise ValueError(
@@ -107,11 +109,7 @@ def _prompt_from_structure(
         )
     coordinates: list[NamedAtomCoordinates | None] = []
     for residue_id in layout.residue_ids:
-        try:
-            atoms = axis.coordinates_for(residue_id)
-        except KeyError:
-            coordinates.append(None)
-            continue
+        atoms = axis.coordinates_for(residue_id)
         mapping = {atom.atom_name: atom.coordinate for atom in atoms}
         coordinates.append(
             NamedAtomCoordinates.from_mapping(mapping) if mapping else None
@@ -126,16 +124,38 @@ def _prompt_from_structure(
     )
 
 
-def _prompt_from_sequence(sequence_source: ProteinSequence) -> ProteinPrompt:
+def _prompt_from_sequence(
+    sequence_source: ProteinSequence,
+    document: Mapping[str, Any],
+) -> ProteinPrompt:
+    chains = document.get("chains")
+    if not chains:
+        raise ValueError("sequence-source authoring requires declared chains")
+    declared_layout = build_layout(tuple(chains))
     if sequence_source.residue_ids is not None:
         layout = ResidueLayout(tuple(sequence_source.residue_ids))
-    else:
-        layout = ResidueLayout(
-            tuple(f"A:{index + 1}" for index in range(len(sequence_source)))
+        actual = tuple(
+            (
+                chain_id,
+                sum(
+                    residue_identity_chain(residue_id) == chain_id
+                    for residue_id in layout.residue_ids
+                ),
+            )
+            for chain_id in layout.chain_ids
         )
+        declared = tuple(
+            (chain["chain_id"], chain["length"]) for chain in chains
+        )
+        if actual != declared:
+            raise ValueError(
+                "sequence source residue identities do not match declared chains"
+            )
+    else:
+        layout = declared_layout
     if layout.length != len(sequence_source.sequence):
         raise ValueError(
-            "sequence source residue identities do not match sequence length"
+            "sequence source length does not match declared chains"
         )
     return ProteinPrompt(
         layout=layout,
@@ -153,12 +173,20 @@ def _prompt_from_sequence(sequence_source: ProteinSequence) -> ProteinPrompt:
 def _reindex_to_target(
     prompt: ProteinPrompt,
     target_residues: Sequence[Mapping[str, Any]] | None,
+    *,
+    replace_annotations: bool,
 ) -> ProteinPrompt:
     """Reindex the Prompt onto the document's ordered target identities."""
-    if not target_residues:
+    if target_residues is None:
         return prompt
     baseline_ids = set(prompt.layout.residue_ids)
+    baseline_index = {
+        residue_id: index
+        for index, residue_id in enumerate(prompt.layout.residue_ids)
+    }
+    baseline_chains = set(prompt.layout.chain_ids)
     target_ids: list[str] = []
+    source_positions: list[int] = []
     for item in target_residues:
         residue_id = item["residue_id"]
         origin = item["origin"]
@@ -167,17 +195,24 @@ def _reindex_to_target(
                 raise ValueError(
                     f"target residue {residue_id!r} is not in the source layout"
                 )
+            source_positions.append(baseline_index[residue_id])
         elif origin == "inserted":
             if residue_id in baseline_ids:
                 raise ValueError(
                     f"inserted residue {residue_id!r} collides with a source "
                     "residue"
                 )
+            if residue_identity_chain(residue_id) not in baseline_chains:
+                raise ValueError(
+                    f"inserted residue {residue_id!r} is outside declared chains"
+                )
         else:
             raise ValueError(f"unknown target residue origin {origin!r}")
         target_ids.append(residue_id)
     if len(set(target_ids)) != len(target_ids):
         raise ValueError("target_residues contains duplicate residue identities")
+    if source_positions != sorted(source_positions):
+        raise ValueError("target_residues reorders source residue identities")
     layout = ResidueLayout(tuple(target_ids))
     source_index = {
         residue_id: index
@@ -192,13 +227,28 @@ def _reindex_to_target(
             for residue_id in target_ids
         )
 
-    target_set = set(target_ids)
-    annotations = tuple(
-        annotation
-        for annotation in prompt.function_annotations
-        if annotation.start_residue_id in target_set
-        and annotation.end_residue_id in target_set
-    )
+    if replace_annotations:
+        annotations: tuple[FunctionAnnotation, ...] = ()
+    else:
+        target_index = {
+            residue_id: index for index, residue_id in enumerate(target_ids)
+        }
+        for annotation in prompt.function_annotations:
+            start = baseline_index[annotation.start_residue_id]
+            end = baseline_index[annotation.end_residue_id]
+            interval = prompt.layout.residue_ids[start : end + 1]
+            if any(residue_id not in target_index for residue_id in interval):
+                raise ValueError(
+                    "target layout would truncate an inherited function "
+                    "annotation interval"
+                )
+            positions = tuple(target_index[residue_id] for residue_id in interval)
+            if positions != tuple(range(positions[0], positions[0] + len(positions))):
+                raise ValueError(
+                    "target layout would split an inherited function "
+                    "annotation interval"
+                )
+        annotations = tuple(prompt.function_annotations)
     return ProteinPrompt(
         layout=layout,
         sequence=remap(prompt.sequence),  # type: ignore[arg-type]
@@ -215,8 +265,8 @@ def _reindex_to_target(
 def _normalize_ss8_token(value: object) -> str | None:
     """Normalize one public SS8 admission token to the canonical value.
 
-    ``-`` becomes ``C``; ``_`` becomes missing (None); canonical states pass
-    through. Raw DSSP ``P`` is invalid prompt input and raises.
+    ``-`` becomes ``C``; canonical states pass through. Raw DSSP-only tokens
+    are invalid prompt input and raise.
     """
     if value is None:
         return None
@@ -224,10 +274,8 @@ def _normalize_ss8_token(value: object) -> str | None:
         raise ValueError("secondary-structure value must be text")
     if value == "-":
         return "C"
-    if value == "_":
-        return None
-    if value == "P":
-        raise ValueError("raw DSSP state P is not a valid prompt input")
+    if value in {"_", "P"}:
+        raise ValueError(f"raw DSSP state {value} is not a valid prompt input")
     if value not in CANONICAL_SS8:
         raise ValueError(f"invalid SS8 token {value!r}")
     return value
@@ -324,6 +372,8 @@ def _collect_overrides(
                         {"action": "clear", "residue_id": residue_id}
                     )
                     continue
+            elif track == "sasa" and type(value) is int:
+                value = float(value)
             overrides[track].append(
                 {
                     "action": "replace",
@@ -374,8 +424,6 @@ def _apply_track_overrides(
             tuple(raw_overrides),
             kind=track,
         )
-        if fields[track] is None and all(item is None for item in changed):
-            changed = None  # keep whole-track absent
         fields[track] = changed
     return ProteinPrompt(
         layout=prompt.layout,
@@ -465,7 +513,7 @@ def resolve_random_mask_effective_randomness(
 def _apply_random_mask(
     prompt: ProteinPrompt,
     operation: Mapping[str, Any],
-) -> ProteinPrompt:
+) -> tuple[ProteinPrompt, tuple[str, ...]]:
     effective = normalize_random_mask_effective_randomness(
         prompt,
         effective_seed=operation["seed"],
@@ -490,9 +538,12 @@ def _apply_random_mask(
             ),
         )[: effective["count"]]
     )
-    for residue_id in chosen:
+    selected = tuple(
+        residue_id for residue_id in residue_ids if residue_id in chosen
+    )
+    for residue_id in selected:
         values[residue_ids.index(residue_id)] = None
-    return _with_track(prompt, effective["track"], tuple(values))
+    return _with_track(prompt, effective["track"], tuple(values)), selected
 
 
 def normalize_random_insert_effective_randomness(
@@ -541,7 +592,9 @@ def resolve_random_insert_effective_randomness(
 def _apply_random_insert(
     prompt: ProteinPrompt,
     operation: Mapping[str, Any],
-) -> ProteinPrompt:
+    *,
+    operation_index: int,
+) -> tuple[ProteinPrompt, tuple[str, ...]]:
     effective = normalize_random_insert_effective_randomness(
         prompt,
         effective_seed=operation["seed"],
@@ -594,7 +647,10 @@ def _apply_random_insert(
 
     inserted_ids: dict[int, str] = {}
     for chain_id, _position, ordinal in selections:
-        residue_id = f"{chain_id}:masked.{effective['effective_seed']}.{ordinal}"
+        residue_id = (
+            f"{chain_id}:masked.{effective['effective_seed']}."
+            f"{operation_index}.{ordinal}"
+        )
         if residue_id in source_ids:
             raise ValueError(
                 f"generated inserted residue {residue_id!r} collides"
@@ -629,7 +685,7 @@ def _apply_random_insert(
             )
 
     layout = ResidueLayout(tuple(target_ids))
-    return ProteinPrompt(
+    result = ProteinPrompt(
         layout=layout,
         sequence=tuple(new_values["sequence"]),  # type: ignore[arg-type]
         coordinates=tuple(new_values["coordinates"]),  # type: ignore[arg-type]
@@ -642,6 +698,12 @@ def _apply_random_insert(
             tuple(new_values["sasa"]) if present_fields["sasa"] else None
         ),
         function_annotations=tuple(prompt.function_annotations),
+    )
+    inserted_id_set = set(inserted_ids.values())
+    return result, tuple(
+        residue_id
+        for residue_id in result.layout.residue_ids
+        if residue_id in inserted_id_set
     )
 
 
@@ -694,14 +756,12 @@ def _apply_function_annotations(
     prompt: ProteinPrompt,
     document: Mapping[str, Any],
 ) -> ProteinPrompt:
-    raw = document.get("function_annotations") or ()
-    if not raw:
+    if "function_annotations" not in document:
         return prompt
-    overlap_policy = document.get("overlap_policy", "allow")
+    raw = document["function_annotations"]
     annotations = replace_function_annotations(
         prompt.layout,
         tuple(raw),
-        overlap_policy=overlap_policy,
     )
     return ProteinPrompt(
         layout=prompt.layout,
@@ -724,11 +784,34 @@ def _merge_one(
     track_decisions = merge["track_decisions"]
     correspondence = merge.get("correspondence") or ()
     matched: list[tuple[str, str]] = []
-    for row in correspondence:
-        if row.get("disposition") == "match":
+    ordered_source_ids: list[str] = []
+    ordered_target_ids: list[str] = []
+    for row_index, row in enumerate(correspondence):
+        disposition = row["disposition"]
+        if disposition == "match":
+            source_residue_id = row["source_residue_id"]
+            target_residue_id = row["target_residue_id"]
             matched.append(
-                (row["source_residue_id"], row["target_residue_id"])
+                (source_residue_id, target_residue_id)
             )
+            ordered_source_ids.append(source_residue_id)
+            ordered_target_ids.append(target_residue_id)
+        elif disposition == "source_gap":
+            ordered_source_ids.append(row["source_residue_id"])
+        elif disposition == "target_gap":
+            ordered_target_ids.append(row["target_residue_id"])
+        else:
+            raise ValueError(
+                f"merge correspondence row {row_index} has an unknown disposition"
+            )
+    if tuple(ordered_source_ids) != tuple(source.layout.residue_ids):
+        raise ValueError(
+            "merge correspondence must cover source residues exactly once in order"
+        )
+    if tuple(ordered_target_ids) != tuple(target.layout.residue_ids):
+        raise ValueError(
+            "merge correspondence must cover target residues exactly once in order"
+        )
     source_index = {
         residue_id: index
         for index, residue_id in enumerate(source.layout.residue_ids)
@@ -737,11 +820,6 @@ def _merge_one(
         residue_id: index
         for index, residue_id in enumerate(target.layout.residue_ids)
     }
-    for source_residue_id, target_residue_id in matched:
-        if source_residue_id not in source_index:
-            raise ValueError("merge correspondence source residue is unknown")
-        if target_residue_id not in target_index:
-            raise ValueError("merge correspondence target residue is unknown")
     source_to_target = {source_id: target_id for source_id, target_id in matched}
 
     def merged_track(field: str, decision: str) -> Any:
@@ -749,8 +827,12 @@ def _merge_one(
         source_values = getattr(source, field)
         if decision == "preserve":
             return target_values
+        if decision != "adopt":
+            raise ValueError(f"unknown merge track decision {decision!r}")
         if source_values is None:
-            return target_values
+            raise ValueError(
+                f"cannot adopt absent source track {field!r}; preserve it instead"
+            )
         base: list[Any] = (
             list(target_values)
             if target_values is not None
@@ -769,23 +851,55 @@ def _merge_one(
 
     if track_decisions["function_annotations"] == "preserve":
         annotations = target.function_annotations
-    else:
+    elif track_decisions["function_annotations"] == "adopt":
         mapped: list[FunctionAnnotation] = []
         for annotation in source.function_annotations:
-            start = source_to_target.get(annotation.start_residue_id)
-            end = source_to_target.get(annotation.end_residue_id)
-            if start is None or end is None:
+            source_start = source_index[annotation.start_residue_id]
+            source_end = source_index[annotation.end_residue_id]
+            source_interval = source.layout.residue_ids[
+                source_start : source_end + 1
+            ]
+            if any(
+                residue_id not in source_to_target
+                for residue_id in source_interval
+            ):
                 raise ValueError(
                     "merge would lose a function annotation interval"
+                )
+            target_interval = tuple(
+                source_to_target[residue_id] for residue_id in source_interval
+            )
+            target_positions = tuple(
+                target_index[residue_id] for residue_id in target_interval
+            )
+            if target_positions != tuple(
+                range(
+                    target_positions[0],
+                    target_positions[0] + len(target_positions),
+                )
+            ):
+                raise ValueError(
+                    "merge function annotation must map to one contiguous interval"
+                )
+            if len(
+                {
+                    residue_identity_chain(residue_id)
+                    for residue_id in target_interval
+                }
+            ) != 1:
+                raise ValueError(
+                    "merge function annotation must map within one target chain"
                 )
             mapped.append(
                 FunctionAnnotation(
                     label=annotation.label,
-                    start_residue_id=start,
-                    end_residue_id=end,
+                    start_residue_id=target_interval[0],
+                    end_residue_id=target_interval[-1],
                 )
             )
         annotations = tuple(mapped)
+    else:
+        raise ValueError("unknown merge function_annotations decision")
 
     return ProteinPrompt(
         layout=target.layout,
@@ -813,15 +927,15 @@ def _apply_merges(
 # --------------------------------------------------------------------------- #
 # Single entry point
 # --------------------------------------------------------------------------- #
-def apply_prompt_recipe(
+def _evaluate_prompt_recipe(
     *,
     sequence_source: ProteinSequence | None,
     structure_source: ResolvedStructureResidueAxis | None,
     prompt_source: ProteinPrompt | None,
     merge_sources: Sequence[ProteinPrompt],
     document: Mapping[str, Any],
-) -> ProteinPrompt:
-    """Apply one authoring document to the resolved sources.
+) -> tuple[ProteinPrompt, tuple[Mapping[str, Any], ...]]:
+    """Apply one document and retain the random choices made by that run.
 
     The document holds the editing intent only; sources are resolved by the
     caller. Determinism is guaranteed: every random section derives from the
@@ -835,21 +949,68 @@ def apply_prompt_recipe(
         prompt_source=prompt_source,
         document=document,
     )
-    prompt = _reindex_to_target(prompt, document.get("target_residues"))
+    prompt = _reindex_to_target(
+        prompt,
+        document.get("target_residues"),
+        replace_annotations="function_annotations" in document,
+    )
+    operations = tuple(document.get("random_operations") or ())
+    for operation in operations:
+        if operation["kind"] not in {"insert", "mask"}:
+            raise ValueError(f"unknown random operation kind {operation['kind']!r}")
+    traces: dict[int, Mapping[str, Any]] = {}
     # Random insertions create new masked identities; track edits may address
     # them, so insertions run before edits and masks run after them.
-    for operation in document.get("random_operations") or ():
+    for operation_index, operation in enumerate(operations):
         if operation["kind"] == "insert":
-            prompt = _apply_random_insert(prompt, operation)
+            prompt, residue_ids = _apply_random_insert(
+                prompt,
+                operation,
+                operation_index=operation_index,
+            )
+            traces[operation_index] = {
+                "operation_index": operation_index,
+                "kind": "insert",
+                "residue_ids": residue_ids,
+            }
     overrides = _collect_overrides(
         prompt,
         document.get("track_edits"),
         document.get("rigid_transforms"),
     )
     prompt = _apply_track_overrides(prompt, overrides)
-    for operation in document.get("random_operations") or ():
+    for operation_index, operation in enumerate(operations):
         if operation["kind"] == "mask":
-            prompt = _apply_random_mask(prompt, operation)
+            prompt, residue_ids = _apply_random_mask(
+                prompt,
+                operation,
+            )
+            traces[operation_index] = {
+                "operation_index": operation_index,
+                "kind": "mask",
+                "residue_ids": residue_ids,
+            }
     prompt = _apply_function_annotations(prompt, document)
     prompt = _apply_merges(prompt, merge_sources or (), document)
-    return validate_protein_prompt(prompt)
+    return validate_protein_prompt(prompt), tuple(
+        traces[index] for index in sorted(traces)
+    )
+
+
+def apply_prompt_recipe(
+    *,
+    sequence_source: ProteinSequence | None,
+    structure_source: ResolvedStructureResidueAxis | None,
+    prompt_source: ProteinPrompt | None,
+    merge_sources: Sequence[ProteinPrompt],
+    document: Mapping[str, Any],
+) -> ProteinPrompt:
+    """Apply one authoring document through the sole scientific path."""
+    prompt, _trace = _evaluate_prompt_recipe(
+        sequence_source=sequence_source,
+        structure_source=structure_source,
+        prompt_source=prompt_source,
+        merge_sources=merge_sources,
+        document=document,
+    )
+    return prompt

@@ -57,7 +57,6 @@ def _prompt_conditioning() -> dict[str, Any]:
                             "start_residue_id": "A:10",
                             "end_residue_id": "A:12",
                         }],
-                        "overlap_policy": "reject",
                     }
                 },
                 "binding_parameters": {},

@@ -22,7 +22,6 @@ from core.project.storage import (
 
 CANONICAL_3GB1_PROJECT_ID = "canonical-3gb1"
 WEBUI_3GB1_PROJECT_ID = "webui-3gb1-example"
-WEBUI_3GB1_RUN_ID = "run-29cd5f76ce43448b8f5b4a924d9ef58d"
 MAX_PROJECT_INPUT_BYTES = 64 * 1024 * 1024
 _CANONICAL_STAGING_PREFIX = ".canonical-3gb1-staging-"
 _WEBUI_STAGING_PREFIX = ".webui-3gb1-staging-"
@@ -534,27 +533,6 @@ class ProjectManager:
             if staging_dir.exists():
                 shutil.rmtree(staging_dir)
         return meta
-
-    def install_webui_example_run(
-        self,
-        *,
-        run_id: str,
-        run_source: str | Path,
-        objects_source: str | Path,
-    ) -> None:
-        """Install the shipped real Run ledger and referenced result objects."""
-        if self.stored_run_ids(WEBUI_3GB1_PROJECT_ID):
-            return
-        safe_run_id = validate_identifier(run_id, "run_id")
-        run_destination = self.run_storage_directory(
-            WEBUI_3GB1_PROJECT_ID,
-            safe_run_id,
-        )
-        objects_destination = self._object_storage_root(WEBUI_3GB1_PROJECT_ID)
-        run_destination.parent.mkdir(parents=True, exist_ok=True)
-        objects_destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(Path(run_source), run_destination)
-        shutil.copytree(Path(objects_source), objects_destination)
 
     def load_meta(self, project_id: str) -> ProjectMeta | None:
         """Load one Project metadata document."""

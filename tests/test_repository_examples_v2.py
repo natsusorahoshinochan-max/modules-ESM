@@ -147,6 +147,56 @@ def test_repository_examples_are_compilable_v2_workflows() -> None:
             assert binding.descriptor["node_type"] == node_type.reference()
 
 
+def test_prompt_downstream_example_closes_fold_and_proteinmpnn_interfaces() -> None:
+    payload = _load(
+        PROJECT_ROOT
+        / "examples"
+        / "v2"
+        / "prompt-downstream-interfaces.workflow.json"
+    )
+    edges = {
+        (
+            edge["source_node_id"],
+            edge["source_port"],
+            edge["target_node_id"],
+            edge["target_port"],
+        )
+        for edge in payload["edges"]
+    }
+    assert {
+        (
+            "author-prompt",
+            "protein_prompt",
+            "decompose-prompt",
+            "protein_prompt",
+        ),
+        (
+            "decompose-prompt",
+            "sequence",
+            "materialize-prompt-sequence",
+            "sequence",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence_candidates",
+            "fold-prompt-sequence",
+            "sequence_candidates",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence",
+            "design-with-reference",
+            "sequence",
+        ),
+        (
+            "resolve-proteinmpnn-targets",
+            "residue_axes",
+            "design-with-reference",
+            "structure_residue_axes",
+        ),
+    } <= edges
+
+
 def test_examples_never_select_methods_or_environment_implicitly() -> None:
     payloads = [_load(path) for path in PRODUCTION_WORKFLOW_PATHS]
     payloads.extend(_load(path) for path in CTK_WORKFLOW_PATHS)

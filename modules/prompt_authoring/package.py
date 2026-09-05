@@ -24,13 +24,13 @@ from core.catalog.definition_resource import (
 from core.catalog.port_contract import BehaviorReference
 from core.operation import OperationCall, ScientificOperation
 from datatypes.exact_reference import ExactContractReference
-from datatypes.prompt import FunctionAnnotationTrack, ProteinPrompt
-from datatypes.residue import ResidueTrack
+from datatypes.prompt import ProteinPrompt
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ResolvedStructureResidueAxis
 
 from .prompt_types import PROMPT_PORT_TYPES
 from .recipe import apply_prompt_recipe
+from .prompts import assemble_protein_prompt, decompose_protein_prompt
 
 
 class _AuthorOperation(ScientificOperation):
@@ -54,53 +54,23 @@ class _DecomposeOperation(ScientificOperation):
     """Splits a Prompt into authoritative-layout-aligned carriers."""
 
     def execute(self, call: OperationCall) -> dict[str, object]:
-        prompt: ProteinPrompt = call.inputs["protein_prompt"].value
-        layout = prompt.layout
-        ss = prompt.secondary_structure
-        sasa = prompt.sasa
-        return {
-            "sequence": ResidueTrack(layout, prompt.sequence),
-            "coordinates": ResidueTrack(layout, prompt.coordinates),
-            "secondary_structure": (
-                None if ss is None else ResidueTrack(layout, ss)
-            ),
-            "sasa": None if sasa is None else ResidueTrack(layout, sasa),
-            "function_annotations": FunctionAnnotationTrack(
-                layout, prompt.function_annotations
-            ),
-        }
+        return decompose_protein_prompt(call.inputs["protein_prompt"].value)
 
 
 class _AssembleOperation(ScientificOperation):
-    """Assembles a Prompt from exactly-aligned conditioning carriers."""
+    """Assemble through the same conditioning boundary used by authoring."""
 
     def execute(self, call: OperationCall) -> dict[str, object]:
         inputs = call.inputs
-        sequence_track: ResidueTrack = inputs["sequence"].value
-        coordinates_track: ResidueTrack = inputs["coordinates"].value
         ss_port = inputs.get("secondary_structure")
         sasa_port = inputs.get("sasa")
-        fa_track: FunctionAnnotationTrack = inputs["function_annotations"].value
-        layout = sequence_track.layout
-        if coordinates_track.layout != layout:
-            raise ValueError("assemble inputs must share one ResidueLayout")
-        if ss_port is not None and ss_port.value is not None:
-            if ss_port.value.layout != layout:
-                raise ValueError("assemble inputs must share one ResidueLayout")
-        if sasa_port is not None and sasa_port.value is not None:
-            if sasa_port.value.layout != layout:
-                raise ValueError("assemble inputs must share one ResidueLayout")
-        if fa_track.layout != layout:
-            raise ValueError("assemble inputs must share one ResidueLayout")
-        prompt = apply_prompt_recipe_assemble(
-            layout=layout,
-            sequence_track=sequence_track,
-            coordinates_track=coordinates_track,
+        return {"protein_prompt": assemble_protein_prompt(
+            inputs["sequence"].value,
+            inputs["coordinates"].value,
+            inputs["function_annotations"].value,
             secondary_structure_track=None if ss_port is None else ss_port.value,
             sasa_track=None if sasa_port is None else sasa_port.value,
-            annotation_track=fa_track,
-        )
-        return {"protein_prompt": prompt}
+        )}
 
 
 def _optional_value(
@@ -132,30 +102,6 @@ def _many_values(
         if not isinstance(value, expected_type):
             raise ValueError(f"input {name!r} has an unexpected value type")
     return values
-
-
-def apply_prompt_recipe_assemble(
-    *,
-    layout,
-    sequence_track: ResidueTrack,
-    coordinates_track: ResidueTrack,
-    secondary_structure_track: ResidueTrack | None,
-    sasa_track: ResidueTrack | None,
-    annotation_track: FunctionAnnotationTrack,
-) -> ProteinPrompt:
-    """Assemble one Prompt from exact-layout conditioning carriers."""
-    from .prompts import assemble_protein_prompt
-
-    return assemble_protein_prompt(
-        layout,
-        {
-            "sequence": sequence_track,
-            "coordinates": coordinates_track,
-            "secondary_structure": secondary_structure_track,
-            "sasa": sasa_track,
-        },
-        tuple(annotation_track.annotations),
-    )
 
 
 _OPERATIONS = {

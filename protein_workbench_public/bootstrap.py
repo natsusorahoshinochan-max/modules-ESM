@@ -17,7 +17,7 @@ from core.execution.environment import admit_environment_configuration
 from core.execution.node_attempt import NodeAttemptFactory
 from core.execution.results.cache import ProjectReplayIndex
 from core.execution.results.store import ResultStore
-from core.project.manager import ProjectManager, WEBUI_3GB1_RUN_ID
+from core.project.manager import ProjectManager
 from core.project.objects import ProjectObjectStore
 from core.execution.runtime import V2RunService
 from core.workflow.authoring import WorkflowAuthoringService
@@ -138,14 +138,6 @@ def create_application(
         authoring.install_webui_example_commit(
             workflow=decode_workflow_document(webui_example["workflow"]),
             input_sources={"3GB1.pdb": canonical_structure},
-        )
-        webui_run_fixture = asset_stack.enter_context(
-            as_file(files("examples").joinpath("v2", "webui-3gb1-run"))
-        )
-        projects.install_webui_example_run(
-            run_id=WEBUI_3GB1_RUN_ID,
-            run_source=webui_run_fixture / "run",
-            objects_source=webui_run_fixture / "objects",
         )
     environment = admit_environment_configuration(
         catalog,

@@ -172,6 +172,23 @@ def test_decompose_carries_authoritative_layout() -> None:
     assert outputs["secondary_structure"].values == ("H", "E", None)
 
 
+def test_decompose_omits_absent_optional_tracks() -> None:
+    layout = _layout_a()
+    prompt = ProteinPrompt(
+        layout=layout,
+        sequence=("M", "K", "G"),
+        coordinates=(None, None, None),
+    )
+    outputs = _DecomposeOperation().execute(
+        _Call(inputs={"protein_prompt": _prompt_port(layout, prompt)})
+    )
+    assert set(outputs) == {
+        "sequence",
+        "coordinates",
+        "function_annotations",
+    }
+
+
 def test_materialize_sequence_requires_complete_conditioning() -> None:
     layout = ResidueLayout(("A:1", "A:2"))
     complete = ResidueTrack(layout, ("M", "K"))

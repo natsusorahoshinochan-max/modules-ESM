@@ -48,6 +48,10 @@ def _validate_subject(subject: object) -> None:
         raise ValueError(
             "observed annotation subject must be a CandidateDataReference"
         )
+    if subject.data_type_id != "protein.structure":
+        raise ValueError(
+            "observed annotation subject must reference protein.structure"
+        )
 
 
 def _validate_observed_secondary(value: object) -> None:

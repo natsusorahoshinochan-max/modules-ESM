@@ -90,13 +90,20 @@ def encode_prompt_snapshot(
         "document": thaw_i_json(snapshot.document),
         "residues": [thaw_i_json(item) for item in snapshot.residues],
         "tracks": {
-            name: [thaw_i_json(item) for item in values]
-            for name, values in snapshot.tracks.items()
+            name: {
+                "present": bool(projection["present"]),
+                "values": [
+                    thaw_i_json(item) for item in projection["values"]
+                ],
+            }
+            for name, projection in snapshot.tracks.items()
         },
         "function_annotations": [
             thaw_i_json(item) for item in snapshot.function_annotations
         ],
         "source": thaw_i_json(snapshot.source),
+        "baseline_diagnostics": [item.projection() for item in snapshot.baseline_diagnostics],
+        "random_selections": [thaw_i_json(item) for item in snapshot.random_selections],
     }
 
 
@@ -105,11 +112,17 @@ def encode_prompt_preview(
 ) -> dict[str, Any]:
     return {
         "normalized_document": thaw_i_json(preview.normalized_document),
+        "baseline_diagnostics": [item.projection() for item in preview.baseline_diagnostics],
         "preview_digest": preview.preview_digest,
         "residues": [thaw_i_json(item) for item in preview.residues],
         "tracks": {
-            name: [thaw_i_json(item) for item in values]
-            for name, values in preview.tracks.items()
+            name: {
+                "present": bool(projection["present"]),
+                "values": [
+                    thaw_i_json(item) for item in projection["values"]
+                ],
+            }
+            for name, projection in preview.tracks.items()
         },
         "function_annotations": [
             thaw_i_json(item) for item in preview.function_annotations

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from core.catalog import _port_value_codec as _value_codec
@@ -23,7 +24,16 @@ def _prompt_to_wire(prompt: ProteinPrompt) -> Any:
 
 
 def _prompt_from_wire(value: Any) -> Any:
-    return _value_codec._wire_to_value(value)
+    prompt = _value_codec._wire_to_value(value)
+    if type(prompt) is ProteinPrompt and prompt.sasa is not None:
+        prompt = replace(
+            prompt,
+            sasa=tuple(
+                float(item) if type(item) is int else item
+                for item in prompt.sasa
+            ),
+        )
+    return prompt
 
 
 PROTEIN_PROMPT_PORT_TYPE = PortTypeDefinition(

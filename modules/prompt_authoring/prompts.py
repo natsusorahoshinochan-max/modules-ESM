@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import cast
 
 from datatypes.prompt import (
-    FunctionAnnotation,
+    FunctionAnnotationTrack,
     ProteinPrompt,
     validate_canonical_function_annotations,
 )
 from datatypes.residue import (
-    ResidueLayout,
     ResidueTrack,
 )
 from datatypes.sequence import ProteinSequence
@@ -33,83 +32,42 @@ _PROMPT_TRACK_KINDS = {
 }
 
 
-def assemble_protein_prompt(
-    layout: ResidueLayout,
-    tracks: Mapping[str, ResidueTrack | None],
-    function_annotations: Sequence[FunctionAnnotation] | None,
-) -> ProteinPrompt:
-    """Assemble only explicit layout-bound values into one Prompt.
+def decompose_protein_prompt(
+    prompt: ProteinPrompt,
+) -> dict[str, ResidueTrack | FunctionAnnotationTrack]:
+    """Publish present conditioning tracks; absent optional tracks have no key."""
+    outputs: dict[str, ResidueTrack | FunctionAnnotationTrack] = {
+        "sequence": ResidueTrack(prompt.layout, prompt.sequence),
+        "coordinates": ResidueTrack(prompt.layout, prompt.coordinates),
+        "function_annotations": FunctionAnnotationTrack(prompt.layout, prompt.function_annotations),
+    }
+    for name in ("secondary_structure", "sasa"):
+        values = getattr(prompt, name)
+        if values is not None:
+            outputs[name] = ResidueTrack(prompt.layout, values)
+    return outputs
 
-    ``tracks`` keys are ``sequence``, ``coordinates``,
-    ``secondary_structure``, and ``sasa``. Sequence and coordinates are
-    always present in the aggregate (all-null allowed); secondary
-    structure and SASA may be whole-track absent (``None``). Every
-    present track must address exactly the given layout.
-    """
-    validate_layout(layout, subject="protein_prompt layout")
-    normalized: dict[str, tuple | None] = {
-        "sequence": tuple([None] * layout.length),
-        "coordinates": tuple([None] * layout.length),
-        "secondary_structure": None,
-        "sasa": None,
-    }
-    for name, track in tracks.items():
-        if name not in _PROMPT_TRACK_KINDS:
-            raise ValueError(f"unknown prompt track {name!r}")
-        if track is None:
-            if name in {"sequence", "coordinates"}:
-                raise ValueError(
-                    f"{name} conditioning is always present on a Prompt"
-                )
-            normalized[name] = None
-            continue
-        if type(track) is not ResidueTrack:
-            raise ValueError(f"{name} must be a ResidueTrack")
-        if track.layout != layout:
-            raise ValueError(
-                f"{name} residue identities do not match the prompt layout"
-            )
-        validate_track_values(
-            track.values,
-            kind=_PROMPT_TRACK_KINDS[name],
-            subject=f"protein_prompt {name}",
-            length=layout.length,
-        )
-        normalized[name] = tuple(track.values)
-    annotations = (
-        ()
-        if function_annotations is None
-        else validate_canonical_function_annotations(
-            tuple(function_annotations)
-        )
-    )
-    addressed = {
-        residue_id
-        for annotation in annotations
-        for residue_id in (
-            annotation.start_residue_id,
-            annotation.end_residue_id,
-        )
-    }
-    unknown = addressed - set(layout.residue_ids)
-    if unknown:
-        raise ValueError(
-            "function annotations address residue identities outside the "
-            "prompt layout"
-        )
+
+def assemble_protein_prompt(
+    sequence_track: ResidueTrack[str],
+    coordinates_track: ResidueTrack[NamedAtomCoordinates],
+    annotation_track: FunctionAnnotationTrack,
+    *,
+    secondary_structure_track: ResidueTrack[str] | None = None,
+    sasa_track: ResidueTrack[float] | None = None,
+) -> ProteinPrompt:
+    """Join admitted conditioning carriers only when their layouts are equal."""
+    layout = sequence_track.layout
+    for track in (coordinates_track, annotation_track, secondary_structure_track, sasa_track):
+        if track is not None and track.layout != layout:
+            raise ValueError("assemble inputs must share one ResidueLayout")
     return ProteinPrompt(
         layout=layout,
-        sequence=cast("tuple[str | None, ...]", normalized["sequence"]),
-        coordinates=cast(
-            "tuple[NamedAtomCoordinates | None, ...]",
-            normalized["coordinates"],
-        ),
-        secondary_structure=cast(
-            "tuple[str | None, ...] | None",
-            normalized["secondary_structure"],
-        ),
-        sasa=cast("tuple[float | None, ...] | None", normalized["sasa"]),
-        function_annotations=tuple(annotations),
+        sequence=tuple(sequence_track.values),
+        coordinates=tuple(coordinates_track.values),
+        secondary_structure=None if secondary_structure_track is None else tuple(secondary_structure_track.values),
+        sasa=None if sasa_track is None else tuple(sasa_track.values),
+        function_annotations=tuple(annotation_track.annotations),
     )
 
 
@@ -144,21 +102,10 @@ def validate_protein_prompt(value: object) -> ProteinPrompt:
             subject="protein_prompt sasa",
             length=layout.length,
         )
-    validate_canonical_function_annotations(value.function_annotations)
-    addressed = {
-        residue_id
-        for annotation in value.function_annotations
-        for residue_id in (
-            annotation.start_residue_id,
-            annotation.end_residue_id,
-        )
-    }
-    unknown = addressed - set(layout.residue_ids)
-    if unknown:
-        raise ValueError(
-            "function annotations address residue identities outside the "
-            "prompt layout"
-        )
+    validate_canonical_function_annotations(
+        layout,
+        value.function_annotations,
+    )
     return value
 
 

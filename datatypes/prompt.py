@@ -119,34 +119,26 @@ class FunctionAnnotationTrack:
             "annotations",
             FrozenList(self.annotations),
         )
-        validate_canonical_function_annotations(self.annotations)
-        addressed = {
-            residue_id
-            for annotation in self.annotations
-            for residue_id in (
-                annotation.start_residue_id,
-                annotation.end_residue_id,
-            )
-        }
-        unknown = addressed - set(self.layout.residue_ids)
-        if unknown:
-            raise ValueError(
-                "FunctionAnnotationTrack annotations address residue "
-                "identities outside the layout"
-            )
+        validate_canonical_function_annotations(self.layout, self.annotations)
 
 
 def validate_canonical_function_annotations(
+    layout: ResidueLayout,
     value: object,
 ) -> tuple[FunctionAnnotation, ...]:
-    """Validate canonical ordering and closed identity-addressed shape."""
+    """Validate canonical, layout-position-ordered annotation intervals."""
+    if type(layout) is not ResidueLayout:
+        raise ValueError("function_annotations layout must be a ResidueLayout")
     if not isinstance(value, (tuple, FrozenList)) or not all(
         type(annotation) is FunctionAnnotation for annotation in value
     ):
         raise ValueError(
             "function_annotations must be a FunctionAnnotation tuple"
         )
-    previous_key: tuple[str, str, str] | None = None
+    residue_index = {
+        residue_id: index for index, residue_id in enumerate(layout.residue_ids)
+    }
+    previous_key: tuple[int, int, str] | None = None
     for index, annotation in enumerate(value):
         subject = f"function_annotations[{index}]"
         if (
@@ -169,9 +161,18 @@ def validate_canonical_function_annotations(
             raise ValueError(
                 f"{subject} must address one interval within one chain"
             )
+        if (
+            annotation.start_residue_id not in residue_index
+            or annotation.end_residue_id not in residue_index
+        ):
+            raise ValueError(f"{subject} endpoints do not correspond to the layout")
+        start_position = residue_index[annotation.start_residue_id]
+        end_position = residue_index[annotation.end_residue_id]
+        if start_position > end_position:
+            raise ValueError(f"{subject} interval is not ordered")
         key = (
-            annotation.start_residue_id,
-            annotation.end_residue_id,
+            start_position,
+            end_position,
             annotation.label,
         )
         if previous_key is not None and key <= previous_key:

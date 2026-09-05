@@ -109,6 +109,9 @@ def test_remote_esmfold2_v2_folds_3gb1_through_exact_binding(
                 config=config,
             )
 
+        def close(self) -> None:
+            delegate.close()
+
     service, catalog, projection, events = _run_fold(
         tmp_path,
         route="remote",

@@ -49,16 +49,19 @@ node_parameters:
           items:
             type: object
             additionalProperties: false
+            required: [chain_id, length]
             properties:
               chain_id:
                 field_scope: scientific
                 scientific_meaning: Chain identity.
                 type: string
+                pattern: ^[A-Za-z0-9]$
               length:
                 field_scope: scientific
                 scientific_meaning: Chain residue count.
                 type: integer
                 minimum: 1
+                maximum: 2000000
         target_residues:
           field_scope: scientific
           scientific_meaning: Ordered target residue identities relative to the source layout.
@@ -66,11 +69,13 @@ node_parameters:
           items:
             type: object
             additionalProperties: false
+            required: [residue_id, origin]
             properties:
               residue_id:
                 field_scope: scientific
                 scientific_meaning: Exact residue identity.
                 type: string
+                minLength: 1
               origin:
                 field_scope: scientific
                 scientific_meaning: Whether the residue is sourced or inserted.
@@ -81,51 +86,99 @@ node_parameters:
           scientific_meaning: Sparse identity-addressed track overrides.
           type: array
           items:
-            type: object
-            additionalProperties: false
-            properties:
-              track:
-                field_scope: scientific
-                scientific_meaning: Target track.
-                type: string
-                enum: [sequence, coordinates, secondary_structure, sasa]
-              action:
-                field_scope: scientific
-                scientific_meaning: Override action.
-                type: string
-                enum: [clear, preserve, replace]
-              residue_id:
-                field_scope: scientific
-                scientific_meaning: Exact target residue identity.
-                type: string
-              value:
-                field_scope: scientific
-                scientific_meaning: Replacement value for replace actions; SS8 admits '-' (C) and '_' (missing).
-                oneOf:
-                  - type: string
-                  - type: number
-                  - type: object
-                    additionalProperties: false
-                    properties:
-                      atom_coordinates:
-                        field_scope: scientific
-                        scientific_meaning: Named-atom coordinate replacement.
-                        type: array
-                        items:
-                          type: object
-                          additionalProperties: false
-                          properties:
-                            atom_name:
-                              field_scope: scientific
-                              scientific_meaning: Atom name.
-                              type: string
-                            coordinates:
-                              field_scope: scientific
-                              scientific_meaning: Cartesian 3-vector.
-                              type: array
-                              items: {type: number}
-                              minItems: 3
-                              maxItems: 3
+            oneOf:
+              - type: object
+                additionalProperties: false
+                required: [track, action, residue_id]
+                properties:
+                  track:
+                    field_scope: scientific
+                    scientific_meaning: Target track.
+                    type: string
+                    enum: [sequence, coordinates, secondary_structure, sasa]
+                  action:
+                    field_scope: scientific
+                    scientific_meaning: Preserve the current residue value.
+                    type: string
+                    const: preserve
+                  residue_id:
+                    field_scope: scientific
+                    scientific_meaning: Exact target residue identity.
+                    type: string
+                    minLength: 1
+              - type: object
+                additionalProperties: false
+                required: [track, action, residue_id]
+                properties:
+                  track:
+                    field_scope: scientific
+                    scientific_meaning: Target track.
+                    type: string
+                    enum: [sequence, coordinates, secondary_structure, sasa]
+                  action:
+                    field_scope: scientific
+                    scientific_meaning: Clear the current residue value.
+                    type: string
+                    const: clear
+                  residue_id:
+                    field_scope: scientific
+                    scientific_meaning: Exact target residue identity.
+                    type: string
+                    minLength: 1
+              - type: object
+                additionalProperties: false
+                required: [track, action, residue_id, value]
+                properties:
+                  track:
+                    field_scope: scientific
+                    scientific_meaning: Target track.
+                    type: string
+                    enum: [sequence, coordinates, secondary_structure, sasa]
+                  action:
+                    field_scope: scientific
+                    scientific_meaning: Replace the current residue value.
+                    type: string
+                    const: replace
+                  residue_id:
+                    field_scope: scientific
+                    scientific_meaning: Exact target residue identity.
+                    type: string
+                    minLength: 1
+                  value:
+                    field_scope: scientific
+                    scientific_meaning: Replacement value; Prompt SS8 '-' is normalized to canonical C and '_' is invalid.
+                    oneOf:
+                      - type: string
+                        minLength: 1
+                        maxLength: 1
+                        pattern: ^[A-Z-]$
+                      - type: number
+                        minimum: 0
+                      - type: object
+                        additionalProperties: false
+                        required: [atom_coordinates]
+                        properties:
+                          atom_coordinates:
+                            field_scope: scientific
+                            scientific_meaning: Named-atom coordinate replacement.
+                            type: array
+                            items:
+                              type: object
+                              additionalProperties: false
+                              required: [atom_name, coordinates]
+                              properties:
+                                atom_name:
+                                  field_scope: scientific
+                                  scientific_meaning: Atom name.
+                                  type: string
+                                  minLength: 1
+                                coordinates:
+                                  field_scope: scientific
+                                  scientific_meaning: Cartesian 3-vector.
+                                  type: array
+                                  items: {type: number}
+                                  minItems: 3
+                                  maxItems: 3
         rigid_transforms:
           field_scope: scientific
           scientific_meaning: Rigid rotation-translation coordinate overrides.
@@ -133,6 +186,7 @@ node_parameters:
           items:
             type: object
             additionalProperties: false
+            required: [rotation_matrix, origin, translation, residue_ids]
             properties:
               rotation_matrix:
                 field_scope: scientific
@@ -163,7 +217,8 @@ node_parameters:
                 field_scope: scientific
                 scientific_meaning: Affected residue identities.
                 type: array
-                items: {type: string}
+                minItems: 1
+                items: {type: string, minLength: 1}
                 uniqueItems: true
         function_annotations:
           field_scope: scientific
@@ -172,24 +227,24 @@ node_parameters:
           items:
             type: object
             additionalProperties: false
+            required: [label, start_residue_id, end_residue_id]
             properties:
               label:
                 field_scope: scientific
                 scientific_meaning: Annotation label.
                 type: string
+                minLength: 1
+                maxLength: 256
               start_residue_id:
                 field_scope: scientific
                 scientific_meaning: Interval start residue identity.
                 type: string
+                minLength: 1
               end_residue_id:
                 field_scope: scientific
                 scientific_meaning: Interval end residue identity.
                 type: string
-        overlap_policy:
-          field_scope: scientific
-          scientific_meaning: Function annotation overlap policy.
-          type: string
-          enum: [allow, reject]
+                minLength: 1
         random_operations:
           field_scope: scientific
           scientific_meaning: Seeded random mask or insertion operations.
@@ -216,6 +271,7 @@ node_parameters:
                     scientific_meaning: Number of residues to affect.
                     type: integer
                     minimum: 0
+                    maximum: 2000000
                   track:
                     field_scope: scientific
                     scientific_meaning: Target track.
@@ -225,7 +281,7 @@ node_parameters:
                     field_scope: scientific
                     scientific_meaning: Optional eligible residue subset; empty means every assigned value.
                     type: array
-                    items: {type: string}
+                    items: {type: string, minLength: 1}
                     uniqueItems: true
               - type: object
                 additionalProperties: false
@@ -247,11 +303,12 @@ node_parameters:
                     scientific_meaning: Number of insertions.
                     type: integer
                     minimum: 0
+                    maximum: 2000000
                   eligible_chain_ids:
                     field_scope: scientific
                     scientific_meaning: Optional eligible chain subset; empty means every populated chain.
                     type: array
-                    items: {type: string}
+                    items: {type: string, pattern: "^[A-Za-z0-9]$"}
                     uniqueItems: true
         source_merges:
           field_scope: scientific
@@ -272,23 +329,54 @@ node_parameters:
                 scientific_meaning: Source-to-target residue correspondence.
                 type: array
                 items:
-                  type: object
-                  additionalProperties: false
-                  required: [disposition]
-                  properties:
-                    disposition:
-                      field_scope: scientific
-                      scientific_meaning: Correspondence disposition.
-                      type: string
-                      enum: [match, source_gap, target_gap]
-                    source_residue_id:
-                      field_scope: scientific
-                      scientific_meaning: Source residue identity.
-                      type: string
-                    target_residue_id:
-                      field_scope: scientific
-                      scientific_meaning: Target residue identity.
-                      type: string
+                  oneOf:
+                    - type: object
+                      additionalProperties: false
+                      required: [disposition, source_residue_id, target_residue_id]
+                      properties:
+                        disposition:
+                          field_scope: scientific
+                          scientific_meaning: Match one source residue to one target residue.
+                          type: string
+                          const: match
+                        source_residue_id:
+                          field_scope: scientific
+                          scientific_meaning: Source residue identity.
+                          type: string
+                          minLength: 1
+                        target_residue_id:
+                          field_scope: scientific
+                          scientific_meaning: Target residue identity.
+                          type: string
+                          minLength: 1
+                    - type: object
+                      additionalProperties: false
+                      required: [disposition, source_residue_id]
+                      properties:
+                        disposition:
+                          field_scope: scientific
+                          scientific_meaning: Source residue without a target match.
+                          type: string
+                          const: source_gap
+                        source_residue_id:
+                          field_scope: scientific
+                          scientific_meaning: Source residue identity.
+                          type: string
+                          minLength: 1
+                    - type: object
+                      additionalProperties: false
+                      required: [disposition, target_residue_id]
+                      properties:
+                        disposition:
+                          field_scope: scientific
+                          scientific_meaning: Target residue without a source match.
+                          type: string
+                          const: target_gap
+                        target_residue_id:
+                          field_scope: scientific
+                          scientific_meaning: Target residue identity.
+                          type: string
+                          minLength: 1
               track_decisions:
                 field_scope: scientific
                 scientific_meaning: Per-track adopt or preserve decision.

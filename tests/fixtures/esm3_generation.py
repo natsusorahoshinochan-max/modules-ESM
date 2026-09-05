@@ -158,7 +158,9 @@ def run_generation(
                 binding_parameters={},
             )
         )
-        document: dict[str, Any] = {}
+        document: dict[str, Any] = {
+            "chains": [{"chain_id": "A", "length": len(sequence)}],
+        }
         if sequence_mask_residue_ids:
             document["random_operations"] = [
                 {

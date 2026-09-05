@@ -62,8 +62,7 @@
         },
         "role": {
           "enum": [
-            "ordinary_node",
-            "managed_member"
+            "ordinary_node"
           ],
           "type": "string"
         }
@@ -210,12 +209,23 @@
         {
           "additionalProperties": false,
           "properties": {
+            "chain_ids": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "content_digest": {
+              "$ref": "#/$defs/Digest"
+            },
             "kind": {
               "const": "protein_prompt"
             }
           },
           "required": [
-            "kind"
+            "kind",
+            "content_digest",
+            "chain_ids"
           ],
           "type": "object"
         }
@@ -266,11 +276,39 @@
         {
           "type": "string",
           "minLength": 1,
-          "maxLength": 8
+          "maxLength": 1,
+          "pattern": "^[A-Z-]$"
         },
         {
           "type": "number",
           "minimum": 0
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "atom_coordinates": {
+              "type": "array",
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "atom_name": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "coordinates": {
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": {"type": "number"}
+                  }
+                },
+                "required": ["atom_name", "coordinates"],
+                "type": "object"
+              }
+            }
+          },
+          "required": ["atom_coordinates"],
+          "type": "object"
         }
       ]
     },
@@ -452,32 +490,45 @@
           }
         }
       },
+      "required": [
+        "rotation_matrix",
+        "origin",
+        "translation",
+        "residue_ids"
+      ],
       "type": "object"
     },
     "PromptCorrespondenceRow": {
-      "additionalProperties": false,
-      "properties": {
-        "disposition": {
-          "enum": [
-            "match",
-            "source_gap",
-            "target_gap"
-          ],
-          "type": "string"
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {"const": "match"},
+            "source_residue_id": {"type": "string", "minLength": 1},
+            "target_residue_id": {"type": "string", "minLength": 1}
+          },
+          "required": ["disposition", "source_residue_id", "target_residue_id"],
+          "type": "object"
         },
-        "source_residue_id": {
-          "type": "string",
-          "minLength": 1
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {"const": "source_gap"},
+            "source_residue_id": {"type": "string", "minLength": 1}
+          },
+          "required": ["disposition", "source_residue_id"],
+          "type": "object"
         },
-        "target_residue_id": {
-          "type": "string",
-          "minLength": 1
+        {
+          "additionalProperties": false,
+          "properties": {
+            "disposition": {"const": "target_gap"},
+            "target_residue_id": {"type": "string", "minLength": 1}
+          },
+          "required": ["disposition", "target_residue_id"],
+          "type": "object"
         }
-      },
-      "required": [
-        "disposition"
-      ],
-      "type": "object"
+      ]
     },
     "PromptTrackDecisions": {
       "additionalProperties": false,
@@ -584,13 +635,6 @@
             "$ref": "#/$defs/PromptFunctionAnnotationIntent"
           }
         },
-        "overlap_policy": {
-          "enum": [
-            "allow",
-            "reject"
-          ],
-          "type": "string"
-        },
         "random_operations": {
           "type": "array",
           "items": {
@@ -635,19 +679,33 @@
         "residue_handle": {
           "$ref": "#/$defs/Identifier"
         },
+        "residue_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "residue_label": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "current",
+            "inserted",
+            "pending-delete"
+          ],
           "type": "string"
         }
       },
       "required": [
         "residue_handle",
+        "residue_id",
         "chain_id",
         "residue_label",
-        "position"
+        "position",
+        "state"
       ],
       "type": "object"
     },
-    "PromptStructureProjectionValue": {
+    "PromptCoordinatesProjectionValue": {
       "additionalProperties": false,
       "properties": {
         "atoms": {
@@ -658,7 +716,7 @@
               "atom_handle": {
                 "$ref": "#/$defs/Identifier"
               },
-              "atom_label": {
+              "atom_name": {
                 "type": "string"
               },
               "coordinates": {
@@ -672,7 +730,7 @@
             },
             "required": [
               "atom_handle",
-              "atom_label",
+              "atom_name",
               "coordinates"
             ],
             "type": "object"
@@ -696,7 +754,7 @@
           "type": "number"
         },
         {
-          "$ref": "#/$defs/PromptStructureProjectionValue"
+          "$ref": "#/$defs/PromptCoordinatesProjectionValue"
         }
       ]
     },
@@ -732,24 +790,33 @@
       "additionalProperties": false,
       "properties": {
         "sasa": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/PromptTrackProjection"
-          }
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
         },
         "secondary_structure": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/PromptTrackProjection"
-          }
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
         },
         "sequence": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/PromptTrackProjection"
-          }
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
         },
-        "structure": {
+        "coordinates": {
+          "$ref": "#/$defs/PromptTrackProjectionCollection"
+        }
+      },
+      "required": [
+        "sequence",
+        "coordinates",
+        "secondary_structure",
+        "sasa"
+      ],
+      "type": "object"
+    },
+    "PromptTrackProjectionCollection": {
+      "additionalProperties": false,
+      "properties": {
+        "present": {
+          "type": "boolean"
+        },
+        "values": {
           "type": "array",
           "items": {
             "$ref": "#/$defs/PromptTrackProjection"
@@ -757,10 +824,8 @@
         }
       },
       "required": [
-        "sequence",
-        "structure",
-        "secondary_structure",
-        "sasa"
+        "present",
+        "values"
       ],
       "type": "object"
     },
@@ -787,6 +852,18 @@
         },
         "tracks": {
           "$ref": "#/$defs/PromptTrackProjectionSet"
+        },
+        "baseline_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptDiagnostic"
+          }
+        },
+        "random_selections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptRandomSelection"
+          }
         }
       },
       "required": [
@@ -794,7 +871,9 @@
         "residues",
         "tracks",
         "function_annotations",
-        "source"
+        "source",
+        "baseline_diagnostics",
+        "random_selections"
       ],
       "type": "object"
     },
@@ -823,28 +902,23 @@
         {
           "additionalProperties": false,
           "properties": {
-            "deleted_count": {
-              "type": "integer"
-            },
-            "inserted_count": {
-              "type": "integer"
+            "action": {
+              "enum": [
+                "insert",
+                "delete"
+              ]
             },
             "kind": {
-              "const": "layout"
+              "const": "residue"
             },
-            "source_length": {
-              "type": "integer"
-            },
-            "target_length": {
-              "type": "integer"
+            "residue_handle": {
+              "$ref": "#/$defs/Identifier"
             }
           },
           "required": [
             "kind",
-            "source_length",
-            "target_length",
-            "inserted_count",
-            "deleted_count"
+            "action",
+            "residue_handle"
           ],
           "type": "object"
         },
@@ -853,13 +927,40 @@
           "properties": {
             "action": {
               "enum": [
-                "preserve",
-                "mask",
-                "specify"
+                "insert",
+                "delete"
               ]
             },
             "kind": {
-              "const": "track"
+              "const": "track_presence"
+            },
+            "track": {
+              "enum": [
+                "sequence",
+                "coordinates",
+                "secondary_structure",
+                "sasa"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "track",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "enum": [
+                "clear",
+                "replace"
+              ]
+            },
+            "kind": {
+              "const": "track_value"
             },
             "residue_handle": {
               "$ref": "#/$defs/Identifier"
@@ -867,7 +968,7 @@
             "track": {
               "enum": [
                 "sequence",
-                "structure",
+                "coordinates",
                 "secondary_structure",
                 "sasa"
               ]
@@ -880,21 +981,65 @@
             "action"
           ],
           "type": "object"
-        }
-      ]
-    },
-    "PromptRandomSelection": {
-      "oneOf": [
+        },
         {
           "additionalProperties": false,
           "properties": {
+            "action": {
+              "enum": [
+                "insert",
+                "delete"
+              ]
+            },
+            "annotation": {
+              "additionalProperties": false,
+              "properties": {
+                "end_residue_handle": {
+                  "$ref": "#/$defs/Identifier"
+                },
+                "label": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "start_residue_handle": {
+                  "$ref": "#/$defs/Identifier"
+                }
+              },
+              "required": [
+                "label",
+                "start_residue_handle",
+                "end_residue_handle"
+              ],
+              "type": "object"
+            },
             "kind": {
-              "const": "mask"
+              "const": "function_annotation"
+            }
+          },
+          "required": [
+            "kind",
+            "action",
+            "annotation"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "residue_order"
             },
-            "operation_id": {
-              "$ref": "#/$defs/Identifier"
+            "action": {
+              "const": "replace"
             },
-            "residue_handles": {
+            "before_residue_handles": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Identifier"
+              }
+            },
+            "after_residue_handles": {
               "type": "array",
               "items": {
                 "$ref": "#/$defs/Identifier"
@@ -902,37 +1047,37 @@
             }
           },
           "required": [
-            "operation_id",
             "kind",
-            "residue_handles"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "inserted_positions": {
-              "type": "array",
-              "items": {
-                "type": "integer",
-                "minimum": 0
-              }
-            },
-            "kind": {
-              "const": "insert"
-            },
-            "operation_id": {
-              "$ref": "#/$defs/Identifier"
-            }
-          },
-          "required": [
-            "operation_id",
-            "kind",
-            "inserted_positions"
-          ],
-          "type": "object"
+            "action",
+            "before_residue_handles",
+            "after_residue_handles"
+          ]
         }
       ]
+    },
+    "PromptRandomSelection": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["insert", "mask"]
+        },
+        "operation_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "realized_residue_handles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Identifier"
+          }
+        }
+      },
+      "required": [
+        "operation_index",
+        "kind",
+        "realized_residue_handles"
+      ],
+      "type": "object"
     },
     "PromptDiagnostic": {
       "additionalProperties": false,
@@ -1010,13 +1155,13 @@
             "sequence": {
               "$ref": "#/$defs/PromptTrackSummary"
             },
-            "structure": {
+            "coordinates": {
               "$ref": "#/$defs/PromptTrackSummary"
             }
           },
           "required": [
             "sequence",
-            "structure",
+            "coordinates",
             "secondary_structure",
             "sasa"
           ],
@@ -1107,6 +1252,12 @@
         },
         "tracks": {
           "$ref": "#/$defs/PromptTrackProjectionSet"
+        },
+        "baseline_diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptDiagnostic"
+          }
         }
       },
       "required": [
@@ -1119,7 +1270,8 @@
         "random_selections",
         "source_merges",
         "diagnostics",
-        "summary"
+        "summary",
+        "baseline_diagnostics"
       ],
       "type": "object"
     },
@@ -4870,79 +5022,50 @@
       "type": "object"
     },
     "PromptTrackEdit": {
-      "additionalProperties": false,
-      "properties": {
-        "track": {
-          "enum": [
-            "sequence",
-            "coordinates",
-            "secondary_structure",
-            "sasa"
-          ],
-          "type": "string"
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {"const": "preserve"},
+            "residue_id": {"type": "string", "minLength": 1},
+            "track": {
+              "enum": ["sequence", "coordinates", "secondary_structure", "sasa"],
+              "type": "string"
+            }
+          },
+          "required": ["track", "action", "residue_id"],
+          "type": "object"
         },
-        "action": {
-          "enum": [
-            "clear",
-            "preserve",
-            "replace"
-          ],
-          "type": "string"
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {"const": "clear"},
+            "residue_id": {"type": "string", "minLength": 1},
+            "track": {
+              "enum": ["sequence", "coordinates", "secondary_structure", "sasa"],
+              "type": "string"
+            }
+          },
+          "required": ["track", "action", "residue_id"],
+          "type": "object"
         },
-        "residue_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "value": {
-          "oneOf": [
-            {
+        {
+          "additionalProperties": false,
+          "properties": {
+            "action": {"const": "replace"},
+            "residue_id": {"type": "string", "minLength": 1},
+            "track": {
+              "enum": ["sequence", "coordinates", "secondary_structure", "sasa"],
               "type": "string"
             },
-            {
-              "type": "number"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "properties": {
-                "atom_coordinates": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "properties": {
-                      "atom_name": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "coordinates": {
-                        "type": "array",
-                        "minItems": 3,
-                        "maxItems": 3,
-                        "items": {
-                          "type": "number"
-                        }
-                      }
-                    },
-                    "required": [
-                      "atom_name",
-                      "coordinates"
-                    ]
-                  }
-                }
-              },
-              "required": [
-                "atom_coordinates"
-              ]
+            "value": {
+              "$ref": "#/$defs/PromptTrackReplacementValue"
             }
-          ]
+          },
+          "required": ["track", "action", "residue_id", "value"],
+          "type": "object"
         }
-      },
-      "required": [
-        "track",
-        "action"
-      ],
-      "type": "object"
+      ]
     }
   },
   "bundle_discovery": {

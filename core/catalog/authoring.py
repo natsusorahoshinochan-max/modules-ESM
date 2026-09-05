@@ -12,11 +12,7 @@ from .errors import CatalogBuildError
 from .model import FrozenCatalog
 
 
-AuthoringRole = Literal[
-    "ordinary_node",
-    "specialized_composition",
-    "managed_member",
-]
+AuthoringRole = Literal["ordinary_node"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +33,7 @@ class AuthoringSourceKind:
 
 @dataclass(frozen=True, slots=True)
 class AuthoringRoleEndpoint:
-    """One externally connectable role of a specialized composition."""
+    """One externally connectable role of an ordinary authoring Node."""
 
     role: str
     port_type: ExactContractReference
@@ -76,10 +72,10 @@ class AuthoringCapabilityDefinition:
 
 @dataclass(frozen=True, slots=True)
 class AuthoringNodeProjection:
-    """One exact Node Type's ordinary or managed authoring role."""
+    """One exact Node Type's ordinary authoring role."""
 
     node_type: ExactContractReference
-    role: Literal["ordinary_node", "managed_member"]
+    role: Literal["ordinary_node"]
     capability_id: str | None = None
 
 

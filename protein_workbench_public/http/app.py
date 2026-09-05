@@ -114,7 +114,7 @@ def create_http_app(
     register_workflow_routes(app, authoring, rest_operations)
     register_prompt_authoring_routes(
         app,
-        PromptAuthoringService(projects, authoring),
+        PromptAuthoringService(projects, authoring, catalog),
         rest_operations,
     )
     register_run_routes(app, runtime, rest_operations, run_event_stream)

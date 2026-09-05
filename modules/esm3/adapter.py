@@ -199,9 +199,6 @@ def _provider_secondary_structure(
         if value is None:
             symbols.append("_")
             continue
-        if value == "-":
-            symbols.append("C")
-            continue
         symbols.append(value)
     return "".join(symbols)
 

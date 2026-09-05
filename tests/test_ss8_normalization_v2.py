@@ -1,7 +1,7 @@
 """SS8 and missing-value normalization (spec §6).
 
-Prompt admission: ``-`` becomes canonical ``C``; ``_`` becomes per-residue
-missing (None); raw DSSP ``P`` is an invalid prompt input and raises. Observed
+Prompt admission: ``-`` becomes canonical ``C``; ``_`` and raw DSSP ``P`` are
+invalid prompt inputs. Observed
 DSSP annotation: ``P`` -> ``C``, ``_`` -> None, ``?`` -> None, ``H/B/E/G/I/T/S/C``
 pass through.
 """
@@ -18,8 +18,9 @@ def test_prompt_admission_dash_becomes_canonical_c() -> None:
     assert _normalize_ss8_token("-") == "C"
 
 
-def test_prompt_admission_underscore_becomes_missing() -> None:
-    assert _normalize_ss8_token("_") is None
+def test_prompt_admission_rejects_underscore() -> None:
+    with pytest.raises(ValueError):
+        _normalize_ss8_token("_")
 
 
 def test_prompt_admission_rejects_raw_dssp_p() -> None:
