@@ -209,6 +209,8 @@ Interface 规则：
 
 ### 5.3 Function annotations
 
+Function annotations 是绑定于 authoritative ResidueLayout 的、按规范顺序排列的标注区间集合。不同注释可以部分重叠、相互包含或覆盖相同区间；重叠本身不构成错误。完全相同的 `(label, start_residue_id, end_residue_id)` 不得重复。Prompt Authoring 不提供 `overlap_policy`，也不自动裁剪、合并或去重注释。
+
 ```python
 @dataclass(frozen=True, slots=True)
 class FunctionAnnotation:
@@ -359,7 +361,7 @@ Interface 规则：
 - ordered target residue identities、insertions 与 deletions；
 - sequence、coordinates、secondary structure、SASA 的稀疏编辑；
 - rigid transforms；
-- function annotations 与 overlap policy；
+- function annotations（遵循第 5.3 节，不含 `overlap_policy`）；
 - random mask、random insertion 和显式 seed；
 - merge correspondence 与 per-track adopt/preserve intent。
 
@@ -388,6 +390,31 @@ apply_prompt_recipe(
 ```
 
 不得保留直接 `_evaluate()` 与 workflow `_materialize()` 两套 scientific implementation。
+
+Open、Preview 和 execution 的 provider-free 来源解析复用同一值合同 owner；FASTA parser 只解析，
+来源 ProteinSequence 必须完成 admission 后才能应用下游 edits。上游 Node 参数使用当前 Catalog 的
+参数合同，不编译整个 Draft 来执行 Preview，也不建立新的通用 evaluator。
+
+Open/Preview 的 `baseline_diagnostics` 单独说明已保存 document 对当前合法来源无法求值的原因。
+此时 Open 保留可编辑 document，Preview 可独立计算候选；候选有效即可 Apply，且 `changes` 为空，
+UI 明确显示无可比较的旧结果。不可用 baseline 不得伪装为空 ProteinPrompt；来源错误及候选错误仍
+阻止 Apply。Apply 必须针对当前来源重算并验证 preview digest，失败后 editor 保留编辑并允许重新预览。
+
+Preview 显示轴以候选 layout 顺序为准，共同 residue ID 只出现一次。删除 residue 的 tombstone 按旧
+顺序放在同链下一个存活 residue 前；无后继放在该链末尾，整链删除放在显示轴末尾。过滤 tombstones
+后必须精确得到候选 layout。共同 residue 的相对顺序改变时，用
+`kind=residue_order, action=replace` 及 `before_residue_handles` / `after_residue_handles` 记录前后
+有序 handles；普通插入、删除不额外报告顺序变更。WebUI 直接使用后端显示轴，不再独立重排。
+
+Open 与 Preview 均通过 `random_selections` 暴露本 Node 同次 recipe 的实际随机 trace，包含
+`operation_index`、`kind` 和 `realized_residue_handles`。随机插入保持现有 seed 和执行次序；本 Node
+随机生成的 residue 可编辑轨道值，但 Studio 不允许单独删除或将其用作插入锚点，必须明确显示限制。
+含此类 residue 的混合删除选择整体不可执行。普通来源 residue 仍可编辑，target intent 不得把本 Node
+随机生成的 residue 伪装成 source。不得解析 ID 命名来猜测来源，不增加自动固化、排除项或随机重采样规则。
+
+新建普通 author Node 显式初始化 `document: {}`；Studio 提供 blank/sequence authoring 的有序 chain
+声明编辑入口，由用户填写 chain ID 和 length，经 Preview 后写回，不猜测默认科学 layout。
+
 
 ### 9.3 `prompt_authoring.decompose`
 
@@ -559,6 +586,7 @@ Prompt Studio 不输出 ProteinMPNN design mask。ProteinMPNN 无 constraints �
 - public `residue.map` Port；
 - duplicate layout/track codecs；
 - `FunctionAnnotation.start`、`end`、`chain_id`；
+- Prompt Authoring 的 `overlap_policy` parameter、公开 schema/type 字段及重叠拒绝分支；同步更新 tests、fixtures 和 examples，不保留兼容解析；
 - three families of track copy/rebuild helpers。
 
 ### 12.2 Prompt micro Nodes
@@ -612,6 +640,7 @@ Prompt Studio 保留为专用 editor，但只编辑普通 `prompt_authoring.auth
 
 - layout/value 长度不一致；
 - 不同 track 被隐式 positional join；
+- function annotations 出现完全相同的 `(label, start_residue_id, end_residue_id)`；重叠本身不得被拒绝，也不得自动裁剪、合并或去重；
 - absent 与 present all-null 被合并；
 - 按 chain length 重建 residue identities；
 - partial/multi-chain sequence 隐式进入 ESMFold2；
