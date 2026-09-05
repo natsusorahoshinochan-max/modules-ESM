@@ -78,8 +78,7 @@ def register_prompt_authoring_routes(
             )
             preview = prompt_authoring.preview(
                 admitted["project_id"],
-                admitted["document"],
-                composition_id=admitted.get("composition_id"),
+                admitted,
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error, body)
@@ -109,10 +108,7 @@ def register_prompt_authoring_routes(
             )
             result = prompt_authoring.apply(
                 admitted["project_id"],
-                intent=admitted["intent"],
-                normalized_document=admitted["normalized_document"],
-                preview_digest=admitted["preview_digest"],
-                composition_id=admitted.get("composition_id"),
+                admitted,
             )
         except ProtocolValidationError as error:
             return protocol_error_response(error, body)

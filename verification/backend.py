@@ -107,7 +107,7 @@ TIERS = {
         "tests/test_workflow_stress_v2.py",
         (
             "tests/test_collection_ops_v2.py::"
-            "test_public_pairing_uses_common_parent_not_collection_order"
+            "test_public_relation_uses_exact_parent_identity_not_collection_order"
         ),
         (
             "tests/test_collection_ops_v2.py::"

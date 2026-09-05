@@ -27,13 +27,13 @@ from core.operation import (
 )
 from datatypes.prompt import (
     FunctionAnnotation,
-    FunctionAnnotations,
     ProteinPrompt,
 )
 from datatypes.residue import (
     ResidueLayout,
     ResidueTrack,
 )
+from datatypes.structure import NamedAtomCoordinates
 
 
 class _Source:
@@ -48,71 +48,54 @@ class _Source:
             raise ValueError("ESM-3 prompt source accepts only resolved mode")
         mode = node_parameters["mode"]
         length = 291 if mode == "coordinate_conditioned_291" else 3
+        layout = ResidueLayout(
+            [f"A:{index}" for index in range(1, length + 1)]
+        )
         if mode in {"assigned_sequence", "rich_assigned"}:
-            sequence_track = ResidueTrack(["A", "C", "D"], None)
+            sequence_carrier = ResidueTrack(layout, ["A", "C", "D"])
         elif mode == "rich_masked":
-            sequence_track = ResidueTrack([None, "C", "D"], None)
-        elif mode in {
-            "coordinate_conditioned",
-            "coordinate_conditioned_291",
-        }:
-            sequence_track = ResidueTrack([None] * length, None)
+            sequence_carrier = ResidueTrack(layout, [None, "C", "D"])
         else:
-            sequence_track = ResidueTrack([None] * length, None)
-        structure_track = ResidueTrack([None] * length, None)
+            sequence_carrier = ResidueTrack(layout, [None] * length)
+        structure_carrier = ResidueTrack(layout, [None] * length)
         if mode in {
             "coordinate_conditioned",
             "coordinate_conditioned_291",
             "rich_assigned",
             "rich_masked",
         }:
-            structure_track = ResidueTrack(
-                [
-                    {
-                        "N": (0.0, 0.0, 0.0),
-                        "CA": (1.0, 0.0, 0.0),
-                        "C": (2.0, 0.0, 0.0),
-                        "O": (3.0, 0.0, 0.0),
-                    },
-                    *([None] * (length - 1)),
-                ],
-                None,
+            first_coords = NamedAtomCoordinates.from_mapping({
+                "N": (0.0, 0.0, 0.0),
+                "CA": (1.0, 0.0, 0.0),
+                "C": (2.0, 0.0, 0.0),
+                "O": (3.0, 0.0, 0.0),
+            })
+            structure_carrier = ResidueTrack(
+                layout,
+                [first_coords, *([None] * (length - 1))],
             )
         rich_prompt = mode in {"rich_assigned", "rich_masked"}
         with self._run_resources.engine_invocation():
             prompt = ProteinPrompt(
-                target_layout=ResidueLayout(
-                    chain_id="A",
-                    length=length,
-                    residue_ids=[
-                        f"A:{index}" for index in range(1, length + 1)
-                    ],
+                layout=layout,
+                sequence=tuple(sequence_carrier.values),
+                coordinates=tuple(structure_carrier.values),
+                secondary_structure=(
+                    ("G", "C", None) if rich_prompt else None
                 ),
-                sequence_track=sequence_track,
-                structure_track=structure_track,
-                secondary_structure_track=(
-                    ResidueTrack(["G", "-", None], None)
-                    if rich_prompt
-                    else None
+                sasa=(
+                    (0.0, 16.4, None) if rich_prompt else None
                 ),
-                sasa_track=(
-                    ResidueTrack([0.0, 16.4, None], None)
-                    if rich_prompt
-                    else None
-                ),
-                function_annotations=FunctionAnnotations(
-                    [
+                function_annotations=(
+                    (
                         FunctionAnnotation(
                             label="binding site",
-                            start=1,
-                            end=2,
-                            chain_id="A",
                             start_residue_id="A:1",
                             end_residue_id="A:2",
-                        )
-                    ]
+                        ),
+                    )
                     if rich_prompt
-                    else []
+                    else ()
                 ),
             )
         return {"protein_prompt": prompt}

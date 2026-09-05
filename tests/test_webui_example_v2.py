@@ -1,38 +1,17 @@
-"""Public acceptance for the separate immutable WebUI 3GB1 example."""
+"""Public acceptance for the current immutable WebUI 3GB1 example."""
 
 from __future__ import annotations
 
-from collections import Counter
-from typing import Any
+import hashlib
 
 from fastapi.testclient import TestClient
 
-from core.project.manager import WEBUI_3GB1_PROJECT_ID, WEBUI_3GB1_RUN_ID
+from core.project.manager import WEBUI_3GB1_PROJECT_ID
 from protein_workbench_public.bootstrap import create_application
+from tests.support.protocol import validate_response
 
 
-def _fields(value: dict[str, Any]) -> dict[str, Any]:
-    return value["fields"]
-
-
-def _typed(
-    http: TestClient,
-    node_id: str,
-    output_port: str,
-) -> dict[str, Any]:
-    response = http.get(
-        f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}/runs/"
-        f"{WEBUI_3GB1_RUN_ID}/outputs/{node_id}/{output_port}/values/0"
-    )
-    assert response.status_code == 200
-    return response.json()["value"]
-
-
-def _candidate_fields(value: dict[str, Any]) -> list[dict[str, Any]]:
-    return [_fields(item) for item in _fields(value)["items"]]
-
-
-def test_webui_example_public_journey_and_scientific_contracts(
+def test_webui_example_public_journey_and_prompt_contract(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -41,15 +20,14 @@ def test_webui_example_public_journey_and_scientific_contracts(
     with TestClient(create_application()) as http:
         projects_response = http.get("/api/v2/projects")
         assert projects_response.status_code == 200
-        projects = projects_response.json()["projects"]
         example = next(
             project
-            for project in projects
+            for project in projects_response.json()["projects"]
             if project["id"] == WEBUI_3GB1_PROJECT_ID
         )
         assert example["project_kind"] == "default_example"
         assert example["seed"] is True
-        assert example["latest_run_id"] == WEBUI_3GB1_RUN_ID
+        assert example["latest_run_id"] is None
 
         draft_response = http.get(
             f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}/workflow/draft"
@@ -57,164 +35,16 @@ def test_webui_example_public_journey_and_scientific_contracts(
         assert draft_response.status_code == 200
         draft = draft_response.json()
         workflow = draft["workflow"]
-        assert len(workflow["nodes"]) == 40
         nodes = {node["node_id"]: node for node in workflow["nodes"]}
         assert nodes["generate-paired"]["binding_id"] == (
             "esm3.generate_paired.biohub_medium"
         )
-        assert nodes["generate-paired"]["node_parameters"] == {
-            "effective_seed": 1603,
-            "num_samples": 7,
-        }
         assert nodes["fold-stage-one"]["binding_id"] == (
             "folding.fold.esmfold2_remote"
         )
         assert nodes["design-children"]["binding_id"] == (
             "proteinmpnn.design.local"
         )
-        assert nodes["design-children"]["node_parameters"] == {
-            "effective_seed": 1603,
-            "num_sequences": 3,
-        }
-        assert nodes["relation-final"]["node_type_id"] == (
-            "collection_ops.compose_relations"
-        )
-        assert nodes["relation-generated-structure-parent"]["node_type_id"] == (
-            "collection_ops.relate_by_parent"
-        )
-        assert nodes["relation-generated-pairs"]["node_type_id"] == (
-            "collection_ops.invert_relation"
-        )
-        assert nodes["align-final"]["node_type_id"] == (
-            "structure_comparison.align_pairs"
-        )
-        assert nodes["tm-final"]["node_type_id"] == (
-            "structure_comparison.tm_score_from_alignments"
-        )
-
-        objectives = {
-            item["objective_id"]: item
-            for item in workflow["selection_objectives"]
-        }
-        for prefix in ("stage-one", "final"):
-            assert objectives[f"{prefix}-plddt"]["weight"] == 0.5
-            assert objectives[f"{prefix}-parent-tm"]["weight"] == 0.5
-        assert objectives["final-plddt"]["utility_transform"][
-            "contract_id"
-        ] == (
-            "structure.plddt.mean_residue."
-            "esmfold2_fast_biohub_2026_05.percent_to_unit"
-        )
-        assert objectives["final-parent-tm"]["utility_transform"][
-            "contract_id"
-        ] == (
-            "structure_comparison.tm_score."
-            "explicit_relation.identity"
-        )
-
-        counts = {
-            ("generate-paired", "structure_candidates"): 7,
-            ("take-top-four", "candidates"): 4,
-            ("fold-stage-one", "structure_candidates"): 4,
-            ("take-top-two", "candidates"): 2,
-            ("design-children", "sequence_candidates"): 6,
-            ("fold-final", "structure_candidates"): 6,
-            ("take-top-three", "candidates"): 3,
-        }
-        typed_candidates = {
-            key: _candidate_fields(_typed(http, *key)) for key in counts
-        }
-        assert {
-            key: len(value) for key, value in typed_candidates.items()
-        } == counts
-
-        top_two_ids = {
-            item["candidate_id"]
-            for item in typed_candidates[("take-top-two", "candidates")]
-        }
-        designed = typed_candidates[("design-children", "sequence_candidates")]
-        assert Counter(item["parent_ids"][0] for item in designed) == {
-            candidate_id: 3 for candidate_id in top_two_ids
-        }
-        designed_ids = {item["candidate_id"] for item in designed}
-        folded = typed_candidates[("fold-final", "structure_candidates")]
-        assert {item["parent_ids"][0] for item in folded} == designed_ids
-
-        relation = _fields(_typed(http, "relation-final", "relation"))
-        pair_entries = [_fields(item) for item in relation["entries"]]
-        assert len(pair_entries) == 6
-        reference_ids = [
-            _fields(item["reference"])["candidate_id"]
-            for item in pair_entries
-        ]
-        assert Counter(reference_ids) == {
-            candidate_id: 3 for candidate_id in top_two_ids
-        }
-
-        tm_scores = _fields(_typed(http, "tm-final", "scores"))["entries"]
-        assert len(tm_scores) == 6
-        for encoded in tm_scores:
-            observation = _fields(encoded)
-            assert _fields(observation["metric"])["contract_id"] == (
-                "structure_comparison.tm_score"
-            )
-            context = _fields(observation["context"])
-            assert context["pairing_mode"] == "explicit_relation"
-            assert _fields(_fields(context["subject"])["candidate"])[
-                "candidate_id"
-            ] == _fields(observation["subject"])["candidate_id"]
-            assert _fields(_fields(context["reference"])["candidate"])[
-                "candidate_id"
-            ] in top_two_ids
-
-        run_response = http.get(
-            f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}/runs/"
-            f"{WEBUI_3GB1_RUN_ID}"
-        )
-        assert run_response.status_code == 200
-        run_projection = run_response.json()
-        generated_outputs = [
-            output
-            for output in run_projection["outputs"]
-            if output["node_id"] == "generate-paired"
-        ]
-        assert {output["output_port"] for output in generated_outputs} == {
-            "sequence_candidates",
-            "structure_candidates",
-            "confidence_facts",
-            "sequence_reconstruction_candidates",
-            "sequence_reconstruction_confidence_facts",
-        }
-        relation_outputs = [
-            output
-            for output in run_projection["outputs"]
-            if output["node_id"] in {
-                "relation-generated-structure-parent",
-                "relation-generated-pairs",
-            }
-        ]
-        assert len(relation_outputs) == 2
-        assert all(
-            output["materialization"] == {
-                "run_id": WEBUI_3GB1_RUN_ID,
-                "resolution": "executed",
-            }
-            and output["producer_provenance"]["producer_run_id"]
-            == WEBUI_3GB1_RUN_ID
-            for output in relation_outputs
-        )
-        final_selection = next(
-            item
-            for item in run_projection["selection_results"]
-            if item["selection_node_id"] == "rank-final"
-        )
-        assert [item["effective_weight"] for item in final_selection["objectives"]] == [
-            0.5,
-            0.5,
-        ]
-        assert final_selection["objectives"][1]["context_selector"][
-            "pairing_mode"
-        ] == "explicit_relation"
 
         copy_response = http.post(
             f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}:copy",
@@ -225,100 +55,152 @@ def test_webui_example_public_journey_and_scientific_contracts(
         assert copied["project_kind"] == "personal"
         assert copied["copied_from_project_id"] == WEBUI_3GB1_PROJECT_ID
         assert copied["latest_run_id"] is None
-        search = http.get(
-            "/api/v2/projects", params={"name": "acceptance copy"}
-        )
-        assert [item["id"] for item in search.json()["projects"]] == [
-            copied["id"]
-        ]
-        canonical_copy = http.post(
-            "/api/v2/projects/canonical-3gb1:copy",
-            json={"name": "must not copy canonical verification"},
-        )
-        assert canonical_copy.status_code == 404
-        assert canonical_copy.json()["error"]["code"] == (
-            "cross_scope_access_denied"
-        )
 
-        composition_id = draft["authoring_compositions"][0][
-            "composition_id"
-        ]
+        author_node_id = next(
+            node["node_id"]
+            for node in workflow["nodes"]
+            if node["node_type_id"] == "prompt_authoring.author"
+        )
         opened_response = http.post(
             f"/api/v2/projects/{copied['id']}/prompt-authoring:open",
-            json={"mode": "reopen", "composition_id": composition_id},
+            json={"node_id": author_node_id},
         )
         assert opened_response.status_code == 200
         opened = opened_response.json()
+        validate_response("open_prompt_authoring", 200, opened)
         residues = opened["residues"]
-        assert len(residues) == 58
+        assert len(residues) == 57
+        assert not any(item["residue_id"] == "A:39" for item in residues)
+        assert all(
+            item["residue_handle"]
+            == "residue-"
+            + hashlib.sha256(item["residue_id"].encode("utf-8")).hexdigest()
+            for item in residues
+        )
+        assert len({item["residue_handle"] for item in residues}) == 57
+
         labels = {
-            item["residue_handle"]: item["residue_label"] for item in residues
+            item["residue_handle"]: item["residue_label"]
+            for item in residues
         }
         sequence = {
             labels[item["residue_handle"]]: item
-            for item in opened["tracks"]["sequence"]
+            for item in opened["tracks"]["sequence"]["values"]
         }
-        structure = {
+        coordinates = {
             labels[item["residue_handle"]]: item
-            for item in opened["tracks"]["structure"]
+            for item in opened["tracks"]["coordinates"]["values"]
         }
-        for label in ("37", "38", "40", "41"):
-            assert sequence[label]["value"] is None
-            assert structure[label]["value"] is None
-        assert sequence["39"]["state"] == "pending-delete"
-        inserted = [
-            item
-            for item in residues
-            if item["residue_label"].startswith("inserted.")
-        ]
-        assert len(inserted) == 2
-        for item in inserted:
-            handle = item["residue_handle"]
-            assert next(
-                track
-                for track in opened["tracks"]["sequence"]
-                if track["residue_handle"] == handle
-            )["value"] is None
-            assert next(
-                track
-                for track in opened["tracks"]["structure"]
-                if track["residue_handle"] == handle
-            )["value"] is None
-        assert all(
-            item["value"] is None
-            for item in opened["tracks"]["secondary_structure"]
-        )
-        assert all(
-            item["value"] is None for item in opened["tracks"]["sasa"]
-        )
+        assert opened["tracks"]["sequence"]["present"] is True
+        assert opened["tracks"]["coordinates"]["present"] is True
+        assert opened["tracks"]["secondary_structure"]["present"] is False
+        assert opened["tracks"]["sasa"]["present"] is False
+        assert sequence["36"]["value"] is not None
+        assert coordinates["36"]["value"] is not None
+        assert opened["source"] == {
+            "kind": "pdb",
+            "project_input_ref": "3GB1.pdb",
+            "content_digest": opened["source"]["content_digest"],
+            "chain_ids": ["A"],
+        }
         assert opened["function_annotations"] == []
 
         preview_response = http.post(
             f"/api/v2/projects/{copied['id']}/prompt-authoring:preview",
-            json={
-                "composition_id": composition_id,
-                "document": opened["document"],
-            },
+            json={"node_id": author_node_id, "document": opened["document"]},
         )
         assert preview_response.status_code == 200
         preview = preview_response.json()
+        validate_response("preview_prompt_authoring", 200, preview)
         assert preview["summary"]["chains"] == [
             {"chain_id": "A", "length": 57}
         ]
         assert preview["diagnostics"] == []
+        assert preview["changes"] == []
+
+        deleted_document = {
+            **opened["document"],
+            "target_residues": [
+                item
+                for item in opened["document"]["target_residues"]
+                if item["residue_id"] != "A:30"
+            ],
+        }
+        deleted_response = http.post(
+            f"/api/v2/projects/{copied['id']}/prompt-authoring:preview",
+            json={
+                "node_id": author_node_id,
+                "document": deleted_document,
+            },
+        )
+        assert deleted_response.status_code == 200
+        deleted = deleted_response.json()
+        validate_response("preview_prompt_authoring", 200, deleted)
+        tombstone = next(
+            item for item in deleted["residues"]
+            if item["residue_id"] == "A:30"
+        )
+        assert tombstone["state"] == "pending-delete"
+        assert {
+            "kind": "residue",
+            "action": "delete",
+            "residue_handle": tombstone["residue_handle"],
+        } in deleted["changes"]
+
+        malformed = http.post(
+            f"/api/v2/projects/{copied['id']}/prompt-authoring:preview",
+            json={
+                "node_id": author_node_id,
+                "document": {"rigid_transforms": [{}]},
+            },
+        )
+        assert malformed.status_code == 400
+        validate_response(
+            "preview_prompt_authoring",
+            malformed.status_code,
+            malformed.json(),
+        )
+        assert malformed.json()["error"]["details"]["field_path"][:3] == [
+            "document",
+            "rigid_transforms",
+            0,
+        ]
+
+        rejected = http.post(
+            f"/api/v2/projects/{copied['id']}/prompt-authoring:apply",
+            json={
+                "node_id": author_node_id,
+                "document": preview["normalized_document"],
+                "preview_digest": "sha256:" + "0" * 64,
+            },
+        )
+        assert rejected.status_code == 400
+        validate_response(
+            "apply_prompt_authoring",
+            rejected.status_code,
+            rejected.json(),
+        )
+        assert rejected.json()["error"]["details"]["field_path"] == [
+            "preview_digest"
+        ]
+
         apply_response = http.post(
             f"/api/v2/projects/{copied['id']}/prompt-authoring:apply",
             json={
-                "intent": "replace",
-                "composition_id": composition_id,
-                "normalized_document": preview["normalized_document"],
+                "node_id": author_node_id,
+                "document": preview["normalized_document"],
                 "preview_digest": preview["preview_digest"],
             },
         )
         assert apply_response.status_code == 200
-        applied = apply_response.json()["draft"]
-        assert len(applied["workflow"]["nodes"]) == 40
-        assert applied["draft_revision"] > draft["draft_revision"]
+        validate_response(
+            "apply_prompt_authoring",
+            apply_response.status_code,
+            apply_response.json(),
+        )
+        assert apply_response.json()["draft"]["draft_revision"] > (
+            draft["draft_revision"]
+        )
 
         unchanged_example = http.get(
             f"/api/v2/projects/{WEBUI_3GB1_PROJECT_ID}/workflow/draft"

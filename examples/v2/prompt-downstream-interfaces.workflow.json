@@ -1,0 +1,151 @@
+{
+  "schema_version": "2.1.0",
+  "workflow_id": "prompt-downstream-interfaces",
+  "nodes": [
+    {
+      "node_id": "import-structure",
+      "node_type_id": "protein_io.import_structure",
+      "binding_id": "protein_io.import_structure.direct",
+      "node_parameters": {
+        "project_input_ref": "single-chain-structure.pdb"
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-structure-axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "author-prompt",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
+      "node_parameters": {
+        "document": {}
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "decompose-prompt",
+      "node_type_id": "prompt_authoring.decompose",
+      "binding_id": "prompt_authoring.decompose.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-prompt-sequence",
+      "node_type_id": "residue_data.materialize_sequence",
+      "binding_id": "residue_data.materialize_sequence.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "fold-prompt-sequence",
+      "node_type_id": "folding.fold",
+      "binding_id": "folding.fold.esmfold2_remote",
+      "node_parameters": {
+        "effective_seed": 20260902,
+        "num_samples": 1
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "materialize-fold-confidence",
+      "node_type_id": "structure_prediction.materialize_confidence",
+      "binding_id": "structure_prediction.materialize_confidence.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "resolve-proteinmpnn-targets",
+      "node_type_id": "structure_transform.resolve_candidate_residue_axes",
+      "binding_id": "structure_transform.resolve_candidate_residue_axes.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "design-with-reference",
+      "node_type_id": "proteinmpnn.design",
+      "binding_id": "proteinmpnn.design.local",
+      "node_parameters": {
+        "effective_seed": 20260902,
+        "num_sequences": 1,
+        "temperature": 0.1,
+        "backbone_noise": 0
+      },
+      "binding_parameters": {}
+    }
+  ],
+  "edges": [
+    {
+      "source_node_id": "import-structure",
+      "source_port": "structure",
+      "target_node_id": "resolve-structure-axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "resolve-structure-axis",
+      "source_port": "residue_axis",
+      "target_node_id": "author-prompt",
+      "target_port": "structure_source"
+    },
+    {
+      "source_node_id": "author-prompt",
+      "source_port": "protein_prompt",
+      "target_node_id": "decompose-prompt",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "decompose-prompt",
+      "source_port": "sequence",
+      "target_node_id": "materialize-prompt-sequence",
+      "target_port": "sequence"
+    },
+    {
+      "source_node_id": "materialize-prompt-sequence",
+      "source_port": "sequence_candidates",
+      "target_node_id": "fold-prompt-sequence",
+      "target_port": "sequence_candidates"
+    },
+    {
+      "source_node_id": "fold-prompt-sequence",
+      "source_port": "structure_candidates",
+      "target_node_id": "materialize-fold-confidence",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "fold-prompt-sequence",
+      "source_port": "confidence_facts",
+      "target_node_id": "materialize-fold-confidence",
+      "target_port": "confidence_facts"
+    },
+    {
+      "source_node_id": "import-structure",
+      "source_port": "structure_candidates",
+      "target_node_id": "resolve-proteinmpnn-targets",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "import-structure",
+      "source_port": "structure_candidates",
+      "target_node_id": "design-with-reference",
+      "target_port": "structure_candidates"
+    },
+    {
+      "source_node_id": "resolve-proteinmpnn-targets",
+      "source_port": "residue_axes",
+      "target_node_id": "design-with-reference",
+      "target_port": "structure_residue_axes"
+    },
+    {
+      "source_node_id": "materialize-prompt-sequence",
+      "source_port": "sequence",
+      "target_node_id": "design-with-reference",
+      "target_port": "sequence"
+    }
+  ],
+  "observation_selectors": [],
+  "selection_objectives": []
+}

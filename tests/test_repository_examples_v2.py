@@ -33,6 +33,9 @@ from examples.v2_suite import (
 from modules.prompt_authoring.package import (
     MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
 )
+from modules.residue_data.package import (
+    MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+)
 from modules.selection.package import MODULE_PACKAGE as SELECTION_PACKAGE
 from modules.structure_comparison.package import (
     MODULE_PACKAGE as STRUCTURE_COMPARISON_PACKAGE,
@@ -142,6 +145,56 @@ def test_repository_examples_are_compilable_v2_workflows() -> None:
                 node.binding_id,
             )
             assert binding.descriptor["node_type"] == node_type.reference()
+
+
+def test_prompt_downstream_example_closes_fold_and_proteinmpnn_interfaces() -> None:
+    payload = _load(
+        PROJECT_ROOT
+        / "examples"
+        / "v2"
+        / "prompt-downstream-interfaces.workflow.json"
+    )
+    edges = {
+        (
+            edge["source_node_id"],
+            edge["source_port"],
+            edge["target_node_id"],
+            edge["target_port"],
+        )
+        for edge in payload["edges"]
+    }
+    assert {
+        (
+            "author-prompt",
+            "protein_prompt",
+            "decompose-prompt",
+            "protein_prompt",
+        ),
+        (
+            "decompose-prompt",
+            "sequence",
+            "materialize-prompt-sequence",
+            "sequence",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence_candidates",
+            "fold-prompt-sequence",
+            "sequence_candidates",
+        ),
+        (
+            "materialize-prompt-sequence",
+            "sequence",
+            "design-with-reference",
+            "sequence",
+        ),
+        (
+            "resolve-proteinmpnn-targets",
+            "residue_axes",
+            "design-with-reference",
+            "structure_residue_axes",
+        ),
+    } <= edges
 
 
 def test_examples_never_select_methods_or_environment_implicitly() -> None:
@@ -282,7 +335,7 @@ def test_scoring_fixture_uses_exact_scopes_contexts_and_utilities() -> None:
 def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
     catalog = build_frozen_catalog(
         (
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
             PROMPT_AUTHORING_SOURCE_PACKAGE,
         )
@@ -299,8 +352,8 @@ def test_prompt_track_fixture_uses_only_the_ctk_registration_seam() -> None:
         for node in workflow.nodes
         if node.binding_id.startswith("prompt_authoring.")
     } == {
-        "prompt_authoring.edit_protein_prompt_layout.direct",
-        "prompt_authoring.override_protein_prompt_track.direct",
+        "prompt_authoring.author.direct",
+        "prompt_authoring.author.direct",
     }
 
 

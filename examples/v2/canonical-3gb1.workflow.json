@@ -180,16 +180,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "fixed-positions",
-      "node_type_id": "proteinmpnn.random_fixed_positions",
-      "binding_id": "proteinmpnn.random_fixed_positions.local",
-      "node_parameters": {
-        "effective_seed": 1603,
-        "fraction": 0.5
-      },
-      "binding_parameters": {}
-    },
-    {
       "node_id": "design-children",
       "node_type_id": "proteinmpnn.design",
       "binding_id": "proteinmpnn.design.local",
@@ -253,465 +243,454 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt-composition-880d0182ba335a2141077fb2.source.prompt",
-      "node_type_id": "prompt_authoring.prompt_from_structure",
-      "binding_id": "prompt_authoring.prompt_from_structure.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0001.random_mask_mask-sequence",
-      "node_type_id": "prompt_authoring.random_mask",
-      "binding_id": "prompt_authoring.random_mask.direct",
-      "node_parameters": {
-        "count": 20,
-        "effective_seed": 1603,
-        "eligible_residue_ids": [
-          "A:1",
-          "A:10",
-          "A:11",
-          "A:12",
-          "A:13",
-          "A:14",
-          "A:15",
-          "A:16",
-          "A:17",
-          "A:18",
-          "A:19",
-          "A:2",
-          "A:20",
-          "A:21",
-          "A:22",
-          "A:23",
-          "A:24",
-          "A:25",
-          "A:26",
-          "A:27",
-          "A:28",
-          "A:29",
-          "A:3",
-          "A:30",
-          "A:31",
-          "A:32",
-          "A:33",
-          "A:34",
-          "A:35",
-          "A:36",
-          "A:37",
-          "A:38",
-          "A:39",
-          "A:4",
-          "A:40",
-          "A:41",
-          "A:42",
-          "A:43",
-          "A:44",
-          "A:45",
-          "A:46",
-          "A:47",
-          "A:48",
-          "A:49",
-          "A:5",
-          "A:50",
-          "A:51",
-          "A:52",
-          "A:53",
-          "A:54",
-          "A:55",
-          "A:56",
-          "A:6",
-          "A:7",
-          "A:8",
-          "A:9"
-        ],
-        "track": "sequence"
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0002.random_mask_mask-structure",
-      "node_type_id": "prompt_authoring.random_mask",
-      "binding_id": "prompt_authoring.random_mask.direct",
-      "node_parameters": {
-        "count": 10,
-        "effective_seed": 1603,
-        "eligible_residue_ids": [
-          "A:1",
-          "A:10",
-          "A:11",
-          "A:12",
-          "A:13",
-          "A:14",
-          "A:15",
-          "A:16",
-          "A:17",
-          "A:18",
-          "A:19",
-          "A:2",
-          "A:20",
-          "A:21",
-          "A:22",
-          "A:23",
-          "A:24",
-          "A:25",
-          "A:26",
-          "A:27",
-          "A:28",
-          "A:29",
-          "A:3",
-          "A:30",
-          "A:31",
-          "A:32",
-          "A:33",
-          "A:34",
-          "A:35",
-          "A:36",
-          "A:37",
-          "A:38",
-          "A:39",
-          "A:4",
-          "A:40",
-          "A:41",
-          "A:42",
-          "A:43",
-          "A:44",
-          "A:45",
-          "A:46",
-          "A:47",
-          "A:48",
-          "A:49",
-          "A:5",
-          "A:50",
-          "A:51",
-          "A:52",
-          "A:53",
-          "A:54",
-          "A:55",
-          "A:56",
-          "A:6",
-          "A:7",
-          "A:8",
-          "A:9"
-        ],
-        "track": "structure"
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0003.random_insert_insert-masked",
-      "node_type_id": "prompt_authoring.random_insert_masked",
-      "binding_id": "prompt_authoring.random_insert_masked.direct",
-      "node_parameters": {
-        "count": 15,
-        "effective_seed": 1603,
-        "eligible_chain_ids": [
-          "A"
-        ]
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0004.override_secondary_structure",
-      "node_type_id": "prompt_authoring.override_protein_prompt_track",
-      "binding_id": "prompt_authoring.override_protein_prompt_track.direct",
-      "node_parameters": {
-        "overrides": [
-          {
-            "action": "replace",
-            "residue_id": "A:1",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.11",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:2",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.15",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:3",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.8",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:4",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:5",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:6",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:7",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:8",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.10",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:9",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:10",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:11",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:12",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.12",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:13",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:14",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:17",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:18",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:19",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:20",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:21",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:22",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:23",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:24",
-            "value": "H"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:28",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:29",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:30",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:31",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:32",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.2",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:33",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.4",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:34",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:35",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:36",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.7",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:37",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.3",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:38",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:39",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:40",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.1",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:41",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:42",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:masked.1603.9",
-            "value": "E"
-          },
-          {
-            "action": "replace",
-            "residue_id": "A:43",
-            "value": "E"
-          }
-        ],
-        "track": "secondary_structure"
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-880d0182ba335a2141077fb2.0005.annotations",
-      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
-      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
-      "node_parameters": {
-        "annotations": [],
-        "overlap_policy": "allow"
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.layout",
-      "node_type_id": "prompt_authoring.build_residue_layout",
-      "binding_id": "prompt_authoring.build_residue_layout.direct",
-      "node_parameters": {
-        "chains": [
-          {
-            "chain_id": "A",
-            "length": 71
-          }
-        ]
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.prompt",
-      "node_type_id": "prompt_authoring.assemble_protein_prompt",
-      "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-composition-72d0f6197d8104e86d6484ca.0001.annotations",
-      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
-      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
-      "node_parameters": {
-        "annotations": [],
-        "overlap_policy": "allow"
-      },
-      "binding_parameters": {}
-    },
-    {
       "node_id": "compose-folds-to-generated",
       "node_type_id": "collection_ops.compose_relations",
       "binding_id": "collection_ops.compose_relations.direct",
       "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-composition-880d0182ba335a2141077fb2.source.author",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
+      "node_parameters": {
+        "document": {
+          "random_operations": [
+            {
+              "kind": "mask",
+              "seed": 1603,
+              "count": 20,
+              "track": "sequence",
+              "eligible_residue_ids": [
+                "A:1",
+                "A:10",
+                "A:11",
+                "A:12",
+                "A:13",
+                "A:14",
+                "A:15",
+                "A:16",
+                "A:17",
+                "A:18",
+                "A:19",
+                "A:2",
+                "A:20",
+                "A:21",
+                "A:22",
+                "A:23",
+                "A:24",
+                "A:25",
+                "A:26",
+                "A:27",
+                "A:28",
+                "A:29",
+                "A:3",
+                "A:30",
+                "A:31",
+                "A:32",
+                "A:33",
+                "A:34",
+                "A:35",
+                "A:36",
+                "A:37",
+                "A:38",
+                "A:39",
+                "A:4",
+                "A:40",
+                "A:41",
+                "A:42",
+                "A:43",
+                "A:44",
+                "A:45",
+                "A:46",
+                "A:47",
+                "A:48",
+                "A:49",
+                "A:5",
+                "A:50",
+                "A:51",
+                "A:52",
+                "A:53",
+                "A:54",
+                "A:55",
+                "A:56",
+                "A:6",
+                "A:7",
+                "A:8",
+                "A:9"
+              ]
+            },
+            {
+              "kind": "mask",
+              "seed": 1603,
+              "count": 10,
+              "track": "coordinates",
+              "eligible_residue_ids": [
+                "A:1",
+                "A:10",
+                "A:11",
+                "A:12",
+                "A:13",
+                "A:14",
+                "A:15",
+                "A:16",
+                "A:17",
+                "A:18",
+                "A:19",
+                "A:2",
+                "A:20",
+                "A:21",
+                "A:22",
+                "A:23",
+                "A:24",
+                "A:25",
+                "A:26",
+                "A:27",
+                "A:28",
+                "A:29",
+                "A:3",
+                "A:30",
+                "A:31",
+                "A:32",
+                "A:33",
+                "A:34",
+                "A:35",
+                "A:36",
+                "A:37",
+                "A:38",
+                "A:39",
+                "A:4",
+                "A:40",
+                "A:41",
+                "A:42",
+                "A:43",
+                "A:44",
+                "A:45",
+                "A:46",
+                "A:47",
+                "A:48",
+                "A:49",
+                "A:5",
+                "A:50",
+                "A:51",
+                "A:52",
+                "A:53",
+                "A:54",
+                "A:55",
+                "A:56",
+                "A:6",
+                "A:7",
+                "A:8",
+                "A:9"
+              ]
+            },
+            {
+              "kind": "insert",
+              "seed": 1603,
+              "count": 15,
+              "eligible_chain_ids": [
+                "A"
+              ]
+            }
+          ],
+          "track_edits": [
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:1",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.11",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:2",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.15",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:3",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.8",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:4",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:5",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:6",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:7",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:8",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.10",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:9",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:10",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:11",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:12",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.12",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:13",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:14",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:17",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:18",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:19",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:20",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:21",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:22",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:23",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:24",
+              "value": "H"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:28",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:29",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:30",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:31",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:32",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.2",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:33",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.4",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:34",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:35",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:36",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.7",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:37",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.3",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:38",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:39",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:40",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.1",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:41",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:42",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:masked.1603.2.9",
+              "value": "E"
+            },
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:43",
+              "value": "E"
+            }
+          ]
+        }
+      },
       "binding_parameters": {}
     }
   ],
@@ -739,12 +718,6 @@
       "source_port": "structure",
       "target_node_id": "resolve-imported-residue-axis",
       "target_port": "structure"
-    },
-    {
-      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0005.annotations",
-      "source_port": "protein_prompt",
-      "target_node_id": "generate-paired",
-      "target_port": "protein_prompt"
     },
     {
       "source_node_id": "generate-paired",
@@ -981,12 +954,6 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.layout",
-      "source_port": "layout",
-      "target_node_id": "fixed-positions",
-      "target_port": "layout"
-    },
-    {
       "source_node_id": "take-top-three",
       "source_port": "candidates",
       "target_node_id": "design-children",
@@ -997,12 +964,6 @@
       "source_port": "residue_axes",
       "target_node_id": "design-children",
       "target_port": "structure_residue_axes"
-    },
-    {
-      "source_node_id": "fixed-positions",
-      "source_port": "constraints",
-      "target_node_id": "design-children",
-      "target_port": "constraints"
     },
     {
       "source_node_id": "design-children",
@@ -1041,58 +1002,22 @@
       "target_port": "structure"
     },
     {
-      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.resolve_axis",
-      "source_port": "residue_axis",
-      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.prompt",
-      "target_port": "residue_axis"
-    },
-    {
-      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0001.random_mask_mask-sequence",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0001.random_mask_mask-sequence",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0002.random_mask_mask-structure",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0002.random_mask_mask-structure",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0003.random_insert_insert-masked",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0003.random_insert_insert-masked",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0004.override_secondary_structure",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.0004.override_secondary_structure",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.0005.annotations",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.layout",
-      "source_port": "layout",
-      "target_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.prompt",
-      "target_port": "layout"
-    },
-    {
-      "source_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.source.prompt",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-composition-72d0f6197d8104e86d6484ca.0001.annotations",
-      "target_port": "protein_prompt"
-    },
-    {
       "source_node_id": "relate-folds-to-sequences",
       "source_port": "relation",
       "target_node_id": "compose-folds-to-generated",
       "target_port": "left_relation"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.resolve_axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.author",
+      "target_port": "structure_source"
+    },
+    {
+      "source_node_id": "prompt-composition-880d0182ba335a2141077fb2.source.author",
+      "source_port": "protein_prompt",
+      "target_node_id": "generate-paired",
+      "target_port": "protein_prompt"
     }
   ],
   "observation_selectors": [],

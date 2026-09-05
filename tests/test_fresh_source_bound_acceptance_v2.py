@@ -54,10 +54,9 @@ from tests.acceptance.biohub_environment import (
 from tests.fixtures.public_v2 import wait_for_service_run_terminal_events
 from tests.support.prompt_authoring import (
     apply_prompt_document,
-    initialize_prompt_authoring_draft,
+    install_prompt_authoring_workflow,
     open_pdb_prompt_document,
     preview_prompt_document,
-    save_ordinary_graph_on_prompt_draft,
 )
 from tests.acceptance.installed_harness import (
     InstalledArtifact,
@@ -1317,63 +1316,58 @@ def _materialize_prompt_compositions(
     project_id: str,
     project_input_ref: str,
     base_tier_name: str,
-) -> tuple[dict[str, Any], ...] | None:
+    workflow: dict[str, Any],
+) -> None:
+    _ = project_input_ref
     if base_tier_name == "fresh-1pga":
         return
-    initialize_prompt_authoring_draft(client, project_id)
+    install_prompt_authoring_workflow(client, project_id, workflow)
     if base_tier_name == "fresh-2emo":
-        opened = open_pdb_prompt_document(
+        node_id = f"{_FRESH_2EMO_PROMPT_COMPOSITION_IDS[0]}.source.author"
+        opened = open_pdb_prompt_document(client, project_id, node_id)
+        apply_prompt_document(
             client,
             project_id,
-            project_input_ref,
-            chain_ids=["A"],
-        )
-        return (
-            apply_prompt_document(
+            node_id,
+            preview_prompt_document(
                 client,
                 project_id,
-                preview_prompt_document(
-                    client,
-                    project_id,
-                    opened["document"],
-                ),
+                node_id,
+                opened["document"],
             ),
         )
+        return
 
-    applied_compositions = []
-    for branch, count in (
-        ("shorter-8", 8),
-        ("numbering-implied-12", 12),
-        ("longer-16", 16),
-    ):
-        opened = open_pdb_prompt_document(
-            client,
-            project_id,
-            project_input_ref,
-            chain_ids=["A"],
-        )
+    for composition_id in _FRESH_5G53_PROMPT_COMPOSITION_IDS:
+        node_id = f"{composition_id}.source.author"
+        opened = open_pdb_prompt_document(client, project_id, node_id)
         document = opened["document"]
+        inserted_ids = [
+            residue["residue_id"]
+            for residue in document["target_residues"]
+            if residue["origin"] == "inserted"
+        ]
+        source_residues = [
+            residue
+            for residue in document["target_residues"]
+            if residue["origin"] == "source"
+        ]
         insertion_index = next(
             index
-            for index, residue in enumerate(opened["residues"])
-            if residue["residue_label"] == "224"
+            for index, residue in enumerate(source_residues)
+            if residue["residue_id"] == "A:224"
         )
-        document["target_residues"][insertion_index:insertion_index] = [
-            {
-                "residue_handle": f"insert-{branch}-{index + 1:02d}",
-                "origin": "insert",
-                "chain_id": "A",
-            }
-            for index in range(count)
+        source_residues[insertion_index:insertion_index] = [
+            {"residue_id": residue_id, "origin": "inserted"}
+            for residue_id in inserted_ids
         ]
-        applied_compositions.append(
-            apply_prompt_document(
-                client,
-                project_id,
-                preview_prompt_document(client, project_id, document),
-            )
+        document["target_residues"] = source_residues
+        apply_prompt_document(
+            client,
+            project_id,
+            node_id,
+            preview_prompt_document(client, project_id, node_id, document),
         )
-    return tuple(applied_compositions)
 
 
 def test_5g53_materialized_prompt_updates_loop_consumer_identities() -> None:
@@ -1449,54 +1443,13 @@ def test_fresh_source_bound_public_run() -> None:
                 node["node_parameters"] = {
                     "project_input_ref": uploaded.json()["project_input_ref"]
                 }
-        applied_compositions = _materialize_prompt_compositions(
+        _materialize_prompt_compositions(
             client,
             project_id,
             uploaded.json()["project_input_ref"],
             base_tier_name,
+            workflow,
         )
-        if applied_compositions is not None:
-            if base_tier_name == "fresh-2emo":
-                fixture_composition_ids = (
-                    _FRESH_2EMO_PROMPT_COMPOSITION_IDS
-                )
-                output_connections = (
-                    (
-                        applied_compositions[0]["composition"],
-                        "residue_layout",
-                        "author-constraints",
-                        "layout",
-                    ),
-                )
-            else:
-                fixture_composition_ids = (
-                    _FRESH_5G53_PROMPT_COMPOSITION_IDS
-                )
-                output_connections = tuple(
-                    (
-                        applied["composition"],
-                        "protein_prompt",
-                        f"generate-{branch}",
-                        "protein_prompt",
-                    )
-                    for applied, branch in zip(
-                        applied_compositions,
-                        (
-                            "shorter-8",
-                            "numbering-implied-12",
-                            "longer-16",
-                        ),
-                        strict=True,
-                    )
-                )
-            workflow = save_ordinary_graph_on_prompt_draft(
-                client,
-                project_id,
-                applied_compositions,
-                workflow,
-                fixture_composition_ids=fixture_composition_ids,
-                output_connections=output_connections,
-            )
         committed = client.post(
             f"/api/v2/projects/{project_id}/workflow:commit",
             json={"workflow": workflow},

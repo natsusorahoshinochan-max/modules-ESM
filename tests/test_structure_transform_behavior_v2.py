@@ -62,7 +62,7 @@ def _run_transform(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"structure transform {operation}")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     needs_resolved_axis = operation in {"extract_backbone", "extract_sequence"}
     nodes = [
         WorkflowNodeInstance(
@@ -185,7 +185,7 @@ def _run_candidate_transform(
         run_root=tmp_path / "runs",
     )
     project = projects.create(f"candidate transform {operation}")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     needs_resolved_axes = operation == "extract_sequence_candidates"
     nodes = [
         WorkflowNodeInstance(
@@ -512,7 +512,7 @@ def test_resolved_axis_normalizes_mse_and_excludes_ligand_and_water(
     )
     axis = _decode(catalog, service, projection, _transform_output(projection))
     assert axis.structure == source
-    assert axis.layout.chain_id == "A"
+    assert axis.layout.chain_ids == ("A",)
     assert axis.layout.residue_ids == ("A:1", "A:2", "A:3")
     assert axis.sequence == "AMG"
     assert axis.residue_names == ("ALA", "MET", "GLY")

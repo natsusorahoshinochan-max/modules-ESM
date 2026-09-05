@@ -1129,11 +1129,7 @@ def test_binding_output_validates_per_residue_shape_range_and_masking() -> None:
         axis_contract=ExactContractReference(**axis_reference),
         axis_content_digest="sha256:" + ("a" * 64),
         source=subject,
-        layout=ResidueLayout(
-            "A",
-            3,
-            ("A:1", "A:2", "A:3"),
-        ),
+        layout=ResidueLayout(("A:1", "A:2", "A:3")),
     )
     observation = ScoreObservation(
         subject=subject,
@@ -1251,7 +1247,7 @@ def test_modified_polymer_axis_length_does_not_use_raw_atom_record_count() -> No
             "structure_transform.resolved_residue_axis"),
         axis_content_digest="sha256:" + ("5" * 64),
         source=subject,
-        layout=ResidueLayout("A", 3, ("A:1", "A:2", "A:3")),
+        layout=ResidueLayout(("A:1", "A:2", "A:3")),
     )
     observation = ScoreObservation(
         subject=subject,

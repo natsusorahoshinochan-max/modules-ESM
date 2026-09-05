@@ -1049,7 +1049,7 @@ def _run_simplefold(
         run_root=tmp_path / "runs",
     )
     project = projects.create(project_id)
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,

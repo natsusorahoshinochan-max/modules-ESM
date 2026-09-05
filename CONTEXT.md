@@ -58,25 +58,16 @@ _Avoid_: Unregistered type string, implicit conversion, inferred datatype
 
 **Authoring Capability Projection**:
 A startup-frozen, non-scientific projection over exact contracts in the same
-FrozenCatalog. It declares ordinary Palette operations, specialized authoring
-entries, and their managed Node Types; it is not another scientific Catalog.
+FrozenCatalog. It declares ordinary Palette operations and dedicated editor
+capabilities; it is not another scientific Catalog.
 _Avoid_: Scientific Catalog, runtime registry, inferred editor grouping
 
-**Specialized Composition**:
-An authoring structure shown as one specialized entry on the ordinary canvas
-and materialized as explicit Node Instances and edges in the Workflow.
-_Avoid_: Hidden execution, opaque Workflow node, frontend-only group
-
-**Managed Member**:
-An explicit Node Instance or internal edge owned by one Specialized
-Composition. It remains inspectable in the Catalog and Workflow but cannot be
-created, changed, or partly deleted through generic authoring.
-_Avoid_: Hidden node, generic Palette node, inferred graph membership
-
 **Prompt Authoring Document**:
-A non-executable authoring value declaring a ProteinPrompt source, target
-residue membership, final track intents, function annotations, random
-conditions, source merges, and structure transforms.
+The non-executable `document` parameter of the `prompt_authoring.author` Node
+Type, declaring the prompt source, target residue membership, final track
+edits, function annotations, random conditions, source merges, and structure
+transforms. Prompt Studio edits exactly this parameter on one ordinary Node
+Instance.
 _Avoid_: ProteinPrompt, Workflow, command log, scientific evidence
 
 **Prompt Authoring Preview**:
@@ -84,12 +75,6 @@ A non-published, non-executable backend projection of a Prompt Authoring
 Document containing its normalized document, complete Prompt projection,
 changes, realized random choices, and diagnostics.
 _Avoid_: Run, Candidate, Cache, Artifact, Evidence
-
-**Managed Composition Record**:
-Non-scientific authoring state persisted beside one Workflow Draft revision so
-the owning implementation can reopen, replace, copy, and delete a Specialized
-Composition without inferring user intent from the materialized graph.
-_Avoid_: Workflow scientific content, Workflow Commit snapshot, graph inference
 
 ## Extension Language
 
@@ -176,14 +161,14 @@ _Avoid_: Package-specific smoke tests, manual checklist
 ## Scientific Data and Scoring
 
 **ProteinPrompt**:
-A residue-aligned, multi-track specification containing sequence, structure
-coordinates, secondary structure, accessibility, and function conditioning.
-Sequence and structure each use one nullable value per residue, with all-null
-as their sole fully masked track state; viewer visibility and authoring policy
-are not ProteinPrompt science. Its SASA track means nullable absolute
-per-residue solvent-accessible surface area in square angstroms, with no
-relative-accessibility normalization.
-_Avoid_: Prompt object, ESM input, multi-track input
+The closed residue-aligned multi-track conditioning aggregate owned by Prompt
+Studio and consumed by ESM3. It owns exactly one ResidueLayout; sequence and
+named-atom coordinates are always present (all-null allowed), while secondary
+structure and SASA may be whole-track absent, which is distinct from a present
+all-null track. Function annotations are identity-addressed intervals within
+that layout. It is not the universal exchange language of other scientific
+Modules.
+_Avoid_: Prompt object, ESM input, multi-track input, target layout copy
 
 **Candidate**:
 A generated or transformed protein sequence or structure with stable
@@ -296,9 +281,11 @@ its subject. Collection order never establishes the association.
 _Avoid_: Parallel list, positional zip, unlabeled annotation
 
 **Residue Track**:
-A value series aligned to the protein residue layout, with explicit validity and
-masking semantics for each position.
-_Avoid_: Raw array, token vector, residue metadata
+A self-describing value series bound to one exact ResidueLayout, carrying one
+nullable value per residue identity. The carrier does not interpret the
+scientific role of a missing value; the nominal Port Type Definition owns that
+semantics.
+_Avoid_: Raw array, token vector, residue metadata, parallel layout Port
 
 **PDB String**:
 The canonical text representation used to exchange protein structures at

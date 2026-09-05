@@ -4,22 +4,24 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import Any
 
-from core.catalog.authoring import build_authoring_capability_projection
 from core.catalog.builder import build_frozen_catalog
-from core.project.manager import ProjectManager, WEBUI_3GB1_PROJECT_ID
-from core.workflow.authoring import WorkflowAuthoringService
+from core.project.manager import WEBUI_3GB1_PROJECT_ID
 from core.workflow.compiler import CompilationRequest, compile
-from core.workflow.document import WorkflowDocument, workflow_document_from_canonical
-from modules.prompt_authoring.authoring import PromptAuthoringService
+from core.workflow.document import workflow_document_from_canonical
 from protein_workbench_public.bootstrap import module_registrations
 
 
 ROOT = Path(__file__).resolve().parents[1]
-STRUCTURE = ROOT / "examples" / "v2" / "structures" / "3GB1.pdb"
 OUTPUT = ROOT / "examples" / "v2" / "webui-3gb1.example.json"
+
+_AUTHOR_NODE_ID = "prompt-composition-webui-3gb1.source.author"
+# A:39 is unresolved in 3GB1.pdb and therefore absent from the resolved axis.
+_INSERTED_RESIDUE_IDS = (
+    "A:inserted.cef4eec4d2634a90e4b1e54d",
+    "A:inserted.8f408adb9e8e5c030e42815f",
+)
 
 
 def _node(
@@ -78,94 +80,46 @@ def _objective(
     }
 
 
-def _prompt_draft(
-    projects: ProjectManager,
-    workflows: WorkflowAuthoringService,
-) -> dict[str, Any]:
-    project = projects.create("generator")
-    projects.publish_input(
-        project.id,
-        "3GB1.pdb",
-        STRUCTURE.read_bytes(),
-        filename="3GB1.pdb",
-    )
-    workflows.save_draft(
-        project.id,
-        workflow=WorkflowDocument("2.1.0", project.id, (), ()),
-    )
-    prompts = PromptAuthoringService(projects, workflows)
-    opened = prompts.open(
-        project.id,
-        {
-            "mode": "create",
-            "source": {
-                "kind": "pdb",
-                "project_input_ref": "3GB1.pdb",
-                "chain_ids": ["A"],
-            },
-        },
-    )
-    document = dict(opened.document)
-    handles = {
-        item["position"]: item["residue_handle"]
-        for item in opened.residues
-    }
-    target = list(document["target_residues"])
-    target[38:39] = [
-        {"residue_handle": "inserted-loop-1", "origin": "insert", "chain_id": "A"},
-        {"residue_handle": "inserted-loop-2", "origin": "insert", "chain_id": "A"},
+def _author_document() -> dict[str, Any]:
+    source_ids = [
+        f"A:{residue_number}"
+        for residue_number in range(1, 57)
+        if residue_number != 39
     ]
-    document["target_residues"] = target
-    document["track_intents"] = [
-        *(
-            {
-                "track": "sequence",
-                "residue_handle": handle,
-                "action": "mask",
-            }
-            for handle in (
-                handles[37],
-                handles[38],
-                "inserted-loop-1",
-                "inserted-loop-2",
-                handles[40],
-                handles[41],
-            )
-        ),
-        *(
-            {
-                "track": "structure",
-                "residue_handle": handles[position],
-                "action": "mask",
-            }
-            for position in (37, 38, 40, 41)
-        ),
+    target_residues: list[dict[str, str]] = [
+        {"residue_id": residue_id, "origin": "source"}
+        for residue_id in source_ids[:38]
     ]
-    preview = prompts.preview(project.id, document)
-    if preview.diagnostics:
-        raise RuntimeError(tuple(item.projection() for item in preview.diagnostics))
-    applied = prompts.apply(
-        project.id,
-        intent="create",
-        normalized_document=preview.normalized_document,
-        preview_digest=preview.preview_digest,
+    target_residues.extend(
+        {"residue_id": residue_id, "origin": "inserted"}
+        for residue_id in _INSERTED_RESIDUE_IDS
     )
-    old_id = applied.composition.composition_id
-    projection = {
-        "workflow": applied.draft.workflow.canonical_projection(),
-        "authoring_compositions": [
-            record.canonical_projection()
-            for record in applied.draft.authoring_compositions
+    target_residues.extend(
+        {"residue_id": residue_id, "origin": "source"}
+        for residue_id in source_ids[38:]
+    )
+    sequence_clears = [
+        "A:37",
+        "A:38",
+        *_INSERTED_RESIDUE_IDS,
+        "A:40",
+        "A:41",
+    ]
+    coordinate_clears = ["A:37", "A:38", "A:40", "A:41"]
+    return {
+        "target_residues": target_residues,
+        "track_edits": [
+            {"track": "sequence", "action": "clear", "residue_id": residue_id}
+            for residue_id in sequence_clears
+        ]
+        + [
+            {"track": "coordinates", "action": "clear", "residue_id": residue_id}
+            for residue_id in coordinate_clears
         ],
     }
-    normalized = json.loads(
-        json.dumps(projection).replace(old_id, "prompt-composition-webui-3gb1")
-    )
-    normalized["workflow"]["workflow_id"] = WEBUI_3GB1_PROJECT_ID
-    return normalized
 
 
-def _ordinary_graph(prompt_output: dict[str, str]) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+def _ordinary_graph() -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
     nodes = [
         _node("generate-paired", "esm3.generate_paired", "esm3.generate_paired.biohub_medium", {"effective_seed": 1603, "num_samples": 7}),
         _node("confidence-generated", "structure_prediction.materialize_confidence", "structure_prediction.materialize_confidence.direct"),
@@ -202,7 +156,7 @@ def _ordinary_graph(prompt_output: dict[str, str]) -> tuple[list[dict[str, Any]]
     ]
     e = _edge
     edges = [
-        e(prompt_output["node_id"], prompt_output["port_name"], "generate-paired", "protein_prompt"),
+        e(_AUTHOR_NODE_ID, "protein_prompt", "generate-paired", "protein_prompt"),
         e("generate-paired", "structure_candidates", "confidence-generated", "structure_candidates"),
         e("generate-paired", "confidence_facts", "confidence-generated", "confidence_facts"),
         e("generate-paired", "structure_candidates", "rank-generated", "candidates"),
@@ -272,21 +226,52 @@ def _ordinary_graph(prompt_output: dict[str, str]) -> tuple[list[dict[str, Any]]
 def main() -> None:
     registrations = module_registrations()
     catalog = build_frozen_catalog(registrations)
-    projection = build_authoring_capability_projection(registrations, catalog)
-    with TemporaryDirectory() as directory:
-        projects = ProjectManager(Path(directory) / "projects")
-        workflows = WorkflowAuthoringService(projects, catalog, projection)
-        example = _prompt_draft(projects, workflows)
-    prompt_record = example["authoring_compositions"][0]
-    prompt_output = next(
-        item
-        for item in prompt_record["exposed_outputs"]
-        if item["role"] == "protein_prompt"
-    )
-    nodes, edges = _ordinary_graph(prompt_output)
-    workflow = example["workflow"]
-    workflow["nodes"].extend(nodes)
-    workflow["edges"].extend(edges)
+    source_nodes = [
+        _node(
+            "prompt-composition-webui-3gb1.source.import_structure",
+            "protein_io.import_structure",
+            "protein_io.import_structure.direct",
+            {"project_input_ref": "3GB1.pdb"},
+        ),
+        _node(
+            "prompt-composition-webui-3gb1.source.select_chains",
+            "structure_transform.select_chains",
+            "structure_transform.select_chains.direct",
+            {"chain_ids": ["A"]},
+        ),
+        _node(
+            "prompt-composition-webui-3gb1.source.resolve_axis",
+            "structure_transform.resolve_residue_axis",
+            "structure_transform.resolve_residue_axis.direct",
+        ),
+        _node(
+            _AUTHOR_NODE_ID,
+            "prompt_authoring.author",
+            "prompt_authoring.author.direct",
+            {"document": _author_document()},
+        ),
+    ]
+    source_edges = [
+        _edge(
+            "prompt-composition-webui-3gb1.source.import_structure",
+            "structure",
+            "prompt-composition-webui-3gb1.source.select_chains",
+            "structure",
+        ),
+        _edge(
+            "prompt-composition-webui-3gb1.source.select_chains",
+            "structure",
+            "prompt-composition-webui-3gb1.source.resolve_axis",
+            "structure",
+        ),
+        _edge(
+            "prompt-composition-webui-3gb1.source.resolve_axis",
+            "residue_axis",
+            _AUTHOR_NODE_ID,
+            "structure_source",
+        ),
+    ]
+    ordinary_nodes, ordinary_edges = _ordinary_graph()
     intrinsic = {"kind": "intrinsic"}
     pairwise = {
         "kind": "pairwise",
@@ -295,21 +280,25 @@ def main() -> None:
         "pairing_mode": "explicit_relation",
         "normalization": "reference-axis-residue-count",
     }
-    workflow["selection_objectives"] = [
-        _objective("generated-plddt", candidates="generate-paired", scores="confidence-generated", metric="structure.plddt.mean_residue", method="esm3.generate_paired.esm3_medium_2024_08", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esm3_medium_2024_08.percent_to_unit", weight=1.0, context=intrinsic, score_port="observations"),
-        _objective("stage-one-plddt", candidates="fold-stage-one", scores="scores-stage-one", metric="structure.plddt.mean_residue", method="folding.fold.esmfold2_fast_biohub_2026_05", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit", weight=0.5, context=intrinsic),
-        _objective("stage-one-parent-tm", candidates="fold-stage-one", scores="scores-stage-one", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
-        _objective("final-plddt", candidates="fold-final", scores="scores-final", metric="structure.plddt.mean_residue", method="folding.fold.esmfold2_fast_biohub_2026_05", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit", weight=0.5, context=intrinsic),
-        _objective("final-parent-tm", candidates="fold-final", scores="scores-final", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
-    ]
+    workflow = {
+        "schema_version": "2.1.0",
+        "workflow_id": WEBUI_3GB1_PROJECT_ID,
+        "nodes": [*source_nodes, *ordinary_nodes],
+        "edges": [*source_edges, *ordinary_edges],
+        "observation_selectors": [],
+        "selection_objectives": [
+            _objective("generated-plddt", candidates="generate-paired", scores="confidence-generated", metric="structure.plddt.mean_residue", method="esm3.generate_paired.esm3_medium_2024_08", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esm3_medium_2024_08.percent_to_unit", weight=1.0, context=intrinsic, score_port="observations"),
+            _objective("stage-one-plddt", candidates="fold-stage-one", scores="scores-stage-one", metric="structure.plddt.mean_residue", method="folding.fold.esmfold2_fast_biohub_2026_05", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit", weight=0.5, context=intrinsic),
+            _objective("stage-one-parent-tm", candidates="fold-stage-one", scores="scores-stage-one", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
+            _objective("final-plddt", candidates="fold-final", scores="scores-final", metric="structure.plddt.mean_residue", method="folding.fold.esmfold2_fast_biohub_2026_05", source_partition="prediction_confidence", utility_transform="structure.plddt.mean_residue.esmfold2_fast_biohub_2026_05.percent_to_unit", weight=0.5, context=intrinsic),
+            _objective("final-parent-tm", candidates="fold-final", scores="scores-final", metric="structure_comparison.tm_score", method="structure_comparison.tm_score.reference_axis_normalized.method", source_partition="structure_comparison.tm_score.explicit_relation", utility_transform="structure_comparison.tm_score.explicit_relation.identity", weight=0.5, context=pairwise),
+        ],
+    }
     admitted = workflow_document_from_canonical(workflow)
     compile(CompilationRequest(admitted), catalog)
     OUTPUT.write_text(
         json.dumps(
-            {
-                "workflow": admitted.canonical_projection(),
-                "authoring_compositions": example["authoring_compositions"],
-            },
+            {"workflow": admitted.canonical_projection()},
             ensure_ascii=False,
             indent=2,
         )

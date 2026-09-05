@@ -31,105 +31,6 @@
         "binding_parameters": {}
       },
       {
-        "node_id": "prompt-composition-webui-3gb1.source.prompt",
-        "node_type_id": "prompt_authoring.prompt_from_structure",
-        "binding_id": "prompt_authoring.prompt_from_structure.direct",
-        "node_parameters": {},
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "prompt-composition-webui-3gb1.0001.layout_edit",
-        "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
-        "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
-        "node_parameters": {
-          "insertions": [
-            {
-              "inserted_residue_ids": [
-                "A:inserted.cef4eec4d2634a90e4b1e54d",
-                "A:inserted.8f408adb9e8e5c030e42815f"
-              ],
-              "after_residue_id": "A:38"
-            }
-          ],
-          "deleted_residue_ids": [
-            "A:39"
-          ]
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "prompt-composition-webui-3gb1.0002.override_sequence",
-        "node_type_id": "prompt_authoring.override_protein_prompt_track",
-        "binding_id": "prompt_authoring.override_protein_prompt_track.direct",
-        "node_parameters": {
-          "track": "sequence",
-          "overrides": [
-            {
-              "action": "clear",
-              "residue_id": "A:37"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:38"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:inserted.cef4eec4d2634a90e4b1e54d"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:inserted.8f408adb9e8e5c030e42815f"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:40"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:41"
-            }
-          ]
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "prompt-composition-webui-3gb1.0003.override_structure",
-        "node_type_id": "prompt_authoring.override_protein_prompt_track",
-        "binding_id": "prompt_authoring.override_protein_prompt_track.direct",
-        "node_parameters": {
-          "track": "structure",
-          "overrides": [
-            {
-              "action": "clear",
-              "residue_id": "A:37"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:38"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:40"
-            },
-            {
-              "action": "clear",
-              "residue_id": "A:41"
-            }
-          ]
-        },
-        "binding_parameters": {}
-      },
-      {
-        "node_id": "prompt-composition-webui-3gb1.0004.annotations",
-        "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
-        "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
-        "node_parameters": {
-          "annotations": [],
-          "overlap_policy": "allow"
-        },
-        "binding_parameters": {}
-      },
-      {
         "node_id": "generate-paired",
         "node_type_id": "esm3.generate_paired",
         "binding_id": "esm3.generate_paired.biohub_medium",
@@ -387,6 +288,298 @@
         "binding_id": "protein_io.export_structure.direct",
         "node_parameters": {},
         "binding_parameters": {}
+      },
+      {
+        "node_id": "prompt-composition-webui-3gb1.source.author",
+        "node_type_id": "prompt_authoring.author",
+        "binding_id": "prompt_authoring.author.direct",
+        "node_parameters": {
+          "document": {
+            "target_residues": [
+              {
+                "residue_id": "A:1",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:2",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:3",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:4",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:5",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:6",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:7",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:8",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:9",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:10",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:11",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:12",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:13",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:14",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:15",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:16",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:17",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:18",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:19",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:20",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:21",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:22",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:23",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:24",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:25",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:26",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:27",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:28",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:29",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:30",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:31",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:32",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:33",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:34",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:35",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:36",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:37",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:38",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:inserted.cef4eec4d2634a90e4b1e54d",
+                "origin": "inserted"
+              },
+              {
+                "residue_id": "A:inserted.8f408adb9e8e5c030e42815f",
+                "origin": "inserted"
+              },
+              {
+                "residue_id": "A:40",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:41",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:42",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:43",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:44",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:45",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:46",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:47",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:48",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:49",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:50",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:51",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:52",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:53",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:54",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:55",
+                "origin": "source"
+              },
+              {
+                "residue_id": "A:56",
+                "origin": "source"
+              }
+            ],
+            "track_edits": [
+              {
+                "track": "sequence",
+                "action": "clear",
+                "residue_id": "A:37"
+              },
+              {
+                "track": "sequence",
+                "action": "clear",
+                "residue_id": "A:38"
+              },
+              {
+                "track": "sequence",
+                "action": "clear",
+                "residue_id": "A:inserted.cef4eec4d2634a90e4b1e54d"
+              },
+              {
+                "track": "sequence",
+                "action": "clear",
+                "residue_id": "A:inserted.8f408adb9e8e5c030e42815f"
+              },
+              {
+                "track": "sequence",
+                "action": "clear",
+                "residue_id": "A:40"
+              },
+              {
+                "track": "sequence",
+                "action": "clear",
+                "residue_id": "A:41"
+              },
+              {
+                "track": "coordinates",
+                "action": "clear",
+                "residue_id": "A:37"
+              },
+              {
+                "track": "coordinates",
+                "action": "clear",
+                "residue_id": "A:38"
+              },
+              {
+                "track": "coordinates",
+                "action": "clear",
+                "residue_id": "A:40"
+              },
+              {
+                "track": "coordinates",
+                "action": "clear",
+                "residue_id": "A:41"
+              }
+            ]
+          }
+        },
+        "binding_parameters": {}
       }
     ],
     "edges": [
@@ -403,37 +596,7 @@
         "target_port": "structure"
       },
       {
-        "source_node_id": "prompt-composition-webui-3gb1.source.resolve_axis",
-        "source_port": "residue_axis",
-        "target_node_id": "prompt-composition-webui-3gb1.source.prompt",
-        "target_port": "residue_axis"
-      },
-      {
-        "source_node_id": "prompt-composition-webui-3gb1.source.prompt",
-        "source_port": "protein_prompt",
-        "target_node_id": "prompt-composition-webui-3gb1.0001.layout_edit",
-        "target_port": "protein_prompt"
-      },
-      {
-        "source_node_id": "prompt-composition-webui-3gb1.0001.layout_edit",
-        "source_port": "protein_prompt",
-        "target_node_id": "prompt-composition-webui-3gb1.0002.override_sequence",
-        "target_port": "protein_prompt"
-      },
-      {
-        "source_node_id": "prompt-composition-webui-3gb1.0002.override_sequence",
-        "source_port": "protein_prompt",
-        "target_node_id": "prompt-composition-webui-3gb1.0003.override_structure",
-        "target_port": "protein_prompt"
-      },
-      {
-        "source_node_id": "prompt-composition-webui-3gb1.0003.override_structure",
-        "source_port": "protein_prompt",
-        "target_node_id": "prompt-composition-webui-3gb1.0004.annotations",
-        "target_port": "protein_prompt"
-      },
-      {
-        "source_node_id": "prompt-composition-webui-3gb1.0004.annotations",
+        "source_node_id": "prompt-composition-webui-3gb1.source.author",
         "source_port": "protein_prompt",
         "target_node_id": "generate-paired",
         "target_port": "protein_prompt"
@@ -809,6 +972,12 @@
         "source_port": "candidates",
         "target_node_id": "export-final",
         "target_port": "structures"
+      },
+      {
+        "source_node_id": "prompt-composition-webui-3gb1.source.resolve_axis",
+        "source_port": "residue_axis",
+        "target_node_id": "prompt-composition-webui-3gb1.source.author",
+        "target_port": "structure_source"
       }
     ],
     "observation_selectors": [],
@@ -977,432 +1146,5 @@
         "missing_policy": "error"
       }
     ]
-  },
-  "authoring_compositions": [
-    {
-      "composition_id": "prompt-composition-webui-3gb1",
-      "capability_id": "protein_prompt.authoring",
-      "normalized_document": {
-        "source": {
-          "kind": "pdb",
-          "project_input_ref": "3GB1.pdb",
-          "chain_ids": [
-            "A"
-          ]
-        },
-        "target_residues": [
-          {
-            "residue_handle": "residue-00000001",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000002",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000003",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000004",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000005",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000006",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000007",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000008",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000009",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000010",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000011",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000012",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000013",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000014",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000015",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000016",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000017",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000018",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000019",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000020",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000021",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000022",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000023",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000024",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000025",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000026",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000027",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000028",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000029",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000030",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000031",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000032",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000033",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000034",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000035",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000036",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000037",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000038",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "inserted-loop-1",
-            "origin": "insert",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "inserted-loop-2",
-            "origin": "insert",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000040",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000041",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000042",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000043",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000044",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000045",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000046",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000047",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000048",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000049",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000050",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000051",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000052",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000053",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000054",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000055",
-            "origin": "source",
-            "chain_id": "A"
-          },
-          {
-            "residue_handle": "residue-00000056",
-            "origin": "source",
-            "chain_id": "A"
-          }
-        ],
-        "track_intents": [
-          {
-            "track": "sequence",
-            "residue_handle": "residue-00000037",
-            "action": "mask"
-          },
-          {
-            "track": "sequence",
-            "residue_handle": "residue-00000038",
-            "action": "mask"
-          },
-          {
-            "track": "sequence",
-            "residue_handle": "inserted-loop-1",
-            "action": "mask"
-          },
-          {
-            "track": "sequence",
-            "residue_handle": "inserted-loop-2",
-            "action": "mask"
-          },
-          {
-            "track": "sequence",
-            "residue_handle": "residue-00000040",
-            "action": "mask"
-          },
-          {
-            "track": "sequence",
-            "residue_handle": "residue-00000041",
-            "action": "mask"
-          },
-          {
-            "track": "structure",
-            "residue_handle": "residue-00000037",
-            "action": "mask"
-          },
-          {
-            "track": "structure",
-            "residue_handle": "residue-00000038",
-            "action": "mask"
-          },
-          {
-            "track": "structure",
-            "residue_handle": "residue-00000040",
-            "action": "mask"
-          },
-          {
-            "track": "structure",
-            "residue_handle": "residue-00000041",
-            "action": "mask"
-          }
-        ],
-        "function_annotations": [],
-        "overlap_policy": "allow",
-        "random_operations": [],
-        "source_merges": [],
-        "rigid_transforms": []
-      },
-      "managed_node_ids": [
-        "prompt-composition-webui-3gb1.source.import_structure",
-        "prompt-composition-webui-3gb1.source.select_chains",
-        "prompt-composition-webui-3gb1.source.resolve_axis",
-        "prompt-composition-webui-3gb1.source.prompt",
-        "prompt-composition-webui-3gb1.0001.layout_edit",
-        "prompt-composition-webui-3gb1.0002.override_sequence",
-        "prompt-composition-webui-3gb1.0003.override_structure",
-        "prompt-composition-webui-3gb1.0004.annotations"
-      ],
-      "internal_edges": [
-        {
-          "source_node_id": "prompt-composition-webui-3gb1.source.import_structure",
-          "source_port": "structure",
-          "target_node_id": "prompt-composition-webui-3gb1.source.select_chains",
-          "target_port": "structure"
-        },
-        {
-          "source_node_id": "prompt-composition-webui-3gb1.source.select_chains",
-          "source_port": "structure",
-          "target_node_id": "prompt-composition-webui-3gb1.source.resolve_axis",
-          "target_port": "structure"
-        },
-        {
-          "source_node_id": "prompt-composition-webui-3gb1.source.resolve_axis",
-          "source_port": "residue_axis",
-          "target_node_id": "prompt-composition-webui-3gb1.source.prompt",
-          "target_port": "residue_axis"
-        },
-        {
-          "source_node_id": "prompt-composition-webui-3gb1.source.prompt",
-          "source_port": "protein_prompt",
-          "target_node_id": "prompt-composition-webui-3gb1.0001.layout_edit",
-          "target_port": "protein_prompt"
-        },
-        {
-          "source_node_id": "prompt-composition-webui-3gb1.0001.layout_edit",
-          "source_port": "protein_prompt",
-          "target_node_id": "prompt-composition-webui-3gb1.0002.override_sequence",
-          "target_port": "protein_prompt"
-        },
-        {
-          "source_node_id": "prompt-composition-webui-3gb1.0002.override_sequence",
-          "source_port": "protein_prompt",
-          "target_node_id": "prompt-composition-webui-3gb1.0003.override_structure",
-          "target_port": "protein_prompt"
-        },
-        {
-          "source_node_id": "prompt-composition-webui-3gb1.0003.override_structure",
-          "source_port": "protein_prompt",
-          "target_node_id": "prompt-composition-webui-3gb1.0004.annotations",
-          "target_port": "protein_prompt"
-        }
-      ],
-      "exposed_inputs": [],
-      "exposed_outputs": [
-        {
-          "role": "protein_prompt",
-          "node_id": "prompt-composition-webui-3gb1.0004.annotations",
-          "port_name": "protein_prompt"
-        },
-        {
-          "role": "residue_layout",
-          "node_id": "prompt-composition-webui-3gb1.0001.layout_edit",
-          "port_name": "layout"
-        }
-      ],
-      "confirmed_preview_identity": "sha256:0b3f98ba0ccd48ff40a107ea04fb43fb74a03c3164e6f86a5ae83143f86c3592"
-    }
-  ]
+  }
 }

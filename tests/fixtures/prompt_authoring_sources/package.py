@@ -29,22 +29,27 @@ from core.operation import (
 )
 from datatypes.prompt import (
     FunctionAnnotation,
-    FunctionAnnotations,
+    FunctionAnnotationTrack,
     ProteinPrompt,
 )
 from datatypes.residue import (
     ResidueLayout,
-    ResidueMap,
     ResidueTrack,
 )
 from datatypes.sequence import ProteinSequence
-from datatypes.structure import ProteinStructure
-from modules.prompt_authoring.domain import AlignedResidueTrack
+from datatypes.structure import (
+    NamedAtomCoordinates,
+    ProteinStructure,
+)
 from modules.structure_transform.csh_normalization import normalize_csh_parent_span
 from modules.structure_transform.residue_axis import resolve_residue_axis
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+_COORDINATES = NamedAtomCoordinates.from_mapping(
+    {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)}
+)
 
 
 def _atom(
@@ -66,12 +71,10 @@ def _atom(
 
 def _annotations(
     records: list[dict[str, object]] | None = None,
-) -> FunctionAnnotations:
-    return FunctionAnnotations(
-        [
-            FunctionAnnotation(**record)
-            for record in (records or [])
-        ]
+) -> tuple[FunctionAnnotation, ...]:
+    return tuple(
+        FunctionAnnotation(**record)
+        for record in (records or [])
     )
 
 
@@ -91,52 +94,20 @@ class _Source:
             raise ValueError("prompt-authoring source accepts no values")
         with self._run_resources.engine_invocation():
             fixture = node_parameters["fixture"]
-            source = ResidueLayout(
-                chain_id="A,B",
-                length=3,
-                residue_ids=["A:1", "A:2", "B:1"],
-            )
-            target = ResidueLayout(
-                chain_id="A,B",
-                length=3,
-                residue_ids=["A:1", "A:new", "B:1"],
-            )
-            residue_map = ResidueMap(
-                source_layout=source,
-                target_layout=target,
-                mappings=[
-                    (0, 0, "match"),
-                    (-1, 1, "insert"),
-                    (2, 2, "match"),
-                    (1, -1, "delete"),
-                ],
-            )
-            source_track = AlignedResidueTrack(
+            source = ResidueLayout(["A:1", "A:2", "B:1"])
+            source_track = ResidueTrack(source, ("A", "G", "S"))
+            source_secondary_structure_track = ResidueTrack(
                 source,
-                ("A", "G", "S"),
+                ("H", "E", "C"),
             )
-            source_secondary_structure_track = AlignedResidueTrack(
+            source_structure_track = ResidueTrack(
                 source,
-                ("H", "E", "-"),
+                (_COORDINATES, None, None),
             )
-            source_structure_track = AlignedResidueTrack(
-                source,
-                (
-                    {"N": (0.0, 0.0, 0.0), "CA": (1.0, 0.0, 0.0)},
-                    None,
-                    None,
-                ),
-            )
-            source_sasa_track = AlignedResidueTrack(
-                source,
-                (12.5, None, 30.0),
-            )
+            source_sasa_track = ResidueTrack(source, (12.5, None, 30.0))
             function_annotations = _annotations(
                 [{
                     "label": "binding_site",
-                    "start": 1,
-                    "end": 2,
-                    "chain_id": "A",
                     "start_residue_id": "A:1",
                     "end_residue_id": "A:2",
                 }]
@@ -147,17 +118,11 @@ class _Source:
                 function_annotations = _annotations([
                     {
                         "label": "binding_site",
-                        "start": 1,
-                        "end": 2,
-                        "chain_id": "A",
                         "start_residue_id": "A:1",
                         "end_residue_id": "A:2",
                     },
                     {
                         "label": "active_site",
-                        "start": 2,
-                        "end": 2,
-                        "chain_id": "A",
                         "start_residue_id": "A:2",
                         "end_residue_id": "A:2",
                     },
@@ -166,17 +131,11 @@ class _Source:
                 function_annotations = _annotations([
                     {
                         "label": "chain_b_site",
-                        "start": 3,
-                        "end": 3,
-                        "chain_id": "B",
                         "start_residue_id": "B:1",
                         "end_residue_id": "B:1",
                     },
                     {
                         "label": "chain_a_site",
-                        "start": 1,
-                        "end": 1,
-                        "chain_id": "A",
                         "start_residue_id": "A:1",
                         "end_residue_id": "A:1",
                     },
@@ -185,9 +144,6 @@ class _Source:
                 function_annotations = _annotations([
                     {
                         "label": "cross_chain",
-                        "start": 2,
-                        "end": 3,
-                        "chain_id": "A",
                         "start_residue_id": "A:2",
                         "end_residue_id": "B:1",
                     },
@@ -196,9 +152,6 @@ class _Source:
                 function_annotations = _annotations([
                     {
                         "label": "binding_site",
-                        "start": 1,
-                        "end": 2,
-                        "chain_id": "A",
                         "start_residue_id": "A:1",
                         "end_residue_id": "A:2",
                     },
@@ -212,149 +165,41 @@ class _Source:
                 )
                 protein_sequence_value = sequence_value
                 source = ResidueLayout(
-                    chain_id="A",
-                    length=56,
-                    residue_ids=[
-                        f"A:{index}" for index in range(1, 57)
-                    ],
+                    [f"A:{index}" for index in range(1, 57)]
                 )
-                target = source
-                source_track = AlignedResidueTrack(
-                    source,
-                    tuple(sequence_value),
-                )
-                source_structure_track = AlignedResidueTrack(
+                source_track = ResidueTrack(source, tuple(sequence_value))
+                source_structure_track = ResidueTrack(
                     source,
                     tuple(None for _ in range(56)),
                 )
-                source_secondary_structure_track = AlignedResidueTrack(
+                source_secondary_structure_track = ResidueTrack(
                     source,
-                    tuple("-" for _ in range(56)),
+                    tuple("C" for _ in range(56)),
                 )
-                source_sasa_track = AlignedResidueTrack(
+                source_sasa_track = ResidueTrack(
                     source,
                     tuple(None for _ in range(56)),
-                )
-                residue_map = ResidueMap(
-                    source_layout=source,
-                    target_layout=target,
-                    mappings=[
-                        (index, index, "match")
-                        for index in range(56)
-                    ],
                 )
                 function_annotations = _annotations()
             elif fixture == "insertion-identity-collision":
                 sequence_value = "A"
                 protein_sequence_value = "A"
-                source = ResidueLayout(
-                    chain_id="A",
-                    length=1,
-                    residue_ids=["A:masked.1.1"],
-                )
-                target = source
-                source_track = AlignedResidueTrack(source, ("A",))
-                source_structure_track = AlignedResidueTrack(source, (None,))
-                source_secondary_structure_track = AlignedResidueTrack(
+                source = ResidueLayout(["A:masked.1.1"])
+                source_track = ResidueTrack(source, ("A",))
+                source_structure_track = ResidueTrack(source, (None,))
+                source_secondary_structure_track = ResidueTrack(
                     source,
-                    ("-",),
+                    ("C",),
                 )
-                source_sasa_track = AlignedResidueTrack(source, (None,))
-                residue_map = ResidueMap(
-                    source_layout=source,
-                    target_layout=target,
-                    mappings=[(0, 0, "match")],
-                )
+                source_sasa_track = ResidueTrack(source, (None,))
                 function_annotations = _annotations()
             if fixture == "adapter-boundary":
-                source_secondary_structure_track = AlignedResidueTrack(
+                source_secondary_structure_track = ResidueTrack(
                     source,
                     ("H", "E", None),
                 )
             if fixture == "source-track-length-drift":
-                source_track = AlignedResidueTrack(
-                    source,
-                    ("A", "G"),
-                )
-            elif fixture == "overlapping-residue-map":
-                residue_map = ResidueMap(
-                    source_layout=source,
-                    target_layout=target,
-                    mappings=[
-                        (0, 0, "match"),
-                        (0, 0, "match"),
-                        (-1, 1, "insert"),
-                        (2, 2, "match"),
-                        (1, -1, "delete"),
-                    ],
-                )
-            elif fixture == "unmapped-residue-map":
-                residue_map = ResidueMap(
-                    source_layout=source,
-                    target_layout=target,
-                    mappings=[
-                        (0, 0, "match"),
-                        (2, 2, "match"),
-                        (1, -1, "delete"),
-                    ],
-                )
-            elif fixture == "noncontiguous-chain-layout":
-                source = ResidueLayout(
-                    chain_id="A,B,A",
-                    length=3,
-                    residue_ids=["A:1", "B:1", "A:2"],
-                )
-                residue_map = ResidueMap(
-                    source_layout=source,
-                    target_layout=target,
-                    mappings=[
-                        (0, 0, "match"),
-                        (-1, 1, "insert"),
-                        (1, 2, "match"),
-                        (2, -1, "delete"),
-                    ],
-                )
-            elif fixture == "boundary-edit":
-                target = ResidueLayout(
-                    chain_id="A,B",
-                    length=4,
-                    residue_ids=["A:new", "A:1", "B:1", "B:new"],
-                )
-                residue_map = ResidueMap(
-                    source_layout=source,
-                    target_layout=target,
-                    mappings=[
-                        (-1, 0, "insert"),
-                        (0, 1, "match"),
-                        (2, 2, "match"),
-                        (-1, 3, "insert"),
-                        (1, -1, "delete"),
-                    ],
-                )
-            elif fixture == "contradictory-residue-map":
-                identical = ResidueLayout(
-                    chain_id="A",
-                    length=1,
-                    residue_ids=["A:1"],
-                )
-                source = identical
-                target = identical
-                source_track = AlignedResidueTrack(
-                    source,
-                    ("A",),
-                )
-                source_secondary_structure_track = AlignedResidueTrack(
-                    source,
-                    ("H",),
-                )
-                residue_map = ResidueMap(
-                    source_layout=source,
-                    target_layout=target,
-                    mappings=[
-                        (-1, 0, "insert"),
-                        (0, -1, "delete"),
-                    ],
-                )
+                source_track = ResidueTrack(source, ("A", "G"))
             structure = ProteinStructure("\n".join((
                 _atom(1, "N", "ALA", "A", 1, x=0.0),
                 _atom(2, "CA", "ALA", "A", 1, x=1.0),
@@ -398,57 +243,24 @@ class _Source:
             else:
                 resolved_residue_axis = resolve_residue_axis(structure)
         return {
-            "source_layout": source,
-            "target_layout": target,
             "source_sequence_track": source_track,
             "source_structure_track": source_structure_track,
             "source_secondary_structure_track": (
                 source_secondary_structure_track
             ),
-            "target_secondary_structure_track": AlignedResidueTrack(
-                target,
-                tuple(
-                    [None, "H", "-", None]
-                    if fixture == "boundary-edit"
-                    else (
-                        ["H"]
-                        if fixture == "contradictory-residue-map"
-                        else (
-                            list(source_secondary_structure_track.values)
-                            if fixture in {
-                                "3gb1-intent",
-                                "insertion-identity-collision",
-                            }
-                            else ["H", None, "-"]
-                        )
-                    )
-                ),
-            ),
-            "target_structure_track": AlignedResidueTrack(
-                target,
-                tuple(
-                    None
-                    for _ in range(target.length)
-                ),
-            ),
             "source_sasa_track": source_sasa_track,
-            "residue_map": residue_map,
-            "function_annotations": function_annotations,
+            "function_annotations": FunctionAnnotationTrack(
+                source,
+                function_annotations,
+            ),
             "protein_prompt": ProteinPrompt(
-                target_layout=source,
-                sequence_track=ResidueTrack(list(sequence_value), None),
-                structure_track=ResidueTrack(
-                    list(source_structure_track.values),
-                    None,
+                layout=source,
+                sequence=tuple(source_track.values),
+                coordinates=tuple(source_structure_track.values),
+                secondary_structure=tuple(
+                    source_secondary_structure_track.values
                 ),
-                secondary_structure_track=ResidueTrack(
-                    list(source_secondary_structure_track.values),
-                    None,
-                ),
-                sasa_track=ResidueTrack(
-                    list(source_sasa_track.values),
-                    None,
-                ),
+                sasa=tuple(source_sasa_track.values),
                 function_annotations=function_annotations,
             ),
             "protein_sequence": ProteinSequence(

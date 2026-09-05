@@ -26,10 +26,12 @@ from core.workflow.document import (
 )
 from core.workflow.document import WorkflowEdge
 from datatypes.prompt import ProteinPrompt
-from datatypes.residue import ResidueMap
 from datatypes.structure import ProteinStructure
 from modules.prompt_authoring.package import (
     MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+)
+from modules.residue_data.package import (
+    MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
 )
 from modules.structure_transform.package import (
     MODULE_PACKAGE as STRUCTURE_TRANSFORM_PACKAGE,
@@ -57,7 +59,7 @@ def _run(
         run_root=tmp_path / "runs",
     )
     project = projects.create("workflow usability repair regression")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(
@@ -128,9 +130,9 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
-        node_type_id="prompt_authoring.prompt_from_structure",
-        binding_id="prompt_authoring.prompt_from_structure.direct",
-        node_parameters={},
+        node_type_id="prompt_authoring.author",
+        binding_id="prompt_authoring.author.direct",
+        node_parameters={"document": {}},
         binding_parameters={},
     )
     resolve_axis = WorkflowNodeInstance(
@@ -161,12 +163,12 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
                 "resolve-axis",
                 "residue_axis",
                 "prompt",
-                "residue_axis",
+                "structure_source",
             ),
         ),
         registrations=(
             STRUCTURE_TRANSFORM_PACKAGE,
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_SOURCE_PACKAGE,
         ),
     )
@@ -181,8 +183,8 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
         line.startswith("HETATM") and line[17:20].strip() == "CSH"
         for line in normalized.pdb_string.splitlines()
     )
-    residue_ids = prompt_value.target_layout.residue_ids
-    assert prompt_value.target_layout.length == 224
+    residue_ids = prompt_value.layout.residue_ids
+    assert prompt_value.layout.length == 224
     index = residue_ids.index("A:64")
     assert residue_ids[index : index + 5] == (
         "A:64",
@@ -191,7 +193,7 @@ def test_2emo_csh_normalization_preserves_parent_span_and_builds_prompt(
         "A:67",
         "A:68",
     )
-    assert prompt_value.sequence_track.values[index + 1 : index + 4] == (
+    assert prompt_value.sequence[index + 1 : index + 4] == (
         "S",
         "H",
         "G",
@@ -297,9 +299,9 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
     )
     prompt = WorkflowNodeInstance(
         node_id="prompt",
-        node_type_id="prompt_authoring.prompt_from_structure",
-        binding_id="prompt_authoring.prompt_from_structure.direct",
-        node_parameters={},
+        node_type_id="prompt_authoring.author",
+        binding_id="prompt_authoring.author.direct",
+        node_parameters={"document": {}},
         binding_parameters={},
     )
     select_chain_a = WorkflowNodeInstance(
@@ -325,18 +327,32 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
             f"A:gap211_224.long.{index:02d}" for index in range(1, 17)
         ],
     }
+
+    def _5g53_source_residue_ids() -> list[str]:
+        ids: list[str] = [f"A:{index}" for index in range(6, 147)]
+        ids += [f"A:{index}" for index in range(159, 211)]
+        ids += ["A:211", "A:224"]
+        ids += [f"A:{index}" for index in range(225, 313)]
+        return ids
+
+    def _target_residues(inserted_ids: list[str]) -> list[dict[str, str]]:
+        residues: list[dict[str, str]] = []
+        for residue_id in _5g53_source_residue_ids():
+            residues.append({"residue_id": residue_id, "origin": "source"})
+            if residue_id == "A:211":
+                for inserted_id in inserted_ids:
+                    residues.append(
+                        {"residue_id": inserted_id, "origin": "inserted"}
+                    )
+        return residues
+
     edit_nodes = tuple(
         WorkflowNodeInstance(
             node_id=f"edit-{branch}",
-                node_type_id="prompt_authoring.edit_protein_prompt_layout",
-                binding_id="prompt_authoring.edit_protein_prompt_layout.direct",
+            node_type_id="prompt_authoring.author",
+            binding_id="prompt_authoring.author.direct",
             node_parameters={
-                "insertions": [{
-                    "after_residue_id": "A:211",
-                    "before_residue_id": "A:224",
-                    "inserted_residue_ids": inserted_ids,
-                }],
-                "deleted_residue_ids": [],
+                "document": {"target_residues": _target_residues(inserted_ids)}
             },
             binding_parameters={},
         )
@@ -362,20 +378,20 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
                 "resolve-axis",
                 "residue_axis",
                 "prompt",
-                "residue_axis",
+                "structure_source",
             ),
             *(
                 WorkflowEdge(
                     "prompt",
                     "protein_prompt",
                     edit_node.node_id,
-                    "protein_prompt",
+                    "prompt_source",
                 )
                 for edit_node in edit_nodes
             ),
         ),
         registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             STRUCTURE_SOURCE_PACKAGE,
             STRUCTURE_TRANSFORM_PACKAGE,
         ),
@@ -385,19 +401,17 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
     outputs = _decoded_outputs(catalog, service, projection)
     source_prompt = outputs[("prompt", "protein_prompt")]
     assert type(source_prompt) is ProteinPrompt
-    source_ids = source_prompt.target_layout.residue_ids
-    assert source_prompt.target_layout.length == 283
+    source_ids = source_prompt.layout.residue_ids
+    assert source_prompt.layout.length == 283
     assert source_ids[0] == "A:6"
     assert source_ids[-1] == "A:312"
     assert source_ids[source_ids.index("A:146") + 1] == "A:159"
 
     for branch, inserted_ids in branch_insertions.items():
         edited = outputs[(f"edit-{branch}", "protein_prompt")]
-        residue_map = outputs[(f"edit-{branch}", "residue_map")]
         assert type(edited) is ProteinPrompt
-        assert type(residue_map) is ResidueMap
-        target_ids = edited.target_layout.residue_ids
-        assert edited.target_layout.length == 283 + len(inserted_ids)
+        target_ids = edited.layout.residue_ids
+        assert edited.layout.length == 283 + len(inserted_ids)
         assert target_ids[-1] == "A:312"
         assert tuple(
             residue_id
@@ -410,20 +424,11 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
         ] == tuple(inserted_ids)
         assert target_ids[junction + 1 + len(inserted_ids)] == "A:224"
         assert all(f"A:{index}" in target_ids for index in range(292, 313))
-        assert sum(
-            operation == "match"
-            for _, _, operation in residue_map.mappings
-        ) == 283
-        assert sum(
-            operation == "insert"
-            for _, _, operation in residue_map.mappings
-        ) == len(inserted_ids)
-        assert all(operation != "delete" for _, _, operation in residue_map.mappings)
         for attribute in (
-            "sequence_track",
-            "structure_track",
-            "secondary_structure_track",
-            "sasa_track",
+            "sequence",
+            "coordinates",
+            "secondary_structure",
+            "sasa",
         ):
             source_track = getattr(source_prompt, attribute)
             edited_track = getattr(edited, attribute)
@@ -434,13 +439,13 @@ def test_5g53_identity_insertions_preserve_every_modeled_residue_and_track(
                 value
                 for residue_id, value in zip(
                     target_ids,
-                    edited_track.values,
+                    edited_track,
                     strict=True,
                 )
                 if residue_id not in set(inserted_ids)
             )
-            assert retained == source_track.values
+            assert retained == tuple(source_track)
             assert all(
-                edited_track.values[target_ids.index(residue_id)] is None
+                edited_track[target_ids.index(residue_id)] is None
                 for residue_id in inserted_ids
             )

@@ -109,7 +109,6 @@ def _residue_axis_reference_to_canonical(
             "reference": source,
         },
         "layout": {
-            "chain_id": value.layout.chain_id,
             "length": value.layout.length,
             "residue_ids": value.layout.residue_ids,
         },

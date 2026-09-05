@@ -437,7 +437,7 @@ def test_score_axis_source_is_not_rebound_to_the_direct_candidate_input(
             "fixture.prediction_axis"),
         axis_content_digest="sha256:" + ("4" * 64),
         source=axis_source,
-        layout=ResidueLayout("A", 1, ("A:1",)),
+        layout=ResidueLayout(("A:1",)),
     )
     score = replace(_intrinsic_score(subject), residue_axis=axis)
 

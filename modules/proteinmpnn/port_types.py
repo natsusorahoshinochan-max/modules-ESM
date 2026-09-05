@@ -24,7 +24,6 @@ def _validate_constraints(value: object) -> None:
 def _to_wire(value: ProteinMPNNConstraints) -> dict[str, object]:
     return thaw_i_json({
         "layout": {
-            "chain_id": value.layout.chain_id,
             "length": value.layout.length,
             "residue_ids": value.layout.residue_ids,
         },
@@ -89,16 +88,28 @@ def _from_wire(value: object) -> ProteinMPNNConstraints:
     raw_layout = value["layout"]
     if (
         not isinstance(raw_layout, dict)
-        or set(raw_layout) != {"chain_id", "length", "residue_ids"}
+        or set(raw_layout) != {"length", "residue_ids"}
+        or type(raw_layout["length"]) is not int
+        or not isinstance(raw_layout["residue_ids"], list)
     ):
         raise ValueError("ProteinMPNN constraint layout is malformed")
 
-    return ProteinMPNNConstraints(
-        layout=ResidueLayout(
-            chain_id=raw_layout["chain_id"],
-            length=raw_layout["length"],
-            residue_ids=raw_layout["residue_ids"],
+    layout = ResidueLayout(
+        tuple(
+            residue_id
+            for residue_id in raw_layout["residue_ids"]
+            if type(residue_id) is str
         ),
+    )
+    if layout.length != raw_layout["length"] or len(
+        raw_layout["residue_ids"]
+    ) != layout.length:
+        raise ValueError(
+            "ProteinMPNN constraint layout contradicts its residue identities"
+        )
+
+    return ProteinMPNNConstraints(
+        layout=layout,
         designable_residue_ids=value["designable_residue_ids"],
         fixed_residue_ids=value["fixed_residue_ids"],
         designed_chains=value["designed_chains"],
@@ -125,7 +136,7 @@ PROTEINMPNN_CONSTRAINTS_PORT_TYPE = PortTypeDefinition(
             "character_encoding": "UTF-8",
             "envelope_namespace": "protein-workbench-port-value/v2",
             "value_kind": "proteinmpnn_constraints",
-            "embedded_layout_contract": "residue.layout",
+            "embedded_layout_contract": "residue_layout",
         },
     ),
     content_identity=BehaviorReference(

@@ -13,33 +13,39 @@
     },
     {
       "node_id": "edit-protein-prompt-layout",
-      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
-      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
       "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:1",
-            "before_residue_id": "A:2",
-            "inserted_residue_ids": ["A:new"]
-          }
-        ],
-        "deleted_residue_ids": ["A:2"]
+        "document": {
+          "target_residues": [
+            {
+              "residue_id": "A:1",
+              "origin": "source"
+            },
+            {
+              "residue_id": "A:new",
+              "origin": "inserted"
+            }
+          ]
+        }
       },
       "binding_parameters": {}
     },
     {
       "node_id": "override-secondary-structure",
-      "node_type_id": "prompt_authoring.override_protein_prompt_track",
-      "binding_id": "prompt_authoring.override_protein_prompt_track.direct",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
       "node_parameters": {
-        "track": "secondary_structure",
-        "overrides": [
-          {
-            "action": "replace",
-            "residue_id": "A:1",
-            "value": "H"
-          }
-        ]
+        "document": {
+          "track_edits": [
+            {
+              "track": "secondary_structure",
+              "action": "replace",
+              "residue_id": "A:1",
+              "value": "H"
+            }
+          ]
+        }
       },
       "binding_parameters": {}
     }
@@ -49,13 +55,13 @@
       "source_node_id": "prompt-values",
       "source_port": "protein_prompt",
       "target_node_id": "edit-protein-prompt-layout",
-      "target_port": "protein_prompt"
+      "target_port": "prompt_source"
     },
     {
       "source_node_id": "edit-protein-prompt-layout",
       "source_port": "protein_prompt",
       "target_node_id": "override-secondary-structure",
-      "target_port": "protein_prompt"
+      "target_port": "prompt_source"
     }
   ],
   "observation_selectors": [],

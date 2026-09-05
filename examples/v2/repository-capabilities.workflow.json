@@ -144,76 +144,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt-authoring-replace-protein-prompt-annotations-direct",
-      "node_type_id": "prompt_authoring.replace_protein_prompt_annotations",
-      "binding_id": "prompt_authoring.replace_protein_prompt_annotations.direct",
-      "node_parameters": {
-        "annotations": [
-          {
-            "label": "example-function",
-            "chain_id": "A",
-            "start_residue_id": "A:1",
-            "end_residue_id": "A:2"
-          }
-        ],
-        "overlap_policy": "reject"
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "node_type_id": "prompt_authoring.assemble_protein_prompt",
-      "binding_id": "prompt_authoring.assemble_protein_prompt.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-authoring-build-residue-layout-direct",
-      "node_type_id": "prompt_authoring.build_residue_layout",
-      "binding_id": "prompt_authoring.build_residue_layout.direct",
-      "node_parameters": {
-        "chains": [
-          {
-            "chain_id": "A",
-            "length": 56
-          }
-        ]
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-authoring-random-insert-masked-direct",
-      "node_type_id": "prompt_authoring.random_insert_masked",
-      "binding_id": "prompt_authoring.random_insert_masked.direct",
-      "node_parameters": {
-        "effective_seed": 3302,
-        "count": 0,
-        "eligible_chain_ids": [
-          "A"
-        ]
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-authoring-random-mask-direct",
-      "node_type_id": "prompt_authoring.random_mask",
-      "binding_id": "prompt_authoring.random_mask.direct",
-      "node_parameters": {
-        "effective_seed": 3301,
-        "count": 0,
-        "track": "sequence",
-        "eligible_residue_ids": []
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "prompt-authoring-update-prompt-sequence-direct",
-      "node_type_id": "prompt_authoring.update_prompt_sequence",
-      "binding_id": "prompt_authoring.update_prompt_sequence.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
       "node_id": "protein-io-export-sequence-direct",
       "node_type_id": "protein_io.export_sequence",
       "binding_id": "protein_io.export_sequence.direct",
@@ -228,59 +158,12 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "protein-io-import-sequence-direct",
-      "node_type_id": "protein_io.import_sequence",
-      "binding_id": "protein_io.import_sequence.direct",
-      "node_parameters": {
-        "project_input_ref": "example-sequence"
-      },
-      "binding_parameters": {}
-    },
-    {
       "node_id": "protein-io-import-structure-direct",
       "node_type_id": "protein_io.import_structure",
       "binding_id": "protein_io.import_structure.direct",
       "node_parameters": {
         "project_input_ref": "example-structure"
       },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "proteinmpnn-constraints-local",
-      "node_type_id": "proteinmpnn.constraints",
-      "binding_id": "proteinmpnn.constraints.local",
-      "node_parameters": {
-        "designed_chains": [
-          "A"
-        ]
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "proteinmpnn-design-local",
-      "node_type_id": "proteinmpnn.design",
-      "binding_id": "proteinmpnn.design.local",
-      "node_parameters": {
-        "effective_seed": 3304,
-        "num_sequences": 2
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "proteinmpnn-random-fixed-positions-local",
-      "node_type_id": "proteinmpnn.random_fixed_positions",
-      "binding_id": "proteinmpnn.random_fixed_positions.local",
-      "node_parameters": {
-        "effective_seed": 3303,
-        "fraction": 0.5
-      },
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "proteinmpnn-score-local",
-      "node_type_id": "proteinmpnn.score",
-      "binding_id": "proteinmpnn.score.local",
-      "node_parameters": {},
       "binding_parameters": {}
     },
     {
@@ -319,27 +202,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "structure-annotation-sasa-compute-direct",
-      "node_type_id": "structure_annotation.sasa_compute",
-      "binding_id": "structure_annotation.sasa_compute.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "structure-annotation-apply-sasa-to-prompt-direct",
-      "node_type_id": "structure_annotation.apply_sasa_to_prompt",
-      "binding_id": "structure_annotation.apply_sasa_to_prompt.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
-      "node_type_id": "structure_annotation.apply_secondary_structure_to_prompt",
-      "binding_id": "structure_annotation.apply_secondary_structure_to_prompt.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
       "node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
       "node_type_id": "structure_annotation.expected_secondary_structure_from_prompt",
       "binding_id": "structure_annotation.expected_secondary_structure_from_prompt.direct",
@@ -350,20 +212,6 @@
       "node_id": "structure-annotation-secondary-structure-agreement-direct",
       "node_type_id": "structure_annotation.secondary_structure_agreement",
       "binding_id": "structure_annotation.secondary_structure_agreement.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "structure-annotation-secondary-structure-extract-direct",
-      "node_type_id": "structure_annotation.secondary_structure_extract",
-      "binding_id": "structure_annotation.secondary_structure_extract.direct",
-      "node_parameters": {},
-      "binding_parameters": {}
-    },
-    {
-      "node_id": "structure-annotation-secondary-structure-extract-subject-direct",
-      "node_type_id": "structure_annotation.secondary_structure_extract",
-      "binding_id": "structure_annotation.secondary_structure_extract.direct",
       "node_parameters": {},
       "binding_parameters": {}
     },
@@ -505,24 +353,6 @@
       "binding_parameters": {}
     },
     {
-      "node_id": "prompt-authoring-edit-protein-prompt-layout-direct",
-      "node_type_id": "prompt_authoring.edit_protein_prompt_layout",
-      "binding_id": "prompt_authoring.edit_protein_prompt_layout.direct",
-      "node_parameters": {
-        "insertions": [
-          {
-            "after_residue_id": "A:1",
-            "before_residue_id": "A:2",
-            "inserted_residue_ids": [
-              "A:example-inserted"
-            ]
-          }
-        ],
-        "deleted_residue_ids": []
-      },
-      "binding_parameters": {}
-    },
-    {
       "node_id": "structure-transform-extract-sequence-candidates-direct",
       "node_type_id": "structure_transform.extract_sequence_candidates",
       "binding_id": "structure_transform.extract_sequence_candidates.direct",
@@ -658,95 +488,110 @@
       "binding_id": "collection_ops.relate_to_single_reference.direct",
       "node_parameters": {},
       "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-resolve-axis",
+      "node_type_id": "structure_transform.resolve_residue_axis",
+      "binding_id": "structure_transform.resolve_residue_axis.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-author",
+      "node_type_id": "prompt_authoring.author",
+      "binding_id": "prompt_authoring.author.direct",
+      "node_parameters": {
+        "document": {}
+      },
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "observed-to-conditioning-ss-direct",
+      "node_type_id": "structure_annotation.observed_to_conditioning",
+      "binding_id": "structure_annotation.observed_to_conditioning.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "observed-to-conditioning-sasa-direct",
+      "node_type_id": "structure_annotation.observed_to_conditioning",
+      "binding_id": "structure_annotation.observed_to_conditioning.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "observed-to-conditioning-subject-ss-direct",
+      "node_type_id": "structure_annotation.observed_to_conditioning",
+      "binding_id": "structure_annotation.observed_to_conditioning.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "prompt-authoring-decompose-direct",
+      "node_type_id": "prompt_authoring.decompose",
+      "binding_id": "prompt_authoring.decompose.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
+    },
+    {
+      "node_id": "residue-data-materialize-sequence-direct",
+      "node_type_id": "residue_data.materialize_sequence",
+      "binding_id": "residue_data.materialize_sequence.direct",
+      "node_parameters": {},
+      "binding_parameters": {}
     }
   ],
   "edges": [
     {
-      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-replace-protein-prompt-annotations-direct",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-authoring-build-residue-layout-direct",
-      "source_port": "layout",
-      "target_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "target_port": "layout"
-    },
-    {
-      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-update-prompt-sequence-direct",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "protein-io-import-sequence-direct",
-      "source_port": "sequence",
-      "target_node_id": "prompt-authoring-update-prompt-sequence-direct",
-      "target_port": "sequence"
-    },
-    {
-      "source_node_id": "prompt-authoring-update-prompt-sequence-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-random-mask-direct",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-authoring-random-mask-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-random-insert-masked-direct",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-sequence-biohub-medium",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-sequence-biohub-open",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-sequence-local-open",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-structure-biohub-medium",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-structure-biohub-open",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-structure-local-open",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-paired-biohub-medium",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-paired-biohub-open",
       "target_port": "protein_prompt"
     },
     {
-      "source_node_id": "prompt-authoring-random-insert-masked-direct",
+      "source_node_id": "prompt-authoring-author",
       "source_port": "protein_prompt",
       "target_node_id": "esm3-generate-paired-local-open",
       "target_port": "protein_prompt"
@@ -776,42 +621,6 @@
       "target_port": "structure_candidates"
     },
     {
-      "source_node_id": "prompt-authoring-build-residue-layout-direct",
-      "source_port": "layout",
-      "target_node_id": "proteinmpnn-constraints-local",
-      "target_port": "layout"
-    },
-    {
-      "source_node_id": "prompt-authoring-build-residue-layout-direct",
-      "source_port": "layout",
-      "target_node_id": "proteinmpnn-random-fixed-positions-local",
-      "target_port": "layout"
-    },
-    {
-      "source_node_id": "protein-io-import-structure-direct",
-      "source_port": "structure_candidates",
-      "target_node_id": "proteinmpnn-design-local",
-      "target_port": "structure_candidates"
-    },
-    {
-      "source_node_id": "proteinmpnn-constraints-local",
-      "source_port": "constraints",
-      "target_node_id": "proteinmpnn-design-local",
-      "target_port": "constraints"
-    },
-    {
-      "source_node_id": "folding-fold-esmfold2-remote",
-      "source_port": "structure_candidates",
-      "target_node_id": "proteinmpnn-score-local",
-      "target_port": "structure_candidates"
-    },
-    {
-      "source_node_id": "esm3-generate-sequence-biohub-open",
-      "source_port": "sequence_candidates",
-      "target_node_id": "proteinmpnn-score-local",
-      "target_port": "sequence_candidates"
-    },
-    {
       "source_node_id": "protein-io-import-structure-direct",
       "source_port": "structure_candidates",
       "target_node_id": "structure-annotation-dssp-compute-mkdssp-local",
@@ -825,45 +634,15 @@
     },
     {
       "source_node_id": "structure-annotation-dssp-compute-mkdssp-local",
-      "source_port": "annotations",
-      "target_node_id": "structure-annotation-secondary-structure-extract-direct",
-      "target_port": "annotations"
+      "source_port": "secondary_structure",
+      "target_node_id": "observed-to-conditioning-ss-direct",
+      "target_port": "secondary_structure"
     },
     {
       "source_node_id": "structure-annotation-dssp-compute-subject-mkdssp-local",
-      "source_port": "annotations",
-      "target_node_id": "structure-annotation-secondary-structure-extract-subject-direct",
-      "target_port": "annotations"
-    },
-    {
-      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "structure-annotation-secondary-structure-extract-direct",
-      "source_port": "secondary_structure_track",
-      "target_node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
-      "target_port": "secondary_structure_track"
-    },
-    {
-      "source_node_id": "prompt-authoring-assemble-protein-prompt-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "structure-annotation-apply-sasa-to-prompt-direct",
-      "target_port": "protein_prompt"
-    },
-    {
-      "source_node_id": "structure-annotation-sasa-compute-direct",
-      "source_port": "sasa_track",
-      "target_node_id": "structure-annotation-apply-sasa-to-prompt-direct",
-      "target_port": "sasa_track"
-    },
-    {
-      "source_node_id": "structure-annotation-apply-secondary-structure-to-prompt-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
-      "target_port": "protein_prompt"
+      "source_port": "secondary_structure",
+      "target_node_id": "observed-to-conditioning-subject-ss-direct",
+      "target_port": "secondary_structure"
     },
     {
       "source_node_id": "protein-io-import-structure-direct",
@@ -873,9 +652,9 @@
     },
     {
       "source_node_id": "structure-annotation-dssp-compute-mkdssp-local",
-      "source_port": "annotations",
-      "target_node_id": "structure-annotation-sasa-compute-direct",
-      "target_port": "annotations"
+      "source_port": "sasa",
+      "target_node_id": "observed-to-conditioning-sasa-direct",
+      "target_port": "sasa"
     },
     {
       "source_node_id": "folding-fold-esmfold2-remote",
@@ -890,14 +669,14 @@
       "target_port": "references"
     },
     {
-      "source_node_id": "structure-annotation-secondary-structure-extract-subject-direct",
-      "source_port": "secondary_structure_track",
+      "source_node_id": "structure-annotation-dssp-compute-subject-mkdssp-local",
+      "source_port": "secondary_structure",
       "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
       "target_port": "observed"
     },
     {
       "source_node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
-      "source_port": "secondary_structure_track",
+      "source_port": "secondary_structure",
       "target_node_id": "structure-annotation-secondary-structure-agreement-direct",
       "target_port": "expected"
     },
@@ -1178,18 +957,6 @@
       "target_port": "candidates_a"
     },
     {
-      "source_node_id": "proteinmpnn-design-local",
-      "source_port": "sequence_candidates",
-      "target_node_id": "collection-ops-concat-candidates-direct",
-      "target_port": "candidates_b"
-    },
-    {
-      "source_node_id": "proteinmpnn-score-local",
-      "source_port": "scores",
-      "target_node_id": "collection-ops-merge-scores-direct",
-      "target_port": "scores_a"
-    },
-    {
       "source_node_id": "structure-comparison-tm-score-fixed-reference",
       "source_port": "scores",
       "target_node_id": "collection-ops-merge-scores-direct",
@@ -1202,12 +969,6 @@
       "target_port": "scores_c"
     },
     {
-      "source_node_id": "protein-io-import-sequence-direct",
-      "source_port": "sequence",
-      "target_node_id": "esm3-represent-sequence-biohub-esmc-600m-2024-12",
-      "target_port": "sequence"
-    },
-    {
       "source_node_id": "folding-fold-esmfold2-remote",
       "source_port": "structure_candidates",
       "target_node_id": "collection-ops-pair-siblings-by-parent-direct-left-parent",
@@ -1218,12 +979,6 @@
       "source_port": "structure_candidates",
       "target_node_id": "collection-ops-pair-siblings-by-parent-direct-right-parent",
       "target_port": "subjects"
-    },
-    {
-      "source_node_id": "prompt-authoring-update-prompt-sequence-direct",
-      "source_port": "protein_prompt",
-      "target_node_id": "prompt-authoring-edit-protein-prompt-layout-direct",
-      "target_port": "protein_prompt"
     },
     {
       "source_node_id": "protein-io-import-structure-direct",
@@ -1253,18 +1008,6 @@
       "source_node_id": "structure-transform-resolve-candidate-residue-axes-simplefold-direct",
       "source_port": "residue_axes",
       "target_node_id": "folding-simplefold-confidence-simplefold-local",
-      "target_port": "structure_residue_axes"
-    },
-    {
-      "source_node_id": "structure-transform-resolve-candidate-residue-axes-imported-direct",
-      "source_port": "residue_axes",
-      "target_node_id": "proteinmpnn-design-local",
-      "target_port": "structure_residue_axes"
-    },
-    {
-      "source_node_id": "structure-transform-resolve-candidate-residue-axes-esmfold-direct",
-      "source_port": "residue_axes",
-      "target_node_id": "proteinmpnn-score-local",
       "target_port": "structure_residue_axes"
     },
     {
@@ -1506,6 +1249,42 @@
       "source_port": "relation",
       "target_node_id": "structure-comparison-tm-score-fixed-reference",
       "target_port": "relation"
+    },
+    {
+      "source_node_id": "protein-io-import-structure-direct",
+      "source_port": "structure",
+      "target_node_id": "prompt-authoring-resolve-axis",
+      "target_port": "structure"
+    },
+    {
+      "source_node_id": "prompt-authoring-resolve-axis",
+      "source_port": "residue_axis",
+      "target_node_id": "prompt-authoring-author",
+      "target_port": "structure_source"
+    },
+    {
+      "source_node_id": "prompt-authoring-author",
+      "source_port": "protein_prompt",
+      "target_node_id": "structure-annotation-expected-secondary-structure-from-prompt-direct",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-author",
+      "source_port": "protein_prompt",
+      "target_node_id": "prompt-authoring-decompose-direct",
+      "target_port": "protein_prompt"
+    },
+    {
+      "source_node_id": "prompt-authoring-decompose-direct",
+      "source_port": "sequence",
+      "target_node_id": "residue-data-materialize-sequence-direct",
+      "target_port": "sequence"
+    },
+    {
+      "source_node_id": "residue-data-materialize-sequence-direct",
+      "source_port": "sequence",
+      "target_node_id": "esm3-represent-sequence-biohub-esmc-600m-2024-12",
+      "target_port": "sequence"
     }
   ],
   "observation_selectors": [],

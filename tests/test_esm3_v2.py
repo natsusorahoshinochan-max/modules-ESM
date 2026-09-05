@@ -47,15 +47,13 @@ from core.workflow.document import WorkflowEdge
 from datatypes.exact_reference import ExactContractReference
 from datatypes.prompt import (
     FunctionAnnotation,
-    FunctionAnnotations,
     ProteinPrompt,
 )
 from datatypes.residue import (
     ResidueLayout,
-    ResidueTrack,
 )
 from datatypes.sequence import ProteinSequence
-from datatypes.structure import ProteinStructure
+from datatypes.structure import NamedAtomCoordinates, ProteinStructure
 from tests.fixtures.esm3_generation import (
     ProviderClient,
     ProviderResponse,
@@ -256,6 +254,9 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
     )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
+    )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.structure_prediction.package import (
         MODULE_PACKAGE as STRUCTURE_PREDICTION_PACKAGE,
@@ -289,7 +290,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
 
     catalog = build_frozen_catalog((
         ESM3_PACKAGE,
-        PROMPT_AUTHORING_PACKAGE,
+        PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
         PROTEIN_IO_PACKAGE,
         STRUCTURE_PREDICTION_PACKAGE,
         STRUCTURE_TRANSFORM_PACKAGE,
@@ -307,7 +308,7 @@ def test_direct_esmc_representation_crosses_public_run_and_engine_seams(
         b">3GB1\nACD\n",
         filename="sequence.fasta",
     )
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     workflow = WorkflowDocument(
         schema_version="2.1.0",
         workflow_id=project.id,
@@ -622,11 +623,7 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         structure_prompt_for_sequence,
     )
 
-    layout = ResidueLayout(
-        chain_id="A",
-        length=8,
-        residue_ids=[f"A:{index}" for index in range(1, 9)],
-    )
+    layout = ResidueLayout([f"A:{index}" for index in range(1, 9)])
     representable_structure = {
         "N": (1.0, 2.0, 3.0),
         "CA": (4.0, 5.0, 6.0),
@@ -635,40 +632,31 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         "O": (13.0, 14.0, 15.0),
     }
     prompt = ProteinPrompt(
-        target_layout=layout,
-        sequence_track=ResidueTrack(
-            ["A", "B", "Z", "U", "O", "X", None, "G"],
-            None,
-        ),
-        structure_track=ResidueTrack(
-            [
+        layout=layout,
+        sequence=("A", "B", "Z", "U", "O", "X", None, "G"),
+        coordinates=(
+            NamedAtomCoordinates.from_mapping(
                 {
                     **representable_structure,
                     "H": (16.0, 17.0, 18.0),
-                },
-                *([None] * 7),
-            ],
+                }
+            ),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             None,
         ),
-        secondary_structure_track=ResidueTrack(
-            ["G", "H", "I", "T", "E", "B", "S", "-"],
-            None,
-        ),
-        sasa_track=ResidueTrack(
-            [0.0, 0.8, 4.0, None, 16.4, 32.9, 70.9, 151.4],
-            None,
-        ),
-        function_annotations=FunctionAnnotations(
-            [
-                FunctionAnnotation(
-                    label="binding site",
-                    start=2,
-                    end=5,
-                    chain_id="A",
-                    start_residue_id="A:2",
-                    end_residue_id="A:5",
-                )
-            ]
+        secondary_structure=("G", "H", "I", "T", "E", "B", "S", "C"),
+        sasa=(0.0, 0.8, 4.0, None, 16.4, 32.9, 70.9, 151.4),
+        function_annotations=(
+            FunctionAnnotation(
+                label="binding site",
+                start_residue_id="A:2",
+                end_residue_id="A:5",
+            ),
         ),
     )
 
@@ -687,8 +675,14 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
     assert math.isnan(float(provider.coordinates[1, 1, 0]))
     prompt_without_hydrogen = replace(
         prompt,
-        structure_track=ResidueTrack(
-            [representable_structure, *([None] * 7)],
+        coordinates=(
+            NamedAtomCoordinates.from_mapping(representable_structure),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
             None,
         ),
     )
@@ -713,8 +707,8 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
     )
 
     with pytest.raises(TypeError, match="does not support item assignment"):
-        prompt.sequence_track.values[0] = "J"
-    assert prompt.sequence_track.values == (
+        prompt.sequence[0] = "J"
+    assert prompt.sequence == (
         "A",
         "B",
         "Z",
@@ -728,10 +722,7 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
 
     invalid_prompt = replace(
         prompt,
-        sequence_track=ResidueTrack(
-            ("J", "B", "Z", "U", "O", "X", None, "G"),
-            None,
-        ),
+        sequence=("J", "B", "Z", "U", "O", "X", None, "G"),
     )
     with pytest.raises(ValueError, match="cannot represent sequence symbol 'J'"):
         protein_prompt_to_provider(invalid_prompt)
@@ -770,9 +761,9 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
         model_name=BIOHUB_ESM3_MEDIUM_MODEL,
     )
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
-        structure_track=ResidueTrack([None, None, None], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
 
     with adapter:
@@ -873,9 +864,9 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         model_name=BIOHUB_ESM3_MEDIUM_MODEL,
     )
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
-        structure_track=ResidueTrack([None, None, None], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
     parameters = ESM3CallParameters(
         num_steps=4,
@@ -976,9 +967,9 @@ def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> 
             )
 
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
-        structure_track=ResidueTrack([None, None, None], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
 
     def observed(
@@ -1020,15 +1011,11 @@ def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> 
 
     renamed_axis = replace(
         prompt,
-        target_layout=ResidueLayout(
-            "Q",
-            3,
-            ["Q:alpha", "Q:beta", "Q:gamma"],
-        ),
+        layout=ResidueLayout(["Q:alpha", "Q:beta", "Q:gamma"]),
     )
     changed_sequence = replace(
         prompt,
-        sequence_track=ResidueTrack([None, "C", "E"], None),
+        sequence=(None, "C", "E"),
     )
     first = observed(prompt, "sha256:" + "a" * 64)
     repeated = observed(prompt, "sha256:" + "a" * 64)
@@ -1045,16 +1032,13 @@ def test_esm3_functional_input_digest_matches_every_translated_track() -> None:
     from modules.esm3.adapter import esm3_functional_input_digest
 
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 2, ["A:1", "A:2"]),
-        sequence_track=ResidueTrack([None, "C"], None),
-        structure_track=ResidueTrack([None, None], None),
-        function_annotations=FunctionAnnotations(
+        layout=ResidueLayout(["A:1", "A:2"]),
+        sequence=(None, "C"),
+        coordinates=(None, None),
+        function_annotations=tuple(
             [
                 FunctionAnnotation(
                     label="binding site",
-                    start=1,
-                    end=1,
-                    chain_id="A",
                     start_residue_id="A:1",
                     end_residue_id="A:1",
                 )
@@ -1063,14 +1047,11 @@ def test_esm3_functional_input_digest_matches_every_translated_track() -> None:
     )
     renamed_provenance = replace(
         prompt,
-        target_layout=ResidueLayout("Q", 2, ["Q:alpha", "Q:beta"]),
-        function_annotations=FunctionAnnotations(
+        layout=ResidueLayout(["Q:alpha", "Q:beta"]),
+        function_annotations=tuple(
             [
                 FunctionAnnotation(
                     label="binding site",
-                    start=1,
-                    end=1,
-                    chain_id="Q",
                     start_residue_id="Q:alpha",
                     end_residue_id="Q:alpha",
                 )
@@ -1080,29 +1061,29 @@ def test_esm3_functional_input_digest_matches_every_translated_track() -> None:
     changed_inputs = (
         replace(
             prompt,
-            sequence_track=ResidueTrack([None, "D"], None),
+            sequence=(None, "D"),
         ),
         replace(
             prompt,
-            structure_track=ResidueTrack(
-                [{"CA": (1.0, 2.0, 3.0)}, None],
+            coordinates=(
+                NamedAtomCoordinates.from_mapping({"CA": (1.0, 2.0, 3.0)}),
                 None,
             ),
         ),
         replace(
             prompt,
-            secondary_structure_track=ResidueTrack(["H", None], None),
+            secondary_structure=("H", None),
         ),
         replace(
             prompt,
-            sasa_track=ResidueTrack([0.0, None], None),
+            sasa=(0.0, None),
         ),
         replace(
             prompt,
-            function_annotations=FunctionAnnotations(
+            function_annotations=tuple(
                 [
                     replace(
-                        prompt.function_annotations.annotations[0],
+                        prompt.function_annotations[0],
                         label="active site",
                     )
                 ]
@@ -1110,13 +1091,10 @@ def test_esm3_functional_input_digest_matches_every_translated_track() -> None:
         ),
         replace(
             prompt,
-            function_annotations=FunctionAnnotations(
+            function_annotations=tuple(
                 [
                     FunctionAnnotation(
                         label="binding site",
-                        start=2,
-                        end=2,
-                        chain_id="A",
                         start_residue_id="A:2",
                         end_residue_id="A:2",
                     )
@@ -1165,9 +1143,9 @@ def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
             )
 
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack(["A", "C", "D"], None),
-        structure_track=ResidueTrack([None, None, None], None),
+        layout=ResidueLayout(["A:1", "A:2", "A:3"]),
+        sequence=("A", "C", "D"),
+        coordinates=(None, None, None),
     )
     adapter = AcceptingAdapter()
     operation = ESM3GenerationOperation(
@@ -1817,8 +1795,6 @@ def test_structure_generation_normalizes_exact_confidence_before_publication(
         fact.prediction_key
     )
     assert fact.prediction_axis.layout == ResidueLayout(
-        "A",
-        3,
         ("A:1", "A:2", "A:3"),
     )
     assert fact.prediction_axis.sequence == ProteinSequence(
@@ -2030,6 +2006,9 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
     from modules.esm3.domain import ESMCSequenceRepresentation
     from modules.prompt_authoring.package import (
         MODULE_PACKAGE as PROMPT_AUTHORING_PACKAGE,
+    )
+    from modules.residue_data.package import (
+        MODULE_PACKAGE as RESIDUE_DATA_PACKAGE,
     )
     from modules.protein_io.package import MODULE_PACKAGE as PROTEIN_IO_PACKAGE
     from modules.structure_transform.package import (
@@ -2400,7 +2379,7 @@ def test_esm3_generation_and_direct_esmc_pass_the_shared_ctk(
             ),
         ),
         supporting_registrations=(
-            PROMPT_AUTHORING_PACKAGE,
+            PROMPT_AUTHORING_PACKAGE, RESIDUE_DATA_PACKAGE,
             PROTEIN_IO_PACKAGE,
             SOURCE_PACKAGE,
             STRUCTURE_PREDICTION_PACKAGE,

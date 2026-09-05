@@ -23,6 +23,7 @@ ACCEPTED_MODULE_PACKAGES = {
     "prompt_authoring",
     "protein_io",
     "proteinmpnn",
+    "residue_data",
     "selection",
     "solubility",
     "structure_annotation",
@@ -37,7 +38,7 @@ def test_production_discovery_is_exactly_the_accepted_package_surface() -> None:
     assert {registration.package_id for registration in registrations} == (
         ACCEPTED_MODULE_PACKAGES
     )
-    assert len(registrations) == 12
+    assert len(registrations) == 13
 
     catalog = build_frozen_catalog(module_registrations())
     node_ids = {

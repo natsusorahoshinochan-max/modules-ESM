@@ -344,21 +344,21 @@ def test_user_can_condition_function_tracks_generate_and_replay(
             "protein_prompt",
         )
         assert type(conditioned) is type(masked) is ProteinPrompt
-        assert masked.target_layout == conditioned.target_layout
-        assert masked.structure_track == conditioned.structure_track
-        assert masked.secondary_structure_track == (
-            conditioned.secondary_structure_track
+        assert masked.layout == conditioned.layout
+        assert masked.coordinates == conditioned.coordinates
+        assert masked.secondary_structure == (
+            conditioned.secondary_structure
         )
-        assert masked.sasa_track == conditioned.sasa_track
+        assert masked.sasa == conditioned.sasa
         assert (
             masked.function_annotations == conditioned.function_annotations
         )
         assert [
             index
-            for index, value in enumerate(masked.sequence_track.values)
+            for index, value in enumerate(masked.sequence)
             if value is None
         ] == [19, 20, 21]
-        annotation = masked.function_annotations.annotations[0]
+        annotation = masked.function_annotations[0]
         assert (
             annotation.label,
             annotation.start_residue_id,

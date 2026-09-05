@@ -135,7 +135,7 @@ _MISSING_CHAIN_BREAK = ProteinStructure(
 )
 _RESOLVED_AXIS = ResolvedStructureResidueAxis(
     structure=_BACKBONE,
-    layout=ResidueLayout("A", 1, ("A:1",)),
+    layout=ResidueLayout(("A:1",)),
     sequence="A",
     residue_names=("ALA",),
     segments=(StructureAxisSegment(0, "A", ("A:1",)),),

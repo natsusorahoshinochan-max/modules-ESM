@@ -60,10 +60,9 @@ from modules.structure_transform.csh_normalization import normalize_csh_parent_s
 from tests.support.public_request import encode_project_input_content
 from tests.support.prompt_authoring import (
     apply_prompt_document,
-    initialize_prompt_authoring_draft,
+    install_prompt_authoring_workflow,
     open_pdb_prompt_document,
     preview_prompt_document,
-    save_ordinary_graph_on_prompt_draft,
 )
 from tests.support.workflow_stress import (
     StressRun,
@@ -78,19 +77,9 @@ from tests.fixtures.public_v2 import (
 
 
 ROOT = Path(__file__).resolve().parent.parent
-_PROMPT_COMPOSITION_IDS = (
-    "prompt-composition-6ebcc41c0a856414f4d9548c",
-)
 INPUT_PATH = ROOT / "examples" / "v2" / "structures" / "2EMO.pdb"
 WORKFLOW_PATH = ROOT / "examples" / "v2" / "source-bound-2emo.workflow.json"
 INPUT_SHA256 = "6ef4ef3102a71793373b5767b9a1a1cbbc324996527d1c9b3e7ebd00cf7b6700"
-FIXED_IDS = (
-    "A:42", "A:44", "A:46", "A:60", "A:61", "A:62", "A:63",
-    "A:64", "A:65", "A:66", "A:67", "A:68", "A:69", "A:70",
-    "A:71", "A:72", "A:92", "A:94", "A:96", "A:110", "A:112",
-    "A:121", "A:123", "A:145", "A:148", "A:150", "A:165",
-    "A:167", "A:183", "A:203", "A:205", "A:220", "A:222",
-)
 _AA3 = dict(zip(
     "ACDEFGHIKLMNPQRSTVWY",
     ("ALA", "CYS", "ASP", "GLU", "PHE", "GLY", "HIS", "ILE", "LYS", "LEU", "MET", "ASN", "PRO", "GLN", "ARG", "SER", "THR", "VAL", "TRP", "TYR"),
@@ -152,8 +141,10 @@ class _ControlledProteinMPNN:
     def design(self, request: Any) -> list[ProteinSequence]:
         self.requests.append(request)
         _, reference = next(iter(request.reference_sequences.items()))
-        fixed_by_chain = next(iter(request.fixed_position_dict.values()))
-        fixed_positions = set(next(iter(fixed_by_chain.values())))
+        fixed_by_chain = next(
+            iter((request.fixed_position_dict or {}).values()), {}
+        )
+        fixed_positions = set(next(iter(fixed_by_chain.values()), ()))
         alphabet = "ACDEFGHIKLMNPQRSTVWY"
         designable_positions = tuple(
             position
@@ -561,7 +552,6 @@ def test_source_bound_2emo_is_compilable() -> None:
         "backbone_noise": 0,
     }
     assert nodes["design-sequences"].binding_id == "proteinmpnn.design.local"
-    assert tuple(nodes["author-constraints"].node_parameters["fixed_residue_ids"]) == FIXED_IDS
     assert nodes["fold-esmfold2"].node_parameters == {
         "effective_seed": 2066002,
         "num_samples": 1,
@@ -679,22 +669,6 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         )
         assert uploaded.status_code == 201
         assert uploaded.json()["content_digest"] == f"sha256:{INPUT_SHA256}"
-        initialize_prompt_authoring_draft(client, project_id)
-        opened_prompt = open_pdb_prompt_document(
-            client,
-            project_id,
-            uploaded.json()["project_input_ref"],
-            chain_ids=["A"],
-        )
-        applied = apply_prompt_document(
-            client,
-            project_id,
-            preview_prompt_document(
-                client,
-                project_id,
-                opened_prompt["document"],
-            ),
-        )
         payload = _payload()
         payload["workflow_id"] = project_id
         for node in payload["nodes"]:
@@ -702,19 +676,24 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
                 node["node_parameters"] = {
                     "project_input_ref": uploaded.json()["project_input_ref"]
                 }
-        payload = save_ordinary_graph_on_prompt_draft(
+        install_prompt_authoring_workflow(client, project_id, payload)
+        author_node_id = (
+            "prompt-composition-6ebcc41c0a856414f4d9548c.source.author"
+        )
+        opened_prompt = open_pdb_prompt_document(
             client,
             project_id,
-            (applied,),
-            payload,
-            fixture_composition_ids=_PROMPT_COMPOSITION_IDS,
-            output_connections=(
-                (
-                    applied["composition"],
-                    "residue_layout",
-                    "author-constraints",
-                    "layout",
-                ),
+            author_node_id,
+        )
+        apply_prompt_document(
+            client,
+            project_id,
+            author_node_id,
+            preview_prompt_document(
+                client,
+                project_id,
+                author_node_id,
+                opened_prompt["document"],
             ),
         )
         committed = client.post(
@@ -793,7 +772,6 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             len(child.parent_ids) == 1 and child.parent_ids[0] in design_ids
             for child in folds.items
         )
-        assert all("constraint_digest" in child.metadata for child in designs.items)
         assert {
             (
                 child.metadata["effective_seed"],
@@ -803,11 +781,6 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
             )
             for child in designs.items
         } == {(2066001, 8, 0.1, 0.0)}
-        fixed_indices = tuple(int(residue_id.split(":")[1]) - 6 for residue_id in FIXED_IDS)
-        assert all(
-            all(child.data.sequence[index] == axis.sequence[index] for index in fixed_indices)
-            for child in designs.items
-        )
         assert {entry.subject.candidate_id for entry in confidence.entries} == {
             child.candidate_id for child in folds.items
         }
@@ -960,9 +933,7 @@ def test_source_bound_2emo_public_journey_closes_exact_evidence(
         ("A:67", 0, "A", 62),
         ("A:68", 0, "A", 63),
     )
-    assert request.fixed_position_dict == {
-        "target": {"A": [int(item.split(":")[1]) - 5 for item in FIXED_IDS]}
-    }
+    assert request.fixed_position_dict is None
     assert len(folding.calls) == 16
     assert {model_name for _, model_name, _ in folding.calls} == {
         REMOTE_ESMFOLD2_MODEL

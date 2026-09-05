@@ -151,7 +151,7 @@ export function insertOrdinaryNode(workflow: Workflow, nodeId: string, nodeTypeI
       node_id: nodeId,
       node_type_id: nodeTypeId,
       binding_id: bindingId,
-      node_parameters: parameterDefaults(nodeType.descriptor.node_parameters as JsonObject | undefined),
+      node_parameters: nodeTypeId === 'prompt_authoring.author' ? { document: {} } : parameterDefaults(nodeType.descriptor.node_parameters as JsonObject | undefined),
       binding_parameters: parameterDefaults(binding.descriptor.binding_parameters as JsonObject | undefined),
     }],
   }

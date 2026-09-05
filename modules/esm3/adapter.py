@@ -14,8 +14,7 @@ from core.operation import (
     EngineInvocationProvenance,
     InvocationRandomness,
 )
-from datatypes.prompt import ProteinPrompt
-from datatypes.residue import ResidueTrack
+from datatypes.prompt import FunctionAnnotation, ProteinPrompt
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import ProteinStructure
 
@@ -175,9 +174,9 @@ class ESM3GenerationAdapter(Protocol):
     ) -> ESM3PairResult: ...
 
 
-def _sequence_track(prompt: ProteinPrompt) -> str:
+def _provider_sequence(prompt: ProteinPrompt) -> str:
     symbols: list[str] = []
-    for position, value in enumerate(prompt.sequence_track.values):
+    for position, value in enumerate(prompt.sequence):
         if value is None:
             symbols.append("_")
             continue
@@ -190,29 +189,26 @@ def _sequence_track(prompt: ProteinPrompt) -> str:
     return "".join(symbols)
 
 
-def _secondary_structure_track(
+def _provider_secondary_structure(
     prompt: ProteinPrompt,
 ) -> str | None:
-    if prompt.secondary_structure_track is None:
+    if prompt.secondary_structure is None:
         return None
     symbols: list[str] = []
-    for value in prompt.secondary_structure_track.values:
+    for value in prompt.secondary_structure:
         if value is None:
             symbols.append("_")
-            continue
-        if value == "-":
-            symbols.append("C")
             continue
         symbols.append(value)
     return "".join(symbols)
 
 
-def _sasa_track(prompt: ProteinPrompt) -> list[float | None] | None:
-    if prompt.sasa_track is None:
+def _provider_sasa(prompt: ProteinPrompt) -> list[float | None] | None:
+    if prompt.sasa is None:
         return None
     return [
         None if value is None else float(value)
-        for value in prompt.sasa_track.values
+        for value in prompt.sasa
     ]
 
 
@@ -220,10 +216,10 @@ def _atom37_entries(
     prompt: ProteinPrompt,
 ) -> tuple[tuple[int, int, tuple[float, float, float]], ...]:
     entries: list[tuple[int, int, tuple[float, float, float]]] = []
-    for position, residue in enumerate(prompt.structure_track.values):
+    for position, residue in enumerate(prompt.coordinates):
         if residue is None:
             continue
-        for atom_name, raw_coordinate in residue.items():
+        for atom_name, raw_coordinate in residue.atoms:
             atom_index = _ATOM37_INDEX.get(atom_name)
             if atom_index is None:
                 continue
@@ -256,15 +252,57 @@ def _coordinates(prompt: ProteinPrompt) -> Any | None:
     return coordinates
 
 
+def _function_annotation_provider_interval(
+    prompt: ProteinPrompt,
+    annotation: FunctionAnnotation,
+) -> tuple[int, int]:
+    """Resolve identity-addressed annotation bounds to provider indices.
+
+    Provider FunctionAnnotation uses one-based inclusive integer bounds. The
+    bounds are looked up in the prompt layout; an absent identity is an
+    internal invariant violation (the aggregate validator guarantees
+    membership), so it fails fast.
+    """
+    residue_ids = prompt.layout.residue_ids
+    try:
+        start = residue_ids.index(annotation.start_residue_id) + 1
+    except ValueError:
+        raise ValueError(
+            f"function annotation start residue "
+            f"{annotation.start_residue_id!r} is absent from the prompt layout"
+        )
+    try:
+        end = residue_ids.index(annotation.end_residue_id) + 1
+    except ValueError:
+        raise ValueError(
+            f"function annotation end residue "
+            f"{annotation.end_residue_id!r} is absent from the prompt layout"
+        )
+    return start, end
+
+
 def esm3_functional_input_digest(prompt: ProteinPrompt) -> str:
     """Identify only the exact high-level values translated to ESM-3."""
-    sasa = _sasa_track(prompt)
+    sasa = _provider_sasa(prompt)
     entries = _atom37_entries(prompt)
+    function_annotations: list[dict[str, object]] = []
+    for annotation in prompt.function_annotations:
+        start, end = _function_annotation_provider_interval(
+            prompt,
+            annotation,
+        )
+        function_annotations.append(
+            {
+                "label": annotation.label,
+                "start": start,
+                "end": end,
+            }
+        )
     return canonical_sha256(
         {
             "schema_namespace": "protein-workbench-esm3-functional-input/v1",
-            "sequence": _sequence_track(prompt),
-            "secondary_structure": _secondary_structure_track(prompt),
+            "sequence": _provider_sequence(prompt),
+            "secondary_structure": _provider_secondary_structure(prompt),
             "sasa_float64": (
                 None
                 if sasa is None
@@ -275,14 +313,7 @@ def esm3_functional_input_digest(prompt: ProteinPrompt) -> str:
                     for value in sasa
                 ]
             ),
-            "function_annotations": [
-                {
-                    "label": annotation.label,
-                    "start": annotation.start,
-                    "end": annotation.end,
-                }
-                for annotation in prompt.function_annotations.annotations
-            ],
+            "function_annotations": function_annotations,
             "atom37_float32": (
                 None
                 if not entries
@@ -321,17 +352,21 @@ def derive_esm3_call_seed(
 
 
 def _function_annotations(prompt: ProteinPrompt) -> list[Any] | None:
-    if not prompt.function_annotations.annotations:
+    if not prompt.function_annotations:
         return None
     from esm.utils.types import FunctionAnnotation as ProviderFunctionAnnotation
 
     result: list[Any] = []
-    for annotation in prompt.function_annotations.annotations:
+    for annotation in prompt.function_annotations:
+        start, end = _function_annotation_provider_interval(
+            prompt,
+            annotation,
+        )
         result.append(
             ProviderFunctionAnnotation(
                 label=annotation.label,
-                start=annotation.start,
-                end=annotation.end,
+                start=start,
+                end=end,
             )
         )
     return result
@@ -339,16 +374,16 @@ def _function_annotations(prompt: ProteinPrompt) -> list[Any] | None:
 
 def protein_prompt_to_provider(prompt: ProteinPrompt) -> Any:
     """Translate one exact ProteinPrompt without silently mutating tracks."""
-    if "," in prompt.target_layout.chain_id:
+    if len(prompt.layout.chain_ids) > 1:
         raise ValueError(
             "The ESM SDK cannot preserve multi-chain aligned tracks"
         )
     from esm.sdk.api import ESMProtein
 
     return ESMProtein(
-        sequence=_sequence_track(prompt),
-        secondary_structure=_secondary_structure_track(prompt),
-        sasa=_sasa_track(prompt),
+        sequence=_provider_sequence(prompt),
+        secondary_structure=_provider_secondary_structure(prompt),
+        sasa=_provider_sasa(prompt),
         function_annotations=_function_annotations(prompt),
         coordinates=_coordinates(prompt),
     )
@@ -407,7 +442,7 @@ def complete_sequence(
     prompt: ProteinPrompt,
 ) -> ProteinSequence:
     """Translate the documented provider sequence onto the Prompt axis."""
-    layout = prompt.target_layout
+    layout = prompt.layout
     return ProteinSequence(
         sequence=result.sequence,
         residue_ids=list(layout.residue_ids),
@@ -661,10 +696,7 @@ class _BaseESM3Adapter:
         )
         structure_functional_prompt = replace(
             prompt,
-            sequence_track=ResidueTrack(
-                list(sequence.sequence.sequence),
-                None,
-            ),
+            sequence=tuple(sequence.sequence.sequence),
         )
         structure_derived_call_seed = derive_esm3_call_seed(
             configured_base_seed,

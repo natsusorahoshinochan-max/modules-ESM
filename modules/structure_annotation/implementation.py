@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any, Mapping, Protocol, cast
 
 from core.operation import (
@@ -22,12 +21,15 @@ from datatypes.observation import (
     ScoreCollection,
     ScoreObservation,
 )
-from datatypes.residue import ResidueLayout, ResidueTrack
+from datatypes.residue import (
+    CandidateResidueTrack,
+    ResidueLayout,
+    ResidueTrack,
+)
 from datatypes.structure import ResolvedStructureResidueAxis
-from .domain import DSSPAnnotation, StructureAnnotationTrack
 
 
-_ANNOTATION_TO_PROMPT_SS = {
+_PROMPT_TO_OBSERVED_SS = {
     "G": "G",
     "H": "H",
     "I": "I",
@@ -35,19 +37,8 @@ _ANNOTATION_TO_PROMPT_SS = {
     "E": "E",
     "B": "B",
     "S": "S",
-    "C": "-",
-    "_": None,
-}
-_PROMPT_TO_ANNOTATION_SS = {
-    "G": "G",
-    "H": "H",
-    "I": "I",
-    "T": "T",
-    "E": "E",
-    "B": "B",
-    "S": "S",
-    "-": "C",
-    None: "_",
+    "C": "C",
+    None: None,
 }
 
 
@@ -59,11 +50,7 @@ class _DSSPAdapter(Protocol):
         residue_axis: ResolvedStructureResidueAxis,
         *,
         subject: CandidateDataReference,
-    ) -> DSSPAnnotation: ...
-
-
-def _annotation_input(inputs: Mapping[str, AdmittedPort]) -> DSSPAnnotation:
-    return inputs["annotations"].value
+    ) -> tuple[CandidateResidueTrack[str], CandidateResidueTrack[float]]: ...
 
 
 def _singleton_candidate_reference(
@@ -98,104 +85,56 @@ class DSSPComputeOperation:
                 "association for the admitted structure Candidate"
             )
         residue_axis = associations.entries[0].residue_axis
-        annotation = self._adapter.annotate(
+        secondary_structure, sasa = self._adapter.annotate(
             residue_axis,
             subject=subject,
         )
-        return {"annotations": annotation}
+        return {
+            "secondary_structure": secondary_structure,
+            "sasa": sasa,
+        }
 
 
-class SecondaryStructureExtractOperation:
-    """Extract the canonical SS8 track without crossing a provider seam."""
+class ObservedToConditioningOperation:
+    """Project one observed annotation track to residue conditioning.
 
-    def __init__(self, resources: OperationResources) -> None:
-        self._resources = resources
-
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        annotation = _annotation_input(call.inputs)
-        with self._resources.engine_invocation():
-            track = StructureAnnotationTrack(
-                subject=annotation.subject,
-                layout=annotation.layout,
-                values=tuple(
-                    "C" if value == "P" else value
-                    for value in annotation.secondary_structure
-                ),
-            )
-        return {"secondary_structure_track": track}
-
-
-class SASAComputeOperation:
-    """Extract canonical DSSP accessibility without a provider Adapter."""
+    Exactly one observed input may be connected; the Candidate subject is
+    explicitly dropped and no ProteinPrompt is rebuilt.
+    """
 
     def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
-        annotation = _annotation_input(call.inputs)
-        with self._resources.engine_invocation():
-            track = StructureAnnotationTrack(
-                subject=annotation.subject,
-                layout=annotation.layout,
-                values=annotation.sasa,
-            )
-        return {"sasa_track": track}
-
-
-class ApplySecondaryStructureToPromptOperation:
-    """Apply one exact annotation SS8 track to a ProteinPrompt."""
-
-    def __init__(self, resources: OperationResources) -> None:
-        self._resources = resources
-
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        prompt = call.inputs["protein_prompt"].value
-        track = call.inputs["secondary_structure_track"].value
-        if prompt.target_layout != track.layout:
+        secondary_port = call.inputs.get("secondary_structure")
+        sasa_port = call.inputs.get("sasa")
+        if bool(secondary_port) == bool(sasa_port):
             raise ValueError(
-                "Prompt and secondary-structure track layouts must be exactly equal"
+                "observed_to_conditioning requires exactly one observed "
+                "input connected"
             )
         with self._resources.engine_invocation():
-            updated = replace(
-                prompt,
-                secondary_structure_track=ResidueTrack(
-                    [_ANNOTATION_TO_PROMPT_SS[value] for value in track.values],
-                    None,
-                ),
-            )
-        return {"protein_prompt": updated}
-
-
-class ApplySASAToPromptOperation:
-    """Apply exact DSSP solvent accessibility to a ProteinPrompt."""
-
-    def __init__(self, resources: OperationResources) -> None:
-        self._resources = resources
-
-    def execute(self, call: OperationCall) -> dict[str, Any]:
-        prompt = call.inputs["protein_prompt"].value
-        track = call.inputs["sasa_track"].value
-        if prompt.target_layout != track.layout:
-            raise ValueError(
-                "Prompt and SASA track layouts must be exactly equal"
-            )
-        with self._resources.engine_invocation():
-            updated = replace(
-                prompt,
-                sasa_track=ResidueTrack(track.values, None),
-            )
-        return {"protein_prompt": updated}
+            if secondary_port:
+                track = secondary_port.value.track
+                return {
+                    "secondary_structure": ResidueTrack(
+                        track.layout,
+                        track.values,
+                    )
+                }
+            track = sasa_port.value.track
+            return {"sasa": ResidueTrack(track.layout, track.values)}
 
 
 class ExpectedSecondaryStructureFromPromptOperation:
-    """Project Prompt conditioning as an expected annotation SS8 track."""
+    """Project Prompt conditioning as an expected observed SS8 track."""
 
     def __init__(self, resources: OperationResources) -> None:
         self._resources = resources
 
     def execute(self, call: OperationCall) -> dict[str, Any]:
         prompt = call.inputs["protein_prompt"].value
-        if prompt.secondary_structure_track is None:
+        if prompt.secondary_structure is None:
             raise ValueError(
                 "ProteinPrompt must carry a secondary-structure track"
             )
@@ -204,15 +143,17 @@ class ExpectedSecondaryStructureFromPromptOperation:
             port_name="references",
         )
         with self._resources.engine_invocation():
-            track = StructureAnnotationTrack(
+            track = CandidateResidueTrack(
                 subject=reference,
-                layout=cast(ResidueLayout, prompt.target_layout),
-                values=tuple(
-                    _PROMPT_TO_ANNOTATION_SS[value]
-                    for value in prompt.secondary_structure_track.values
+                track=ResidueTrack(
+                    cast(ResidueLayout, prompt.layout),
+                    tuple(
+                        _PROMPT_TO_OBSERVED_SS[value]
+                        for value in prompt.secondary_structure
+                    ),
                 ),
             )
-        return {"secondary_structure_track": track}
+        return {"secondary_structure": track}
 
 
 class SecondaryStructureAgreementOperation:
@@ -260,11 +201,11 @@ class SecondaryStructureAgreementOperation:
             raise ValueError(
                 "expected track subject must equal the admitted reference Candidate"
             )
-        if expected.layout != observed.layout:
+        if expected.track.layout != observed.track.layout:
             raise ValueError(
                 "agreement tracks must carry one identical exact layout"
             )
-        if residue_axis.layout != observed.layout:
+        if residue_axis.layout != observed.track.layout:
             raise ValueError(
                 "agreement tracks must equal the authoritative subject "
                 "residue-axis layout"
@@ -273,11 +214,11 @@ class SecondaryStructureAgreementOperation:
             compared = [
                 (expected_value, observed_value)
                 for expected_value, observed_value in zip(
-                    expected.values,
-                    observed.values,
+                    expected.track.values,
+                    observed.track.values,
                     strict=True,
                 )
-                if expected_value != "_" and observed_value != "_"
+                if expected_value is not None and observed_value is not None
             ]
             if not compared:
                 raise ValueError(

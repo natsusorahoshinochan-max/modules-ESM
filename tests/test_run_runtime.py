@@ -2875,7 +2875,7 @@ def test_operation_call_exposes_ordered_candidate_data_content_digests(
     )
     projects = ProjectManager(tmp_path / "projects")
     project = projects.create("Candidate data reference runtime")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
         workflow=decode_workflow_document(

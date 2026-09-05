@@ -25,14 +25,6 @@ _BUILTIN_VALUE_KINDS = (
     ("candidate.relation", "candidate_relation"),
     ("protein.sequence", "protein_sequence"),
     ("protein.structure", "protein_structure"),
-    ("residue.layout", "residue_layout"),
-    ("residue.map", "residue_map"),
-    ("residue.track", "residue_track"),
-    ("residue.track.sasa", "sasa_residue_track"),
-    (
-        "residue.track.secondary_structure",
-        "secondary_structure_residue_track",
-    ),
     ("score.collection", "score_collection"),
     ("text", "text"),
 )

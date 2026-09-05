@@ -160,7 +160,7 @@ def test_local_protein_sol_golden_multiple_metrics(
         run_root=tmp_path / "runs",
     )
     project = projects.create("model-backed Protein-Sol")
-    authoring = WorkflowAuthoringService(projects, catalog, AuthoringCapabilityProjection((), ()))
+    authoring = WorkflowAuthoringService(projects, catalog)
     committed = authoring.commit(
         project.id,
         workflow=WorkflowDocument(

@@ -1,18 +1,62 @@
 export type JsonObject = Record<string, unknown>
 export type ContractReference = { contract_kind: string; contract_id: string }
-export type AuthoringCapabilities = { node_roles: Array<{ node_type: ContractReference; role: 'ordinary_node' | 'managed_member' }>; capabilities: JsonObject[]; protocol_digest: string; schema_namespace: string }
+export type AuthoringCapabilities = { node_roles: Array<{ node_type: ContractReference; role: 'ordinary_node' }>; protocol_digest: string; schema_namespace: string }
 export type ProjectMetadata = { id: string; name: string; seed: boolean; project_kind: 'default_example' | 'canonical_verification' | 'personal'; copied_from_project_id: string | null; latest_run_id: string | null }
 export type WorkflowNode = { node_id: string; node_type_id: string; binding_id: string; node_parameters: Record<string, unknown>; binding_parameters: Record<string, unknown> }
 export type Workflow = { schema_version: string; workflow_id: string; nodes: WorkflowNode[]; edges: Array<{ source_node_id: string; source_port: string; target_node_id: string; target_port: string }>; observation_selectors: JsonObject[]; selection_objectives: JsonObject[] }
-export type WorkflowDraft = { project_id: string; draft_revision: number; workflow: Workflow; authoring_compositions: Array<{ composition_id: string; capability_id: string; normalized_document: JsonObject; managed_node_ids: string[]; exposed_outputs: Array<{ role: string; node_id: string; port_name: string }> }> }
+export type WorkflowDraft = { project_id: string; draft_revision: number; workflow: Workflow }
 export type CatalogSnapshot = { contracts: Array<{ reference: ContractReference; descriptor: JsonObject }>; availability: JsonObject[] }
+
+export type PromptAuthoringNodeTypeId = 'prompt_authoring.author' | 'prompt_authoring.decompose' | 'prompt_authoring.assemble'
+export type ResidueDataNodeTypeId = 'residue_data.materialize_sequence'
+export type StructureAnnotationNodeTypeId = 'structure_annotation.observed_to_conditioning'
+export type ConditioningPortTypeId = 'residue.condition.sequence' | 'residue.condition.coordinates' | 'residue.condition.secondary_structure' | 'residue.condition.sasa' | 'residue.condition.function_annotations'
+export type ObservedAnnotationPortTypeId = 'structure_annotation.secondary_structure.observed' | 'structure_annotation.sasa.observed'
+export type PromptAuthorPortTypeId = 'protein.sequence' | 'structure_transform.resolved_residue_axis' | 'protein.prompt'
+export const promptAuthorNodeTypeId: PromptAuthoringNodeTypeId = 'prompt_authoring.author'
+export const promptAuthorDocumentParameter = 'document'
+export const promptTrackKeys = ['sequence', 'coordinates', 'secondary_structure', 'sasa'] as const
+export type PromptTrackKey = (typeof promptTrackKeys)[number]
+export const promptTrackConditioningPortTypes: Record<PromptTrackKey, ConditioningPortTypeId> = { sequence: 'residue.condition.sequence', coordinates: 'residue.condition.coordinates', secondary_structure: 'residue.condition.secondary_structure', sasa: 'residue.condition.sasa' }
+
+export type PromptAtomCoordinates = { atom_name: string; coordinates: [number, number, number] }
+export type PromptChainDeclaration = { chain_id: string; length: number }
+export type PromptTargetResidue = { residue_id: string; origin: 'source' | 'inserted' }
+export type PromptTrackEditValue = string | number | { atom_coordinates: PromptAtomCoordinates[] }
+export type PromptTrackEdit =
+  | { track: PromptTrackKey; action: 'clear' | 'preserve'; residue_id: string }
+  | { track: PromptTrackKey; action: 'replace'; residue_id: string; value: PromptTrackEditValue }
+export type PromptRigidTransform = { rotation_matrix: [[number, number, number], [number, number, number], [number, number, number]]; origin: [number, number, number]; translation: [number, number, number]; residue_ids: string[] }
+export type PromptDocumentFunctionAnnotation = { label: string; start_residue_id: string; end_residue_id: string }
+export type PromptRandomOperation =
+  | { kind: 'mask'; seed: number; count: number; track: PromptTrackKey; eligible_residue_ids?: string[] }
+  | { kind: 'insert'; seed: number; count: number; eligible_chain_ids?: string[] }
+export type PromptMergeCorrespondence =
+  | { disposition: 'match'; source_residue_id: string; target_residue_id: string }
+  | { disposition: 'source_gap'; source_residue_id: string }
+  | { disposition: 'target_gap'; target_residue_id: string }
+export type PromptMergeTrackDecisions = Record<PromptTrackKey | 'function_annotations', 'adopt' | 'preserve'>
+export type PromptSourceMerge = { source_index: number; correspondence: PromptMergeCorrespondence[]; track_decisions: PromptMergeTrackDecisions }
+export type PromptAuthoringDocument = {
+  chains?: PromptChainDeclaration[]
+  target_residues?: PromptTargetResidue[]
+  track_edits?: PromptTrackEdit[]
+  rigid_transforms?: PromptRigidTransform[]
+  function_annotations?: PromptDocumentFunctionAnnotation[]
+  random_operations?: PromptRandomOperation[]
+  source_merges?: PromptSourceMerge[]
+}
+
 export type PromptProjectionState = 'source' | 'current' | 'changed' | 'cleared' | 'inserted' | 'pending-delete'
-export type PromptResidue = { residue_handle: string; chain_id: string; residue_label: string; position: number }
-export type PromptTrackValue = { residue_handle: string; value: null | string | number | { atoms: Array<{ atom_handle: string; atom_label: string; coordinates: [number, number, number] }> }; state: PromptProjectionState }
+export type PromptResidue = { residue_handle: string; residue_id: string; chain_id: string; residue_label: string; position: number; state: 'current' | 'inserted' | 'pending-delete' }
+export type PromptCoordinatesValue = { atoms: Array<PromptAtomCoordinates & { atom_handle: string }> }
+export type PromptTrackValue = { residue_handle: string; value: null | string | number | PromptCoordinatesValue; state: PromptProjectionState }
+export type PromptTrackProjection = { present: boolean; values: PromptTrackValue[] }
 export type PromptFunctionAnnotation = { label: string; start_residue_handle: string; end_residue_handle: string; state: PromptProjectionState }
 export type PromptDiagnostic = { code: string; message: string; field_path: Array<string | number>; residue_handle?: string }
-export type PromptSnapshot = { document: JsonObject; residues: PromptResidue[]; tracks: Record<string, PromptTrackValue[]>; function_annotations: PromptFunctionAnnotation[]; source: JsonObject }
-export type PromptPreview = Omit<PromptSnapshot, 'document' | 'source'> & { normalized_document: JsonObject; preview_digest: string; changes: JsonObject[]; random_selections: JsonObject[]; source_merges: JsonObject[]; diagnostics: PromptDiagnostic[]; summary: JsonObject }
+export type PromptRandomSelection = { operation_index: number; kind: 'insert' | 'mask'; realized_residue_handles: string[] }
+export type PromptSnapshot = { baseline_diagnostics: PromptDiagnostic[]; random_selections: PromptRandomSelection[]; document: PromptAuthoringDocument; residues: PromptResidue[]; tracks: Record<PromptTrackKey, PromptTrackProjection>; function_annotations: PromptFunctionAnnotation[]; source: JsonObject }
+export type PromptPreview = Omit<PromptSnapshot, 'document' | 'source'> & { normalized_document: PromptAuthoringDocument; preview_digest: string; changes: JsonObject[]; random_selections: PromptRandomSelection[]; source_merges: JsonObject[]; diagnostics: PromptDiagnostic[]; summary: JsonObject }
 export type RunStatus = 'admitted' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted'
 export type RunReceipt = { project_id: string; run_id: string; workflow_commit_id: string; admitted_sequence: number; event_cursor: string }
 type NodeDispositionBase = { node_id: string; terminal_sequence: number }
@@ -45,9 +89,9 @@ export class PublicV2Client {
   copyExample(projectId: string, name: string) { return this.json<ProjectMetadata>(`/api/v2/projects/${projectId}:copy`, { method: 'POST', body: JSON.stringify({ name }) }) }
   workflowDraft(projectId: string) { return this.json<WorkflowDraft>(`/api/v2/projects/${projectId}/workflow/draft`) }
   saveWorkflowDraft(projectId: string, workflow: Workflow) { return this.json<WorkflowDraft>(`/api/v2/projects/${projectId}/workflow/draft`, { method: 'PUT', body: JSON.stringify({ workflow }) }) }
-  openPrompt(projectId: string, compositionId: string) { return this.json<PromptSnapshot>(`/api/v2/projects/${projectId}/prompt-authoring:open`, { method: 'POST', body: JSON.stringify({ mode: 'reopen', composition_id: compositionId }) }) }
-  previewPrompt(projectId: string, compositionId: string, document: JsonObject) { return this.json<PromptPreview>(`/api/v2/projects/${projectId}/prompt-authoring:preview`, { method: 'POST', body: JSON.stringify({ composition_id: compositionId, document }) }) }
-  applyPrompt(projectId: string, compositionId: string, preview: PromptPreview) { return this.json<{ draft: WorkflowDraft }>(`/api/v2/projects/${projectId}/prompt-authoring:apply`, { method: 'POST', body: JSON.stringify({ intent: 'replace', composition_id: compositionId, normalized_document: preview.normalized_document, preview_digest: preview.preview_digest }) }) }
+  openPrompt(projectId: string, nodeId: string) { return this.json<PromptSnapshot>(`/api/v2/projects/${projectId}/prompt-authoring:open`, { method: 'POST', body: JSON.stringify({ node_id: nodeId }) }) }
+  previewPrompt(projectId: string, nodeId: string, document: PromptAuthoringDocument) { return this.json<PromptPreview>(`/api/v2/projects/${projectId}/prompt-authoring:preview`, { method: 'POST', body: JSON.stringify({ node_id: nodeId, document }) }) }
+  applyPrompt(projectId: string, nodeId: string, preview: PromptPreview) { return this.json<{ draft: WorkflowDraft }>(`/api/v2/projects/${projectId}/prompt-authoring:apply`, { method: 'POST', body: JSON.stringify({ node_id: nodeId, document: preview.normalized_document, preview_digest: preview.preview_digest }) }) }
   commitWorkflow(projectId: string, workflow: Workflow) { return this.json<{ workflow_commit_id: string }>(`/api/v2/projects/${projectId}/workflow:commit`, { method: 'POST', body: JSON.stringify({ workflow }) }) }
   startRun(projectId: string, workflowCommitId: string) { return this.json<RunReceipt>(`/api/v2/projects/${projectId}/runs`, { method: 'POST', body: JSON.stringify({ workflow_commit_id: workflowCommitId, client_request_id: crypto.randomUUID() }) }) }
   runProjection(projectId: string, runId: string) { return this.json<RunProjection>(`/api/v2/projects/${projectId}/runs/${runId}`) }

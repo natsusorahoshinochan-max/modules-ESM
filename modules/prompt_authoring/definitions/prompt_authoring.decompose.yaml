@@ -1,0 +1,38 @@
+node_type_id: prompt_authoring.decompose
+title: Decompose ProteinPrompt
+summary: Splits one ProteinPrompt into its authoritative-layout-aligned residue tracks and function annotation carrier without altering any value or identity.
+category: prompt_authoring
+inputs:
+  - name: protein_prompt
+    port_type_id: protein.prompt
+    required: true
+    multiplicity: one
+    scientific_meaning: Validated residue-aligned ProteinPrompt to decompose.
+outputs:
+  - name: sequence
+    port_type_id: residue.condition.sequence
+    required: true
+    multiplicity: one
+    scientific_meaning: Sequence track carrying the authoritative layout.
+  - name: coordinates
+    port_type_id: residue.condition.coordinates
+    required: true
+    multiplicity: one
+    scientific_meaning: Coordinates track carrying the authoritative layout.
+  - name: secondary_structure
+    port_type_id: residue.condition.secondary_structure
+    required: false
+    multiplicity: one
+    scientific_meaning: Secondary-structure track carrying the authoritative layout, or absent when the Prompt track is whole-track absent.
+  - name: sasa
+    port_type_id: residue.condition.sasa
+    required: false
+    multiplicity: one
+    scientific_meaning: SASA track carrying the authoritative layout, or absent when the Prompt track is whole-track absent.
+  - name: function_annotations
+    port_type_id: residue.condition.function_annotations
+    required: true
+    multiplicity: one
+    scientific_meaning: Function annotations bound to the authoritative layout as a FunctionAnnotationTrack.
+parameter_groups: []
+node_parameters: {}

@@ -707,10 +707,11 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
         resources=resources,
         model_name=LOCAL_ESM3_MODEL,
     )
+    layout = ResidueLayout(["A:1", "A:2", "A:3"])
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
-        structure_track=ResidueTrack([None, None, None], None),
+        layout=layout,
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
 
     with adapter:
@@ -914,22 +915,22 @@ def test_local_execution_preserves_remote_scientific_contracts(
     )
     if operation == "generate_paired":
         from datatypes.prompt import ProteinPrompt
-        from datatypes.residue import ResidueLayout, ResidueTrack
+        from datatypes.residue import ResidueLayout
         from modules.esm3.adapter import (
             derive_esm3_call_seed,
             esm3_functional_input_digest,
         )
 
-        layout = ResidueLayout("A", 3, ["A:1", "A:2", "A:3"])
+        layout = ResidueLayout(["A:1", "A:2", "A:3"])
         sequence_prompt = ProteinPrompt(
-            target_layout=layout,
-            sequence_track=ResidueTrack([None, None, None], None),
-            structure_track=ResidueTrack([None, None, None], None),
+            layout=layout,
+            sequence=(None, None, None),
+            coordinates=(None, None, None),
         )
         structure_prompt = ProteinPrompt(
-            target_layout=layout,
-            sequence_track=ResidueTrack(["A", "C", "D"], None),
-            structure_track=ResidueTrack([None, None, None], None),
+            layout=layout,
+            sequence=("A", "C", "D"),
+            coordinates=(None, None, None),
         )
         assert {
             event["engine_role"]: event["invocation_provenance"][
@@ -1106,10 +1107,11 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
         resources=InvocationResources(),
         model_name=local_adapter.LOCAL_ESM3_MODEL,
     )
+    layout = ResidueLayout(["A:1", "A:2", "A:3"])
     prompt = ProteinPrompt(
-        target_layout=ResidueLayout("A", 3, ["A:1", "A:2", "A:3"]),
-        sequence_track=ResidueTrack([None, "C", "D"], None),
-        structure_track=ResidueTrack([None, None, None], None),
+        layout=layout,
+        sequence=(None, "C", "D"),
+        coordinates=(None, None, None),
     )
 
     with pytest.raises(RuntimeError, match="fixture provider failed") as caught:

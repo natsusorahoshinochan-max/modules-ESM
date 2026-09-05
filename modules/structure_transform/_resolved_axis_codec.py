@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from math import isfinite
 
+from core.catalog import _port_value_codec as _value_codec
 from core.catalog.builtins import builtin_frozen_catalog
 from core.catalog.port_contract import (
     BehaviorReference,
     PortTypeDefinition,
 )
+from datatypes.residue import validate_residue_layout
 from datatypes.structure import (
     ResolvedStructureResidueAxis,
     StructureAtomCoordinate,
@@ -28,7 +30,14 @@ _BUILTINS = builtin_frozen_catalog()
 _STRUCTURE_CODEC = _BUILTINS.require_port_type(
     "protein.structure",
 )
-_LAYOUT_CODEC = _BUILTINS.require_port_type("residue.layout")
+def _layout_to_wire(layout: object) -> object:
+    return _value_codec._value_to_wire(layout)
+
+
+def _layout_from_wire(wire: object) -> object:
+    layout = _value_codec._wire_to_value(wire)
+    validate_residue_layout(layout, subject="resolved residue axis layout")
+    return layout
 _SEQUENCE_ALPHABET = frozenset("ACDEFGHIKLMNPQRSTVWYX")
 _BACKBONE_ATOMS = frozenset({"N", "CA", "C", "O"})
 _RESIDUE_LETTERS = {
@@ -172,9 +181,12 @@ def validate_resolved_axis(value: object) -> None:
             "resolved residue axis must be a ResolvedStructureResidueAxis"
         )
     _STRUCTURE_CODEC.validate(value.structure)
-    _LAYOUT_CODEC.validate(value.layout)
+    validate_residue_layout(
+        value.layout,
+        subject="resolved residue axis layout",
+    )
     residue_ids = value.layout.residue_ids
-    if residue_ids is None:
+    if not residue_ids:
         raise ValueError("resolved residue axis layout lacks identities")
     axis_length = value.layout.length
     if (
@@ -337,7 +349,7 @@ def validate_resolved_axis(value: object) -> None:
 def _axis_to_wire(value: ResolvedStructureResidueAxis) -> object:
     return {
         "structure": _STRUCTURE_CODEC.to_wire(value.structure),
-        "layout": _LAYOUT_CODEC.to_wire(value.layout),
+        "layout": _layout_to_wire(value.layout),
         "sequence": value.sequence,
         "residue_names": list(value.residue_names),
         "segments": [
@@ -391,7 +403,7 @@ def _axis_from_wire(value: object) -> ResolvedStructureResidueAxis:
         **{
             **value,
             "structure": _STRUCTURE_CODEC.from_wire(value["structure"]),
-            "layout": _LAYOUT_CODEC.from_wire(value["layout"]),
+            "layout": _layout_from_wire(value["layout"]),
             "residue_names": tuple(value["residue_names"]),
             "segments": tuple(
                 StructureAxisSegment(
@@ -459,7 +471,7 @@ RESOLVED_AXIS_PORT_TYPE = PortTypeDefinition(
             "canonicalization": "RFC 8785",
             "character_encoding": "UTF-8",
             "embedded_structure_contract": "protein.structure",
-            "embedded_layout_contract": "residue.layout",
+            "embedded_layout_contract": "residue_layout",
             "embedded_normalization_contract": (
                 "structure_transform.modified_residue_normalizations"
             ),

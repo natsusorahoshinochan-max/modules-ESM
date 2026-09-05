@@ -45,25 +45,6 @@ def encode_workflow_draft(draft: WorkflowDraft) -> dict[str, Any]:
         "project_id": draft.project_id,
         "draft_revision": draft.draft_revision,
         "workflow": draft.workflow.canonical_projection(),
-        "authoring_compositions": [
-            {
-                "composition_id": record.composition_id,
-                "capability_id": record.capability_id,
-                "managed_node_ids": list(record.managed_node_ids),
-                "exposed_inputs": [
-                    endpoint.canonical_projection()
-                    for endpoint in record.exposed_inputs
-                ],
-                "exposed_outputs": [
-                    endpoint.canonical_projection()
-                    for endpoint in record.exposed_outputs
-                ],
-                "confirmed_preview_identity": (
-                    record.confirmed_preview_identity
-                ),
-            }
-            for record in draft.authoring_compositions
-        ],
     }
 
 

@@ -1,0 +1,28 @@
+node_type_id: structure_annotation.observed_to_conditioning
+title: Project observed annotation to conditioning
+summary: Drops the Candidate subject attribution from exactly one observed annotation track to produce residue conditioning, without rebuilding a ProteinPrompt.
+category: structure_annotation
+inputs:
+  - name: secondary_structure
+    port_type_id: structure_annotation.secondary_structure.observed
+    required: false
+    multiplicity: one
+    scientific_meaning: Observed canonical SS8 track to project to secondary-structure conditioning; exactly one of the two inputs must be connected.
+  - name: sasa
+    port_type_id: structure_annotation.sasa.observed
+    required: false
+    multiplicity: one
+    scientific_meaning: Observed absolute SASA track to project to SASA conditioning; exactly one of the two inputs must be connected.
+outputs:
+  - name: secondary_structure
+    port_type_id: residue.condition.secondary_structure
+    required: false
+    multiplicity: one
+    scientific_meaning: Identity-complete ResidueTrack of canonical SS8 conditioning preserving layout and values, with the Candidate subject dropped.
+  - name: sasa
+    port_type_id: residue.condition.sasa
+    required: false
+    multiplicity: one
+    scientific_meaning: Identity-complete ResidueTrack of absolute square-angstrom SASA conditioning preserving layout and values, with the Candidate subject dropped.
+parameter_groups: []
+node_parameters: {}

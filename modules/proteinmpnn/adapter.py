@@ -97,7 +97,7 @@ def _stage_provider_structure(
     residue_axis: ResolvedStructureResidueAxis,
 ) -> _ProviderStructureProjection:
     """Render every authoritative covalent segment as one provider chain."""
-    workbench_chain_order = tuple(residue_axis.layout.chain_id.split(","))
+    workbench_chain_order = tuple(residue_axis.layout.chain_ids)
     if len(residue_axis.segments) > len(_PROVIDER_CHAIN_IDS):
         raise ValueError("resolved residue axis has too many provider chains")
     provider_structure_chain_order = _PROVIDER_CHAIN_IDS[

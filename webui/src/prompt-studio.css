@@ -128,3 +128,9 @@
   .ps-structure-card { display: none; }
   .ps-summarybar { grid-template-columns: repeat(2, 1fr); }
 }
+
+.ps-chain-editor { padding: 12px 20px; border-bottom: 1px solid #d9dee7; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ps-chain-editor > div { display: flex; gap: 4px; align-items: center; }
+.ps-chain-editor input { width: 90px; padding: 6px; }
+.ps-chain-editor input[maxlength] { width: 46px; }
+.ps-chain-editor button { padding: 6px 10px; }

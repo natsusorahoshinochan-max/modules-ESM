@@ -7,6 +7,14 @@ contracts; they are not ordinary Palette entries or a public authoring surface.
 Verification parses and compiles the Workflow against the current Catalog without
 invoking a Provider or selecting a sibling Binding.
 
+`prompt-downstream-interfaces.workflow.json` closes both required Prompt Studio
+downstream interfaces without a converter: `author → decompose.sequence →
+materialize_sequence.sequence_candidates → folding.fold`, and the same
+materialized sequence as the optional reference for `proteinmpnn.design` while
+its authoritative structure target remains the independently resolved structure
+Candidate axis. It is a compile-only interface example for a complete
+single-chain Project Input.
+
 The repository examples are representative scientific Workflows, not a
 mechanical inventory of every Catalog registration. Prediction and folding
 Nodes publish subjectless confidence facts; the Workflows join those facts to

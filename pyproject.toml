@@ -57,8 +57,6 @@ examples = [
     "v2/*.json",
     "v2/*.md",
     "v2/structures/*.pdb",
-    "v2/webui-3gb1-run/run/ledger/*.json",
-    "v2/webui-3gb1-run/objects/v1/sha256/*/*",
 ]
 modules = ["**/*.yaml"]
 protein_workbench_public = ["resources/v2/*.json"]
