@@ -32,8 +32,6 @@ from .adapter import (
     ESM3CallParameters,
     ESM3Confidence,
     ESM3GenerationAdapter,
-    derive_esm3_call_seed,
-    esm3_functional_input_digest,
 )
 
 
@@ -139,12 +137,10 @@ class ESM3GenerationOperation:
         effective_seed: int | None = call.effective_randomness.get(
             "effective_seed"
         )
-        functional_input_digest = esm3_functional_input_digest(prompt)
         with self._adapter:
             return self._generate(
                 prompt,
                 effective_seed=effective_seed,
-                functional_input_digest=functional_input_digest,
                 admitted_prompt=admitted_prompt,
                 num_samples=num_samples,
                 parameters=parameters,
@@ -207,7 +203,6 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        functional_input_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -218,16 +213,11 @@ class ESM3GenerationOperation:
         reconstruction_facts: list[PendingConfidenceFact] = []
         prompt_reference = self._prompt_reference(admitted_prompt)
         for sample_index in range(num_samples):
-            call_seed = derive_esm3_call_seed(
-                effective_seed,
-                functional_input_digest,
-                sample_index,
-                "sequence",
-            )
             result = self._adapter.generate_sequence(
                 prompt,
                 parameters=parameters,
-                derived_call_seed=call_seed,
+                base_seed=effective_seed,
+                sample_index=sample_index,
             )
             candidate = Candidate(
                 f"sequence-{sample_index}",
@@ -300,7 +290,6 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        functional_input_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -313,12 +302,8 @@ class ESM3GenerationOperation:
             result = self._adapter.generate_structure(
                 prompt,
                 parameters=parameters,
-                derived_call_seed=derive_esm3_call_seed(
-                    effective_seed,
-                    functional_input_digest,
-                    sample_index,
-                    "structure",
-                ),
+                base_seed=effective_seed,
+                sample_index=sample_index,
             )
             candidate_id = f"structure-{sample_index}"
             fact = self._pending_confidence_fact(
@@ -365,7 +350,6 @@ class ESM3GenerationOperation:
         prompt: ProteinPrompt,
         *,
         effective_seed: int | None,
-        functional_input_digest: str,
         admitted_prompt: AdmittedPort,
         num_samples: int,
         parameters: ESM3CallParameters,
@@ -381,13 +365,7 @@ class ESM3GenerationOperation:
             result = self._adapter.generate_pair(
                 prompt,
                 parameters=parameters,
-                sequence_derived_call_seed=derive_esm3_call_seed(
-                    effective_seed,
-                    functional_input_digest,
-                    sample_index,
-                    "sequence",
-                ),
-                configured_base_seed=effective_seed,
+                base_seed=effective_seed,
                 sample_index=sample_index,
             )
             sequence_candidate = Candidate(

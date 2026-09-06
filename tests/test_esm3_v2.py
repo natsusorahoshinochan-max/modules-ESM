@@ -616,12 +616,34 @@ def test_biohub_esm_client_builders_own_the_fixed_request_timeout(
     ]
 
 
-def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None:
+def test_adapter_preserves_every_representable_prompt_track_and_symbol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from modules.esm3.adapter import (
-        esm3_functional_input_digest,
-        protein_prompt_to_provider,
-        structure_prompt_for_sequence,
+        BIOHUB_ESM3_MEDIUM_MODEL, BiohubESM3Adapter, ESM3CallParameters,
     )
+
+    class InvocationResources:
+        @contextmanager
+        def engine_invocation(self, **kwargs: object):
+            yield "invocation"
+
+    client = ProviderClient([ProviderResponse("ACDEFGHI") for _ in range(3)])
+    monkeypatch.setattr(
+        "modules.esm3.adapter.build_biohub_esm3_client", lambda **kwargs: client,
+    )
+
+    def provider_input(value: ProteinPrompt) -> Any:
+        with BiohubESM3Adapter(
+            environment={"credential_handle": object()},
+            resources=InvocationResources(), model_name=BIOHUB_ESM3_MEDIUM_MODEL,
+        ) as adapter:
+            adapter.generate_sequence(
+                value,
+                parameters=ESM3CallParameters(4, 1.0, 1.0, "cosine", "random", True),
+                base_seed=None, sample_index=0,
+            )
+        return client.calls[-1][0]
 
     layout = ResidueLayout([f"A:{index}" for index in range(1, 9)])
     representable_structure = {
@@ -660,7 +682,7 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         ),
     )
 
-    provider = protein_prompt_to_provider(prompt)
+    provider = provider_input(prompt)
 
     assert provider.sequence == "ABZUOX_G"
     assert provider.secondary_structure == "GHITEBSC"
@@ -686,24 +708,10 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
             None,
         ),
     )
-    assert esm3_functional_input_digest(prompt) == (
-        esm3_functional_input_digest(prompt_without_hydrogen)
-    )
-
-    paired_structure_prompt = structure_prompt_for_sequence(
-        provider,
-        "ACDEFGHI",
-    )
-    assert paired_structure_prompt.sequence == "ACDEFGHI"
-    assert paired_structure_prompt.coordinates is provider.coordinates
-    assert (
-        paired_structure_prompt.secondary_structure
-        == provider.secondary_structure
-    )
-    assert paired_structure_prompt.sasa == provider.sasa
-    assert (
-        paired_structure_prompt.function_annotations
-        is provider.function_annotations
+    without_hydrogen = provider_input(prompt_without_hydrogen)
+    import torch
+    torch.testing.assert_close(
+        provider.coordinates, without_hydrogen.coordinates, equal_nan=True,
     )
 
     with pytest.raises(TypeError, match="does not support item assignment"):
@@ -718,14 +726,14 @@ def test_adapter_preserves_every_representable_prompt_track_and_symbol() -> None
         None,
         "G",
     )
-    assert protein_prompt_to_provider(prompt).sequence == provider.sequence
+    assert provider_input(prompt).sequence == provider.sequence
 
     invalid_prompt = replace(
         prompt,
         sequence=("J", "B", "Z", "U", "O", "X", None, "G"),
     )
     with pytest.raises(ValueError, match="cannot represent sequence symbol 'J'"):
-        protein_prompt_to_provider(invalid_prompt)
+        provider_input(invalid_prompt)
 
 
 def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
@@ -777,7 +785,8 @@ def test_biohub_adapter_admits_a_frozen_provider_independent_sequence_result(
                 strategy="random",
                 temperature_annealing=True,
             ),
-            derived_call_seed=17,
+            base_seed=17,
+            sample_index=0,
         )
 
     assert result == ESM3SequenceResult(
@@ -881,8 +890,7 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
         result = adapter.generate_pair(
             prompt,
             parameters=parameters,
-            sequence_derived_call_seed=17,
-            configured_base_seed=17,
+            base_seed=17,
             sample_index=0,
         )
 
@@ -935,13 +943,13 @@ def test_biohub_adapter_preserves_paired_engine_causality_and_confidence(
     ]
 
 
-def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> None:
+def test_generation_operation_passes_sample_intent_and_retains_reported_seed() -> None:
     from modules.esm3.adapter import ESM3SequenceResult
     from modules.esm3.implementation import ESM3GenerationOperation
 
     class RecordingAdapter:
         def __init__(self) -> None:
-            self.seeds: list[int | None] = []
+            self.calls: list[tuple[int | None, int]] = []
 
         def __enter__(self) -> RecordingAdapter:
             return self
@@ -954,16 +962,17 @@ def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> 
             prompt: ProteinPrompt,
             *,
             parameters: object,
-            derived_call_seed: int | None,
+            base_seed: int | None,
+            sample_index: int,
         ) -> ESM3SequenceResult:
             del prompt, parameters
-            self.seeds.append(derived_call_seed)
+            self.calls.append((base_seed, sample_index))
             return ESM3SequenceResult(
                 sequence=ProteinSequence("ACD"),
                 reconstruction=None,
                 confidence=None,
                 effective_num_steps=4,
-                effective_call_seed=derived_call_seed,
+                effective_call_seed=71,
             )
 
     prompt = ProteinPrompt(
@@ -975,7 +984,7 @@ def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> 
     def observed(
         value: ProteinPrompt,
         content_digest: str,
-    ) -> tuple[int | None, ...]:
+    ) -> tuple[tuple[int | None, int], ...]:
         adapter = RecordingAdapter()
         operation = ESM3GenerationOperation(
             adapter=adapter,
@@ -984,7 +993,7 @@ def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> 
                 "method",
                 "esm3.generate_sequence.fixture"),
         )
-        operation.execute(
+        outputs = operation.execute(
             OperationCall(
                 inputs={
                     "protein_prompt": admitted_port_fixture(
@@ -1007,108 +1016,12 @@ def test_esm3_call_seed_uses_only_effective_provider_input_and_sample_slot() -> 
                 effective_randomness={"effective_seed": 1603},
             )
         )
-        return tuple(adapter.seeds)
+        candidates = outputs["sequence_candidates"].items
+        assert [c.metadata["effective_call_seed"] for c in candidates] == [71, 71]
+        assert [c.metadata["sample_index"] for c in candidates] == [0, 1]
+        return tuple(adapter.calls)
 
-    renamed_axis = replace(
-        prompt,
-        layout=ResidueLayout(["Q:alpha", "Q:beta", "Q:gamma"]),
-    )
-    changed_sequence = replace(
-        prompt,
-        sequence=(None, "C", "E"),
-    )
-    first = observed(prompt, "sha256:" + "a" * 64)
-    repeated = observed(prompt, "sha256:" + "a" * 64)
-    renamed = observed(renamed_axis, "sha256:" + "b" * 64)
-    changed = observed(changed_sequence, "sha256:" + "c" * 64)
-
-    assert first == repeated
-    assert first[0] != first[1]
-    assert first == renamed
-    assert first != changed
-
-
-def test_esm3_functional_input_digest_matches_every_translated_track() -> None:
-    from modules.esm3.adapter import esm3_functional_input_digest
-
-    prompt = ProteinPrompt(
-        layout=ResidueLayout(["A:1", "A:2"]),
-        sequence=(None, "C"),
-        coordinates=(None, None),
-        function_annotations=tuple(
-            [
-                FunctionAnnotation(
-                    label="binding site",
-                    start_residue_id="A:1",
-                    end_residue_id="A:1",
-                )
-            ]
-        ),
-    )
-    renamed_provenance = replace(
-        prompt,
-        layout=ResidueLayout(["Q:alpha", "Q:beta"]),
-        function_annotations=tuple(
-            [
-                FunctionAnnotation(
-                    label="binding site",
-                    start_residue_id="Q:alpha",
-                    end_residue_id="Q:alpha",
-                )
-            ]
-        ),
-    )
-    changed_inputs = (
-        replace(
-            prompt,
-            sequence=(None, "D"),
-        ),
-        replace(
-            prompt,
-            coordinates=(
-                NamedAtomCoordinates.from_mapping({"CA": (1.0, 2.0, 3.0)}),
-                None,
-            ),
-        ),
-        replace(
-            prompt,
-            secondary_structure=("H", None),
-        ),
-        replace(
-            prompt,
-            sasa=(0.0, None),
-        ),
-        replace(
-            prompt,
-            function_annotations=tuple(
-                [
-                    replace(
-                        prompt.function_annotations[0],
-                        label="active site",
-                    )
-                ]
-            ),
-        ),
-        replace(
-            prompt,
-            function_annotations=tuple(
-                [
-                    FunctionAnnotation(
-                        label="binding site",
-                        start_residue_id="A:2",
-                        end_residue_id="A:2",
-                    )
-                ]
-            ),
-        ),
-    )
-
-    digest = esm3_functional_input_digest(prompt)
-
-    assert digest == esm3_functional_input_digest(renamed_provenance)
-    assert len(
-        {digest, *(esm3_functional_input_digest(item) for item in changed_inputs)}
-    ) == 1 + len(changed_inputs)
+    assert observed(prompt, "sha256:" + "a" * 64) == ((1603, 0), (1603, 1))
 
 
 def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
@@ -1130,9 +1043,10 @@ def test_generation_operation_owns_the_sequence_mask_precondition() -> None:
             prompt: ProteinPrompt,
             *,
             parameters: object,
-            derived_call_seed: int | None,
+            base_seed: int | None,
+            sample_index: int,
         ) -> ESM3SequenceResult:
-            del prompt, parameters, derived_call_seed
+            del prompt, parameters, base_seed, sample_index
             self.calls += 1
             return ESM3SequenceResult(
                 sequence=ProteinSequence("ACD"),

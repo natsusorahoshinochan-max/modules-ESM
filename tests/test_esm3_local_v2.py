@@ -649,29 +649,72 @@ def test_auxiliary_model_activation_failure_starts_no_engine_invocation(
     )
 
 
-def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
+# Fixed streams captured before Adapter ownership changed; expectations do not call seed helpers.
+@pytest.mark.parametrize(
+    ("case", "operation", "sample_index", "expected_seeds"),
+    [
+        ("masked", "sequence", 0, (103016703304192,)),
+        ("sequence_changed", "sequence", 0, (133522848492059,)),
+        ("null_ss8", "sequence", 0, (271681884997875,)),
+        ("null_sasa", "sequence", 0, (213854139084921,)),
+        ("unsupported_coordinates", "sequence", 0, (103016703304192,)),
+        ("rich", "sequence", 0, (54167265083325,)),
+        ("renamed", "sequence", 0, (54167265083325,)),
+        ("invisible_atoms", "sequence", 0, (54167265083325,)),
+        ("rounded_coordinates", "sequence", 0, (54167265083325,)),
+        ("positive_zero", "sequence", 0, (146332618132633,)),
+        ("coordinates_absent", "sequence", 0, (51307027877462,)),
+        ("sasa_precision", "sequence", 0, (32024380081630,)),
+        ("ss8_changed", "sequence", 0, (114835214519345,)),
+        ("annotation_label", "sequence", 0, (98397163864857,)),
+        ("annotation_interval", "sequence", 0, (166110381902936,)),
+        ("masked", "sequence", 1, (173765004276240,)),
+        ("rich", "pair", 0, (54167265083325, 200509443529053)),
+        ("renamed", "pair", 0, (54167265083325, 200509443529053)),
+        ("rich", "structure", 0, (200509443529053,)),
+    ],
+)
+def test_local_adapter_derives_seed_from_conditioning_and_returns_canonical_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    operation: str,
+    sample_index: int,
+    expected_seeds: tuple[int, ...],
 ) -> None:
     import torch
     import modules.esm3.local_adapter as local_adapter
 
-    from datatypes.prompt import ProteinPrompt
-    from datatypes.residue import (
-        ResidueLayout,
-        ResidueTrack,
-    )
-    from datatypes.sequence import ProteinSequence
+    from collections.abc import Iterator
+    from dataclasses import replace
+    import struct
     from modules.esm3.adapter import ESM3CallParameters
     from modules.esm3.local_adapter import (
         LOCAL_ESM3_MODEL,
         LocalESM3Adapter,
     )
-    from tests.fixtures.esm3_generation import ProviderClient, ProviderResponse
+    from tests.fixtures.esm3_conditioning import conditioning_prompt
+    from tests.fixtures.esm3_generation import (
+        ProviderClient,
+        ProviderResponse,
+        three_residue_provider_pdb,
+    )
 
     class SeedRecordingClient(ProviderClient):
         def __init__(self) -> None:
-            super().__init__([ProviderResponse("ACD")])
+            structure = ProviderResponse(
+                "ACD",
+                coordinates=torch.zeros((3, 37, 3)),
+                ptm=torch.tensor([0.75]),
+                plddt=torch.tensor([0.7, 0.8, 0.9]),
+                pdb_string=three_residue_provider_pdb(),
+            )
+            responses = {
+                "sequence": [ProviderResponse("ACD")],
+                "structure": [structure],
+                "pair": [ProviderResponse("ACD"), structure],
+            }[operation]
+            super().__init__(responses)
             self.seeds: list[int] = []
 
         def generate(self, protein: Any, config: Any) -> ProviderResponse:
@@ -684,14 +727,14 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
 
         @staticmethod
         @contextmanager
-        def local_provider(provider_id: str):
+        def local_provider(provider_id: str) -> Iterator[dict[str, Any]]:
             assert provider_id == "local-esm3"
             yield {}
 
         @contextmanager
-        def engine_invocation(self, **kwargs: object):
+        def engine_invocation(self, **kwargs: object) -> Iterator[str]:
             self.invocations.append(dict(kwargs))
-            yield "local-invocation"
+            yield f"invocation-{len(self.invocations)}"
 
     _patch_local_runtime(monkeypatch, tmp_path)
     client = SeedRecordingClient()
@@ -707,15 +750,12 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
         resources=resources,
         model_name=LOCAL_ESM3_MODEL,
     )
-    layout = ResidueLayout(["A:1", "A:2", "A:3"])
-    prompt = ProteinPrompt(
-        layout=layout,
-        sequence=(None, "C", "D"),
-        coordinates=(None, None, None),
-    )
+    prompt = conditioning_prompt(case)
+    if operation == "structure":
+        prompt = replace(prompt, sequence=tuple("ACD"))
 
     with adapter:
-        result = adapter.generate_sequence(
+        result = getattr(adapter, f"generate_{operation}")(
             prompt,
             parameters=ESM3CallParameters(
                 num_steps=4,
@@ -725,28 +765,90 @@ def test_local_adapter_applies_the_derived_seed_and_returns_canonical_values(
                 strategy="random",
                 temperature_annealing=True,
             ),
-            derived_call_seed=17,
+            base_seed=1603,
+            sample_index=sample_index,
         )
 
-    assert result.sequence == ProteinSequence(
-        "ACD",
-        ["A:1", "A:2", "A:3"],
+    returned = (
+        (result.sequence.effective_call_seed, result.structure.effective_call_seed)
+        if operation == "pair" else (result.effective_call_seed,)
     )
-    assert result.effective_num_steps == 4
-    assert result.effective_call_seed == 17
-    assert client.seeds == [17]
+    assert returned == expected_seeds
+    assert tuple(client.seeds) == expected_seeds
+    roles = {
+        "sequence": ("sequence_sample",),
+        "structure": ("structure_sample",),
+        "pair": ("sequence_parent", "structure_child"),
+    }[operation]
     assert _plain_invocations(resources.invocations) == [
         {
-            "engine_role": "sequence_sample",
-            "parent_invocation_id": None,
+            "engine_role": role,
+            "parent_invocation_id": "invocation-1" if index == 1 else None,
             "invocation_provenance": {
                 "effective_randomness": {
-                    "control": "exact_seed",
-                    "effective_seed": 17,
-                }
+                    "control": "exact_seed", "effective_seed": seed,
+                },
             },
         }
+        for index, (role, seed) in enumerate(zip(roles, expected_seeds, strict=True))
     ]
+    provider = client.calls[0][0]
+    assert provider.sequence == (
+        "ACD" if operation == "structure"
+        else "_CE" if case == "sequence_changed" else "_CD"
+    )
+    if case in {
+        "masked", "sequence_changed", "null_ss8", "null_sasa",
+        "unsupported_coordinates",
+    }:
+        assert provider.coordinates is None
+        assert provider.secondary_structure == (
+            "___" if case == "null_ss8" else None
+        )
+        assert provider.sasa == ([None, None, None] if case == "null_sasa" else None)
+        assert provider.function_annotations is None
+    else:
+        assert provider.secondary_structure == (
+            "E_C" if case == "ss8_changed" else "H_C"
+        )
+        assert provider.sasa == [
+            0.10000000000000002 if case == "sasa_precision" else 0.1, None, 17.25,
+        ]
+        assert [(a.label, a.start, a.end) for a in provider.function_annotations] == [
+            (
+                "other site" if case == "annotation_label" else "binding site",
+                1,
+                1 if case == "annotation_interval" else 2,
+            ),
+            ("active site", 2, 3),
+        ]
+        if case == "coordinates_absent":
+            assert provider.coordinates is None
+        else:
+            assert provider.coordinates.shape == (3, 37, 3)
+            assert provider.coordinates.dtype == torch.float32
+            coordinate_bits = [
+                struct.pack("!f", v).hex()
+                for v in provider.coordinates[0, 0].tolist()
+            ]
+            assert coordinate_bits == [
+                "3dcccccd",
+                "00000000" if case == "positive_zero" else "80000000",
+                "3f800001",
+            ]
+            assert torch.isnan(provider.coordinates[1:]).all()
+            assert torch.isfinite(provider.coordinates).sum().item() == 6
+    if operation == "pair":
+        child = client.calls[1][0]
+        assert child.sequence == "ACD"
+        assert child.secondary_structure == provider.secondary_structure
+        assert child.sasa == provider.sasa
+        assert child.function_annotations == provider.function_annotations
+        torch.testing.assert_close(
+            child.coordinates, provider.coordinates, equal_nan=True,
+        )
+        assert result.sequence.sequence.residue_ids == prompt.layout.residue_ids
+        assert result.structure.sequence.residue_ids == prompt.layout.residue_ids
 
 
 @pytest.mark.parametrize(
@@ -914,42 +1016,14 @@ def test_local_execution_preserves_remote_scientific_contracts(
         for event in generation_events
     )
     if operation == "generate_paired":
-        from datatypes.prompt import ProteinPrompt
-        from datatypes.residue import ResidueLayout
-        from modules.esm3.adapter import (
-            derive_esm3_call_seed,
-            esm3_functional_input_digest,
-        )
-
-        layout = ResidueLayout(["A:1", "A:2", "A:3"])
-        sequence_prompt = ProteinPrompt(
-            layout=layout,
-            sequence=(None, None, None),
-            coordinates=(None, None, None),
-        )
-        structure_prompt = ProteinPrompt(
-            layout=layout,
-            sequence=("A", "C", "D"),
-            coordinates=(None, None, None),
-        )
         assert {
             event["engine_role"]: event["invocation_provenance"][
                 "effective_randomness"
             ]["effective_seed"]
             for event in generation_events
         } == {
-            "sequence_parent": derive_esm3_call_seed(
-                1603,
-                esm3_functional_input_digest(sequence_prompt),
-                0,
-                "sequence",
-            ),
-            "structure_child": derive_esm3_call_seed(
-                1603,
-                esm3_functional_input_digest(structure_prompt),
-                0,
-                "structure",
-            ),
+            "sequence_parent": 263092541755361,
+            "structure_child": 61604470362986,
         }
 
 
@@ -1126,7 +1200,8 @@ def test_cleanup_failure_does_not_replace_primary_execution_failure(
                     strategy="random",
                     temperature_annealing=True,
                 ),
-                derived_call_seed=17,
+                base_seed=17,
+                sample_index=0,
             )
 
     from core.operation import secondary_cleanup_exception_types
