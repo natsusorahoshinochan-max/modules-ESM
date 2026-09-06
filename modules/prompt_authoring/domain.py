@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-import math
 from typing import Any, Literal, NotRequired, TypedDict
 
 from datatypes.residue import (
@@ -12,7 +11,6 @@ from datatypes.residue import (
     validate_residue_layout,
 )
 from datatypes.structure import NamedAtomCoordinates
-from modules.residue_data.port_types import AMINO_ACIDS, CANONICAL_SS8
 
 
 class ChainDeclaration(TypedDict):
@@ -63,78 +61,6 @@ def build_layout(chains: Sequence[ChainDeclaration]) -> ResidueLayout:
             for residue_number in range(1, length + 1)
         )
     return ResidueLayout(residue_ids=residue_ids)
-
-
-def validate_track_values(
-    values: Sequence[object],
-    *,
-    kind: str,
-    subject: str,
-    length: int,
-) -> None:
-    """Validate one complete nullable track against its element contract.
-
-    ``kind`` is one of ``sequence``, ``coordinates``,
-    ``secondary_structure``, or ``sasa``. The nominal Port Types own the
-    same contracts; this helper exists so Prompt assembly and overrides
-    validate values before constructing the closed aggregate.
-    """
-    if len(values) != length:
-        raise ValueError(f"{subject} length does not match its residue layout")
-    for index, item in enumerate(values):
-        if item is None:
-            continue
-        if kind == "sequence":
-            if (
-                type(item) is not str
-                or len(item) != 1
-                or item not in AMINO_ACIDS
-            ):
-                raise ValueError(
-                    f"{subject}[{index}] is not one amino-acid code"
-                )
-        elif kind == "coordinates":
-            if type(item) is not NamedAtomCoordinates:
-                raise ValueError(
-                    f"{subject}[{index}] is not one NamedAtomCoordinates"
-                )
-        elif kind == "secondary_structure":
-            if type(item) is not str or item not in CANONICAL_SS8:
-                raise ValueError(
-                    f"{subject}[{index}] is not one canonical SS8 value"
-                )
-        elif kind == "sasa":
-            if (
-                isinstance(item, bool)
-                or type(item) is not float
-                or not math.isfinite(item)
-                or item < 0
-            ):
-                raise ValueError(
-                    f"{subject}[{index}] is not nullable absolute SASA in "
-                    "square angstroms"
-                )
-        else:
-            raise ValueError(f"unknown prompt track kind {kind!r}")
-
-
-def validate_track(
-    track: object,
-    *,
-    kind: str,
-    subject: str,
-) -> ResidueTrack[Any]:
-    """Validate one complete layout-bound track of one declared kind."""
-    if type(track) is not ResidueTrack:
-        raise ValueError(f"{subject} must be a ResidueTrack")
-    layout = validate_layout(track.layout, subject=f"{subject} layout")
-    validate_track_values(
-        track.values,
-        kind=kind,
-        subject=subject,
-        length=layout.length,
-    )
-    return track
 
 
 def normalize_replacement(value: object) -> NamedAtomCoordinates:

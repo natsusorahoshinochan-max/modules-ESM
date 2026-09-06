@@ -8,7 +8,6 @@ subject CandidateDataReference is preserved for candidate-data projection.
 from __future__ import annotations
 
 from collections.abc import Mapping
-import math
 from typing import Any, cast
 
 from core.catalog import _port_value_codec as _value_codec
@@ -22,9 +21,10 @@ from datatypes.residue import (
     ResidueTrack,
     validate_residue_layout,
 )
-from modules.residue_data.port_types import (
+from modules.residue_data.elements import (
     ABSOLUTE_SASA_QUANTITY_CONTRACT,
-    CANONICAL_SS8,
+    validate_sasa_elements,
+    validate_secondary_structure_elements,
 )
 
 
@@ -60,18 +60,13 @@ def _validate_observed_secondary(value: object) -> None:
             "secondary-structure observed value must be a CandidateResidueTrack"
         )
     _validate_subject(value.subject)
-    layout = validate_residue_layout(
+    validate_residue_layout(
         value.track.layout,
         subject="observed secondary-structure layout",
     )
-    for index, item in enumerate(value.track.values):
-        if item is None:
-            continue
-        if type(item) is not str or item not in CANONICAL_SS8:
-            raise ValueError(
-                "secondary-structure observed values["
-                f"{index}] must be one canonical SS8 state"
-            )
+    validate_secondary_structure_elements(
+        value.track.values, subject="secondary-structure observed values",
+    )
 
 
 def _validate_observed_sasa(value: object) -> None:
@@ -80,23 +75,11 @@ def _validate_observed_sasa(value: object) -> None:
             "SASA observed value must be a CandidateResidueTrack"
         )
     _validate_subject(value.subject)
-    layout = validate_residue_layout(
+    validate_residue_layout(
         value.track.layout,
         subject="observed SASA layout",
     )
-    for index, item in enumerate(value.track.values):
-        if item is None:
-            continue
-        if (
-            isinstance(item, bool)
-            or type(item) is not float
-            or not math.isfinite(item)
-            or item < 0
-        ):
-            raise ValueError(
-                "SASA observed values["
-                f"{index}] must be absolute non-negative square angstroms"
-            )
+    validate_sasa_elements(value.track.values, subject="SASA observed values")
 
 
 def _candidate_data_references(

@@ -34,7 +34,7 @@ from datatypes.structure import (
     NamedAtomCoordinates,
     ResolvedStructureResidueAxis,
 )
-from modules.residue_data.port_types import CANONICAL_SS8
+from modules.residue_data.elements import CANONICAL_SS8
 
 from .annotations import replace_function_annotations
 from .domain import (

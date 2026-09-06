@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import cast
-
 from datatypes.prompt import (
     FunctionAnnotationTrack,
     ProteinPrompt,
@@ -16,20 +13,14 @@ from datatypes.residue import (
 from datatypes.sequence import ProteinSequence
 from datatypes.structure import NamedAtomCoordinates
 
-from .domain import (
-    TrackOverrideDeclaration,
-    override_values,
-    validate_layout,
-    validate_track_values,
+from modules.residue_data.elements import (
+    validate_coordinate_elements,
+    validate_sasa_elements,
+    validate_secondary_structure_elements,
+    validate_sequence_elements,
 )
 
-
-_PROMPT_TRACK_KINDS = {
-    "sequence": "sequence",
-    "coordinates": "coordinates",
-    "secondary_structure": "secondary_structure",
-    "sasa": "sasa",
-}
+from .domain import validate_layout
 
 
 def decompose_protein_prompt(
@@ -76,31 +67,23 @@ def validate_protein_prompt(value: object) -> ProteinPrompt:
     if type(value) is not ProteinPrompt:
         raise ValueError("protein_prompt must be a ProteinPrompt")
     layout = validate_layout(value.layout, subject="protein_prompt layout")
-    validate_track_values(
+    validate_sequence_elements(
         value.sequence,
-        kind="sequence",
         subject="protein_prompt sequence",
-        length=layout.length,
     )
-    validate_track_values(
+    validate_coordinate_elements(
         value.coordinates,
-        kind="coordinates",
         subject="protein_prompt coordinates",
-        length=layout.length,
     )
     if value.secondary_structure is not None:
-        validate_track_values(
+        validate_secondary_structure_elements(
             value.secondary_structure,
-            kind="secondary_structure",
             subject="protein_prompt secondary_structure",
-            length=layout.length,
         )
     if value.sasa is not None:
-        validate_track_values(
+        validate_sasa_elements(
             value.sasa,
-            kind="sasa",
             subject="protein_prompt sasa",
-            length=layout.length,
         )
     validate_canonical_function_annotations(
         layout,
@@ -132,61 +115,5 @@ def update_prompt_sequence(
         coordinates=prompt.coordinates,
         secondary_structure=prompt.secondary_structure,
         sasa=prompt.sasa,
-        function_annotations=prompt.function_annotations,
-    )
-
-
-def override_protein_prompt_track(
-    prompt: ProteinPrompt,
-    *,
-    track: str,
-    overrides: Sequence[TrackOverrideDeclaration],
-) -> ProteinPrompt:
-    """Override one declared Prompt track and preserve every other track."""
-    if track not in _PROMPT_TRACK_KINDS:
-        raise ValueError(f"unknown prompt track {track!r}")
-    layout = prompt.layout
-    if track in {"sequence", "coordinates"}:
-        current: tuple | None = getattr(prompt, track)
-    else:
-        current = getattr(prompt, track)
-        if current is None:
-            current = tuple([None] * layout.length)
-    changed = override_values(
-        current,
-        layout,
-        overrides,
-        kind=_PROMPT_TRACK_KINDS[track],
-    )
-    validate_track_values(
-        changed,
-        kind=_PROMPT_TRACK_KINDS[track],
-        subject=f"protein_prompt {track}",
-        length=layout.length,
-    )
-    fields: dict[str, object] = {
-        "sequence": prompt.sequence,
-        "coordinates": prompt.coordinates,
-        "secondary_structure": prompt.secondary_structure,
-        "sasa": prompt.sasa,
-    }
-    if track in {"secondary_structure", "sasa"} and fields[track] is None:
-        fields[track] = tuple([None] * layout.length)
-    fields[track] = changed
-    return ProteinPrompt(
-        layout=layout,
-        sequence=cast("tuple[str | None, ...]", fields["sequence"]),
-        coordinates=cast(
-            "tuple[NamedAtomCoordinates | None, ...]",
-            fields["coordinates"],
-        ),
-        secondary_structure=cast(
-            "tuple[str | None, ...] | None",
-            fields["secondary_structure"],
-        ),
-        sasa=cast(
-            "tuple[float | None, ...] | None",
-            fields["sasa"],
-        ),
         function_annotations=prompt.function_annotations,
     )

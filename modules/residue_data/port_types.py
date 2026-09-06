@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 from core.catalog import _port_value_codec as _value_codec
@@ -16,19 +15,14 @@ from datatypes.residue import (
     ResidueTrack,
     validate_residue_layout,
 )
-from datatypes.structure import NamedAtomCoordinates
 
-
-AMINO_ACIDS = frozenset("ACDEFGHIKLMNPQRSTVWYBXZJUO")
-CANONICAL_SS8 = frozenset("HBEGITSC")
-
-ABSOLUTE_SASA_QUANTITY_CONTRACT = {
-    "quantity": "solvent_accessible_surface_area",
-    "measure": "absolute",
-    "unit": "angstrom_squared",
-    "granularity": "per_residue",
-    "normalization": "none",
-}
+from .elements import (
+    ABSOLUTE_SASA_QUANTITY_CONTRACT,
+    validate_coordinate_elements,
+    validate_sasa_elements,
+    validate_secondary_structure_elements,
+    validate_sequence_elements,
+)
 
 
 def _generic_wire(value: Any) -> Any:
@@ -60,29 +54,14 @@ def _validate_track(value: object, *, subject: str) -> ResidueTrack[Any]:
 
 def _validate_sequence(value: object) -> None:
     track = _validate_track(value, subject="sequence conditioning")
-    for index, item in enumerate(track.values):
-        if item is None:
-            continue
-        if (
-            type(item) is not str
-            or len(item) != 1
-            or item not in AMINO_ACIDS
-        ):
-            raise ValueError(
-                f"sequence conditioning values[{index}] must be one amino-acid code"
-            )
+    validate_sequence_elements(track.values, subject="sequence conditioning values")
 
 
 def _validate_coordinates(value: object) -> None:
     track = _validate_track(value, subject="coordinates conditioning")
-    for index, item in enumerate(track.values):
-        if item is None:
-            continue
-        if type(item) is not NamedAtomCoordinates:
-            raise ValueError(
-                f"coordinates conditioning values[{index}] must be "
-                "NamedAtomCoordinates"
-            )
+    validate_coordinate_elements(
+        track.values, subject="coordinates conditioning values",
+    )
 
 
 def _validate_secondary_structure(value: object) -> None:
@@ -90,31 +69,14 @@ def _validate_secondary_structure(value: object) -> None:
         value,
         subject="secondary-structure conditioning",
     )
-    for index, item in enumerate(track.values):
-        if item is None:
-            continue
-        if type(item) is not str or item not in CANONICAL_SS8:
-            raise ValueError(
-                f"secondary-structure conditioning values[{index}] must be "
-                "one canonical SS8 state"
-            )
+    validate_secondary_structure_elements(
+        track.values, subject="secondary-structure conditioning values",
+    )
 
 
 def _validate_sasa(value: object) -> None:
     track = _validate_track(value, subject="SASA conditioning")
-    for index, item in enumerate(track.values):
-        if item is None:
-            continue
-        if (
-            isinstance(item, bool)
-            or type(item) is not float
-            or not math.isfinite(item)
-            or item < 0
-        ):
-            raise ValueError(
-                f"SASA conditioning values[{index}] must be absolute "
-                "non-negative square angstroms"
-            )
+    validate_sasa_elements(track.values, subject="SASA conditioning values")
 
 
 def _validate_function_annotations(value: object) -> None:
